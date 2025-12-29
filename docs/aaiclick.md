@@ -2,6 +2,13 @@
 
 aaiclick is a framework that converts Python functions into ClickHouse operations flows, enabling distributed data processing with automatic persistence and flow tracking.
 
+## Async Architecture
+
+**All database queries and commands are async using clickhouse-connect.** The framework is built on asynchronous operations, requiring the use of `async`/`await` syntax throughout. This ensures:
+- Non-blocking database operations
+- Efficient concurrent execution
+- Scalable performance for distributed processing
+
 ## Architecture
 
 The framework consists of three base components:
@@ -17,11 +24,13 @@ Functions decorated with `@aaiclick` are automatically converted into ClickHouse
 **Example:**
 ```python
 @aaiclick
-def process_data(input_data, threshold):
-    filtered = input_data > threshold
-    result = filtered * 2
+async def process_data(input_data, threshold):
+    filtered = await (input_data > threshold)
+    result = await (filtered * 2)
     return result
 ```
+
+**Note:** All decorated functions must be `async` and all operations must be awaited, as they execute asynchronous ClickHouse queries.
 
 ### 2. Object Instances Wrapper
 
@@ -36,18 +45,19 @@ Each parameter (both positional args and keyword args) is wrapped in an Object c
 
 **Operator Overloading:**
 - All basic Python operations are overloaded (arithmetic, comparison, logical, etc.)
-- Each operation creates a new table with the operation result
+- Each operation creates a new table with the operation result asynchronously
 - No in-place operations - all operations are immutable (return new Objects)
+- All operations return awaitables that execute async ClickHouse queries via clickhouse-connect
 
 **Extended Operations:**
 - Set of framework-specific operations (to be defined in future releases)
 
 **Example:**
 ```python
-# Each operation creates a new table
-obj1 = Object(data1)  # Creates table: data1_[oid1]
-obj2 = Object(data2)  # Creates table: data2_[oid2]
-result = obj1 + obj2  # Creates new table: result_[oid3]
+# Each operation creates a new table (all operations are async)
+obj1 = await Object(data1)  # Creates table: data1_[oid1]
+obj2 = await Object(data2)  # Creates table: data2_[oid2]
+result = await (obj1 + obj2)  # Creates new table: result_[oid3]
 ```
 
 #### Immutability Principle
@@ -71,10 +81,11 @@ The execution flow and operation results are tracked in a dedicated flow table.
 
 ## Design Principles
 
-1. **Immutability**: All operations create new tables rather than modifying existing ones
-2. **Transparency**: ClickHouse operations are abstracted behind Python syntax
-3. **Persistence**: All intermediate results are stored in ClickHouse
-4. **Traceability**: Complete operation history via flow tracking
+1. **Async-First**: All database queries and commands are async using clickhouse-connect, enabling non-blocking operations and efficient concurrency
+2. **Immutability**: All operations create new tables rather than modifying existing ones
+3. **Transparency**: ClickHouse operations are abstracted behind Python syntax
+4. **Persistence**: All intermediate results are stored in ClickHouse
+5. **Traceability**: Complete operation history via flow tracking
 
 ## Future Extensions
 
