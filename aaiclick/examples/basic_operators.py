@@ -142,9 +142,9 @@ async def main():
             await obj.delete_table()
             print(f"Deleted table {obj.table}")
 
-    finally:
-        await aaiclick.close()
-        print("\nConnection closed.")
+    except Exception as e:
+        print(f"\nError: {e}")
+        raise
 
 
 if __name__ == "__main__":
