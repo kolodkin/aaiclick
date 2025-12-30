@@ -6,12 +6,12 @@ Connection parameters default to environment variables.
 """
 
 import os
-from typing import Optional, Any
+from typing import Any
 from clickhouse_connect import get_async_client
 
 
-# Global client instance
-_client: Optional[Any] = None
+# Global client instance holder (list with single element)
+_client = [None]
 
 
 async def get_client() -> Any:
@@ -28,22 +28,20 @@ async def get_client() -> Any:
     Returns:
         ClickHouse async client
     """
-    global _client
-
-    if _client is None:
+    if _client[0] is None:
         host = os.getenv("CLICKHOUSE_HOST", "localhost")
         port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
         username = os.getenv("CLICKHOUSE_USER")
         password = os.getenv("CLICKHOUSE_PASSWORD")
         database = os.getenv("CLICKHOUSE_DATABASE", "default")
 
-        _client = await get_async_client(
+        _client[0] = await get_async_client(
             host=host, port=port, username=username, password=password, database=database
         )
 
-    return _client
+    return _client[0]
 
 
 def is_connected() -> bool:
     """Check if the global client is connected."""
-    return _client is not None
+    return _client[0] is not None
