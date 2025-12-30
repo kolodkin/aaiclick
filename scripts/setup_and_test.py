@@ -93,36 +93,73 @@ def install_clickhouse_apt():
         return True
 
     print("Adding ClickHouse repository...")
-    commands = [
-        # Add GPG key
+
+    # Add GPG key using modern method
+    print("Downloading GPG key...")
+    result = subprocess.run(
         [
             "sudo",
-            "apt-key",
-            "adv",
-            "--keyserver",
-            "hkp://keyserver.ubuntu.com:80",
-            "--recv",
-            "8919F6BD2B48D754",
+            "apt-get",
+            "install",
+            "-y",
+            "apt-transport-https",
+            "ca-certificates",
+            "curl",
         ],
-        # Add repository
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to install prerequisites: {result.stderr}")
+        return False
+
+    # Download and add GPG key
+    result = subprocess.run(
+        "curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to add GPG key: {result.stderr}")
+        return False
+
+    # Add repository
+    result = subprocess.run(
         [
             "sudo",
             "sh",
             "-c",
-            "echo 'deb https://packages.clickhouse.com/deb stable main' > /etc/apt/sources.list.d/clickhouse.list",
+            "echo 'deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main' > /etc/apt/sources.list.d/clickhouse.list",
         ],
-        # Update package list
-        ["sudo", "apt-get", "update"],
-        # Install ClickHouse
-        ["sudo", "apt-get", "install", "-y", "clickhouse-server", "clickhouse-client"],
-    ]
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to add repository: {result.stderr}")
+        return False
 
-    for cmd in commands:
-        print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"✗ Failed: {result.stderr}")
-            return False
+    # Update package list
+    print("Updating package list...")
+    result = subprocess.run(
+        ["sudo", "apt-get", "update"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to update packages: {result.stderr}")
+        return False
+
+    # Install ClickHouse
+    print("Installing ClickHouse packages...")
+    result = subprocess.run(
+        ["sudo", "apt-get", "install", "-y", "clickhouse-server", "clickhouse-client"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to install ClickHouse: {result.stderr}")
+        return False
 
     print("✓ ClickHouse installed successfully")
     return True
