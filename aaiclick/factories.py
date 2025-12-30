@@ -80,7 +80,7 @@ async def create_object(name: str, schema: Schema) -> Object:
         >>> obj = await create_object("users", ["id Int64", "name String", "age UInt8"])
     """
     obj = Object(name)
-    client = get_client()
+    client = await get_client()
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -125,7 +125,7 @@ async def create_object_from_value(name: str, val: ValueType) -> Object:
         >>> # Creates table with columns: id Int64, name String, age Int64
     """
     obj = Object(name)
-    client = get_client()
+    client = await get_client()
 
     if isinstance(val, dict):
         # Dict: one column per key

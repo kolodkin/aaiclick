@@ -54,7 +54,7 @@ class Object:
         result = Object(result_name)
 
         # Execute the addition operation in ClickHouse
-        client = get_client()
+        client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
@@ -81,7 +81,7 @@ class Object:
         result = Object(result_name)
 
         # Execute the subtraction operation in ClickHouse
-        client = get_client()
+        client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
@@ -96,7 +96,7 @@ class Object:
         """
         Delete the ClickHouse table associated with this object.
         """
-        client = get_client()
+        client = await get_client()
         await client.command(f"DROP TABLE IF EXISTS {self.table}")
 
     def __repr__(self) -> str:

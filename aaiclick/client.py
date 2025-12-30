@@ -65,18 +65,18 @@ async def close() -> None:
         _client = None
 
 
-def get_client() -> Any:
+async def get_client() -> Any:
     """
     Get the global ClickHouse client instance.
 
+    Automatically connects using environment variables if not already connected.
+
     Returns:
         ClickHouse async client
-
-    Raises:
-        RuntimeError: If client is not connected
     """
+    global _client
     if _client is None:
-        raise RuntimeError("Client not connected. Call await connect() first.")
+        await connect()
     return _client
 
 

@@ -10,11 +10,11 @@ import aaiclick
 
 
 async def main():
-    # Connect to ClickHouse using global client manager
-    await aaiclick.connect(host="localhost", port=8123)
+    # Client connects automatically using environment variables
+    # (or defaults: localhost:8123)
 
     try:
-        client = aaiclick.get_client()
+        client = await aaiclick.get_client()
 
         # Example 1: Create objects from scalar values
         print("Example 1: Creating objects from scalar values")
