@@ -1,142 +1,120 @@
 """
-aaiclick.object - Base object classes for the aaiclick framework.
+aaiclick.object - Core Object class for the aaiclick framework.
 
-This module provides core object classes that represent Python objects
-and their translations to ClickHouse operations.
+This module provides the Object class that represents data in ClickHouse tables
+and supports operations through operator overloading.
 """
 
-from typing import Any, Dict, Optional, List
-from abc import ABC, abstractmethod
+from typing import Optional, Any
 
 
-class ClickHouseObject(ABC):
+class Object:
     """
-    Base class for all aaiclick objects that can be translated to ClickHouse operations.
+    Represents a data object stored in a ClickHouse table.
+
+    Each Object instance corresponds to a ClickHouse table and supports
+    operations like addition and subtraction that create new tables with results.
     """
 
-    def __init__(self, name: Optional[str] = None):
-        self.name = name
-        self._metadata: Dict[str, Any] = {}
-
-    @abstractmethod
-    def to_clickhouse(self) -> str:
+    def __init__(self, name: str, table: Optional[str] = None):
         """
-        Convert the object to a ClickHouse SQL expression.
+        Initialize an Object.
+
+        Args:
+            name: Name of the object
+            table: Optional table name. If not provided, generates unique table name
+        """
+        self._name = name
+        self._table_name = table if table is not None else f"{name}_{id(self)}"
+
+    @property
+    def table(self) -> str:
+        """Get the table name for this object."""
+        return self._table_name
+
+    @property
+    def name(self) -> str:
+        """Get the name of this object."""
+        return self._name
+
+    def __add__(self, other: "Object") -> "Object":
+        """
+        Add two objects together.
+
+        Creates a new Object with a table containing the result of element-wise addition.
+
+        Args:
+            other: Another Object to add
 
         Returns:
-            str: ClickHouse SQL expression
+            Object: New Object instance pointing to result table
         """
-        pass
+        result_name = f"{self._name}_plus_{other._name}"
+        result = Object(result_name)
+        result._operation = ("add", self, other)
+        return result
 
-    def set_metadata(self, key: str, value: Any) -> None:
-        """Set metadata for this object."""
-        self._metadata[key] = value
-
-    def get_metadata(self, key: str, default: Any = None) -> Any:
-        """Get metadata for this object."""
-        return self._metadata.get(key, default)
-
-
-class DataFrameObject(ClickHouseObject):
-    """
-    Represents a DataFrame-like object that maps to a ClickHouse table or query.
-    """
-
-    def __init__(self, table_name: Optional[str] = None, query: Optional[str] = None):
-        super().__init__(name=table_name)
-        self.table_name = table_name
-        self.query = query
-        self.columns: List[str] = []
-        self.filters: List[str] = []
-        self.transformations: List[str] = []
-
-    def to_clickhouse(self) -> str:
+    def __sub__(self, other: "Object") -> "Object":
         """
-        Generate the ClickHouse query for this DataFrame object.
+        Subtract one object from another.
+
+        Creates a new Object with a table containing the result of element-wise subtraction.
+
+        Args:
+            other: Another Object to subtract
 
         Returns:
-            str: Complete ClickHouse SQL query
+            Object: New Object instance pointing to result table
         """
-        if self.query:
-            return self.query
+        result_name = f"{self._name}_minus_{other._name}"
+        result = Object(result_name)
+        result._operation = ("sub", self, other)
+        return result
 
-        if not self.table_name:
-            raise ValueError("Either table_name or query must be provided")
-
-        # Build SELECT clause
-        select_clause = "*" if not self.columns else ", ".join(self.columns)
-
-        # Build WHERE clause
-        where_clause = ""
-        if self.filters:
-            where_clause = f" WHERE {' AND '.join(self.filters)}"
-
-        return f"SELECT {select_clause} FROM {self.table_name}{where_clause}"
-
-    def select(self, *columns: str) -> 'DataFrameObject':
-        """Select specific columns."""
-        self.columns = list(columns)
-        return self
-
-    def filter(self, condition: str) -> 'DataFrameObject':
-        """Add a filter condition."""
-        self.filters.append(condition)
-        return self
-
-
-class ColumnObject(ClickHouseObject):
-    """
-    Represents a column in a ClickHouse table.
-    """
-
-    def __init__(self, name: str, dtype: Optional[str] = None):
-        super().__init__(name=name)
-        self.dtype = dtype
-
-    def to_clickhouse(self) -> str:
+    @staticmethod
+    async def create(client: Any, name: str, coltype: str) -> "Object":
         """
-        Convert column to ClickHouse column reference.
+        Create a new Object with a ClickHouse table.
+
+        Args:
+            client: Connected ClickHouse client
+            name: Name for the object
+            coltype: Column type definition (e.g., "value Float64")
 
         Returns:
-            str: Column name for use in ClickHouse queries
+            Object: New Object instance with created table
         """
-        return self.name
-
-
-class ExpressionObject(ClickHouseObject):
-    """
-    Represents an expression that can be evaluated in ClickHouse.
-    """
-
-    def __init__(self, expression: str, name: Optional[str] = None):
-        super().__init__(name=name)
-        self.expression = expression
-
-    def to_clickhouse(self) -> str:
+        obj = Object(name)
+        create_query = f"""
+        CREATE TABLE IF NOT EXISTS {obj.table} (
+            {coltype}
+        ) ENGINE = Memory
         """
-        Convert expression to ClickHouse SQL.
+        await client.command(create_query)
+        return obj
+
+    @staticmethod
+    async def create_from_value(client: Any, name: str, val: "Object") -> "Object":
+        """
+        Create a new Object from an existing Object's values.
+
+        Args:
+            client: Connected ClickHouse client
+            name: Name for the new object
+            val: Source Object to copy data from
 
         Returns:
-            str: ClickHouse SQL expression
+            Object: New Object instance with copied data
         """
-        return self.expression
-
-
-class AggregationObject(ClickHouseObject):
-    """
-    Represents an aggregation operation.
-    """
-
-    def __init__(self, function: str, column: str, name: Optional[str] = None):
-        super().__init__(name=name)
-        self.function = function
-        self.column = column
-
-    def to_clickhouse(self) -> str:
+        obj = Object(name)
+        create_query = f"""
+        CREATE TABLE IF NOT EXISTS {obj.table}
+        ENGINE = Memory
+        AS SELECT * FROM {val.table}
         """
-        Convert aggregation to ClickHouse SQL.
+        await client.command(create_query)
+        return obj
 
-        Returns:
-            str: ClickHouse aggregation expression
-        """
-        return f"{self.function}({self.column})"
+    def __repr__(self) -> str:
+        """String representation of the Object."""
+        return f"Object(name='{self._name}', table='{self._table_name}')"
