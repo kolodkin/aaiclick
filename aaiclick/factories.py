@@ -2,10 +2,11 @@
 aaiclick.factories - Factory functions for creating Object instances.
 
 This module provides factory functions to create Object instances with ClickHouse tables,
-automatically inferring schemas from Python values.
+automatically inferring schemas from Python values using numpy for type detection.
 """
 
 from typing import Union, Dict, List
+import numpy as np
 from .object import Object
 from .client import get_client
 
@@ -19,7 +20,7 @@ Schema = Union[str, List[str]]
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
     """
-    Infer ClickHouse column type from Python value.
+    Infer ClickHouse column type from Python value using numpy.
 
     Args:
         value: Python value (scalar or list)
@@ -30,8 +31,22 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
     if isinstance(value, list):
         if not value:
             return "String"  # Default for empty list
-        value = value[0]  # Use first element to infer type
 
+        # Use numpy to infer the dtype
+        arr = np.array(value)
+        dtype = arr.dtype
+
+        # Map numpy dtype to ClickHouse type
+        if np.issubdtype(dtype, np.bool_):
+            return "UInt8"
+        elif np.issubdtype(dtype, np.integer):
+            return "Int64"
+        elif np.issubdtype(dtype, np.floating):
+            return "Float64"
+        else:
+            return "String"
+
+    # Scalar value type inference
     if isinstance(value, bool):
         return "UInt8"
     elif isinstance(value, int):

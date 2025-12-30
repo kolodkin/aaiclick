@@ -1,8 +1,8 @@
 """
 Basic operators example for aaiclick.
 
-This example demonstrates how to use the Object class with basic arithmetic operators
-to perform computations in ClickHouse using the global client manager.
+This example demonstrates how to use create_object_from_value with automatic schema
+inference and basic arithmetic operators on Objects.
 """
 
 import asyncio
@@ -14,111 +14,131 @@ async def main():
     await aaiclick.connect(host="localhost", port=8123)
 
     try:
-        # Example 1: Create objects using factory functions
-        print("Example 1: Creating objects with schema")
-        print("-" * 50)
-
-        # Create object with single column
-        obj_a = await aaiclick.create_object("a", "value Float64")
         client = aaiclick.get_client()
-        await client.command(f"INSERT INTO {obj_a.table} VALUES (10.5), (20.3), (30.1)")
-        print(f"Created {obj_a}")
-        print(f"Values in {obj_a.name}:")
-        result = await client.query(f"SELECT * FROM {obj_a.table}")
-        print(result.result_rows)
 
-        # Create object with multiple columns
-        obj_multi = await aaiclick.create_object("multi", ["id Int64", "value Float64", "label String"])
-        await client.command(f"INSERT INTO {obj_multi.table} VALUES (1, 100.5, 'first'), (2, 200.3, 'second')")
-        print(f"\nCreated {obj_multi} with multiple columns")
-        print(f"Values in {obj_multi.name}:")
-        result = await client.query(f"SELECT * FROM {obj_multi.table}")
-        print(result.result_rows)
-
-        # Example 2: Create objects from Python values
-        print("\n" + "=" * 50)
-        print("Example 2: Creating objects from Python values")
+        # Example 1: Create objects from scalar values
+        print("Example 1: Creating objects from scalar values")
         print("-" * 50)
 
-        # From scalar
-        obj_scalar = await aaiclick.create_object_from_value("scalar", 42)
-        print(f"Created from scalar: {obj_scalar}")
-        result = await client.query(f"SELECT * FROM {obj_scalar.table}")
+        obj_scalar_int = await aaiclick.create_object_from_value("scalar_int", 42)
+        print(f"Created from int: {obj_scalar_int}")
+        result = await client.query(f"SELECT * FROM {obj_scalar_int.table}")
+        print(f"Value: {result.result_rows}\n")
+
+        obj_scalar_float = await aaiclick.create_object_from_value("scalar_float", 3.14)
+        print(f"Created from float: {obj_scalar_float}")
+        result = await client.query(f"SELECT * FROM {obj_scalar_float.table}")
+        print(f"Value: {result.result_rows}\n")
+
+        obj_scalar_str = await aaiclick.create_object_from_value("scalar_str", "Hello, ClickHouse!")
+        print(f"Created from string: {obj_scalar_str}")
+        result = await client.query(f"SELECT * FROM {obj_scalar_str.table}")
         print(f"Value: {result.result_rows}")
 
-        # From list
-        obj_list = await aaiclick.create_object_from_value("numbers", [1.5, 2.5, 3.5, 4.5])
-        print(f"\nCreated from list: {obj_list}")
-        result = await client.query(f"SELECT * FROM {obj_list.table}")
+        # Example 2: Create objects from lists (numpy dtype inference)
+        print("\n" + "=" * 50)
+        print("Example 2: Creating objects from lists (numpy infers dtype)")
+        print("-" * 50)
+
+        obj_list_int = await aaiclick.create_object_from_value("list_int", [1, 2, 3, 4, 5])
+        print(f"Created from int list: {obj_list_int}")
+        result = await client.query(f"SELECT * FROM {obj_list_int.table}")
+        print(f"Values: {result.result_rows}\n")
+
+        obj_list_float = await aaiclick.create_object_from_value("list_float", [1.5, 2.5, 3.5, 4.5])
+        print(f"Created from float list: {obj_list_float}")
+        result = await client.query(f"SELECT * FROM {obj_list_float.table}")
+        print(f"Values: {result.result_rows}\n")
+
+        obj_list_str = await aaiclick.create_object_from_value("list_str", ["apple", "banana", "cherry"])
+        print(f"Created from string list: {obj_list_str}")
+        result = await client.query(f"SELECT * FROM {obj_list_str.table}")
         print(f"Values: {result.result_rows}")
 
-        # From dict
+        # Example 3: Create objects from dictionaries
+        print("\n" + "=" * 50)
+        print("Example 3: Creating objects from dictionaries")
+        print("-" * 50)
+
         obj_dict = await aaiclick.create_object_from_value(
             "user", {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
         )
-        print(f"\nCreated from dict: {obj_dict}")
+        print(f"Created from dict: {obj_dict}")
         result = await client.query(f"SELECT * FROM {obj_dict.table}")
+        print(f"Values: {result.result_rows}\n")
+
+        obj_dict2 = await aaiclick.create_object_from_value(
+            "product", {"product_id": 100, "product_name": "Widget", "price": 29.99, "in_stock": True}
+        )
+        print(f"Created from dict: {obj_dict2}")
+        result = await client.query(f"SELECT * FROM {obj_dict2.table}")
         print(f"Values: {result.result_rows}")
 
-        # Example 3: Addition operator
+        # Example 4: Arithmetic operations
         print("\n" + "=" * 50)
-        print("Example 3: Addition operator")
+        print("Example 4: Arithmetic operators")
         print("-" * 50)
 
+        # Create two numeric objects for operations
+        obj_a = await aaiclick.create_object_from_value("a", [10.0, 20.0, 30.0])
         obj_b = await aaiclick.create_object_from_value("b", [5.5, 10.3, 15.1])
+
+        print(f"Created {obj_a}")
+        result = await client.query(f"SELECT * FROM {obj_a.table}")
+        print(f"Values in a: {result.result_rows}\n")
+
         print(f"Created {obj_b}")
         result = await client.query(f"SELECT * FROM {obj_b.table}")
+        print(f"Values in b: {result.result_rows}")
+
+        # Addition
+        print("\n" + "-" * 50)
+        print("Addition: a + b")
+        obj_sum = await (obj_a + obj_b)
+        print(f"Created sum object: {obj_sum}")
+        result = await client.query(f"SELECT * FROM {obj_sum.table}")
         print(f"Values: {result.result_rows}")
 
-        # Note: obj_a was created with manual inserts, obj_b from list
-        # For operators to work, both tables need compatible schema
-        obj_c = await aaiclick.create_object("c", "value Float64")
-        await client.command(f"INSERT INTO {obj_c.table} VALUES (100.0), (200.0), (300.0)")
-
-        obj_sum = await (obj_c + obj_b)
-        print(f"\nCreated sum object: {obj_sum}")
-        print(f"Values in {obj_sum.name}:")
-        result = await client.query(f"SELECT * FROM {obj_sum.table}")
-        print(result.result_rows)
-
-        # Example 4: Subtraction operator
-        print("\n" + "=" * 50)
-        print("Example 4: Subtraction operator")
-        print("-" * 50)
-
-        obj_diff = await (obj_c - obj_b)
+        # Subtraction
+        print("\n" + "-" * 50)
+        print("Subtraction: a - b")
+        obj_diff = await (obj_a - obj_b)
         print(f"Created difference object: {obj_diff}")
-        print(f"Values in {obj_diff.name}:")
         result = await client.query(f"SELECT * FROM {obj_diff.table}")
-        print(result.result_rows)
+        print(f"Values: {result.result_rows}")
 
         # Example 5: Table name generation
         print("\n" + "=" * 50)
-        print("Example 5: Table name generation")
+        print("Example 5: Automatic table name generation")
         print("-" * 50)
 
-        obj_g = aaiclick.Object("custom")
-        obj_h = aaiclick.Object("custom")
-        print(f"Two objects with same name have different tables:")
-        print(f"  {obj_g.name} -> {obj_g.table}")
-        print(f"  {obj_h.name} -> {obj_h.table}")
+        obj_x = aaiclick.Object("data")
+        obj_y = aaiclick.Object("data")
+        print(f"Two objects with same name get unique table names:")
+        print(f"  {obj_x.name} -> {obj_x.table}")
+        print(f"  {obj_y.name} -> {obj_y.table}")
 
-        # Example 6: Custom table name
+        # Cleanup
         print("\n" + "=" * 50)
-        print("Example 6: Custom table name")
+        print("Cleanup: Deleting all created tables")
         print("-" * 50)
 
-        obj_i = aaiclick.Object("myobject", table="my_custom_table")
-        print(f"Object with custom table: {obj_i}")
-        print(f"  Name: {obj_i.name}")
-        print(f"  Table: {obj_i.table}")
+        objects_to_delete = [
+            obj_scalar_int,
+            obj_scalar_float,
+            obj_scalar_str,
+            obj_list_int,
+            obj_list_float,
+            obj_list_str,
+            obj_dict,
+            obj_dict2,
+            obj_a,
+            obj_b,
+            obj_sum,
+            obj_diff,
+        ]
 
-        # Example 7: Delete objects from database
-        print("\n" + "=" * 50)
-        print("Example 7: Deleting objects")
-        print("-" * 50)
-
-        for obj in [obj_a, obj_multi, obj_scalar, obj_list, obj_dict, obj_b, obj_c, obj_sum, obj_diff]:
+        for obj in objects_to_delete:
             await obj.delete_table()
             print(f"Deleted table {obj.table}")
 
