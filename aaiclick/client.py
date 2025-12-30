@@ -1,95 +1,36 @@
 """
-aaiclick.client - Global ClickHouse client manager.
+aaiclick.client - Global ClickHouse client.
 
-This module provides a singleton client manager for ClickHouse connections,
-allowing Object instances to share a single client connection.
+This module provides a simple global client for ClickHouse connections.
+Connection parameters default to environment variables.
 """
 
+import os
 from typing import Optional, Any
 from clickhouse_connect import get_async_client
 
 
-class ClientManager:
-    """
-    Singleton manager for ClickHouse client connections.
-    """
-
-    _instance: Optional["ClientManager"] = None
-    _client: Optional[Any] = None
-
-    def __new__(cls) -> "ClientManager":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    async def connect(
-        self,
-        host: str = "localhost",
-        port: int = 8123,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        database: str = "default",
-        **kwargs,
-    ) -> None:
-        """
-        Connect to ClickHouse server.
-
-        Args:
-            host: ClickHouse server host
-            port: ClickHouse server port
-            username: Optional username
-            password: Optional password
-            database: Database name
-            **kwargs: Additional arguments for get_async_client
-        """
-        if self._client is not None:
-            await self.close()
-
-        self._client = await get_async_client(
-            host=host, port=port, username=username, password=password, database=database, **kwargs
-        )
-
-    async def close(self) -> None:
-        """Close the current client connection."""
-        if self._client is not None:
-            await self._client.close()
-            self._client = None
-
-    @property
-    def client(self) -> Any:
-        """
-        Get the current client instance.
-
-        Returns:
-            ClickHouse async client
-
-        Raises:
-            RuntimeError: If client is not connected
-        """
-        if self._client is None:
-            raise RuntimeError("Client not connected. Call await connect() first.")
-        return self._client
-
-    @property
-    def is_connected(self) -> bool:
-        """Check if client is currently connected."""
-        return self._client is not None
-
-
-# Global client manager instance
-_client_manager = ClientManager()
+# Global client instance
+_client: Optional[Any] = None
 
 
 async def connect(
-    host: str = "localhost",
-    port: int = 8123,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    database: str = "default",
+    database: Optional[str] = None,
     **kwargs,
 ) -> None:
     """
-    Connect to ClickHouse server using the global client manager.
+    Connect to ClickHouse server.
+
+    Connection parameters default to environment variables:
+    - CLICKHOUSE_HOST (default: "localhost")
+    - CLICKHOUSE_PORT (default: 8123)
+    - CLICKHOUSE_USER (default: None)
+    - CLICKHOUSE_PASSWORD (default: None)
+    - CLICKHOUSE_DATABASE (default: "default")
 
     Args:
         host: ClickHouse server host
@@ -99,12 +40,29 @@ async def connect(
         database: Database name
         **kwargs: Additional arguments for get_async_client
     """
-    await _client_manager.connect(host=host, port=port, username=username, password=password, database=database, **kwargs)
+    global _client
+
+    if _client is not None:
+        await close()
+
+    # Use provided values or fall back to environment variables
+    host = host or os.getenv("CLICKHOUSE_HOST", "localhost")
+    port = port or int(os.getenv("CLICKHOUSE_PORT", "8123"))
+    username = username or os.getenv("CLICKHOUSE_USER")
+    password = password or os.getenv("CLICKHOUSE_PASSWORD")
+    database = database or os.getenv("CLICKHOUSE_DATABASE", "default")
+
+    _client = await get_async_client(
+        host=host, port=port, username=username, password=password, database=database, **kwargs
+    )
 
 
 async def close() -> None:
     """Close the global client connection."""
-    await _client_manager.close()
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
 
 
 def get_client() -> Any:
@@ -117,9 +75,11 @@ def get_client() -> Any:
     Raises:
         RuntimeError: If client is not connected
     """
-    return _client_manager.client
+    if _client is None:
+        raise RuntimeError("Client not connected. Call await connect() first.")
+    return _client
 
 
 def is_connected() -> bool:
     """Check if the global client is connected."""
-    return _client_manager.is_connected
+    return _client is not None
