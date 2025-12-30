@@ -5,7 +5,7 @@ Setup script for running ClickHouse and tests.
 This script:
 1. Detects if Docker is available
 2. If yes, uses docker compose
-3. If no, downloads and runs ClickHouse locally
+3. If no, installs ClickHouse via apt-get (Linux) or downloads binary (macOS)
 4. Waits for ClickHouse to be ready
 5. Runs pytest
 """
@@ -16,8 +16,6 @@ import subprocess
 import time
 import platform
 import shutil
-import urllib.request
-import tarfile
 from pathlib import Path
 
 
@@ -42,14 +40,14 @@ def check_docker():
         return False
 
 
-def wait_for_clickhouse(host="localhost", port=8123, max_retries=30):
+def wait_for_clickhouse(host="localhost", port=8123, max_retries=60):
     """Wait for ClickHouse to be ready."""
     print(f"Waiting for ClickHouse at {host}:{port}...")
 
     for i in range(max_retries):
         try:
             import urllib.request
-            response = urllib.request.urlopen(f"http://{host}:{port}/ping", timeout=1)
+            response = urllib.request.urlopen(f"http://{host}:{port}/ping", timeout=2)
             if response.status == 200:
                 print("✓ ClickHouse is ready!")
                 return True
@@ -57,7 +55,8 @@ def wait_for_clickhouse(host="localhost", port=8123, max_retries=30):
             pass
 
         time.sleep(1)
-        print(f"  Waiting... ({i + 1}/{max_retries})")
+        if (i + 1) % 5 == 0:  # Print every 5 seconds
+            print(f"  Still waiting... ({i + 1}/{max_retries})")
 
     print("✗ ClickHouse did not start in time")
     return False
@@ -83,105 +82,151 @@ def start_clickhouse_docker():
     return wait_for_clickhouse()
 
 
-def download_clickhouse():
-    """Download ClickHouse binary for the current platform."""
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-
+def install_clickhouse_apt():
+    """Install ClickHouse using apt-get on Ubuntu/Debian."""
     print("=" * 60)
-    print("Downloading ClickHouse binary...")
-    print(f"Platform: {system} {machine}")
+    print("Installing ClickHouse via apt-get...")
     print("=" * 60)
 
-    # Use stable release version
-    version = "25.11.5.42"
+    # Check if already installed
+    if check_command("clickhouse-server"):
+        print("✓ ClickHouse is already installed")
+        return True
 
-    # ClickHouse download URLs (stable releases)
-    if system == "linux" and machine in ["x86_64", "amd64"]:
-        url = f"https://github.com/ClickHouse/ClickHouse/releases/download/v{version}/clickhouse-linux-amd64"
-    elif system == "linux" and machine in ["aarch64", "arm64"]:
-        url = f"https://github.com/ClickHouse/ClickHouse/releases/download/v{version}/clickhouse-linux-aarch64"
-    elif system == "darwin" and machine in ["x86_64", "amd64"]:
-        url = f"https://github.com/ClickHouse/ClickHouse/releases/download/v{version}/clickhouse-macos-amd64"
-    elif system == "darwin" and machine in ["arm64", "aarch64"]:
-        url = f"https://github.com/ClickHouse/ClickHouse/releases/download/v{version}/clickhouse-macos-aarch64"
-    else:
-        print(f"✗ Unsupported platform: {system} {machine}")
-        return None
-
-    clickhouse_dir = Path.home() / ".aaiclick" / "clickhouse"
-    clickhouse_dir.mkdir(parents=True, exist_ok=True)
-
-    clickhouse_bin = clickhouse_dir / "clickhouse"
-
-    if clickhouse_bin.exists():
-        print("✓ ClickHouse binary already exists")
-        return clickhouse_bin
-
-    print(f"Downloading from {url}...")
-    try:
-        urllib.request.urlretrieve(url, clickhouse_bin)
-        clickhouse_bin.chmod(0o755)
-        print("✓ Downloaded successfully")
-        return clickhouse_bin
-    except Exception as e:
-        print(f"✗ Download failed: {e}")
-        return None
-
-
-def start_clickhouse_local(clickhouse_bin):
-    """Start ClickHouse locally."""
-    print("=" * 60)
-    print("Starting ClickHouse locally...")
-    print("=" * 60)
-
-    clickhouse_dir = Path.home() / ".aaiclick" / "clickhouse"
-    data_dir = clickhouse_dir / "data"
-    log_file = clickhouse_dir / "clickhouse.log"
-    pid_file = clickhouse_dir / "clickhouse.pid"
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Check if already running
-    if pid_file.exists():
-        try:
-            with open(pid_file) as f:
-                pid = int(f.read().strip())
-            # Check if process is running
-            os.kill(pid, 0)
-            print("✓ ClickHouse is already running")
-            return wait_for_clickhouse()
-        except (OSError, ValueError):
-            pid_file.unlink()
-
-    # Start ClickHouse server
-    cmd = [
-        str(clickhouse_bin),
-        "server",
-        "--",
-        f"--path={data_dir}",
-        f"--http_port=8123",
-        f"--tcp_port=9000",
+    print("Adding ClickHouse repository...")
+    commands = [
+        # Add GPG key
+        [
+            "sudo",
+            "apt-key",
+            "adv",
+            "--keyserver",
+            "hkp://keyserver.ubuntu.com:80",
+            "--recv",
+            "8919F6BD2B48D754",
+        ],
+        # Add repository
+        [
+            "sudo",
+            "sh",
+            "-c",
+            "echo 'deb https://packages.clickhouse.com/deb stable main' > /etc/apt/sources.list.d/clickhouse.list",
+        ],
+        # Update package list
+        ["sudo", "apt-get", "update"],
+        # Install ClickHouse
+        ["sudo", "apt-get", "install", "-y", "clickhouse-server", "clickhouse-client"],
     ]
 
-    print(f"Starting: {' '.join(cmd)}")
+    for cmd in commands:
+        print(f"Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"✗ Failed: {result.stderr}")
+            return False
 
-    with open(log_file, "w") as log:
-        process = subprocess.Popen(
-            cmd,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+    print("✓ ClickHouse installed successfully")
+    return True
+
+
+def start_clickhouse_service():
+    """Start ClickHouse service."""
+    print("=" * 60)
+    print("Starting ClickHouse service...")
+    print("=" * 60)
+
+    # Try systemctl first
+    result = subprocess.run(
+        ["sudo", "systemctl", "start", "clickhouse-server"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        print("✓ ClickHouse service started")
+        return wait_for_clickhouse()
+
+    # Fallback to service command
+    result = subprocess.run(
+        ["sudo", "service", "clickhouse-server", "start"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        print("✓ ClickHouse service started")
+        return wait_for_clickhouse()
+
+    print("✗ Failed to start ClickHouse service")
+    print(result.stderr)
+    return False
+
+
+def install_clickhouse_macos():
+    """Install ClickHouse on macOS using Homebrew."""
+    print("=" * 60)
+    print("Installing ClickHouse via Homebrew...")
+    print("=" * 60)
+
+    if not check_command("brew"):
+        print("✗ Homebrew is not installed")
+        print("Please install Homebrew from https://brew.sh")
+        return False
+
+    # Check if already installed
+    result = subprocess.run(
+        ["brew", "list", "clickhouse"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        print("✓ ClickHouse is already installed")
+    else:
+        print("Installing ClickHouse...")
+        result = subprocess.run(
+            ["brew", "install", "clickhouse"],
+            capture_output=True,
+            text=True,
         )
 
-    # Save PID
-    with open(pid_file, "w") as f:
-        f.write(str(process.pid))
+        if result.returncode != 0:
+            print(f"✗ Installation failed: {result.stderr}")
+            return False
 
-    print(f"✓ Started with PID {process.pid}")
-    print(f"  Log file: {log_file}")
+        print("✓ ClickHouse installed successfully")
 
+    # Start ClickHouse
+    print("Starting ClickHouse...")
+    result = subprocess.run(
+        ["brew", "services", "start", "clickhouse"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"✗ Failed to start: {result.stderr}")
+        return False
+
+    print("✓ ClickHouse service started")
     return wait_for_clickhouse()
+
+
+def setup_clickhouse_local():
+    """Set up ClickHouse locally based on the platform."""
+    system = platform.system().lower()
+
+    if system == "linux":
+        # Use apt-get on Linux
+        if not install_clickhouse_apt():
+            return False
+        return start_clickhouse_service()
+    elif system == "darwin":
+        # Use Homebrew on macOS
+        return install_clickhouse_macos()
+    else:
+        print(f"✗ Unsupported platform: {system}")
+        return False
 
 
 def run_tests():
@@ -213,14 +258,9 @@ def main():
             print("\n✗ Failed to start ClickHouse with Docker")
             sys.exit(1)
     else:
-        print("✗ Docker not available, using local ClickHouse")
-        clickhouse_bin = download_clickhouse()
-        if not clickhouse_bin:
-            print("\n✗ Failed to download ClickHouse")
-            sys.exit(1)
-
-        if not start_clickhouse_local(clickhouse_bin):
-            print("\n✗ Failed to start local ClickHouse")
+        print("✗ Docker not available, installing ClickHouse locally")
+        if not setup_clickhouse_local():
+            print("\n✗ Failed to set up local ClickHouse")
             sys.exit(1)
 
     # Run tests
