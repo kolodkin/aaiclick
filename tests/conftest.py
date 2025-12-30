@@ -16,7 +16,14 @@ import os
 def pytest_configure(config):
     """
     Run docker-compose up before any tests.
+
+    Skip if PYTEST_SKIP_DOCKER_SETUP environment variable is set.
     """
+    # Skip if setup is handled externally
+    if os.getenv("PYTEST_SKIP_DOCKER_SETUP"):
+        print("\nSkipping docker setup (handled externally)")
+        return
+
     print("\n" + "=" * 50)
     print("Starting ClickHouse with docker compose...")
     print("=" * 50)
