@@ -54,9 +54,8 @@ def wait_for_clickhouse(host="localhost", port=8123, max_retries=60):
         except Exception:
             pass
 
+        print(f"  Waiting... ({i + 1}/{max_retries})")
         time.sleep(1)
-        if (i + 1) % 5 == 0:  # Print every 5 seconds
-            print(f"  Still waiting... ({i + 1}/{max_retries})")
 
     print("✗ ClickHouse did not start in time")
     return False
