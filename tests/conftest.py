@@ -18,29 +18,29 @@ def pytest_configure(config):
     Run docker-compose up before any tests.
     """
     print("\n" + "=" * 50)
-    print("Starting ClickHouse with docker-compose...")
+    print("Starting ClickHouse with docker compose...")
     print("=" * 50)
 
-    # Run docker-compose up -d
+    # Run docker compose up -d (V2 syntax)
     result = subprocess.run(
-        ["docker-compose", "up", "-d"],
+        ["docker", "compose", "up", "-d"],
         cwd=os.path.dirname(os.path.dirname(__file__)),
         capture_output=True,
         text=True,
     )
 
     if result.returncode != 0:
-        print(f"Error starting docker-compose: {result.stderr}")
-        raise RuntimeError("Failed to start docker-compose")
+        print(f"Error starting docker compose: {result.stderr}")
+        raise RuntimeError("Failed to start docker compose")
 
-    print("Docker-compose started successfully")
+    print("Docker compose started successfully")
 
     # Wait for ClickHouse to be ready
     print("Waiting for ClickHouse to be healthy...")
     max_retries = 30
     for i in range(max_retries):
         result = subprocess.run(
-            ["docker-compose", "ps", "--filter", "health=healthy", "--services"],
+            ["docker", "compose", "ps", "--filter", "health=healthy", "--services"],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
             text=True,
