@@ -96,7 +96,7 @@ async def main():
         print("-" * 50)
 
         for obj in [obj_a, obj_b, obj_c, obj_d, obj_f]:
-            await obj.delete_db()
+            await obj.delete_table()
             print(f"Deleted table {obj.table}")
 
     finally:

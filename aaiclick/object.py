@@ -136,7 +136,7 @@ class Object:
         await client.command(create_query)
         return obj
 
-    async def delete_db(self) -> None:
+    async def delete_table(self) -> None:
         """
         Delete the ClickHouse table associated with this object.
         """
