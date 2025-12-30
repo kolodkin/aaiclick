@@ -16,19 +16,6 @@ from .object import (
     AggregationObject,
 )
 
-# Import decorators
-from .decorator import (
-    clickhouse_function,
-    clickhouse_class,
-    clickhouse_property,
-    aggregate,
-    lazy_evaluation,
-    batch_operation,
-    get_context,
-    reset_context,
-    TranslationContext,
-)
-
 # Import flow visualization
 from .flow import (
     FlowNode,
