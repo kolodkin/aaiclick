@@ -7,6 +7,9 @@ operations, enabling execution of Python-equivalent computations at scale.
 
 __version__ = "0.1.0"
 
+# Import client management
+from .client import connect, close, get_client, is_connected
+
 # Import core objects
 from .object import Object
 

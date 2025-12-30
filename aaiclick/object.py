@@ -5,7 +5,8 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Any
+from typing import Optional
+from .client import get_client
 
 
 class Object:
@@ -37,7 +38,7 @@ class Object:
         """Get the name of this object."""
         return self._name
 
-    def __add__(self, other: "Object") -> "Object":
+    async def __add__(self, other: "Object") -> "Object":
         """
         Add two objects together.
 
@@ -51,10 +52,20 @@ class Object:
         """
         result_name = f"{self._name}_plus_{other._name}"
         result = Object(result_name)
-        result._operation = ("add", self, other)
+
+        # Execute the addition operation in ClickHouse
+        client = get_client()
+        create_query = f"""
+        CREATE TABLE IF NOT EXISTS {result.table}
+        ENGINE = Memory
+        AS SELECT a.value + b.value AS value
+        FROM {self.table} AS a, {other.table} AS b
+        """
+        await client.command(create_query)
+
         return result
 
-    def __sub__(self, other: "Object") -> "Object":
+    async def __sub__(self, other: "Object") -> "Object":
         """
         Subtract one object from another.
 
@@ -68,16 +79,25 @@ class Object:
         """
         result_name = f"{self._name}_minus_{other._name}"
         result = Object(result_name)
-        result._operation = ("sub", self, other)
+
+        # Execute the subtraction operation in ClickHouse
+        client = get_client()
+        create_query = f"""
+        CREATE TABLE IF NOT EXISTS {result.table}
+        ENGINE = Memory
+        AS SELECT a.value - b.value AS value
+        FROM {self.table} AS a, {other.table} AS b
+        """
+        await client.command(create_query)
+
         return result
 
     @staticmethod
-    async def create(client: Any, name: str, coltype: str) -> "Object":
+    async def create(name: str, coltype: str) -> "Object":
         """
         Create a new Object with a ClickHouse table.
 
         Args:
-            client: Connected ClickHouse client
             name: Name for the object
             coltype: Column type definition (e.g., "value Float64")
 
@@ -85,6 +105,7 @@ class Object:
             Object: New Object instance with created table
         """
         obj = Object(name)
+        client = get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {obj.table} (
             {coltype}
@@ -94,12 +115,11 @@ class Object:
         return obj
 
     @staticmethod
-    async def create_from_value(client: Any, name: str, val: "Object") -> "Object":
+    async def create_from_value(name: str, val: "Object") -> "Object":
         """
         Create a new Object from an existing Object's values.
 
         Args:
-            client: Connected ClickHouse client
             name: Name for the new object
             val: Source Object to copy data from
 
@@ -107,6 +127,7 @@ class Object:
             Object: New Object instance with copied data
         """
         obj = Object(name)
+        client = get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {obj.table}
         ENGINE = Memory
@@ -114,6 +135,13 @@ class Object:
         """
         await client.command(create_query)
         return obj
+
+    async def delete_db(self) -> None:
+        """
+        Delete the ClickHouse table associated with this object.
+        """
+        client = get_client()
+        await client.command(f"DROP TABLE IF EXISTS {self.table}")
 
     def __repr__(self) -> str:
         """String representation of the Object."""
