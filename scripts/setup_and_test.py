@@ -271,10 +271,7 @@ def run_tests():
     print("Running tests...")
     print("=" * 60 + "\n")
 
-    result = subprocess.run(
-        ["pytest", "-v"],
-        env={**os.environ, "PYTEST_SKIP_DOCKER_SETUP": "1"},
-    )
+    result = subprocess.run(["pytest", "-v"])
 
     return result.returncode
 

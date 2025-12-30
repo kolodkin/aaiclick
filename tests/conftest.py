@@ -1,66 +1,12 @@
 """
 Pytest configuration for aaiclick tests.
 
-This module sets up the test environment including:
-- Starting ClickHouse via docker-compose
-- Cleaning up test tables after tests
+This module provides test fixtures. ClickHouse setup is handled by
+scripts/setup_and_test.py or manually via docker-compose.
 """
 
 import asyncio
-import subprocess
-import time
 import pytest
-import os
-
-
-def pytest_configure(config):
-    """
-    Run docker-compose up before any tests.
-
-    Skip if PYTEST_SKIP_DOCKER_SETUP environment variable is set.
-    """
-    # Skip if setup is handled externally
-    if os.getenv("PYTEST_SKIP_DOCKER_SETUP"):
-        print("\nSkipping docker setup (handled externally)")
-        return
-
-    print("\n" + "=" * 50)
-    print("Starting ClickHouse with docker compose...")
-    print("=" * 50)
-
-    # Run docker compose up -d (V2 syntax)
-    result = subprocess.run(
-        ["docker", "compose", "up", "-d"],
-        cwd=os.path.dirname(os.path.dirname(__file__)),
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        print(f"Error starting docker compose: {result.stderr}")
-        raise RuntimeError("Failed to start docker compose")
-
-    print("Docker compose started successfully")
-
-    # Wait for ClickHouse to be ready
-    print("Waiting for ClickHouse to be healthy...")
-    max_retries = 30
-    for i in range(max_retries):
-        result = subprocess.run(
-            ["docker", "compose", "ps", "--filter", "health=healthy", "--services"],
-            cwd=os.path.dirname(os.path.dirname(__file__)),
-            capture_output=True,
-            text=True,
-        )
-
-        if "clickhouse" in result.stdout:
-            print("ClickHouse is ready!")
-            break
-
-        time.sleep(1)
-        print(f"Waiting... ({i + 1}/{max_retries})")
-    else:
-        raise RuntimeError("ClickHouse did not become healthy in time")
 
 
 @pytest.fixture(scope="session")
