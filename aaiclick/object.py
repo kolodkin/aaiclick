@@ -92,50 +92,6 @@ class Object:
 
         return result
 
-    @staticmethod
-    async def create(name: str, coltype: str) -> "Object":
-        """
-        Create a new Object with a ClickHouse table.
-
-        Args:
-            name: Name for the object
-            coltype: Column type definition (e.g., "value Float64")
-
-        Returns:
-            Object: New Object instance with created table
-        """
-        obj = Object(name)
-        client = get_client()
-        create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
-            {coltype}
-        ) ENGINE = Memory
-        """
-        await client.command(create_query)
-        return obj
-
-    @staticmethod
-    async def create_from_value(name: str, val: "Object") -> "Object":
-        """
-        Create a new Object from an existing Object's values.
-
-        Args:
-            name: Name for the new object
-            val: Source Object to copy data from
-
-        Returns:
-            Object: New Object instance with copied data
-        """
-        obj = Object(name)
-        client = get_client()
-        create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table}
-        ENGINE = Memory
-        AS SELECT * FROM {val.table}
-        """
-        await client.command(create_query)
-        return obj
-
     async def delete_table(self) -> None:
         """
         Delete the ClickHouse table associated with this object.

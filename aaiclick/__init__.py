@@ -13,6 +13,9 @@ from .client import connect, close, get_client, is_connected
 # Import core objects
 from .object import Object
 
+# Import factory functions
+from .factories import create_object, create_object_from_value
+
 # Import flow visualization
 from .flow import (
     FlowNode,
