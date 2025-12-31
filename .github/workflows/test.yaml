@@ -39,7 +39,9 @@ jobs:
           cache-dependency-glob: "pyproject.toml"
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]"
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
 
       - name: Wait for ClickHouse
         run: |
@@ -59,4 +61,4 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: ""
           CLICKHOUSE_DB: default
-        run: pytest -v
+        run: uv run pytest -v
