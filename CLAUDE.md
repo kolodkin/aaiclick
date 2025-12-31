@@ -33,11 +33,11 @@ ClickHouse connection (all optional with sensible defaults):
 ```
 aaiclick/
 ├── aaiclick/          # Main package
-│   ├── adapter.py     # ClickHouse adapter and QueryResult wrapper
 │   ├── client.py      # Global client instance management
+│   ├── object.py      # Core Object class
+│   ├── factories.py   # Factory functions for creating objects
 │   └── __init__.py    # Package exports
 ├── tests/             # Test suite
-│   └── test_backend_compatibility.py  # Adapter tests
 ├── pyproject.toml     # Project configuration
 └── CLAUDE.md          # This file
 ```
