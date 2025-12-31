@@ -38,6 +38,16 @@ class Object:
         """Get the name of this object."""
         return self._name
 
+    async def result(self):
+        """
+        Query and return all data from the object's table.
+
+        Returns:
+            Query result with all rows from the table
+        """
+        client = await get_client()
+        return await client.query(f"SELECT * FROM {self.table}")
+
     async def __add__(self, other: "Object") -> "Object":
         """
         Add two objects together.
