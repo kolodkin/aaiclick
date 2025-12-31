@@ -28,7 +28,6 @@ classifiers = [
 
 dependencies = [
     "clickhouse-connect>=0.6.0",
-    "pyarrow>=10.0.0",
     "numpy>=1.24.0",
 ]
 
