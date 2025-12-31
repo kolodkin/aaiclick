@@ -1,4 +1,4 @@
-"""Unified adapter for chdb and clickhouse-connect clients."""
+"""Adapter for clickhouse-connect client."""
 
 from abc import ABC, abstractmethod
 from typing import Any, List, Tuple, Optional
@@ -6,7 +6,7 @@ import os
 
 
 class QueryResult:
-    """Unified result wrapper compatible with both chdb and clickhouse-connect."""
+    """Unified result wrapper compatible with clickhouse-connect."""
 
     def __init__(self, result_rows: List[Tuple[Any, ...]]):
         """Initialize with result rows.
@@ -77,51 +77,11 @@ class ClickHouseConnectAdapter(ClientAdapter):
         await self._client.close()
 
 
-class ChDBSessionAdapter(ClientAdapter):
-    """Adapter for chdb session (embedded ClickHouse)."""
-
-    def __init__(self, session_path: Optional[str] = None):
-        """Initialize chdb session.
-
-        Args:
-            session_path: Path to .chdb file for persistent storage (MergeTree only)
-                         If None, uses default path
-        """
-        from chdb import session as chs
-
-        self._session = chs.Session(session_path or "aaiclick.chdb")
-        self._session_path = session_path
-
-    async def query(self, sql: str) -> QueryResult:
-        """Execute query using chdb session.
-
-        Uses DataFrame format for reliable conversion to tuples.
-        """
-        # Use DataFrame format for reliable conversion
-        result = self._session.query(sql, "DataFrame")
-
-        # Convert DataFrame to list of tuples (compatible with clickhouse-connect)
-        # result is a pandas DataFrame
-        result_rows = [tuple(row) for row in result.itertuples(index=False, name=None)]
-
-        return QueryResult(result_rows)
-
-    async def command(self, sql: str) -> None:
-        """Execute command using chdb session."""
-        # Commands don't return results, just execute
-        self._session.query(sql)
-
-    async def close(self) -> None:
-        """Close chdb session."""
-        # chdb session cleanup happens automatically
-        pass
-
-
 async def create_client(backend: Optional[str] = None) -> ClientAdapter:
-    """Create a client adapter based on backend selection.
+    """Create a client adapter for clickhouse-connect.
 
     Args:
-        backend: Either 'chdb' or 'clickhouse-connect'.
+        backend: Backend type (only 'clickhouse-connect' is supported).
                 If None, uses environment variable AAICLICK_BACKEND or defaults to clickhouse-connect
 
     Returns:
@@ -129,12 +89,7 @@ async def create_client(backend: Optional[str] = None) -> ClientAdapter:
     """
     backend = backend or os.getenv("AAICLICK_BACKEND", "clickhouse-connect")
 
-    if backend == "chdb":
-        # Use chdb session for embedded/local workloads
-        session_path = os.getenv("CHDB_SESSION_PATH")
-        return ChDBSessionAdapter(session_path)
-
-    elif backend == "clickhouse-connect":
+    if backend == "clickhouse-connect":
         # Use clickhouse-connect for remote server connections
         from clickhouse_connect import get_async_client
 
@@ -155,4 +110,4 @@ async def create_client(backend: Optional[str] = None) -> ClientAdapter:
         return ClickHouseConnectAdapter(client)
 
     else:
-        raise ValueError(f"Unknown backend: {backend}. Use 'chdb' or 'clickhouse-connect'")
+        raise ValueError(f"Unknown backend: {backend}. Only 'clickhouse-connect' is supported")

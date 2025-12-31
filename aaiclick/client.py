@@ -2,7 +2,6 @@
 aaiclick.client - Global ClickHouse client.
 
 This module provides a simple global client for ClickHouse connections.
-Supports both clickhouse-connect (remote) and chdb (embedded) backends.
 Connection parameters default to environment variables.
 """
 
@@ -20,18 +19,12 @@ async def get_client() -> ClientAdapter:
 
     Automatically connects using environment variables if not already connected:
 
-    Backend selection:
-    - AAICLICK_BACKEND: 'clickhouse-connect' (default) or 'chdb'
-
-    For clickhouse-connect backend:
+    Connection parameters:
     - CLICKHOUSE_HOST (default: "localhost")
     - CLICKHOUSE_PORT (default: 8123)
     - CLICKHOUSE_USER (default: "default")
     - CLICKHOUSE_PASSWORD (default: "")
     - CLICKHOUSE_DB (default: "default")
-
-    For chdb backend:
-    - CHDB_SESSION_PATH (optional): Path to .chdb file for persistent storage
 
     Returns:
         ClientAdapter instance with unified interface
