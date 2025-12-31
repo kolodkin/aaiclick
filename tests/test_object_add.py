@@ -1,0 +1,125 @@
+"""
+Tests for Object addition operation.
+"""
+
+import pytest
+from aaiclick import create_object_from_value, get_client
+
+
+@pytest.mark.asyncio
+async def test_object_add_simple():
+    """Test basic addition of two objects."""
+    # Create two objects with simple values
+    obj_a = await create_object_from_value("test_a", [10.0, 20.0, 30.0])
+    obj_b = await create_object_from_value("test_b", [5.0, 10.0, 15.0])
+
+    # Perform addition
+    result = await (obj_a + obj_b)
+
+    # Verify result
+    client = await get_client()
+    query_result = await client.query(f"SELECT * FROM {result.table} ORDER BY value")
+    rows = query_result.result_rows
+
+    # Expected: (10+5, 20+10, 30+15) -> (15, 30, 45) for each combination
+    # Since it's a cartesian product, we get 9 rows
+    assert len(rows) == 9, f"Expected 9 rows, got {len(rows)}"
+
+    # Cleanup
+    await obj_a.delete_table()
+    await obj_b.delete_table()
+    await result.delete_table()
+
+
+@pytest.mark.asyncio
+async def test_object_add_integers():
+    """Test addition with integer values."""
+    obj_a = await create_object_from_value("test_int_a", [1, 2, 3])
+    obj_b = await create_object_from_value("test_int_b", [10, 20, 30])
+
+    result = await (obj_a + obj_b)
+
+    client = await get_client()
+    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value LIMIT 1")
+    rows = query_result.result_rows
+
+    # Minimum value should be 1 + 10 = 11
+    assert len(rows) == 1
+    assert rows[0][0] == 11
+
+    # Cleanup
+    await obj_a.delete_table()
+    await obj_b.delete_table()
+    await result.delete_table()
+
+
+@pytest.mark.asyncio
+async def test_object_add_single_values():
+    """Test addition with single value objects."""
+    obj_a = await create_object_from_value("test_single_a", [100.0])
+    obj_b = await create_object_from_value("test_single_b", [50.0])
+
+    result = await (obj_a + obj_b)
+
+    client = await get_client()
+    query_result = await client.query(f"SELECT value FROM {result.table}")
+    rows = query_result.result_rows
+
+    assert len(rows) == 1
+    assert rows[0][0] == 150.0
+
+    # Cleanup
+    await obj_a.delete_table()
+    await obj_b.delete_table()
+    await result.delete_table()
+
+
+@pytest.mark.asyncio
+async def test_object_add_result_table_name():
+    """Test that result table has correct naming."""
+    obj_a = await create_object_from_value("alpha", [1.0])
+    obj_b = await create_object_from_value("beta", [2.0])
+
+    result = await (obj_a + obj_b)
+
+    # Check that result name contains both operand names
+    assert "alpha" in result.name
+    assert "beta" in result.name
+    assert "plus" in result.name
+
+    # Check that table exists
+    client = await get_client()
+    query_result = await client.query(f"EXISTS TABLE {result.table}")
+    assert query_result.result_rows[0][0] == 1  # Table exists
+
+    # Cleanup
+    await obj_a.delete_table()
+    await obj_b.delete_table()
+    await result.delete_table()
+
+
+@pytest.mark.asyncio
+async def test_object_add_chain():
+    """Test chaining multiple additions."""
+    obj_a = await create_object_from_value("chain_a", [1.0])
+    obj_b = await create_object_from_value("chain_b", [2.0])
+    obj_c = await create_object_from_value("chain_c", [3.0])
+
+    # Chain additions: (a + b) + c
+    temp = await (obj_a + obj_b)
+    result = await (temp + obj_c)
+
+    client = await get_client()
+    query_result = await client.query(f"SELECT value FROM {result.table}")
+    rows = query_result.result_rows
+
+    # Result should be 1 + 2 + 3 = 6
+    assert len(rows) == 1
+    assert rows[0][0] == 6.0
+
+    # Cleanup
+    await obj_a.delete_table()
+    await obj_b.delete_table()
+    await obj_c.delete_table()
+    await temp.delete_table()
+    await result.delete_table()
