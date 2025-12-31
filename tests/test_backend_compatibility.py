@@ -55,7 +55,6 @@ async def test_clickhouse_connect_adapter_basic():
         await adapter.close()
 
 
-@pytest.mark.asyncio
 def test_result_format_consistency():
     """Test that QueryResult returns consistent format structure."""
     # Should return QueryResult with result_rows property
