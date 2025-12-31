@@ -4,19 +4,13 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
 ## Testing Strategy
 
-**IMPORTANT: Do NOT run tests in the local/Claude environment.**
+**IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
 - After pushing changes, check pull request status using the `gh-actions` skill
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
-## Backend Architecture
-
-- **Only clickhouse-connect is supported** - chdb backend has been removed
-- The project uses `clickhouse-connect` for all ClickHouse operations
-- Client adapter pattern provides a unified interface for ClickHouse connections
-- All connections are async using `clickhouse_connect.get_async_client()`
 
 ## Code Quality
 
@@ -24,23 +18,6 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - All warnings are treated as errors in tests
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
-
-## Git Workflow
-
-- Work on feature branches with naming pattern: `claude/<description>-<sessionId>`
-- Always commit with clear, descriptive commit messages
-- Push changes with retry logic (exponential backoff: 2s, 4s, 8s, 16s)
-- Use `gh` CLI for GitHub operations (PRs, issues, checks)
-
-## Dependencies
-
-Core dependency:
-- `clickhouse-connect>=0.6.0` - ClickHouse client library
-
-Dev dependencies:
-- pytest, pytest-asyncio, pytest-cov - Testing framework
-- black, ruff - Code formatting and linting
-- mypy - Static type checking
 
 ## Environment Variables
 
