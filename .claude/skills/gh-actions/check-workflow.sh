@@ -68,7 +68,36 @@ check_auth() {
     echo -e "${GREEN}✓ Authenticated${NC}"
 }
 
-# Step 3: Get current branch
+# Step 3: Detect GitHub repository
+detect_repo() {
+    echo ""
+    echo -e "${BLUE}Detecting GitHub repository...${NC}"
+
+    # Try to get repo from git remote
+    REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+
+    if [ -z "$REMOTE_URL" ]; then
+        echo -e "${RED}❌ Error: No git remote found${NC}"
+        exit 1
+    fi
+
+    # Extract owner/repo from various remote URL formats
+    # Handle: http://*/git/owner/repo, https://github.com/owner/repo, git@github.com:owner/repo
+    if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+)/([^/.]+) ]]; then
+        REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    elif [[ "$REMOTE_URL" =~ /git/([^/]+)/([^/.]+) ]]; then
+        # Handle local proxy format: http://local_proxy@127.0.0.1:*/git/owner/repo
+        REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    else
+        echo -e "${RED}❌ Error: Could not parse repository from remote URL: $REMOTE_URL${NC}"
+        echo "Please set manually: export GITHUB_REPOSITORY=owner/repo"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Repository: ${NC}$REPO"
+}
+
+# Step 4: Get current branch
 get_branch() {
     BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     if [ -z "$BRANCH" ]; then
@@ -78,7 +107,7 @@ get_branch() {
     echo -e "${BLUE}📝 Branch: ${NC}$BRANCH"
 }
 
-# Step 4: Poll latest workflow until complete
+# Step 5: Poll latest workflow until complete
 poll_workflow() {
     echo ""
     echo -e "${BLUE}⏳ Waiting for GitHub to process push...${NC}"
@@ -91,8 +120,8 @@ poll_workflow() {
     local poll_count=0
 
     while [ $poll_count -lt $max_polls ]; do
-        # Get latest run for this branch
-        LATEST=$(gh run list --branch "$BRANCH" --limit 1 --json databaseId,status,conclusion,name,displayTitle,createdAt 2>/dev/null)
+        # Get latest run for this branch (using --repo flag)
+        LATEST=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId,status,conclusion,name,displayTitle,createdAt 2>/dev/null)
 
         if [ -z "$LATEST" ] || [ "$LATEST" = "[]" ]; then
             echo -e "${YELLOW}⚠️  No workflow runs found for branch $BRANCH${NC}"
@@ -161,6 +190,7 @@ poll_workflow() {
 main() {
     install_gh
     check_auth
+    detect_repo
     get_branch
     poll_workflow
 }

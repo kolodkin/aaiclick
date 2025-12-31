@@ -16,7 +16,7 @@ jobs:
         image: clickhouse/clickhouse-server:latest
         env:
           CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: ""
+          CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
         ports:
           - 8123:8123
@@ -63,6 +63,6 @@ jobs:
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: ""
+          CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
         run: uv run pytest -v
