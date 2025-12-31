@@ -2,42 +2,42 @@
 aaiclick.client - Global ClickHouse client.
 
 This module provides a simple global client for ClickHouse connections.
+Supports both clickhouse-connect (remote) and chdb (embedded) backends.
 Connection parameters default to environment variables.
 """
 
-import os
 from typing import Any
-from clickhouse_connect import get_async_client
+from .adapter import ClientAdapter, create_client
 
 
 # Global client instance holder (list with single element)
 _client = [None]
 
 
-async def get_client() -> Any:
+async def get_client() -> ClientAdapter:
     """
     Get the global ClickHouse client instance.
 
     Automatically connects using environment variables if not already connected:
+
+    Backend selection:
+    - AAICLICK_BACKEND: 'clickhouse-connect' (default) or 'chdb'
+
+    For clickhouse-connect backend:
     - CLICKHOUSE_HOST (default: "localhost")
     - CLICKHOUSE_PORT (default: 8123)
-    - CLICKHOUSE_USER (default: None)
-    - CLICKHOUSE_PASSWORD (default: None)
-    - CLICKHOUSE_DATABASE (default: "default")
+    - CLICKHOUSE_USER (default: "default")
+    - CLICKHOUSE_PASSWORD (default: "")
+    - CLICKHOUSE_DB (default: "default")
+
+    For chdb backend:
+    - CHDB_SESSION_PATH (optional): Path to .chdb file for persistent storage
 
     Returns:
-        ClickHouse async client
+        ClientAdapter instance with unified interface
     """
     if _client[0] is None:
-        host = os.getenv("CLICKHOUSE_HOST", "localhost")
-        port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-        username = os.getenv("CLICKHOUSE_USER")
-        password = os.getenv("CLICKHOUSE_PASSWORD")
-        database = os.getenv("CLICKHOUSE_DATABASE", "default")
-
-        _client[0] = await get_async_client(
-            host=host, port=port, username=username, password=password, database=database
-        )
+        _client[0] = await create_client()
 
     return _client[0]
 
