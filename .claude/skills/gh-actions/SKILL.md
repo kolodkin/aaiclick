@@ -47,37 +47,52 @@ prompt: |
 
   ## AUTOMATIC POST-PUSH WORKFLOW
 
-  **Immediately after EVERY `git push`, execute these steps automatically:**
+  **Immediately after EVERY `git push`, run the automated workflow checker:**
 
-  ### 1. Wait for GitHub (3 seconds)
+  ### Step 1: Run the Check Script
+
+  Execute the automated workflow checker script:
   ```bash
-  sleep 3
+  .claude/skills/gh-actions/check-workflow.sh
   ```
 
-  ### 2. Check Workflow Status
-  ```bash
-  BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  gh run list --branch "$BRANCH" --limit 5
+  This script will automatically:
+  1. ✅ Install gh CLI if not available
+  2. ✅ Check authentication
+  3. ✅ Get current branch
+  4. ✅ Poll workflow status every 10 seconds until complete
+  5. ✅ Report SUCCESS or FAILURE with full logs
+
+  ### Step 2: Analyze Output
+
+  The script outputs in one of two formats:
+
+  **SUCCESS:**
   ```
-
-  ### 3. Identify Latest Run
-  ```bash
-  LATEST=$(gh run list --branch "$BRANCH" --limit 1 --json databaseId,status,conclusion,name)
-  RUN_ID=$(echo "$LATEST" | jq -r '.[0].databaseId')
-  STATUS=$(echo "$LATEST" | jq -r '.[0].status')
-  CONCLUSION=$(echo "$LATEST" | jq -r '.[0].conclusion')
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STATUS: SUCCESS
+  RUN_ID: 12345
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ```
+  → Report success to user and stop
 
-  ### 4. If Failed, Get Error Logs
-  ```bash
-  if [ "$CONCLUSION" = "failure" ]; then
-    gh run view "$RUN_ID" --log-failed
-  fi
+  **FAILURE:**
   ```
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STATUS: FAILURE
+  RUN_ID: 12345
+  CONCLUSION: failure
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  ### 5. Analyze & Fix Automatically
+  ERROR LOGS:
+  [Full error logs from failed steps]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ```
+  → Analyze logs and fix automatically (see Step 3)
 
-  Parse the error logs and fix common issues:
+  ### Step 3: Auto-Fix Failures
+
+  When the script reports FAILURE, analyze the error logs and fix:
 
   **Test Failures:**
   - Syntax errors → Fix code
@@ -97,37 +112,21 @@ prompt: |
   - Service failures → Fix health checks
   - Timeout issues → Increase timeout or optimize
 
-  ### 6. Commit & Push Fix
+  ### Step 4: Commit & Push Fix
   ```bash
   git add <fixed-files>
   git commit -m "Fix CI: <description of issue>"
   git push
   ```
 
-  ### 7. Poll Until Complete
-  ```bash
-  # Actively poll until workflow finishes
-  while true; do
-    STATUS=$(gh run list --branch "$BRANCH" --limit 1 --json status,conclusion --jq '.[0]')
-    RUN_STATUS=$(echo "$STATUS" | jq -r '.status')
-    RUN_CONCLUSION=$(echo "$STATUS" | jq -r '.conclusion')
+  ### Step 5: Verify Fix
 
-    if [ "$RUN_STATUS" = "completed" ]; then
-      if [ "$RUN_CONCLUSION" = "success" ]; then
-        echo "✅ Workflow passed!"
-        break
-      else
-        echo "❌ Workflow failed - reading logs..."
-        gh run view "$RUN_ID" --log-failed
-        # Agent will analyze and fix
-        break
-      fi
-    else
-      echo "⏳ Workflow still running (status: $RUN_STATUS)..."
-      sleep 10
-    fi
-  done
+  After pushing the fix, run the checker again:
+  ```bash
+  .claude/skills/gh-actions/check-workflow.sh
   ```
+
+  Repeat until workflow passes.
 
   ## Key Commands
 
