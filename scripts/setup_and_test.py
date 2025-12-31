@@ -115,7 +115,7 @@ def install_clickhouse_apt():
 
     # Download and add GPG key
     result = subprocess.run(
-        "curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg",
+        "curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg",
         shell=True,
         capture_output=True,
         text=True,
