@@ -5,15 +5,16 @@ This module provides a simple global client for ClickHouse connections.
 Connection parameters default to environment variables.
 """
 
-from typing import Any
-from .adapter import ClientAdapter, create_client
+import os
+from clickhouse_connect.driver.asyncclient import AsyncClient
+from clickhouse_connect import get_async_client
 
 
 # Global client instance holder (list with single element)
 _client = [None]
 
 
-async def get_client() -> ClientAdapter:
+async def get_client() -> AsyncClient:
     """
     Get the global ClickHouse client instance.
 
@@ -27,10 +28,22 @@ async def get_client() -> ClientAdapter:
     - CLICKHOUSE_DB (default: "default")
 
     Returns:
-        ClientAdapter instance with unified interface
+        clickhouse-connect AsyncClient instance
     """
     if _client[0] is None:
-        _client[0] = await create_client()
+        host = os.getenv("CLICKHOUSE_HOST", "localhost")
+        port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
+        username = os.getenv("CLICKHOUSE_USER", "default")
+        password = os.getenv("CLICKHOUSE_PASSWORD", "")
+        database = os.getenv("CLICKHOUSE_DB", "default")
+
+        _client[0] = await get_async_client(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            database=database,
+        )
 
     return _client[0]
 

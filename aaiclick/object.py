@@ -38,6 +38,26 @@ class Object:
         """Get the name of this object."""
         return self._name
 
+    async def result(self):
+        """
+        Query and return all data from the object's table.
+
+        Returns:
+            Query result with all rows from the table
+        """
+        client = await get_client()
+        return await client.query(f"SELECT * FROM {self.table}")
+
+    async def data(self):
+        """
+        Get the data from the object's table as a list of tuples.
+
+        Returns:
+            List of tuples containing all rows from the table
+        """
+        result = await self.result()
+        return result.result_rows
+
     async def __add__(self, other: "Object") -> "Object":
         """
         Add two objects together.
@@ -59,7 +79,15 @@ class Object:
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
         AS SELECT a.value + b.value AS value
-        FROM {self.table} AS a, {other.table} AS b
+        FROM (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {self.table}
+        ) AS a
+        JOIN (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {other.table}
+        ) AS b
+        ON a.row_num = b.row_num
         """
         await client.command(create_query)
 
@@ -86,7 +114,15 @@ class Object:
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
         AS SELECT a.value - b.value AS value
-        FROM {self.table} AS a, {other.table} AS b
+        FROM (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {self.table}
+        ) AS a
+        JOIN (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {other.table}
+        ) AS b
+        ON a.row_num = b.row_num
         """
         await client.command(create_query)
 

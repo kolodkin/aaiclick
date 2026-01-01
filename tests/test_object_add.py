@@ -8,7 +8,7 @@ from aaiclick import create_object_from_value, get_client
 
 @pytest.mark.asyncio
 async def test_object_add_simple():
-    """Test basic addition of two objects."""
+    """Test basic element-wise addition of two objects."""
     # Create two objects with simple values
     obj_a = await create_object_from_value("test_a", [10.0, 20.0, 30.0])
     obj_b = await create_object_from_value("test_b", [5.0, 10.0, 15.0])
@@ -18,12 +18,14 @@ async def test_object_add_simple():
 
     # Verify result
     client = await get_client()
-    query_result = await client.query(f"SELECT * FROM {result.table} ORDER BY value")
+    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value")
     rows = query_result.result_rows
 
-    # Expected: (10+5, 20+10, 30+15) -> (15, 30, 45) for each combination
-    # Since it's a cartesian product, we get 9 rows
-    assert len(rows) == 9, f"Expected 9 rows, got {len(rows)}"
+    # Expected: element-wise addition (10+5, 20+10, 30+15) -> (15, 30, 45)
+    assert len(rows) == 3, f"Expected 3 rows, got {len(rows)}"
+    assert rows[0][0] == 15.0, f"Expected 15.0, got {rows[0][0]}"
+    assert rows[1][0] == 30.0, f"Expected 30.0, got {rows[1][0]}"
+    assert rows[2][0] == 45.0, f"Expected 45.0, got {rows[2][0]}"
 
     # Cleanup
     await obj_a.delete_table()
@@ -33,19 +35,21 @@ async def test_object_add_simple():
 
 @pytest.mark.asyncio
 async def test_object_add_integers():
-    """Test addition with integer values."""
+    """Test element-wise addition with integer values."""
     obj_a = await create_object_from_value("test_int_a", [1, 2, 3])
     obj_b = await create_object_from_value("test_int_b", [10, 20, 30])
 
     result = await (obj_a + obj_b)
 
     client = await get_client()
-    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value LIMIT 1")
+    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value")
     rows = query_result.result_rows
 
-    # Minimum value should be 1 + 10 = 11
-    assert len(rows) == 1
+    # Expected: element-wise (1+10, 2+20, 3+30) -> (11, 22, 33)
+    assert len(rows) == 3
     assert rows[0][0] == 11
+    assert rows[1][0] == 22
+    assert rows[2][0] == 33
 
     # Cleanup
     await obj_a.delete_table()
