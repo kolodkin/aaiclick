@@ -118,10 +118,11 @@ class Object:
         Returns:
             - For scalar: returns the value directly
             - For array: returns list of values
+            - For dict: returns dict with column names as keys
         """
         client = await get_client()
 
-        # Query column comments to determine fieldtype
+        # Query column names and comments
         columns_query = f"""
         SELECT name, comment
         FROM system.columns
@@ -130,24 +131,35 @@ class Object:
         """
         columns_result = await client.query(columns_query)
 
-        # Parse YAML from comments
+        # Parse YAML from comments and get column names
         columns: Dict[str, ColumnMeta] = {}
+        column_names: List[str] = []
         for name, comment in columns_result.result_rows:
             columns[name] = ColumnMeta.from_yaml(comment)
+            column_names.append(name)
 
         # Query data
         result = await self.result()
         rows = result.result_rows
 
-        # Check if value column is scalar or array
+        # Determine data type based on columns
+        has_row_id = "row_id" in columns
+        has_value = "value" in columns
+        is_simple_structure = set(column_names) <= {"row_id", "value"}
+
+        if not is_simple_structure:
+            # Dict: return dict with column names as keys
+            if rows:
+                return {name: rows[0][i] for i, name in enumerate(column_names)}
+            return {}
+
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
             # Scalar: return single value
             return rows[0][0] if rows else None
         else:
             # Array: return list of values
-            # Find the value column index (skip row_id if present)
-            if "row_id" in columns:
+            if has_row_id:
                 return [row[1] for row in rows]
             else:
                 return [row[0] for row in rows]

@@ -56,10 +56,11 @@ This indicates an array column.
 
 ## The data() Method
 
-The `data()` method returns values directly based on the fieldtype:
+The `data()` method returns values directly based on the data type:
 
 - **Scalar**: returns the value directly
 - **Array**: returns a list of values
+- **Dict**: returns a dict with column names as keys
 
 ### Scalar Example
 
@@ -89,4 +90,15 @@ obj = await create_object_from_value([1, 2, 3, 4, 5])
 # Get list of values directly
 values = await obj.data()
 print(values)  # [1, 2, 3, 4, 5]
+```
+
+### Dict Example
+
+```python
+# Create dict object
+obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
+
+# Get dict directly
+data = await obj.data()
+print(data)  # {"id": 1, "name": "Alice", "age": 30}
 ```
