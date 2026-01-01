@@ -74,7 +74,11 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
+          # List of examples to run (update this list when adding new examples):
+          # - basic_operators: Basic arithmetic operations and object creation
+          # - statistics: Statistical methods (min, max, sum, mean, std)
         run: |
+          # Run each example and capture output
           echo "Running basic_operators example..."
           uv run python -m aaiclick.examples.basic_operators > basic_operators_output.txt 2>&1
           echo "Basic operators example completed successfully!"
@@ -86,6 +90,7 @@ jobs:
       - name: Add example outputs to summary
         if: always()
         run: |
+          # Add outputs for each example (keep in sync with list above)
           echo "## 📊 Example Outputs" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -105,6 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: example-outputs
+          # List of example output files (keep in sync with list above)
           path: |
             basic_operators_output.txt
             statistics_output.txt
