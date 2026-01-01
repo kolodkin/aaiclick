@@ -39,12 +39,13 @@ All operations are immutable - no in-place modifications. Each operation returns
 
 When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
 
-### Fieldtype Values
+### Fieldtype Constants
 
-| Value | Meaning |
-|-------|---------|
-| `s` | Scalar - single value per row |
-| `a` | Array - column represents array elements across rows |
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value |
+| `FIELDTYPE_ARRAY` | `'a'` | Array - list of values |
+| `FIELDTYPE_DICT` | `'d'` | Dict - structured record |
 
 ### Example Column Comment
 
@@ -58,9 +59,10 @@ This indicates an array column.
 
 The `data()` method returns values directly based on the data type:
 
-- **Scalar** (`s`): returns the value directly
-- **Array** (`a`): returns a list of values
-- **Dict** (`d`): returns a dict with column names as keys
+- **Scalar**: returns the value directly
+- **Array**: returns a list of values
+- **Dict (single row)**: returns dict directly
+- **Dict (multiple rows)**: use `orient` parameter to control output format
 
 ### Scalar Example
 
@@ -92,28 +94,35 @@ values = await obj.data()
 print(values)  # [1, 2, 3, 4, 5]
 ```
 
-### Dict Example
+### Dict Example (Single Row)
 
 ```python
-from aaiclick import create_object_from_value, ORIENT_DICT, ORIENT_RECORDS
+from aaiclick import create_object_from_value
 
-# Create dict object
+# Create dict object (single row)
 obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
 
-# Get dict directly (default orient='dict')
+# Get dict directly
 data = await obj.data()
 print(data)  # {"id": 1, "name": "Alice", "age": 30}
-
-# With orient='records' - returns list of dicts
-data = await obj.data(orient=ORIENT_RECORDS)
-print(data)  # [{"id": 1, "name": "Alice", "age": 30}]
 ```
 
-### Orient Parameter
+### Orient Parameter (for Dict with Multiple Rows)
 
-The `orient` parameter controls the output format for dict data:
+The `orient` parameter controls the output format when dict has multiple rows:
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `ORIENT_DICT` | `'dict'` | Returns dict with column names as keys (default) |
+| `ORIENT_DICT` | `'dict'` | Returns first row as dict (default) |
 | `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row) |
+
+```python
+from aaiclick import ORIENT_DICT, ORIENT_RECORDS
+
+# Default orient='dict' - returns first row as dict
+data = await obj.data()
+
+# orient='records' - returns list of dicts
+data = await obj.data(orient=ORIENT_RECORDS)
+print(data)  # [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+```
