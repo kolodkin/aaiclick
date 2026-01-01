@@ -107,7 +107,7 @@ async def create_object(schema: Schema) -> Object:
     create_query = f"""
     CREATE TABLE {obj.table} (
         {columns}
-    ) ENGINE = Memory
+    ) ENGINE = MergeTree ORDER BY tuple()
     """
     await client.command(create_query)
     return obj
@@ -165,7 +165,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         create_query = f"""
         CREATE TABLE {obj.table} (
             {", ".join(columns)}
-        ) ENGINE = Memory
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
@@ -184,7 +184,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         CREATE TABLE {obj.table} (
             row_id UInt64 COMMENT '{row_id_comment}',
             value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = Memory
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
@@ -208,7 +208,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         create_query = f"""
         CREATE TABLE {obj.table} (
             value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = Memory
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 

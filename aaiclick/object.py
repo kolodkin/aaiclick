@@ -108,7 +108,7 @@ class Object:
         client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
-        ENGINE = Memory
+        ENGINE = MergeTree ORDER BY tuple()
         AS SELECT a.row_id, a.value + b.value AS value
         FROM {self.table} AS a
         JOIN {other.table} AS b
@@ -136,7 +136,7 @@ class Object:
         client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
-        ENGINE = Memory
+        ENGINE = MergeTree ORDER BY tuple()
         AS SELECT a.row_id, a.value - b.value AS value
         FROM {self.table} AS a
         JOIN {other.table} AS b
