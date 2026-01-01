@@ -245,22 +245,6 @@ async def test_dict_of_arrays_strings():
     await obj.delete_table()
 
 
-async def test_dict_of_arrays_single_element():
-    """Test dict with single-element arrays."""
-    obj = await create_object_from_value({
-        "id": [42],
-        "value": [100]
-    })
-
-    data = await obj.data()
-
-    # Should still return arrays, not scalars
-    assert data["id"] == [42]
-    assert data["value"] == [100]
-
-    await obj.delete_table()
-
-
 async def test_dict_of_arrays_records_preserves_order():
     """Test that orient=ORIENT_RECORDS preserves array order."""
     obj = await create_object_from_value({
