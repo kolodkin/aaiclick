@@ -111,6 +111,61 @@ class SnowflakeGenerator:
 
             return snowflake_id
 
+    def generate_bulk(self, count: int) -> list[int]:
+        """
+        Generate multiple sequential Snowflake IDs efficiently.
+
+        This method generates a bulk of sequential IDs in a single lock acquisition,
+        which is more efficient than calling generate() multiple times.
+
+        Args:
+            count: Number of IDs to generate
+
+        Returns:
+            list[int]: List of unique 64-bit Snowflake IDs in ascending order
+
+        Raises:
+            ValueError: If count is less than 1
+            RuntimeError: If clock moves backwards
+        """
+        if count < 1:
+            raise ValueError(f"Count must be at least 1, got {count}")
+
+        ids = []
+        with self.lock:
+            for _ in range(count):
+                timestamp = self._current_timestamp()
+
+                # Check for clock moving backwards
+                if timestamp < self.last_timestamp:
+                    raise RuntimeError(
+                        f"Clock moved backwards. Refusing to generate ID for "
+                        f"{self.last_timestamp - timestamp}ms"
+                    )
+
+                # Same millisecond - increment sequence
+                if timestamp == self.last_timestamp:
+                    self.sequence = (self.sequence + 1) & MAX_SEQUENCE
+                    # Sequence overflow - wait for next millisecond
+                    if self.sequence == 0:
+                        timestamp = self._wait_next_millis(self.last_timestamp)
+                else:
+                    # New millisecond - reset sequence
+                    self.sequence = 0
+
+                self.last_timestamp = timestamp
+
+                # Combine all parts into final ID
+                snowflake_id = (
+                    (timestamp << TIMESTAMP_SHIFT)
+                    | (self.machine_id << MACHINE_ID_SHIFT)
+                    | self.sequence
+                )
+
+                ids.append(snowflake_id)
+
+        return ids
+
 
 # Global generator instance
 _generator = SnowflakeGenerator()
@@ -124,3 +179,16 @@ def generate_snowflake_id() -> int:
         int: Unique 64-bit Snowflake ID
     """
     return _generator.generate()
+
+
+def generate_snowflake_ids(count: int) -> list[int]:
+    """
+    Generate multiple sequential Snowflake IDs using the global generator.
+
+    Args:
+        count: Number of IDs to generate
+
+    Returns:
+        list[int]: List of unique 64-bit Snowflake IDs in ascending order
+    """
+    return _generator.generate_bulk(count)

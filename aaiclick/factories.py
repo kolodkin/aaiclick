@@ -9,6 +9,7 @@ from typing import Union, Dict, List
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .client import get_client
+from .snowflake import generate_snowflake_ids
 
 
 # Type aliases
@@ -179,10 +180,13 @@ async def create_object_from_value(val: ValueType) -> Object:
             """
             await client.command(create_query)
 
+            # Generate snowflake IDs for all rows
+            row_ids = generate_snowflake_ids(array_len or 0)
+
             # Insert rows
             keys = list(val.keys())
             for idx in range(array_len or 0):
-                row_values = [str(idx)]
+                row_values = [str(row_ids[idx])]
                 for key in keys:
                     item = val[key][idx]
                     if isinstance(item, str):
@@ -239,7 +243,10 @@ async def create_object_from_value(val: ValueType) -> Object:
         """
         await client.command(create_query)
 
-        # Insert multiple rows with explicit row IDs
+        # Generate snowflake IDs for all rows
+        row_ids = generate_snowflake_ids(len(val))
+
+        # Insert multiple rows with snowflake row IDs
         for idx, item in enumerate(val):
             if isinstance(item, str):
                 value_str = f"'{item}'"
@@ -248,7 +255,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             else:
                 value_str = str(item)
 
-            insert_query = f"INSERT INTO {obj.table} VALUES ({idx}, {value_str})"
+            insert_query = f"INSERT INTO {obj.table} VALUES ({row_ids[idx]}, {value_str})"
             await client.command(insert_query)
 
     else:

@@ -9,7 +9,7 @@ from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 import yaml
 from .client import get_client
-from .snowflake import generate_snowflake_id
+from .snowflake import generate_snowflake_id, generate_snowflake_ids
 
 
 # Fieldtype constants
@@ -239,14 +239,26 @@ class Object:
 
         if has_row_id:
             # Array operation with row_id
+            # Use position-based joining with row_number() to match elements by position
             row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
-            AS SELECT a.row_id, a.value + b.value AS value
-            FROM {self.table} AS a
-            JOIN {other.table} AS b
-            ON a.row_id = b.row_id
+            AS
+            WITH
+                a_numbered AS (
+                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    FROM {self.table}
+                ),
+                b_numbered AS (
+                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    FROM {other.table}
+                )
+            SELECT
+                a_numbered.rn AS row_id,
+                a_numbered.value + b_numbered.value AS value
+            FROM a_numbered
+            INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
             """
             await client.command(create_query)
             # Add comments
@@ -287,14 +299,26 @@ class Object:
 
         if has_row_id:
             # Array operation with row_id
+            # Use position-based joining with row_number() to match elements by position
             row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
-            AS SELECT a.row_id, a.value - b.value AS value
-            FROM {self.table} AS a
-            JOIN {other.table} AS b
-            ON a.row_id = b.row_id
+            AS
+            WITH
+                a_numbered AS (
+                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    FROM {self.table}
+                ),
+                b_numbered AS (
+                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    FROM {other.table}
+                )
+            SELECT
+                a_numbered.rn AS row_id,
+                a_numbered.value - b_numbered.value AS value
+            FROM a_numbered
+            INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
             """
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN row_id '{row_id_comment}'")
