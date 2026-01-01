@@ -111,22 +111,17 @@ class Object:
         client = await get_client()
         return await client.query(f"SELECT * FROM {self.table}")
 
-    async def data(self) -> DataResult:
+    async def data(self):
         """
-        Get the data from the object's table with column metadata.
+        Get the data from the object's table.
 
         Returns:
-            DataResult: Contains rows (list of tuples) and columns (dict of ColumnMeta)
-                - rows: Data from the table
-                - columns: Dict mapping column name to ColumnMeta with datatype/fieldtype
+            - For scalar: returns the value directly
+            - For array: returns list of values
         """
         client = await get_client()
 
-        # Query data
-        result = await self.result()
-        rows = result.result_rows
-
-        # Query column comments from system.columns
+        # Query column comments to determine fieldtype
         columns_query = f"""
         SELECT name, comment
         FROM system.columns
@@ -140,7 +135,45 @@ class Object:
         for name, comment in columns_result.result_rows:
             columns[name] = ColumnMeta.from_yaml(comment)
 
-        return DataResult(rows=rows, columns=columns)
+        # Query data
+        result = await self.result()
+        rows = result.result_rows
+
+        # Check if value column is scalar or array
+        value_meta = columns.get("value")
+        if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
+            # Scalar: return single value
+            return rows[0][0] if rows else None
+        else:
+            # Array: return list of values
+            # Find the value column index (skip row_id if present)
+            if "row_id" in columns:
+                return [row[1] for row in rows]
+            else:
+                return [row[0] for row in rows]
+
+    async def _has_row_id(self) -> bool:
+        """Check if this object's table has a row_id column."""
+        client = await get_client()
+        columns_query = f"""
+        SELECT name FROM system.columns
+        WHERE table = '{self.table}' AND name = 'row_id'
+        """
+        result = await client.query(columns_query)
+        return len(result.result_rows) > 0
+
+    async def _get_fieldtype(self) -> Optional[str]:
+        """Get the fieldtype of the value column."""
+        client = await get_client()
+        columns_query = f"""
+        SELECT comment FROM system.columns
+        WHERE table = '{self.table}' AND name = 'value'
+        """
+        result = await client.query(columns_query)
+        if result.result_rows:
+            meta = ColumnMeta.from_yaml(result.result_rows[0][0])
+            return meta.fieldtype
+        return None
 
     async def __add__(self, other: "Object") -> "Object":
         """
@@ -155,18 +188,38 @@ class Object:
             Object: New Object instance pointing to result table
         """
         result = Object()
-
-        # Execute the addition operation in ClickHouse
         client = await get_client()
-        create_query = f"""
-        CREATE TABLE IF NOT EXISTS {result.table}
-        ENGINE = MergeTree ORDER BY tuple()
-        AS SELECT a.row_id, a.value + b.value AS value
-        FROM {self.table} AS a
-        JOIN {other.table} AS b
-        ON a.row_id = b.row_id
-        """
-        await client.command(create_query)
+
+        # Check if operating on scalars or arrays
+        has_row_id = await self._has_row_id()
+        fieldtype = await self._get_fieldtype()
+        comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
+
+        if has_row_id:
+            # Array operation with row_id
+            row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+            create_query = f"""
+            CREATE TABLE {result.table}
+            ENGINE = MergeTree ORDER BY tuple()
+            AS SELECT a.row_id, a.value + b.value AS value
+            FROM {self.table} AS a
+            JOIN {other.table} AS b
+            ON a.row_id = b.row_id
+            """
+            await client.command(create_query)
+            # Add comments
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN row_id '{row_id_comment}'")
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
+        else:
+            # Scalar operation
+            create_query = f"""
+            CREATE TABLE {result.table}
+            ENGINE = MergeTree ORDER BY tuple()
+            AS SELECT a.value + b.value AS value
+            FROM {self.table} AS a, {other.table} AS b
+            """
+            await client.command(create_query)
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
 
         return result
 
@@ -183,18 +236,37 @@ class Object:
             Object: New Object instance pointing to result table
         """
         result = Object()
-
-        # Execute the subtraction operation in ClickHouse
         client = await get_client()
-        create_query = f"""
-        CREATE TABLE IF NOT EXISTS {result.table}
-        ENGINE = MergeTree ORDER BY tuple()
-        AS SELECT a.row_id, a.value - b.value AS value
-        FROM {self.table} AS a
-        JOIN {other.table} AS b
-        ON a.row_id = b.row_id
-        """
-        await client.command(create_query)
+
+        # Check if operating on scalars or arrays
+        has_row_id = await self._has_row_id()
+        fieldtype = await self._get_fieldtype()
+        comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
+
+        if has_row_id:
+            # Array operation with row_id
+            row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+            create_query = f"""
+            CREATE TABLE {result.table}
+            ENGINE = MergeTree ORDER BY tuple()
+            AS SELECT a.row_id, a.value - b.value AS value
+            FROM {self.table} AS a
+            JOIN {other.table} AS b
+            ON a.row_id = b.row_id
+            """
+            await client.command(create_query)
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN row_id '{row_id_comment}'")
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
+        else:
+            # Scalar operation
+            create_query = f"""
+            CREATE TABLE {result.table}
+            ENGINE = MergeTree ORDER BY tuple()
+            AS SELECT a.value - b.value AS value
+            FROM {self.table} AS a, {other.table} AS b
+            """
+            await client.command(create_query)
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
 
         return result
 

@@ -63,18 +63,18 @@ async def test_object_add_scalar():
     obj_a = await create_object_from_value(100.0)
     obj_b = await create_object_from_value(50.0)
 
-    # Check .data() returns scalar fieldtype
-    data_a = await obj_a.data()
-    assert len(data_a.rows) == 1
-    assert data_a.columns["value"].fieldtype == "s"
+    # Check .data() returns scalar value directly
+    assert await obj_a.data() == 100.0
+    assert await obj_b.data() == 50.0
 
-    data_b = await obj_b.data()
-    assert len(data_b.rows) == 1
-    assert data_b.columns["value"].fieldtype == "s"
+    # Add scalars
+    result = await (obj_a + obj_b)
+    assert await result.data() == 150.0
 
     # Cleanup
     await obj_a.delete_table()
     await obj_b.delete_table()
+    await result.delete_table()
 
 
 @pytest.mark.asyncio

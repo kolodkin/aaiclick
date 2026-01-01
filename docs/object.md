@@ -54,40 +54,39 @@ When tables are created via factory functions, each column gets a YAML comment c
 
 This indicates an array column.
 
-## Usage Example
+## The data() Method
+
+The `data()` method returns values directly based on the fieldtype:
+
+- **Scalar**: returns the value directly
+- **Array**: returns a list of values
+
+### Scalar Example
 
 ```python
 from aaiclick import create_object_from_value
 
-# Create object from array
+# Create scalar object
+obj = await create_object_from_value(42.0)
+
+# Get scalar value directly
+value = await obj.data()
+print(value)  # 42.0
+
+# Scalar addition
+a = await create_object_from_value(100.0)
+b = await create_object_from_value(50.0)
+result = await (a + b)
+print(await result.data())  # 150.0
+```
+
+### Array Example
+
+```python
+# Create array object
 obj = await create_object_from_value([1, 2, 3, 4, 5])
 
-# Get data with metadata
-data = await obj.data()
-
-# Access rows
-print(data.rows)  # [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]
-
-# Access column metadata
-print(data.columns["value"].fieldtype)  # 'a'
-print(data.columns["row_id"].fieldtype) # 's'
-```
-
-## DataResult Structure
-
-The `data()` method returns a `DataResult` object:
-
-```python
-@dataclass
-class DataResult:
-    rows: List[Tuple[Any, ...]]      # Table data
-    columns: Dict[str, ColumnMeta]    # Column name -> metadata
-```
-
-## ColumnMeta Structure
-
-```python
-@dataclass
-class ColumnMeta:
-    fieldtype: Optional[str]  # 's' or 'a'
+# Get list of values directly
+values = await obj.data()
+print(values)  # [1, 2, 3, 4, 5]
 ```
