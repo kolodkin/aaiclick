@@ -90,7 +90,8 @@ jobs:
       - name: Add example outputs to summary
         if: always()
         run: |
-          # Use Python script to generate summary (maintains list in .github/scripts/generate_summary.py)
+          # Python script auto-discovers all *_output.txt files
+          # Edit .github/scripts/generate_summary.py to customize display order/titles
           python .github/scripts/generate_summary.py
 
       - name: Upload example outputs as artifacts
@@ -98,8 +99,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: example-outputs
-          # Output files (keep in sync with .github/scripts/generate_summary.py)
-          path: |
-            basic_operators_output.txt
-            statistics_output.txt
+          # Automatically include all example output files
+          path: '*_output.txt'
           retention-days: 30
