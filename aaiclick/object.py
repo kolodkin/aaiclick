@@ -149,21 +149,21 @@ class Object:
             column_names.append(name)
 
         # Determine data type based on columns
-        has_row_id = "row_id" in columns
+        has_aai_id = "aai_id" in columns
 
-        # Query data (order by row_id for arrays)
-        if has_row_id:
-            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY row_id")
+        # Query data (order by aai_id for arrays)
+        if has_aai_id:
+            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
         else:
             data_result = await self.result()
         rows = data_result.result_rows
 
-        is_simple_structure = set(column_names) <= {"row_id", "value"}
+        is_simple_structure = set(column_names) <= {"aai_id", "value"}
 
         if not is_simple_structure:
             # Dict type (scalar or arrays)
-            # Filter out row_id from output
-            output_columns = [name for name in column_names if name != "row_id"]
+            # Filter out aai_id from output
+            output_columns = [name for name in column_names if name != "aai_id"]
             col_indices = {name: column_names.index(name) for name in output_columns}
 
             # Check if this is dict of arrays by looking at fieldtype
@@ -189,17 +189,17 @@ class Object:
             return rows[0][0] if rows else None
         else:
             # Array: return list of values
-            if has_row_id:
+            if has_aai_id:
                 return [row[1] for row in rows]
             else:
                 return [row[0] for row in rows]
 
-    async def _has_row_id(self) -> bool:
-        """Check if this object's table has a row_id column."""
+    async def _has_aai_id(self) -> bool:
+        """Check if this object's table has a aai_id column."""
         client = await get_client()
         columns_query = f"""
         SELECT name FROM system.columns
-        WHERE table = '{self.table}' AND name = 'row_id'
+        WHERE table = '{self.table}' AND name = 'aai_id'
         """
         result = await client.query(columns_query)
         return len(result.result_rows) > 0
@@ -233,36 +233,36 @@ class Object:
         client = await get_client()
 
         # Check if operating on scalars or arrays
-        has_row_id = await self._has_row_id()
+        has_aai_id = await self._has_aai_id()
         fieldtype = await self._get_fieldtype()
         comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
 
-        if has_row_id:
-            # Array operation with row_id
+        if has_aai_id:
+            # Array operation with aai_id
             # Use position-based joining with row_number() to match elements by position
-            row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
             WITH
                 a_numbered AS (
-                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
                     FROM {self.table}
                 ),
                 b_numbered AS (
-                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
                     FROM {other.table}
                 )
             SELECT
-                a_numbered.rn AS row_id,
+                a_numbered.rn AS aai_id,
                 a_numbered.value + b_numbered.value AS value
             FROM a_numbered
             INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
             """
             await client.command(create_query)
             # Add comments
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN row_id '{row_id_comment}'")
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation
@@ -293,35 +293,35 @@ class Object:
         client = await get_client()
 
         # Check if operating on scalars or arrays
-        has_row_id = await self._has_row_id()
+        has_aai_id = await self._has_aai_id()
         fieldtype = await self._get_fieldtype()
         comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
 
-        if has_row_id:
-            # Array operation with row_id
+        if has_aai_id:
+            # Array operation with aai_id
             # Use position-based joining with row_number() to match elements by position
-            row_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
             WITH
                 a_numbered AS (
-                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
                     FROM {self.table}
                 ),
                 b_numbered AS (
-                    SELECT row_number() OVER (ORDER BY row_id) AS rn, value
+                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
                     FROM {other.table}
                 )
             SELECT
-                a_numbered.rn AS row_id,
+                a_numbered.rn AS aai_id,
                 a_numbered.value - b_numbered.value AS value
             FROM a_numbered
             INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
             """
             await client.command(create_query)
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN row_id '{row_id_comment}'")
+            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation

@@ -169,9 +169,9 @@ async def create_object_from_value(val: ValueType) -> Object:
                 comment = _build_column_comment(FIELDTYPE_ARRAY)
                 columns.append(f"{key} {col_type} COMMENT '{comment}'")
 
-            # Add row_id for ordering
-            row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-            columns.insert(0, f"row_id UInt64 COMMENT '{row_id_comment}'")
+            # Add aai_id for ordering
+            aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+            columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
 
             create_query = f"""
             CREATE TABLE {obj.table} (
@@ -181,12 +181,12 @@ async def create_object_from_value(val: ValueType) -> Object:
             await client.command(create_query)
 
             # Generate snowflake IDs for all rows
-            row_ids = generate_snowflake_ids(array_len or 0)
+            aai_ids = generate_snowflake_ids(array_len or 0)
 
             # Insert rows
             keys = list(val.keys())
             for idx in range(array_len or 0):
-                row_values = [str(row_ids[idx])]
+                row_values = [str(aai_ids[idx])]
                 for key in keys:
                     item = val[key][idx]
                     if isinstance(item, str):
@@ -230,21 +230,21 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
-        # Add row_id column to ensure stable ordering for element-wise operations
+        # Add aai_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
-        row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_ARRAY)
 
         create_query = f"""
         CREATE TABLE {obj.table} (
-            row_id UInt64 COMMENT '{row_id_comment}',
+            aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
         # Generate snowflake IDs for all rows
-        row_ids = generate_snowflake_ids(len(val))
+        aai_ids = generate_snowflake_ids(len(val))
 
         # Insert multiple rows with snowflake row IDs
         for idx, item in enumerate(val):
@@ -255,7 +255,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             else:
                 value_str = str(item)
 
-            insert_query = f"INSERT INTO {obj.table} VALUES ({row_ids[idx]}, {value_str})"
+            insert_query = f"INSERT INTO {obj.table} VALUES ({aai_ids[idx]}, {value_str})"
             await client.command(insert_query)
 
     else:
