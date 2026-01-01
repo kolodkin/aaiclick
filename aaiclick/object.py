@@ -161,14 +161,26 @@ class Object:
         is_simple_structure = set(column_names) <= {"row_id", "value"}
 
         if not is_simple_structure:
-            # Dict type
+            # Dict type (scalar or arrays)
+            # Filter out row_id from output
+            output_columns = [name for name in column_names if name != "row_id"]
+            col_indices = {name: column_names.index(name) for name in output_columns}
+
+            # Check if this is dict of arrays by looking at fieldtype
+            first_col = output_columns[0] if output_columns else None
+            is_dict_of_arrays = first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
+
             if orient == ORIENT_RECORDS:
                 # Return list of dicts (one per row)
-                return [{name: row[i] for i, name in enumerate(column_names)} for row in rows]
+                return [{name: row[col_indices[name]] for name in output_columns} for row in rows]
             else:
-                # Return single dict (first row)
-                if rows:
-                    return {name: rows[0][i] for i, name in enumerate(column_names)}
+                # ORIENT_DICT
+                if is_dict_of_arrays:
+                    # Dict of arrays: return dict with arrays as values
+                    return {name: [row[col_indices[name]] for row in rows] for name in output_columns}
+                elif rows:
+                    # Dict of scalars: return single dict (first row)
+                    return {name: rows[0][col_indices[name]] for name in output_columns}
                 return {}
 
         value_meta = columns.get("value")

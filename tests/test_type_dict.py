@@ -164,7 +164,115 @@ async def test_dict_with_zero_values():
 # =============================================================================
 # Dict of Arrays Tests
 # =============================================================================
-# NOTE: Dict of arrays requires implementation in factories.py
-# The following tests are placeholders for when the feature is implemented.
-# Current implementation stores arrays as string representations.
-# TODO: Implement proper array handling in create_object_from_value for dicts
+
+async def test_dict_of_arrays_creation():
+    """Test creating a dict with array values."""
+    obj = await create_object_from_value({
+        "id": [1, 2, 3],
+        "value": [10, 20, 30]
+    })
+
+    data = await obj.data()
+
+    assert isinstance(data, dict)
+    assert data["id"] == [1, 2, 3]
+    assert data["value"] == [10, 20, 30]
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_orient_dict():
+    """Test dict of arrays with orient=ORIENT_DICT returns dict with arrays."""
+    obj = await create_object_from_value({
+        "name": ["Alice", "Bob"],
+        "age": [30, 25]
+    })
+
+    data = await obj.data(orient=ORIENT_DICT)
+
+    assert isinstance(data, dict)
+    assert data["name"] == ["Alice", "Bob"]
+    assert data["age"] == [30, 25]
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_orient_records():
+    """Test dict of arrays with orient=ORIENT_RECORDS returns list of row dicts."""
+    obj = await create_object_from_value({
+        "name": ["Alice", "Bob", "Charlie"],
+        "age": [30, 25, 35]
+    })
+
+    data = await obj.data(orient=ORIENT_RECORDS)
+
+    assert isinstance(data, list)
+    assert len(data) == 3
+    assert data[0] == {"name": "Alice", "age": 30}
+    assert data[1] == {"name": "Bob", "age": 25}
+    assert data[2] == {"name": "Charlie", "age": 35}
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_floats():
+    """Test dict with float arrays."""
+    obj = await create_object_from_value({
+        "x": [1.5, 2.5, 3.5],
+        "y": [4.5, 5.5, 6.5]
+    })
+
+    data = await obj.data()
+
+    assert data["x"] == [1.5, 2.5, 3.5]
+    assert data["y"] == [4.5, 5.5, 6.5]
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_strings():
+    """Test dict with string arrays."""
+    obj = await create_object_from_value({
+        "first": ["John", "Jane"],
+        "last": ["Doe", "Smith"]
+    })
+
+    data = await obj.data()
+
+    assert data["first"] == ["John", "Jane"]
+    assert data["last"] == ["Doe", "Smith"]
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_single_element():
+    """Test dict with single-element arrays."""
+    obj = await create_object_from_value({
+        "id": [42],
+        "value": [100]
+    })
+
+    data = await obj.data()
+
+    # Should still return arrays, not scalars
+    assert data["id"] == [42]
+    assert data["value"] == [100]
+
+    await obj.delete_table()
+
+
+async def test_dict_of_arrays_records_preserves_order():
+    """Test that orient=ORIENT_RECORDS preserves array order."""
+    obj = await create_object_from_value({
+        "letter": ["z", "a", "m"],
+        "number": [3, 1, 2]
+    })
+
+    data = await obj.data(orient=ORIENT_RECORDS)
+
+    # Order should match original array order
+    assert data[0] == {"letter": "z", "number": 3}
+    assert data[1] == {"letter": "a", "number": 1}
+    assert data[2] == {"letter": "m", "number": 2}
+
+    await obj.delete_table()
