@@ -78,13 +78,16 @@ jobs:
           # - basic_operators: Basic arithmetic operations and object creation
           # - statistics: Statistical methods (min, max, sum, mean, std)
         run: |
+          # Create tmp directory for output files
+          mkdir -p tmp
+
           # Run each example and capture output
           echo "Running basic_operators example..."
-          uv run python -m aaiclick.examples.basic_operators > basic_operators_output.txt 2>&1
+          uv run python -m aaiclick.examples.basic_operators > tmp/basic_operators_output.txt 2>&1
           echo "Basic operators example completed successfully!"
 
           echo "Running statistics example..."
-          uv run python -m aaiclick.examples.statistics > statistics_output.txt 2>&1
+          uv run python -m aaiclick.examples.statistics > tmp/statistics_output.txt 2>&1
           echo "Statistics example completed successfully!"
 
       - name: Add example outputs to summary
@@ -99,6 +102,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: example-outputs
-          # Automatically include all example output files
-          path: '*_output.txt'
+          # Automatically include all example output files from tmp/
+          path: 'tmp/*_output.txt'
           retention-days: 30

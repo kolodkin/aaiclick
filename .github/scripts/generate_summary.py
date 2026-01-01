@@ -35,7 +35,7 @@ def get_example_title(module_name):
 
 def discover_example_outputs():
     """Discover all example output files."""
-    output_files = sorted(Path(".").glob("*_output.txt"))
+    output_files = sorted(Path("tmp").glob("*_output.txt"))
 
     # Extract module names
     examples = []
@@ -69,7 +69,7 @@ def generate_summary():
 
     # Add each example output
     for module_name in examples:
-        output_file = f"{module_name}_output.txt"
+        output_file = f"tmp/{module_name}_output.txt"
         display_title = get_example_title(module_name)
 
         summary_parts.append(f"\n### {display_title}\n")
