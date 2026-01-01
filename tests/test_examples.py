@@ -12,3 +12,12 @@ async def test_basic_operators_example():
 
     # Run the example - should complete without errors
     await main()
+
+
+@pytest.mark.asyncio
+async def test_statistics_example():
+    """Test that the statistics example runs successfully."""
+    from aaiclick.examples.statistics import main
+
+    # Run the example - should complete without errors
+    await main()
