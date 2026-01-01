@@ -105,7 +105,7 @@ async def create_object(schema: Schema) -> Object:
         columns = ", ".join(schema)
 
     create_query = f"""
-    CREATE TABLE IF NOT EXISTS {obj.table} (
+    CREATE TABLE {obj.table} (
         {columns}
     ) ENGINE = Memory
     """
@@ -163,7 +163,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 values.append(str(value))
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
+        CREATE TABLE {obj.table} (
             {", ".join(columns)}
         ) ENGINE = Memory
         """
@@ -181,7 +181,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         value_comment = _build_column_comment(col_type, FIELDTYPE_ARRAY)
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
+        CREATE TABLE {obj.table} (
             row_id UInt64 COMMENT '{row_id_comment}',
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = Memory
@@ -206,7 +206,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         value_comment = _build_column_comment(col_type, FIELDTYPE_SCALAR)
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
+        CREATE TABLE {obj.table} (
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = Memory
         """
