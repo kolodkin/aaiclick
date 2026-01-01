@@ -86,8 +86,9 @@ async def test_object_add_result_table_name():
 
     result = await (obj_a + obj_b)
 
-    # Check that result table name is a valid Snowflake ID (numeric string)
-    assert result.table.isdigit(), f"Expected numeric table name, got {result.table}"
+    # Check that result table name starts with 't' followed by Snowflake ID
+    assert result.table.startswith('t'), f"Expected table name to start with 't', got {result.table}"
+    assert result.table[1:].isdigit(), f"Expected numeric Snowflake ID after 't', got {result.table}"
 
     # Check that table exists
     client = await get_client()

@@ -100,7 +100,7 @@ async def main():
 
         obj_x = aaiclick.Object()
         obj_y = aaiclick.Object()
-        print(f"Each object gets a unique Snowflake ID as table name:")
+        print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
         print(f"  Object 1 -> table: {obj_x.table}")
         print(f"  Object 2 -> table: {obj_y.table}")
 

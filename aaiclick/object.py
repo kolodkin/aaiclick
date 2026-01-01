@@ -24,9 +24,9 @@ class Object:
 
         Args:
             table: Optional table name. If not provided, generates unique table name
-                  using Snowflake ID
+                  using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        self._table_name = table if table is not None else str(generate_snowflake_id())
+        self._table_name = table if table is not None else f"t{generate_snowflake_id()}"
 
     @property
     def table(self) -> str:
