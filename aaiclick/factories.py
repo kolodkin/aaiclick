@@ -140,35 +140,89 @@ async def create_object_from_value(val: ValueType) -> Object:
     client = await get_client()
 
     if isinstance(val, dict):
-        # Dict: one column per key
-        columns = []
-        values = []
+        # Check if any values are lists (dict of arrays)
+        has_arrays = any(isinstance(v, list) for v in val.values())
 
-        for key, value in val.items():
-            col_type = _infer_clickhouse_type(value)
-            # Determine fieldtype: 'a' for list/array, 's' for scalar
-            fieldtype = FIELDTYPE_ARRAY if isinstance(value, list) else FIELDTYPE_SCALAR
-            comment = _build_column_comment(fieldtype)
-            columns.append(f"{key} {col_type} COMMENT '{comment}'")
+        if has_arrays:
+            # Dict of arrays: one column per key, one row per array element
+            # All arrays must have the same length
+            columns = []
+            array_len = None
 
-            # Format value for SQL
-            if isinstance(value, str):
-                values.append(f"'{value}'")
-            elif isinstance(value, bool):
-                values.append("1" if value else "0")
-            else:
-                values.append(str(value))
+            # First pass: build columns and validate array lengths
+            for key, value in val.items():
+                if isinstance(value, list):
+                    if array_len is None:
+                        array_len = len(value)
+                    elif len(value) != array_len:
+                        raise ValueError(
+                            f"All arrays must have same length. "
+                            f"Expected {array_len}, got {len(value)} for key '{key}'"
+                        )
+                    col_type = _infer_clickhouse_type(value)
+                else:
+                    raise ValueError(
+                        f"Dict of arrays requires all values to be lists. "
+                        f"Key '{key}' has type {type(value).__name__}"
+                    )
+                comment = _build_column_comment(FIELDTYPE_ARRAY)
+                columns.append(f"{key} {col_type} COMMENT '{comment}'")
 
-        create_query = f"""
-        CREATE TABLE {obj.table} (
-            {", ".join(columns)}
-        ) ENGINE = MergeTree ORDER BY tuple()
-        """
-        await client.command(create_query)
+            # Add row_id for ordering
+            row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+            columns.insert(0, f"row_id UInt64 COMMENT '{row_id_comment}'")
 
-        # Insert single row
-        insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-        await client.command(insert_query)
+            create_query = f"""
+            CREATE TABLE {obj.table} (
+                {", ".join(columns)}
+            ) ENGINE = MergeTree ORDER BY tuple()
+            """
+            await client.command(create_query)
+
+            # Insert rows
+            keys = list(val.keys())
+            for idx in range(array_len or 0):
+                row_values = [str(idx)]
+                for key in keys:
+                    item = val[key][idx]
+                    if isinstance(item, str):
+                        row_values.append(f"'{item}'")
+                    elif isinstance(item, bool):
+                        row_values.append("1" if item else "0")
+                    else:
+                        row_values.append(str(item))
+
+                insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(row_values)})"
+                await client.command(insert_query)
+
+        else:
+            # Dict of scalars: one column per key, single row
+            columns = []
+            values = []
+
+            for key, value in val.items():
+                col_type = _infer_clickhouse_type(value)
+                comment = _build_column_comment(FIELDTYPE_SCALAR)
+                columns.append(f"{key} {col_type} COMMENT '{comment}'")
+
+                # Format value for SQL
+                if isinstance(value, str):
+                    values.append(f"'{value}'")
+                elif isinstance(value, bool):
+                    values.append("1" if value else "0")
+                else:
+                    values.append(str(value))
+
+            create_query = f"""
+            CREATE TABLE {obj.table} (
+                {", ".join(columns)}
+            ) ENGINE = MergeTree ORDER BY tuple()
+            """
+            await client.command(create_query)
+
+            # Insert single row
+            insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
+            await client.command(insert_query)
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
