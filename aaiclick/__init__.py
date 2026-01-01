@@ -11,10 +11,7 @@ __version__ = "0.1.0"
 from .client import get_client, is_connected
 
 # Import core objects
-from .object import Object, DataResult
-
-# Import dtype handling
-from .aai_dtypes import ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .object import Object, DataResult, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 # Import factory functions
 from .factories import create_object, create_object_from_value

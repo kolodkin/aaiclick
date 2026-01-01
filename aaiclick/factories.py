@@ -7,9 +7,8 @@ automatically inferring schemas from Python values using numpy for type detectio
 
 from typing import Union, Dict, List
 import numpy as np
-from .object import Object
+from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .client import get_client
-from .aai_dtypes import ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
 # Type aliases

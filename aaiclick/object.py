@@ -7,9 +7,61 @@ and supports operations through operator overloading.
 
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
+import yaml
 from .client import get_client
 from .snowflake import generate_snowflake_id
-from .aai_dtypes import ColumnMeta
+
+
+# Fieldtype constants
+FIELDTYPE_SCALAR = "s"
+FIELDTYPE_ARRAY = "a"
+
+
+@dataclass
+class ColumnMeta:
+    """
+    Metadata for a column parsed from YAML comment.
+
+    Attributes:
+        fieldtype: 's' for scalar, 'a' for array
+    """
+
+    fieldtype: Optional[str] = None
+
+    def to_yaml(self) -> str:
+        """
+        Convert metadata to single-line YAML format for column comment.
+
+        Returns:
+            str: YAML string like "{fieldtype: a}"
+        """
+        if self.fieldtype is None:
+            return ""
+
+        return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
+
+    @classmethod
+    def from_yaml(cls, comment: str) -> "ColumnMeta":
+        """
+        Parse YAML from column comment string.
+
+        Args:
+            comment: Column comment string containing YAML
+
+        Returns:
+            ColumnMeta: Parsed metadata
+        """
+        if not comment or not comment.strip():
+            return cls()
+
+        try:
+            data = yaml.safe_load(comment)
+            if not isinstance(data, dict):
+                return cls()
+
+            return cls(fieldtype=data.get("fieldtype"))
+        except yaml.YAMLError:
+            return cls()
 
 
 @dataclass
