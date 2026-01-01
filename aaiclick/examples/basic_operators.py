@@ -14,26 +14,21 @@ async def main():
     # (or defaults: localhost:8123)
 
     try:
-        client = await aaiclick.get_client()
-
         # Example 1: Create objects from scalar values
         print("Example 1: Creating objects from scalar values")
         print("-" * 50)
 
         obj_scalar_int = await aaiclick.create_object_from_value("scalar_int", 42)
         print(f"Created from int: {obj_scalar_int}")
-        result = await client.query(f"SELECT * FROM {obj_scalar_int.table}")
-        print(f"Value: {result.result_rows}\n")
+        print(f"Value: {await obj_scalar_int.data()}\n")
 
         obj_scalar_float = await aaiclick.create_object_from_value("scalar_float", 3.14)
         print(f"Created from float: {obj_scalar_float}")
-        result = await client.query(f"SELECT * FROM {obj_scalar_float.table}")
-        print(f"Value: {result.result_rows}\n")
+        print(f"Value: {await obj_scalar_float.data()}\n")
 
         obj_scalar_str = await aaiclick.create_object_from_value("scalar_str", "Hello, ClickHouse!")
         print(f"Created from string: {obj_scalar_str}")
-        result = await client.query(f"SELECT * FROM {obj_scalar_str.table}")
-        print(f"Value: {result.result_rows}")
+        print(f"Value: {await obj_scalar_str.data()}")
 
         # Example 2: Create objects from lists (numpy dtype inference)
         print("\n" + "=" * 50)
@@ -42,18 +37,15 @@ async def main():
 
         obj_list_int = await aaiclick.create_object_from_value("list_int", [1, 2, 3, 4, 5])
         print(f"Created from int list: {obj_list_int}")
-        result = await client.query(f"SELECT * FROM {obj_list_int.table}")
-        print(f"Values: {result.result_rows}\n")
+        print(f"Values: {await obj_list_int.data()}\n")
 
         obj_list_float = await aaiclick.create_object_from_value("list_float", [1.5, 2.5, 3.5, 4.5])
         print(f"Created from float list: {obj_list_float}")
-        result = await client.query(f"SELECT * FROM {obj_list_float.table}")
-        print(f"Values: {result.result_rows}\n")
+        print(f"Values: {await obj_list_float.data()}\n")
 
         obj_list_str = await aaiclick.create_object_from_value("list_str", ["apple", "banana", "cherry"])
         print(f"Created from string list: {obj_list_str}")
-        result = await client.query(f"SELECT * FROM {obj_list_str.table}")
-        print(f"Values: {result.result_rows}")
+        print(f"Values: {await obj_list_str.data()}")
 
         # Example 3: Create objects from dictionaries
         print("\n" + "=" * 50)
@@ -64,15 +56,13 @@ async def main():
             "user", {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
         )
         print(f"Created from dict: {obj_dict}")
-        result = await client.query(f"SELECT * FROM {obj_dict.table}")
-        print(f"Values: {result.result_rows}\n")
+        print(f"Values: {await obj_dict.data()}\n")
 
         obj_dict2 = await aaiclick.create_object_from_value(
             "product", {"product_id": 100, "product_name": "Widget", "price": 29.99, "in_stock": True}
         )
         print(f"Created from dict: {obj_dict2}")
-        result = await client.query(f"SELECT * FROM {obj_dict2.table}")
-        print(f"Values: {result.result_rows}")
+        print(f"Values: {await obj_dict2.data()}")
 
         # Example 4: Arithmetic operations
         print("\n" + "=" * 50)
@@ -84,28 +74,24 @@ async def main():
         obj_b = await aaiclick.create_object_from_value("b", [5.5, 10.3, 15.1])
 
         print(f"Created {obj_a}")
-        result = await client.query(f"SELECT * FROM {obj_a.table}")
-        print(f"Values in a: {result.result_rows}\n")
+        print(f"Values in a: {await obj_a.data()}\n")
 
         print(f"Created {obj_b}")
-        result = await client.query(f"SELECT * FROM {obj_b.table}")
-        print(f"Values in b: {result.result_rows}")
+        print(f"Values in b: {await obj_b.data()}")
 
         # Addition
         print("\n" + "-" * 50)
         print("Addition: a + b")
         obj_sum = await (obj_a + obj_b)
         print(f"Created sum object: {obj_sum}")
-        result = await client.query(f"SELECT * FROM {obj_sum.table}")
-        print(f"Values: {result.result_rows}")
+        print(f"Values: {await obj_sum.data()}")
 
         # Subtraction
         print("\n" + "-" * 50)
         print("Subtraction: a - b")
         obj_diff = await (obj_a - obj_b)
         print(f"Created difference object: {obj_diff}")
-        result = await client.query(f"SELECT * FROM {obj_diff.table}")
-        print(f"Values: {result.result_rows}")
+        print(f"Values: {await obj_diff.data()}")
 
         # Example 5: Table name generation
         print("\n" + "=" * 50)

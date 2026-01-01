@@ -48,6 +48,16 @@ class Object:
         client = await get_client()
         return await client.query(f"SELECT * FROM {self.table}")
 
+    async def data(self):
+        """
+        Get the data from the object's table as a list of tuples.
+
+        Returns:
+            List of tuples containing all rows from the table
+        """
+        result = await self.result()
+        return result.result_rows
+
     async def __add__(self, other: "Object") -> "Object":
         """
         Add two objects together.
