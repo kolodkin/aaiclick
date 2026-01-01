@@ -90,27 +90,15 @@ jobs:
       - name: Add example outputs to summary
         if: always()
         run: |
-          # Add outputs for each example (keep in sync with list above)
-          echo "## 📊 Example Outputs" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Basic Operators Example" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat basic_operators_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Statistics Example" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat statistics_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Use Python script to generate summary (maintains list in .github/scripts/generate_summary.py)
+          python .github/scripts/generate_summary.py
 
       - name: Upload example outputs as artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: example-outputs
-          # List of example output files (keep in sync with list above)
+          # Output files (keep in sync with .github/scripts/generate_summary.py)
           path: |
             basic_operators_output.txt
             statistics_output.txt
