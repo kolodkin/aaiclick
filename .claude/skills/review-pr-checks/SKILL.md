@@ -1,5 +1,5 @@
-name: check-workflow
-description: Check GitHub Actions workflow status after push, poll until complete, and report results
+name: review-pr-checks
+description: Review PR checks - verify GitHub Actions workflow status after push, poll until complete, and report results
 enabled: true
 
 installation:
@@ -53,7 +53,7 @@ prompt: |
 
   Execute the automated workflow checker script:
   ```bash
-  .claude/skills/gh-actions/check-workflow.sh
+  .claude/skills/review-pr-checks/review-pr-checks.sh
   ```
 
   This script will automatically:
@@ -123,7 +123,7 @@ prompt: |
 
   After pushing the fix, run the checker again:
   ```bash
-  .claude/skills/gh-actions/check-workflow.sh
+  .claude/skills/review-pr-checks/review-pr-checks.sh
   ```
 
   Repeat until workflow passes.
