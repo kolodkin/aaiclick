@@ -9,6 +9,7 @@ from typing import Union, Dict, List
 import numpy as np
 from .object import Object
 from .client import get_client
+from .aai_dtypes import ColumnMeta, clickhouse_type_to_dtype, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
 # Type aliases
@@ -57,6 +58,22 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"
     else:
         return "String"  # Default fallback
+
+
+def _build_column_comment(ch_type: str, fieldtype: str) -> str:
+    """
+    Build a YAML column comment with datatype and fieldtype.
+
+    Args:
+        ch_type: ClickHouse type string
+        fieldtype: 's' for scalar, 'a' for array
+
+    Returns:
+        str: YAML comment string
+    """
+    dtype = clickhouse_type_to_dtype(ch_type)
+    meta = ColumnMeta(datatype=dtype, fieldtype=fieldtype)
+    return meta.to_yaml()
 
 
 async def create_object(schema: Schema) -> Object:
@@ -132,7 +149,10 @@ async def create_object_from_value(val: ValueType) -> Object:
 
         for key, value in val.items():
             col_type = _infer_clickhouse_type(value)
-            columns.append(f"{key} {col_type}")
+            # Determine fieldtype: 'a' for list/array, 's' for scalar
+            fieldtype = FIELDTYPE_ARRAY if isinstance(value, list) else FIELDTYPE_SCALAR
+            comment = _build_column_comment(col_type, fieldtype)
+            columns.append(f"{key} {col_type} COMMENT '{comment}'")
 
             # Format value for SQL
             if isinstance(value, str):
@@ -157,11 +177,13 @@ async def create_object_from_value(val: ValueType) -> Object:
         # List: single column "value" with multiple rows
         # Add row_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
+        row_id_comment = _build_column_comment("UInt64", FIELDTYPE_SCALAR)
+        value_comment = _build_column_comment(col_type, FIELDTYPE_ARRAY)
 
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {obj.table} (
-            row_id UInt64,
-            value {col_type}
+            row_id UInt64 COMMENT '{row_id_comment}',
+            value {col_type} COMMENT '{value_comment}'
         ) ENGINE = Memory
         """
         await client.command(create_query)
@@ -181,10 +203,11 @@ async def create_object_from_value(val: ValueType) -> Object:
     else:
         # Scalar: single column "value" with single row
         col_type = _infer_clickhouse_type(val)
+        value_comment = _build_column_comment(col_type, FIELDTYPE_SCALAR)
 
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {obj.table} (
-            value {col_type}
+            value {col_type} COMMENT '{value_comment}'
         ) ENGINE = Memory
         """
         await client.command(create_query)

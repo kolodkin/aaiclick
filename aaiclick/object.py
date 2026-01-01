@@ -5,9 +5,25 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional
+from typing import Optional, Dict, List, Tuple, Any
+from dataclasses import dataclass
 from .client import get_client
 from .snowflake import generate_snowflake_id
+from .aai_dtypes import ColumnMeta
+
+
+@dataclass
+class DataResult:
+    """
+    Result container for Object.data() that includes both rows and column metadata.
+
+    Attributes:
+        rows: List of tuples containing row data
+        columns: Dict mapping column name to ColumnMeta with datatype/fieldtype info
+    """
+
+    rows: List[Tuple[Any, ...]]
+    columns: Dict[str, ColumnMeta]
 
 
 class Object:
@@ -43,15 +59,36 @@ class Object:
         client = await get_client()
         return await client.query(f"SELECT * FROM {self.table}")
 
-    async def data(self):
+    async def data(self) -> DataResult:
         """
-        Get the data from the object's table as a list of tuples.
+        Get the data from the object's table with column metadata.
 
         Returns:
-            List of tuples containing all rows from the table
+            DataResult: Contains rows (list of tuples) and columns (dict of ColumnMeta)
+                - rows: Data from the table
+                - columns: Dict mapping column name to ColumnMeta with datatype/fieldtype
         """
+        client = await get_client()
+
+        # Query data
         result = await self.result()
-        return result.result_rows
+        rows = result.result_rows
+
+        # Query column comments from system.columns
+        columns_query = f"""
+        SELECT name, comment
+        FROM system.columns
+        WHERE table = '{self.table}'
+        ORDER BY position
+        """
+        columns_result = await client.query(columns_query)
+
+        # Parse YAML from comments
+        columns: Dict[str, ColumnMeta] = {}
+        for name, comment in columns_result.result_rows:
+            columns[name] = ColumnMeta.from_yaml(comment)
+
+        return DataResult(rows=rows, columns=columns)
 
     async def __add__(self, other: "Object") -> "Object":
         """
