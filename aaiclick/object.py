@@ -7,6 +7,7 @@ and supports operations through operator overloading.
 
 from typing import Optional
 from .client import get_client
+from .snowflake import generate_snowflake_id
 
 
 class Object:
@@ -24,9 +25,10 @@ class Object:
         Args:
             name: Name of the object
             table: Optional table name. If not provided, generates unique table name
+                  using Snowflake ID
         """
         self._name = name
-        self._table_name = table if table is not None else f"{name}_{id(self)}"
+        self._table_name = table if table is not None else f"{name}_{generate_snowflake_id()}"
 
     @property
     def table(self) -> str:

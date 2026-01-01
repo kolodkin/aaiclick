@@ -2,12 +2,18 @@
 aaiclick.client - Global ClickHouse client.
 
 This module provides a simple global client for ClickHouse connections.
-Connection parameters default to environment variables.
+Connection parameters are read from env.py.
 """
 
-import os
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from clickhouse_connect import get_async_client
+from .env import (
+    CLICKHOUSE_HOST,
+    CLICKHOUSE_PORT,
+    CLICKHOUSE_USER,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_DB,
+)
 
 
 # Global client instance holder (list with single element)
@@ -18,9 +24,9 @@ async def get_client() -> AsyncClient:
     """
     Get the global ClickHouse client instance.
 
-    Automatically connects using environment variables if not already connected:
+    Automatically connects using configuration from env.py if not already connected.
 
-    Connection parameters:
+    Connection parameters are read from environment variables:
     - CLICKHOUSE_HOST (default: "localhost")
     - CLICKHOUSE_PORT (default: 8123)
     - CLICKHOUSE_USER (default: "default")
@@ -31,18 +37,12 @@ async def get_client() -> AsyncClient:
         clickhouse-connect AsyncClient instance
     """
     if _client[0] is None:
-        host = os.getenv("CLICKHOUSE_HOST", "localhost")
-        port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-        username = os.getenv("CLICKHOUSE_USER", "default")
-        password = os.getenv("CLICKHOUSE_PASSWORD", "")
-        database = os.getenv("CLICKHOUSE_DB", "default")
-
         _client[0] = await get_async_client(
-            host=host,
-            port=port,
-            username=username,
-            password=password,
-            database=database,
+            host=CLICKHOUSE_HOST,
+            port=CLICKHOUSE_PORT,
+            username=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            database=CLICKHOUSE_DB,
         )
 
     return _client[0]
