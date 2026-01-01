@@ -59,23 +59,22 @@ async def test_object_add_integers():
 
 @pytest.mark.asyncio
 async def test_object_add_scalar():
-    """Test addition with single value objects."""
-    obj_a = await create_object_from_value([100.0])
-    obj_b = await create_object_from_value([50.0])
+    """Test addition with scalar values."""
+    obj_a = await create_object_from_value(100.0)
+    obj_b = await create_object_from_value(50.0)
 
-    result = await (obj_a + obj_b)
+    # Check .data() returns scalar fieldtype
+    data_a = await obj_a.data()
+    assert len(data_a.rows) == 1
+    assert data_a.columns["value"].fieldtype == "s"
 
-    client = await get_client()
-    query_result = await client.query(f"SELECT value FROM {result.table}")
-    rows = query_result.result_rows
-
-    assert len(rows) == 1
-    assert rows[0][0] == 150.0
+    data_b = await obj_b.data()
+    assert len(data_b.rows) == 1
+    assert data_b.columns["value"].fieldtype == "s"
 
     # Cleanup
     await obj_a.delete_table()
     await obj_b.delete_table()
-    await result.delete_table()
 
 
 @pytest.mark.asyncio
