@@ -37,48 +37,22 @@ All operations are immutable - no in-place modifications. Each operation returns
 
 ## Column Metadata
 
-When tables are created via factory functions, each column gets a YAML comment containing:
+When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
 
-- **datatype**: NumPy-style dtype string (e.g., `i4`, `f8`, `u1`)
-- **fieldtype**: `s` for scalar, `a` for array
-
-### Example Column Comment
-
-```yaml
-{datatype: i4, fieldtype: a}
-```
-
-This indicates an Int32 array column.
-
-## Datatype Format
-
-Datatypes follow the NumPy array interface specification:
-
-| Dtype | Description | ClickHouse Type |
-|-------|-------------|-----------------|
-| `i1` | 8-bit signed integer | Int8 |
-| `i2` | 16-bit signed integer | Int16 |
-| `i4` | 32-bit signed integer | Int32 |
-| `i8` | 64-bit signed integer | Int64 |
-| `u1` | 8-bit unsigned integer | UInt8 |
-| `u2` | 16-bit unsigned integer | UInt16 |
-| `u4` | 32-bit unsigned integer | UInt32 |
-| `u8` | 64-bit unsigned integer | UInt64 |
-| `f4` | 32-bit float | Float32 |
-| `f8` | 64-bit float | Float64 |
-| `O` | Python object (string) | String |
-
-### References
-
-- [NumPy Array Interface](https://numpy.org/doc/stable/reference/arrays.interface.html#arrays-interface)
-- [NumPy Structured Arrays](https://numpy.org/doc/stable/user/basics.rec.html)
-
-## Fieldtype Values
+### Fieldtype Values
 
 | Value | Meaning |
 |-------|---------|
 | `s` | Scalar - single value per row |
 | `a` | Array - column represents array elements across rows |
+
+### Example Column Comment
+
+```yaml
+{fieldtype: a}
+```
+
+This indicates an array column.
 
 ## Usage Example
 
@@ -95,7 +69,6 @@ data = await obj.data()
 print(data.rows)  # [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]
 
 # Access column metadata
-print(data.columns["value"].datatype)   # 'i8'
 print(data.columns["value"].fieldtype)  # 'a'
 print(data.columns["row_id"].fieldtype) # 's'
 ```
@@ -116,6 +89,5 @@ class DataResult:
 ```python
 @dataclass
 class ColumnMeta:
-    datatype: Optional[str]   # NumPy dtype string
     fieldtype: Optional[str]  # 's' or 'a'
 ```
