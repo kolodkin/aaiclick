@@ -58,7 +58,7 @@ async def test_object_add_integers():
 
 
 @pytest.mark.asyncio
-async def test_object_add_single_values():
+async def test_object_add_scalar():
     """Test addition with single value objects."""
     obj_a = await create_object_from_value([100.0])
     obj_b = await create_object_from_value([50.0])
