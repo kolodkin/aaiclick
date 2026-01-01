@@ -14,16 +14,11 @@ async def test_object_add_simple():
     # Perform addition
     result = await (obj_a + obj_b)
 
-    # Verify result
-    client = await get_client()
-    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value")
-    rows = query_result.result_rows
+    # Verify result using data() method
+    data = await result.data()
 
-    # Expected: element-wise addition (10+5, 20+10, 30+15) -> (15, 30, 45)
-    assert len(rows) == 3, f"Expected 3 rows, got {len(rows)}"
-    assert rows[0][0] == 15.0, f"Expected 15.0, got {rows[0][0]}"
-    assert rows[1][0] == 30.0, f"Expected 30.0, got {rows[1][0]}"
-    assert rows[2][0] == 45.0, f"Expected 45.0, got {rows[2][0]}"
+    # Expected: element-wise addition (10+5, 20+10, 30+15) -> [15, 30, 45]
+    assert data == [15.0, 30.0, 45.0], f"Expected [15.0, 30.0, 45.0], got {data}"
 
     # Cleanup
     await obj_a.delete_table()
@@ -38,15 +33,11 @@ async def test_object_add_integers():
 
     result = await (obj_a + obj_b)
 
-    client = await get_client()
-    query_result = await client.query(f"SELECT value FROM {result.table} ORDER BY value")
-    rows = query_result.result_rows
+    # Verify result using data() method
+    data = await result.data()
 
-    # Expected: element-wise (1+10, 2+20, 3+30) -> (11, 22, 33)
-    assert len(rows) == 3
-    assert rows[0][0] == 11
-    assert rows[1][0] == 22
-    assert rows[2][0] == 33
+    # Expected: element-wise (1+10, 2+20, 3+30) -> [11, 22, 33]
+    assert data == [11, 22, 33], f"Expected [11, 22, 33], got {data}"
 
     # Cleanup
     await obj_a.delete_table()
@@ -105,13 +96,11 @@ async def test_object_add_chain():
     temp = await (obj_a + obj_b)
     result = await (temp + obj_c)
 
-    client = await get_client()
-    query_result = await client.query(f"SELECT value FROM {result.table}")
-    rows = query_result.result_rows
+    # Verify result using data() method
+    data = await result.data()
 
-    # Result should be 1 + 2 + 3 = 6
-    assert len(rows) == 1
-    assert rows[0][0] == 6.0
+    # Result should be [1 + 2 + 3] = [6]
+    assert data == [6.0], f"Expected [6.0], got {data}"
 
     # Cleanup
     await obj_a.delete_table()
