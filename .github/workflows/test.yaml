@@ -67,31 +67,41 @@ jobs:
           CLICKHOUSE_DB: default
         run: uv run pytest -v
 
-      - name: Run example and capture output
+      - name: Run examples and capture output
         env:
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
+          # List of examples to run (update this list when adding new examples):
+          # - basic_operators: Basic arithmetic operations and object creation
+          # - statistics: Statistical methods (min, max, sum, mean, std)
         run: |
-          echo "Running basic_operators example..."
-          uv run python -m aaiclick.examples.basic_operators > example_output.txt 2>&1
-          echo "Example completed successfully!"
+          # Create tmp directory for output files
+          mkdir -p tmp
 
-      - name: Add example output to summary
+          # Run each example and capture output
+          echo "Running basic_operators example..."
+          uv run python -m aaiclick.examples.basic_operators > tmp/basic_operators_output.txt 2>&1
+          echo "Basic operators example completed successfully!"
+
+          echo "Running statistics example..."
+          uv run python -m aaiclick.examples.statistics > tmp/statistics_output.txt 2>&1
+          echo "Statistics example completed successfully!"
+
+      - name: Add example outputs to summary
         if: always()
         run: |
-          echo "## 📊 Example Output" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat example_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Python script auto-discovers all *_output.txt files
+          # Edit .github/scripts/generate_summary.py to customize display order/titles
+          python .github/scripts/generate_summary.py
 
-      - name: Upload example output as artifact
+      - name: Upload example outputs as artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: example-output
-          path: example_output.txt
+          name: example-outputs
+          # Automatically include all example output files from tmp/
+          path: 'tmp/*_output.txt'
           retention-days: 30

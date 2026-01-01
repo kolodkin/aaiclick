@@ -116,6 +116,61 @@ class Object:
         client = await get_client()
         await client.command(f"DROP TABLE IF EXISTS {self.table}")
 
+    async def min(self) -> float:
+        """
+        Calculate the minimum value from the object's table.
+
+        Returns:
+            float: Minimum value from the 'value' column
+        """
+        client = await get_client()
+        result = await client.query(f"SELECT min(value) FROM {self.table}")
+        return result.result_rows[0][0]
+
+    async def max(self) -> float:
+        """
+        Calculate the maximum value from the object's table.
+
+        Returns:
+            float: Maximum value from the 'value' column
+        """
+        client = await get_client()
+        result = await client.query(f"SELECT max(value) FROM {self.table}")
+        return result.result_rows[0][0]
+
+    async def sum(self) -> float:
+        """
+        Calculate the sum of values from the object's table.
+
+        Returns:
+            float: Sum of values from the 'value' column
+        """
+        client = await get_client()
+        result = await client.query(f"SELECT sum(value) FROM {self.table}")
+        return result.result_rows[0][0]
+
+    async def mean(self) -> float:
+        """
+        Calculate the mean (average) value from the object's table.
+
+        Returns:
+            float: Mean value from the 'value' column
+        """
+        client = await get_client()
+        result = await client.query(f"SELECT avg(value) FROM {self.table}")
+        return result.result_rows[0][0]
+
+    async def std(self) -> float:
+        """
+        Calculate the standard deviation of values from the object's table.
+
+        Returns:
+            float: Standard deviation from the 'value' column
+        """
+        client = await get_client()
+        result = await client.query(f"SELECT stddevPop(value) FROM {self.table}")
+        return result.result_rows[0][0]
+
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"

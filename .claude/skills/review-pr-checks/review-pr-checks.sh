@@ -107,6 +107,36 @@ get_branch() {
     echo -e "${BLUE}📝 Branch: ${NC}$BRANCH"
 }
 
+# Step 4.5: Check if PR exists for this branch
+check_pr_exists() {
+    echo ""
+    echo -e "${BLUE}Checking for pull request...${NC}"
+
+    # Check if PR exists for this branch
+    PR_DATA=$(gh pr list --repo "$REPO" --head "$BRANCH" --json number,state,url 2>/dev/null)
+
+    if [ -z "$PR_DATA" ] || [ "$PR_DATA" = "[]" ]; then
+        echo -e "${YELLOW}⚠️  No pull request found for branch '$BRANCH'${NC}"
+        echo ""
+        echo -e "${YELLOW}ℹ️  Workflow runs only trigger for:${NC}"
+        echo "  • Pushes to main/master branches"
+        echo "  • Pull requests targeting main/master"
+        echo ""
+        echo -e "${YELLOW}💡 To trigger CI checks, create a pull request:${NC}"
+        echo "  gh pr create --repo $REPO --head $BRANCH --base main --fill"
+        echo ""
+        echo -e "${YELLOW}Or push to main/master branch (if you have permissions)${NC}"
+        echo ""
+        return 1
+    else
+        PR_NUMBER=$(echo "$PR_DATA" | jq -r '.[0].number')
+        PR_URL=$(echo "$PR_DATA" | jq -r '.[0].url')
+        echo -e "${GREEN}✓ Pull request found: ${NC}#$PR_NUMBER"
+        echo -e "${BLUE}  URL: ${NC}$PR_URL"
+        return 0
+    fi
+}
+
 # Step 5: Poll latest workflow until complete
 poll_workflow() {
     echo ""
@@ -192,6 +222,7 @@ main() {
     check_auth
     detect_repo
     get_branch
+    check_pr_exists
     poll_workflow
 }
 
