@@ -28,7 +28,7 @@ class Object:
                   using Snowflake ID
         """
         self._name = name
-        self._table_name = table if table is not None else f"{name}_{generate_snowflake_id()}"
+        self._table_name = table if table is not None else str(generate_snowflake_id())
 
     @property
     def table(self) -> str:
