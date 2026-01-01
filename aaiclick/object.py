@@ -148,12 +148,16 @@ class Object:
             columns[name] = ColumnMeta.from_yaml(comment)
             column_names.append(name)
 
-        # Query data
-        result = await self.result()
-        rows = result.result_rows
-
         # Determine data type based on columns
         has_row_id = "row_id" in columns
+
+        # Query data (order by row_id for arrays)
+        if has_row_id:
+            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY row_id")
+        else:
+            data_result = await self.result()
+        rows = data_result.result_rows
+
         is_simple_structure = set(column_names) <= {"row_id", "value"}
 
         if not is_simple_structure:
