@@ -59,12 +59,11 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"  # Default fallback
 
 
-async def create_object(name: str, schema: Schema) -> Object:
+async def create_object(schema: Schema) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
     Args:
-        name: Name for the object
         schema: Column definition(s). Can be:
             - str: Single column definition (e.g., "value Float64")
             - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
@@ -74,12 +73,12 @@ async def create_object(name: str, schema: Schema) -> Object:
 
     Examples:
         >>> # Single column
-        >>> obj = await create_object("data", "value Float64")
+        >>> obj = await create_object("value Float64")
         >>>
         >>> # Multiple columns
-        >>> obj = await create_object("users", ["id Int64", "name String", "age UInt8"])
+        >>> obj = await create_object(["id Int64", "name String", "age UInt8"])
     """
-    obj = Object(name)
+    obj = Object()
     client = await get_client()
 
     # Convert schema to column definitions
@@ -97,12 +96,11 @@ async def create_object(name: str, schema: Schema) -> Object:
     return obj
 
 
-async def create_object_from_value(name: str, val: ValueType) -> Object:
+async def create_object_from_value(val: ValueType) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
     Args:
-        name: Name for the new object
         val: Value to create object from. Can be:
             - Scalar (int, float, bool, str): Creates single column "value"
             - List of scalars: Creates single column "value" with multiple rows
@@ -113,18 +111,18 @@ async def create_object_from_value(name: str, val: ValueType) -> Object:
 
     Examples:
         >>> # From scalar
-        >>> obj = await create_object_from_value("x", 42)
+        >>> obj = await create_object_from_value(42)
         >>> # Creates table with column: value Int64
         >>>
         >>> # From list
-        >>> obj = await create_object_from_value("data", [1.5, 2.5, 3.5])
+        >>> obj = await create_object_from_value([1.5, 2.5, 3.5])
         >>> # Creates table with column: value Float64 and 3 rows
         >>>
         >>> # From dict
-        >>> obj = await create_object_from_value("user", {"id": 1, "name": "Alice", "age": 30})
+        >>> obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
         >>> # Creates table with columns: id Int64, name String, age Int64
     """
-    obj = Object(name)
+    obj = Object()
     client = await get_client()
 
     if isinstance(val, dict):

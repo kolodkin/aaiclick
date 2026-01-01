@@ -18,27 +18,20 @@ class Object:
     operations like addition and subtraction that create new tables with results.
     """
 
-    def __init__(self, name: str, table: Optional[str] = None):
+    def __init__(self, table: Optional[str] = None):
         """
         Initialize an Object.
 
         Args:
-            name: Name of the object
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID
         """
-        self._name = name
         self._table_name = table if table is not None else str(generate_snowflake_id())
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
-
-    @property
-    def name(self) -> str:
-        """Get the name of this object."""
-        return self._name
 
     async def result(self):
         """
@@ -72,8 +65,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        result_name = f"{self._name}_plus_{other._name}"
-        result = Object(result_name)
+        result = Object()
 
         # Execute the addition operation in ClickHouse
         client = await get_client()
@@ -107,8 +99,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        result_name = f"{self._name}_minus_{other._name}"
-        result = Object(result_name)
+        result = Object()
 
         # Execute the subtraction operation in ClickHouse
         client = await get_client()
@@ -139,4 +130,4 @@ class Object:
 
     def __repr__(self) -> str:
         """String representation of the Object."""
-        return f"Object(name='{self._name}', table='{self._table_name}')"
+        return f"Object(table='{self._table_name}')"
