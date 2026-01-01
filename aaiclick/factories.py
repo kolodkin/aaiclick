@@ -7,7 +7,7 @@ automatically inferring schemas from Python values using numpy for type detectio
 
 from typing import Union, Dict, List
 import numpy as np
-from .object import Object
+from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .client import get_client
 
 
@@ -59,6 +59,20 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"  # Default fallback
 
 
+def _build_column_comment(fieldtype: str) -> str:
+    """
+    Build a YAML column comment with fieldtype.
+
+    Args:
+        fieldtype: 's' for scalar, 'a' for array
+
+    Returns:
+        str: YAML comment string
+    """
+    meta = ColumnMeta(fieldtype=fieldtype)
+    return meta.to_yaml()
+
+
 async def create_object(schema: Schema) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
@@ -88,9 +102,9 @@ async def create_object(schema: Schema) -> Object:
         columns = ", ".join(schema)
 
     create_query = f"""
-    CREATE TABLE IF NOT EXISTS {obj.table} (
+    CREATE TABLE {obj.table} (
         {columns}
-    ) ENGINE = Memory
+    ) ENGINE = MergeTree ORDER BY tuple()
     """
     await client.command(create_query)
     return obj
@@ -132,7 +146,10 @@ async def create_object_from_value(val: ValueType) -> Object:
 
         for key, value in val.items():
             col_type = _infer_clickhouse_type(value)
-            columns.append(f"{key} {col_type}")
+            # Determine fieldtype: 'a' for list/array, 's' for scalar
+            fieldtype = FIELDTYPE_ARRAY if isinstance(value, list) else FIELDTYPE_SCALAR
+            comment = _build_column_comment(fieldtype)
+            columns.append(f"{key} {col_type} COMMENT '{comment}'")
 
             # Format value for SQL
             if isinstance(value, str):
@@ -143,9 +160,9 @@ async def create_object_from_value(val: ValueType) -> Object:
                 values.append(str(value))
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
+        CREATE TABLE {obj.table} (
             {", ".join(columns)}
-        ) ENGINE = Memory
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
@@ -157,12 +174,14 @@ async def create_object_from_value(val: ValueType) -> Object:
         # List: single column "value" with multiple rows
         # Add row_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
+        row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+        value_comment = _build_column_comment(FIELDTYPE_ARRAY)
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
-            row_id UInt64,
-            value {col_type}
-        ) ENGINE = Memory
+        CREATE TABLE {obj.table} (
+            row_id UInt64 COMMENT '{row_id_comment}',
+            value {col_type} COMMENT '{value_comment}'
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
@@ -181,11 +200,12 @@ async def create_object_from_value(val: ValueType) -> Object:
     else:
         # Scalar: single column "value" with single row
         col_type = _infer_clickhouse_type(val)
+        value_comment = _build_column_comment(FIELDTYPE_SCALAR)
 
         create_query = f"""
-        CREATE TABLE IF NOT EXISTS {obj.table} (
-            value {col_type}
-        ) ENGINE = Memory
+        CREATE TABLE {obj.table} (
+            value {col_type} COMMENT '{value_comment}'
+        ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
