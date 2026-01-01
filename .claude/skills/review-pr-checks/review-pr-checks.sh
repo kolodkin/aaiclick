@@ -156,8 +156,8 @@ poll_workflow() {
                 echo -e "${YELLOW}📋 Fetching error logs...${NC}"
                 echo ""
 
-                # Get failed logs
-                LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1)
+                # Get failed logs (using --repo flag for non-standard remotes)
+                LOGS=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
 
                 echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
                 echo -e "${RED}STATUS: FAILURE${NC}"

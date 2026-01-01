@@ -7,6 +7,7 @@ and supports operations through operator overloading.
 
 from typing import Optional
 from .client import get_client
+from .snowflake import generate_snowflake_id
 
 
 class Object:
@@ -17,26 +18,20 @@ class Object:
     operations like addition and subtraction that create new tables with results.
     """
 
-    def __init__(self, name: str, table: Optional[str] = None):
+    def __init__(self, table: Optional[str] = None):
         """
         Initialize an Object.
 
         Args:
-            name: Name of the object
             table: Optional table name. If not provided, generates unique table name
+                  using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        self._name = name
-        self._table_name = table if table is not None else f"{name}_{id(self)}"
+        self._table_name = table if table is not None else f"t{generate_snowflake_id()}"
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
-
-    @property
-    def name(self) -> str:
-        """Get the name of this object."""
-        return self._name
 
     async def result(self):
         """
@@ -70,24 +65,17 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        result_name = f"{self._name}_plus_{other._name}"
-        result = Object(result_name)
+        result = Object()
 
         # Execute the addition operation in ClickHouse
         client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
-        AS SELECT a.value + b.value AS value
-        FROM (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {self.table}
-        ) AS a
-        JOIN (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {other.table}
-        ) AS b
-        ON a.row_num = b.row_num
+        AS SELECT a.row_id, a.value + b.value AS value
+        FROM {self.table} AS a
+        JOIN {other.table} AS b
+        ON a.row_id = b.row_id
         """
         await client.command(create_query)
 
@@ -105,24 +93,17 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        result_name = f"{self._name}_minus_{other._name}"
-        result = Object(result_name)
+        result = Object()
 
         # Execute the subtraction operation in ClickHouse
         client = await get_client()
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
-        AS SELECT a.value - b.value AS value
-        FROM (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {self.table}
-        ) AS a
-        JOIN (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {other.table}
-        ) AS b
-        ON a.row_num = b.row_num
+        AS SELECT a.row_id, a.value - b.value AS value
+        FROM {self.table} AS a
+        JOIN {other.table} AS b
+        ON a.row_id = b.row_id
         """
         await client.command(create_query)
 
@@ -137,4 +118,4 @@ class Object:
 
     def __repr__(self) -> str:
         """String representation of the Object."""
-        return f"Object(name='{self._name}', table='{self._table_name}')"
+        return f"Object(table='{self._table_name}')"

@@ -18,15 +18,15 @@ async def main():
         print("Example 1: Creating objects from scalar values")
         print("-" * 50)
 
-        obj_scalar_int = await aaiclick.create_object_from_value("scalar_int", 42)
+        obj_scalar_int = await aaiclick.create_object_from_value(42)
         print(f"Created from int: {obj_scalar_int}")
         print(f"Value: {await obj_scalar_int.data()}\n")
 
-        obj_scalar_float = await aaiclick.create_object_from_value("scalar_float", 3.14)
+        obj_scalar_float = await aaiclick.create_object_from_value(3.14)
         print(f"Created from float: {obj_scalar_float}")
         print(f"Value: {await obj_scalar_float.data()}\n")
 
-        obj_scalar_str = await aaiclick.create_object_from_value("scalar_str", "Hello, ClickHouse!")
+        obj_scalar_str = await aaiclick.create_object_from_value("Hello, ClickHouse!")
         print(f"Created from string: {obj_scalar_str}")
         print(f"Value: {await obj_scalar_str.data()}")
 
@@ -35,15 +35,15 @@ async def main():
         print("Example 2: Creating objects from lists (numpy infers dtype)")
         print("-" * 50)
 
-        obj_list_int = await aaiclick.create_object_from_value("list_int", [1, 2, 3, 4, 5])
+        obj_list_int = await aaiclick.create_object_from_value([1, 2, 3, 4, 5])
         print(f"Created from int list: {obj_list_int}")
         print(f"Values: {await obj_list_int.data()}\n")
 
-        obj_list_float = await aaiclick.create_object_from_value("list_float", [1.5, 2.5, 3.5, 4.5])
+        obj_list_float = await aaiclick.create_object_from_value([1.5, 2.5, 3.5, 4.5])
         print(f"Created from float list: {obj_list_float}")
         print(f"Values: {await obj_list_float.data()}\n")
 
-        obj_list_str = await aaiclick.create_object_from_value("list_str", ["apple", "banana", "cherry"])
+        obj_list_str = await aaiclick.create_object_from_value(["apple", "banana", "cherry"])
         print(f"Created from string list: {obj_list_str}")
         print(f"Values: {await obj_list_str.data()}")
 
@@ -53,13 +53,13 @@ async def main():
         print("-" * 50)
 
         obj_dict = await aaiclick.create_object_from_value(
-            "user", {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
+            {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
         )
         print(f"Created from dict: {obj_dict}")
         print(f"Values: {await obj_dict.data()}\n")
 
         obj_dict2 = await aaiclick.create_object_from_value(
-            "product", {"product_id": 100, "product_name": "Widget", "price": 29.99, "in_stock": True}
+            {"product_id": 100, "product_name": "Widget", "price": 29.99, "in_stock": True}
         )
         print(f"Created from dict: {obj_dict2}")
         print(f"Values: {await obj_dict2.data()}")
@@ -70,8 +70,8 @@ async def main():
         print("-" * 50)
 
         # Create two numeric objects for operations
-        obj_a = await aaiclick.create_object_from_value("a", [10.0, 20.0, 30.0])
-        obj_b = await aaiclick.create_object_from_value("b", [5.5, 10.3, 15.1])
+        obj_a = await aaiclick.create_object_from_value([10.0, 20.0, 30.0])
+        obj_b = await aaiclick.create_object_from_value([5.5, 10.3, 15.1])
 
         print(f"Created {obj_a}")
         print(f"Values in a: {await obj_a.data()}\n")
@@ -93,16 +93,16 @@ async def main():
         print(f"Created difference object: {obj_diff}")
         print(f"Values: {await obj_diff.data()}")
 
-        # Example 5: Table name generation
+        # Example 5: Table name generation with Snowflake IDs
         print("\n" + "=" * 50)
-        print("Example 5: Automatic table name generation")
+        print("Example 5: Automatic table name generation with Snowflake IDs")
         print("-" * 50)
 
-        obj_x = aaiclick.Object("data")
-        obj_y = aaiclick.Object("data")
-        print(f"Two objects with same name get unique table names:")
-        print(f"  {obj_x.name} -> {obj_x.table}")
-        print(f"  {obj_y.name} -> {obj_y.table}")
+        obj_x = aaiclick.Object()
+        obj_y = aaiclick.Object()
+        print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
+        print(f"  Object 1 -> table: {obj_x.table}")
+        print(f"  Object 2 -> table: {obj_y.table}")
 
         # Cleanup
         print("\n" + "=" * 50)

@@ -16,3 +16,6 @@ from .object import Object
 # Import factory functions
 from .factories import create_object, create_object_from_value
 
+# Import Snowflake ID generation
+from .snowflake import generate_snowflake_id
+

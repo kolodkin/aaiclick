@@ -10,8 +10,8 @@ from aaiclick import create_object_from_value, get_client
 async def test_object_add_simple():
     """Test basic element-wise addition of two objects."""
     # Create two objects with simple values
-    obj_a = await create_object_from_value("test_a", [10.0, 20.0, 30.0])
-    obj_b = await create_object_from_value("test_b", [5.0, 10.0, 15.0])
+    obj_a = await create_object_from_value([10.0, 20.0, 30.0])
+    obj_b = await create_object_from_value([5.0, 10.0, 15.0])
 
     # Perform addition
     result = await (obj_a + obj_b)
@@ -36,8 +36,8 @@ async def test_object_add_simple():
 @pytest.mark.asyncio
 async def test_object_add_integers():
     """Test element-wise addition with integer values."""
-    obj_a = await create_object_from_value("test_int_a", [1, 2, 3])
-    obj_b = await create_object_from_value("test_int_b", [10, 20, 30])
+    obj_a = await create_object_from_value([1, 2, 3])
+    obj_b = await create_object_from_value([10, 20, 30])
 
     result = await (obj_a + obj_b)
 
@@ -60,8 +60,8 @@ async def test_object_add_integers():
 @pytest.mark.asyncio
 async def test_object_add_single_values():
     """Test addition with single value objects."""
-    obj_a = await create_object_from_value("test_single_a", [100.0])
-    obj_b = await create_object_from_value("test_single_b", [50.0])
+    obj_a = await create_object_from_value([100.0])
+    obj_b = await create_object_from_value([50.0])
 
     result = await (obj_a + obj_b)
 
@@ -80,16 +80,15 @@ async def test_object_add_single_values():
 
 @pytest.mark.asyncio
 async def test_object_add_result_table_name():
-    """Test that result table has correct naming."""
-    obj_a = await create_object_from_value("alpha", [1.0])
-    obj_b = await create_object_from_value("beta", [2.0])
+    """Test that result table exists and has Snowflake ID."""
+    obj_a = await create_object_from_value([1.0])
+    obj_b = await create_object_from_value([2.0])
 
     result = await (obj_a + obj_b)
 
-    # Check that result name contains both operand names
-    assert "alpha" in result.name
-    assert "beta" in result.name
-    assert "plus" in result.name
+    # Check that result table name starts with 't' followed by Snowflake ID
+    assert result.table.startswith('t'), f"Expected table name to start with 't', got {result.table}"
+    assert result.table[1:].isdigit(), f"Expected numeric Snowflake ID after 't', got {result.table}"
 
     # Check that table exists
     client = await get_client()
@@ -105,9 +104,9 @@ async def test_object_add_result_table_name():
 @pytest.mark.asyncio
 async def test_object_add_chain():
     """Test chaining multiple additions."""
-    obj_a = await create_object_from_value("chain_a", [1.0])
-    obj_b = await create_object_from_value("chain_b", [2.0])
-    obj_c = await create_object_from_value("chain_c", [3.0])
+    obj_a = await create_object_from_value([1.0])
+    obj_b = await create_object_from_value([2.0])
+    obj_c = await create_object_from_value([3.0])
 
     # Chain additions: (a + b) + c
     temp = await (obj_a + obj_b)

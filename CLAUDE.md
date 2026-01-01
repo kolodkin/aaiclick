@@ -7,7 +7,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
-- After pushing changes, check pull request status using the `gh-actions` skill
+- After pushing changes, check pull request status using the `review-pr-checks` skill or run `.claude/skills/review-pr-checks/review-pr-checks.sh`
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
@@ -49,4 +49,4 @@ aaiclick/
 3. Update tests if needed
 4. Commit with descriptive messages
 5. Push to feature branch
-6. Check PR status via gh-actions skill (do NOT run tests locally)
+6. Check PR status via `review-pr-checks` skill (do NOT run tests locally)
