@@ -79,7 +79,15 @@ class Object:
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
         AS SELECT a.value + b.value AS value
-        FROM {self.table} AS a, {other.table} AS b
+        FROM (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {self.table}
+        ) AS a
+        JOIN (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {other.table}
+        ) AS b
+        ON a.row_num = b.row_num
         """
         await client.command(create_query)
 
@@ -106,7 +114,15 @@ class Object:
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
         AS SELECT a.value - b.value AS value
-        FROM {self.table} AS a, {other.table} AS b
+        FROM (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {self.table}
+        ) AS a
+        JOIN (
+            SELECT value, ROW_NUMBER() OVER () AS row_num
+            FROM {other.table}
+        ) AS b
+        ON a.row_num = b.row_num
         """
         await client.command(create_query)
 
