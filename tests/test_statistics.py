@@ -2,7 +2,6 @@
 Tests for Object statistical methods (min, max, sum, mean, std).
 """
 
-import pytest
 import numpy as np
 from aaiclick import create_object_from_value
 
@@ -10,7 +9,6 @@ from aaiclick import create_object_from_value
 THRESHOLD = 1e-5
 
 
-@pytest.mark.asyncio
 async def test_object_min():
     """Test min method on an object."""
     values = [10.0, 20.0, 5.0, 30.0]
@@ -26,7 +24,6 @@ async def test_object_min():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_max():
     """Test max method on an object."""
     values = [10.0, 20.0, 5.0, 30.0]
@@ -42,7 +39,6 @@ async def test_object_max():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_sum():
     """Test sum method on an object."""
     values = [10.0, 20.0, 5.0, 15.0]
@@ -58,7 +54,6 @@ async def test_object_sum():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_mean():
     """Test mean method on an object."""
     values = [10.0, 20.0, 30.0, 40.0]
@@ -74,7 +69,6 @@ async def test_object_mean():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_std():
     """Test std method on an object."""
     # Using values with known standard deviation
@@ -92,7 +86,6 @@ async def test_object_std():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_statistics_with_integers():
     """Test statistical methods with integer values."""
     values = [1, 2, 3, 4, 5]
@@ -122,7 +115,6 @@ async def test_statistics_with_integers():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_statistics_single_value():
     """Test statistical methods with a single value."""
     values = [42.0]
@@ -156,7 +148,6 @@ async def test_statistics_single_value():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_statistics_on_result_object():
     """Test statistical methods on an object created from operation results."""
     values_a = [10.0, 20.0, 30.0]

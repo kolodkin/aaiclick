@@ -2,17 +2,13 @@
 Tests for Object.data() method with different data types and orient options.
 """
 
-import pytest
 from aaiclick import (
     create_object_from_value,
-    FIELDTYPE_SCALAR,
-    FIELDTYPE_ARRAY,
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
 
 
-@pytest.mark.asyncio
 async def test_data_scalar():
     """Test data() returns scalar value directly."""
     obj = await create_object_from_value(42.0)
@@ -24,7 +20,6 @@ async def test_data_scalar():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_scalar_integer():
     """Test data() returns integer scalar directly."""
     obj = await create_object_from_value(123)
@@ -36,7 +31,6 @@ async def test_data_scalar_integer():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_scalar_string():
     """Test data() returns string scalar directly."""
     obj = await create_object_from_value("hello")
@@ -48,7 +42,6 @@ async def test_data_scalar_string():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_array():
     """Test data() returns list for array."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
@@ -60,7 +53,6 @@ async def test_data_array():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_array_floats():
     """Test data() returns list of floats for float array."""
     obj = await create_object_from_value([1.5, 2.5, 3.5])
@@ -72,7 +64,6 @@ async def test_data_array_floats():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_dict_scalar():
     """Test data() returns dict for dict_scalar (single row)."""
     obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
@@ -88,7 +79,6 @@ async def test_data_dict_scalar():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_dict_orient_dict():
     """Test data() with orient=ORIENT_DICT returns dict."""
     obj = await create_object_from_value({"x": 10, "y": 20})
@@ -101,7 +91,6 @@ async def test_data_dict_orient_dict():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_dict_orient_records():
     """Test data() with orient=ORIENT_RECORDS returns list of dicts."""
     obj = await create_object_from_value({"x": 10, "y": 20})
@@ -115,7 +104,6 @@ async def test_data_dict_orient_records():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_after_addition():
     """Test data() returns correct value after scalar addition."""
     a = await create_object_from_value(100.0)
@@ -131,7 +119,6 @@ async def test_data_after_addition():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_data_array_after_addition():
     """Test data() returns correct list after array addition."""
     a = await create_object_from_value([1, 2, 3])

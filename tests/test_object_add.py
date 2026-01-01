@@ -2,11 +2,9 @@
 Tests for Object addition operation.
 """
 
-import pytest
 from aaiclick import create_object_from_value, get_client
 
 
-@pytest.mark.asyncio
 async def test_object_add_simple():
     """Test basic element-wise addition of two objects."""
     # Create two objects with simple values
@@ -33,7 +31,6 @@ async def test_object_add_simple():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_add_integers():
     """Test element-wise addition with integer values."""
     obj_a = await create_object_from_value([1, 2, 3])
@@ -57,7 +54,6 @@ async def test_object_add_integers():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_add_scalar():
     """Test addition with scalar values."""
     obj_a = await create_object_from_value(100.0)
@@ -77,7 +73,6 @@ async def test_object_add_scalar():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_add_result_table_name():
     """Test that result table exists and has Snowflake ID."""
     obj_a = await create_object_from_value([1.0])
@@ -100,7 +95,6 @@ async def test_object_add_result_table_name():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_object_add_chain():
     """Test chaining multiple additions."""
     obj_a = await create_object_from_value([1.0])
