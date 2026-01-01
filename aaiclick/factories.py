@@ -155,17 +155,19 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
+        # Add row_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
 
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {obj.table} (
+            row_id UInt64,
             value {col_type}
         ) ENGINE = Memory
         """
         await client.command(create_query)
 
-        # Insert multiple rows
-        for item in val:
+        # Insert multiple rows with explicit row IDs
+        for idx, item in enumerate(val):
             if isinstance(item, str):
                 value_str = f"'{item}'"
             elif isinstance(item, bool):
@@ -173,7 +175,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             else:
                 value_str = str(item)
 
-            insert_query = f"INSERT INTO {obj.table} VALUES ({value_str})"
+            insert_query = f"INSERT INTO {obj.table} VALUES ({idx}, {value_str})"
             await client.command(insert_query)
 
     else:

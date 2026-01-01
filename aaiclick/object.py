@@ -72,16 +72,10 @@ class Object:
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
-        AS SELECT a.value + b.value AS value
-        FROM (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {self.table}
-        ) AS a
-        JOIN (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {other.table}
-        ) AS b
-        ON a.row_num = b.row_num
+        AS SELECT a.row_id, a.value + b.value AS value
+        FROM {self.table} AS a
+        JOIN {other.table} AS b
+        ON a.row_id = b.row_id
         """
         await client.command(create_query)
 
@@ -106,16 +100,10 @@ class Object:
         create_query = f"""
         CREATE TABLE IF NOT EXISTS {result.table}
         ENGINE = Memory
-        AS SELECT a.value - b.value AS value
-        FROM (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {self.table}
-        ) AS a
-        JOIN (
-            SELECT value, ROW_NUMBER() OVER () AS row_num
-            FROM {other.table}
-        ) AS b
-        ON a.row_num = b.row_num
+        AS SELECT a.row_id, a.value - b.value AS value
+        FROM {self.table} AS a
+        JOIN {other.table} AS b
+        ON a.row_id = b.row_id
         """
         await client.command(create_query)
 
