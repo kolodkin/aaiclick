@@ -1,5 +1,5 @@
-name: gh-actions
-description: Install and use GitHub CLI to check and manage GitHub Actions workflow runs
+name: check-workflow
+description: Check GitHub Actions workflow status after push, poll until complete, and report results
 enabled: true
 
 installation:
