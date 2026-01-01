@@ -3,17 +3,23 @@ Tests for Object statistical methods (min, max, sum, mean, std).
 """
 
 import pytest
+import numpy as np
 from aaiclick import create_object_from_value
+
+# Threshold for comparing floating point results
+THRESHOLD = 1e-5
 
 
 @pytest.mark.asyncio
 async def test_object_min():
     """Test min method on an object."""
-    obj = await create_object_from_value([10.0, 20.0, 5.0, 30.0])
+    values = [10.0, 20.0, 5.0, 30.0]
+    obj = await create_object_from_value(values)
 
     result = await obj.min()
+    expected = np.min(values)
 
-    assert result == 5.0, f"Expected min to be 5.0, got {result}"
+    assert abs(result - expected) < THRESHOLD, f"Expected min to be {expected}, got {result}"
 
     # Cleanup
     await obj.delete_table()
@@ -22,11 +28,13 @@ async def test_object_min():
 @pytest.mark.asyncio
 async def test_object_max():
     """Test max method on an object."""
-    obj = await create_object_from_value([10.0, 20.0, 5.0, 30.0])
+    values = [10.0, 20.0, 5.0, 30.0]
+    obj = await create_object_from_value(values)
 
     result = await obj.max()
+    expected = np.max(values)
 
-    assert result == 30.0, f"Expected max to be 30.0, got {result}"
+    assert abs(result - expected) < THRESHOLD, f"Expected max to be {expected}, got {result}"
 
     # Cleanup
     await obj.delete_table()
@@ -35,11 +43,13 @@ async def test_object_max():
 @pytest.mark.asyncio
 async def test_object_sum():
     """Test sum method on an object."""
-    obj = await create_object_from_value([10.0, 20.0, 5.0, 15.0])
+    values = [10.0, 20.0, 5.0, 15.0]
+    obj = await create_object_from_value(values)
 
     result = await obj.sum()
+    expected = np.sum(values)
 
-    assert result == 50.0, f"Expected sum to be 50.0, got {result}"
+    assert abs(result - expected) < THRESHOLD, f"Expected sum to be {expected}, got {result}"
 
     # Cleanup
     await obj.delete_table()
@@ -48,11 +58,13 @@ async def test_object_sum():
 @pytest.mark.asyncio
 async def test_object_mean():
     """Test mean method on an object."""
-    obj = await create_object_from_value([10.0, 20.0, 30.0, 40.0])
+    values = [10.0, 20.0, 30.0, 40.0]
+    obj = await create_object_from_value(values)
 
     result = await obj.mean()
+    expected = np.mean(values)
 
-    assert result == 25.0, f"Expected mean to be 25.0, got {result}"
+    assert abs(result - expected) < THRESHOLD, f"Expected mean to be {expected}, got {result}"
 
     # Cleanup
     await obj.delete_table()
@@ -62,17 +74,14 @@ async def test_object_mean():
 async def test_object_std():
     """Test std method on an object."""
     # Using values with known standard deviation
-    # Values: [2, 4, 6, 8]
-    # Mean = 5
-    # Variance = ((2-5)^2 + (4-5)^2 + (6-5)^2 + (8-5)^2) / 4 = (9 + 1 + 1 + 9) / 4 = 5
-    # Std = sqrt(5) ≈ 2.236
-    obj = await create_object_from_value([2.0, 4.0, 6.0, 8.0])
+    # stddevPop uses population std (ddof=0)
+    values = [2.0, 4.0, 6.0, 8.0]
+    obj = await create_object_from_value(values)
 
     result = await obj.std()
+    expected = np.std(values, ddof=0)  # Population standard deviation
 
-    # Check with reasonable precision (ClickHouse might have slight floating point differences)
-    expected = 2.23606797749979  # sqrt(5)
-    assert abs(result - expected) < 0.0001, f"Expected std to be ~{expected}, got {result}"
+    assert abs(result - expected) < THRESHOLD, f"Expected std to be {expected}, got {result}"
 
     # Cleanup
     await obj.delete_table()
@@ -81,17 +90,18 @@ async def test_object_std():
 @pytest.mark.asyncio
 async def test_statistics_with_integers():
     """Test statistical methods with integer values."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    values = [1, 2, 3, 4, 5]
+    obj = await create_object_from_value(values)
 
     min_result = await obj.min()
     max_result = await obj.max()
     sum_result = await obj.sum()
     mean_result = await obj.mean()
 
-    assert min_result == 1
-    assert max_result == 5
-    assert sum_result == 15
-    assert mean_result == 3.0
+    assert abs(min_result - np.min(values)) < THRESHOLD
+    assert abs(max_result - np.max(values)) < THRESHOLD
+    assert abs(sum_result - np.sum(values)) < THRESHOLD
+    assert abs(mean_result - np.mean(values)) < THRESHOLD
 
     # Cleanup
     await obj.delete_table()
@@ -100,7 +110,8 @@ async def test_statistics_with_integers():
 @pytest.mark.asyncio
 async def test_statistics_single_value():
     """Test statistical methods with a single value."""
-    obj = await create_object_from_value([42.0])
+    values = [42.0]
+    obj = await create_object_from_value(values)
 
     min_result = await obj.min()
     max_result = await obj.max()
@@ -108,11 +119,11 @@ async def test_statistics_single_value():
     mean_result = await obj.mean()
     std_result = await obj.std()
 
-    assert min_result == 42.0
-    assert max_result == 42.0
-    assert sum_result == 42.0
-    assert mean_result == 42.0
-    assert std_result == 0.0  # Single value has no variation
+    assert abs(min_result - np.min(values)) < THRESHOLD
+    assert abs(max_result - np.max(values)) < THRESHOLD
+    assert abs(sum_result - np.sum(values)) < THRESHOLD
+    assert abs(mean_result - np.mean(values)) < THRESHOLD
+    assert abs(std_result - np.std(values, ddof=0)) < THRESHOLD
 
     # Cleanup
     await obj.delete_table()
@@ -121,22 +132,26 @@ async def test_statistics_single_value():
 @pytest.mark.asyncio
 async def test_statistics_on_result_object():
     """Test statistical methods on an object created from operation results."""
-    obj_a = await create_object_from_value([10.0, 20.0, 30.0])
-    obj_b = await create_object_from_value([5.0, 10.0, 15.0])
+    values_a = [10.0, 20.0, 30.0]
+    values_b = [5.0, 10.0, 15.0]
+    obj_a = await create_object_from_value(values_a)
+    obj_b = await create_object_from_value(values_b)
 
     # Add two objects
     result = await (obj_a + obj_b)
 
-    # Calculate statistics on result (15, 30, 45)
+    # Calculate expected values using numpy
+    expected_values = np.array(values_a) + np.array(values_b)
+
     min_val = await result.min()
     max_val = await result.max()
     sum_val = await result.sum()
     mean_val = await result.mean()
 
-    assert min_val == 15.0
-    assert max_val == 45.0
-    assert sum_val == 90.0
-    assert mean_val == 30.0
+    assert abs(min_val - np.min(expected_values)) < THRESHOLD
+    assert abs(max_val - np.max(expected_values)) < THRESHOLD
+    assert abs(sum_val - np.sum(expected_values)) < THRESHOLD
+    assert abs(mean_val - np.mean(expected_values)) < THRESHOLD
 
     # Cleanup
     await obj_a.delete_table()
