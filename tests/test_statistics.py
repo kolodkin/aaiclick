@@ -18,8 +18,9 @@ async def test_object_min():
 
     result = await obj.min()
     expected = np.min(values)
+    diff = abs(result - expected)
 
-    assert abs(result - expected) < THRESHOLD, f"Expected min to be {expected}, got {result}"
+    assert diff < THRESHOLD, f"Expected min to be {expected}, got {result}, diff={diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -33,8 +34,9 @@ async def test_object_max():
 
     result = await obj.max()
     expected = np.max(values)
+    diff = abs(result - expected)
 
-    assert abs(result - expected) < THRESHOLD, f"Expected max to be {expected}, got {result}"
+    assert diff < THRESHOLD, f"Expected max to be {expected}, got {result}, diff={diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -48,8 +50,9 @@ async def test_object_sum():
 
     result = await obj.sum()
     expected = np.sum(values)
+    diff = abs(result - expected)
 
-    assert abs(result - expected) < THRESHOLD, f"Expected sum to be {expected}, got {result}"
+    assert diff < THRESHOLD, f"Expected sum to be {expected}, got {result}, diff={diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -63,8 +66,9 @@ async def test_object_mean():
 
     result = await obj.mean()
     expected = np.mean(values)
+    diff = abs(result - expected)
 
-    assert abs(result - expected) < THRESHOLD, f"Expected mean to be {expected}, got {result}"
+    assert diff < THRESHOLD, f"Expected mean to be {expected}, got {result}, diff={diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -80,8 +84,9 @@ async def test_object_std():
 
     result = await obj.std()
     expected = np.std(values, ddof=0)  # Population standard deviation
+    diff = abs(result - expected)
 
-    assert abs(result - expected) < THRESHOLD, f"Expected std to be {expected}, got {result}"
+    assert diff < THRESHOLD, f"Expected std to be {expected}, got {result}, diff={diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -98,10 +103,20 @@ async def test_statistics_with_integers():
     sum_result = await obj.sum()
     mean_result = await obj.mean()
 
-    assert abs(min_result - np.min(values)) < THRESHOLD
-    assert abs(max_result - np.max(values)) < THRESHOLD
-    assert abs(sum_result - np.sum(values)) < THRESHOLD
-    assert abs(mean_result - np.mean(values)) < THRESHOLD
+    min_expected = np.min(values)
+    max_expected = np.max(values)
+    sum_expected = np.sum(values)
+    mean_expected = np.mean(values)
+
+    min_diff = abs(min_result - min_expected)
+    max_diff = abs(max_result - max_expected)
+    sum_diff = abs(sum_result - sum_expected)
+    mean_diff = abs(mean_result - mean_expected)
+
+    assert min_diff < THRESHOLD, f"Expected min {min_expected}, got {min_result}, diff={min_diff}"
+    assert max_diff < THRESHOLD, f"Expected max {max_expected}, got {max_result}, diff={max_diff}"
+    assert sum_diff < THRESHOLD, f"Expected sum {sum_expected}, got {sum_result}, diff={sum_diff}"
+    assert mean_diff < THRESHOLD, f"Expected mean {mean_expected}, got {mean_result}, diff={mean_diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -119,11 +134,23 @@ async def test_statistics_single_value():
     mean_result = await obj.mean()
     std_result = await obj.std()
 
-    assert abs(min_result - np.min(values)) < THRESHOLD
-    assert abs(max_result - np.max(values)) < THRESHOLD
-    assert abs(sum_result - np.sum(values)) < THRESHOLD
-    assert abs(mean_result - np.mean(values)) < THRESHOLD
-    assert abs(std_result - np.std(values, ddof=0)) < THRESHOLD
+    min_expected = np.min(values)
+    max_expected = np.max(values)
+    sum_expected = np.sum(values)
+    mean_expected = np.mean(values)
+    std_expected = np.std(values, ddof=0)
+
+    min_diff = abs(min_result - min_expected)
+    max_diff = abs(max_result - max_expected)
+    sum_diff = abs(sum_result - sum_expected)
+    mean_diff = abs(mean_result - mean_expected)
+    std_diff = abs(std_result - std_expected)
+
+    assert min_diff < THRESHOLD, f"Expected min {min_expected}, got {min_result}, diff={min_diff}"
+    assert max_diff < THRESHOLD, f"Expected max {max_expected}, got {max_result}, diff={max_diff}"
+    assert sum_diff < THRESHOLD, f"Expected sum {sum_expected}, got {sum_result}, diff={sum_diff}"
+    assert mean_diff < THRESHOLD, f"Expected mean {mean_expected}, got {mean_result}, diff={mean_diff}"
+    assert std_diff < THRESHOLD, f"Expected std {std_expected}, got {std_result}, diff={std_diff}"
 
     # Cleanup
     await obj.delete_table()
@@ -148,10 +175,20 @@ async def test_statistics_on_result_object():
     sum_val = await result.sum()
     mean_val = await result.mean()
 
-    assert abs(min_val - np.min(expected_values)) < THRESHOLD
-    assert abs(max_val - np.max(expected_values)) < THRESHOLD
-    assert abs(sum_val - np.sum(expected_values)) < THRESHOLD
-    assert abs(mean_val - np.mean(expected_values)) < THRESHOLD
+    min_expected = np.min(expected_values)
+    max_expected = np.max(expected_values)
+    sum_expected = np.sum(expected_values)
+    mean_expected = np.mean(expected_values)
+
+    min_diff = abs(min_val - min_expected)
+    max_diff = abs(max_val - max_expected)
+    sum_diff = abs(sum_val - sum_expected)
+    mean_diff = abs(mean_val - mean_expected)
+
+    assert min_diff < THRESHOLD, f"Expected min {min_expected}, got {min_val}, diff={min_diff}"
+    assert max_diff < THRESHOLD, f"Expected max {max_expected}, got {max_val}, diff={max_diff}"
+    assert sum_diff < THRESHOLD, f"Expected sum {sum_expected}, got {sum_val}, diff={sum_diff}"
+    assert mean_diff < THRESHOLD, f"Expected mean {mean_expected}, got {mean_val}, diff={mean_diff}"
 
     # Cleanup
     await obj_a.delete_table()
