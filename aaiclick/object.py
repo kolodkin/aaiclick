@@ -15,6 +15,11 @@ from .snowflake import generate_snowflake_id
 # Fieldtype constants
 FIELDTYPE_SCALAR = "s"
 FIELDTYPE_ARRAY = "a"
+FIELDTYPE_DICT = "d"
+
+# Orient constants for data() method
+ORIENT_DICT = "dict"
+ORIENT_RECORDS = "records"
 
 
 @dataclass
@@ -111,14 +116,19 @@ class Object:
         client = await get_client()
         return await client.query(f"SELECT * FROM {self.table}")
 
-    async def data(self):
+    async def data(self, orient: str = ORIENT_DICT):
         """
         Get the data from the object's table.
+
+        Args:
+            orient: Output format for dict data. Options:
+                - ORIENT_DICT ('dict'): returns dict with column names as keys (default)
+                - ORIENT_RECORDS ('records'): returns list of dicts (one per row)
 
         Returns:
             - For scalar: returns the value directly
             - For array: returns list of values
-            - For dict: returns dict with column names as keys
+            - For dict: returns dict or list of dicts based on orient
         """
         client = await get_client()
 
@@ -144,14 +154,18 @@ class Object:
 
         # Determine data type based on columns
         has_row_id = "row_id" in columns
-        has_value = "value" in columns
         is_simple_structure = set(column_names) <= {"row_id", "value"}
 
         if not is_simple_structure:
-            # Dict: return dict with column names as keys
-            if rows:
-                return {name: rows[0][i] for i, name in enumerate(column_names)}
-            return {}
+            # Dict type
+            if orient == ORIENT_RECORDS:
+                # Return list of dicts (one per row)
+                return [{name: row[i] for i, name in enumerate(column_names)} for row in rows]
+            else:
+                # Return single dict (first row)
+                if rows:
+                    return {name: rows[0][i] for i, name in enumerate(column_names)}
+                return {}
 
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:

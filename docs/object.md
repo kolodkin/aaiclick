@@ -58,9 +58,9 @@ This indicates an array column.
 
 The `data()` method returns values directly based on the data type:
 
-- **Scalar**: returns the value directly
-- **Array**: returns a list of values
-- **Dict**: returns a dict with column names as keys
+- **Scalar** (`s`): returns the value directly
+- **Array** (`a`): returns a list of values
+- **Dict** (`d`): returns a dict with column names as keys
 
 ### Scalar Example
 
@@ -95,10 +95,25 @@ print(values)  # [1, 2, 3, 4, 5]
 ### Dict Example
 
 ```python
+from aaiclick import create_object_from_value, ORIENT_DICT, ORIENT_RECORDS
+
 # Create dict object
 obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
 
-# Get dict directly
+# Get dict directly (default orient='dict')
 data = await obj.data()
 print(data)  # {"id": 1, "name": "Alice", "age": 30}
+
+# With orient='records' - returns list of dicts
+data = await obj.data(orient=ORIENT_RECORDS)
+print(data)  # [{"id": 1, "name": "Alice", "age": 30}]
 ```
+
+### Orient Parameter
+
+The `orient` parameter controls the output format for dict data:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `ORIENT_DICT` | `'dict'` | Returns dict with column names as keys (default) |
+| `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row) |
