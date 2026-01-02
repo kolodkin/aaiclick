@@ -7,10 +7,10 @@ The `operators` module contains static async functions that implement all binary
 ## Design
 
 All operator functions follow a consistent pattern:
-- Take two Object parameters (`a` and `b`)
+- Take two Object parameters (`obj_a` and `obj_b`)
 - Return a new Object with the result
 - Are async functions (must be awaited)
-- Delegate to `_binary_operator` method on the Object class
+- Delegate to `_apply_operator` method on the Object class
 
 ## Function Reference
 
@@ -18,32 +18,32 @@ All operator functions follow a consistent pattern:
 
 | Function | Operator | Description | ClickHouse |
 |----------|----------|-------------|------------|
-| `add(a, b)` | `+` | Addition | `+` |
-| `sub(a, b)` | `-` | Subtraction | `-` |
-| `mul(a, b)` | `*` | Multiplication | `*` |
-| `truediv(a, b)` | `/` | Division | `/` |
-| `floordiv(a, b)` | `//` | Floor Division | `DIV` |
-| `mod(a, b)` | `%` | Modulo | `%` |
-| `pow(a, b)` | `**` | Power | `power()` |
+| `add(obj_a, obj_b)` | `+` | Addition | `+` |
+| `sub(obj_a, obj_b)` | `-` | Subtraction | `-` |
+| `mul(obj_a, obj_b)` | `*` | Multiplication | `*` |
+| `truediv(obj_a, obj_b)` | `/` | Division | `/` |
+| `floordiv(obj_a, obj_b)` | `//` | Floor Division | `DIV` |
+| `mod(obj_a, obj_b)` | `%` | Modulo | `%` |
+| `pow(obj_a, obj_b)` | `**` | Power | `power()` |
 
 ### Comparison Operators
 
 | Function | Operator | Description | ClickHouse |
 |----------|----------|-------------|------------|
-| `eq(a, b)` | `==` | Equal | `=` |
-| `ne(a, b)` | `!=` | Not Equal | `!=` |
-| `lt(a, b)` | `<` | Less Than | `<` |
-| `le(a, b)` | `<=` | Less or Equal | `<=` |
-| `gt(a, b)` | `>` | Greater Than | `>` |
-| `ge(a, b)` | `>=` | Greater or Equal | `>=` |
+| `eq(obj_a, obj_b)` | `==` | Equal | `=` |
+| `ne(obj_a, obj_b)` | `!=` | Not Equal | `!=` |
+| `lt(obj_a, obj_b)` | `<` | Less Than | `<` |
+| `le(obj_a, obj_b)` | `<=` | Less or Equal | `<=` |
+| `gt(obj_a, obj_b)` | `>` | Greater Than | `>` |
+| `ge(obj_a, obj_b)` | `>=` | Greater or Equal | `>=` |
 
 ### Bitwise Operators
 
 | Function | Operator | Description | ClickHouse |
 |----------|----------|-------------|------------|
-| `and_(a, b)` | `&` | Bitwise AND | `bitAnd()` |
-| `or_(a, b)` | `\|` | Bitwise OR | `bitOr()` |
-| `xor(a, b)` | `^` | Bitwise XOR | `bitXor()` |
+| `and_(obj_a, obj_b)` | `&` | Bitwise AND | `bitAnd()` |
+| `or_(obj_a, obj_b)` | `\|` | Bitwise OR | `bitOr()` |
+| `xor(obj_a, obj_b)` | `^` | Bitwise XOR | `bitXor()` |
 
 ## Usage
 
@@ -78,15 +78,15 @@ result = await operators.pow(a, b)
 
 ## Implementation Details
 
-All operator functions delegate to the `_binary_operator` method on the Object class:
+All operator functions delegate to the `_apply_operator` method on the Object class:
 
 ```python
-async def add(a: "Object", b: "Object") -> "Object":
+async def add(obj_a: "Object", obj_b: "Object") -> "Object":
     """Add two objects together."""
-    return await a._binary_operator(b, "+")
+    return await obj_a._apply_operator(obj_b, "+")
 ```
 
-The `_binary_operator` method:
+The `_apply_operator` method:
 1. Creates a new Object to hold the result
 2. Determines if operating on scalars or arrays
 3. Selects appropriate SQL template

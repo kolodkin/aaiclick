@@ -13,229 +13,229 @@ if TYPE_CHECKING:
 
 # Arithmetic Operators
 
-async def add(a: "Object", b: "Object") -> "Object":
+async def add(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Add two objects together.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a + b
+        Object: New Object with result of obj_a + obj_b
     """
-    return await a._binary_operator(b, "+")
+    return await obj_a._apply_operator(obj_b, "+")
 
 
-async def sub(a: "Object", b: "Object") -> "Object":
+async def sub(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Subtract one object from another.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a - b
+        Object: New Object with result of obj_a - obj_b
     """
-    return await a._binary_operator(b, "-")
+    return await obj_a._apply_operator(obj_b, "-")
 
 
-async def mul(a: "Object", b: "Object") -> "Object":
+async def mul(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Multiply two objects together.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a * b
+        Object: New Object with result of obj_a * obj_b
     """
-    return await a._binary_operator(b, "*")
+    return await obj_a._apply_operator(obj_b, "*")
 
 
-async def truediv(a: "Object", b: "Object") -> "Object":
+async def truediv(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Divide one object by another.
 
     Args:
-        a: First Object (numerator)
-        b: Second Object (denominator)
+        obj_a: First Object (numerator)
+        obj_b: Second Object (denominator)
 
     Returns:
-        Object: New Object with result of a / b
+        Object: New Object with result of obj_a / obj_b
     """
-    return await a._binary_operator(b, "/")
+    return await obj_a._apply_operator(obj_b, "/")
 
 
-async def floordiv(a: "Object", b: "Object") -> "Object":
+async def floordiv(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Floor divide one object by another.
 
     Args:
-        a: First Object (numerator)
-        b: Second Object (denominator)
+        obj_a: First Object (numerator)
+        obj_b: Second Object (denominator)
 
     Returns:
-        Object: New Object with result of a // b
+        Object: New Object with result of obj_a // obj_b
     """
-    return await a._binary_operator(b, "DIV")
+    return await obj_a._apply_operator(obj_b, "DIV")
 
 
-async def mod(a: "Object", b: "Object") -> "Object":
+async def mod(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Modulo operation between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a % b
+        Object: New Object with result of obj_a % obj_b
     """
-    return await a._binary_operator(b, "%")
+    return await obj_a._apply_operator(obj_b, "%")
 
 
-async def pow(a: "Object", b: "Object") -> "Object":
+async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Raise one object to the power of another.
 
     Args:
-        a: First Object (base)
-        b: Second Object (exponent)
+        obj_a: First Object (base)
+        obj_b: Second Object (exponent)
 
     Returns:
-        Object: New Object with result of a ** b
+        Object: New Object with result of obj_a ** obj_b
     """
-    return await a._binary_operator(b, "power")
+    return await obj_a._apply_operator(obj_b, "power")
 
 
 # Comparison Operators
 
-async def eq(a: "Object", b: "Object") -> "Object":
+async def eq(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check equality between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a == b
+        Object: New Object with boolean result of obj_a == obj_b
     """
-    return await a._binary_operator(b, "=")
+    return await obj_a._apply_operator(obj_b, "=")
 
 
-async def ne(a: "Object", b: "Object") -> "Object":
+async def ne(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check inequality between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a != b
+        Object: New Object with boolean result of obj_a != obj_b
     """
-    return await a._binary_operator(b, "!=")
+    return await obj_a._apply_operator(obj_b, "!=")
 
 
-async def lt(a: "Object", b: "Object") -> "Object":
+async def lt(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check if one object is less than another.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a < b
+        Object: New Object with boolean result of obj_a < obj_b
     """
-    return await a._binary_operator(b, "<")
+    return await obj_a._apply_operator(obj_b, "<")
 
 
-async def le(a: "Object", b: "Object") -> "Object":
+async def le(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check if one object is less than or equal to another.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a <= b
+        Object: New Object with boolean result of obj_a <= obj_b
     """
-    return await a._binary_operator(b, "<=")
+    return await obj_a._apply_operator(obj_b, "<=")
 
 
-async def gt(a: "Object", b: "Object") -> "Object":
+async def gt(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check if one object is greater than another.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a > b
+        Object: New Object with boolean result of obj_a > obj_b
     """
-    return await a._binary_operator(b, ">")
+    return await obj_a._apply_operator(obj_b, ">")
 
 
-async def ge(a: "Object", b: "Object") -> "Object":
+async def ge(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Check if one object is greater than or equal to another.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with boolean result of a >= b
+        Object: New Object with boolean result of obj_a >= obj_b
     """
-    return await a._binary_operator(b, ">=")
+    return await obj_a._apply_operator(obj_b, ">=")
 
 
 # Bitwise Operators
 
-async def and_(a: "Object", b: "Object") -> "Object":
+async def and_(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Bitwise AND operation between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a & b
+        Object: New Object with result of obj_a & obj_b
     """
-    return await a._binary_operator(b, "bitAnd")
+    return await obj_a._apply_operator(obj_b, "bitAnd")
 
 
-async def or_(a: "Object", b: "Object") -> "Object":
+async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Bitwise OR operation between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a | b
+        Object: New Object with result of obj_a | obj_b
     """
-    return await a._binary_operator(b, "bitOr")
+    return await obj_a._apply_operator(obj_b, "bitOr")
 
 
-async def xor(a: "Object", b: "Object") -> "Object":
+async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
     """
     Bitwise XOR operation between two objects.
 
     Args:
-        a: First Object
-        b: Second Object
+        obj_a: First Object
+        obj_b: Second Object
 
     Returns:
-        Object: New Object with result of a ^ b
+        Object: New Object with result of obj_a ^ obj_b
     """
-    return await a._binary_operator(b, "bitXor")
+    return await obj_a._apply_operator(obj_b, "bitXor")

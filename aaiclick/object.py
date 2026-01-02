@@ -227,12 +227,12 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _binary_operator(self, other: "Object", operator: str) -> "Object":
+    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
         """
-        Apply a binary operator (e.g., +, -, *, /) on two objects using SQL templates.
+        Apply an operator (e.g., +, -, *, /) on two objects using SQL templates.
 
         Args:
-            other: Another Object to operate with
+            obj_b: Another Object to operate with
             operator: SQL operator string (e.g., '+', '-', '*', '/')
 
         Returns:
@@ -253,7 +253,7 @@ class Object:
                 result_table=result.table,
                 operator=operator,
                 left_table=self.table,
-                right_table=other.table
+                right_table=obj_b.table
             )
             await client.command(create_query)
 
@@ -268,7 +268,7 @@ class Object:
                 result_table=result.table,
                 operator=operator,
                 left_table=self.table,
-                right_table=other.table
+                right_table=obj_b.table
             )
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
