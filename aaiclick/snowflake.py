@@ -4,10 +4,20 @@ aaiclick.snowflake - Snowflake ID generator for unique table naming.
 This module provides a Snowflake ID generator that creates unique,
 time-ordered IDs suitable for distributed systems.
 
-Snowflake ID format (64 bits):
-- 41 bits: timestamp in milliseconds since custom epoch
-- 10 bits: machine/worker ID
-- 12 bits: sequence number (for IDs generated in same millisecond)
+Snowflake ID format (64 bits) - based on Twitter's Snowflake algorithm:
+Reference: https://en.wikipedia.org/wiki/Snowflake_ID
+
+Bit layout (from MSB to LSB):
+- Bit 63: Sign bit (always 0 for positive integers)
+- Bits 62-22: Timestamp in milliseconds since custom epoch (41 bits)
+- Bits 21-12: Machine/worker ID (10 bits, supports up to 1024 machines)
+- Bits 11-0: Sequence number (12 bits, up to 4096 IDs per millisecond per machine)
+
+This provides:
+- ~69 years of timestamps from the epoch
+- 1024 unique machine IDs (0-1023)
+- 4096 IDs per millisecond per machine
+- Time-ordered, globally unique identifiers
 """
 
 import time
@@ -15,20 +25,21 @@ import threading
 from .env import SNOWFLAKE_MACHINE_ID
 
 # Custom epoch: January 1, 2024 00:00:00 UTC
-# This gives us ~69 years from this epoch
+# This gives us ~69 years from this epoch (41 bits of milliseconds)
 EPOCH = 1704067200000  # milliseconds
 
-# Bit allocation
-MACHINE_ID_BITS = 10
-SEQUENCE_BITS = 12
+# Bit allocation (Wikipedia Snowflake ID standard)
+MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
+SEQUENCE_BITS = 12    # Bits 11-0: supports 4096 IDs per millisecond
+# Timestamp uses 41 bits (bits 62-22) - bit 63 is sign bit (always 0)
 
 # Maximum values
 MAX_MACHINE_ID = (1 << MACHINE_ID_BITS) - 1  # 1023
-MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1  # 4095
+MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1      # 4095
 
-# Bit shifts
-TIMESTAMP_SHIFT = MACHINE_ID_BITS + SEQUENCE_BITS  # 22
-MACHINE_ID_SHIFT = SEQUENCE_BITS  # 12
+# Bit shifts for constructing the 64-bit ID
+TIMESTAMP_SHIFT = MACHINE_ID_BITS + SEQUENCE_BITS  # 22 (bits 62-22 for timestamp)
+MACHINE_ID_SHIFT = SEQUENCE_BITS                   # 12 (bits 21-12 for machine ID)
 
 
 class SnowflakeGenerator:

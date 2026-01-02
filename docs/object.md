@@ -51,11 +51,17 @@ CREATE TABLE (
 
 ### Why aai_id?
 
-ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **snowflake IDs** to:
+ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **[Snowflake IDs](https://en.wikipedia.org/wiki/Snowflake_ID)** (based on Twitter's algorithm) to:
 - Guarantee globally unique row identifiers
 - Preserve insertion order (time-ordered IDs)
 - Enable correct element-wise operations (a + b matches by position)
 - Support distributed/concurrent scenarios
+
+**Snowflake ID structure (64 bits):**
+- Bit 63: Sign bit (always 0)
+- Bits 62-22: Timestamp (41 bits, ~69 years)
+- Bits 21-12: Machine ID (10 bits, up to 1024 machines)
+- Bits 11-0: Sequence (12 bits, up to 4096 IDs/ms per machine)
 
 Single-row tables (scalars and dict of scalars) don't need `aai_id` because there's nothing to order.
 
