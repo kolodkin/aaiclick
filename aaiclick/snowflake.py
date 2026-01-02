@@ -257,6 +257,29 @@ def get_snowflake_ids(size: int) -> list[int]:
     return _generator.get(size)
 
 
+def decode_snowflake_id(id_val: int) -> tuple[int, int, int]:
+    """
+    Decode a Snowflake ID into its component parts.
+
+    Args:
+        id_val: 64-bit Snowflake ID to decode
+
+    Returns:
+        tuple: (timestamp, machine_id, sequence)
+            - timestamp: Milliseconds since epoch (bits 62-22)
+            - machine_id: Machine/worker ID (bits 21-12)
+            - sequence: Sequence number (bits 11-0)
+
+    Example:
+        >>> id_val = get_snowflake_id()
+        >>> timestamp, machine_id, sequence = decode_snowflake_id(id_val)
+    """
+    timestamp = id_val >> 22  # Extract bits 62-22
+    machine_id = (id_val >> 12) & 0x3FF  # Extract bits 21-12 (10 bits)
+    sequence = id_val & 0xFFF  # Extract bits 11-0 (12 bits)
+    return timestamp, machine_id, sequence
+
+
 # Internal functions - use get_snowflake_id/get_snowflake_ids instead
 def _generate_snowflake_id() -> int:
     """Internal: Generate a single Snowflake ID."""

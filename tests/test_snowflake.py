@@ -6,6 +6,7 @@ from aaiclick.snowflake import (
     SnowflakeGenerator,
     get_snowflake_id,
     get_snowflake_ids,
+    decode_snowflake_id,
     MAX_SEQUENCE,
 )
 
@@ -180,11 +181,9 @@ def test_sequential_calls_have_increasing_ids():
     id1 = gen.generate()
     id2 = gen.generate()
 
-    # Extract timestamps (bits 62-22) and sequences (bits 11-0)
-    timestamp1 = id1 >> 22
-    timestamp2 = id2 >> 22
-    sequence1 = id1 & 0xFFF
-    sequence2 = id2 & 0xFFF
+    # Decode IDs into components
+    timestamp1, _, sequence1 = decode_snowflake_id(id1)
+    timestamp2, _, sequence2 = decode_snowflake_id(id2)
 
     # Either timestamps are different (different milliseconds)
     # or sequences are different (same millisecond)
@@ -207,8 +206,8 @@ def test_bulk_sequences_pattern():
     size = 10
     ids = gen.get(size)
 
-    # Extract sequences (bits 11-0)
-    sequences = [id_val & 0xFFF for id_val in ids]
+    # Extract sequences using decode function
+    sequences = [decode_snowflake_id(id_val)[2] for id_val in ids]
 
     # Sequences should be [0, 1, 2, ..., 9]
     expected = list(range(size))
