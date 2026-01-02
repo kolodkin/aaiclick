@@ -7,6 +7,58 @@ The `Object` class represents data stored in ClickHouse tables. Each parameter (
 - Each parameter gets a dedicated ClickHouse table named: `attr_name_[oid]`
 - The table name is stored in the Object class instance
 
+## Table Schema and aai_id Column
+
+Tables created by `create_object_from_value()` follow specific schema patterns based on data type:
+
+### Tables WITHOUT aai_id (Single Row)
+
+**Scalars** - Single value tables don't need ordering:
+```sql
+CREATE TABLE (
+    value {type}
+)
+```
+
+**Dict of Scalars** - Single row tables don't need ordering:
+```sql
+CREATE TABLE (
+    col1 {type},
+    col2 {type},
+    ...
+)
+```
+
+### Tables WITH aai_id (Multiple Rows)
+
+**Arrays/Lists** - Multiple rows need guaranteed insertion order:
+```sql
+CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID for ordering
+    value {type}
+)
+```
+
+**Dict of Arrays** - Multiple rows need guaranteed insertion order:
+```sql
+CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID for ordering
+    col1 {type},
+    col2 {type},
+    ...
+)
+```
+
+### Why aai_id?
+
+ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **snowflake IDs** to:
+- Guarantee globally unique row identifiers
+- Preserve insertion order (time-ordered IDs)
+- Enable correct element-wise operations (a + b matches by position)
+- Support distributed/concurrent scenarios
+
+Single-row tables (scalars and dict of scalars) don't need `aai_id` because there's nothing to order.
+
 ## Object Class Features
 
 **Operator Overloading:**

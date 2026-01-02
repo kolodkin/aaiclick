@@ -117,25 +117,36 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     Args:
         val: Value to create object from. Can be:
-            - Scalar (int, float, bool, str): Creates single column "value"
-            - List of scalars: Creates single column "value" with multiple rows
-            - Dict: Creates one column per key, single row
+            - Scalar (int, float, bool, str): Creates single column "value" (no aai_id)
+            - List of scalars: Creates "aai_id" and "value" columns with multiple rows
+            - Dict of scalars: Creates one column per key, single row (no aai_id)
+            - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
 
     Returns:
         Object: New Object instance with data
 
+    Table Schema Details:
+        - Scalars (single value): No aai_id column - single row tables don't need ordering
+        - Arrays (lists): Includes aai_id column with snowflake IDs for guaranteed insertion order
+        - Dict of scalars: No aai_id column - single row tables don't need ordering
+        - Dict of arrays: Includes aai_id column with snowflake IDs for guaranteed insertion order
+
     Examples:
-        >>> # From scalar
+        >>> # From scalar (no aai_id)
         >>> obj = await create_object_from_value(42)
         >>> # Creates table with column: value Int64
         >>>
-        >>> # From list
+        >>> # From list (with aai_id)
         >>> obj = await create_object_from_value([1.5, 2.5, 3.5])
-        >>> # Creates table with column: value Float64 and 3 rows
+        >>> # Creates table with columns: aai_id UInt64, value Float64
         >>>
-        >>> # From dict
+        >>> # From dict of scalars (no aai_id)
         >>> obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
         >>> # Creates table with columns: id Int64, name String, age Int64
+        >>>
+        >>> # From dict of arrays (with aai_id)
+        >>> obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
+        >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
     """
     obj = Object()
     client = await get_client()
