@@ -10,7 +10,7 @@ All operator functions follow a consistent pattern:
 - Take two Object parameters (`a` and `b`)
 - Return a new Object with the result
 - Are async functions (must be awaited)
-- Delegate to `_binary_operation` method on the Object class
+- Delegate to `_binary_operator` method on the Object class
 
 ## Function Reference
 
@@ -78,15 +78,15 @@ result = await operators.pow(a, b)
 
 ## Implementation Details
 
-All operator functions delegate to the `_binary_operation` method on the Object class:
+All operator functions delegate to the `_binary_operator` method on the Object class:
 
 ```python
 async def add(a: "Object", b: "Object") -> "Object":
     """Add two objects together."""
-    return await a._binary_operation(b, "+")
+    return await a._binary_operator(b, "+")
 ```
 
-The `_binary_operation` method:
+The `_binary_operator` method:
 1. Creates a new Object to hold the result
 2. Determines if operating on scalars or arrays
 3. Selects appropriate SQL template

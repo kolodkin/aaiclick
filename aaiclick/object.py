@@ -227,9 +227,9 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _binary_operation(self, other: "Object", operator: str) -> "Object":
+    async def _binary_operator(self, other: "Object", operator: str) -> "Object":
         """
-        Perform a binary operation (e.g., +, -, *, /) on two objects using SQL templates.
+        Apply a binary operator (e.g., +, -, *, /) on two objects using SQL templates.
 
         Args:
             other: Another Object to operate with

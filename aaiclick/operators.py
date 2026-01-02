@@ -24,7 +24,7 @@ async def add(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a + b
     """
-    return await a._binary_operation(b, "+")
+    return await a._binary_operator(b, "+")
 
 
 async def sub(a: "Object", b: "Object") -> "Object":
@@ -38,7 +38,7 @@ async def sub(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a - b
     """
-    return await a._binary_operation(b, "-")
+    return await a._binary_operator(b, "-")
 
 
 async def mul(a: "Object", b: "Object") -> "Object":
@@ -52,7 +52,7 @@ async def mul(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a * b
     """
-    return await a._binary_operation(b, "*")
+    return await a._binary_operator(b, "*")
 
 
 async def truediv(a: "Object", b: "Object") -> "Object":
@@ -66,7 +66,7 @@ async def truediv(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a / b
     """
-    return await a._binary_operation(b, "/")
+    return await a._binary_operator(b, "/")
 
 
 async def floordiv(a: "Object", b: "Object") -> "Object":
@@ -80,7 +80,7 @@ async def floordiv(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a // b
     """
-    return await a._binary_operation(b, "DIV")
+    return await a._binary_operator(b, "DIV")
 
 
 async def mod(a: "Object", b: "Object") -> "Object":
@@ -94,7 +94,7 @@ async def mod(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a % b
     """
-    return await a._binary_operation(b, "%")
+    return await a._binary_operator(b, "%")
 
 
 async def pow(a: "Object", b: "Object") -> "Object":
@@ -108,7 +108,7 @@ async def pow(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a ** b
     """
-    return await a._binary_operation(b, "power")
+    return await a._binary_operator(b, "power")
 
 
 # Comparison Operators
@@ -124,7 +124,7 @@ async def eq(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a == b
     """
-    return await a._binary_operation(b, "=")
+    return await a._binary_operator(b, "=")
 
 
 async def ne(a: "Object", b: "Object") -> "Object":
@@ -138,7 +138,7 @@ async def ne(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a != b
     """
-    return await a._binary_operation(b, "!=")
+    return await a._binary_operator(b, "!=")
 
 
 async def lt(a: "Object", b: "Object") -> "Object":
@@ -152,7 +152,7 @@ async def lt(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a < b
     """
-    return await a._binary_operation(b, "<")
+    return await a._binary_operator(b, "<")
 
 
 async def le(a: "Object", b: "Object") -> "Object":
@@ -166,7 +166,7 @@ async def le(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a <= b
     """
-    return await a._binary_operation(b, "<=")
+    return await a._binary_operator(b, "<=")
 
 
 async def gt(a: "Object", b: "Object") -> "Object":
@@ -180,7 +180,7 @@ async def gt(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a > b
     """
-    return await a._binary_operation(b, ">")
+    return await a._binary_operator(b, ">")
 
 
 async def ge(a: "Object", b: "Object") -> "Object":
@@ -194,7 +194,7 @@ async def ge(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of a >= b
     """
-    return await a._binary_operation(b, ">=")
+    return await a._binary_operator(b, ">=")
 
 
 # Bitwise Operators
@@ -210,7 +210,7 @@ async def and_(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a & b
     """
-    return await a._binary_operation(b, "bitAnd")
+    return await a._binary_operator(b, "bitAnd")
 
 
 async def or_(a: "Object", b: "Object") -> "Object":
@@ -224,7 +224,7 @@ async def or_(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a | b
     """
-    return await a._binary_operation(b, "bitOr")
+    return await a._binary_operator(b, "bitOr")
 
 
 async def xor(a: "Object", b: "Object") -> "Object":
@@ -238,4 +238,4 @@ async def xor(a: "Object", b: "Object") -> "Object":
     Returns:
         Object: New Object with result of a ^ b
     """
-    return await a._binary_operation(b, "bitXor")
+    return await a._binary_operator(b, "bitXor")
