@@ -227,17 +227,22 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _apply_operator(self, obj_b: "Object", expression: str) -> "Object":
+    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
         """
-        Apply an operator expression on two objects using SQL templates.
+        Apply an operator on two objects using SQL templates.
 
         Args:
             obj_b: Another Object to operate with
-            expression: SQL expression string (e.g., 'a.value + b.value', 'power(a.value, b.value)')
+            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
 
         Returns:
             Object: New Object instance pointing to result table
         """
+        from . import operators as ops_module
+
+        # Get SQL expression from operator mapping
+        expression = ops_module.OPERATOR_EXPRESSIONS[operator]
+
         result = Object()
         client = await get_client()
 

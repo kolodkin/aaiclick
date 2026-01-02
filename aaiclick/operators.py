@@ -11,6 +11,30 @@ if TYPE_CHECKING:
     from .object import Object
 
 
+# Operator to SQL expression mapping
+OPERATOR_EXPRESSIONS = {
+    # Arithmetic
+    "+": "a.value + b.value",
+    "-": "a.value - b.value",
+    "*": "a.value * b.value",
+    "/": "a.value / b.value",
+    "//": "intDiv(a.value, b.value)",
+    "%": "a.value % b.value",
+    "**": "power(a.value, b.value)",
+    # Comparison
+    "==": "a.value = b.value",
+    "!=": "a.value != b.value",
+    "<": "a.value < b.value",
+    "<=": "a.value <= b.value",
+    ">": "a.value > b.value",
+    ">=": "a.value >= b.value",
+    # Bitwise
+    "&": "bitAnd(a.value, b.value)",
+    "|": "bitOr(a.value, b.value)",
+    "^": "bitXor(a.value, b.value)",
+}
+
+
 # Arithmetic Operators
 
 async def add(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -24,7 +48,7 @@ async def add(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a + obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value + b.value")
+    return await obj_a._apply_operator(obj_b, "+")
 
 
 async def sub(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -38,7 +62,7 @@ async def sub(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a - obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value - b.value")
+    return await obj_a._apply_operator(obj_b, "-")
 
 
 async def mul(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -52,7 +76,7 @@ async def mul(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a * obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value * b.value")
+    return await obj_a._apply_operator(obj_b, "*")
 
 
 async def truediv(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -66,7 +90,7 @@ async def truediv(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a / obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value / b.value")
+    return await obj_a._apply_operator(obj_b, "/")
 
 
 async def floordiv(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -80,7 +104,7 @@ async def floordiv(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a // obj_b
     """
-    return await obj_a._apply_operator(obj_b, "intDiv(a.value, b.value)")
+    return await obj_a._apply_operator(obj_b, "//")
 
 
 async def mod(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -94,7 +118,7 @@ async def mod(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a % obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value % b.value")
+    return await obj_a._apply_operator(obj_b, "%")
 
 
 async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -108,7 +132,7 @@ async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a ** obj_b
     """
-    return await obj_a._apply_operator(obj_b, "power(a.value, b.value)")
+    return await obj_a._apply_operator(obj_b, "**")
 
 
 # Comparison Operators
@@ -124,7 +148,7 @@ async def eq(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a == obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value = b.value")
+    return await obj_a._apply_operator(obj_b, "==")
 
 
 async def ne(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -138,7 +162,7 @@ async def ne(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a != obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value != b.value")
+    return await obj_a._apply_operator(obj_b, "!=")
 
 
 async def lt(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -152,7 +176,7 @@ async def lt(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a < obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value < b.value")
+    return await obj_a._apply_operator(obj_b, "<")
 
 
 async def le(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -166,7 +190,7 @@ async def le(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a <= obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value <= b.value")
+    return await obj_a._apply_operator(obj_b, "<=")
 
 
 async def gt(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -180,7 +204,7 @@ async def gt(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a > obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value > b.value")
+    return await obj_a._apply_operator(obj_b, ">")
 
 
 async def ge(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -194,7 +218,7 @@ async def ge(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with boolean result of obj_a >= obj_b
     """
-    return await obj_a._apply_operator(obj_b, "a.value >= b.value")
+    return await obj_a._apply_operator(obj_b, ">=")
 
 
 # Bitwise Operators
@@ -210,7 +234,7 @@ async def and_(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a & obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitAnd(a.value, b.value)")
+    return await obj_a._apply_operator(obj_b, "&")
 
 
 async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -224,7 +248,7 @@ async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a | obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitOr(a.value, b.value)")
+    return await obj_a._apply_operator(obj_b, "|")
 
 
 async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -238,4 +262,4 @@ async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a ^ obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitXor(a.value, b.value)")
+    return await obj_a._apply_operator(obj_b, "^")
