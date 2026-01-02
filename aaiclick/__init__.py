@@ -26,5 +26,5 @@ from .object import (
 from .factories import create_object, create_object_from_value
 
 # Import Snowflake ID generation
-from .snowflake import generate_snowflake_id, generate_snowflake_ids, get_snowflake_ids
+from .snowflake import get_snowflake_id, get_snowflake_ids
 

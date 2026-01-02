@@ -4,8 +4,7 @@ Tests for Snowflake ID generation.
 
 from aaiclick.snowflake import (
     SnowflakeGenerator,
-    generate_snowflake_id,
-    generate_snowflake_ids,
+    get_snowflake_id,
     get_snowflake_ids,
     MAX_SEQUENCE,
 )
@@ -13,8 +12,8 @@ from aaiclick.snowflake import (
 
 def test_generate_single_id():
     """Test generating a single snowflake ID."""
-    id1 = generate_snowflake_id()
-    id2 = generate_snowflake_id()
+    id1 = get_snowflake_id()
+    id2 = get_snowflake_id()
 
     # IDs should be unique
     assert id1 != id2
@@ -25,7 +24,7 @@ def test_generate_single_id():
 def test_generate_bulk_ids():
     """Test generating multiple snowflake IDs in bulk."""
     count = 100
-    ids = generate_snowflake_ids(count)
+    ids = get_snowflake_ids(count)
 
     # Should generate exact count
     assert len(ids) == count
@@ -40,7 +39,7 @@ def test_generate_bulk_ids():
 def test_bulk_ids_are_sequential():
     """Test that bulk IDs are sequential within the same millisecond."""
     count = 10
-    ids = generate_snowflake_ids(count)
+    ids = get_snowflake_ids(count)
 
     # Check that IDs increment by 1 in the sequence portion
     # (this may not always be true if milliseconds change, but for small counts it should be)
@@ -89,7 +88,8 @@ def test_bulk_generation_edge_cases():
 def test_large_bulk_generation_5000_ids():
     """Test generating 5000 IDs in bulk - validates performance and correctness at scale."""
     count = 5000  # Large enough to span multiple milliseconds
-    ids = generate_snowflake_ids(count)
+    gen = SnowflakeGenerator()
+    ids = gen.generate_bulk(count)
 
     # Verify exact count generated
     assert len(ids) == count, f"Expected {count} IDs, got {len(ids)}"
@@ -139,7 +139,7 @@ def test_bulk_vs_individual_generation():
 
 def test_snowflake_id_structure():
     """Test that snowflake IDs have the correct structure."""
-    id_val = generate_snowflake_id()
+    id_val = get_snowflake_id()
 
     # Should be a positive integer
     assert isinstance(id_val, int)

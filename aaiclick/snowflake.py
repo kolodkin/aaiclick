@@ -209,27 +209,14 @@ class SnowflakeGenerator:
 _generator = SnowflakeGenerator()
 
 
-def generate_snowflake_id() -> int:
+def get_snowflake_id() -> int:
     """
-    Generate a new Snowflake ID using the global generator.
+    Get a single Snowflake ID.
 
     Returns:
         int: Unique 64-bit Snowflake ID
     """
     return _generator.generate()
-
-
-def generate_snowflake_ids(count: int) -> list[int]:
-    """
-    Generate multiple sequential Snowflake IDs using the global generator.
-
-    Args:
-        count: Number of IDs to generate
-
-    Returns:
-        list[int]: List of unique 64-bit Snowflake IDs in ascending order
-    """
-    return _generator.generate_bulk(count)
 
 
 def get_snowflake_ids(size: int) -> list[int]:
@@ -238,7 +225,7 @@ def get_snowflake_ids(size: int) -> list[int]:
 
     Validates that size is within the sequence number range (0 to MAX_SEQUENCE).
     This ensures all IDs can have different sequence numbers within the same
-    millisecond.
+    millisecond. For larger sizes, use the internal generator directly.
 
     Args:
         size: Number of IDs to generate (0 to 4095 inclusive)
@@ -250,3 +237,14 @@ def get_snowflake_ids(size: int) -> list[int]:
         ValueError: If size is not in range [0, MAX_SEQUENCE]
     """
     return _generator.get(size)
+
+
+# Internal functions - use get_snowflake_id/get_snowflake_ids instead
+def _generate_snowflake_id() -> int:
+    """Internal: Generate a single Snowflake ID."""
+    return _generator.generate()
+
+
+def _generate_snowflake_ids(count: int) -> list[int]:
+    """Internal: Generate multiple Snowflake IDs without size validation."""
+    return _generator.generate_bulk(count)

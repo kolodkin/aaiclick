@@ -9,7 +9,7 @@ from typing import Union, Dict, List
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .client import get_client
-from .snowflake import generate_snowflake_ids
+from .snowflake import get_snowflake_ids
 
 
 # Type aliases
@@ -192,23 +192,20 @@ async def create_object_from_value(val: ValueType) -> Object:
             await client.command(create_query)
 
             # Generate snowflake IDs for all rows
-            aai_ids = generate_snowflake_ids(array_len or 0)
+            aai_ids = get_snowflake_ids(array_len or 0)
 
-            # Insert rows
-            keys = list(val.keys())
-            for idx in range(array_len or 0):
-                row_values = [str(aai_ids[idx])]
-                for key in keys:
-                    item = val[key][idx]
-                    if isinstance(item, str):
-                        row_values.append(f"'{item}'")
-                    elif isinstance(item, bool):
-                        row_values.append("1" if item else "0")
-                    else:
-                        row_values.append(str(item))
+            # Build data rows for bulk insert
+            if array_len and array_len > 0:
+                keys = list(val.keys())
+                data = []
+                for idx in range(array_len):
+                    row = [aai_ids[idx]]
+                    for key in keys:
+                        row.append(val[key][idx])
+                    data.append(row)
 
-                insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(row_values)})"
-                await client.command(insert_query)
+                # Use clickhouse-connect's built-in insert
+                await client.insert(obj.table, data)
 
         else:
             # Dict of scalars: one column per key, single row
@@ -255,19 +252,13 @@ async def create_object_from_value(val: ValueType) -> Object:
         await client.command(create_query)
 
         # Generate snowflake IDs for all rows
-        aai_ids = generate_snowflake_ids(len(val))
+        aai_ids = get_snowflake_ids(len(val))
 
-        # Insert multiple rows with snowflake row IDs
-        for idx, item in enumerate(val):
-            if isinstance(item, str):
-                value_str = f"'{item}'"
-            elif isinstance(item, bool):
-                value_str = "1" if item else "0"
-            else:
-                value_str = str(item)
-
-            insert_query = f"INSERT INTO {obj.table} VALUES ({aai_ids[idx]}, {value_str})"
-            await client.command(insert_query)
+        # Build data rows for bulk insert
+        if val:
+            data = [[aai_ids[idx], item] for idx, item in enumerate(val)]
+            # Use clickhouse-connect's built-in insert
+            await client.insert(obj.table, data)
 
     else:
         # Scalar: single column "value" with single row

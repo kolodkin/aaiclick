@@ -9,7 +9,7 @@ from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 import yaml
 from .client import get_client
-from .snowflake import generate_snowflake_id, generate_snowflake_ids
+from .snowflake import get_snowflake_id
 
 
 # Fieldtype constants
@@ -99,7 +99,7 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        self._table_name = table if table is not None else f"t{generate_snowflake_id()}"
+        self._table_name = table if table is not None else f"t{get_snowflake_id()}"
 
     @property
     def table(self) -> str:
