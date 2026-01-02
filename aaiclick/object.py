@@ -11,6 +11,7 @@ import yaml
 from .client import get_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
+from . import operators
 
 
 # Fieldtype constants
@@ -286,7 +287,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "+")
+        return await operators.add(self, other)
 
     async def __sub__(self, other: "Object") -> "Object":
         """
@@ -300,7 +301,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "-")
+        return await operators.sub(self, other)
 
     async def __mul__(self, other: "Object") -> "Object":
         """
@@ -314,7 +315,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "*")
+        return await operators.mul(self, other)
 
     async def __truediv__(self, other: "Object") -> "Object":
         """
@@ -328,7 +329,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "/")
+        return await operators.truediv(self, other)
 
     async def __floordiv__(self, other: "Object") -> "Object":
         """
@@ -342,7 +343,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "DIV")
+        return await operators.floordiv(self, other)
 
     async def __mod__(self, other: "Object") -> "Object":
         """
@@ -356,7 +357,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "%")
+        return await operators.mod(self, other)
 
     async def __pow__(self, other: "Object") -> "Object":
         """
@@ -370,7 +371,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "power")
+        return await operators.pow(self, other)
 
     async def __eq__(self, other: "Object") -> "Object":
         """
@@ -384,7 +385,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, "=")
+        return await operators.eq(self, other)
 
     async def __ne__(self, other: "Object") -> "Object":
         """
@@ -398,7 +399,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, "!=")
+        return await operators.ne(self, other)
 
     async def __lt__(self, other: "Object") -> "Object":
         """
@@ -412,7 +413,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, "<")
+        return await operators.lt(self, other)
 
     async def __le__(self, other: "Object") -> "Object":
         """
@@ -426,7 +427,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, "<=")
+        return await operators.le(self, other)
 
     async def __gt__(self, other: "Object") -> "Object":
         """
@@ -440,7 +441,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, ">")
+        return await operators.gt(self, other)
 
     async def __ge__(self, other: "Object") -> "Object":
         """
@@ -454,7 +455,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        return await self._binary_operation(other, ">=")
+        return await operators.ge(self, other)
 
     async def __and__(self, other: "Object") -> "Object":
         """
@@ -468,7 +469,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "bitAnd")
+        return await operators.and_(self, other)
 
     async def __or__(self, other: "Object") -> "Object":
         """
@@ -482,7 +483,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "bitOr")
+        return await operators.or_(self, other)
 
     async def __xor__(self, other: "Object") -> "Object":
         """
@@ -496,7 +497,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "bitXor")
+        return await operators.xor(self, other)
 
     async def delete_table(self) -> None:
         """

@@ -211,7 +211,23 @@ This indicates an array column.
 
 ## Implementation Details
 
-All operators use a common `_binary_operation` method that:
+### Operator Architecture
+
+Operator implementations are separated into the `operators` module for modularity and testability. Each operator in the Object class delegates to a corresponding function in the operators module.
+
+**Object class** (`object.py`):
+- Provides operator overloading via dunder methods (`__add__`, `__mul__`, etc.)
+- Delegates to operator functions in the `operators` module
+
+**Operators module** (`operators.py`):
+- Contains static async functions for each operator (`add()`, `mul()`, etc.)
+- Each function calls `_binary_operation()` with the appropriate operator string
+
+See [operators.md](operators.md) for complete operator function reference and usage examples.
+
+### Binary Operation Flow
+
+All operators use the common `_binary_operation` method that:
 1. Creates a new Object to hold the result
 2. Determines if the operation is on scalars or arrays
 3. Selects the appropriate SQL template (scalar or array)
