@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import yaml
 from .client import get_client
 from .snowflake import get_snowflake_id
+from .sql_template_loader import load_sql_template
 
 
 # Fieldtype constants
@@ -217,14 +218,13 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def __add__(self, other: "Object") -> "Object":
+    async def _binary_operation(self, other: "Object", operator: str) -> "Object":
         """
-        Add two objects together.
-
-        Creates a new Object with a table containing the result of element-wise addition.
+        Perform a binary operation (e.g., +, -, *, /) on two objects using SQL templates.
 
         Args:
-            other: Another Object to add
+            other: Another Object to operate with
+            operator: SQL operator string (e.g., '+', '-', '*', '/')
 
         Returns:
             Object: New Object instance pointing to result table
@@ -238,34 +238,47 @@ class Object:
         comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
 
         if has_aai_id:
-            # Array operation with aai_id
-            # Order both tables by aai_id, match by position using row_number()
-            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-            create_query = f"""
-            CREATE TABLE {result.table}
-            ENGINE = MergeTree ORDER BY tuple()
-            AS
-            SELECT a.rn as aai_id, a.value + b.value AS value
-            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
-            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {other.table}) AS b
-            ON a.rn = b.rn
-            """
+            # Array operation with aai_id - use array template
+            template = load_sql_template("binary_op_array")
+            create_query = template.format(
+                result_table=result.table,
+                operator=operator,
+                left_table=self.table,
+                right_table=other.table
+            )
             await client.command(create_query)
+
             # Add comments
+            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
-            # Scalar operation
-            create_query = f"""
-            CREATE TABLE {result.table}
-            ENGINE = MergeTree ORDER BY tuple()
-            AS SELECT a.value + b.value AS value
-            FROM {self.table} AS a, {other.table} AS b
-            """
+            # Scalar operation - use scalar template
+            template = load_sql_template("binary_op_scalar")
+            create_query = template.format(
+                result_table=result.table,
+                operator=operator,
+                left_table=self.table,
+                right_table=other.table
+            )
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
 
         return result
+
+    async def __add__(self, other: "Object") -> "Object":
+        """
+        Add two objects together.
+
+        Creates a new Object with a table containing the result of element-wise addition.
+
+        Args:
+            other: Another Object to add
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "+")
 
     async def __sub__(self, other: "Object") -> "Object":
         """
@@ -279,42 +292,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        result = Object()
-        client = await get_client()
-
-        # Check if operating on scalars or arrays
-        has_aai_id = await self._has_aai_id()
-        fieldtype = await self._get_fieldtype()
-        comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
-
-        if has_aai_id:
-            # Array operation with aai_id
-            # Order both tables by aai_id, match by position using row_number()
-            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-            create_query = f"""
-            CREATE TABLE {result.table}
-            ENGINE = MergeTree ORDER BY tuple()
-            AS
-            SELECT a.rn as aai_id, a.value - b.value AS value
-            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
-            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {other.table}) AS b
-            ON a.rn = b.rn
-            """
-            await client.command(create_query)
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
-        else:
-            # Scalar operation
-            create_query = f"""
-            CREATE TABLE {result.table}
-            ENGINE = MergeTree ORDER BY tuple()
-            AS SELECT a.value - b.value AS value
-            FROM {self.table} AS a, {other.table} AS b
-            """
-            await client.command(create_query)
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
-
-        return result
+        return await self._binary_operation(other, "-")
 
     async def delete_table(self) -> None:
         """
