@@ -199,6 +199,22 @@ def test_sequential_calls_have_increasing_ids():
     assert id2 > id1, "IDs should be strictly increasing"
 
 
+def test_bulk_sequences_pattern():
+    """Test that bulk generation produces expected sequence pattern [0,1,...,n-1]."""
+    gen = SnowflakeGenerator()
+
+    # Generate bulk of size 10
+    size = 10
+    ids = gen.get(size)
+
+    # Extract sequences (bits 11-0)
+    sequences = [id_val & 0xFFF for id_val in ids]
+
+    # Sequences should be [0, 1, 2, ..., 9]
+    expected = list(range(size))
+    assert sequences == expected, f"Expected sequences {expected}, got {sequences}"
+
+
 def test_get_snowflake_ids_max_size():
     """Test get_snowflake_ids with maximum allowed size."""
     gen = SnowflakeGenerator()
