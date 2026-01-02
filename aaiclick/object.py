@@ -509,6 +509,31 @@ class Object:
         client = await get_client()
         await client.command(f"DROP TABLE IF EXISTS {self.table}")
 
+    async def append(self, other: "Object") -> "Object":
+        """
+        Append another object to this object.
+
+        Creates a new Object with rows from self followed by rows from other.
+        Only works with array fieldtype objects (objects with aai_id column).
+
+        Args:
+            other: Another Object to append
+
+        Returns:
+            Object: New Object instance with concatenated data
+
+        Raises:
+            ValueError: If self does not have array fieldtype
+
+        Examples:
+            >>> obj_a = await create_object_from_value([1, 2, 3])
+            >>> obj_b = await create_object_from_value([4, 5, 6])
+            >>> result = await obj_a.append(obj_b)
+            >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+        """
+        from . import ingest
+        return await ingest.concat(self, other)
+
     async def min(self) -> float:
         """
         Calculate the minimum value from the object's table.
