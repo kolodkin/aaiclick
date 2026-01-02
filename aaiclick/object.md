@@ -41,77 +41,31 @@ All operators work element-wise on both scalar and array data types.
 
 ## Usage Examples
 
-### Arithmetic Operations
+All operators work element-wise on both scalar and array data:
 
 ```python
-import aaiclick as ai
+import aaiclick
 
-# Create objects with scalar values
-a = await ai.scalar(10)
-b = await ai.scalar(5)
+# Arithmetic
+a = await aaiclick.create_object_from_value([10, 20, 30])
+b = await aaiclick.create_object_from_value([2, 4, 5])
+result = await (a + b)      # [12, 24, 35]
+result = await (a ** b)     # [100, 160000, 24300000]
 
-# Arithmetic operations
-result = await (a + b)  # Addition: 15
-result = await (a - b)  # Subtraction: 5
-result = await (a * b)  # Multiplication: 50
-result = await (a / b)  # Division: 2.0
-result = await (a // b) # Floor Division: 2
-result = await (a % b)  # Modulo: 0
-result = await (a ** b) # Power: 100000
+# Comparison
+x = await aaiclick.create_object_from_value([1, 5, 10])
+y = await aaiclick.create_object_from_value([5, 5, 8])
+result = await (x == y)     # [False, True, False]
+result = await (x < y)      # [True, False, False]
 
-# Get the result
-value = await result.data()
+# Bitwise
+m = await aaiclick.create_object_from_value([12, 10, 8])
+n = await aaiclick.create_object_from_value([10, 12, 4])
+result = await (m & n)      # [8, 8, 0]
 ```
 
-### Array Operations
-
-```python
-# Create objects with array values
-a = await ai.array([1, 2, 3, 4, 5])
-b = await ai.array([10, 20, 30, 40, 50])
-
-# Element-wise operations
-result = await (a + b)  # [11, 22, 33, 44, 55]
-result = await (a * b)  # [10, 40, 90, 160, 250]
-
-# Get the result
-values = await result.data()
-```
-
-### Comparison Operations
-
-```python
-a = await ai.array([1, 2, 3, 4, 5])
-b = await ai.array([3, 3, 3, 3, 3])
-
-# Element-wise comparisons (return boolean arrays)
-result = await (a == b)  # [False, False, True, False, False]
-result = await (a < b)   # [True, True, False, False, False]
-result = await (a >= b)  # [False, False, True, True, True]
-```
-
-### Bitwise Operations
-
-```python
-a = await ai.array([12, 10, 8])  # Binary: 1100, 1010, 1000
-b = await ai.array([10, 12, 4])  # Binary: 1010, 1100, 0100
-
-# Element-wise bitwise operations
-result = await (a & b)  # Bitwise AND: [8, 8, 0]
-result = await (a | b)  # Bitwise OR: [14, 14, 12]
-result = await (a ^ b)  # Bitwise XOR: [6, 6, 12]
-```
-
-### Chained Operations
-
-```python
-a = await ai.array([1, 2, 3])
-b = await ai.array([10, 20, 30])
-c = await ai.array([100, 200, 300])
-
-# Chain multiple operations
-result = await ((a + b) * c)  # [1100, 4400, 9900]
-```
+For complete runnable examples of all operators, see:
+- `examples/basic_operators.py` - Comprehensive examples of all 14 operators
 
 ## Implementation Details
 
