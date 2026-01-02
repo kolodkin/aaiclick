@@ -238,10 +238,8 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators as ops_module
-
         # Get SQL expression from operator mapping
-        expression = ops_module.OPERATOR_EXPRESSIONS[operator]
+        expression = operators.OPERATOR_EXPRESSIONS[operator]
 
         result = Object()
         client = await get_client()
