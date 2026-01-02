@@ -89,7 +89,32 @@ class Object:
     Represents a data object stored in a ClickHouse table.
 
     Each Object instance corresponds to a ClickHouse table and supports
-    operations like addition and subtraction that create new tables with results.
+    operations through operator overloading that create new tables with results.
+
+    Supported Operators:
+        Arithmetic:
+            +  (addition)           → +
+            -  (subtraction)        → -
+            *  (multiplication)     → *
+            /  (division)           → /
+            // (floor division)     → DIV
+            %  (modulo)             → %
+            ** (power)              → power()
+
+        Comparison:
+            == (equal)              → =
+            != (not equal)          → !=
+            <  (less than)          → <
+            <= (less than or equal) → <=
+            >  (greater than)       → >
+            >= (greater than or equal) → >=
+
+        Bitwise:
+            & (AND)                 → bitAnd()
+            | (OR)                  → bitOr()
+            ^ (XOR)                 → bitXor()
+
+    All operators work element-wise on both scalar and array data types.
     """
 
     def __init__(self, table: Optional[str] = None):
