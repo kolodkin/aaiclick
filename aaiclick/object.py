@@ -239,26 +239,22 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id
-            # Use position-based joining with row_number() to match elements by position
+            # Use ClickHouse array operations for efficient element-wise computation
             aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
-            WITH
-                a_numbered AS (
-                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
-                    FROM {self.table}
-                ),
-                b_numbered AS (
-                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
-                    FROM {other.table}
-                )
             SELECT
-                a_numbered.rn AS aai_id,
-                a_numbered.value + b_numbered.value AS value
-            FROM a_numbered
-            INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
+                arrayJoin(range(1, length(result_values) + 1)) as aai_id,
+                arrayJoin(result_values) as value
+            FROM (
+                SELECT
+                    arrayMap((a, b) -> a + b,
+                             (SELECT groupArray(value) FROM {self.table} ORDER BY aai_id),
+                             (SELECT groupArray(value) FROM {other.table} ORDER BY aai_id)
+                    ) as result_values
+            )
             """
             await client.command(create_query)
             # Add comments
@@ -299,26 +295,22 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id
-            # Use position-based joining with row_number() to match elements by position
+            # Use ClickHouse array operations for efficient element-wise computation
             aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
-            WITH
-                a_numbered AS (
-                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
-                    FROM {self.table}
-                ),
-                b_numbered AS (
-                    SELECT row_number() OVER (ORDER BY aai_id) AS rn, value
-                    FROM {other.table}
-                )
             SELECT
-                a_numbered.rn AS aai_id,
-                a_numbered.value - b_numbered.value AS value
-            FROM a_numbered
-            INNER JOIN b_numbered ON a_numbered.rn = b_numbered.rn
+                arrayJoin(range(1, length(result_values) + 1)) as aai_id,
+                arrayJoin(result_values) as value
+            FROM (
+                SELECT
+                    arrayMap((a, b) -> a - b,
+                             (SELECT groupArray(value) FROM {self.table} ORDER BY aai_id),
+                             (SELECT groupArray(value) FROM {other.table} ORDER BY aai_id)
+                    ) as result_values
+            )
             """
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
