@@ -165,9 +165,9 @@ data = await obj.data()
 print(data)  # {"id": 1, "name": "Alice", "age": 30}
 ```
 
-### Orient Parameter (for Dict with Multiple Rows)
+### Dict of Arrays Example (Multiple Rows)
 
-The `orient` parameter controls the output format when dict has multiple rows:
+When you create an object from a dictionary of arrays, each array becomes a column and each index becomes a row. The `orient` parameter controls how you read the data back:
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -175,12 +175,26 @@ The `orient` parameter controls the output format when dict has multiple rows:
 | `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row) |
 
 ```python
-from aaiclick import ORIENT_DICT, ORIENT_RECORDS
+from aaiclick import create_object_from_value, ORIENT_RECORDS
 
-# Default orient='dict' - returns first row as dict
-data = await obj.data()
+# Create dict of arrays - 3 people with their info
+data = {
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [30, 25, 35]
+}
+obj = await create_object_from_value(data)
 
-# orient='records' - returns list of dicts
-data = await obj.data(orient=ORIENT_RECORDS)
-print(data)  # [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+# Default: returns first row as dict
+first_row = await obj.data()
+print(first_row)  # {"id": 1, "name": "Alice", "age": 30}
+
+# With orient='records': returns list of all rows as dicts
+all_rows = await obj.data(orient=ORIENT_RECORDS)
+print(all_rows)
+# [
+#     {"id": 1, "name": "Alice", "age": 30},
+#     {"id": 2, "name": "Bob", "age": 25},
+#     {"id": 3, "name": "Charlie", "age": 35}
+# ]
 ```
