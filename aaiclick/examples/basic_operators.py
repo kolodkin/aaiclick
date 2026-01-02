@@ -52,17 +52,30 @@ async def main():
         print("Example 3: Creating objects from dictionaries")
         print("-" * 50)
 
+        # Dict of scalars (single row)
         obj_dict = await aaiclick.create_object_from_value(
             {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
         )
-        print(f"Created from dict: {obj_dict}")
+        print(f"Created from dict of scalars: {obj_dict}")
         print(f"Values: {await obj_dict.data()}\n")
 
-        obj_dict2 = await aaiclick.create_object_from_value(
-            {"product_id": 100, "product_name": "Widget", "price": 29.99, "in_stock": True}
+        # Dict of arrays (multiple rows)
+        obj_dict_arrays = await aaiclick.create_object_from_value(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [30, 25, 35]
+            }
         )
-        print(f"Created from dict: {obj_dict2}")
-        print(f"Values: {await obj_dict2.data()}")
+        print(f"Created from dict of arrays: {obj_dict_arrays}")
+
+        # Default: returns first row as dict
+        first_row = await obj_dict_arrays.data()
+        print(f"First row (default): {first_row}")
+
+        # With orient='records': returns all rows as list of dicts
+        all_rows = await obj_dict_arrays.data(orient=aaiclick.ORIENT_RECORDS)
+        print(f"All rows (orient='records'): {all_rows}")
 
         # Example 4: Arithmetic operations
         print("\n" + "=" * 50)
@@ -117,7 +130,7 @@ async def main():
             obj_list_float,
             obj_list_str,
             obj_dict,
-            obj_dict2,
+            obj_dict_arrays,
             obj_a,
             obj_b,
             obj_sum,
