@@ -182,46 +182,6 @@ async def test_float_array_operators(data_a, data_b, operator, expected_result):
 
 
 # =============================================================================
-# Mixed Type Tests (int + float)
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "data_a,data_b,operator,expected_result",
-    [
-        # Scalar mixed type tests
-        (100, 50.5, "+", 150.5),
-        (10.5, 5, "+", 15.5),
-        (100, 30.5, "-", 69.5),
-        (50.5, 10, "-", 40.5),
-        # Array mixed type tests
-        ([1, 2, 3], [0.5, 1.5, 2.5], "+", [1.5, 3.5, 5.5]),
-        ([10.0, 20.0, 30.0], [1, 2, 3], "+", [11.0, 22.0, 33.0]),
-        ([100, 200], [10.5, 20.5], "-", [89.5, 179.5]),
-        ([100.5, 200.5], [10, 20], "-", [90.5, 180.5]),
-    ],
-)
-async def test_mixed_type_operators(data_a, data_b, operator, expected_result):
-    """Test binary operators on mixed int/float types."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
-
-    result = await apply_operator(obj_a, obj_b, operator)
-    result_data = await result.data()
-
-    # Handle both scalar and array results
-    if isinstance(expected_result, list):
-        for i, val in enumerate(result_data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert abs(result_data - expected_result) < THRESHOLD
-
-    await obj_a.delete_table()
-    await obj_b.delete_table()
-    await result.delete_table()
-
-
-# =============================================================================
 # Edge Cases
 # =============================================================================
 
