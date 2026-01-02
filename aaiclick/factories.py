@@ -197,12 +197,8 @@ async def create_object_from_value(val: ValueType) -> Object:
             # Build data rows for bulk insert
             if array_len and array_len > 0:
                 keys = list(val.keys())
-                data = []
-                for idx in range(array_len):
-                    row = [aai_ids[idx]]
-                    for key in keys:
-                        row.append(val[key][idx])
-                    data.append(row)
+                # Zip aai_ids with all column arrays to create rows
+                data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
 
                 # Use clickhouse-connect's built-in insert
                 await client.insert(obj.table, data)
@@ -256,7 +252,8 @@ async def create_object_from_value(val: ValueType) -> Object:
 
         # Build data rows for bulk insert
         if val:
-            data = [[aai_ids[idx], item] for idx, item in enumerate(val)]
+            # Zip aai_ids with values to create rows
+            data = [list(row) for row in zip(aai_ids, val)]
             # Use clickhouse-connect's built-in insert
             await client.insert(obj.table, data)
 
