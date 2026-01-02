@@ -294,6 +294,202 @@ class Object:
         """
         return await self._binary_operation(other, "-")
 
+    async def __mul__(self, other: "Object") -> "Object":
+        """
+        Multiply two objects together.
+
+        Creates a new Object with a table containing the result of element-wise multiplication.
+
+        Args:
+            other: Another Object to multiply
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "*")
+
+    async def __truediv__(self, other: "Object") -> "Object":
+        """
+        Divide one object by another.
+
+        Creates a new Object with a table containing the result of element-wise division.
+
+        Args:
+            other: Another Object to divide by
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "/")
+
+    async def __floordiv__(self, other: "Object") -> "Object":
+        """
+        Floor divide one object by another.
+
+        Creates a new Object with a table containing the result of element-wise floor division.
+
+        Args:
+            other: Another Object to floor divide by
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "DIV")
+
+    async def __mod__(self, other: "Object") -> "Object":
+        """
+        Modulo operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise modulo.
+
+        Args:
+            other: Another Object to modulo with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "%")
+
+    async def __pow__(self, other: "Object") -> "Object":
+        """
+        Raise one object to the power of another.
+
+        Creates a new Object with a table containing the result of element-wise power operation.
+
+        Args:
+            other: Another Object representing the exponent
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "power")
+
+    async def __eq__(self, other: "Object") -> "Object":
+        """
+        Check equality between two objects.
+
+        Creates a new Object with a table containing the result of element-wise equality comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, "=")
+
+    async def __ne__(self, other: "Object") -> "Object":
+        """
+        Check inequality between two objects.
+
+        Creates a new Object with a table containing the result of element-wise inequality comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, "!=")
+
+    async def __lt__(self, other: "Object") -> "Object":
+        """
+        Check if one object is less than another.
+
+        Creates a new Object with a table containing the result of element-wise less than comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, "<")
+
+    async def __le__(self, other: "Object") -> "Object":
+        """
+        Check if one object is less than or equal to another.
+
+        Creates a new Object with a table containing the result of element-wise less than or equal comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, "<=")
+
+    async def __gt__(self, other: "Object") -> "Object":
+        """
+        Check if one object is greater than another.
+
+        Creates a new Object with a table containing the result of element-wise greater than comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, ">")
+
+    async def __ge__(self, other: "Object") -> "Object":
+        """
+        Check if one object is greater than or equal to another.
+
+        Creates a new Object with a table containing the result of element-wise greater than or equal comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await self._binary_operation(other, ">=")
+
+    async def __and__(self, other: "Object") -> "Object":
+        """
+        Bitwise AND operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise AND.
+
+        Args:
+            other: Another Object to AND with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "bitAnd")
+
+    async def __or__(self, other: "Object") -> "Object":
+        """
+        Bitwise OR operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise OR.
+
+        Args:
+            other: Another Object to OR with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "bitOr")
+
+    async def __xor__(self, other: "Object") -> "Object":
+        """
+        Bitwise XOR operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise XOR.
+
+        Args:
+            other: Another Object to XOR with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await self._binary_operation(other, "bitXor")
+
     async def delete_table(self) -> None:
         """
         Delete the ClickHouse table associated with this object.
