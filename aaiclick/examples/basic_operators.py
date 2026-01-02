@@ -94,34 +94,41 @@ async def main():
 
         # All arithmetic operators
         print("\n" + "-" * 50)
-        operations = [
-            ("+", "Addition"),
-            ("-", "Subtraction"),
-            ("*", "Multiplication"),
-            ("/", "Division"),
-            ("//", "Floor Division"),
-            ("%", "Modulo"),
-            ("**", "Power"),
-        ]
 
-        for op, name in operations:
-            if op == "+":
-                result = await (obj_a + obj_b)
-            elif op == "-":
-                result = await (obj_a - obj_b)
-            elif op == "*":
-                result = await (obj_a * obj_b)
-            elif op == "/":
-                result = await (obj_a / obj_b)
-            elif op == "//":
-                result = await (obj_a // obj_b)
-            elif op == "%":
-                result = await (obj_a % obj_b)
-            elif op == "**":
-                result = await (obj_a ** obj_b)
+        # Addition
+        result_add = await (obj_a + obj_b)
+        print(f"Addition (a + b): {await result_add.data()}")
+        await result_add.delete_table()
 
-            print(f"{name} (a {op} b): {await result.data()}")
-            await result.delete_table()
+        # Subtraction
+        result_sub = await (obj_a - obj_b)
+        print(f"Subtraction (a - b): {await result_sub.data()}")
+        await result_sub.delete_table()
+
+        # Multiplication
+        result_mul = await (obj_a * obj_b)
+        print(f"Multiplication (a * b): {await result_mul.data()}")
+        await result_mul.delete_table()
+
+        # Division
+        result_div = await (obj_a / obj_b)
+        print(f"Division (a / b): {await result_div.data()}")
+        await result_div.delete_table()
+
+        # Floor Division
+        result_floordiv = await (obj_a // obj_b)
+        print(f"Floor Division (a // b): {await result_floordiv.data()}")
+        await result_floordiv.delete_table()
+
+        # Modulo
+        result_mod = await (obj_a % obj_b)
+        print(f"Modulo (a % b): {await result_mod.data()}")
+        await result_mod.delete_table()
+
+        # Power
+        result_pow = await (obj_a ** obj_b)
+        print(f"Power (a ** b): {await result_pow.data()}")
+        await result_pow.delete_table()
 
         # Example 5: Comparison operators
         print("\n" + "=" * 50)
@@ -134,31 +141,35 @@ async def main():
         print(f"Values in x: {await obj_x.data()}")
         print(f"Values in y: {await obj_y.data()}\n")
 
-        comparisons = [
-            ("==", "Equal"),
-            ("!=", "Not Equal"),
-            ("<", "Less Than"),
-            ("<=", "Less or Equal"),
-            (">", "Greater Than"),
-            (">=", "Greater or Equal"),
-        ]
+        # Equal
+        result_eq = await (obj_x == obj_y)
+        print(f"Equal (x == y): {await result_eq.data()}")
+        await result_eq.delete_table()
 
-        for op, name in comparisons:
-            if op == "==":
-                result = await (obj_x == obj_y)
-            elif op == "!=":
-                result = await (obj_x != obj_y)
-            elif op == "<":
-                result = await (obj_x < obj_y)
-            elif op == "<=":
-                result = await (obj_x <= obj_y)
-            elif op == ">":
-                result = await (obj_x > obj_y)
-            elif op == ">=":
-                result = await (obj_x >= obj_y)
+        # Not Equal
+        result_ne = await (obj_x != obj_y)
+        print(f"Not Equal (x != y): {await result_ne.data()}")
+        await result_ne.delete_table()
 
-            print(f"{name} (x {op} y): {await result.data()}")
-            await result.delete_table()
+        # Less Than
+        result_lt = await (obj_x < obj_y)
+        print(f"Less Than (x < y): {await result_lt.data()}")
+        await result_lt.delete_table()
+
+        # Less or Equal
+        result_le = await (obj_x <= obj_y)
+        print(f"Less or Equal (x <= y): {await result_le.data()}")
+        await result_le.delete_table()
+
+        # Greater Than
+        result_gt = await (obj_x > obj_y)
+        print(f"Greater Than (x > y): {await result_gt.data()}")
+        await result_gt.delete_table()
+
+        # Greater or Equal
+        result_ge = await (obj_x >= obj_y)
+        print(f"Greater or Equal (x >= y): {await result_ge.data()}")
+        await result_ge.delete_table()
 
         # Example 6: Bitwise operators
         print("\n" + "=" * 50)
@@ -171,22 +182,20 @@ async def main():
         print(f"Values in m: {await obj_m.data()}")
         print(f"Values in n: {await obj_n.data()}\n")
 
-        bitwise_ops = [
-            ("&", "Bitwise AND"),
-            ("|", "Bitwise OR"),
-            ("^", "Bitwise XOR"),
-        ]
+        # Bitwise AND
+        result_and = await (obj_m & obj_n)
+        print(f"Bitwise AND (m & n): {await result_and.data()}")
+        await result_and.delete_table()
 
-        for op, name in bitwise_ops:
-            if op == "&":
-                result = await (obj_m & obj_n)
-            elif op == "|":
-                result = await (obj_m | obj_n)
-            elif op == "^":
-                result = await (obj_m ^ obj_n)
+        # Bitwise OR
+        result_or = await (obj_m | obj_n)
+        print(f"Bitwise OR (m | n): {await result_or.data()}")
+        await result_or.delete_table()
 
-            print(f"{name} (m {op} n): {await result.data()}")
-            await result.delete_table()
+        # Bitwise XOR
+        result_xor = await (obj_m ^ obj_n)
+        print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")
+        await result_xor.delete_table()
 
         # Example 7: Table name generation with Snowflake IDs
         print("\n" + "=" * 50)
