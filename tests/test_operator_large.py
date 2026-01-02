@@ -65,7 +65,7 @@ async def test_sub_float_float():
     await result.delete_table()
 
 
-async deftest_min_int():
+async def test_min_int():
     """Test min() on large int array (10k items)."""
     # Create array with known min
     int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
@@ -83,7 +83,7 @@ async deftest_min_int():
     await obj.delete_table()
 
 
-async deftest_max_float():
+async def test_max_float():
     """Test max() on large float array (10k items)."""
     # Create array with known max
     float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
@@ -101,7 +101,7 @@ async deftest_max_float():
     await obj.delete_table()
 
 
-async deftest_sum_float():
+async def test_sum_float():
     """Test sum() on large float array (10k items)."""
     # Create simple array for easy sum calculation
     float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
@@ -120,7 +120,7 @@ async deftest_sum_float():
     await obj.delete_table()
 
 
-async deftest_mean_int():
+async def test_mean_int():
     """Test mean() on large int array (10k items)."""
     # Create array with known mean
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
@@ -139,7 +139,7 @@ async deftest_mean_int():
     await obj.delete_table()
 
 
-async deftest_std_float():
+async def test_std_float():
     """Test std() (standard deviation) on large float array (10k items)."""
     # Create array with known values
     float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
@@ -160,7 +160,7 @@ async deftest_std_float():
     await obj.delete_table()
 
 
-async deftest_add_int_int():
+async def test_add_int_int():
     """Test addition with int array + int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
@@ -187,7 +187,7 @@ async deftest_add_int_int():
     await result.delete_table()
 
 
-async deftest_sub_int_int():
+async def test_sub_int_int():
     """Test subtraction with int array - int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS * 2, NUM_ITEMS * 3))  # [20000, 20001, ..., 29999]
