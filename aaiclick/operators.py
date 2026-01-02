@@ -108,7 +108,7 @@ async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a ** obj_b
     """
-    return await obj_a._apply_operator(obj_b, "power")
+    return await obj_a._apply_operator(obj_b, "power", is_function=True)
 
 
 # Comparison Operators
@@ -210,7 +210,7 @@ async def and_(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a & obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitAnd")
+    return await obj_a._apply_operator(obj_b, "bitAnd", is_function=True)
 
 
 async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -224,7 +224,7 @@ async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a | obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitOr")
+    return await obj_a._apply_operator(obj_b, "bitOr", is_function=True)
 
 
 async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
@@ -238,4 +238,4 @@ async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
     Returns:
         Object: New Object with result of obj_a ^ obj_b
     """
-    return await obj_a._apply_operator(obj_b, "bitXor")
+    return await obj_a._apply_operator(obj_b, "bitXor", is_function=True)

@@ -227,13 +227,14 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
+    async def _apply_operator(self, obj_b: "Object", operator: str, is_function: bool = False) -> "Object":
         """
         Apply an operator (e.g., +, -, *, /) on two objects using SQL templates.
 
         Args:
             obj_b: Another Object to operate with
-            operator: SQL operator string (e.g., '+', '-', '*', '/')
+            operator: SQL operator string (e.g., '+', '-', '*', '/') or function name (e.g., 'power', 'bitAnd')
+            is_function: If True, use function template; if False, use infix operator template
 
         Returns:
             Object: New Object instance pointing to result table
@@ -248,7 +249,8 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id - use array template
-            template = load_sql_template("binary_op_array")
+            template_name = "binary_func_array" if is_function else "binary_op_array"
+            template = load_sql_template(template_name)
             create_query = template.format(
                 result_table=result.table,
                 operator=operator,
@@ -263,7 +265,8 @@ class Object:
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation - use scalar template
-            template = load_sql_template("binary_op_scalar")
+            template_name = "binary_func_scalar" if is_function else "binary_op_scalar"
+            template = load_sql_template(template_name)
             create_query = template.format(
                 result_table=result.table,
                 operator=operator,
