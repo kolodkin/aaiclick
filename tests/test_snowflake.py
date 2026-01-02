@@ -2,7 +2,13 @@
 Tests for Snowflake ID generation.
 """
 
-from aaiclick.snowflake import SnowflakeGenerator, generate_snowflake_id, generate_snowflake_ids
+from aaiclick.snowflake import (
+    SnowflakeGenerator,
+    generate_snowflake_id,
+    generate_snowflake_ids,
+    get_snowflake_ids,
+    MAX_SEQUENCE,
+)
 
 
 def test_generate_single_id():
@@ -141,3 +147,72 @@ def test_snowflake_id_structure():
 
     # Should fit in 64 bits
     assert id_val < (1 << 64)
+
+
+def test_get_snowflake_ids_validation():
+    """Test that get_snowflake_ids validates size parameter."""
+    # Valid sizes
+    assert get_snowflake_ids(0) == []
+    assert len(get_snowflake_ids(1)) == 1
+    assert len(get_snowflake_ids(10)) == 10
+    assert len(get_snowflake_ids(MAX_SEQUENCE)) == MAX_SEQUENCE
+
+    # Invalid sizes - too small
+    try:
+        get_snowflake_ids(-1)
+        assert False, "Should have raised ValueError for size=-1"
+    except ValueError as e:
+        assert "between 0 and" in str(e)
+
+    # Invalid sizes - too large
+    try:
+        get_snowflake_ids(MAX_SEQUENCE + 1)
+        assert False, f"Should have raised ValueError for size={MAX_SEQUENCE + 1}"
+    except ValueError as e:
+        assert "between 0 and" in str(e)
+
+
+def test_get_snowflake_ids_different_sequences():
+    """Test that get_snowflake_ids returns IDs with different sequence numbers."""
+    gen = SnowflakeGenerator()
+
+    # Get a moderate number of IDs
+    size = 100
+    ids = gen.get(size)
+
+    # All IDs should be unique
+    assert len(ids) == size
+    assert len(set(ids)) == size
+
+    # All IDs should be in ascending order
+    assert ids == sorted(ids)
+
+    # Extract sequence numbers (last 12 bits)
+    sequences = [id_val & 0xFFF for id_val in ids]
+
+    # All sequences should be different (since we're requesting fewer than MAX_SEQUENCE)
+    assert len(set(sequences)) == size
+
+    # Sequences should be consecutive (0, 1, 2, ...) within the same millisecond
+    # Note: This might not always be true if millisecond changes, but for small sizes it should be
+    for i in range(len(sequences) - 1):
+        # Either consecutive or wrapped around
+        diff = sequences[i + 1] - sequences[i]
+        assert diff >= 0, "Sequences should be increasing or reset"
+
+
+def test_get_snowflake_ids_max_size():
+    """Test get_snowflake_ids with maximum allowed size."""
+    gen = SnowflakeGenerator()
+
+    # Get maximum number of IDs (MAX_SEQUENCE = 4095)
+    ids = gen.get(MAX_SEQUENCE)
+
+    # Should generate exact count
+    assert len(ids) == MAX_SEQUENCE
+
+    # All should be unique
+    assert len(set(ids)) == MAX_SEQUENCE
+
+    # All should be in ascending order
+    assert ids == sorted(ids)
