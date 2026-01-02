@@ -69,21 +69,16 @@ For complete runnable examples of all operators, see:
 
 ## Implementation Details
 
-### Binary Operation Pattern
-
 All operators use a common `_binary_operation` method that:
 1. Creates a new Object to hold the result
 2. Determines if the operation is on scalars or arrays
-3. Selects the appropriate SQL template
+3. Selects the appropriate SQL template (scalar or array)
 4. Executes the SQL query with the operator
 5. Returns the new Object
 
-### SQL Templates
-
-Two SQL templates handle operations:
+**SQL Templates:**
 - `binary_op_scalar.sql` - For scalar-to-scalar operations
 - `binary_op_array.sql` - For array-to-array operations (preserves aai_id)
 
-### Type Preservation
-
+**Type Preservation:**
 The result preserves the fieldtype metadata from the source objects, ensuring proper data type handling throughout operation chains.
