@@ -150,26 +150,26 @@ def test_snowflake_id_structure():
 
 
 def test_get_snowflake_ids_validation():
-    """Test that get_snowflake_ids validates size parameter."""
+    """Test that get_snowflake_ids validates size parameter and handles large sizes."""
     # Valid sizes
     assert get_snowflake_ids(0) == []
     assert len(get_snowflake_ids(1)) == 1
     assert len(get_snowflake_ids(10)) == 10
     assert len(get_snowflake_ids(MAX_SEQUENCE)) == MAX_SEQUENCE
 
-    # Invalid sizes - too small
+    # Sizes larger than MAX_SEQUENCE should work (split into chunks)
+    large_size = MAX_SEQUENCE + 100
+    large_ids = get_snowflake_ids(large_size)
+    assert len(large_ids) == large_size
+    assert len(set(large_ids)) == large_size  # All unique
+    assert large_ids == sorted(large_ids)  # Time-ordered
+
+    # Invalid sizes - only negative values should fail
     try:
         get_snowflake_ids(-1)
         assert False, "Should have raised ValueError for size=-1"
     except ValueError as e:
-        assert "between 0 and" in str(e)
-
-    # Invalid sizes - too large
-    try:
-        get_snowflake_ids(MAX_SEQUENCE + 1)
-        assert False, f"Should have raised ValueError for size={MAX_SEQUENCE + 1}"
-    except ValueError as e:
-        assert "between 0 and" in str(e)
+        assert ">= 0" in str(e)
 
 
 def test_get_snowflake_ids_different_sequences():

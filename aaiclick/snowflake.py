@@ -179,30 +179,41 @@ class SnowflakeGenerator:
 
     def get(self, size: int) -> list[int]:
         """
-        Get a bulk of Snowflake IDs with different sequence numbers.
+        Get a bulk of Snowflake IDs.
 
-        This method ensures the size is within the valid sequence number range
-        (0 to MAX_SEQUENCE). For sizes up to 4096, all IDs will typically have
-        different sequence numbers within the same millisecond.
+        For sizes larger than MAX_SEQUENCE (4095), automatically splits the request
+        into multiple sequential bulk generations to handle any size.
 
         Args:
-            size: Number of IDs to generate (0 to 4095 inclusive)
+            size: Number of IDs to generate (must be >= 0)
 
         Returns:
-            list[int]: List of unique 64-bit Snowflake IDs with different sequences
+            list[int]: List of unique 64-bit Snowflake IDs
 
         Raises:
-            ValueError: If size is not in range [0, MAX_SEQUENCE]
+            ValueError: If size is negative
         """
-        if not (0 <= size <= MAX_SEQUENCE):
-            raise ValueError(
-                f"Size must be between 0 and {MAX_SEQUENCE} (inclusive), got {size}"
-            )
+        if size < 0:
+            raise ValueError(f"Size must be >= 0, got {size}")
 
         if size == 0:
             return []
 
-        return self.generate_bulk(size)
+        # If size fits in one bulk, generate directly
+        if size <= MAX_SEQUENCE:
+            return self.generate_bulk(size)
+
+        # For larger sizes, split into multiple bulk generations
+        ids = []
+        remaining = size
+
+        while remaining > 0:
+            chunk_size = min(remaining, MAX_SEQUENCE)
+            chunk_ids = self.generate_bulk(chunk_size)
+            ids.extend(chunk_ids)
+            remaining -= chunk_size
+
+        return ids
 
 
 # Global generator instance
@@ -221,20 +232,27 @@ def get_snowflake_id() -> int:
 
 def get_snowflake_ids(size: int) -> list[int]:
     """
-    Get a bulk of Snowflake IDs with different sequence numbers.
+    Get a bulk of Snowflake IDs.
 
-    Validates that size is within the sequence number range (0 to MAX_SEQUENCE).
-    This ensures all IDs can have different sequence numbers within the same
-    millisecond. For larger sizes, use the internal generator directly.
+    For sizes larger than MAX_SEQUENCE (4095), automatically splits the request
+    into multiple sequential bulk generations. This allows generating any number
+    of IDs while maintaining uniqueness and time-ordering.
 
     Args:
-        size: Number of IDs to generate (0 to 4095 inclusive)
+        size: Number of IDs to generate (must be >= 0)
 
     Returns:
-        list[int]: List of unique 64-bit Snowflake IDs with different sequences
+        list[int]: List of unique 64-bit Snowflake IDs in ascending order
 
     Raises:
-        ValueError: If size is not in range [0, MAX_SEQUENCE]
+        ValueError: If size is negative
+
+    Examples:
+        >>> ids = get_snowflake_ids(10000)  # Generates 10k IDs across multiple chunks
+        >>> len(ids)
+        10000
+        >>> ids == sorted(ids)  # Always time-ordered
+        True
     """
     return _generator.get(size)
 

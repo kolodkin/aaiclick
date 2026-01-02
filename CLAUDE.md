@@ -11,6 +11,12 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
+### Writing Tests
+
+- **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
+- pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
+- Simply define async test functions with `async def test_*():`
+
 
 ## Code Quality
 

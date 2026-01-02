@@ -5,14 +5,12 @@ Each test uses NUM_ITEMS=10000 to validate performance and correctness at scale.
 Each operator is tested with different type combinations.
 """
 
-import pytest
 from aaiclick import create_object_from_value
 
 # Number of items for large array tests
 NUM_ITEMS = 10000
 
 
-@pytest.mark.asyncio
 async def test_add_int_float():
     """Test addition with int array + float array (10k items)."""
     # Create large arrays
@@ -40,7 +38,6 @@ async def test_add_int_float():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
 async def test_sub_float_float():
     """Test subtraction with float array - float array (10k items)."""
     # Create large float arrays
@@ -68,8 +65,7 @@ async def test_sub_float_float():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_min_int():
+async deftest_min_int():
     """Test min() on large int array (10k items)."""
     # Create array with known min
     int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
@@ -87,8 +83,7 @@ async def test_min_int():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_max_float():
+async deftest_max_float():
     """Test max() on large float array (10k items)."""
     # Create array with known max
     float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
@@ -106,8 +101,7 @@ async def test_max_float():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_sum_float():
+async deftest_sum_float():
     """Test sum() on large float array (10k items)."""
     # Create simple array for easy sum calculation
     float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
@@ -126,8 +120,7 @@ async def test_sum_float():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_mean_int():
+async deftest_mean_int():
     """Test mean() on large int array (10k items)."""
     # Create array with known mean
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
@@ -146,8 +139,7 @@ async def test_mean_int():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_std_float():
+async deftest_std_float():
     """Test std() (standard deviation) on large float array (10k items)."""
     # Create array with known values
     float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
@@ -168,8 +160,7 @@ async def test_std_float():
     await obj.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_add_int_int():
+async deftest_add_int_int():
     """Test addition with int array + int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
@@ -196,8 +187,7 @@ async def test_add_int_int():
     await result.delete_table()
 
 
-@pytest.mark.asyncio
-async def test_sub_int_int():
+async deftest_sub_int_int():
     """Test subtraction with int array - int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS * 2, NUM_ITEMS * 3))  # [20000, 20001, ..., 29999]
