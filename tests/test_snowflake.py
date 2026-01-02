@@ -173,11 +173,11 @@ def test_get_snowflake_ids_validation():
 
 
 def test_get_snowflake_ids_different_sequences():
-    """Test that get_snowflake_ids returns IDs with different sequence numbers."""
+    """Test that IDs with same timestamp have different sequence numbers."""
     gen = SnowflakeGenerator()
 
-    # Get a small number of IDs (likely within same millisecond)
-    size = 10
+    # Generate enough IDs to likely span multiple milliseconds
+    size = 100
     ids = gen.get(size)
 
     # All IDs should be unique
@@ -187,19 +187,27 @@ def test_get_snowflake_ids_different_sequences():
     # All IDs should be in ascending order
     assert ids == sorted(ids)
 
-    # Extract sequence numbers (last 12 bits)
-    sequences = [id_val & 0xFFF for id_val in ids]
+    # Extract timestamps (bits 62-22) and sequences (bits 11-0)
+    from collections import defaultdict
+    timestamp_groups = defaultdict(list)
 
-    # For small sizes, sequences should be consecutive within the same millisecond
-    # Verify sequences are monotonically increasing (allowing for resets across milliseconds)
-    for i in range(len(sequences) - 1):
-        # Either consecutive or reset to 0 (new millisecond)
-        if sequences[i + 1] < sequences[i]:
-            # Sequence reset - new millisecond started
-            assert sequences[i + 1] == 0, "After reset, sequence should start at 0"
-        else:
-            # Within same millisecond - should increment
-            assert sequences[i + 1] >= sequences[i], "Sequences should be non-decreasing"
+    for id_val in ids:
+        timestamp = id_val >> 22  # Extract timestamp bits
+        sequence = id_val & 0xFFF  # Extract sequence bits (last 12 bits)
+        timestamp_groups[timestamp].append(sequence)
+
+    # Within each timestamp, all sequences must be unique and consecutive
+    for timestamp, sequences in timestamp_groups.items():
+        # All sequences for this timestamp should be unique
+        assert len(sequences) == len(set(sequences)), \
+            f"Duplicate sequences found for timestamp {timestamp}"
+
+        # Sequences should be consecutive starting from 0 or some value
+        sorted_seqs = sorted(sequences)
+        for i in range(len(sorted_seqs) - 1):
+            # Consecutive sequences
+            assert sorted_seqs[i + 1] == sorted_seqs[i] + 1, \
+                f"Non-consecutive sequences: {sorted_seqs[i]} -> {sorted_seqs[i + 1]}"
 
 
 def test_get_snowflake_ids_max_size():
