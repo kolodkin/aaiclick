@@ -239,22 +239,16 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id
-            # Use ClickHouse array operations for efficient element-wise computation
+            # Order both tables by aai_id, match by position using row_number()
             aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
-            SELECT
-                arrayJoin(range(1, length(result_values) + 1)) as aai_id,
-                arrayJoin(result_values) as value
-            FROM (
-                SELECT
-                    arrayMap((a, b) -> a + b,
-                             (SELECT groupArray(value) FROM {self.table} ORDER BY aai_id),
-                             (SELECT groupArray(value) FROM {other.table} ORDER BY aai_id)
-                    ) as result_values
-            )
+            SELECT a.rn as aai_id, a.value + b.value AS value
+            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
+            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {other.table}) AS b
+            ON a.rn = b.rn
             """
             await client.command(create_query)
             # Add comments
@@ -295,22 +289,16 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id
-            # Use ClickHouse array operations for efficient element-wise computation
+            # Order both tables by aai_id, match by position using row_number()
             aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
             create_query = f"""
             CREATE TABLE {result.table}
             ENGINE = MergeTree ORDER BY tuple()
             AS
-            SELECT
-                arrayJoin(range(1, length(result_values) + 1)) as aai_id,
-                arrayJoin(result_values) as value
-            FROM (
-                SELECT
-                    arrayMap((a, b) -> a - b,
-                             (SELECT groupArray(value) FROM {self.table} ORDER BY aai_id),
-                             (SELECT groupArray(value) FROM {other.table} ORDER BY aai_id)
-                    ) as result_values
-            )
+            SELECT a.rn as aai_id, a.value - b.value AS value
+            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
+            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {other.table}) AS b
+            ON a.rn = b.rn
             """
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
