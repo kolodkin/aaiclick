@@ -2,7 +2,7 @@
 
 This document contains guidelines for AI agents (like Claude Code) working on the aaiclick project.
 
-## Testing Strategy
+## Test Execution Strategy
 
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
@@ -10,6 +10,12 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - After pushing changes, check pull request status using the `review-pr-checks` skill or run `.claude/skills/review-pr-checks/review-pr-checks.sh`
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
+
+## Testing Guidelines
+
+- **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
+- pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
+- Simply define async test functions with `async def test_*():`
 
 
 ## Code Quality

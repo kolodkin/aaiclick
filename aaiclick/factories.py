@@ -9,6 +9,7 @@ from typing import Union, Dict, List
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .client import get_client
+from .snowflake import get_snowflake_ids
 
 
 # Type aliases
@@ -116,25 +117,36 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     Args:
         val: Value to create object from. Can be:
-            - Scalar (int, float, bool, str): Creates single column "value"
-            - List of scalars: Creates single column "value" with multiple rows
-            - Dict: Creates one column per key, single row
+            - Scalar (int, float, bool, str): Creates single column "value" (no aai_id)
+            - List of scalars: Creates "aai_id" and "value" columns with multiple rows
+            - Dict of scalars: Creates one column per key, single row (no aai_id)
+            - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
 
     Returns:
         Object: New Object instance with data
 
+    Table Schema Details:
+        - Scalars (single value): No aai_id column - single row tables don't need ordering
+        - Arrays (lists): Includes aai_id column with snowflake IDs for guaranteed insertion order
+        - Dict of scalars: No aai_id column - single row tables don't need ordering
+        - Dict of arrays: Includes aai_id column with snowflake IDs for guaranteed insertion order
+
     Examples:
-        >>> # From scalar
+        >>> # From scalar (no aai_id)
         >>> obj = await create_object_from_value(42)
         >>> # Creates table with column: value Int64
         >>>
-        >>> # From list
+        >>> # From list (with aai_id)
         >>> obj = await create_object_from_value([1.5, 2.5, 3.5])
-        >>> # Creates table with column: value Float64 and 3 rows
+        >>> # Creates table with columns: aai_id UInt64, value Float64
         >>>
-        >>> # From dict
+        >>> # From dict of scalars (no aai_id)
         >>> obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
         >>> # Creates table with columns: id Int64, name String, age Int64
+        >>>
+        >>> # From dict of arrays (with aai_id)
+        >>> obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
+        >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
     """
     obj = Object()
     client = await get_client()
@@ -168,9 +180,9 @@ async def create_object_from_value(val: ValueType) -> Object:
                 comment = _build_column_comment(FIELDTYPE_ARRAY)
                 columns.append(f"{key} {col_type} COMMENT '{comment}'")
 
-            # Add row_id for ordering
-            row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-            columns.insert(0, f"row_id UInt64 COMMENT '{row_id_comment}'")
+            # Add aai_id for ordering
+            aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+            columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
 
             create_query = f"""
             CREATE TABLE {obj.table} (
@@ -179,21 +191,17 @@ async def create_object_from_value(val: ValueType) -> Object:
             """
             await client.command(create_query)
 
-            # Insert rows
-            keys = list(val.keys())
-            for idx in range(array_len or 0):
-                row_values = [str(idx)]
-                for key in keys:
-                    item = val[key][idx]
-                    if isinstance(item, str):
-                        row_values.append(f"'{item}'")
-                    elif isinstance(item, bool):
-                        row_values.append("1" if item else "0")
-                    else:
-                        row_values.append(str(item))
+            # Generate snowflake IDs for all rows
+            aai_ids = get_snowflake_ids(array_len or 0)
 
-                insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(row_values)})"
-                await client.command(insert_query)
+            # Build data rows for bulk insert
+            if array_len and array_len > 0:
+                keys = list(val.keys())
+                # Zip aai_ids with all column arrays to create rows
+                data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
+
+                # Use clickhouse-connect's built-in insert
+                await client.insert(obj.table, data)
 
         else:
             # Dict of scalars: one column per key, single row
@@ -226,30 +234,28 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
-        # Add row_id column to ensure stable ordering for element-wise operations
+        # Add aai_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
-        row_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_ARRAY)
 
         create_query = f"""
         CREATE TABLE {obj.table} (
-            row_id UInt64 COMMENT '{row_id_comment}',
+            aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
 
-        # Insert multiple rows with explicit row IDs
-        for idx, item in enumerate(val):
-            if isinstance(item, str):
-                value_str = f"'{item}'"
-            elif isinstance(item, bool):
-                value_str = "1" if item else "0"
-            else:
-                value_str = str(item)
+        # Generate snowflake IDs for all rows
+        aai_ids = get_snowflake_ids(len(val))
 
-            insert_query = f"INSERT INTO {obj.table} VALUES ({idx}, {value_str})"
-            await client.command(insert_query)
+        # Build data rows for bulk insert
+        if val:
+            # Zip aai_ids with values to create rows
+            data = [list(row) for row in zip(aai_ids, val)]
+            # Use clickhouse-connect's built-in insert
+            await client.insert(obj.table, data)
 
     else:
         # Scalar: single column "value" with single row

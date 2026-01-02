@@ -7,6 +7,64 @@ The `Object` class represents data stored in ClickHouse tables. Each parameter (
 - Each parameter gets a dedicated ClickHouse table named: `attr_name_[oid]`
 - The table name is stored in the Object class instance
 
+## Table Schema and aai_id Column
+
+Tables created by `create_object_from_value()` follow specific schema patterns based on data type:
+
+### Tables WITHOUT aai_id (Single Row)
+
+**Scalars** - Single value tables don't need ordering:
+```sql
+CREATE TABLE (
+    value {type}
+)
+```
+
+**Dict of Scalars** - Single row tables don't need ordering:
+```sql
+CREATE TABLE (
+    col1 {type},
+    col2 {type},
+    ...
+)
+```
+
+### Tables WITH aai_id (Multiple Rows)
+
+**Arrays/Lists** - Multiple rows need guaranteed insertion order:
+```sql
+CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID for ordering
+    value {type}
+)
+```
+
+**Dict of Arrays** - Multiple rows need guaranteed insertion order:
+```sql
+CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID for ordering
+    col1 {type},
+    col2 {type},
+    ...
+)
+```
+
+### Why aai_id?
+
+ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **[Snowflake IDs](https://en.wikipedia.org/wiki/Snowflake_ID)** (based on Twitter's algorithm) to:
+- Guarantee globally unique row identifiers
+- Preserve insertion order (time-ordered IDs)
+- Enable correct element-wise operations (a + b matches by position)
+- Support distributed/concurrent scenarios
+
+**Snowflake ID structure (64 bits):**
+- Bit 63: Sign bit (always 0)
+- Bits 62-22: Timestamp (41 bits, ~69 years)
+- Bits 21-12: Machine ID (10 bits, up to 1024 machines)
+- Bits 11-0: Sequence (12 bits, up to 4096 IDs/ms per machine)
+
+Single-row tables (scalars and dict of scalars) don't need `aai_id` because there's nothing to order.
+
 ## Object Class Features
 
 **Operator Overloading:**
@@ -107,9 +165,9 @@ data = await obj.data()
 print(data)  # {"id": 1, "name": "Alice", "age": 30}
 ```
 
-### Orient Parameter (for Dict with Multiple Rows)
+### Dict of Arrays Example (Multiple Rows)
 
-The `orient` parameter controls the output format when dict has multiple rows:
+When you create an object from a dictionary of arrays, each array becomes a column and each index becomes a row. The `orient` parameter controls how you read the data back:
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -117,12 +175,26 @@ The `orient` parameter controls the output format when dict has multiple rows:
 | `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row) |
 
 ```python
-from aaiclick import ORIENT_DICT, ORIENT_RECORDS
+from aaiclick import create_object_from_value, ORIENT_RECORDS
 
-# Default orient='dict' - returns first row as dict
-data = await obj.data()
+# Create dict of arrays - 3 people with their info
+data = {
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [30, 25, 35]
+}
+obj = await create_object_from_value(data)
 
-# orient='records' - returns list of dicts
-data = await obj.data(orient=ORIENT_RECORDS)
-print(data)  # [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+# Default: returns first row as dict
+first_row = await obj.data()
+print(first_row)  # {"id": 1, "name": "Alice", "age": 30}
+
+# With orient='records': returns list of all rows as dicts
+all_rows = await obj.data(orient=ORIENT_RECORDS)
+print(all_rows)
+# [
+#     {"id": 1, "name": "Alice", "age": 30},
+#     {"id": 2, "name": "Bob", "age": 25},
+#     {"id": 3, "name": "Charlie", "age": 35}
+# ]
 ```
