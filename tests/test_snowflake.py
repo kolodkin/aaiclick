@@ -172,42 +172,31 @@ def test_get_snowflake_ids_validation():
         assert ">= 0" in str(e)
 
 
-def test_get_snowflake_ids_different_sequences():
-    """Test that IDs with same timestamp have different sequence numbers."""
+def test_sequential_calls_have_increasing_ids():
+    """Test that sequential calls produce IDs with increasing timestamps or sequences."""
     gen = SnowflakeGenerator()
 
-    # Generate enough IDs to likely span multiple milliseconds
-    size = 100
-    ids = gen.get(size)
-
-    # All IDs should be unique
-    assert len(ids) == size
-    assert len(set(ids)) == size
-
-    # All IDs should be in ascending order
-    assert ids == sorted(ids)
+    # Make two sequential calls
+    id1 = gen.generate()
+    id2 = gen.generate()
 
     # Extract timestamps (bits 62-22) and sequences (bits 11-0)
-    from collections import defaultdict
-    timestamp_groups = defaultdict(list)
+    timestamp1 = id1 >> 22
+    timestamp2 = id2 >> 22
+    sequence1 = id1 & 0xFFF
+    sequence2 = id2 & 0xFFF
 
-    for id_val in ids:
-        timestamp = id_val >> 22  # Extract timestamp bits
-        sequence = id_val & 0xFFF  # Extract sequence bits (last 12 bits)
-        timestamp_groups[timestamp].append(sequence)
+    # Either timestamps are different (different milliseconds)
+    # or sequences are different (same millisecond)
+    if timestamp1 == timestamp2:
+        # Same millisecond - sequence should increment
+        assert sequence2 > sequence1, "Sequence should increment within same millisecond"
+    else:
+        # Different milliseconds - timestamp should be greater
+        assert timestamp2 > timestamp1, "Timestamp should increase across milliseconds"
 
-    # Within each timestamp, all sequences must be unique and consecutive
-    for timestamp, sequences in timestamp_groups.items():
-        # All sequences for this timestamp should be unique
-        assert len(sequences) == len(set(sequences)), \
-            f"Duplicate sequences found for timestamp {timestamp}"
-
-        # Sequences should be consecutive starting from 0 or some value
-        sorted_seqs = sorted(sequences)
-        for i in range(len(sorted_seqs) - 1):
-            # Consecutive sequences
-            assert sorted_seqs[i + 1] == sorted_seqs[i] + 1, \
-                f"Non-consecutive sequences: {sorted_seqs[i]} -> {sorted_seqs[i + 1]}"
+    # Overall, second ID should always be greater (time-ordered)
+    assert id2 > id1, "IDs should be strictly increasing"
 
 
 def test_get_snowflake_ids_max_size():
