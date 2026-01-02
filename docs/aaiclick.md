@@ -36,7 +36,7 @@ async def process_data(input_data, threshold):
 
 Each parameter (both positional args and keyword args) is wrapped in an Object class that manages ClickHouse table operations.
 
-See [Object Class](object.md) for detailed documentation on:
+See [Object Class](../aaiclick/object.md) for detailed documentation on:
 - Table naming conventions
 - Operator overloading and immutability
 - Column metadata with datatype/fieldtype

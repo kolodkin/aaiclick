@@ -11,6 +11,7 @@ import yaml
 from .client import get_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
+from . import operators
 
 
 # Fieldtype constants
@@ -89,7 +90,15 @@ class Object:
     Represents a data object stored in a ClickHouse table.
 
     Each Object instance corresponds to a ClickHouse table and supports
-    operations like addition and subtraction that create new tables with results.
+    operations through operator overloading that create new tables with results.
+
+    Supports 14 operators: arithmetic (+, -, *, /, //, %, **), comparison
+    (==, !=, <, <=, >, >=), and bitwise (&, |, ^).
+
+    All operators work element-wise on both scalar and array data types.
+
+    For detailed operator documentation, examples, and Python-to-ClickHouse
+    operator mapping, see object.md in this directory.
     """
 
     def __init__(self, table: Optional[str] = None):
@@ -218,17 +227,20 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _binary_operation(self, other: "Object", operator: str) -> "Object":
+    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
         """
-        Perform a binary operation (e.g., +, -, *, /) on two objects using SQL templates.
+        Apply an operator on two objects using SQL templates.
 
         Args:
-            other: Another Object to operate with
-            operator: SQL operator string (e.g., '+', '-', '*', '/')
+            obj_b: Another Object to operate with
+            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
 
         Returns:
             Object: New Object instance pointing to result table
         """
+        # Get SQL expression from operator mapping
+        expression = operators.OPERATOR_EXPRESSIONS[operator]
+
         result = Object()
         client = await get_client()
 
@@ -239,12 +251,12 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id - use array template
-            template = load_sql_template("binary_op_array")
+            template = load_sql_template("apply_op_array")
             create_query = template.format(
                 result_table=result.table,
-                operator=operator,
+                expression=expression,
                 left_table=self.table,
-                right_table=other.table
+                right_table=obj_b.table
             )
             await client.command(create_query)
 
@@ -254,12 +266,12 @@ class Object:
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation - use scalar template
-            template = load_sql_template("binary_op_scalar")
+            template = load_sql_template("apply_op_scalar")
             create_query = template.format(
                 result_table=result.table,
-                operator=operator,
+                expression=expression,
                 left_table=self.table,
-                right_table=other.table
+                right_table=obj_b.table
             )
             await client.command(create_query)
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
@@ -278,7 +290,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "+")
+        return await operators.add(self, other)
 
     async def __sub__(self, other: "Object") -> "Object":
         """
@@ -292,7 +304,203 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        return await self._binary_operation(other, "-")
+        return await operators.sub(self, other)
+
+    async def __mul__(self, other: "Object") -> "Object":
+        """
+        Multiply two objects together.
+
+        Creates a new Object with a table containing the result of element-wise multiplication.
+
+        Args:
+            other: Another Object to multiply
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.mul(self, other)
+
+    async def __truediv__(self, other: "Object") -> "Object":
+        """
+        Divide one object by another.
+
+        Creates a new Object with a table containing the result of element-wise division.
+
+        Args:
+            other: Another Object to divide by
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.truediv(self, other)
+
+    async def __floordiv__(self, other: "Object") -> "Object":
+        """
+        Floor divide one object by another.
+
+        Creates a new Object with a table containing the result of element-wise floor division.
+
+        Args:
+            other: Another Object to floor divide by
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.floordiv(self, other)
+
+    async def __mod__(self, other: "Object") -> "Object":
+        """
+        Modulo operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise modulo.
+
+        Args:
+            other: Another Object to modulo with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.mod(self, other)
+
+    async def __pow__(self, other: "Object") -> "Object":
+        """
+        Raise one object to the power of another.
+
+        Creates a new Object with a table containing the result of element-wise power operation.
+
+        Args:
+            other: Another Object representing the exponent
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.pow(self, other)
+
+    async def __eq__(self, other: "Object") -> "Object":
+        """
+        Check equality between two objects.
+
+        Creates a new Object with a table containing the result of element-wise equality comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.eq(self, other)
+
+    async def __ne__(self, other: "Object") -> "Object":
+        """
+        Check inequality between two objects.
+
+        Creates a new Object with a table containing the result of element-wise inequality comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.ne(self, other)
+
+    async def __lt__(self, other: "Object") -> "Object":
+        """
+        Check if one object is less than another.
+
+        Creates a new Object with a table containing the result of element-wise less than comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.lt(self, other)
+
+    async def __le__(self, other: "Object") -> "Object":
+        """
+        Check if one object is less than or equal to another.
+
+        Creates a new Object with a table containing the result of element-wise less than or equal comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.le(self, other)
+
+    async def __gt__(self, other: "Object") -> "Object":
+        """
+        Check if one object is greater than another.
+
+        Creates a new Object with a table containing the result of element-wise greater than comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.gt(self, other)
+
+    async def __ge__(self, other: "Object") -> "Object":
+        """
+        Check if one object is greater than or equal to another.
+
+        Creates a new Object with a table containing the result of element-wise greater than or equal comparison.
+
+        Args:
+            other: Another Object to compare with
+
+        Returns:
+            Object: New Object instance pointing to result table (boolean values)
+        """
+        return await operators.ge(self, other)
+
+    async def __and__(self, other: "Object") -> "Object":
+        """
+        Bitwise AND operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise AND.
+
+        Args:
+            other: Another Object to AND with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.and_(self, other)
+
+    async def __or__(self, other: "Object") -> "Object":
+        """
+        Bitwise OR operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise OR.
+
+        Args:
+            other: Another Object to OR with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.or_(self, other)
+
+    async def __xor__(self, other: "Object") -> "Object":
+        """
+        Bitwise XOR operation between two objects.
+
+        Creates a new Object with a table containing the result of element-wise bitwise XOR.
+
+        Args:
+            other: Another Object to XOR with
+
+        Returns:
+            Object: New Object instance pointing to result table
+        """
+        return await operators.xor(self, other)
 
     async def delete_table(self) -> None:
         """

@@ -84,7 +84,7 @@ async def main():
 
         # Create two numeric objects for operations
         obj_a = await aaiclick.create_object_from_value([10.0, 20.0, 30.0])
-        obj_b = await aaiclick.create_object_from_value([5.5, 10.3, 15.1])
+        obj_b = await aaiclick.create_object_from_value([2.0, 4.0, 5.0])
 
         print(f"Created {obj_a}")
         print(f"Values in a: {await obj_a.data()}\n")
@@ -92,30 +92,121 @@ async def main():
         print(f"Created {obj_b}")
         print(f"Values in b: {await obj_b.data()}")
 
-        # Addition
+        # All arithmetic operators
         print("\n" + "-" * 50)
-        print("Addition: a + b")
-        obj_sum = await (obj_a + obj_b)
-        print(f"Created sum object: {obj_sum}")
-        print(f"Values: {await obj_sum.data()}")
+
+        # Addition
+        result_add = await (obj_a + obj_b)
+        print(f"Addition (a + b): {await result_add.data()}")
+        await result_add.delete_table()
 
         # Subtraction
-        print("\n" + "-" * 50)
-        print("Subtraction: a - b")
-        obj_diff = await (obj_a - obj_b)
-        print(f"Created difference object: {obj_diff}")
-        print(f"Values: {await obj_diff.data()}")
+        result_sub = await (obj_a - obj_b)
+        print(f"Subtraction (a - b): {await result_sub.data()}")
+        await result_sub.delete_table()
 
-        # Example 5: Table name generation with Snowflake IDs
+        # Multiplication
+        result_mul = await (obj_a * obj_b)
+        print(f"Multiplication (a * b): {await result_mul.data()}")
+        await result_mul.delete_table()
+
+        # Division
+        result_div = await (obj_a / obj_b)
+        print(f"Division (a / b): {await result_div.data()}")
+        await result_div.delete_table()
+
+        # Floor Division
+        result_floordiv = await (obj_a // obj_b)
+        print(f"Floor Division (a // b): {await result_floordiv.data()}")
+        await result_floordiv.delete_table()
+
+        # Modulo
+        result_mod = await (obj_a % obj_b)
+        print(f"Modulo (a % b): {await result_mod.data()}")
+        await result_mod.delete_table()
+
+        # Power
+        result_pow = await (obj_a ** obj_b)
+        print(f"Power (a ** b): {await result_pow.data()}")
+        await result_pow.delete_table()
+
+        # Example 5: Comparison operators
         print("\n" + "=" * 50)
-        print("Example 5: Automatic table name generation with Snowflake IDs")
+        print("Example 5: Comparison operators")
         print("-" * 50)
 
-        obj_x = aaiclick.Object()
-        obj_y = aaiclick.Object()
+        obj_x = await aaiclick.create_object_from_value([1, 5, 10, 15])
+        obj_y = await aaiclick.create_object_from_value([5, 5, 8, 20])
+
+        print(f"Values in x: {await obj_x.data()}")
+        print(f"Values in y: {await obj_y.data()}\n")
+
+        # Equal
+        result_eq = await (obj_x == obj_y)
+        print(f"Equal (x == y): {await result_eq.data()}")
+        await result_eq.delete_table()
+
+        # Not Equal
+        result_ne = await (obj_x != obj_y)
+        print(f"Not Equal (x != y): {await result_ne.data()}")
+        await result_ne.delete_table()
+
+        # Less Than
+        result_lt = await (obj_x < obj_y)
+        print(f"Less Than (x < y): {await result_lt.data()}")
+        await result_lt.delete_table()
+
+        # Less or Equal
+        result_le = await (obj_x <= obj_y)
+        print(f"Less or Equal (x <= y): {await result_le.data()}")
+        await result_le.delete_table()
+
+        # Greater Than
+        result_gt = await (obj_x > obj_y)
+        print(f"Greater Than (x > y): {await result_gt.data()}")
+        await result_gt.delete_table()
+
+        # Greater or Equal
+        result_ge = await (obj_x >= obj_y)
+        print(f"Greater or Equal (x >= y): {await result_ge.data()}")
+        await result_ge.delete_table()
+
+        # Example 6: Bitwise operators
+        print("\n" + "=" * 50)
+        print("Example 6: Bitwise operators")
+        print("-" * 50)
+
+        obj_m = await aaiclick.create_object_from_value([12, 10, 8])  # Binary: 1100, 1010, 1000
+        obj_n = await aaiclick.create_object_from_value([10, 12, 4])  # Binary: 1010, 1100, 0100
+
+        print(f"Values in m: {await obj_m.data()}")
+        print(f"Values in n: {await obj_n.data()}\n")
+
+        # Bitwise AND
+        result_and = await (obj_m & obj_n)
+        print(f"Bitwise AND (m & n): {await result_and.data()}")
+        await result_and.delete_table()
+
+        # Bitwise OR
+        result_or = await (obj_m | obj_n)
+        print(f"Bitwise OR (m | n): {await result_or.data()}")
+        await result_or.delete_table()
+
+        # Bitwise XOR
+        result_xor = await (obj_m ^ obj_n)
+        print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")
+        await result_xor.delete_table()
+
+        # Example 7: Table name generation with Snowflake IDs
+        print("\n" + "=" * 50)
+        print("Example 7: Automatic table name generation with Snowflake IDs")
+        print("-" * 50)
+
+        obj_auto = aaiclick.Object()
+        obj_auto2 = aaiclick.Object()
         print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
-        print(f"  Object 1 -> table: {obj_x.table}")
-        print(f"  Object 2 -> table: {obj_y.table}")
+        print(f"  Object 1 -> table: {obj_auto.table}")
+        print(f"  Object 2 -> table: {obj_auto2.table}")
 
         # Cleanup
         print("\n" + "=" * 50)
@@ -133,8 +224,10 @@ async def main():
             obj_dict_arrays,
             obj_a,
             obj_b,
-            obj_sum,
-            obj_diff,
+            obj_x,
+            obj_y,
+            obj_m,
+            obj_n,
         ]
 
         for obj in objects_to_delete:
