@@ -251,7 +251,7 @@ class Object:
 
         if has_aai_id:
             # Array operation with aai_id - use array template
-            template = load_sql_template("binary_op_array")
+            template = load_sql_template("apply_op_array")
             create_query = template.format(
                 result_table=result.table,
                 expression=expression,
@@ -266,7 +266,7 @@ class Object:
             await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation - use scalar template
-            template = load_sql_template("binary_op_scalar")
+            template = load_sql_template("apply_op_scalar")
             create_query = template.format(
                 result_table=result.table,
                 expression=expression,

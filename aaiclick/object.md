@@ -235,8 +235,8 @@ All operators use the common `_apply_operator` method that:
 5. Returns the new Object
 
 **SQL Templates:**
-- `binary_op_scalar.sql` - For scalar-to-scalar operations
-- `binary_op_array.sql` - For array-to-array operations (preserves aai_id)
+- `apply_op_scalar.sql` - For scalar-to-scalar operations
+- `apply_op_array.sql` - For array-to-array operations (preserves aai_id)
 
 **Type Preservation:**
 The result preserves the fieldtype metadata from the source objects, ensuring proper data type handling throughout operation chains.

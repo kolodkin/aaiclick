@@ -5,9 +5,9 @@ Tests for SQL template loader functionality.
 from aaiclick.sql_template_loader import load_sql_template
 
 
-def test_load_binary_op_array_template():
-    """Test loading the binary operation array template."""
-    template = load_sql_template("binary_op_array")
+def test_load_apply_op_array_template():
+    """Test loading the apply operation array template."""
+    template = load_sql_template("apply_op_array")
 
     # Verify template contains expected placeholders
     assert "{result_table}" in template
@@ -23,9 +23,9 @@ def test_load_binary_op_array_template():
     assert "aai_id" in template
 
 
-def test_load_binary_op_scalar_template():
-    """Test loading the binary operation scalar template."""
-    template = load_sql_template("binary_op_scalar")
+def test_load_apply_op_scalar_template():
+    """Test loading the apply operation scalar template."""
+    template = load_sql_template("apply_op_scalar")
 
     # Verify template contains expected placeholders
     assert "{result_table}" in template
@@ -40,7 +40,7 @@ def test_load_binary_op_scalar_template():
 
 def test_template_format_array():
     """Test formatting the array template with actual values."""
-    template = load_sql_template("binary_op_array")
+    template = load_sql_template("apply_op_array")
 
     # Format template
     sql = template.format(
@@ -65,7 +65,7 @@ def test_template_format_array():
 
 def test_template_format_scalar():
     """Test formatting the scalar template with actual values."""
-    template = load_sql_template("binary_op_scalar")
+    template = load_sql_template("apply_op_scalar")
 
     # Format template
     sql = template.format(
@@ -91,8 +91,8 @@ def test_template_format_scalar():
 def test_template_caching():
     """Test that templates are cached properly."""
     # Load template twice
-    template1 = load_sql_template("binary_op_array")
-    template2 = load_sql_template("binary_op_array")
+    template1 = load_sql_template("apply_op_array")
+    template2 = load_sql_template("apply_op_array")
 
     # Verify same object is returned (cached)
     assert template1 is template2
