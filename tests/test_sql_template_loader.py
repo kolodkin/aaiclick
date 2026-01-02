@@ -11,7 +11,7 @@ def test_load_binary_op_array_template():
 
     # Verify template contains expected placeholders
     assert "{result_table}" in template
-    assert "{operator}" in template
+    assert "{expression}" in template
     assert "{left_table}" in template
     assert "{right_table}" in template
 
@@ -29,7 +29,7 @@ def test_load_binary_op_scalar_template():
 
     # Verify template contains expected placeholders
     assert "{result_table}" in template
-    assert "{operator}" in template
+    assert "{expression}" in template
     assert "{left_table}" in template
     assert "{right_table}" in template
 
@@ -45,20 +45,20 @@ def test_template_format_array():
     # Format template
     sql = template.format(
         result_table="result_table",
-        operator="+",
+        expression="a.value + b.value",
         left_table="left_table",
         right_table="right_table"
     )
 
     # Verify placeholders are replaced
     assert "{result_table}" not in sql
-    assert "{operator}" not in sql
+    assert "{expression}" not in sql
     assert "{left_table}" not in sql
     assert "{right_table}" not in sql
 
     # Verify formatted values are present
     assert "result_table" in sql
-    assert "+" in sql
+    assert "a.value + b.value" in sql
     assert "left_table" in sql
     assert "right_table" in sql
 
@@ -70,20 +70,20 @@ def test_template_format_scalar():
     # Format template
     sql = template.format(
         result_table="result_table",
-        operator="-",
+        expression="a.value - b.value",
         left_table="left_table",
         right_table="right_table"
     )
 
     # Verify placeholders are replaced
     assert "{result_table}" not in sql
-    assert "{operator}" not in sql
+    assert "{expression}" not in sql
     assert "{left_table}" not in sql
     assert "{right_table}" not in sql
 
     # Verify formatted values are present
     assert "result_table" in sql
-    assert "-" in sql
+    assert "a.value - b.value" in sql
     assert "left_table" in sql
     assert "right_table" in sql
 
