@@ -91,30 +91,13 @@ class Object:
     Each Object instance corresponds to a ClickHouse table and supports
     operations through operator overloading that create new tables with results.
 
-    Supported Operators:
-        Arithmetic:
-            +  (addition)           → +
-            -  (subtraction)        → -
-            *  (multiplication)     → *
-            /  (division)           → /
-            // (floor division)     → DIV
-            %  (modulo)             → %
-            ** (power)              → power()
-
-        Comparison:
-            == (equal)              → =
-            != (not equal)          → !=
-            <  (less than)          → <
-            <= (less than or equal) → <=
-            >  (greater than)       → >
-            >= (greater than or equal) → >=
-
-        Bitwise:
-            & (AND)                 → bitAnd()
-            | (OR)                  → bitOr()
-            ^ (XOR)                 → bitXor()
+    Supports 14 operators: arithmetic (+, -, *, /, //, %, **), comparison
+    (==, !=, <, <=, >, >=), and bitwise (&, |, ^).
 
     All operators work element-wise on both scalar and array data types.
+
+    For detailed operator documentation, examples, and Python-to-ClickHouse
+    operator mapping, see object.md in this directory.
     """
 
     def __init__(self, table: Optional[str] = None):
