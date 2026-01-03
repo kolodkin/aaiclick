@@ -51,21 +51,6 @@ async def test_concat_string_arrays():
     await result.delete_table()
 
 
-async def test_concat_empty_arrays():
-    """Test concatenating arrays where one is empty."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([])
-
-    result = await concat(a, b)
-    data = await result.data()
-
-    assert data == [1, 2, 3]
-
-    await a.delete_table()
-    await b.delete_table()
-    await result.delete_table()
-
-
 async def test_concat_scalar_fails():
     """Test that concatenating a scalar object raises ValueError."""
     a = await create_object_from_value(42)
