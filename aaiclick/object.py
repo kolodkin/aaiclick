@@ -165,8 +165,9 @@ class Object:
         is_simple_structure = set(relevant_columns) <= {"aai_id", "value"}
 
         if not is_simple_structure:
-            # Dict type (scalar or arrays)
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+            # Dict type (scalar or arrays) - use only relevant columns (exclude created_at)
+            relevant_column_metadata = {k: v for k, v in columns.items() if k != "created_at"}
+            return await data_extraction.extract_dict_data(self, relevant_columns, relevant_column_metadata, orient)
 
         # Simple structure: aai_id and value columns
         value_meta = columns.get("value")
