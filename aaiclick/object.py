@@ -110,11 +110,17 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
+        self._stale = False
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
+
+    @property
+    def stale(self) -> bool:
+        """Check if this object's table has been deleted."""
+        return self._stale
 
     async def result(self):
         """
@@ -460,9 +466,12 @@ class Object:
     async def delete_table(self) -> None:
         """
         Delete the ClickHouse table associated with this object.
+
+        Marks the object as stale after deletion.
         """
         ch_client = await get_ch_client()
         await ch_client.command(f"DROP TABLE IF EXISTS {self.table}")
+        self._stale = True
 
     async def concat(self, other: "Object") -> "Object":
         """

@@ -5,11 +5,14 @@ This module provides factory functions to create Object instances with ClickHous
 automatically inferring schemas from Python values using numpy for type detection.
 """
 
-from typing import Union, Dict, List
+from typing import Union, Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .ch_client import get_ch_client
 from .snowflake import get_snowflake_ids
+
+if TYPE_CHECKING:
+    from .context import Context
 
 
 # Type aliases
@@ -74,7 +77,7 @@ def _build_column_comment(fieldtype: str) -> str:
     return meta.to_yaml()
 
 
-async def create_object(schema: Schema) -> Object:
+async def create_object(schema: Schema, context: Optional["Context"] = None) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
@@ -82,6 +85,7 @@ async def create_object(schema: Schema) -> Object:
         schema: Column definition(s). Can be:
             - str: Single column definition (e.g., "value Float64")
             - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
+        context: Optional Context to register the object with for lifecycle management
 
     Returns:
         Object: New Object instance with created table
@@ -92,9 +96,13 @@ async def create_object(schema: Schema) -> Object:
         >>>
         >>> # Multiple columns
         >>> obj = await create_object(["id Int64", "name String", "age UInt8"])
+        >>>
+        >>> # With context
+        >>> async with Context() as ctx:
+        ...     obj = await create_object("value Float64", context=ctx)
     """
     obj = Object()
-    ch_client = await get_ch_client()
+    ch_client = context.ch_client if context else await get_ch_client()
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -108,10 +116,15 @@ async def create_object(schema: Schema) -> Object:
     ) ENGINE = MergeTree ORDER BY tuple()
     """
     await ch_client.command(create_query)
+
+    # Register with context if provided
+    if context:
+        context._register_object(obj)
+
     return obj
 
 
-async def create_object_from_value(val: ValueType) -> Object:
+async def create_object_from_value(val: ValueType, context: Optional["Context"] = None) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
@@ -121,6 +134,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
+        context: Optional Context to register the object with for lifecycle management
 
     Returns:
         Object: New Object instance with data
@@ -148,9 +162,13 @@ async def create_object_from_value(val: ValueType) -> Object:
         >>> # From dict of arrays (with aai_id)
         >>> obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
         >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
+        >>>
+        >>> # With context
+        >>> async with Context() as ctx:
+        ...     obj = await create_object_from_value([1, 2, 3], context=ctx)
     """
     obj = Object()
-    ch_client = await get_ch_client()
+    ch_client = context.ch_client if context else await get_ch_client()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)
@@ -293,5 +311,9 @@ async def create_object_from_value(val: ValueType) -> Object:
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
         await ch_client.command(insert_query)
+
+    # Register with context if provided
+    if context:
+        context._register_object(obj)
 
     return obj
