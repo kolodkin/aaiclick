@@ -195,14 +195,13 @@ class Object:
 
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
-            # Scalar: return single value
-            return rows[0][0] if rows else None
+            # Scalar: return single value (from value column, not aai_id)
+            value_idx = column_names.index("value")
+            return rows[0][value_idx] if rows else None
         else:
             # Array: return list of values
-            if has_aai_id:
-                return [row[1] for row in rows]
-            else:
-                return [row[0] for row in rows]
+            value_idx = column_names.index("value")
+            return [row[value_idx] for row in rows]
 
     async def _has_aai_id(self) -> bool:
         """Check if this object's table has a aai_id column."""

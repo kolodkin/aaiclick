@@ -258,16 +258,21 @@ async def create_object_from_value(val: ValueType) -> Object:
             await client.insert(obj.table, data)
 
     else:
-        # Scalar: single column "value" with single row
+        # Scalar: single row with aai_id and value
         col_type = _infer_clickhouse_type(val)
+        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_SCALAR)
 
         create_query = f"""
         CREATE TABLE {obj.table} (
+            aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
+
+        # Generate single aai_id for scalar
+        aai_id = get_snowflake_ids(1)[0]
 
         # Insert single row
         if isinstance(val, str):
@@ -277,7 +282,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         else:
             value_str = str(val)
 
-        insert_query = f"INSERT INTO {obj.table} VALUES ({value_str})"
+        insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
         await client.command(insert_query)
 
     return obj

@@ -19,11 +19,11 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
     Concatenate two objects together.
 
     Creates a new Object with rows from obj_a followed by rows from obj_b.
-    Only works with array fieldtype objects (objects with aai_id column).
+    obj_a must be an array. obj_b can be an array or scalar.
 
     Args:
         obj_a: First Object (must have array fieldtype)
-        obj_b: Second Object to concatenate
+        obj_b: Second Object to concatenate (array or scalar)
 
     Returns:
         Object: New Object instance with concatenated data
@@ -32,25 +32,28 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
         ValueError: If obj_a does not have array fieldtype
 
     Examples:
+        >>> # Concatenate two arrays
         >>> obj_a = await create_object_from_value([1, 2, 3])
         >>> obj_b = await create_object_from_value([4, 5, 6])
         >>> result = await concat(obj_a, obj_b)
         >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+        >>>
+        >>> # Append scalar to array
+        >>> obj_a = await create_object_from_value([1, 2, 3])
+        >>> obj_b = await create_object_from_value(42)
+        >>> result = await concat(obj_a, obj_b)
+        >>> await result.data()  # Returns [1, 2, 3, 42]
     """
     # Check that obj_a has array fieldtype
-    has_aai_id = await obj_a._has_aai_id()
-    if not has_aai_id:
-        raise ValueError("concat requires obj_a to have array fieldtype (aai_id column)")
-
-    fieldtype = await obj_a._get_fieldtype()
-    if fieldtype != FIELDTYPE_ARRAY:
+    fieldtype_a = await obj_a._get_fieldtype()
+    if fieldtype_a != FIELDTYPE_ARRAY:
         raise ValueError("concat requires obj_a to have array fieldtype")
 
     # Create result object
-    result = Object()
     client = await get_client()
+    result = Object()
 
-    # Use concat_array template
+    # Both scalars and arrays have aai_id now, so use same template
     template = load_sql_template("concat_array")
     create_query = template.format(
         result_table=result.table,
