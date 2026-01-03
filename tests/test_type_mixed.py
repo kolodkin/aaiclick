@@ -428,7 +428,6 @@ async def test_mixed_symmetry():
 
 async def test_mixed_int_float_concat_fails():
     """Test that concatenating int array with float array fails with type error."""
-    from aaiclick import concat
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
@@ -436,7 +435,7 @@ async def test_mixed_int_float_concat_fails():
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
-        await concat(a, b)
+        await a.concat(b)
 
     await a.delete_table()
     await b.delete_table()
@@ -444,7 +443,6 @@ async def test_mixed_int_float_concat_fails():
 
 async def test_mixed_float_int_concat_fails():
     """Test that concatenating float array with int array fails with type error."""
-    from aaiclick import concat
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
@@ -452,7 +450,7 @@ async def test_mixed_float_int_concat_fails():
     b = await create_object_from_value([4, 5, 6])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
-        await concat(a, b)
+        await a.concat(b)
 
     await a.delete_table()
     await b.delete_table()
@@ -460,7 +458,6 @@ async def test_mixed_float_int_concat_fails():
 
 async def test_mixed_int_string_concat_fails():
     """Test that concatenating int array with string array fails with type error."""
-    from aaiclick import concat
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
@@ -468,7 +465,7 @@ async def test_mixed_int_string_concat_fails():
     b = await create_object_from_value(["a", "b", "c"])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
-        await concat(a, b)
+        await a.concat(b)
 
     await a.delete_table()
     await b.delete_table()

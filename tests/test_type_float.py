@@ -116,30 +116,13 @@ async def test_float_array_chained_operations():
 
 async def test_float_array_concat():
     """Test concatenating float arrays."""
-    from aaiclick import concat
-
     a = await create_object_from_value([1.5, 2.5])
     b = await create_object_from_value([3.5, 4.5, 5.5])
-
-    result = await concat(a, b)
-    data = await result.data()
-
-    assert data == [1.5, 2.5, 3.5, 4.5, 5.5]
-
-    await a.delete_table()
-    await b.delete_table()
-    await result.delete_table()
-
-
-async def test_float_array_concat_method():
-    """Test concatenating float arrays using concat method."""
-    a = await create_object_from_value([1.5, 2.5])
-    b = await create_object_from_value([3.5, 4.5])
 
     result = await a.concat(b)
     data = await result.data()
 
-    assert data == [1.5, 2.5, 3.5, 4.5]
+    assert data == [1.5, 2.5, 3.5, 4.5, 5.5]
 
     await a.delete_table()
     await b.delete_table()
