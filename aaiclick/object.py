@@ -126,6 +126,62 @@ class Object:
         client = await get_client()
         return await client.query(f"SELECT * FROM {self.table}")
 
+    async def _extract_scalar_data(self) -> Any:
+        """Extract data from a scalar table (single row with aai_id and value)."""
+        client = await get_client()
+        data_result = await client.query(f"SELECT value FROM {self.table} ORDER BY aai_id")
+        rows = data_result.result_rows
+        return rows[0][0] if rows else None
+
+    async def _extract_array_data(self) -> List[Any]:
+        """Extract data from an array table (multiple rows with aai_id and value)."""
+        client = await get_client()
+        data_result = await client.query(f"SELECT value FROM {self.table} ORDER BY aai_id")
+        rows = data_result.result_rows
+        return [row[0] for row in rows]
+
+    async def _extract_dict_data(
+        self,
+        column_names: List[str],
+        columns: Dict[str, ColumnMeta],
+        orient: str
+    ):
+        """
+        Extract data from a dict table (multiple columns with aai_id).
+
+        Args:
+            column_names: List of column names in order
+            columns: Dict mapping column names to metadata
+            orient: Output format (ORIENT_DICT or ORIENT_RECORDS)
+
+        Returns:
+            Dict or list of dicts based on orient parameter
+        """
+        client = await get_client()
+        data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
+        rows = data_result.result_rows
+
+        # Filter out aai_id from output
+        output_columns = [name for name in column_names if name != "aai_id"]
+        col_indices = {name: column_names.index(name) for name in output_columns}
+
+        # Check if this is dict of arrays by looking at fieldtype
+        first_col = output_columns[0] if output_columns else None
+        is_dict_of_arrays = first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
+
+        if orient == ORIENT_RECORDS:
+            # Return list of dicts (one per row)
+            return [{name: row[col_indices[name]] for name in output_columns} for row in rows]
+        else:
+            # ORIENT_DICT
+            if is_dict_of_arrays:
+                # Dict of arrays: return dict with arrays as values
+                return {name: [row[col_indices[name]] for row in rows] for name in output_columns}
+            elif rows:
+                # Dict of scalars: return single dict (first row)
+                return {name: rows[0][col_indices[name]] for name in output_columns}
+            return {}
+
     async def data(self, orient: str = ORIENT_DICT):
         """
         Get the data from the object's table.
@@ -162,43 +218,17 @@ class Object:
         is_simple_structure = set(column_names) <= {"aai_id", "value"}
 
         if not is_simple_structure:
-            # Dict type (all dicts have aai_id now, always order by it)
-            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
-            rows = data_result.result_rows
+            # Dict type (scalar or arrays)
+            return await self._extract_dict_data(column_names, columns, orient)
 
-            # Filter out aai_id from output
-            output_columns = [name for name in column_names if name != "aai_id"]
-            col_indices = {name: column_names.index(name) for name in output_columns}
-
-            # Check if this is dict of arrays by looking at fieldtype
-            first_col = output_columns[0] if output_columns else None
-            is_dict_of_arrays = first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
-
-            if orient == ORIENT_RECORDS:
-                # Return list of dicts (one per row)
-                return [{name: row[col_indices[name]] for name in output_columns} for row in rows]
-            else:
-                # ORIENT_DICT
-                if is_dict_of_arrays:
-                    # Dict of arrays: return dict with arrays as values
-                    return {name: [row[col_indices[name]] for row in rows] for name in output_columns}
-                elif rows:
-                    # Dict of scalars: return single dict (first row)
-                    return {name: rows[0][col_indices[name]] for name in output_columns}
-                return {}
-
-        # Simple structure: just aai_id and value columns
-        # SELECT value directly (ordered by aai_id)
-        data_result = await client.query(f"SELECT value FROM {self.table} ORDER BY aai_id")
-        rows = data_result.result_rows
-
+        # Simple structure: aai_id and value columns
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
             # Scalar: return single value
-            return rows[0][0] if rows else None
+            return await self._extract_scalar_data()
         else:
             # Array: return list of values
-            return [row[0] for row in rows]
+            return await self._extract_array_data()
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
