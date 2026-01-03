@@ -8,7 +8,7 @@ operations, enabling execution of Python-equivalent computations at scale.
 __version__ = "0.1.0"
 
 # Import client management
-from .client import get_client, is_connected
+from .ch_client import get_ch_client, is_connected
 
 # Import core objects
 from .object import (

@@ -33,11 +33,11 @@ async def cleanup_tables():
 
     # Cleanup after test
     if tables_to_cleanup:
-        from aaiclick import get_client
+        from aaiclick import get_ch_client
 
-        client = await get_client()
+        ch_client = await get_ch_client()
         for table in tables_to_cleanup:
             try:
-                await client.command(f"DROP TABLE IF EXISTS {table}")
+                await ch_client.command(f"DROP TABLE IF EXISTS {table}")
             except Exception as e:
                 print(f"Warning: Failed to drop table {table}: {e}")

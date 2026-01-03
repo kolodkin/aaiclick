@@ -8,7 +8,7 @@ automatically inferring schemas from Python values using numpy for type detectio
 from typing import Union, Dict, List
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
-from .client import get_client
+from .ch_client import get_ch_client
 from .snowflake import get_snowflake_ids
 
 
@@ -94,7 +94,7 @@ async def create_object(schema: Schema) -> Object:
         >>> obj = await create_object(["id Int64", "name String", "age UInt8"])
     """
     obj = Object()
-    client = await get_client()
+    ch_client = await get_ch_client()
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -107,7 +107,7 @@ async def create_object(schema: Schema) -> Object:
         {columns}
     ) ENGINE = MergeTree ORDER BY tuple()
     """
-    await client.command(create_query)
+    await ch_client.command(create_query)
     return obj
 
 
@@ -150,7 +150,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
     """
     obj = Object()
-    client = await get_client()
+    ch_client = await get_ch_client()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)
@@ -190,7 +190,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 {", ".join(columns)}
             ) ENGINE = MergeTree ORDER BY tuple()
             """
-            await client.command(create_query)
+            await ch_client.command(create_query)
 
             # Generate snowflake IDs for all rows
             aai_ids = get_snowflake_ids(array_len or 0)
@@ -202,7 +202,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
 
                 # Use clickhouse-connect's built-in insert
-                await client.insert(obj.table, data)
+                await ch_client.insert(obj.table, data)
 
         else:
             # Dict of scalars: one column per key, single row with aai_id
@@ -231,7 +231,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 {", ".join(columns)}
             ) ENGINE = MergeTree ORDER BY tuple()
             """
-            await client.command(create_query)
+            await ch_client.command(create_query)
 
             # Generate single aai_id for scalar dict
             aai_id = get_snowflake_ids(1)[0]
@@ -239,7 +239,7 @@ async def create_object_from_value(val: ValueType) -> Object:
 
             # Insert single row
             insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-            await client.command(insert_query)
+            await ch_client.command(insert_query)
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
@@ -254,7 +254,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
-        await client.command(create_query)
+        await ch_client.command(create_query)
 
         # Generate snowflake IDs for all rows
         aai_ids = get_snowflake_ids(len(val))
@@ -264,7 +264,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             # Zip aai_ids with values to create rows
             data = [list(row) for row in zip(aai_ids, val)]
             # Use clickhouse-connect's built-in insert
-            await client.insert(obj.table, data)
+            await ch_client.insert(obj.table, data)
 
     else:
         # Scalar: single row with aai_id and value
@@ -278,7 +278,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
-        await client.command(create_query)
+        await ch_client.command(create_query)
 
         # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
@@ -292,6 +292,6 @@ async def create_object_from_value(val: ValueType) -> Object:
             value_str = str(val)
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
-        await client.command(insert_query)
+        await ch_client.command(insert_query)
 
     return obj

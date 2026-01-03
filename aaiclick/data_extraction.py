@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .object import Object
 
 from .object import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
-from .client import get_client
+from .ch_client import get_ch_client
 
 
 async def extract_scalar_data(obj: "Object") -> Any:
@@ -23,8 +23,8 @@ async def extract_scalar_data(obj: "Object") -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    client = await get_client()
-    data_result = await client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    ch_client = await get_ch_client()
+    data_result = await ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
     rows = data_result.result_rows
     return rows[0][0] if rows else None
 
@@ -39,8 +39,8 @@ async def extract_array_data(obj: "Object") -> List[Any]:
     Returns:
         List of values ordered by aai_id
     """
-    client = await get_client()
-    data_result = await client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    ch_client = await get_ch_client()
+    data_result = await ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
     rows = data_result.result_rows
     return [row[0] for row in rows]
 
@@ -63,8 +63,8 @@ async def extract_dict_data(
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    client = await get_client()
-    data_result = await client.query(f"SELECT * FROM {obj.table} ORDER BY aai_id")
+    ch_client = await get_ch_client()
+    data_result = await ch_client.query(f"SELECT * FROM {obj.table} ORDER BY aai_id")
     rows = data_result.result_rows
 
     # Filter out aai_id from output
