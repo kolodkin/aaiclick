@@ -108,10 +108,10 @@ config.table_ttl_days = 3
 
 **How TTL works:**
 
-- TTL is based on the `aai_id` column (Snowflake ID containing creation timestamp)
-- Timestamp is extracted from aai_id using bit operations
-- Tables are created with `TTL toDateTime((bitShiftRight(aai_id, 22) + epoch) / 1000) + INTERVAL {days} DAY`
-- ClickHouse automatically removes expired data based on row creation time
+- TTL is based on the `created_at` column (DateTime type)
+- All tables include a `created_at DateTime DEFAULT now()` column
+- Tables are created with `TTL created_at + INTERVAL {days} DAY`
+- ClickHouse automatically removes expired data based on table creation time
 - TTL applies to all tables created by factory functions and operators
 - Provides robust, automatic resource management without manual intervention
 

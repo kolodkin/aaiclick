@@ -71,18 +71,11 @@ def get_ttl_clause() -> str:
     """
     Get the TTL clause for CREATE TABLE statements.
 
-    The TTL is based on the aai_id column, which is a Snowflake ID containing
-    a timestamp. The timestamp is extracted by shifting right 22 bits and
-    adding the Snowflake epoch (Jan 1, 2024).
+    The TTL is based on the created_at column, which stores the table creation
+    timestamp as a DateTime value.
 
     Returns:
         str: TTL clause string for ClickHouse tables
     """
     config = get_config()
-    # Snowflake epoch: January 1, 2024 00:00:00 UTC in milliseconds
-    snowflake_epoch = 1704067200000
-
-    # Extract timestamp from aai_id (shift right 22 bits to get bits 62-22)
-    # Add epoch offset and convert milliseconds to seconds for DateTime
-    # Then add the TTL interval
-    return f"TTL toDateTime((bitShiftRight(aai_id, 22) + {snowflake_epoch}) / 1000) + INTERVAL {config.table_ttl_days} DAY"
+    return f"TTL created_at + INTERVAL {config.table_ttl_days} DAY"

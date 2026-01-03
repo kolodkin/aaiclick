@@ -1,7 +1,7 @@
 CREATE TABLE {result_table}
 ENGINE = MergeTree ORDER BY aai_id {ttl_clause}
 AS
-SELECT row_number() OVER (ORDER BY t, aai_id) as aai_id, value
+SELECT row_number() OVER (ORDER BY t, aai_id) as aai_id, value, now() AS created_at
 FROM (
     SELECT 1 as t, * FROM {left_table}
     UNION ALL

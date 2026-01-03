@@ -106,7 +106,8 @@ async def create_object(schema: Schema) -> Object:
     ttl_clause = get_ttl_clause()
     create_query = f"""
     CREATE TABLE {obj.table} (
-        {columns}
+        {columns},
+        created_at DateTime DEFAULT now()
     ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
     """
     await ch_client.command(create_query)
@@ -190,7 +191,8 @@ async def create_object_from_value(val: ValueType) -> Object:
             ttl_clause = get_ttl_clause()
             create_query = f"""
             CREATE TABLE {obj.table} (
-                {", ".join(columns)}
+                {", ".join(columns)},
+                created_at DateTime DEFAULT now()
             ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
             """
             await ch_client.command(create_query)
@@ -232,7 +234,8 @@ async def create_object_from_value(val: ValueType) -> Object:
             ttl_clause = get_ttl_clause()
             create_query = f"""
             CREATE TABLE {obj.table} (
-                {", ".join(columns)}
+                {", ".join(columns)},
+                created_at DateTime DEFAULT now()
             ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
             """
             await ch_client.command(create_query)
@@ -256,7 +259,8 @@ async def create_object_from_value(val: ValueType) -> Object:
         create_query = f"""
         CREATE TABLE {obj.table} (
             aai_id UInt64 COMMENT '{aai_id_comment}',
-            value {col_type} COMMENT '{value_comment}'
+            value {col_type} COMMENT '{value_comment}',
+            created_at DateTime DEFAULT now()
         ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
         """
         await ch_client.command(create_query)
@@ -281,7 +285,8 @@ async def create_object_from_value(val: ValueType) -> Object:
         create_query = f"""
         CREATE TABLE {obj.table} (
             aai_id UInt64 COMMENT '{aai_id_comment}',
-            value {col_type} COMMENT '{value_comment}'
+            value {col_type} COMMENT '{value_comment}',
+            created_at DateTime DEFAULT now()
         ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
         """
         await ch_client.command(create_query)
