@@ -8,7 +8,7 @@ automatically inferring schemas from Python values using numpy for type detectio
 from typing import Union, Dict, List
 import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
-from .client import get_client
+from .ch_client import get_ch_client
 from .snowflake import get_snowflake_ids
 
 
@@ -94,7 +94,7 @@ async def create_object(schema: Schema) -> Object:
         >>> obj = await create_object(["id Int64", "name String", "age UInt8"])
     """
     obj = Object()
-    ch_client = await get_client()
+    ch_client = await get_ch_client()
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -150,7 +150,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
     """
     obj = Object()
-    ch_client = await get_client()
+    ch_client = await get_ch_client()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

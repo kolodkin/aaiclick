@@ -8,7 +8,7 @@ and supports operations through operator overloading.
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 import yaml
-from .client import get_client
+from .ch_client import get_ch_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from . import operators
@@ -123,7 +123,7 @@ class Object:
         Returns:
             Query result with all rows from the table
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         return await ch_client.query(f"SELECT * FROM {self.table}")
 
     async def data(self, orient: str = ORIENT_DICT):
@@ -142,7 +142,7 @@ class Object:
         """
         from . import data_extraction
 
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
 
         # Query column names and comments
         columns_query = f"""
@@ -178,7 +178,7 @@ class Object:
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         columns_query = f"""
         SELECT comment FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
@@ -204,7 +204,7 @@ class Object:
         expression = operators.OPERATOR_EXPRESSIONS[operator]
 
         result = Object()
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
 
         # Check if operating on scalars or arrays
         fieldtype = await self._get_fieldtype()
@@ -461,7 +461,7 @@ class Object:
         """
         Delete the ClickHouse table associated with this object.
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         await ch_client.command(f"DROP TABLE IF EXISTS {self.table}")
 
     async def concat(self, other: "Object") -> "Object":
@@ -496,7 +496,7 @@ class Object:
         Returns:
             float: Minimum value from the 'value' column
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         result = await ch_client.query(f"SELECT min(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -507,7 +507,7 @@ class Object:
         Returns:
             float: Maximum value from the 'value' column
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         result = await ch_client.query(f"SELECT max(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -518,7 +518,7 @@ class Object:
         Returns:
             float: Sum of values from the 'value' column
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         result = await ch_client.query(f"SELECT sum(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -529,7 +529,7 @@ class Object:
         Returns:
             float: Mean value from the 'value' column
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         result = await ch_client.query(f"SELECT avg(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -540,7 +540,7 @@ class Object:
         Returns:
             float: Standard deviation from the 'value' column
         """
-        ch_client = await get_client()
+        ch_client = await get_ch_client()
         result = await ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 

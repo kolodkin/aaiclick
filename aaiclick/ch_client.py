@@ -20,7 +20,7 @@ from .env import (
 _client = [None]
 
 
-async def get_client() -> AsyncClient:
+async def get_ch_client() -> AsyncClient:
     """
     Get the global ClickHouse client instance.
 

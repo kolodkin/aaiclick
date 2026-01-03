@@ -39,7 +39,7 @@ ClickHouse connection (all optional with sensible defaults):
 ```
 aaiclick/
 ├── aaiclick/          # Main package
-│   ├── client.py      # Global client instance management
+│   ├── ch_client.py   # Global ClickHouse client instance management
 │   ├── object.py      # Core Object class
 │   ├── factories.py   # Factory functions for creating objects
 │   └── __init__.py    # Package exports

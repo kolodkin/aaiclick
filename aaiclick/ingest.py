@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .object import Object
 
 from .object import Object, ColumnMeta, FIELDTYPE_ARRAY
-from .client import get_client
+from .ch_client import get_ch_client
 from .sql_template_loader import load_sql_template
 
 
@@ -50,7 +50,7 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
         raise ValueError("concat requires obj_a to have array fieldtype")
 
     # Create result object
-    ch_client = await get_client()
+    ch_client = await get_ch_client()
     result = Object()
 
     # Both scalars and arrays have aai_id now, so use same template
