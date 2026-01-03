@@ -159,19 +159,18 @@ class Object:
             column_names.append(name)
 
         # Determine data type based on columns
-        has_aai_id = "aai_id" in columns
-
-        # Query data (order by aai_id for arrays)
-        if has_aai_id:
-            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
-        else:
-            data_result = await self.result()
-        rows = data_result.result_rows
-
         is_simple_structure = set(column_names) <= {"aai_id", "value"}
 
         if not is_simple_structure:
             # Dict type (scalar or arrays)
+            # Query with all columns
+            has_aai_id = "aai_id" in columns
+            if has_aai_id:
+                data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
+            else:
+                data_result = await self.result()
+            rows = data_result.result_rows
+
             # Filter out aai_id from output
             output_columns = [name for name in column_names if name != "aai_id"]
             col_indices = {name: column_names.index(name) for name in output_columns}
@@ -193,15 +192,18 @@ class Object:
                     return {name: rows[0][col_indices[name]] for name in output_columns}
                 return {}
 
+        # Simple structure: just aai_id and value columns
+        # SELECT value directly (ordered by aai_id)
+        data_result = await client.query(f"SELECT value FROM {self.table} ORDER BY aai_id")
+        rows = data_result.result_rows
+
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
-            # Scalar: return single value (from value column, not aai_id)
-            value_idx = column_names.index("value")
-            return rows[0][value_idx] if rows else None
+            # Scalar: return single value
+            return rows[0][0] if rows else None
         else:
             # Array: return list of values
-            value_idx = column_names.index("value")
-            return [row[value_idx] for row in rows]
+            return [row[0] for row in rows]
 
     async def _has_aai_id(self) -> bool:
         """Check if this object's table has a aai_id column."""
