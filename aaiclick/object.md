@@ -73,23 +73,11 @@ ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` col
 
 ## Lifecycle
 
-### Automatic Table Cleanup
+### Automatic Table Cleanup with TTL
 
-Object instances automatically clean up their associated ClickHouse tables when they are garbage collected. The `__del__` method calls `delete_table()` to ensure proper resource cleanup.
+All Object tables are created with a TTL (time-to-live) of **1 day by default**. This ensures that data is automatically removed from ClickHouse after the specified period, providing automatic resource cleanup without requiring explicit `delete_table()` calls.
 
-This automatic cleanup makes explicit `delete_table()` calls in examples and tests redundant:
-
-```python
-# Tables are automatically deleted when objects go out of scope
-async def example():
-    obj = await aaiclick.create_object_from_value([1, 2, 3])
-    result = await obj.data()  # [1, 2, 3]
-    # No need to call obj.delete_table() - happens automatically
-```
-
-### Time-to-Live (TTL)
-
-All Object tables are created with a TTL (time-to-live) of **1 day by default**. This ensures that data is automatically removed from ClickHouse after the specified period, even if the Object instance is not properly cleaned up.
+For immediate cleanup (e.g., to free resources during long-running sessions), you can explicitly call `await obj.delete_table()`.
 
 **Configuration:**
 
@@ -125,7 +113,7 @@ config.table_ttl_days = 3
 - Tables are created with `TTL toDateTime((bitShiftRight(aai_id, 22) + epoch) / 1000) + INTERVAL {days} DAY`
 - ClickHouse automatically removes expired data based on row creation time
 - TTL applies to all tables created by factory functions and operators
-- Combines with automatic `__del__` cleanup for robust resource management
+- Provides robust, automatic resource management without manual intervention
 
 ## Operator Support
 
