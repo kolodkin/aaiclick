@@ -426,56 +426,49 @@ async def test_mixed_symmetry():
 # =============================================================================
 
 
-async def test_mixed_int_float_concat():
-    """Test concatenating int array with float array."""
+async def test_mixed_int_float_concat_fails():
+    """Test that concatenating int array with float array fails with type error."""
     from aaiclick import concat
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
 
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
-    result = await concat(a, b)
-    data = await result.data()
-
-    expected = [1.0, 2.0, 3.0, 4.5, 5.5, 6.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await concat(a, b)
 
     await a.delete_table()
     await b.delete_table()
-    await result.delete_table()
 
 
-async def test_mixed_float_int_concat():
-    """Test concatenating float array with int array."""
+async def test_mixed_float_int_concat_fails():
+    """Test that concatenating float array with int array fails with type error."""
     from aaiclick import concat
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
 
     a = await create_object_from_value([1.5, 2.5, 3.5])
     b = await create_object_from_value([4, 5, 6])
 
-    result = await concat(a, b)
-    data = await result.data()
-
-    expected = [1.5, 2.5, 3.5, 4.0, 5.0, 6.0]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await concat(a, b)
 
     await a.delete_table()
     await b.delete_table()
-    await result.delete_table()
 
 
-async def test_mixed_concat_method():
-    """Test concatenating mixed types using concat method."""
-    a = await create_object_from_value([10, 20])
-    b = await create_object_from_value([30.5, 40.5])
+async def test_mixed_int_string_concat_fails():
+    """Test that concatenating int array with string array fails with type error."""
+    from aaiclick import concat
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
 
-    result = await a.concat(b)
-    data = await result.data()
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value(["a", "b", "c"])
 
-    expected = [10.0, 20.0, 30.5, 40.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await concat(a, b)
 
     await a.delete_table()
     await b.delete_table()
-    await result.delete_table()
