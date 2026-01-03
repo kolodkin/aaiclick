@@ -180,3 +180,97 @@ async def test_context_client_usage():
         obj = await ctx.create_object_from_value([1, 2, 3])
         data = await obj.data()
         assert data == [1, 2, 3]
+
+
+async def test_stale_object_prevents_data_access():
+    """Test that stale objects prevent database access."""
+    obj = await create_object_from_value([1, 2, 3])
+    await obj.delete_table()
+
+    # Object is now stale, should raise RuntimeError
+    assert obj.stale
+
+    with pytest.raises(RuntimeError, match="Cannot call data\\(\\) on stale Object"):
+        await obj.data()
+
+
+async def test_stale_object_prevents_operators():
+    """Test that stale objects prevent operator usage."""
+    obj1 = await create_object_from_value([1, 2, 3])
+    obj2 = await create_object_from_value([4, 5, 6])
+
+    await obj1.delete_table()
+    assert obj1.stale
+
+    # Attempting to use operators on stale object should raise
+    with pytest.raises(RuntimeError, match="Cannot call __add__\\(\\) on stale Object"):
+        await (obj1 + obj2)
+
+    # Clean up
+    await obj2.delete_table()
+
+
+async def test_stale_object_prevents_aggregates():
+    """Test that stale objects prevent aggregate methods."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    await obj.delete_table()
+
+    assert obj.stale
+
+    # Test various aggregate methods
+    with pytest.raises(RuntimeError, match="Cannot call min\\(\\) on stale Object"):
+        await obj.min()
+
+    with pytest.raises(RuntimeError, match="Cannot call max\\(\\) on stale Object"):
+        await obj.max()
+
+    with pytest.raises(RuntimeError, match="Cannot call sum\\(\\) on stale Object"):
+        await obj.sum()
+
+    with pytest.raises(RuntimeError, match="Cannot call mean\\(\\) on stale Object"):
+        await obj.mean()
+
+    with pytest.raises(RuntimeError, match="Cannot call std\\(\\) on stale Object"):
+        await obj.std()
+
+
+async def test_stale_object_prevents_concat():
+    """Test that stale objects prevent concat."""
+    obj1 = await create_object_from_value([1, 2, 3])
+    obj2 = await create_object_from_value([4, 5, 6])
+
+    await obj1.delete_table()
+
+    with pytest.raises(RuntimeError, match="Cannot call concat\\(\\) on stale Object"):
+        await obj1.concat(obj2)
+
+    # Clean up
+    await obj2.delete_table()
+
+
+async def test_stale_object_allows_property_access():
+    """Test that stale objects still allow property access."""
+    obj = await create_object_from_value([1, 2, 3])
+    table_name = obj.table
+
+    await obj.delete_table()
+
+    # Properties should still be accessible
+    assert obj.stale
+    assert obj.table == table_name
+    assert repr(obj) == f"Object(table='{table_name}')"
+
+
+async def test_context_stale_error_messages():
+    """Test that error messages include table name."""
+    async with Context() as ctx:
+        obj = await ctx.create_object_from_value([1, 2, 3])
+        table_name = obj.table
+
+    # Object is stale after context exit
+    try:
+        await obj.data()
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
+        assert table_name in str(e)
+        assert "stale Object" in str(e)

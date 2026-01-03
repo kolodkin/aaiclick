@@ -101,6 +101,36 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
+    # Methods that access the database and should check stale status
+    _DB_METHODS = frozenset({
+        'result', 'data', 'concat', 'min', 'max', 'sum', 'mean', 'std',
+        '_apply_operator', '_get_fieldtype',
+        '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
+        '__mod__', '__pow__', '__eq__', '__ne__', '__lt__', '__le__',
+        '__gt__', '__ge__', '__and__', '__or__', '__xor__'
+    })
+
+    def __getattribute__(self, name):
+        """
+        Override attribute access to check stale status before database operations.
+
+        Raises:
+            RuntimeError: If attempting to call a database method on a stale object
+        """
+        # Get the attribute using object's __getattribute__ to avoid recursion
+        attr = object.__getattribute__(self, name)
+
+        # Check if this is a DB method and if object is stale
+        if name in object.__getattribute__(self, '_DB_METHODS'):
+            if object.__getattribute__(self, '_stale'):
+                table_name = object.__getattribute__(self, '_table_name')
+                raise RuntimeError(
+                    f"Cannot call {name}() on stale Object. "
+                    f"Table '{table_name}' has been deleted."
+                )
+
+        return attr
+
     def __init__(self, table: Optional[str] = None):
         """
         Initialize an Object.
