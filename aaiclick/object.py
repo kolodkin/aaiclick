@@ -162,13 +162,8 @@ class Object:
         is_simple_structure = set(column_names) <= {"aai_id", "value"}
 
         if not is_simple_structure:
-            # Dict type (scalar or arrays)
-            # Query with all columns
-            has_aai_id = "aai_id" in columns
-            if has_aai_id:
-                data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
-            else:
-                data_result = await self.result()
+            # Dict type (all dicts have aai_id now, always order by it)
+            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
             rows = data_result.result_rows
 
             # Filter out aai_id from output
@@ -205,16 +200,6 @@ class Object:
             # Array: return list of values
             return [row[0] for row in rows]
 
-    async def _has_aai_id(self) -> bool:
-        """Check if this object's table has a aai_id column."""
-        client = await get_client()
-        columns_query = f"""
-        SELECT name FROM system.columns
-        WHERE table = '{self.table}' AND name = 'aai_id'
-        """
-        result = await client.query(columns_query)
-        return len(result.result_rows) > 0
-
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
         client = await get_client()
@@ -246,36 +231,29 @@ class Object:
         client = await get_client()
 
         # Check if operating on scalars or arrays
-        has_aai_id = await self._has_aai_id()
         fieldtype = await self._get_fieldtype()
-        comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
 
-        if has_aai_id:
-            # Array operation with aai_id - use array template
+        # Choose template based on fieldtype
+        if fieldtype == FIELDTYPE_ARRAY:
+            # Array operation - use array template
             template = load_sql_template("apply_op_array")
-            create_query = template.format(
-                result_table=result.table,
-                expression=expression,
-                left_table=self.table,
-                right_table=obj_b.table
-            )
-            await client.command(create_query)
-
-            # Add comments
-            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation - use scalar template
             template = load_sql_template("apply_op_scalar")
-            create_query = template.format(
-                result_table=result.table,
-                expression=expression,
-                left_table=self.table,
-                right_table=obj_b.table
-            )
-            await client.command(create_query)
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
+
+        create_query = template.format(
+            result_table=result.table,
+            expression=expression,
+            left_table=self.table,
+            right_table=obj_b.table
+        )
+        await client.command(create_query)
+
+        # Add comments (all results now have aai_id)
+        aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+        value_comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
+        await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
+        await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
 
         return result
 

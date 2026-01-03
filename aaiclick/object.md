@@ -19,9 +19,7 @@ Each Object gets a dedicated ClickHouse table with a unique name generated using
 
 ### Schema Patterns
 
-Tables follow specific schema patterns based on data type:
-
-#### Tables WITH aai_id
+All tables include an `aai_id` column with Snowflake IDs for consistency.
 
 **Scalars** - Single row with aai_id:
 ```sql
@@ -39,21 +37,20 @@ CREATE TABLE (
 )
 ```
 
-**Dict of Arrays** - Multiple rows with guaranteed insertion order:
+**Dict of Scalars** - Single row with aai_id:
 ```sql
 CREATE TABLE (
-    aai_id UInt64,  -- Snowflake ID for ordering
+    aai_id UInt64,  -- Snowflake ID
     col1 {type},
     col2 {type},
     ...
 )
 ```
 
-#### Tables WITHOUT aai_id
-
-**Dict of Scalars** - Single row tables:
+**Dict of Arrays** - Multiple rows with guaranteed insertion order:
 ```sql
 CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID for ordering
     col1 {type},
     col2 {type},
     ...
