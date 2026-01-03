@@ -19,33 +19,31 @@ Each Object gets a dedicated ClickHouse table with a unique name generated using
 
 ### Schema Patterns
 
-Tables follow specific schema patterns based on data type:
+All tables include an `aai_id` column with Snowflake IDs for consistency.
 
-#### Tables WITHOUT aai_id (Single Row)
-
-**Scalars** - Single value tables:
+**Scalars** - Single row with aai_id:
 ```sql
 CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID
     value {type}
 )
 ```
-
-**Dict of Scalars** - Single row tables:
-```sql
-CREATE TABLE (
-    col1 {type},
-    col2 {type},
-    ...
-)
-```
-
-#### Tables WITH aai_id (Multiple Rows)
 
 **Arrays/Lists** - Multiple rows with guaranteed insertion order:
 ```sql
 CREATE TABLE (
     aai_id UInt64,  -- Snowflake ID for ordering
     value {type}
+)
+```
+
+**Dict of Scalars** - Single row with aai_id:
+```sql
+CREATE TABLE (
+    aai_id UInt64,  -- Snowflake ID
+    col1 {type},
+    col2 {type},
+    ...
 )
 ```
 
@@ -135,6 +133,40 @@ result = await (m & n)      # [8, 8, 0]
 
 For complete runnable examples of all operators, see:
 - `examples/basic_operators.py` - Comprehensive examples of all 14 operators
+
+## The concat() Method
+
+The `concat()` method concatenates objects together, creating a new object with rows from the first object followed by rows from the second object.
+
+**Requirements:**
+- The first object must be an array (have `FIELDTYPE_ARRAY`)
+- The second object can be an array or scalar
+- Both objects must have compatible types (same ClickHouse type)
+
+**Examples:**
+
+```python
+# Concatenate two arrays
+a = await aaiclick.create_object_from_value([1, 2, 3])
+b = await aaiclick.create_object_from_value([4, 5, 6])
+result = await a.concat(b)
+await result.data()  # [1, 2, 3, 4, 5, 6]
+
+# Append scalar to array
+a = await aaiclick.create_object_from_value([1, 2, 3])
+b = await aaiclick.create_object_from_value(42)
+result = await a.concat(b)
+await result.data()  # [1, 2, 3, 42]
+
+# Chain multiple concatenations
+a = await aaiclick.create_object_from_value([1, 2])
+b = await aaiclick.create_object_from_value([3, 4])
+c = await aaiclick.create_object_from_value([5, 6])
+result = await (await a.concat(b)).concat(c)
+await result.data()  # [1, 2, 3, 4, 5, 6]
+```
+
+**Note:** The standalone `concat(obj_a, obj_b)` function is also available as an alternative to the method form.
 
 ## The data() Method
 

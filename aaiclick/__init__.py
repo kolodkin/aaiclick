@@ -28,3 +28,6 @@ from .factories import create_object, create_object_from_value
 # Import Snowflake ID generation
 from .snowflake import get_snowflake_id, get_snowflake_ids
 
+# Import ingest functions
+from .ingest import concat
+

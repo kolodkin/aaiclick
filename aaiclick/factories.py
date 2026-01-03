@@ -117,32 +117,33 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     Args:
         val: Value to create object from. Can be:
-            - Scalar (int, float, bool, str): Creates single column "value" (no aai_id)
+            - Scalar (int, float, bool, str): Creates "aai_id" and "value" columns, single row
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
-            - Dict of scalars: Creates one column per key, single row (no aai_id)
+            - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
 
     Returns:
         Object: New Object instance with data
 
     Table Schema Details:
-        - Scalars (single value): No aai_id column - single row tables don't need ordering
-        - Arrays (lists): Includes aai_id column with snowflake IDs for guaranteed insertion order
-        - Dict of scalars: No aai_id column - single row tables don't need ordering
-        - Dict of arrays: Includes aai_id column with snowflake IDs for guaranteed insertion order
+        - All tables include aai_id column with snowflake IDs
+        - Scalars (single value): Single row with aai_id and value
+        - Arrays (lists): Multiple rows with aai_id and value, ordered by aai_id
+        - Dict of scalars: Single row with aai_id plus columns for each key
+        - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
 
     Examples:
-        >>> # From scalar (no aai_id)
+        >>> # From scalar (with aai_id)
         >>> obj = await create_object_from_value(42)
-        >>> # Creates table with column: value Int64
+        >>> # Creates table with columns: aai_id UInt64, value Int64
         >>>
         >>> # From list (with aai_id)
         >>> obj = await create_object_from_value([1.5, 2.5, 3.5])
         >>> # Creates table with columns: aai_id UInt64, value Float64
         >>>
-        >>> # From dict of scalars (no aai_id)
+        >>> # From dict of scalars (with aai_id)
         >>> obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
-        >>> # Creates table with columns: id Int64, name String, age Int64
+        >>> # Creates table with columns: aai_id UInt64, id Int64, name String, age Int64
         >>>
         >>> # From dict of arrays (with aai_id)
         >>> obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
@@ -204,7 +205,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 await client.insert(obj.table, data)
 
         else:
-            # Dict of scalars: one column per key, single row
+            # Dict of scalars: one column per key, single row with aai_id
             columns = []
             values = []
 
@@ -221,12 +222,20 @@ async def create_object_from_value(val: ValueType) -> Object:
                 else:
                     values.append(str(value))
 
+            # Add aai_id for consistency
+            aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
+            columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
+
             create_query = f"""
             CREATE TABLE {obj.table} (
                 {", ".join(columns)}
             ) ENGINE = MergeTree ORDER BY tuple()
             """
             await client.command(create_query)
+
+            # Generate single aai_id for scalar dict
+            aai_id = get_snowflake_ids(1)[0]
+            values.insert(0, str(aai_id))
 
             # Insert single row
             insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
@@ -258,16 +267,21 @@ async def create_object_from_value(val: ValueType) -> Object:
             await client.insert(obj.table, data)
 
     else:
-        # Scalar: single column "value" with single row
+        # Scalar: single row with aai_id and value
         col_type = _infer_clickhouse_type(val)
+        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_SCALAR)
 
         create_query = f"""
         CREATE TABLE {obj.table} (
+            aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
         await client.command(create_query)
+
+        # Generate single aai_id for scalar
+        aai_id = get_snowflake_ids(1)[0]
 
         # Insert single row
         if isinstance(val, str):
@@ -277,7 +291,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         else:
             value_str = str(val)
 
-        insert_query = f"INSERT INTO {obj.table} VALUES ({value_str})"
+        insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
         await client.command(insert_query)
 
     return obj

@@ -140,6 +140,8 @@ class Object:
             - For array: returns list of values
             - For dict: returns dict or list of dicts based on orient
         """
+        from . import data_extraction
+
         client = await get_client()
 
         # Query column names and comments
@@ -159,60 +161,20 @@ class Object:
             column_names.append(name)
 
         # Determine data type based on columns
-        has_aai_id = "aai_id" in columns
-
-        # Query data (order by aai_id for arrays)
-        if has_aai_id:
-            data_result = await client.query(f"SELECT * FROM {self.table} ORDER BY aai_id")
-        else:
-            data_result = await self.result()
-        rows = data_result.result_rows
-
         is_simple_structure = set(column_names) <= {"aai_id", "value"}
 
         if not is_simple_structure:
             # Dict type (scalar or arrays)
-            # Filter out aai_id from output
-            output_columns = [name for name in column_names if name != "aai_id"]
-            col_indices = {name: column_names.index(name) for name in output_columns}
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
-            # Check if this is dict of arrays by looking at fieldtype
-            first_col = output_columns[0] if output_columns else None
-            is_dict_of_arrays = first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
-
-            if orient == ORIENT_RECORDS:
-                # Return list of dicts (one per row)
-                return [{name: row[col_indices[name]] for name in output_columns} for row in rows]
-            else:
-                # ORIENT_DICT
-                if is_dict_of_arrays:
-                    # Dict of arrays: return dict with arrays as values
-                    return {name: [row[col_indices[name]] for row in rows] for name in output_columns}
-                elif rows:
-                    # Dict of scalars: return single dict (first row)
-                    return {name: rows[0][col_indices[name]] for name in output_columns}
-                return {}
-
+        # Simple structure: aai_id and value columns
         value_meta = columns.get("value")
         if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
             # Scalar: return single value
-            return rows[0][0] if rows else None
+            return await data_extraction.extract_scalar_data(self)
         else:
             # Array: return list of values
-            if has_aai_id:
-                return [row[1] for row in rows]
-            else:
-                return [row[0] for row in rows]
-
-    async def _has_aai_id(self) -> bool:
-        """Check if this object's table has a aai_id column."""
-        client = await get_client()
-        columns_query = f"""
-        SELECT name FROM system.columns
-        WHERE table = '{self.table}' AND name = 'aai_id'
-        """
-        result = await client.query(columns_query)
-        return len(result.result_rows) > 0
+            return await data_extraction.extract_array_data(self)
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
@@ -245,36 +207,29 @@ class Object:
         client = await get_client()
 
         # Check if operating on scalars or arrays
-        has_aai_id = await self._has_aai_id()
         fieldtype = await self._get_fieldtype()
-        comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
 
-        if has_aai_id:
-            # Array operation with aai_id - use array template
+        # Choose template based on fieldtype
+        if fieldtype == FIELDTYPE_ARRAY:
+            # Array operation - use array template
             template = load_sql_template("apply_op_array")
-            create_query = template.format(
-                result_table=result.table,
-                expression=expression,
-                left_table=self.table,
-                right_table=obj_b.table
-            )
-            await client.command(create_query)
-
-            # Add comments
-            aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
         else:
             # Scalar operation - use scalar template
             template = load_sql_template("apply_op_scalar")
-            create_query = template.format(
-                result_table=result.table,
-                expression=expression,
-                left_table=self.table,
-                right_table=obj_b.table
-            )
-            await client.command(create_query)
-            await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{comment}'")
+
+        create_query = template.format(
+            result_table=result.table,
+            expression=expression,
+            left_table=self.table,
+            right_table=obj_b.table
+        )
+        await client.command(create_query)
+
+        # Add comments (all results now have aai_id)
+        aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+        value_comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
+        await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
+        await client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
 
         return result
 
@@ -508,6 +463,31 @@ class Object:
         """
         client = await get_client()
         await client.command(f"DROP TABLE IF EXISTS {self.table}")
+
+    async def concat(self, other: "Object") -> "Object":
+        """
+        Concatenate another object to this object.
+
+        Creates a new Object with rows from self followed by rows from other.
+        Only works with array fieldtype objects (objects with aai_id column).
+
+        Args:
+            other: Another Object to concatenate
+
+        Returns:
+            Object: New Object instance with concatenated data
+
+        Raises:
+            ValueError: If self does not have array fieldtype
+
+        Examples:
+            >>> obj_a = await create_object_from_value([1, 2, 3])
+            >>> obj_b = await create_object_from_value([4, 5, 6])
+            >>> result = await obj_a.concat(obj_b)
+            >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+        """
+        from . import ingest
+        return await ingest.concat(self, other)
 
     async def min(self) -> float:
         """

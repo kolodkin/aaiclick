@@ -419,3 +419,53 @@ async def test_mixed_symmetry():
     await a2.delete_table()
     await b2.delete_table()
     await result2.delete_table()
+
+
+# =============================================================================
+# Concat Tests with Mixed Types
+# =============================================================================
+
+
+async def test_mixed_int_float_concat_fails():
+    """Test that concatenating int array with float array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4.5, 5.5, 6.5])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.concat(b)
+
+    await a.delete_table()
+    await b.delete_table()
+
+
+async def test_mixed_float_int_concat_fails():
+    """Test that concatenating float array with int array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await create_object_from_value([1.5, 2.5, 3.5])
+    b = await create_object_from_value([4, 5, 6])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.concat(b)
+
+    await a.delete_table()
+    await b.delete_table()
+
+
+async def test_mixed_int_string_concat_fails():
+    """Test that concatenating int array with string array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value(["a", "b", "c"])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.concat(b)
+
+    await a.delete_table()
+    await b.delete_table()
