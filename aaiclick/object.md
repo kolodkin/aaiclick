@@ -71,6 +71,60 @@ ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` col
 - Bits 21-12: Machine ID (10 bits, up to 1024 machines)
 - Bits 11-0: Sequence (12 bits, up to 4096 IDs/ms per machine)
 
+## Lifecycle
+
+### Automatic Table Cleanup
+
+Object instances automatically clean up their associated ClickHouse tables when they are garbage collected. The `__del__` method calls `delete_table()` to ensure proper resource cleanup.
+
+This automatic cleanup makes explicit `delete_table()` calls in examples and tests redundant:
+
+```python
+# Tables are automatically deleted when objects go out of scope
+async def example():
+    obj = await aaiclick.create_object_from_value([1, 2, 3])
+    result = await obj.data()  # [1, 2, 3]
+    # No need to call obj.delete_table() - happens automatically
+```
+
+### Time-to-Live (TTL)
+
+All Object tables are created with a TTL (time-to-live) of **1 day by default**. This ensures that data is automatically removed from ClickHouse after the specified period, even if the Object instance is not properly cleaned up.
+
+**Configuration:**
+
+TTL is controlled via the `Config` singleton in `config.py`, which reads the value from the environment variable:
+
+- **Environment Variable**: `OBJECT_TABLE_TTL`
+- **Default Value**: `1` (day)
+- **Unit**: Days
+
+**Setting a custom TTL:**
+
+```bash
+# Set TTL to 7 days
+export OBJECT_TABLE_TTL=7
+```
+
+**Accessing TTL configuration programmatically:**
+
+```python
+from aaiclick.config import get_config
+
+config = get_config()
+print(f"Current TTL: {config.table_ttl_days} days")
+
+# Modify TTL for new tables
+config.table_ttl_days = 3
+```
+
+**How TTL works:**
+
+- Tables are created with `TTL now() + INTERVAL {days} DAY`
+- ClickHouse automatically removes expired data
+- TTL applies to all tables created by factory functions and operators
+- Combines with automatic `__del__` cleanup for robust resource management
+
 ## Operator Support
 
 All operators work element-wise on both scalar and array data types.

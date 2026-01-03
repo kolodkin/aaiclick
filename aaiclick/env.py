@@ -22,3 +22,6 @@ if not 0 <= SNOWFLAKE_MACHINE_ID <= 1023:
     raise ValueError(
         f"SNOWFLAKE_MACHINE_ID must be between 0 and 1023, got {SNOWFLAKE_MACHINE_ID}"
     )
+
+# Object table TTL (time-to-live) in days
+OBJECT_TABLE_TTL = int(os.getenv("OBJECT_TABLE_TTL", "1"))

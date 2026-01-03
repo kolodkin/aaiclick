@@ -10,6 +10,7 @@ import numpy as np
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .ch_client import get_ch_client
 from .snowflake import get_snowflake_ids
+from .config import get_ttl_clause
 
 
 # Type aliases
@@ -102,10 +103,11 @@ async def create_object(schema: Schema) -> Object:
     else:
         columns = ", ".join(schema)
 
+    ttl_clause = get_ttl_clause()
     create_query = f"""
     CREATE TABLE {obj.table} (
         {columns}
-    ) ENGINE = MergeTree ORDER BY tuple()
+    ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
     """
     await ch_client.command(create_query)
     return obj
@@ -185,10 +187,11 @@ async def create_object_from_value(val: ValueType) -> Object:
             aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
             columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
 
+            ttl_clause = get_ttl_clause()
             create_query = f"""
             CREATE TABLE {obj.table} (
                 {", ".join(columns)}
-            ) ENGINE = MergeTree ORDER BY tuple()
+            ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
             """
             await ch_client.command(create_query)
 
@@ -226,10 +229,11 @@ async def create_object_from_value(val: ValueType) -> Object:
             aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
             columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
 
+            ttl_clause = get_ttl_clause()
             create_query = f"""
             CREATE TABLE {obj.table} (
                 {", ".join(columns)}
-            ) ENGINE = MergeTree ORDER BY tuple()
+            ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
             """
             await ch_client.command(create_query)
 
@@ -248,11 +252,12 @@ async def create_object_from_value(val: ValueType) -> Object:
         aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_ARRAY)
 
+        ttl_clause = get_ttl_clause()
         create_query = f"""
         CREATE TABLE {obj.table} (
             aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = MergeTree ORDER BY tuple()
+        ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
         """
         await ch_client.command(create_query)
 
@@ -272,11 +277,12 @@ async def create_object_from_value(val: ValueType) -> Object:
         aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
         value_comment = _build_column_comment(FIELDTYPE_SCALAR)
 
+        ttl_clause = get_ttl_clause()
         create_query = f"""
         CREATE TABLE {obj.table} (
             aai_id UInt64 COMMENT '{aai_id_comment}',
             value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = MergeTree ORDER BY tuple()
+        ) ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
         """
         await ch_client.command(create_query)
 

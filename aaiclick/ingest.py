@@ -60,6 +60,12 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
         left_table=obj_a.table,
         right_table=obj_b.table
     )
+
+    # Add TTL clause before executing
+    from .config import get_ttl_clause
+    ttl_clause = get_ttl_clause()
+    create_query = create_query.rstrip() + f" {ttl_clause}"
+
     await ch_client.command(create_query)
 
     # Add comments to preserve fieldtype metadata

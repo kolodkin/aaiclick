@@ -31,3 +31,6 @@ from .snowflake import get_snowflake_id, get_snowflake_ids
 # Import ingest functions
 from .ingest import concat
 
+# Import configuration
+from .config import Config, get_config, get_ttl_clause
+

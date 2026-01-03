@@ -8,6 +8,7 @@ and supports operations through operator overloading.
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 import yaml
+import asyncio
 from .ch_client import get_ch_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
@@ -200,6 +201,8 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        from .config import get_ttl_clause
+
         # Get SQL expression from operator mapping
         expression = operators.OPERATOR_EXPRESSIONS[operator]
 
@@ -223,6 +226,11 @@ class Object:
             left_table=self.table,
             right_table=obj_b.table
         )
+
+        # Add TTL clause before executing
+        ttl_clause = get_ttl_clause()
+        create_query = create_query.rstrip() + f" {ttl_clause}"
+
         await ch_client.command(create_query)
 
         # Add comments (all results now have aai_id)
@@ -547,3 +555,23 @@ class Object:
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
+
+    def __del__(self):
+        """
+        Cleanup when object is garbage collected.
+
+        Automatically deletes the ClickHouse table when the Object instance
+        is destroyed, ensuring proper resource cleanup.
+        """
+        try:
+            # Check if we're in an async context
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an event loop, schedule the deletion
+                loop.create_task(self.delete_table())
+            except RuntimeError:
+                # No running loop, use asyncio.run()
+                asyncio.run(self.delete_table())
+        except Exception:
+            # Silently ignore errors during cleanup to avoid exceptions in __del__
+            pass
