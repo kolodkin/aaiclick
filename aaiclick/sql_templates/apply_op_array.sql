@@ -1,5 +1,5 @@
 CREATE TABLE {result_table}
-ENGINE = MergeTree ORDER BY tuple()
+ENGINE = MergeTree ORDER BY tuple() {ttl_clause}
 AS
 SELECT a.rn as aai_id, {expression} AS value
 FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {left_table}) AS a

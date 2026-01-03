@@ -55,16 +55,17 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
 
     # Both scalars and arrays have aai_id now, so use same template
     template = load_sql_template("concat_array")
+
+    # Get TTL clause for table
+    from .config import get_ttl_clause
+    ttl_clause = get_ttl_clause()
+
     create_query = template.format(
         result_table=result.table,
         left_table=obj_a.table,
-        right_table=obj_b.table
+        right_table=obj_b.table,
+        ttl_clause=ttl_clause
     )
-
-    # Add TTL clause before executing
-    from .config import get_ttl_clause
-    ttl_clause = get_ttl_clause()
-    create_query = create_query.rstrip() + f" {ttl_clause}"
 
     await ch_client.command(create_query)
 

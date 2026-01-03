@@ -219,16 +219,16 @@ class Object:
             # Scalar operation - use scalar template
             template = load_sql_template("apply_op_scalar")
 
+        # Get TTL clause for table
+        ttl_clause = get_ttl_clause()
+
         create_query = template.format(
             result_table=result.table,
             expression=expression,
             left_table=self.table,
-            right_table=obj_b.table
+            right_table=obj_b.table,
+            ttl_clause=ttl_clause
         )
-
-        # Add TTL clause before executing
-        ttl_clause = get_ttl_clause()
-        create_query = create_query.rstrip() + f" {ttl_clause}"
 
         await ch_client.command(create_query)
 

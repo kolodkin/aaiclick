@@ -1,5 +1,5 @@
 CREATE TABLE {result_table}
-ENGINE = MergeTree ORDER BY aai_id
+ENGINE = MergeTree ORDER BY aai_id {ttl_clause}
 AS
 SELECT row_number() OVER (ORDER BY t, aai_id) as aai_id, value
 FROM (
