@@ -103,3 +103,35 @@ async def test_str_array_preserves_order():
     data = await obj.data()
     assert data == values  # Order should be preserved
     await obj.delete_table()
+
+
+async def test_str_array_concat():
+    """Test concatenating string arrays."""
+    from aaiclick import concat
+
+    a = await create_object_from_value(["hello", "world"])
+    b = await create_object_from_value(["foo", "bar", "baz"])
+
+    result = await concat(a, b)
+    data = await result.data()
+
+    assert data == ["hello", "world", "foo", "bar", "baz"]
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
+
+
+async def test_str_array_concat_method():
+    """Test concatenating string arrays using concat method."""
+    a = await create_object_from_value(["hello", "world"])
+    b = await create_object_from_value(["foo", "bar"])
+
+    result = await a.concat(b)
+    data = await result.data()
+
+    assert data == ["hello", "world", "foo", "bar"]
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()

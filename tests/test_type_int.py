@@ -112,6 +112,53 @@ async def test_int_array_chained_operations():
     await result.delete_table()
 
 
+async def test_int_array_concat():
+    """Test concatenating integer arrays."""
+    from aaiclick import concat
+
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
+
+    result = await concat(a, b)
+    data = await result.data()
+
+    assert data == [1, 2, 3, 4, 5, 6]
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
+
+
+async def test_int_array_concat_method():
+    """Test concatenating integer arrays using concat method."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
+
+    result = await a.concat(b)
+    data = await result.data()
+
+    assert data == [1, 2, 3, 4, 5, 6]
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
+
+
+async def test_int_scalar_concat_fails():
+    """Test that concat on scalar fails."""
+    from aaiclick import concat
+    import pytest
+
+    a = await create_object_from_value(42)
+    b = await create_object_from_value([1, 2, 3])
+
+    with pytest.raises(ValueError, match="concat requires obj_a to have array fieldtype"):
+        await concat(a, b)
+
+    await a.delete_table()
+    await b.delete_table()
+
+
 # =============================================================================
 # Statistics Tests
 # =============================================================================

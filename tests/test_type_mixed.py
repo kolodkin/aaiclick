@@ -419,3 +419,63 @@ async def test_mixed_symmetry():
     await a2.delete_table()
     await b2.delete_table()
     await result2.delete_table()
+
+
+# =============================================================================
+# Concat Tests with Mixed Types
+# =============================================================================
+
+
+async def test_mixed_int_float_concat():
+    """Test concatenating int array with float array."""
+    from aaiclick import concat
+
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4.5, 5.5, 6.5])
+
+    result = await concat(a, b)
+    data = await result.data()
+
+    expected = [1.0, 2.0, 3.0, 4.5, 5.5, 6.5]
+    for i, val in enumerate(data):
+        assert abs(val - expected[i]) < THRESHOLD
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
+
+
+async def test_mixed_float_int_concat():
+    """Test concatenating float array with int array."""
+    from aaiclick import concat
+
+    a = await create_object_from_value([1.5, 2.5, 3.5])
+    b = await create_object_from_value([4, 5, 6])
+
+    result = await concat(a, b)
+    data = await result.data()
+
+    expected = [1.5, 2.5, 3.5, 4.0, 5.0, 6.0]
+    for i, val in enumerate(data):
+        assert abs(val - expected[i]) < THRESHOLD
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
+
+
+async def test_mixed_concat_method():
+    """Test concatenating mixed types using concat method."""
+    a = await create_object_from_value([10, 20])
+    b = await create_object_from_value([30.5, 40.5])
+
+    result = await a.concat(b)
+    data = await result.data()
+
+    expected = [10.0, 20.0, 30.5, 40.5]
+    for i, val in enumerate(data):
+        assert abs(val - expected[i]) < THRESHOLD
+
+    await a.delete_table()
+    await b.delete_table()
+    await result.delete_table()
