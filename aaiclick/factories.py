@@ -206,8 +206,9 @@ async def create_object_from_value(val: ValueType) -> Object:
                 # Zip aai_ids with all column arrays to create rows
                 data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
 
-                # Use clickhouse-connect's built-in insert
-                await ch_client.insert(obj.table, data)
+                # Use clickhouse-connect's built-in insert (specify columns to exclude created_at)
+                column_names = ['aai_id'] + keys
+                await ch_client.insert(obj.table, data, column_names=column_names)
 
         else:
             # Dict of scalars: one column per key, single row with aai_id
@@ -244,8 +245,10 @@ async def create_object_from_value(val: ValueType) -> Object:
             aai_id = get_snowflake_ids(1)[0]
             values.insert(0, str(aai_id))
 
-            # Insert single row
-            insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
+            # Insert single row (specify columns to exclude created_at)
+            dict_keys = list(val.keys())
+            column_spec = ', '.join(['aai_id'] + dict_keys)
+            insert_query = f"INSERT INTO {obj.table} ({column_spec}) VALUES ({', '.join(values)})"
             await ch_client.command(insert_query)
 
     elif isinstance(val, list):
@@ -272,8 +275,8 @@ async def create_object_from_value(val: ValueType) -> Object:
         if val:
             # Zip aai_ids with values to create rows
             data = [list(row) for row in zip(aai_ids, val)]
-            # Use clickhouse-connect's built-in insert
-            await ch_client.insert(obj.table, data)
+            # Use clickhouse-connect's built-in insert (specify columns to exclude created_at)
+            await ch_client.insert(obj.table, data, column_names=['aai_id', 'value'])
 
     else:
         # Scalar: single row with aai_id and value
@@ -294,7 +297,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
 
-        # Insert single row
+        # Insert single row (specify columns to exclude created_at)
         if isinstance(val, str):
             value_str = f"'{val}'"
         elif isinstance(val, bool):
@@ -302,7 +305,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         else:
             value_str = str(val)
 
-        insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
+        insert_query = f"INSERT INTO {obj.table} (aai_id, value) VALUES ({aai_id}, {value_str})"
         await ch_client.command(insert_query)
 
     return obj
