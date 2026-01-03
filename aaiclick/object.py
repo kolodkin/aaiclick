@@ -160,8 +160,9 @@ class Object:
             columns[name] = ColumnMeta.from_yaml(comment)
             column_names.append(name)
 
-        # Determine data type based on columns
-        is_simple_structure = set(column_names) <= {"aai_id", "value"}
+        # Determine data type based on columns (exclude created_at which is added for TTL)
+        relevant_columns = [col for col in column_names if col != "created_at"]
+        is_simple_structure = set(relevant_columns) <= {"aai_id", "value"}
 
         if not is_simple_structure:
             # Dict type (scalar or arrays)
