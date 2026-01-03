@@ -47,7 +47,8 @@ def test_template_format_array():
         result_table="result_table",
         expression="a.value + b.value",
         left_table="left_table",
-        right_table="right_table"
+        right_table="right_table",
+        ttl_clause="TTL created_at + INTERVAL 1 DAY"
     )
 
     # Verify placeholders are replaced
@@ -55,12 +56,14 @@ def test_template_format_array():
     assert "{expression}" not in sql
     assert "{left_table}" not in sql
     assert "{right_table}" not in sql
+    assert "{ttl_clause}" not in sql
 
     # Verify formatted values are present
     assert "result_table" in sql
     assert "a.value + b.value" in sql
     assert "left_table" in sql
     assert "right_table" in sql
+    assert "TTL created_at + INTERVAL 1 DAY" in sql
 
 
 def test_template_format_scalar():
@@ -72,7 +75,8 @@ def test_template_format_scalar():
         result_table="result_table",
         expression="a.value - b.value",
         left_table="left_table",
-        right_table="right_table"
+        right_table="right_table",
+        ttl_clause="TTL created_at + INTERVAL 1 DAY"
     )
 
     # Verify placeholders are replaced
@@ -80,12 +84,14 @@ def test_template_format_scalar():
     assert "{expression}" not in sql
     assert "{left_table}" not in sql
     assert "{right_table}" not in sql
+    assert "{ttl_clause}" not in sql
 
     # Verify formatted values are present
     assert "result_table" in sql
     assert "a.value - b.value" in sql
     assert "left_table" in sql
     assert "right_table" in sql
+    assert "TTL created_at + INTERVAL 1 DAY" in sql
 
 
 def test_template_caching():
