@@ -1,5 +1,5 @@
 name: review-pr-checks
-description: Review PR checks - verify GitHub Actions workflow status after push, poll until complete, and report results
+description: Review PR checks, check CI status, verify GitHub Actions workflows. Use when user asks to "review pr", "check pr", "review pr checks", "check ci", "check tests", "are tests passing", or after git push to verify workflows are successful
 enabled: true
 
 installation:
