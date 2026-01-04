@@ -16,7 +16,7 @@ class Context:
     Context manager for managing ClickHouse client and Object lifecycle.
 
     This context manager:
-    - Manages a ClickHouse client instance
+    - Manages a ClickHouse client instance (automatically initialized on enter)
     - Tracks all Objects created within the context via weakref
     - Automatically deletes tables and marks Objects as stale on exit
 
@@ -27,19 +27,26 @@ class Context:
         ... # Tables are automatically deleted here
     """
 
-    def __init__(self, ch_client: Optional[AsyncClient] = None):
-        """
-        Initialize a Context.
-
-        Args:
-            ch_client: Optional ClickHouse client. If not provided, uses global client.
-        """
-        self._ch_client = ch_client
+    def __init__(self):
+        """Initialize a Context."""
+        self._ch_client: Optional[AsyncClient] = None
         self._objects: Dict[int, weakref.ref] = {}
 
     @property
-    def ch_client(self) -> Optional[AsyncClient]:
-        """Get the ClickHouse client for this context."""
+    def ch_client(self) -> AsyncClient:
+        """
+        Get the ClickHouse client for this context.
+
+        Returns:
+            AsyncClient: The ClickHouse client (initialized in __aenter__)
+
+        Raises:
+            RuntimeError: If accessed outside of context manager
+        """
+        if self._ch_client is None:
+            raise RuntimeError(
+                "Context client not initialized. Use 'async with Context() as ctx:' to enter context."
+            )
         return self._ch_client
 
     def _register_object(self, obj: "Object") -> None:
@@ -82,9 +89,6 @@ class Context:
         """
         Create a new Object with a ClickHouse table using the specified schema.
 
-        This is a wrapper around factories.create_object that registers the object
-        with this context.
-
         Args:
             schema: Column definition(s). See factories.create_object for details.
 
@@ -94,15 +98,11 @@ class Context:
         from .factories import create_object
 
         obj = await create_object(schema, context=self)
-        self._register_object(obj)
         return obj
 
     async def create_object_from_value(self, val):
         """
         Create a new Object from Python values with automatic schema inference.
-
-        This is a wrapper around factories.create_object_from_value that registers
-        the object with this context.
 
         Args:
             val: Value to create object from. See factories.create_object_from_value for details.
@@ -113,5 +113,4 @@ class Context:
         from .factories import create_object_from_value
 
         obj = await create_object_from_value(val, context=self)
-        self._register_object(obj)
         return obj
