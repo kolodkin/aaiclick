@@ -4,15 +4,14 @@ aaiclick.data_extraction - Functions for extracting data from Object tables.
 This module provides specialized extraction functions for different table types.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from .object import Object
+from typing import Any, Dict, List
 
-from .object import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
+from .object import Object, ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
-async def extract_scalar_data(obj: "Object") -> Any:
+async def extract_scalar_data(obj: Object) -> Any:
     """
     Extract data from a scalar table (single row with aai_id and value).
 
@@ -27,7 +26,7 @@ async def extract_scalar_data(obj: "Object") -> Any:
     return rows[0][0] if rows else None
 
 
-async def extract_array_data(obj: "Object") -> List[Any]:
+async def extract_array_data(obj: Object) -> List[Any]:
     """
     Extract data from an array table (multiple rows with aai_id and value).
 
@@ -43,7 +42,7 @@ async def extract_array_data(obj: "Object") -> List[Any]:
 
 
 async def extract_dict_data(
-    obj: "Object",
+    obj: Object,
     column_names: List[str],
     columns: Dict[str, ColumnMeta],
     orient: str

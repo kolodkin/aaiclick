@@ -36,6 +36,21 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
   3. Current package imports: `from aaiclick import Context`
 
+- **Type annotations with circular dependencies**: Use `from __future__ import annotations`
+  - Allows direct use of types without quotes: `Object` instead of `"Object"`
+  - Avoids circular import issues (annotations aren't evaluated at runtime)
+  - Standard Python 3.7+ practice (PEP 563)
+  - Note: This import becomes redundant in Python 3.13+ (default behavior)
+  - Example pattern:
+    ```python
+    from __future__ import annotations
+
+    from .object import Object  # Direct import, no TYPE_CHECKING needed
+
+    async def my_function(obj: Object) -> Object:  # No quotes needed
+        ...
+    ```
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):

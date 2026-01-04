@@ -7,13 +7,13 @@ automatically inferring schemas from Python values using numpy for type detectio
 Note: These functions are internal and should only be called via Context methods.
 """
 
-from typing import Union, Dict, List, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Union, Dict, List
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from .context import Context
-
+from .context import Context
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
@@ -80,7 +80,7 @@ def _build_column_comment(fieldtype: str) -> str:
     return meta.to_yaml()
 
 
-async def create_object(schema: Schema, ctx: "Context") -> Object:
+async def create_object(schema: Schema, ctx: Context) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
@@ -113,7 +113,7 @@ async def create_object(schema: Schema, ctx: "Context") -> Object:
     return obj
 
 
-async def create_object_from_value(val: ValueType, ctx: "Context") -> Object:
+async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 

@@ -5,10 +5,9 @@ This module contains static functions that implement all operators for Object in
 Each operator function takes two Object parameters and returns a new Object with the result.
 """
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from .object import Object
+from .object import Object
 
 
 # Operator to SQL expression mapping
@@ -37,7 +36,7 @@ OPERATOR_EXPRESSIONS = {
 
 # Arithmetic Operators
 
-async def add(obj_a: "Object", obj_b: "Object") -> "Object":
+async def add(obj_a: Object, obj_b: Object) -> Object:
     """
     Add two objects together.
 
@@ -51,7 +50,7 @@ async def add(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "+")
 
 
-async def sub(obj_a: "Object", obj_b: "Object") -> "Object":
+async def sub(obj_a: Object, obj_b: Object) -> Object:
     """
     Subtract one object from another.
 
@@ -65,7 +64,7 @@ async def sub(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "-")
 
 
-async def mul(obj_a: "Object", obj_b: "Object") -> "Object":
+async def mul(obj_a: Object, obj_b: Object) -> Object:
     """
     Multiply two objects together.
 
@@ -79,7 +78,7 @@ async def mul(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "*")
 
 
-async def truediv(obj_a: "Object", obj_b: "Object") -> "Object":
+async def truediv(obj_a: Object, obj_b: Object) -> Object:
     """
     Divide one object by another.
 
@@ -93,7 +92,7 @@ async def truediv(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "/")
 
 
-async def floordiv(obj_a: "Object", obj_b: "Object") -> "Object":
+async def floordiv(obj_a: Object, obj_b: Object) -> Object:
     """
     Floor divide one object by another.
 
@@ -107,7 +106,7 @@ async def floordiv(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "//")
 
 
-async def mod(obj_a: "Object", obj_b: "Object") -> "Object":
+async def mod(obj_a: Object, obj_b: Object) -> Object:
     """
     Modulo operation between two objects.
 
@@ -121,7 +120,7 @@ async def mod(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "%")
 
 
-async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
+async def pow(obj_a: Object, obj_b: Object) -> Object:
     """
     Raise one object to the power of another.
 
@@ -137,7 +136,7 @@ async def pow(obj_a: "Object", obj_b: "Object") -> "Object":
 
 # Comparison Operators
 
-async def eq(obj_a: "Object", obj_b: "Object") -> "Object":
+async def eq(obj_a: Object, obj_b: Object) -> Object:
     """
     Check equality between two objects.
 
@@ -151,7 +150,7 @@ async def eq(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "==")
 
 
-async def ne(obj_a: "Object", obj_b: "Object") -> "Object":
+async def ne(obj_a: Object, obj_b: Object) -> Object:
     """
     Check inequality between two objects.
 
@@ -165,7 +164,7 @@ async def ne(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "!=")
 
 
-async def lt(obj_a: "Object", obj_b: "Object") -> "Object":
+async def lt(obj_a: Object, obj_b: Object) -> Object:
     """
     Check if one object is less than another.
 
@@ -179,7 +178,7 @@ async def lt(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "<")
 
 
-async def le(obj_a: "Object", obj_b: "Object") -> "Object":
+async def le(obj_a: Object, obj_b: Object) -> Object:
     """
     Check if one object is less than or equal to another.
 
@@ -193,7 +192,7 @@ async def le(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "<=")
 
 
-async def gt(obj_a: "Object", obj_b: "Object") -> "Object":
+async def gt(obj_a: Object, obj_b: Object) -> Object:
     """
     Check if one object is greater than another.
 
@@ -207,7 +206,7 @@ async def gt(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, ">")
 
 
-async def ge(obj_a: "Object", obj_b: "Object") -> "Object":
+async def ge(obj_a: Object, obj_b: Object) -> Object:
     """
     Check if one object is greater than or equal to another.
 
@@ -223,7 +222,7 @@ async def ge(obj_a: "Object", obj_b: "Object") -> "Object":
 
 # Bitwise Operators
 
-async def and_(obj_a: "Object", obj_b: "Object") -> "Object":
+async def and_(obj_a: Object, obj_b: Object) -> Object:
     """
     Bitwise AND operation between two objects.
 
@@ -237,7 +236,7 @@ async def and_(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "&")
 
 
-async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
+async def or_(obj_a: Object, obj_b: Object) -> Object:
     """
     Bitwise OR operation between two objects.
 
@@ -251,7 +250,7 @@ async def or_(obj_a: "Object", obj_b: "Object") -> "Object":
     return await obj_a._apply_operator(obj_b, "|")
 
 
-async def xor(obj_a: "Object", obj_b: "Object") -> "Object":
+async def xor(obj_a: Object, obj_b: Object) -> Object:
     """
     Bitwise XOR operation between two objects.
 
