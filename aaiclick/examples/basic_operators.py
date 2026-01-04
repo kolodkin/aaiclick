@@ -183,8 +183,8 @@ async def example(context):
     print("Example 7: Automatic table name generation with Snowflake IDs")
     print("-" * 50)
 
-    obj_auto = Object()
-    obj_auto2 = Object()
+    obj_auto = await context.create_object_from_value(42)
+    obj_auto2 = await context.create_object_from_value(99)
     print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
     print(f"  Object 1 -> table: {obj_auto.table}")
     print(f"  Object 2 -> table: {obj_auto2.table}")
