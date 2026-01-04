@@ -36,33 +36,12 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
   3. Current package imports: `from aaiclick import Context`
 
-- **Type annotations with circular dependencies**: Use `from __future__ import annotations`
-  - Allows direct use of types without quotes: `Object` instead of `"Object"`
-  - Avoids circular import issues in type annotations (annotations aren't evaluated at runtime)
-  - Standard Python 3.7+ practice (PEP 563)
-  - Required for Python 3.10+, will likely become default in Python 3.14+
-  - Example pattern:
-    ```python
-    from __future__ import annotations
-
-    from .object import Object  # Direct import, no TYPE_CHECKING needed
-
-    async def my_function(obj: Object) -> Object:  # No quotes needed
-        ...
-    ```
-
-- **Lazy imports for circular dependencies**: When modules need each other at runtime
-  - Use lazy imports inside functions/methods instead of module-level imports
-  - Breaks circular import chain while keeping clean type hints
-  - Example: `object.py` methods import `operators` module lazily
-  - Pattern:
-    ```python
-    # At module level: NO import operators
-
-    async def __add__(self, other: Object) -> Object:
-        from . import operators  # Lazy import inside method
-        return await operators.add(self, other)
-    ```
+- **Circular imports**: Use two-pattern approach
+  - Type annotations: Add `from __future__ import annotations` at top of file
+    - Allows `Object` instead of `"Object"` in type hints
+    - Required for Python 3.10+
+  - Runtime imports: Use lazy imports inside methods when modules need each other
+    - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
 
 ## Environment Variables
 
