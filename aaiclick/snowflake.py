@@ -91,36 +91,7 @@ class SnowflakeGenerator:
         Raises:
             RuntimeError: If clock moves backwards
         """
-        with self.lock:
-            timestamp = self._current_timestamp()
-
-            # Check for clock moving backwards
-            if timestamp < self.last_timestamp:
-                raise RuntimeError(
-                    f"Clock moved backwards. Refusing to generate ID for "
-                    f"{self.last_timestamp - timestamp}ms"
-                )
-
-            # Same millisecond - increment sequence
-            if timestamp == self.last_timestamp:
-                self.sequence = (self.sequence + 1) & MAX_SEQUENCE
-                # Sequence overflow - wait for next millisecond
-                if self.sequence == 0:
-                    timestamp = self._wait_next_millis(self.last_timestamp)
-            else:
-                # New millisecond - reset sequence
-                self.sequence = 0
-
-            self.last_timestamp = timestamp
-
-            # Combine all parts into final ID
-            snowflake_id = (
-                (timestamp << TIMESTAMP_SHIFT)
-                | (self.machine_id << MACHINE_ID_SHIFT)
-                | self.sequence
-            )
-
-            return snowflake_id
+        return self.generate_bulk(1)[0]
 
     def generate_bulk(self, count: int) -> list[int]:
         """
