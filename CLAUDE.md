@@ -50,14 +50,28 @@ ClickHouse connection (all optional with sensible defaults):
 ```
 aaiclick/
 ├── aaiclick/          # Main package
-│   ├── ch_client.py   # Global ClickHouse client instance management
+│   ├── context.py     # Context manager and connection pool management
 │   ├── object.py      # Core Object class
-│   ├── factories.py   # Factory functions for creating objects
+│   ├── factories.py   # Factory functions for creating objects (internal)
 │   └── __init__.py    # Package exports
 ├── tests/             # Test suite
 ├── pyproject.toml     # Project configuration
 └── CLAUDE.md          # This file
 ```
+
+## Architecture
+
+- **Context**: Primary API for creating and managing Objects
+  - Manages ClickHouse client lifecycle
+  - Tracks Objects via weakref for automatic cleanup
+  - Provides `create_object()` and `create_object_from_value()` methods
+- **Connection Pool**: Shared urllib3 PoolManager across all Context instances
+  - Defined in `context.py` as global `_pool`
+  - All clients share the same connection pool for efficiency
+  - `get_ch_client()` creates clients using the shared pool
+- **Factories**: Internal functions (not exported in `__init__.py`)
+  - Called by Context methods
+  - Accept `ch_client` parameter (mandatory)
 
 ## Making Changes
 
