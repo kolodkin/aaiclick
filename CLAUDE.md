@@ -31,6 +31,11 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Keep code clean - version control tracks history
   - Remove outdated comments during refactoring
 
+- **Import ordering**: Organize imports in three groups, separated by blank lines:
+  1. Python native (standard library): `import asyncio`, `import json`
+  2. External packages (from pyproject.toml): `import pytest`, `import numpy`
+  3. Current package imports: `from aaiclick import Context`
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
