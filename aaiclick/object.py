@@ -125,8 +125,7 @@ class Object:
             if object.__getattribute__(self, '_stale'):
                 table_name = object.__getattribute__(self, '_table_name')
                 raise RuntimeError(
-                    f"Cannot call {name}() on stale Object. "
-                    f"Table '{table_name}' has been deleted."
+                    f"Cannot use stale Object. Table '{table_name}' has been deleted."
                 )
 
         return attr
