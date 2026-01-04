@@ -60,7 +60,7 @@ async def apply_operator(obj_a, obj_b, operator: str):
         (1000, 1, "-", 999),
     ],
 )
-async def test_int_scalar_operators(data_a, data_b, operator, expected_result):
+async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on integer scalars with various inputs."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
@@ -93,7 +93,7 @@ async def test_int_scalar_operators(data_a, data_b, operator, expected_result):
         ([1000, 2000], [1, 2], "-", [999, 1998]),
     ],
 )
-async def test_int_array_operators(data_a, data_b, operator, expected_result):
+async def test_int_array_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on integer arrays with various inputs."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
@@ -126,7 +126,7 @@ async def test_int_array_operators(data_a, data_b, operator, expected_result):
         (10.0, 0.1, "-", 9.9),
     ],
 )
-async def test_float_scalar_operators(data_a, data_b, operator, expected_result):
+async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on float scalars with various inputs."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
@@ -159,7 +159,7 @@ async def test_float_scalar_operators(data_a, data_b, operator, expected_result)
         ([100.0, 200.0], [0.1, 0.2], "-", [99.9, 199.8]),
     ],
 )
-async def test_float_array_operators(data_a, data_b, operator, expected_result):
+async def test_float_array_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on float arrays with various inputs."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
@@ -194,7 +194,7 @@ async def test_float_array_operators(data_a, data_b, operator, expected_result):
         ([-10, -20], [-5, -10], "-", [-5, -10]),
     ],
 )
-async def test_edge_case_operators(data_a, data_b, operator, expected_result):
+async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators with edge cases."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
@@ -230,7 +230,7 @@ async def test_edge_case_operators(data_a, data_b, operator, expected_result):
         ([100, 200], [10, 20], [5, 10], "-", "-", [85, 170]),
     ],
 )
-async def test_chained_operators(data_a, data_b, data_c, op1, op2, expected_result):
+async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected_result):
     """Test chained binary operations."""
     obj_a = await ctx.create_object_from_value(data_a)
     obj_b = await ctx.create_object_from_value(data_b)
