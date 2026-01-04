@@ -5,7 +5,6 @@ Note: String type does not support arithmetic operators (+, -) or statistics.
 Only creation and data() retrieval are tested.
 """
 
-# Removed: from aaiclick import create_object_from_value
 
 
 # =============================================================================

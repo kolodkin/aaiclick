@@ -5,7 +5,6 @@ Each test uses NUM_ITEMS=10000 to validate performance and correctness at scale.
 Each operator is tested with different type combinations.
 """
 
-# Removed: from aaiclick import create_object_from_value
 
 # Number of items for large array tests
 NUM_ITEMS = 10000

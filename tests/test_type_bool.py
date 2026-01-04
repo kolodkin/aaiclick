@@ -6,7 +6,6 @@ so arithmetic operations work on the underlying integer values.
 """
 
 import numpy as np
-# Removed: from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 

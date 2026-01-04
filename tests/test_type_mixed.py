@@ -6,7 +6,6 @@ type coercion and result accuracy.
 """
 
 import numpy as np
-# Removed: from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 

@@ -25,6 +25,12 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
+## Coding Guidelines
+
+- **No history comments**: Do NOT add comments about removed code (e.g., `# Removed: ...`)
+  - Keep code clean - version control tracks history
+  - Remove outdated comments during refactoring
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):

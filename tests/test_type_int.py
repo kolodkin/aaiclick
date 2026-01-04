@@ -3,7 +3,6 @@ Tests for integer (Int64) data type - scalars, arrays, operators, and statistics
 """
 
 import numpy as np
-# Removed: from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 
