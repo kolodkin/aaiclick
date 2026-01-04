@@ -95,37 +95,37 @@ async def example(context):
     # Addition
     result_add = await (obj_a + obj_b)
     print(f"Addition (a + b): {await result_add.data()}")
-    await ctx.delete(result_add)
+    await context.delete(result_add)
 
     # Subtraction
     result_sub = await (obj_a - obj_b)
     print(f"Subtraction (a - b): {await result_sub.data()}")
-    await ctx.delete(result_sub)
+    await context.delete(result_sub)
 
     # Multiplication
     result_mul = await (obj_a * obj_b)
     print(f"Multiplication (a * b): {await result_mul.data()}")
-    await ctx.delete(result_mul)
+    await context.delete(result_mul)
 
     # Division
     result_div = await (obj_a / obj_b)
     print(f"Division (a / b): {await result_div.data()}")
-    await ctx.delete(result_div)
+    await context.delete(result_div)
 
     # Floor Division
     result_floordiv = await (obj_a // obj_b)
     print(f"Floor Division (a // b): {await result_floordiv.data()}")
-    await ctx.delete(result_floordiv)
+    await context.delete(result_floordiv)
 
     # Modulo
     result_mod = await (obj_a % obj_b)
     print(f"Modulo (a % b): {await result_mod.data()}")
-    await ctx.delete(result_mod)
+    await context.delete(result_mod)
 
     # Power
     result_pow = await (obj_a ** obj_b)
     print(f"Power (a ** b): {await result_pow.data()}")
-    await ctx.delete(result_pow)
+    await context.delete(result_pow)
 
     # Example 5: Comparison operators
     print("\n" + "=" * 50)
@@ -141,32 +141,32 @@ async def example(context):
     # Equal
     result_eq = await (obj_x == obj_y)
     print(f"Equal (x == y): {await result_eq.data()}")
-    await ctx.delete(result_eq)
+    await context.delete(result_eq)
 
     # Not Equal
     result_ne = await (obj_x != obj_y)
     print(f"Not Equal (x != y): {await result_ne.data()}")
-    await ctx.delete(result_ne)
+    await context.delete(result_ne)
 
     # Less Than
     result_lt = await (obj_x < obj_y)
     print(f"Less Than (x < y): {await result_lt.data()}")
-    await ctx.delete(result_lt)
+    await context.delete(result_lt)
 
     # Less or Equal
     result_le = await (obj_x <= obj_y)
     print(f"Less or Equal (x <= y): {await result_le.data()}")
-    await ctx.delete(result_le)
+    await context.delete(result_le)
 
     # Greater Than
     result_gt = await (obj_x > obj_y)
     print(f"Greater Than (x > y): {await result_gt.data()}")
-    await ctx.delete(result_gt)
+    await context.delete(result_gt)
 
     # Greater or Equal
     result_ge = await (obj_x >= obj_y)
     print(f"Greater or Equal (x >= y): {await result_ge.data()}")
-    await ctx.delete(result_ge)
+    await context.delete(result_ge)
 
     # Example 6: Bitwise operators
     print("\n" + "=" * 50)
@@ -182,17 +182,17 @@ async def example(context):
     # Bitwise AND
     result_and = await (obj_m & obj_n)
     print(f"Bitwise AND (m & n): {await result_and.data()}")
-    await ctx.delete(result_and)
+    await context.delete(result_and)
 
     # Bitwise OR
     result_or = await (obj_m | obj_n)
     print(f"Bitwise OR (m | n): {await result_or.data()}")
-    await ctx.delete(result_or)
+    await context.delete(result_or)
 
     # Bitwise XOR
     result_xor = await (obj_m ^ obj_n)
     print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")
-    await ctx.delete(result_xor)
+    await context.delete(result_xor)
 
     # Example 7: Table name generation with Snowflake IDs
     print("\n" + "=" * 50)
