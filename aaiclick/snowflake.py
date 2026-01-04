@@ -144,27 +144,29 @@ class SnowflakeGenerator:
 
         ids = []
         with self.lock:
-            for _ in range(count):
-                timestamp = self._current_timestamp()
+            # Get initial timestamp once at the start
+            timestamp = self._current_timestamp()
 
-                # Check for clock moving backwards
-                if timestamp < self.last_timestamp:
-                    raise RuntimeError(
-                        f"Clock moved backwards. Refusing to generate ID for "
-                        f"{self.last_timestamp - timestamp}ms"
-                    )
+            # Check for clock moving backwards
+            if timestamp < self.last_timestamp:
+                raise RuntimeError(
+                    f"Clock moved backwards. Refusing to generate ID for "
+                    f"{self.last_timestamp - timestamp}ms"
+                )
 
-                # Same millisecond - increment sequence
-                if timestamp == self.last_timestamp:
-                    self.sequence = (self.sequence + 1) & MAX_SEQUENCE
-                    # Sequence overflow - wait for next millisecond
-                    if self.sequence == 0:
-                        timestamp = self._wait_next_millis(self.last_timestamp)
-                else:
-                    # New millisecond - reset sequence
-                    self.sequence = 0
-
+            # If new millisecond since last generate(), reset sequence
+            if timestamp != self.last_timestamp:
+                self.sequence = 0
                 self.last_timestamp = timestamp
+
+            # Generate all IDs with sequential sequence numbers
+            for _ in range(count):
+                # Check for sequence overflow
+                if self.sequence > MAX_SEQUENCE:
+                    # Wait for next millisecond
+                    timestamp = self._wait_next_millis(timestamp)
+                    self.last_timestamp = timestamp
+                    self.sequence = 0
 
                 # Combine all parts into final ID
                 snowflake_id = (
@@ -174,6 +176,7 @@ class SnowflakeGenerator:
                 )
 
                 ids.append(snowflake_id)
+                self.sequence += 1
 
         return ids
 
