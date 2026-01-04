@@ -5,7 +5,7 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
+from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING, Literal
 from dataclasses import dataclass
 
 import yaml
@@ -18,6 +18,18 @@ from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 
 
+# ClickHouse column type literals
+ColumnType = Literal[
+    "UInt8", "UInt16", "UInt32", "UInt64",
+    "Int8", "Int16", "Int32", "Int64",
+    "Float32", "Float64",
+    "String", "FixedString",
+    "Date", "DateTime", "DateTime64",
+    "Bool", "UUID",
+    "Array", "Tuple", "Map", "Nested"
+]
+
+
 # Fieldtype constants
 FIELDTYPE_SCALAR = "s"
 FIELDTYPE_ARRAY = "a"
@@ -26,6 +38,20 @@ FIELDTYPE_DICT = "d"
 # Orient constants for data() method
 ORIENT_DICT = "dict"
 ORIENT_RECORDS = "records"
+
+
+@dataclass
+class Schema:
+    """
+    Schema definition for creating Object tables.
+
+    Attributes:
+        fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Dict mapping column names to ClickHouse column types
+    """
+
+    fieldtype: str
+    columns: Dict[str, Union[ColumnType, str]]
 
 
 @dataclass
@@ -253,32 +279,45 @@ class Object:
         # Get SQL expression from operator mapping
         expression = operators.OPERATOR_EXPRESSIONS[operator]
 
-        result = Object(self._ctx)
-
         # Check if operating on scalars or arrays
         fieldtype = await self._get_fieldtype()
 
-        # Choose template based on fieldtype
-        if fieldtype == FIELDTYPE_ARRAY:
-            # Array operation - use array template
-            template = load_sql_template("apply_op_array")
-        else:
-            # Scalar operation - use scalar template
-            template = load_sql_template("apply_op_scalar")
+        # Get value column type from source table
+        type_query = f"""
+        SELECT type FROM system.columns
+        WHERE table = '{self.table}' AND name = 'value'
+        """
+        type_result = await self._ctx.ch_client.query(type_query)
+        value_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
 
-        create_query = template.format(
-            result_table=result.table,
-            expression=expression,
-            left_table=self.table,
-            right_table=obj_b.table
+        # Build schema for result table
+        schema = Schema(
+            fieldtype=fieldtype,
+            columns={"aai_id": "UInt64", "value": value_type}
         )
-        await self._ctx.ch_client.command(create_query)
 
-        # Add comments (all results now have aai_id)
-        aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-        value_comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
-        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
+        # Create result object with schema
+        result = await self._ctx.create_object(schema)
+
+        # Insert data based on fieldtype
+        if fieldtype == FIELDTYPE_ARRAY:
+            # Array operation
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT a.rn as aai_id, {expression} AS value
+            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
+            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {obj_b.table}) AS b
+            ON a.rn = b.rn
+            """
+        else:
+            # Scalar operation
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT 1 AS aai_id, {expression} AS value
+            FROM {self.table} AS a, {obj_b.table} AS b
+            """
+
+        await self._ctx.ch_client.command(insert_query)
 
         return result
 

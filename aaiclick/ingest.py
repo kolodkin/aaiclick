@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from .object import Object, ColumnMeta, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
+from .object import Object, ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from .sql_template_loader import load_sql_template
 from .factories import ValueType
 
@@ -31,31 +31,34 @@ async def copy(obj: Object) -> Object:
         >>> obj_copy = await copy(obj_a)
         >>> await obj_copy.data()  # Returns [1, 2, 3]
     """
-    result = Object(obj._ctx)
-
-    # Use copy template
-    template = load_sql_template("copy")
-    create_query = template.format(
-        result_table=result.table,
-        source_table=obj.table
-    )
-    await obj._ctx.ch_client.command(create_query)
-
     # Query column metadata from source table
     columns_query = f"""
-    SELECT name, comment
+    SELECT name, type, comment
     FROM system.columns
     WHERE table = '{obj.table}'
     ORDER BY position
     """
     columns_result = await obj._ctx.ch_client.query(columns_query)
 
-    # Copy comments to preserve fieldtype metadata
-    for name, comment in columns_result.result_rows:
-        if comment:  # Only add comment if it exists
-            await obj._ctx.ch_client.command(
-                f"ALTER TABLE {result.table} COMMENT COLUMN {name} '{comment}'"
-            )
+    # Build schema from source table metadata
+    columns = {}
+    fieldtype = FIELDTYPE_SCALAR  # Default
+    for name, col_type, comment in columns_result.result_rows:
+        columns[name] = col_type
+        # Extract fieldtype from value column comment
+        if name == "value" and comment:
+            meta = ColumnMeta.from_yaml(comment)
+            if meta.fieldtype:
+                fieldtype = meta.fieldtype
+
+    schema = Schema(fieldtype=fieldtype, columns=columns)
+
+    # Create result object with schema
+    result = await obj._ctx.create_object(schema)
+
+    # Insert data from source table
+    insert_query = f"INSERT INTO {result.table} SELECT * FROM {obj.table}"
+    await obj._ctx.ch_client.command(insert_query)
 
     return result
 
@@ -73,22 +76,34 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object instance with concatenated data
     """
-    result = Object(obj_a._ctx)
+    # Get value column type from first object
+    type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{obj_a.table}' AND name = 'value'
+    """
+    type_result = await obj_a._ctx.ch_client.query(type_query)
+    value_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
 
-    # Both scalars and arrays have aai_id now, so use same template
-    template = load_sql_template("concat_array")
-    create_query = template.format(
-        result_table=result.table,
-        left_table=obj_a.table,
-        right_table=obj_b.table
+    # Build schema for result (concat always produces array)
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"aai_id": "UInt64", "value": value_type}
     )
-    await obj_a._ctx.ch_client.command(create_query)
 
-    # Add comments to preserve fieldtype metadata
-    aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-    value_comment = ColumnMeta(fieldtype=FIELDTYPE_ARRAY).to_yaml()
-    await obj_a._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-    await obj_a._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
+    # Create result object with schema
+    result = await obj_a._ctx.create_object(schema)
+
+    # Insert concatenated data
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT row_number() OVER (ORDER BY t, aai_id) as aai_id, value
+    FROM (
+        SELECT 1 as t, * FROM {obj_a.table}
+        UNION ALL
+        SELECT 2 as t, * FROM {obj_b.table}
+    )
+    """
+    await obj_a._ctx.ch_client.command(insert_query)
 
     return result
 

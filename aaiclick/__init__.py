@@ -14,7 +14,9 @@ from .context import Context, get_ch_client
 from .object import (
     Object,
     DataResult,
+    Schema,
     ColumnMeta,
+    ColumnType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,

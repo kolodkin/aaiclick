@@ -14,7 +14,7 @@ from typing import Union, Dict, List
 import numpy as np
 
 from .context import Context
-from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .object import Object, ColumnMeta, Schema, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
 
@@ -66,53 +66,6 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"  # Default fallback
 
 
-def _build_column_comment(fieldtype: str) -> str:
-    """
-    Build a YAML column comment with fieldtype.
-
-    Args:
-        fieldtype: 's' for scalar, 'a' for array
-
-    Returns:
-        str: YAML comment string
-    """
-    meta = ColumnMeta(fieldtype=fieldtype)
-    return meta.to_yaml()
-
-
-async def create_object(schema: Schema, ctx: Context) -> Object:
-    """
-    Create a new Object with a ClickHouse table using the specified schema.
-
-    Internal function - use Context.create_object() instead.
-
-    Args:
-        schema: Column definition(s). Can be:
-            - str: Single column definition (e.g., "value Float64")
-            - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
-        ctx: Context instance managing this object
-
-    Returns:
-        Object: New Object instance with created table
-    """
-    obj = Object(ctx)
-
-    # Convert schema to column definitions
-    if isinstance(schema, str):
-        columns = schema
-    else:
-        columns = ", ".join(schema)
-
-    create_query = f"""
-    CREATE TABLE {obj.table} (
-        {columns}
-    ) ENGINE = MergeTree ORDER BY tuple()
-    """
-    await ctx.ch_client.command(create_query)
-
-    return obj
-
-
 async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
@@ -137,8 +90,6 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
         - Dict of scalars: Single row with aai_id plus columns for each key
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
-    obj = Object(ctx)
-
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)
         has_arrays = any(isinstance(v, list) for v in val.values())
@@ -146,10 +97,10 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
         if has_arrays:
             # Dict of arrays: one column per key, one row per array element
             # All arrays must have the same length
-            columns = []
+            columns = {"aai_id": "UInt64"}
             array_len = None
 
-            # First pass: build columns and validate array lengths
+            # First pass: build schema and validate array lengths
             for key, value in val.items():
                 if isinstance(value, list):
                     if array_len is None:
@@ -165,19 +116,15 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
                         f"Dict of arrays requires all values to be lists. "
                         f"Key '{key}' has type {type(value).__name__}"
                     )
-                comment = _build_column_comment(FIELDTYPE_ARRAY)
-                columns.append(f"{key} {col_type} COMMENT '{comment}'")
+                columns[key] = col_type
 
-            # Add aai_id for ordering
-            aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-            columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
+            schema = Schema(
+                fieldtype=FIELDTYPE_ARRAY,
+                columns=columns
+            )
 
-            create_query = f"""
-            CREATE TABLE {obj.table} (
-                {", ".join(columns)}
-            ) ENGINE = MergeTree ORDER BY tuple()
-            """
-            await ctx.ch_client.command(create_query)
+            # Create object with schema
+            obj = await ctx.create_object(schema)
 
             # Generate snowflake IDs for all rows
             aai_ids = get_snowflake_ids(array_len or 0)
@@ -193,13 +140,12 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
 
         else:
             # Dict of scalars: one column per key, single row with aai_id
-            columns = []
+            columns = {"aai_id": "UInt64"}
             values = []
 
             for key, value in val.items():
                 col_type = _infer_clickhouse_type(value)
-                comment = _build_column_comment(FIELDTYPE_SCALAR)
-                columns.append(f"{key} {col_type} COMMENT '{comment}'")
+                columns[key] = col_type
 
                 # Format value for SQL
                 if isinstance(value, str):
@@ -209,16 +155,13 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
                 else:
                     values.append(str(value))
 
-            # Add aai_id for consistency
-            aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-            columns.insert(0, f"aai_id UInt64 COMMENT '{aai_id_comment}'")
+            schema = Schema(
+                fieldtype=FIELDTYPE_SCALAR,
+                columns=columns
+            )
 
-            create_query = f"""
-            CREATE TABLE {obj.table} (
-                {", ".join(columns)}
-            ) ENGINE = MergeTree ORDER BY tuple()
-            """
-            await ctx.ch_client.command(create_query)
+            # Create object with schema
+            obj = await ctx.create_object(schema)
 
             # Generate single aai_id for scalar dict
             aai_id = get_snowflake_ids(1)[0]
@@ -232,16 +175,14 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
         # List: single column "value" with multiple rows
         # Add aai_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
-        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-        value_comment = _build_column_comment(FIELDTYPE_ARRAY)
 
-        create_query = f"""
-        CREATE TABLE {obj.table} (
-            aai_id UInt64 COMMENT '{aai_id_comment}',
-            value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = MergeTree ORDER BY tuple()
-        """
-        await ctx.ch_client.command(create_query)
+        schema = Schema(
+            fieldtype=FIELDTYPE_ARRAY,
+            columns={"aai_id": "UInt64", "value": col_type}
+        )
+
+        # Create object with schema
+        obj = await ctx.create_object(schema)
 
         # Generate snowflake IDs for all rows
         aai_ids = get_snowflake_ids(len(val))
@@ -256,16 +197,14 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
     else:
         # Scalar: single row with aai_id and value
         col_type = _infer_clickhouse_type(val)
-        aai_id_comment = _build_column_comment(FIELDTYPE_SCALAR)
-        value_comment = _build_column_comment(FIELDTYPE_SCALAR)
 
-        create_query = f"""
-        CREATE TABLE {obj.table} (
-            aai_id UInt64 COMMENT '{aai_id_comment}',
-            value {col_type} COMMENT '{value_comment}'
-        ) ENGINE = MergeTree ORDER BY tuple()
-        """
-        await ctx.ch_client.command(create_query)
+        schema = Schema(
+            fieldtype=FIELDTYPE_SCALAR,
+            columns={"aai_id": "UInt64", "value": col_type}
+        )
+
+        # Create object with schema
+        obj = await ctx.create_object(schema)
 
         # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
