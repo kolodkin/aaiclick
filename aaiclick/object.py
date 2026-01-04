@@ -5,13 +5,14 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any, TYPE_CHECKING
+from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
 from dataclasses import dataclass
 
 import yaml
 
 if TYPE_CHECKING:
     from .context import Context
+    from .factories import ValueType
 
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
@@ -106,7 +107,7 @@ class Object:
 
     # Methods that access the database and should check stale status
     _DB_METHODS = frozenset({
-        'result', 'data', 'concat', 'min', 'max', 'sum', 'mean', 'std',
+        'result', 'data', 'copy', 'concat', 'min', 'max', 'sum', 'mean', 'std',
         '_apply_operator', '_get_fieldtype',
         '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
         '__mod__', '__pow__', '__eq__', '__ne__', '__lt__', '__le__',
@@ -553,15 +554,37 @@ class Object:
         self.checkstale()
         return await operators.xor(self, other)
 
-    async def concat(self, other: "Object") -> "Object":
+    async def copy(self) -> "Object":
         """
-        Concatenate another object to this object.
+        Copy this object to a new object and table.
 
-        Creates a new Object with rows from self followed by rows from other.
-        Only works with array fieldtype objects (objects with aai_id column).
+        Creates a new Object with a copy of all data from this object.
+        Preserves all column metadata including fieldtype.
+
+        Returns:
+            Object: New Object instance with copied data
+
+        Examples:
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> obj_copy = await obj_a.copy()
+            >>> await obj_copy.data()  # Returns [1, 2, 3]
+        """
+        from . import ingest
+        return await ingest.copy(self)
+
+    async def concat(self, other: Union["Object", "ValueType"]) -> "Object":
+        """
+        Concatenate another object or value to this object.
+
+        Creates a new Object with rows from self followed by rows/values from other.
+        Self must have array fieldtype. Other can be:
+        - An Object (array or scalar)
+        - A ValueType (scalar or list)
+
+        When other is a ValueType, the function first copies self, then inserts the value(s).
 
         Args:
-            other: Another Object to concatenate
+            other: Another Object or value to concatenate
 
         Returns:
             Object: New Object instance with concatenated data
@@ -570,10 +593,21 @@ class Object:
             ValueError: If self does not have array fieldtype
 
         Examples:
-            >>> obj_a = await create_object_from_value([1, 2, 3])
-            >>> obj_b = await create_object_from_value([4, 5, 6])
+            >>> # Concatenate with another Object
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> obj_b = await ctx.create_object_from_value([4, 5, 6])
             >>> result = await obj_a.concat(obj_b)
             >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+            >>>
+            >>> # Concatenate with a scalar value
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> result = await obj_a.concat(42)
+            >>> await result.data()  # Returns [1, 2, 3, 42]
+            >>>
+            >>> # Concatenate with a list of values
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> result = await obj_a.concat([4, 5])
+            >>> await result.data()  # Returns [1, 2, 3, 4, 5]
         """
         from . import ingest
         return await ingest.concat(self, other)
