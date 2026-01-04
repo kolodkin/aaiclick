@@ -38,7 +38,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
 - **Type annotations with circular dependencies**: Use `from __future__ import annotations`
   - Allows direct use of types without quotes: `Object` instead of `"Object"`
-  - Avoids circular import issues (annotations aren't evaluated at runtime)
+  - Avoids circular import issues in type annotations (annotations aren't evaluated at runtime)
   - Standard Python 3.7+ practice (PEP 563)
   - Note: This import becomes redundant in Python 3.13+ (default behavior)
   - Example pattern:
@@ -49,6 +49,19 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
     async def my_function(obj: Object) -> Object:  # No quotes needed
         ...
+    ```
+
+- **Lazy imports for circular dependencies**: When modules need each other at runtime
+  - Use lazy imports inside functions/methods instead of module-level imports
+  - Breaks circular import chain while keeping clean type hints
+  - Example: `object.py` methods import `operators` module lazily
+  - Pattern:
+    ```python
+    # At module level: NO import operators
+
+    async def __add__(self, other: Object) -> Object:
+        from . import operators  # Lazy import inside method
+        return await operators.add(self, other)
     ```
 
 ## Environment Variables
