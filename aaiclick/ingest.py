@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .object import Object
 
-from .object import Object, ColumnMeta, FIELDTYPE_ARRAY
+from .object import Object, ColumnMeta, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from .sql_template_loader import load_sql_template
 
 
@@ -61,7 +61,6 @@ async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
     await obj_a._ctx.ch_client.command(create_query)
 
     # Add comments to preserve fieldtype metadata
-    from .object import FIELDTYPE_SCALAR
     aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
     value_comment = ColumnMeta(fieldtype=FIELDTYPE_ARRAY).to_yaml()
     await obj_a._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
