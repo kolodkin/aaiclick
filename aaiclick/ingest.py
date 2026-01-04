@@ -4,16 +4,13 @@ aaiclick.ingest - Functions for ingesting and concatenating data.
 This module provides functions for concatenating Object instances.
 """
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .object import Object
+from __future__ import annotations
 
 from .object import Object, ColumnMeta, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from .sql_template_loader import load_sql_template
 
 
-async def concat(obj_a: "Object", obj_b: "Object") -> "Object":
+async def concat(obj_a: Object, obj_b: Object) -> Object:
     """
     Concatenate two objects together.
 
