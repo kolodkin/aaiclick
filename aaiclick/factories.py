@@ -1,18 +1,17 @@
 """
 aaiclick.factories - Factory functions for creating Object instances.
 
-This module provides factory functions to create Object instances with ClickHouse tables,
+This module provides internal factory functions to create Object instances with ClickHouse tables,
 automatically inferring schemas from Python values using numpy for type detection.
+
+Note: These functions are internal and should only be called via Context methods.
 """
 
-from typing import Union, Dict, List, Optional, TYPE_CHECKING
+from typing import Union, Dict, List
 import numpy as np
+from clickhouse_connect.driver.asyncclient import AsyncClient
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
-from .ch_client import get_ch_client
 from .snowflake import get_snowflake_ids
-
-if TYPE_CHECKING:
-    from .context import Context
 
 
 # Type aliases
@@ -77,32 +76,22 @@ def _build_column_comment(fieldtype: str) -> str:
     return meta.to_yaml()
 
 
-async def create_object(schema: Schema, context: Optional["Context"] = None) -> Object:
+async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
+
+    Internal function - use Context.create_object() instead.
 
     Args:
         schema: Column definition(s). Can be:
             - str: Single column definition (e.g., "value Float64")
             - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
-        context: Optional Context to register the object with for lifecycle management
+        ch_client: ClickHouse async client instance
 
     Returns:
         Object: New Object instance with created table
-
-    Examples:
-        >>> # Single column
-        >>> obj = await create_object("value Float64")
-        >>>
-        >>> # Multiple columns
-        >>> obj = await create_object(["id Int64", "name String", "age UInt8"])
-        >>>
-        >>> # With context
-        >>> async with Context() as ctx:
-        ...     obj = await create_object("value Float64", context=ctx)
     """
     obj = Object()
-    ch_client = context.ch_client if context else await get_ch_client()
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -117,16 +106,14 @@ async def create_object(schema: Schema, context: Optional["Context"] = None) -> 
     """
     await ch_client.command(create_query)
 
-    # Register with context if provided
-    if context:
-        context._register_object(obj)
-
     return obj
 
 
-async def create_object_from_value(val: ValueType, context: Optional["Context"] = None) -> Object:
+async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
+
+    Internal function - use Context.create_object_from_value() instead.
 
     Args:
         val: Value to create object from. Can be:
@@ -134,7 +121,7 @@ async def create_object_from_value(val: ValueType, context: Optional["Context"] 
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
-        context: Optional Context to register the object with for lifecycle management
+        ch_client: ClickHouse async client instance
 
     Returns:
         Object: New Object instance with data
@@ -145,30 +132,8 @@ async def create_object_from_value(val: ValueType, context: Optional["Context"] 
         - Arrays (lists): Multiple rows with aai_id and value, ordered by aai_id
         - Dict of scalars: Single row with aai_id plus columns for each key
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
-
-    Examples:
-        >>> # From scalar (with aai_id)
-        >>> obj = await create_object_from_value(42)
-        >>> # Creates table with columns: aai_id UInt64, value Int64
-        >>>
-        >>> # From list (with aai_id)
-        >>> obj = await create_object_from_value([1.5, 2.5, 3.5])
-        >>> # Creates table with columns: aai_id UInt64, value Float64
-        >>>
-        >>> # From dict of scalars (with aai_id)
-        >>> obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
-        >>> # Creates table with columns: aai_id UInt64, id Int64, name String, age Int64
-        >>>
-        >>> # From dict of arrays (with aai_id)
-        >>> obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
-        >>> # Creates table with columns: aai_id UInt64, x Int64, y Int64
-        >>>
-        >>> # With context
-        >>> async with Context() as ctx:
-        ...     obj = await create_object_from_value([1, 2, 3], context=ctx)
     """
     obj = Object()
-    ch_client = context.ch_client if context else await get_ch_client()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)
@@ -311,9 +276,5 @@ async def create_object_from_value(val: ValueType, context: Optional["Context"] 
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
         await ch_client.command(insert_query)
-
-    # Register with context if provided
-    if context:
-        context._register_object(obj)
 
     return obj

@@ -22,15 +22,15 @@ from .object import (
     ORIENT_RECORDS,
 )
 
-# Import factory functions
-from .factories import create_object, create_object_from_value
-
 # Import Snowflake ID generation
 from .snowflake import get_snowflake_id, get_snowflake_ids
 
 # Import ingest functions
 from .ingest import concat
 
-# Import context manager
+# Import context manager (primary API)
 from .context import Context
+
+# Note: Factory functions (create_object, create_object_from_value) are internal.
+# Use Context.create_object() and Context.create_object_from_value() instead.
 

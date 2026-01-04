@@ -41,3 +41,19 @@ async def cleanup_tables():
                 await ch_client.command(f"DROP TABLE IF EXISTS {table}")
             except Exception as e:
                 print(f"Warning: Failed to drop table {table}: {e}")
+
+
+@pytest.fixture
+async def ctx():
+    """
+    Fixture that provides a Context for tests.
+
+    Usage:
+        async def test_example(ctx):
+            obj = await ctx.create_object_from_value([1, 2, 3])
+            # Tables are automatically cleaned up
+    """
+    from aaiclick import Context
+
+    async with Context() as context:
+        yield context

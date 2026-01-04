@@ -90,14 +90,23 @@ class Context:
         Create a new Object with a ClickHouse table using the specified schema.
 
         Args:
-            schema: Column definition(s). See factories.create_object for details.
+            schema: Column definition(s). Can be:
+                - str: Single column definition (e.g., "value Float64")
+                - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
 
         Returns:
             Object: New Object instance with created table
+
+        Examples:
+            >>> async with Context() as ctx:
+            ...     obj = await ctx.create_object("value Float64")
+            ...     # Multiple columns
+            ...     obj2 = await ctx.create_object(["id Int64", "name String"])
         """
         from .factories import create_object
 
-        obj = await create_object(schema, context=self)
+        obj = await create_object(schema, ch_client=self.ch_client)
+        self._register_object(obj)
         return obj
 
     async def create_object_from_value(self, val):
@@ -105,12 +114,26 @@ class Context:
         Create a new Object from Python values with automatic schema inference.
 
         Args:
-            val: Value to create object from. See factories.create_object_from_value for details.
+            val: Value to create object from. Can be:
+                - Scalar (int, float, bool, str): Creates "aai_id" and "value" columns
+                - List of scalars: Creates "aai_id" and "value" columns with multiple rows
+                - Dict of scalars: Creates "aai_id" plus one column per key
+                - Dict of arrays: Creates "aai_id" plus one column per key with multiple rows
 
         Returns:
             Object: New Object instance with data
+
+        Examples:
+            >>> async with Context() as ctx:
+            ...     # Scalar
+            ...     obj = await ctx.create_object_from_value(42)
+            ...     # List
+            ...     obj = await ctx.create_object_from_value([1, 2, 3])
+            ...     # Dict
+            ...     obj = await ctx.create_object_from_value({"x": [1, 2], "y": [3, 4]})
         """
         from .factories import create_object_from_value
 
-        obj = await create_object_from_value(val, context=self)
+        obj = await create_object_from_value(val, ch_client=self.ch_client)
+        self._register_object(obj)
         return obj

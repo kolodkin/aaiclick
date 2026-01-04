@@ -3,7 +3,7 @@ Tests for Context manager functionality.
 """
 
 import pytest
-from aaiclick import Context, create_object_from_value, create_object, get_ch_client
+from aaiclick import Context, get_ch_client
 
 
 async def test_context_basic_usage():
@@ -97,13 +97,13 @@ async def test_context_object_stale_flag():
     assert obj.stale
 
 
-async def test_context_factory_with_context_parameter():
-    """Test using factory functions with context parameter directly."""
+async def test_context_factory_methods():
+    """Test using factory methods via context."""
     async with Context() as ctx:
-        # Using create_object_from_value with context parameter
-        obj1 = await create_object_from_value([1, 2, 3], context=ctx)
-        # Using create_object with context parameter
-        obj2 = await create_object("value Int64", context=ctx)
+        # Using create_object_from_value via context
+        obj1 = await ctx.create_object_from_value([1, 2, 3])
+        # Using create_object via context
+        obj2 = await ctx.create_object("value Int64")
 
         assert not obj1.stale
         assert not obj2.stale
@@ -182,9 +182,9 @@ async def test_context_client_usage():
         assert data == [1, 2, 3]
 
 
-async def test_stale_object_prevents_data_access():
+async def test_stale_object_prevents_data_access(ctx):
     """Test that stale objects prevent database access."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await ctx.create_object_from_value([1, 2, 3])
     await obj.delete_table()
 
     # Object is now stale, should raise RuntimeError
@@ -194,10 +194,10 @@ async def test_stale_object_prevents_data_access():
         await obj.data()
 
 
-async def test_stale_object_prevents_operators():
+async def test_stale_object_prevents_operators(ctx):
     """Test that stale objects prevent operator usage."""
-    obj1 = await create_object_from_value([1, 2, 3])
-    obj2 = await create_object_from_value([4, 5, 6])
+    obj1 = await ctx.create_object_from_value([1, 2, 3])
+    obj2 = await ctx.create_object_from_value([4, 5, 6])
 
     await obj1.delete_table()
     assert obj1.stale
@@ -206,13 +206,10 @@ async def test_stale_object_prevents_operators():
     with pytest.raises(RuntimeError, match="Cannot call __add__\\(\\) on stale Object"):
         await (obj1 + obj2)
 
-    # Clean up
-    await obj2.delete_table()
 
-
-async def test_stale_object_prevents_aggregates():
+async def test_stale_object_prevents_aggregates(ctx):
     """Test that stale objects prevent aggregate methods."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
     await obj.delete_table()
 
     assert obj.stale
@@ -234,23 +231,20 @@ async def test_stale_object_prevents_aggregates():
         await obj.std()
 
 
-async def test_stale_object_prevents_concat():
+async def test_stale_object_prevents_concat(ctx):
     """Test that stale objects prevent concat."""
-    obj1 = await create_object_from_value([1, 2, 3])
-    obj2 = await create_object_from_value([4, 5, 6])
+    obj1 = await ctx.create_object_from_value([1, 2, 3])
+    obj2 = await ctx.create_object_from_value([4, 5, 6])
 
     await obj1.delete_table()
 
     with pytest.raises(RuntimeError, match="Cannot call concat\\(\\) on stale Object"):
         await obj1.concat(obj2)
 
-    # Clean up
-    await obj2.delete_table()
 
-
-async def test_stale_object_allows_property_access():
+async def test_stale_object_allows_property_access(ctx):
     """Test that stale objects still allow property access."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await ctx.create_object_from_value([1, 2, 3])
     table_name = obj.table
 
     await obj.delete_table()
