@@ -190,7 +190,7 @@ async def test_stale_object_prevents_data_access(ctx):
     # Object is now stale, should raise RuntimeError
     assert obj.stale
 
-    with pytest.raises(RuntimeError, match="Cannot call data\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.data()
 
 
@@ -203,7 +203,7 @@ async def test_stale_object_prevents_operators(ctx):
     assert obj1.stale
 
     # Attempting to use operators on stale object should raise
-    with pytest.raises(RuntimeError, match="Cannot call __add__\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await (obj1 + obj2)
 
 
@@ -215,19 +215,19 @@ async def test_stale_object_prevents_aggregates(ctx):
     assert obj.stale
 
     # Test various aggregate methods
-    with pytest.raises(RuntimeError, match="Cannot call min\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.min()
 
-    with pytest.raises(RuntimeError, match="Cannot call max\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.max()
 
-    with pytest.raises(RuntimeError, match="Cannot call sum\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.sum()
 
-    with pytest.raises(RuntimeError, match="Cannot call mean\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.mean()
 
-    with pytest.raises(RuntimeError, match="Cannot call std\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj.std()
 
 
@@ -238,7 +238,7 @@ async def test_stale_object_prevents_concat(ctx):
 
     await obj1.delete_table()
 
-    with pytest.raises(RuntimeError, match="Cannot call concat\\(\\) on stale Object"):
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj1.concat(obj2)
 
 

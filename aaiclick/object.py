@@ -7,7 +7,6 @@ and supports operations through operator overloading.
 
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
-import inspect
 import yaml
 from .ch_client import get_ch_client
 from .snowflake import get_snowflake_id
@@ -157,17 +156,12 @@ class Object:
         """
         Check if object is stale and raise error if so.
 
-        Automatically detects the calling method name using inspect.
-
         Raises:
             RuntimeError: If object is stale
         """
         if self._stale:
-            # Get the caller's method name automatically
-            caller_name = inspect.currentframe().f_back.f_code.co_name
             raise RuntimeError(
-                f"Cannot call {caller_name}() on stale Object. "
-                f"Table '{self._table_name}' has been deleted."
+                f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
 
     async def result(self):
