@@ -115,6 +115,59 @@ async def test_int_scalar_concat_fails(ctx):
         await a.concat(b)
 
 
+async def test_int_array_copy(ctx):
+    """Test copying an integer array."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    copy = await a.copy()
+    data = await copy.data()
+
+    assert data == [1, 2, 3]
+    # Verify tables are different
+    assert copy.table != a.table
+
+
+async def test_int_scalar_copy(ctx):
+    """Test copying an integer scalar."""
+    a = await ctx.create_object_from_value(42)
+
+    copy = await a.copy()
+    data = await copy.data()
+
+    assert data == 42
+    # Verify tables are different
+    assert copy.table != a.table
+
+
+async def test_int_array_concat_with_scalar_value(ctx):
+    """Test concatenating integer array with scalar value."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    result = await a.concat(42)
+    data = await result.data()
+
+    assert data == [1, 2, 3, 42]
+
+
+async def test_int_array_concat_with_list_value(ctx):
+    """Test concatenating integer array with list value."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    result = await a.concat([4, 5, 6])
+    data = await result.data()
+
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_int_array_concat_with_empty_list(ctx):
+    """Test concatenating integer array with empty list."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    result = await a.concat([])
+    data = await result.data()
+
+    assert data == [1, 2, 3]
+
 
 # =============================================================================
 # Statistics Tests

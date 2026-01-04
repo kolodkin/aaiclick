@@ -241,6 +241,15 @@ async def test_stale_object_prevents_concat(ctx):
         await obj1.concat(obj2)
 
 
+async def test_stale_object_prevents_copy(ctx):
+    """Test that stale objects prevent copy."""
+    obj = await ctx.create_object_from_value([1, 2, 3])
+
+    await ctx.delete(obj)
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
+        await obj.copy()
+
+
 async def test_stale_object_allows_property_access(ctx):
     """Test that stale objects still allow property access."""
     obj = await ctx.create_object_from_value([1, 2, 3])
