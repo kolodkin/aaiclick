@@ -40,7 +40,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Allows direct use of types without quotes: `Object` instead of `"Object"`
   - Avoids circular import issues in type annotations (annotations aren't evaluated at runtime)
   - Standard Python 3.7+ practice (PEP 563)
-  - Note: This import becomes redundant in Python 3.13+ (default behavior)
+  - Required for Python 3.10+, will likely become default in Python 3.14+
   - Example pattern:
     ```python
     from __future__ import annotations
