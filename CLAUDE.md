@@ -25,6 +25,17 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
+## Coding Guidelines
+
+- **No history comments**: Do NOT add comments about removed code (e.g., `# Removed: ...`)
+  - Keep code clean - version control tracks history
+  - Remove outdated comments during refactoring
+
+- **Import ordering**: Organize imports in three groups, separated by blank lines:
+  1. Python native (standard library): `import asyncio`, `import json`
+  2. External packages (from pyproject.toml): `import pytest`, `import numpy`
+  3. Current package imports: `from aaiclick import Context`
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
@@ -39,14 +50,28 @@ ClickHouse connection (all optional with sensible defaults):
 ```
 aaiclick/
 ├── aaiclick/          # Main package
-│   ├── ch_client.py   # Global ClickHouse client instance management
+│   ├── context.py     # Context manager and connection pool management
 │   ├── object.py      # Core Object class
-│   ├── factories.py   # Factory functions for creating objects
+│   ├── factories.py   # Factory functions for creating objects (internal)
 │   └── __init__.py    # Package exports
 ├── tests/             # Test suite
 ├── pyproject.toml     # Project configuration
 └── CLAUDE.md          # This file
 ```
+
+## Architecture
+
+- **Context**: Primary API for creating and managing Objects
+  - Manages ClickHouse client lifecycle
+  - Tracks Objects via weakref for automatic cleanup
+  - Provides `create_object()` and `create_object_from_value()` methods
+- **Connection Pool**: Shared urllib3 PoolManager across all Context instances
+  - Defined in `context.py` as global `_pool`
+  - All clients share the same connection pool for efficiency
+  - `get_ch_client()` creates clients using the shared pool
+- **Factories**: Internal functions (not exported in `__init__.py`)
+  - Called by Context methods
+  - Accept `ch_client` parameter (mandatory)
 
 ## Making Changes
 

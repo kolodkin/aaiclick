@@ -6,7 +6,10 @@ scripts/setup_and_test.py or manually via docker-compose.
 """
 
 import asyncio
+
 import pytest
+
+from aaiclick import Context, get_ch_client
 
 
 @pytest.fixture(scope="session")
@@ -33,11 +36,23 @@ async def cleanup_tables():
 
     # Cleanup after test
     if tables_to_cleanup:
-        from aaiclick import get_ch_client
-
         ch_client = await get_ch_client()
         for table in tables_to_cleanup:
             try:
                 await ch_client.command(f"DROP TABLE IF EXISTS {table}")
             except Exception as e:
                 print(f"Warning: Failed to drop table {table}: {e}")
+
+
+@pytest.fixture
+async def ctx():
+    """
+    Fixture that provides a Context for tests.
+
+    Usage:
+        async def test_example(ctx):
+            obj = await ctx.create_object_from_value([1, 2, 3])
+            # Tables are automatically cleaned up
+    """
+    async with Context() as context:
+        yield context

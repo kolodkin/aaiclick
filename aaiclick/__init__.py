@@ -7,8 +7,8 @@ operations, enabling execution of Python-equivalent computations at scale.
 
 __version__ = "0.1.0"
 
-# Import client management
-from .ch_client import get_ch_client, is_connected
+# Import context manager (primary API) and client helper
+from .context import Context, get_ch_client
 
 # Import core objects
 from .object import (
@@ -22,12 +22,12 @@ from .object import (
     ORIENT_RECORDS,
 )
 
-# Import factory functions
-from .factories import create_object, create_object_from_value
-
 # Import Snowflake ID generation
 from .snowflake import get_snowflake_id, get_snowflake_ids
 
 # Import ingest functions
 from .ingest import concat
+
+# Note: Factory functions (create_object, create_object_from_value) are internal.
+# Use Context.create_object() and Context.create_object_from_value() instead.
 

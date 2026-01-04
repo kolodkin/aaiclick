@@ -7,8 +7,10 @@ and supports operations through operator overloading.
 
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
+
 import yaml
-from .ch_client import get_ch_client
+
+from .context import get_ch_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from . import operators
@@ -101,6 +103,35 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
+    # Methods that access the database and should check stale status
+    _DB_METHODS = frozenset({
+        'result', 'data', 'concat', 'min', 'max', 'sum', 'mean', 'std',
+        '_apply_operator', '_get_fieldtype',
+        '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
+        '__mod__', '__pow__', '__eq__', '__ne__', '__lt__', '__le__',
+        '__gt__', '__ge__', '__and__', '__or__', '__xor__'
+    })
+
+    def __getattribute__(self, name):
+        """
+        Override attribute access to check stale status before database operations.
+
+        Raises:
+            RuntimeError: If attempting to call a database method on a stale object
+        """
+        # Get the attribute using object's __getattribute__ to avoid recursion
+        attr = object.__getattribute__(self, name)
+
+        # Check if this is a DB method and if object is stale
+        if name in object.__getattribute__(self, '_DB_METHODS'):
+            if object.__getattribute__(self, '_stale'):
+                table_name = object.__getattribute__(self, '_table_name')
+                raise RuntimeError(
+                    f"Cannot use stale Object. Table '{table_name}' has been deleted."
+                )
+
+        return attr
+
     def __init__(self, table: Optional[str] = None):
         """
         Initialize an Object.
@@ -110,11 +141,29 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
+        self._stale = False
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
+
+    @property
+    def stale(self) -> bool:
+        """Check if this object's table has been deleted."""
+        return self._stale
+
+    def checkstale(self):
+        """
+        Check if object is stale and raise error if so.
+
+        Raises:
+            RuntimeError: If object is stale
+        """
+        if self._stale:
+            raise RuntimeError(
+                f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
+            )
 
     async def result(self):
         """
@@ -245,6 +294,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.add(self, other)
 
     async def __sub__(self, other: "Object") -> "Object":
@@ -259,6 +309,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.sub(self, other)
 
     async def __mul__(self, other: "Object") -> "Object":
@@ -273,6 +324,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.mul(self, other)
 
     async def __truediv__(self, other: "Object") -> "Object":
@@ -287,6 +339,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.truediv(self, other)
 
     async def __floordiv__(self, other: "Object") -> "Object":
@@ -301,6 +354,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.floordiv(self, other)
 
     async def __mod__(self, other: "Object") -> "Object":
@@ -315,6 +369,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.mod(self, other)
 
     async def __pow__(self, other: "Object") -> "Object":
@@ -329,6 +384,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.pow(self, other)
 
     async def __eq__(self, other: "Object") -> "Object":
@@ -343,6 +399,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.eq(self, other)
 
     async def __ne__(self, other: "Object") -> "Object":
@@ -357,6 +414,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.ne(self, other)
 
     async def __lt__(self, other: "Object") -> "Object":
@@ -371,6 +429,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.lt(self, other)
 
     async def __le__(self, other: "Object") -> "Object":
@@ -385,6 +444,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.le(self, other)
 
     async def __gt__(self, other: "Object") -> "Object":
@@ -399,6 +459,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.gt(self, other)
 
     async def __ge__(self, other: "Object") -> "Object":
@@ -413,6 +474,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
+        self.checkstale()
         return await operators.ge(self, other)
 
     async def __and__(self, other: "Object") -> "Object":
@@ -427,6 +489,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.and_(self, other)
 
     async def __or__(self, other: "Object") -> "Object":
@@ -441,6 +504,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.or_(self, other)
 
     async def __xor__(self, other: "Object") -> "Object":
@@ -455,14 +519,8 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         return await operators.xor(self, other)
-
-    async def delete_table(self) -> None:
-        """
-        Delete the ClickHouse table associated with this object.
-        """
-        ch_client = await get_ch_client()
-        await ch_client.command(f"DROP TABLE IF EXISTS {self.table}")
 
     async def concat(self, other: "Object") -> "Object":
         """

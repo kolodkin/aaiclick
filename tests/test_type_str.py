@@ -5,116 +5,101 @@ Note: String type does not support arithmetic operators (+, -) or statistics.
 Only creation and data() retrieval are tested.
 """
 
-from aaiclick import create_object_from_value
 
 
 # =============================================================================
 # Scalar Tests
 # =============================================================================
 
-async def test_str_scalar_creation():
+async def test_str_scalar_creation(ctx):
     """Test creating a string scalar object."""
-    obj = await create_object_from_value("hello")
+    obj = await ctx.create_object_from_value("hello")
     data = await obj.data()
     assert data == "hello"
-    await obj.delete_table()
 
 
-async def test_str_scalar_empty():
+async def test_str_scalar_empty(ctx):
     """Test creating an empty string scalar object."""
-    obj = await create_object_from_value("")
+    obj = await ctx.create_object_from_value("")
     data = await obj.data()
     assert data == ""
-    await obj.delete_table()
 
 
-async def test_str_scalar_with_spaces():
+async def test_str_scalar_with_spaces(ctx):
     """Test creating a string scalar with spaces."""
-    obj = await create_object_from_value("hello world")
+    obj = await ctx.create_object_from_value("hello world")
     data = await obj.data()
     assert data == "hello world"
-    await obj.delete_table()
 
 
-async def test_str_scalar_with_special_chars():
+async def test_str_scalar_with_special_chars(ctx):
     """Test creating a string scalar with special characters."""
-    obj = await create_object_from_value("hello@world.com")
+    obj = await ctx.create_object_from_value("hello@world.com")
     data = await obj.data()
     assert data == "hello@world.com"
-    await obj.delete_table()
 
 
-async def test_str_scalar_unicode():
+async def test_str_scalar_unicode(ctx):
     """Test creating a string scalar with unicode characters."""
-    obj = await create_object_from_value("こんにちは")
+    obj = await ctx.create_object_from_value("こんにちは")
     data = await obj.data()
     assert data == "こんにちは"
-    await obj.delete_table()
 
 
 # =============================================================================
 # Array Tests
 # =============================================================================
 
-async def test_str_array_creation():
+async def test_str_array_creation(ctx):
     """Test creating a string array object."""
-    obj = await create_object_from_value(["apple", "banana", "cherry"])
+    obj = await ctx.create_object_from_value(["apple", "banana", "cherry"])
     data = await obj.data()
     assert data == ["apple", "banana", "cherry"]
-    await obj.delete_table()
 
 
-async def test_str_array_single_element():
+async def test_str_array_single_element(ctx):
     """Test creating a string array with single element."""
-    obj = await create_object_from_value(["single"])
+    obj = await ctx.create_object_from_value(["single"])
     data = await obj.data()
     assert data == ["single"]
-    await obj.delete_table()
 
 
-async def test_str_array_with_empty_strings():
+async def test_str_array_with_empty_strings(ctx):
     """Test creating a string array containing empty strings."""
-    obj = await create_object_from_value(["a", "", "b", ""])
+    obj = await ctx.create_object_from_value(["a", "", "b", ""])
     data = await obj.data()
     assert data == ["a", "", "b", ""]
-    await obj.delete_table()
 
 
-async def test_str_array_with_spaces():
+async def test_str_array_with_spaces(ctx):
     """Test creating a string array with strings containing spaces."""
-    obj = await create_object_from_value(["hello world", "foo bar", "test string"])
+    obj = await ctx.create_object_from_value(["hello world", "foo bar", "test string"])
     data = await obj.data()
     assert data == ["hello world", "foo bar", "test string"]
-    await obj.delete_table()
 
 
-async def test_str_array_unicode():
+async def test_str_array_unicode(ctx):
     """Test creating a string array with unicode characters."""
-    obj = await create_object_from_value(["hello", "世界", "🎉"])
+    obj = await ctx.create_object_from_value(["hello", "世界", "🎉"])
     data = await obj.data()
     assert data == ["hello", "世界", "🎉"]
-    await obj.delete_table()
 
 
-async def test_str_array_preserves_order():
+async def test_str_array_preserves_order(ctx):
     """Test that string array preserves insertion order."""
     values = ["z", "a", "m", "b", "y"]
-    obj = await create_object_from_value(values)
+    obj = await ctx.create_object_from_value(values)
     data = await obj.data()
     assert data == values  # Order should be preserved
-    await obj.delete_table()
 
 
-async def test_str_array_concat():
+async def test_str_array_concat(ctx):
     """Test concatenating string arrays."""
-    a = await create_object_from_value(["hello", "world"])
-    b = await create_object_from_value(["foo", "bar", "baz"])
+    a = await ctx.create_object_from_value(["hello", "world"])
+    b = await ctx.create_object_from_value(["foo", "bar", "baz"])
 
     result = await a.concat(b)
     data = await result.data()
 
     assert data == ["hello", "world", "foo", "bar", "baz"]
 
-    await a.delete_table()
-    await b.delete_table()
-    await result.delete_table()

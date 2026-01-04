@@ -3,7 +3,7 @@ Tests for examples to ensure they run without errors.
 """
 
 
-async def test_basic_operators_example():
+async def test_basic_operators_example(ctx):
     """Test that the basic_operators example runs successfully."""
     from aaiclick.examples.basic_operators import main
 
@@ -11,7 +11,7 @@ async def test_basic_operators_example():
     await main()
 
 
-async def test_statistics_example():
+async def test_statistics_example(ctx):
     """Test that the statistics example runs successfully."""
     from aaiclick.examples.statistics import main
 

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Dict, List
 if TYPE_CHECKING:
     from .object import Object
 
+from .context import get_ch_client
 from .object import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
-from .ch_client import get_ch_client
 
 
 async def extract_scalar_data(obj: "Object") -> Any:
