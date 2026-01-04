@@ -7,6 +7,7 @@ and supports operations through operator overloading.
 
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
+import inspect
 import yaml
 from .ch_client import get_ch_client
 from .snowflake import get_snowflake_id
@@ -152,19 +153,20 @@ class Object:
         """Check if this object's table has been deleted."""
         return self._stale
 
-    def _check_stale(self, method_name: str):
+    def checkstale(self):
         """
         Check if object is stale and raise error if so.
 
-        Args:
-            method_name: Name of the method being called
+        Automatically detects the calling method name using inspect.
 
         Raises:
             RuntimeError: If object is stale
         """
         if self._stale:
+            # Get the caller's method name automatically
+            caller_name = inspect.currentframe().f_back.f_code.co_name
             raise RuntimeError(
-                f"Cannot call {method_name}() on stale Object. "
+                f"Cannot call {caller_name}() on stale Object. "
                 f"Table '{self._table_name}' has been deleted."
             )
 
@@ -297,7 +299,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__add__")
+        self.checkstale()
         return await operators.add(self, other)
 
     async def __sub__(self, other: "Object") -> "Object":
@@ -312,7 +314,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__sub__")
+        self.checkstale()
         return await operators.sub(self, other)
 
     async def __mul__(self, other: "Object") -> "Object":
@@ -327,7 +329,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__mul__")
+        self.checkstale()
         return await operators.mul(self, other)
 
     async def __truediv__(self, other: "Object") -> "Object":
@@ -342,7 +344,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__truediv__")
+        self.checkstale()
         return await operators.truediv(self, other)
 
     async def __floordiv__(self, other: "Object") -> "Object":
@@ -357,7 +359,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__floordiv__")
+        self.checkstale()
         return await operators.floordiv(self, other)
 
     async def __mod__(self, other: "Object") -> "Object":
@@ -372,7 +374,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__mod__")
+        self.checkstale()
         return await operators.mod(self, other)
 
     async def __pow__(self, other: "Object") -> "Object":
@@ -387,7 +389,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__pow__")
+        self.checkstale()
         return await operators.pow(self, other)
 
     async def __eq__(self, other: "Object") -> "Object":
@@ -402,7 +404,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__eq__")
+        self.checkstale()
         return await operators.eq(self, other)
 
     async def __ne__(self, other: "Object") -> "Object":
@@ -417,7 +419,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__ne__")
+        self.checkstale()
         return await operators.ne(self, other)
 
     async def __lt__(self, other: "Object") -> "Object":
@@ -432,7 +434,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__lt__")
+        self.checkstale()
         return await operators.lt(self, other)
 
     async def __le__(self, other: "Object") -> "Object":
@@ -447,7 +449,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__le__")
+        self.checkstale()
         return await operators.le(self, other)
 
     async def __gt__(self, other: "Object") -> "Object":
@@ -462,7 +464,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__gt__")
+        self.checkstale()
         return await operators.gt(self, other)
 
     async def __ge__(self, other: "Object") -> "Object":
@@ -477,7 +479,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        self._check_stale("__ge__")
+        self.checkstale()
         return await operators.ge(self, other)
 
     async def __and__(self, other: "Object") -> "Object":
@@ -492,7 +494,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__and__")
+        self.checkstale()
         return await operators.and_(self, other)
 
     async def __or__(self, other: "Object") -> "Object":
@@ -507,7 +509,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__or__")
+        self.checkstale()
         return await operators.or_(self, other)
 
     async def __xor__(self, other: "Object") -> "Object":
@@ -522,7 +524,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        self._check_stale("__xor__")
+        self.checkstale()
         return await operators.xor(self, other)
 
     async def delete_table(self) -> None:
