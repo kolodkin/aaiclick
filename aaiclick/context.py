@@ -114,14 +114,7 @@ class Context:
     async def __aenter__(self):
         """Enter the context, initializing the client if needed."""
         if self._ch_client is None:
-            self._ch_client = await get_async_client(
-                host=CLICKHOUSE_HOST,
-                port=CLICKHOUSE_PORT,
-                username=CLICKHOUSE_USER,
-                password=CLICKHOUSE_PASSWORD,
-                database=CLICKHOUSE_DB,
-                pool_mgr=get_pool(),
-            )
+            self._ch_client = await get_ch_client()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
