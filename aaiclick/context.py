@@ -106,8 +106,6 @@ class Context:
         Args:
             obj: Object instance to register
         """
-        from .object import Object
-
         # Use id(obj) as key and weakref as value
         self._objects[id(obj)] = weakref.ref(obj)
 
@@ -141,11 +139,8 @@ class Context:
         Args:
             obj: Object to delete
         """
-        from .object import Object
-
-        ch_client = await get_ch_client()
-        await ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
-        obj._stale = True
+        await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
+        obj._ctx = None
 
     async def delete(self, obj: "Object") -> None:
         """
@@ -162,8 +157,6 @@ class Context:
             ...     result = await (obj + obj)
             ...     await ctx.delete(result)  # Clean up intermediate result
         """
-        from .object import Object
-
         # Delete the table and mark as stale
         await self._delete_object(obj)
 
@@ -192,7 +185,7 @@ class Context:
         """
         from .factories import create_object
 
-        obj = await create_object(schema, ch_client=self.ch_client)
+        obj = await create_object(schema, ctx=self)
         self._register_object(obj)
         return obj
 
@@ -221,6 +214,6 @@ class Context:
         """
         from .factories import create_object_from_value
 
-        obj = await create_object_from_value(val, ch_client=self.ch_client)
+        obj = await create_object_from_value(val, ctx=self)
         self._register_object(obj)
         return obj

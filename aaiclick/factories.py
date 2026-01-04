@@ -7,9 +7,13 @@ automatically inferring schemas from Python values using numpy for type detectio
 Note: These functions are internal and should only be called via Context methods.
 """
 
-from typing import Union, Dict, List
+from typing import Union, Dict, List, TYPE_CHECKING
+
 import numpy as np
-from clickhouse_connect.driver.asyncclient import AsyncClient
+
+if TYPE_CHECKING:
+    from .context import Context
+
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
@@ -76,7 +80,7 @@ def _build_column_comment(fieldtype: str) -> str:
     return meta.to_yaml()
 
 
-async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
+async def create_object(schema: Schema, ctx: "Context") -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
@@ -86,12 +90,12 @@ async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
         schema: Column definition(s). Can be:
             - str: Single column definition (e.g., "value Float64")
             - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
-        ch_client: ClickHouse async client instance
+        ctx: Context instance managing this object
 
     Returns:
         Object: New Object instance with created table
     """
-    obj = Object()
+    obj = Object(ctx)
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -104,12 +108,12 @@ async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
         {columns}
     ) ENGINE = MergeTree ORDER BY tuple()
     """
-    await ch_client.command(create_query)
+    await ctx.ch_client.command(create_query)
 
     return obj
 
 
-async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Object:
+async def create_object_from_value(val: ValueType, ctx: "Context") -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
@@ -121,7 +125,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
-        ch_client: ClickHouse async client instance
+        ctx: Context instance managing this object
 
     Returns:
         Object: New Object instance with data
@@ -133,7 +137,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
         - Dict of scalars: Single row with aai_id plus columns for each key
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
-    obj = Object()
+    obj = Object(ctx)
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)
@@ -173,7 +177,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
                 {", ".join(columns)}
             ) ENGINE = MergeTree ORDER BY tuple()
             """
-            await ch_client.command(create_query)
+            await ctx.ch_client.command(create_query)
 
             # Generate snowflake IDs for all rows
             aai_ids = get_snowflake_ids(array_len or 0)
@@ -185,7 +189,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
                 data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
 
                 # Use clickhouse-connect's built-in insert
-                await ch_client.insert(obj.table, data)
+                await ctx.ch_client.insert(obj.table, data)
 
         else:
             # Dict of scalars: one column per key, single row with aai_id
@@ -214,7 +218,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
                 {", ".join(columns)}
             ) ENGINE = MergeTree ORDER BY tuple()
             """
-            await ch_client.command(create_query)
+            await ctx.ch_client.command(create_query)
 
             # Generate single aai_id for scalar dict
             aai_id = get_snowflake_ids(1)[0]
@@ -222,7 +226,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
 
             # Insert single row
             insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-            await ch_client.command(insert_query)
+            await ctx.ch_client.command(insert_query)
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
@@ -237,7 +241,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
-        await ch_client.command(create_query)
+        await ctx.ch_client.command(create_query)
 
         # Generate snowflake IDs for all rows
         aai_ids = get_snowflake_ids(len(val))
@@ -247,7 +251,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             # Zip aai_ids with values to create rows
             data = [list(row) for row in zip(aai_ids, val)]
             # Use clickhouse-connect's built-in insert
-            await ch_client.insert(obj.table, data)
+            await ctx.ch_client.insert(obj.table, data)
 
     else:
         # Scalar: single row with aai_id and value
@@ -261,7 +265,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             value {col_type} COMMENT '{value_comment}'
         ) ENGINE = MergeTree ORDER BY tuple()
         """
-        await ch_client.command(create_query)
+        await ctx.ch_client.command(create_query)
 
         # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
@@ -275,6 +279,6 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             value_str = str(val)
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
-        await ch_client.command(insert_query)
+        await ctx.ch_client.command(insert_query)
 
     return obj
