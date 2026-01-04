@@ -7,9 +7,14 @@ automatically inferring schemas from Python values using numpy for type detectio
 Note: These functions are internal and should only be called via Context methods.
 """
 
-from typing import Union, Dict, List
+from typing import Union, Dict, List, TYPE_CHECKING
+
 import numpy as np
 from clickhouse_connect.driver.asyncclient import AsyncClient
+
+if TYPE_CHECKING:
+    from .context import Context
+
 from .object import Object, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
@@ -76,7 +81,7 @@ def _build_column_comment(fieldtype: str) -> str:
     return meta.to_yaml()
 
 
-async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
+async def create_object(schema: Schema, ctx: "Context", ch_client: AsyncClient) -> Object:
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
@@ -86,12 +91,13 @@ async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
         schema: Column definition(s). Can be:
             - str: Single column definition (e.g., "value Float64")
             - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
+        ctx: Context instance managing this object
         ch_client: ClickHouse async client instance
 
     Returns:
         Object: New Object instance with created table
     """
-    obj = Object()
+    obj = Object(ctx)
 
     # Convert schema to column definitions
     if isinstance(schema, str):
@@ -109,7 +115,7 @@ async def create_object(schema: Schema, ch_client: AsyncClient) -> Object:
     return obj
 
 
-async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Object:
+async def create_object_from_value(val: ValueType, ctx: "Context", ch_client: AsyncClient) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
@@ -121,6 +127,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
+        ctx: Context instance managing this object
         ch_client: ClickHouse async client instance
 
     Returns:
@@ -133,7 +140,7 @@ async def create_object_from_value(val: ValueType, ch_client: AsyncClient) -> Ob
         - Dict of scalars: Single row with aai_id plus columns for each key
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
-    obj = Object()
+    obj = Object(ctx)
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

@@ -143,9 +143,8 @@ class Context:
         """
         from .object import Object
 
-        ch_client = await get_ch_client()
-        await ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
-        obj._stale = True
+        await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
+        obj._ctx = None
 
     async def delete(self, obj: "Object") -> None:
         """
@@ -192,7 +191,7 @@ class Context:
         """
         from .factories import create_object
 
-        obj = await create_object(schema, ch_client=self.ch_client)
+        obj = await create_object(schema, ctx=self, ch_client=self.ch_client)
         self._register_object(obj)
         return obj
 
@@ -221,6 +220,6 @@ class Context:
         """
         from .factories import create_object_from_value
 
-        obj = await create_object_from_value(val, ch_client=self.ch_client)
+        obj = await create_object_from_value(val, ctx=self, ch_client=self.ch_client)
         self._register_object(obj)
         return obj

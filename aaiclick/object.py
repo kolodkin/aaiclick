@@ -5,12 +5,14 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional, Dict, List, Tuple, Any, TYPE_CHECKING
 from dataclasses import dataclass
 
 import yaml
 
-from .context import get_ch_client
+if TYPE_CHECKING:
+    from .context import Context
+
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from . import operators
@@ -122,9 +124,9 @@ class Object:
         # Get the attribute using object's __getattribute__ to avoid recursion
         attr = object.__getattribute__(self, name)
 
-        # Check if this is a DB method and if object is stale
+        # Check if this is a DB method and if object is stale (context is None)
         if name in object.__getattribute__(self, '_DB_METHODS'):
-            if object.__getattribute__(self, '_stale'):
+            if object.__getattribute__(self, '_ctx') is None:
                 table_name = object.__getattribute__(self, '_table_name')
                 raise RuntimeError(
                     f"Cannot use stale Object. Table '{table_name}' has been deleted."
@@ -132,16 +134,17 @@ class Object:
 
         return attr
 
-    def __init__(self, table: Optional[str] = None):
+    def __init__(self, ctx: "Context", table: Optional[str] = None):
         """
         Initialize an Object.
 
         Args:
+            ctx: Context instance managing this object
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
+        self._ctx = ctx
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
-        self._stale = False
 
     @property
     def table(self) -> str:
@@ -150,17 +153,17 @@ class Object:
 
     @property
     def stale(self) -> bool:
-        """Check if this object's table has been deleted."""
-        return self._stale
+        """Check if this object's context has been cleaned up."""
+        return self._ctx is None
 
     def checkstale(self):
         """
         Check if object is stale and raise error if so.
 
         Raises:
-            RuntimeError: If object is stale
+            RuntimeError: If object context is None (stale)
         """
-        if self._stale:
+        if self._ctx is None:
             raise RuntimeError(
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
@@ -172,8 +175,7 @@ class Object:
         Returns:
             Query result with all rows from the table
         """
-        ch_client = await get_ch_client()
-        return await ch_client.query(f"SELECT * FROM {self.table}")
+        return await self._ctx.ch_client.query(f"SELECT * FROM {self.table}")
 
     async def data(self, orient: str = ORIENT_DICT):
         """
@@ -191,8 +193,6 @@ class Object:
         """
         from . import data_extraction
 
-        ch_client = await get_ch_client()
-
         # Query column names and comments
         columns_query = f"""
         SELECT name, comment
@@ -200,7 +200,7 @@ class Object:
         WHERE table = '{self.table}'
         ORDER BY position
         """
-        columns_result = await ch_client.query(columns_query)
+        columns_result = await self._ctx.ch_client.query(columns_query)
 
         # Parse YAML from comments and get column names
         columns: Dict[str, ColumnMeta] = {}
@@ -227,12 +227,11 @@ class Object:
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
-        ch_client = await get_ch_client()
         columns_query = f"""
         SELECT comment FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
         """
-        result = await ch_client.query(columns_query)
+        result = await self._ctx.ch_client.query(columns_query)
         if result.result_rows:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
@@ -252,8 +251,7 @@ class Object:
         # Get SQL expression from operator mapping
         expression = operators.OPERATOR_EXPRESSIONS[operator]
 
-        result = Object()
-        ch_client = await get_ch_client()
+        result = Object(self._ctx)
 
         # Check if operating on scalars or arrays
         fieldtype = await self._get_fieldtype()
@@ -272,13 +270,13 @@ class Object:
             left_table=self.table,
             right_table=obj_b.table
         )
-        await ch_client.command(create_query)
+        await self._ctx.ch_client.command(create_query)
 
         # Add comments (all results now have aai_id)
         aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
         value_comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
-        await ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-        await ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
+        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
+        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
 
         return result
 
@@ -554,8 +552,7 @@ class Object:
         Returns:
             float: Minimum value from the 'value' column
         """
-        ch_client = await get_ch_client()
-        result = await ch_client.query(f"SELECT min(value) FROM {self.table}")
+        result = await self._ctx.ch_client.query(f"SELECT min(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def max(self) -> float:
@@ -565,8 +562,7 @@ class Object:
         Returns:
             float: Maximum value from the 'value' column
         """
-        ch_client = await get_ch_client()
-        result = await ch_client.query(f"SELECT max(value) FROM {self.table}")
+        result = await self._ctx.ch_client.query(f"SELECT max(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def sum(self) -> float:
@@ -576,8 +572,7 @@ class Object:
         Returns:
             float: Sum of values from the 'value' column
         """
-        ch_client = await get_ch_client()
-        result = await ch_client.query(f"SELECT sum(value) FROM {self.table}")
+        result = await self._ctx.ch_client.query(f"SELECT sum(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def mean(self) -> float:
@@ -587,8 +582,7 @@ class Object:
         Returns:
             float: Mean value from the 'value' column
         """
-        ch_client = await get_ch_client()
-        result = await ch_client.query(f"SELECT avg(value) FROM {self.table}")
+        result = await self._ctx.ch_client.query(f"SELECT avg(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def std(self) -> float:
@@ -598,8 +592,7 @@ class Object:
         Returns:
             float: Standard deviation from the 'value' column
         """
-        ch_client = await get_ch_client()
-        result = await ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
+        result = await self._ctx.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     def __repr__(self) -> str:
