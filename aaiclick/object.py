@@ -522,16 +522,6 @@ class Object:
         self.checkstale()
         return await operators.xor(self, other)
 
-    async def delete_table(self) -> None:
-        """
-        Delete the ClickHouse table associated with this object.
-
-        Marks the object as stale after deletion.
-        """
-        ch_client = await get_ch_client()
-        await ch_client.command(f"DROP TABLE IF EXISTS {self.table}")
-        self._stale = True
-
     async def concat(self, other: "Object") -> "Object":
         """
         Concatenate another object to this object.

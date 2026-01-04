@@ -77,8 +77,8 @@ async def example(context):
     print(f"Std of diff:      {await obj_diff.std()}")
 
     # Clean up operation results (obj_a and obj_b cleaned by context)
-    await obj_sum.delete_table()
-    await obj_diff.delete_table()
+    await ctx.delete(obj_sum)
+    await ctx.delete(obj_diff)
 
     # Example 4: Real-world scenario - Temperature analysis
     print("\n" + "=" * 50)

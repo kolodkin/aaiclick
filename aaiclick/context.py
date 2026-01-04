@@ -127,13 +127,50 @@ class Context:
         for obj_ref in self._objects.values():
             obj = obj_ref()
             if obj is not None and not obj.stale:
-                await obj.delete_table()
-                obj._stale = True
+                await self._delete_object(obj)
 
         # Clear the tracking dict
         self._objects.clear()
 
         return False
+
+    async def _delete_object(self, obj: "Object") -> None:
+        """
+        Internal method to delete an object's table and mark it as stale.
+
+        Args:
+            obj: Object to delete
+        """
+        from .object import Object
+
+        ch_client = await get_ch_client()
+        await ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
+        obj._stale = True
+
+    async def delete(self, obj: "Object") -> None:
+        """
+        Delete an Object's table and mark it as stale.
+
+        This removes the Object from tracking and cleans up its ClickHouse table.
+
+        Args:
+            obj: Object to delete
+
+        Example:
+            >>> async with Context() as ctx:
+            ...     obj = await ctx.create_object_from_value([1, 2, 3])
+            ...     result = await (obj + obj)
+            ...     await ctx.delete(result)  # Clean up intermediate result
+        """
+        from .object import Object
+
+        # Delete the table and mark as stale
+        await self._delete_object(obj)
+
+        # Remove from tracking if present
+        obj_id = id(obj)
+        if obj_id in self._objects:
+            del self._objects[obj_id]
 
     async def create_object(self, schema):
         """

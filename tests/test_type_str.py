@@ -103,4 +103,4 @@ async def test_str_array_concat(ctx):
 
     assert data == ["hello", "world", "foo", "bar", "baz"]
 
-    await result.delete_table()
+    await ctx.delete(result)
