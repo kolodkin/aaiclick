@@ -185,7 +185,7 @@ class Context:
         """
         from .factories import create_object
 
-        obj = await create_object(schema, ctx=self, ch_client=self.ch_client)
+        obj = await create_object(schema, ctx=self)
         self._register_object(obj)
         return obj
 
@@ -214,6 +214,6 @@ class Context:
         """
         from .factories import create_object_from_value
 
-        obj = await create_object_from_value(val, ctx=self, ch_client=self.ch_client)
+        obj = await create_object_from_value(val, ctx=self)
         self._register_object(obj)
         return obj
