@@ -88,9 +88,9 @@ async def test_context_create_object_with_schema():
     assert obj.stale
 
 
-async def test_context_object_stale_flag():
+async def test_context_object_stale_flag(ctx):
     """Test that stale flag is set correctly."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await ctx.create_object_from_value([1, 2, 3])
     assert not obj.stale
 
     await obj.delete_table()

@@ -6,7 +6,7 @@ type coercion and result accuracy.
 """
 
 import numpy as np
-from aaiclick import create_object_from_value
+# Removed: from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 
@@ -16,86 +16,74 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-async def test_mixed_scalar_int_plus_float():
+async def test_mixed_scalar_int_plus_float(ctx):
     """Test addition of int scalar + float scalar."""
-    a = await create_object_from_value(100)
-    b = await create_object_from_value(50.5)
+    a = await ctx.create_object_from_value(100)
+    b = await ctx.create_object_from_value(50.5)
 
     result = await (a + b)
     data = await result.data()
 
     assert abs(data - 150.5) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_scalar_float_plus_int():
+async def test_mixed_scalar_float_plus_int(ctx):
     """Test addition of float scalar + int scalar."""
-    a = await create_object_from_value(100.5)
-    b = await create_object_from_value(50)
+    a = await ctx.create_object_from_value(100.5)
+    b = await ctx.create_object_from_value(50)
 
     result = await (a + b)
     data = await result.data()
 
     assert abs(data - 150.5) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_scalar_int_minus_float():
+async def test_mixed_scalar_int_minus_float(ctx):
     """Test subtraction of int scalar - float scalar."""
-    a = await create_object_from_value(100)
-    b = await create_object_from_value(30.5)
+    a = await ctx.create_object_from_value(100)
+    b = await ctx.create_object_from_value(30.5)
 
     result = await (a - b)
     data = await result.data()
 
     assert abs(data - 69.5) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_scalar_float_minus_int():
+async def test_mixed_scalar_float_minus_int(ctx):
     """Test subtraction of float scalar - int scalar."""
-    a = await create_object_from_value(100.5)
-    b = await create_object_from_value(30)
+    a = await ctx.create_object_from_value(100.5)
+    b = await ctx.create_object_from_value(30)
 
     result = await (a - b)
     data = await result.data()
 
     assert abs(data - 70.5) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_scalar_zero_combinations():
+async def test_mixed_scalar_zero_combinations(ctx):
     """Test mixed type operations with zero values."""
     # int 0 + float
-    a = await create_object_from_value(0)
-    b = await create_object_from_value(3.14159)
+    a = await ctx.create_object_from_value(0)
+    b = await ctx.create_object_from_value(3.14159)
     result = await (a + b)
     data = await result.data()
     assert abs(data - 3.14159) < THRESHOLD
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
     # float 0.0 + int
-    a = await create_object_from_value(0.0)
-    b = await create_object_from_value(42)
+    a = await ctx.create_object_from_value(0.0)
+    b = await ctx.create_object_from_value(42)
     result = await (a + b)
     data = await result.data()
     assert abs(data - 42.0) < THRESHOLD
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
@@ -104,10 +92,10 @@ async def test_mixed_scalar_zero_combinations():
 # =============================================================================
 
 
-async def test_mixed_array_int_plus_float():
+async def test_mixed_array_int_plus_float(ctx):
     """Test element-wise addition of int array + float array."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([0.5, 1.5, 2.5])
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([0.5, 1.5, 2.5])
 
     result = await (a + b)
     data = await result.data()
@@ -116,15 +104,13 @@ async def test_mixed_array_int_plus_float():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_array_float_plus_int():
+async def test_mixed_array_float_plus_int(ctx):
     """Test element-wise addition of float array + int array."""
-    a = await create_object_from_value([10.0, 20.0, 30.0])
-    b = await create_object_from_value([1, 2, 3])
+    a = await ctx.create_object_from_value([10.0, 20.0, 30.0])
+    b = await ctx.create_object_from_value([1, 2, 3])
 
     result = await (a + b)
     data = await result.data()
@@ -133,15 +119,13 @@ async def test_mixed_array_float_plus_int():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_array_int_minus_float():
+async def test_mixed_array_int_minus_float(ctx):
     """Test element-wise subtraction of int array - float array."""
-    a = await create_object_from_value([100, 200, 300])
-    b = await create_object_from_value([10.5, 20.5, 30.5])
+    a = await ctx.create_object_from_value([100, 200, 300])
+    b = await ctx.create_object_from_value([10.5, 20.5, 30.5])
 
     result = await (a - b)
     data = await result.data()
@@ -150,15 +134,13 @@ async def test_mixed_array_int_minus_float():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_array_float_minus_int():
+async def test_mixed_array_float_minus_int(ctx):
     """Test element-wise subtraction of float array - int array."""
-    a = await create_object_from_value([100.5, 200.5, 300.5])
-    b = await create_object_from_value([10, 20, 30])
+    a = await ctx.create_object_from_value([100.5, 200.5, 300.5])
+    b = await ctx.create_object_from_value([10, 20, 30])
 
     result = await (a - b)
     data = await result.data()
@@ -167,15 +149,13 @@ async def test_mixed_array_float_minus_int():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_array_large_int_small_float():
+async def test_mixed_array_large_int_small_float(ctx):
     """Test mixed arrays with large integers and small floats."""
-    a = await create_object_from_value([1000000, 2000000, 3000000])
-    b = await create_object_from_value([0.001, 0.002, 0.003])
+    a = await ctx.create_object_from_value([1000000, 2000000, 3000000])
+    b = await ctx.create_object_from_value([0.001, 0.002, 0.003])
 
     result = await (a + b)
     data = await result.data()
@@ -184,15 +164,13 @@ async def test_mixed_array_large_int_small_float():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_array_negative_combinations():
+async def test_mixed_array_negative_combinations(ctx):
     """Test mixed arrays with negative numbers."""
-    a = await create_object_from_value([-10, -20, -30])
-    b = await create_object_from_value([5.5, 10.5, 15.5])
+    a = await ctx.create_object_from_value([-10, -20, -30])
+    b = await ctx.create_object_from_value([5.5, 10.5, 15.5])
 
     result = await (a + b)
     data = await result.data()
@@ -201,8 +179,6 @@ async def test_mixed_array_negative_combinations():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
@@ -211,12 +187,12 @@ async def test_mixed_array_negative_combinations():
 # =============================================================================
 
 
-async def test_mixed_chained_operations():
+async def test_mixed_chained_operations(ctx):
     """Test chaining multiple operations with mixed types."""
     # int + float - int
-    a = await create_object_from_value([10, 20, 30])
-    b = await create_object_from_value([5.5, 10.5, 15.5])
-    c = await create_object_from_value([3, 6, 9])
+    a = await ctx.create_object_from_value([10, 20, 30])
+    b = await ctx.create_object_from_value([5.5, 10.5, 15.5])
+    c = await ctx.create_object_from_value([3, 6, 9])
 
     temp = await (a + b)
     result = await (temp - c)
@@ -226,19 +202,16 @@ async def test_mixed_chained_operations():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
-    await c.delete_table()
     await temp.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_chained_float_int_float():
+async def test_mixed_chained_float_int_float(ctx):
     """Test chaining with float - int + float pattern."""
     # float - int + float
-    a = await create_object_from_value([100.5, 200.5])
-    b = await create_object_from_value([10, 20])
-    c = await create_object_from_value([5.25, 10.25])
+    a = await ctx.create_object_from_value([100.5, 200.5])
+    b = await ctx.create_object_from_value([10, 20])
+    c = await ctx.create_object_from_value([5.25, 10.25])
 
     temp = await (a - b)
     result = await (temp + c)
@@ -248,19 +221,16 @@ async def test_mixed_chained_float_int_float():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
-    await c.delete_table()
     await temp.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_triple_addition():
+async def test_mixed_triple_addition(ctx):
     """Test triple addition with mixed types."""
     # int + float + int
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([0.5, 1.0, 1.5])
-    c = await create_object_from_value([10, 20, 30])
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([0.5, 1.0, 1.5])
+    c = await ctx.create_object_from_value([10, 20, 30])
 
     temp = await (a + b)
     result = await (temp + c)
@@ -270,9 +240,6 @@ async def test_mixed_triple_addition():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
-    await c.delete_table()
     await temp.delete_table()
     await result.delete_table()
 
@@ -282,10 +249,10 @@ async def test_mixed_triple_addition():
 # =============================================================================
 
 
-async def test_mixed_statistics_after_operation():
+async def test_mixed_statistics_after_operation(ctx):
     """Test statistics on result of mixed type operations."""
-    a = await create_object_from_value([10, 20, 30, 40])
-    b = await create_object_from_value([0.5, 1.5, 2.5, 3.5])
+    a = await ctx.create_object_from_value([10, 20, 30, 40])
+    b = await ctx.create_object_from_value([0.5, 1.5, 2.5, 3.5])
 
     result = await (a + b)
 
@@ -297,31 +264,27 @@ async def test_mixed_statistics_after_operation():
     assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
     assert abs(await result.std() - np.std(expected_values, ddof=0)) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_min_max_after_subtraction():
+async def test_mixed_min_max_after_subtraction(ctx):
     """Test min/max on result of mixed type subtraction."""
-    a = await create_object_from_value([100, 200, 300])
-    b = await create_object_from_value([0.1, 0.2, 0.3])
+    a = await ctx.create_object_from_value([100, 200, 300])
+    b = await ctx.create_object_from_value([0.1, 0.2, 0.3])
 
     result = await (a - b)
 
     assert abs(await result.min() - 99.9) < THRESHOLD
     assert abs(await result.max() - 299.7) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_sum_mean_precision():
+async def test_mixed_sum_mean_precision(ctx):
     """Test sum and mean with mixed types requiring precision."""
     # Create arrays where int + float requires precision
-    a = await create_object_from_value([1, 2, 3, 4, 5])
-    b = await create_object_from_value([0.1, 0.2, 0.3, 0.4, 0.5])
+    a = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+    b = await ctx.create_object_from_value([0.1, 0.2, 0.3, 0.4, 0.5])
 
     result = await (a + b)
 
@@ -332,8 +295,6 @@ async def test_mixed_sum_mean_precision():
     assert abs(await result.sum() - expected_sum) < THRESHOLD
     assert abs(await result.mean() - expected_mean) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
@@ -342,25 +303,23 @@ async def test_mixed_sum_mean_precision():
 # =============================================================================
 
 
-async def test_mixed_single_element_arrays():
+async def test_mixed_single_element_arrays(ctx):
     """Test mixed type operations on single element arrays."""
-    a = await create_object_from_value([42])
-    b = await create_object_from_value([0.5])
+    a = await ctx.create_object_from_value([42])
+    b = await ctx.create_object_from_value([0.5])
 
     result = await (a + b)
     data = await result.data()
 
     assert abs(data[0] - 42.5) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_very_small_float_with_large_int():
+async def test_mixed_very_small_float_with_large_int(ctx):
     """Test operations with very small float and large int."""
-    a = await create_object_from_value([1000000])
-    b = await create_object_from_value([1e-10])
+    a = await ctx.create_object_from_value([1000000])
+    b = await ctx.create_object_from_value([1e-10])
 
     result = await (a + b)
     data = await result.data()
@@ -368,16 +327,14 @@ async def test_mixed_very_small_float_with_large_int():
     # Result should be very close to 1000000 due to float precision
     assert abs(data[0] - 1000000.0000000001) < 1e-9
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_boundary_values():
+async def test_mixed_boundary_values(ctx):
     """Test mixed operations with boundary values."""
     # Test with zero and negative transitions
-    a = await create_object_from_value([-1, 0, 1])
-    b = await create_object_from_value([0.5, 0.5, 0.5])
+    a = await ctx.create_object_from_value([-1, 0, 1])
+    b = await ctx.create_object_from_value([0.5, 0.5, 0.5])
 
     result = await (a + b)
     data = await result.data()
@@ -386,26 +343,24 @@ async def test_mixed_boundary_values():
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await a.delete_table()
-    await b.delete_table()
     await result.delete_table()
 
 
-async def test_mixed_symmetry():
+async def test_mixed_symmetry(ctx):
     """Test that int+float == float+int (commutative property)."""
     # Test with arrays
     int_array = [10, 20, 30]
     float_array = [1.5, 2.5, 3.5]
 
     # int + float
-    a1 = await create_object_from_value(int_array)
-    b1 = await create_object_from_value(float_array)
+    a1 = await ctx.create_object_from_value(int_array)
+    b1 = await ctx.create_object_from_value(float_array)
     result1 = await (a1 + b1)
     data1 = await result1.data()
 
     # float + int
-    a2 = await create_object_from_value(float_array)
-    b2 = await create_object_from_value(int_array)
+    a2 = await ctx.create_object_from_value(float_array)
+    b2 = await ctx.create_object_from_value(int_array)
     result2 = await (a2 + b2)
     data2 = await result2.data()
 
@@ -426,46 +381,40 @@ async def test_mixed_symmetry():
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_fails():
+async def test_mixed_int_float_concat_fails(ctx):
     """Test that concatenating int array with float array fails with type error."""
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([4.5, 5.5, 6.5])
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([4.5, 5.5, 6.5])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
         await a.concat(b)
 
-    await a.delete_table()
-    await b.delete_table()
 
 
-async def test_mixed_float_int_concat_fails():
+async def test_mixed_float_int_concat_fails(ctx):
     """Test that concatenating float array with int array fails with type error."""
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
-    a = await create_object_from_value([1.5, 2.5, 3.5])
-    b = await create_object_from_value([4, 5, 6])
+    a = await ctx.create_object_from_value([1.5, 2.5, 3.5])
+    b = await ctx.create_object_from_value([4, 5, 6])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
         await a.concat(b)
 
-    await a.delete_table()
-    await b.delete_table()
 
 
-async def test_mixed_int_string_concat_fails():
+async def test_mixed_int_string_concat_fails(ctx):
     """Test that concatenating int array with string array fails with type error."""
     import pytest
     from clickhouse_connect.driver.exceptions import DatabaseError
 
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value(["a", "b", "c"])
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value(["a", "b", "c"])
 
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
         await a.concat(b)
 
-    await a.delete_table()
-    await b.delete_table()

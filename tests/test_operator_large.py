@@ -5,21 +5,21 @@ Each test uses NUM_ITEMS=10000 to validate performance and correctness at scale.
 Each operator is tested with different type combinations.
 """
 
-from aaiclick import create_object_from_value
+# Removed: from aaiclick import create_object_from_value
 
 # Number of items for large array tests
 NUM_ITEMS = 10000
 
 
-async def test_add_int_float():
+async def test_add_int_float(ctx):
     """Test addition with int array + float array (10k items)."""
     # Create large arrays
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
     float_array = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj_int = await create_object_from_value(int_array)
-    obj_float = await create_object_from_value(float_array)
+    obj_int = await ctx.create_object_from_value(int_array)
+    obj_float = await ctx.create_object_from_value(float_array)
 
     # Perform addition
     result = await (obj_int + obj_float)
@@ -33,20 +33,18 @@ async def test_add_int_float():
     assert result_data[-1] == 9999 + 4999.5  # 14998.5
 
     # Cleanup
-    await obj_int.delete_table()
-    await obj_float.delete_table()
     await result.delete_table()
 
 
-async def test_sub_float_float():
+async def test_sub_float_float(ctx):
     """Test subtraction with float array - float array (10k items)."""
     # Create large float arrays
     float_array1 = [float(i) * 2.0 for i in range(NUM_ITEMS)]  # [0.0, 2.0, 4.0, ..., 19998.0]
     float_array2 = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj1 = await create_object_from_value(float_array1)
-    obj2 = await create_object_from_value(float_array2)
+    obj1 = await ctx.create_object_from_value(float_array1)
+    obj2 = await ctx.create_object_from_value(float_array2)
 
     # Perform subtraction
     result = await (obj1 - obj2)
@@ -65,13 +63,13 @@ async def test_sub_float_float():
     await result.delete_table()
 
 
-async def test_min_int():
+async def test_min_int(ctx):
     """Test min() on large int array (10k items)."""
     # Create array with known min
     int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
 
     # Create object
-    obj = await create_object_from_value(int_array)
+    obj = await ctx.create_object_from_value(int_array)
 
     # Get minimum
     min_val = await obj.min()
@@ -80,16 +78,15 @@ async def test_min_int():
     assert min_val == 100
 
     # Cleanup
-    await obj.delete_table()
 
 
-async def test_max_float():
+async def test_max_float(ctx):
     """Test max() on large float array (10k items)."""
     # Create array with known max
     float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await ctx.create_object_from_value(float_array)
 
     # Get maximum
     max_val = await obj.max()
@@ -98,16 +95,15 @@ async def test_max_float():
     assert abs(max_val - 999.9) < 0.001
 
     # Cleanup
-    await obj.delete_table()
 
 
-async def test_sum_float():
+async def test_sum_float(ctx):
     """Test sum() on large float array (10k items)."""
     # Create simple array for easy sum calculation
     float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await ctx.create_object_from_value(float_array)
 
     # Get sum
     sum_val = await obj.sum()
@@ -117,16 +113,15 @@ async def test_sum_float():
     assert abs(sum_val - expected_sum) < 0.001
 
     # Cleanup
-    await obj.delete_table()
 
 
-async def test_mean_int():
+async def test_mean_int(ctx):
     """Test mean() on large int array (10k items)."""
     # Create array with known mean
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create object
-    obj = await create_object_from_value(int_array)
+    obj = await ctx.create_object_from_value(int_array)
 
     # Get mean
     mean_val = await obj.mean()
@@ -136,16 +131,15 @@ async def test_mean_int():
     assert abs(mean_val - expected_mean) < 0.001
 
     # Cleanup
-    await obj.delete_table()
 
 
-async def test_std_float():
+async def test_std_float(ctx):
     """Test std() (standard deviation) on large float array (10k items)."""
     # Create array with known values
     float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await ctx.create_object_from_value(float_array)
 
     # Get standard deviation
     std_val = await obj.std()
@@ -157,18 +151,17 @@ async def test_std_float():
     assert abs(std_val - expected_std) < 1.0  # Allow small variance
 
     # Cleanup
-    await obj.delete_table()
 
 
-async def test_add_int_int():
+async def test_add_int_int(ctx):
     """Test addition with int array + int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
     int_array2 = list(range(NUM_ITEMS, NUM_ITEMS * 2))  # [10000, 10001, ..., 19999]
 
     # Create objects
-    obj1 = await create_object_from_value(int_array1)
-    obj2 = await create_object_from_value(int_array2)
+    obj1 = await ctx.create_object_from_value(int_array1)
+    obj2 = await ctx.create_object_from_value(int_array2)
 
     # Perform addition
     result = await (obj1 + obj2)
@@ -187,15 +180,15 @@ async def test_add_int_int():
     await result.delete_table()
 
 
-async def test_sub_int_int():
+async def test_sub_int_int(ctx):
     """Test subtraction with int array - int array (10k items)."""
     # Create large int arrays
     int_array1 = list(range(NUM_ITEMS * 2, NUM_ITEMS * 3))  # [20000, 20001, ..., 29999]
     int_array2 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create objects
-    obj1 = await create_object_from_value(int_array1)
-    obj2 = await create_object_from_value(int_array2)
+    obj1 = await ctx.create_object_from_value(int_array1)
+    obj2 = await ctx.create_object_from_value(int_array2)
 
     # Perform subtraction
     result = await (obj1 - obj2)
