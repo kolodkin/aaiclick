@@ -38,7 +38,6 @@ async def test_bool_scalar_add(ctx):
 
     assert data == 2  # 1 + 1
 
-    await ctx.delete(result)
 
 
 async def test_bool_scalar_sub(ctx):
@@ -51,7 +50,6 @@ async def test_bool_scalar_sub(ctx):
 
     assert data == 1  # 1 - 0
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -75,7 +73,6 @@ async def test_bool_array_add(ctx):
 
     assert data == [2, 1, 0]
 
-    await ctx.delete(result)
 
 
 async def test_bool_array_sub(ctx):
@@ -88,7 +85,6 @@ async def test_bool_array_sub(ctx):
 
     assert data == [1, 0, 1]
 
-    await ctx.delete(result)
 
 
 # =============================================================================

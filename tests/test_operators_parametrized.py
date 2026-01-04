@@ -69,7 +69,6 @@ async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_resu
 
     assert result_data == expected_result
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -102,7 +101,6 @@ async def test_int_array_operators(ctx, data_a, data_b, operator, expected_resul
 
     assert result_data == expected_result
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -135,7 +133,6 @@ async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_re
 
     assert abs(result_data - expected_result) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -169,7 +166,6 @@ async def test_float_array_operators(ctx, data_a, data_b, operator, expected_res
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -208,7 +204,6 @@ async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_resul
     else:
         assert abs(result_data - expected_result) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -245,5 +240,3 @@ async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
 
-    await ctx.delete(temp)
-    await ctx.delete(result)

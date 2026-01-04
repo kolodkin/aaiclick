@@ -28,7 +28,6 @@ async def test_int_scalar_add(ctx):
 
     assert data == 150
 
-    await ctx.delete(result)
 
 
 async def test_int_scalar_sub(ctx):
@@ -41,7 +40,6 @@ async def test_int_scalar_sub(ctx):
 
     assert data == 70
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -65,7 +63,6 @@ async def test_int_array_add(ctx):
 
     assert data == [11, 22, 33]
 
-    await ctx.delete(result)
 
 
 async def test_int_array_sub(ctx):
@@ -78,7 +75,6 @@ async def test_int_array_sub(ctx):
 
     assert data == [90, 180, 270]
 
-    await ctx.delete(result)
 
 
 async def test_int_array_chained_operations(ctx):
@@ -94,8 +90,6 @@ async def test_int_array_chained_operations(ctx):
 
     assert data == [6, 12, 18]
 
-    await ctx.delete(temp)
-    await ctx.delete(result)
 
 
 async def test_int_array_concat(ctx):
@@ -108,7 +102,6 @@ async def test_int_array_concat(ctx):
 
     assert data == [1, 2, 3, 4, 5, 6]
 
-    await ctx.delete(result)
 
 
 async def test_int_scalar_concat_fails(ctx):
@@ -201,4 +194,3 @@ async def test_int_statistics_after_operation(ctx):
     assert abs(await result.sum() - np.sum(expected_values)) < THRESHOLD
     assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
 
-    await ctx.delete(result)

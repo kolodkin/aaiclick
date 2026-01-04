@@ -32,7 +32,6 @@ async def test_add_int_float(ctx):
     assert result_data[-1] == 9999 + 4999.5  # 14998.5
 
     # Cleanup
-    await ctx.delete(result)
 
 
 async def test_sub_float_float(ctx):
@@ -57,9 +56,6 @@ async def test_sub_float_float(ctx):
     assert result_data[-1] == 19998.0 - 4999.5  # 14998.5
 
     # Cleanup
-    await ctx.delete(obj1)
-    await ctx.delete(obj2)
-    await ctx.delete(result)
 
 
 async def test_min_int(ctx):
@@ -174,9 +170,6 @@ async def test_add_int_int(ctx):
     assert result_data[-1] == 29998  # 9999 + 19999
 
     # Cleanup
-    await ctx.delete(obj1)
-    await ctx.delete(obj2)
-    await ctx.delete(result)
 
 
 async def test_sub_int_int(ctx):
@@ -201,6 +194,3 @@ async def test_sub_int_int(ctx):
     assert result_data[-1] == 20000  # 29999 - 9999
 
     # Cleanup
-    await ctx.delete(obj1)
-    await ctx.delete(obj2)
-    await ctx.delete(result)

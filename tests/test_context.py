@@ -66,7 +66,6 @@ async def test_context_with_operations():
     assert not result.stale
 
     # Clean up result manually
-    await ctx.delete(result)
     assert result.stale
 
 
@@ -93,7 +92,6 @@ async def test_context_object_stale_flag(ctx):
     obj = await ctx.create_object_from_value([1, 2, 3])
     assert not obj.stale
 
-    await ctx.delete(obj)
     assert obj.stale
 
 
@@ -167,7 +165,6 @@ async def test_context_concat_operation():
     assert not result.stale
 
     # Clean up result
-    await ctx.delete(result)
     assert result.stale
 
 
@@ -185,7 +182,6 @@ async def test_context_client_usage():
 async def test_stale_object_prevents_data_access(ctx):
     """Test that stale objects prevent database access."""
     obj = await ctx.create_object_from_value([1, 2, 3])
-    await ctx.delete(obj)
 
     # Object is now stale, should raise RuntimeError
     assert obj.stale
@@ -199,7 +195,6 @@ async def test_stale_object_prevents_operators(ctx):
     obj1 = await ctx.create_object_from_value([1, 2, 3])
     obj2 = await ctx.create_object_from_value([4, 5, 6])
 
-    await ctx.delete(obj1)
     assert obj1.stale
 
     # Attempting to use operators on stale object should raise
@@ -210,7 +205,6 @@ async def test_stale_object_prevents_operators(ctx):
 async def test_stale_object_prevents_aggregates(ctx):
     """Test that stale objects prevent aggregate methods."""
     obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
-    await ctx.delete(obj)
 
     assert obj.stale
 
@@ -236,7 +230,6 @@ async def test_stale_object_prevents_concat(ctx):
     obj1 = await ctx.create_object_from_value([1, 2, 3])
     obj2 = await ctx.create_object_from_value([4, 5, 6])
 
-    await ctx.delete(obj1)
 
     with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         await obj1.concat(obj2)
@@ -247,7 +240,6 @@ async def test_stale_object_allows_property_access(ctx):
     obj = await ctx.create_object_from_value([1, 2, 3])
     table_name = obj.table
 
-    await ctx.delete(obj)
 
     # Properties should still be accessible
     assert obj.stale

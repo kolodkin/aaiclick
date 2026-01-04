@@ -25,7 +25,6 @@ async def test_mixed_scalar_int_plus_float(ctx):
 
     assert abs(data - 150.5) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_scalar_float_plus_int(ctx):
@@ -38,7 +37,6 @@ async def test_mixed_scalar_float_plus_int(ctx):
 
     assert abs(data - 150.5) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_scalar_int_minus_float(ctx):
@@ -51,7 +49,6 @@ async def test_mixed_scalar_int_minus_float(ctx):
 
     assert abs(data - 69.5) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_scalar_float_minus_int(ctx):
@@ -64,7 +61,6 @@ async def test_mixed_scalar_float_minus_int(ctx):
 
     assert abs(data - 70.5) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_scalar_zero_combinations(ctx):
@@ -75,7 +71,6 @@ async def test_mixed_scalar_zero_combinations(ctx):
     result = await (a + b)
     data = await result.data()
     assert abs(data - 3.14159) < THRESHOLD
-    await ctx.delete(result)
 
     # float 0.0 + int
     a = await ctx.create_object_from_value(0.0)
@@ -83,7 +78,6 @@ async def test_mixed_scalar_zero_combinations(ctx):
     result = await (a + b)
     data = await result.data()
     assert abs(data - 42.0) < THRESHOLD
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -103,7 +97,6 @@ async def test_mixed_array_int_plus_float(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_array_float_plus_int(ctx):
@@ -118,7 +111,6 @@ async def test_mixed_array_float_plus_int(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_array_int_minus_float(ctx):
@@ -133,7 +125,6 @@ async def test_mixed_array_int_minus_float(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_array_float_minus_int(ctx):
@@ -148,7 +139,6 @@ async def test_mixed_array_float_minus_int(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_array_large_int_small_float(ctx):
@@ -163,7 +153,6 @@ async def test_mixed_array_large_int_small_float(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_array_negative_combinations(ctx):
@@ -178,7 +167,6 @@ async def test_mixed_array_negative_combinations(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -201,8 +189,6 @@ async def test_mixed_chained_operations(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(temp)
-    await ctx.delete(result)
 
 
 async def test_mixed_chained_float_int_float(ctx):
@@ -220,8 +206,6 @@ async def test_mixed_chained_float_int_float(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(temp)
-    await ctx.delete(result)
 
 
 async def test_mixed_triple_addition(ctx):
@@ -239,8 +223,6 @@ async def test_mixed_triple_addition(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(temp)
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -263,7 +245,6 @@ async def test_mixed_statistics_after_operation(ctx):
     assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
     assert abs(await result.std() - np.std(expected_values, ddof=0)) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_min_max_after_subtraction(ctx):
@@ -276,7 +257,6 @@ async def test_mixed_min_max_after_subtraction(ctx):
     assert abs(await result.min() - 99.9) < THRESHOLD
     assert abs(await result.max() - 299.7) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_sum_mean_precision(ctx):
@@ -294,7 +274,6 @@ async def test_mixed_sum_mean_precision(ctx):
     assert abs(await result.sum() - expected_sum) < THRESHOLD
     assert abs(await result.mean() - expected_mean) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -312,7 +291,6 @@ async def test_mixed_single_element_arrays(ctx):
 
     assert abs(data[0] - 42.5) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_very_small_float_with_large_int(ctx):
@@ -326,7 +304,6 @@ async def test_mixed_very_small_float_with_large_int(ctx):
     # Result should be very close to 1000000 due to float precision
     assert abs(data[0] - 1000000.0000000001) < 1e-9
 
-    await ctx.delete(result)
 
 
 async def test_mixed_boundary_values(ctx):
@@ -342,7 +319,6 @@ async def test_mixed_boundary_values(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_mixed_symmetry(ctx):
@@ -367,12 +343,6 @@ async def test_mixed_symmetry(ctx):
     for i in range(len(data1)):
         assert abs(data1[i] - data2[i]) < THRESHOLD
 
-    await ctx.delete(a1)
-    await ctx.delete(b1)
-    await ctx.delete(result1)
-    await ctx.delete(a2)
-    await ctx.delete(b2)
-    await ctx.delete(result2)
 
 
 # =============================================================================

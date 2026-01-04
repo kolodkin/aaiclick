@@ -28,7 +28,6 @@ async def test_float_scalar_add(ctx):
 
     assert abs(data - 150.75) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_float_scalar_sub(ctx):
@@ -41,7 +40,6 @@ async def test_float_scalar_sub(ctx):
 
     assert abs(data - 70.25) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -65,7 +63,6 @@ async def test_float_array_add(ctx):
 
     assert data == [15.0, 30.0, 45.0]
 
-    await ctx.delete(result)
 
 
 async def test_float_array_sub(ctx):
@@ -78,7 +75,6 @@ async def test_float_array_sub(ctx):
 
     assert data == [90.0, 180.0, 270.0]
 
-    await ctx.delete(result)
 
 
 async def test_float_array_chained_operations(ctx):
@@ -96,8 +92,6 @@ async def test_float_array_chained_operations(ctx):
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
-    await ctx.delete(temp)
-    await ctx.delete(result)
 
 
 async def test_float_array_concat(ctx):
@@ -110,7 +104,6 @@ async def test_float_array_concat(ctx):
 
     assert data == [1.5, 2.5, 3.5, 4.5, 5.5]
 
-    await ctx.delete(result)
 
 
 # =============================================================================
@@ -192,7 +185,6 @@ async def test_float_statistics_after_operation(ctx):
     assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
     assert abs(await result.std() - np.std(expected_values, ddof=0)) < THRESHOLD
 
-    await ctx.delete(result)
 
 
 async def test_float_single_value_statistics(ctx):
