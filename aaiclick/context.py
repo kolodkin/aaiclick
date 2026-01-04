@@ -7,8 +7,58 @@ within its scope, automatically cleaning up tables when the context exits.
 
 from typing import Optional, Dict
 import weakref
+
+from clickhouse_connect import get_async_client
 from clickhouse_connect.driver.asyncclient import AsyncClient
-from .ch_client import get_ch_client
+from urllib3 import PoolManager
+
+from .env import (
+    CLICKHOUSE_HOST,
+    CLICKHOUSE_PORT,
+    CLICKHOUSE_USER,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_DB,
+)
+
+
+# Global connection pool shared across all Context instances
+_pool: list = [None]
+
+
+def get_pool() -> PoolManager:
+    """
+    Get or create the global urllib3 connection pool.
+
+    Returns:
+        PoolManager: Shared connection pool for ClickHouse clients
+    """
+    if _pool[0] is None:
+        _pool[0] = PoolManager(num_pools=10, maxsize=10)
+    return _pool[0]
+
+
+async def get_ch_client() -> AsyncClient:
+    """
+    Create a ClickHouse client using the shared connection pool.
+
+    Connection parameters are read from environment variables:
+    - CLICKHOUSE_HOST (default: "localhost")
+    - CLICKHOUSE_PORT (default: 8123)
+    - CLICKHOUSE_USER (default: "default")
+    - CLICKHOUSE_PASSWORD (default: "")
+    - CLICKHOUSE_DB (default: "default")
+
+    Returns:
+        AsyncClient: ClickHouse client instance
+    """
+    return await get_async_client(
+        host=CLICKHOUSE_HOST,
+        port=CLICKHOUSE_PORT,
+        username=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        database=CLICKHOUSE_DB,
+        pool_mgr=get_pool(),
+    )
 
 
 class Context:
@@ -64,7 +114,14 @@ class Context:
     async def __aenter__(self):
         """Enter the context, initializing the client if needed."""
         if self._ch_client is None:
-            self._ch_client = await get_ch_client()
+            self._ch_client = await get_async_client(
+                host=CLICKHOUSE_HOST,
+                port=CLICKHOUSE_PORT,
+                username=CLICKHOUSE_USER,
+                password=CLICKHOUSE_PASSWORD,
+                database=CLICKHOUSE_DB,
+                pool_mgr=get_pool(),
+            )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

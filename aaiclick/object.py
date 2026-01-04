@@ -7,8 +7,10 @@ and supports operations through operator overloading.
 
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
+
 import yaml
-from .ch_client import get_ch_client
+
+from .context import get_ch_client
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from . import operators

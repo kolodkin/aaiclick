@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .object import Object
 
+from .context import get_ch_client
 from .object import Object, ColumnMeta, FIELDTYPE_ARRAY
-from .ch_client import get_ch_client
 from .sql_template_loader import load_sql_template
 
 
