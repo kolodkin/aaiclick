@@ -137,6 +137,7 @@ class Object:
         Returns:
             Query result with all rows from the table
         """
+        self.checkstale()
         return await self.ch_client.query(f"SELECT * FROM {self.table}")
 
     async def data(self, orient: str = ORIENT_DICT):
@@ -153,6 +154,7 @@ class Object:
             - For array: returns list of values
             - For dict: returns dict or list of dicts based on orient
         """
+        self.checkstale()
         from . import data_extraction
 
         # Query column names and comments
@@ -189,6 +191,7 @@ class Object:
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
+        self.checkstale()
         columns_query = f"""
         SELECT comment FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
@@ -210,6 +213,7 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         from . import operators
 
         # Get SQL expression from operator mapping
@@ -615,6 +619,7 @@ class Object:
         Returns:
             float: Minimum value from the 'value' column
         """
+        self.checkstale()
         result = await self.ch_client.query(f"SELECT min(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -625,6 +630,7 @@ class Object:
         Returns:
             float: Maximum value from the 'value' column
         """
+        self.checkstale()
         result = await self.ch_client.query(f"SELECT max(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -635,6 +641,7 @@ class Object:
         Returns:
             float: Sum of values from the 'value' column
         """
+        self.checkstale()
         result = await self.ch_client.query(f"SELECT sum(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -645,6 +652,7 @@ class Object:
         Returns:
             float: Mean value from the 'value' column
         """
+        self.checkstale()
         result = await self.ch_client.query(f"SELECT avg(value) FROM {self.table}")
         return result.result_rows[0][0]
 
@@ -655,6 +663,7 @@ class Object:
         Returns:
             float: Standard deviation from the 'value' column
         """
+        self.checkstale()
         result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 
