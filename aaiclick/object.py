@@ -242,8 +242,8 @@ class Object:
             columns={"aai_id": "UInt64", "value": value_type}
         )
 
-        # Create result object with schema
-        result = await self._ctx.create_object(schema)
+        # Create result object with schema (not registered - caller manages lifecycle)
+        result = await self._ctx.create_object(schema, register=False)
 
         # Insert data based on fieldtype
         if fieldtype == FIELDTYPE_ARRAY:

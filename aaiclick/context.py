@@ -165,7 +165,7 @@ class Context:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-    async def create_object(self, schema: "Schema"):
+    async def create_object(self, schema: "Schema", register: bool = True):
         """
         Create a new Object with a ClickHouse table using the specified schema.
 
@@ -177,6 +177,9 @@ class Context:
                        fieldtype='a',
                        columns={"aai_id": "UInt64", "value": "Float64"}
                    )
+            register: Whether to register the object for automatic cleanup (default: True).
+                     Internal operations set this to False to allow result objects to
+                     outlive the context.
 
         Returns:
             Object: New Object instance with created table
@@ -217,7 +220,8 @@ class Context:
         """
         await self.ch_client.command(create_query)
 
-        self._register_object(obj)
+        if register:
+            self._register_object(obj)
         return obj
 
     async def create_object_from_value(self, val):

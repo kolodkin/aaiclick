@@ -54,8 +54,8 @@ async def copy(obj: Object) -> Object:
 
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
-    # Create result object with schema
-    result = await obj._ctx.create_object(schema)
+    # Create result object with schema (not registered - caller manages lifecycle)
+    result = await obj._ctx.create_object(schema, register=False)
 
     # Insert data from source table
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {obj.table}"
@@ -91,8 +91,8 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
         columns={"aai_id": "UInt64", "value": value_type}
     )
 
-    # Create result object with schema
-    result = await obj_a._ctx.create_object(schema)
+    # Create result object with schema (not registered - caller manages lifecycle)
+    result = await obj_a._ctx.create_object(schema, register=False)
 
     # Insert concatenated data
     insert_query = f"""
