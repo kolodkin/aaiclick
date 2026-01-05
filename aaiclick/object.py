@@ -56,13 +56,14 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    # Methods that access the database and should check stale status
+    # Methods and properties that access the database and should check stale status
     _DB_METHODS = frozenset({
         'result', 'data', 'copy', 'concat', 'min', 'max', 'sum', 'mean', 'std',
         '_apply_operator', '_get_fieldtype',
         '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
         '__mod__', '__pow__', '__eq__', '__ne__', '__lt__', '__le__',
-        '__gt__', '__ge__', '__and__', '__or__', '__xor__'
+        '__gt__', '__ge__', '__and__', '__or__', '__xor__',
+        'ctx', 'ch_client'
     })
 
     def __getattribute__(self, name):
