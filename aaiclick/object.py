@@ -5,10 +5,8 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING, Literal
+from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
 from dataclasses import dataclass
-
-import yaml
 
 if TYPE_CHECKING:
     from .context import Context
@@ -16,89 +14,16 @@ if TYPE_CHECKING:
 
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
-
-
-# ClickHouse column type literals
-ColumnType = Literal[
-    "UInt8", "UInt16", "UInt32", "UInt64",
-    "Int8", "Int16", "Int32", "Int64",
-    "Float32", "Float64",
-    "String", "FixedString",
-    "Date", "DateTime", "DateTime64",
-    "Bool", "UUID",
-    "Array", "Tuple", "Map", "Nested"
-]
-
-
-# Fieldtype constants
-FIELDTYPE_SCALAR = "s"
-FIELDTYPE_ARRAY = "a"
-FIELDTYPE_DICT = "d"
-
-# Orient constants for data() method
-ORIENT_DICT = "dict"
-ORIENT_RECORDS = "records"
-
-
-@dataclass
-class Schema:
-    """
-    Schema definition for creating Object tables.
-
-    Attributes:
-        fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column names to ClickHouse column types
-    """
-
-    fieldtype: str
-    columns: Dict[str, Union[ColumnType, str]]
-
-
-@dataclass
-class ColumnMeta:
-    """
-    Metadata for a column parsed from YAML comment.
-
-    Attributes:
-        fieldtype: 's' for scalar, 'a' for array
-    """
-
-    fieldtype: Optional[str] = None
-
-    def to_yaml(self) -> str:
-        """
-        Convert metadata to single-line YAML format for column comment.
-
-        Returns:
-            str: YAML string like "{fieldtype: a}"
-        """
-        if self.fieldtype is None:
-            return ""
-
-        return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
-
-    @classmethod
-    def from_yaml(cls, comment: str) -> "ColumnMeta":
-        """
-        Parse YAML from column comment string.
-
-        Args:
-            comment: Column comment string containing YAML
-
-        Returns:
-            ColumnMeta: Parsed metadata
-        """
-        if not comment or not comment.strip():
-            return cls()
-
-        try:
-            data = yaml.safe_load(comment)
-            if not isinstance(data, dict):
-                return cls()
-
-            return cls(fieldtype=data.get("fieldtype"))
-        except yaml.YAMLError:
-            return cls()
+from .models import (
+    Schema,
+    ColumnMeta,
+    ColumnType,
+    FIELDTYPE_SCALAR,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    ORIENT_DICT,
+    ORIENT_RECORDS,
+)
 
 
 @dataclass

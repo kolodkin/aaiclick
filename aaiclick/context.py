@@ -190,7 +190,8 @@ class Context:
             ...     )
             ...     obj = await ctx.create_object(schema)
         """
-        from .object import Object, ColumnMeta, FIELDTYPE_SCALAR
+        from .object import Object
+        from .models import ColumnMeta, FIELDTYPE_SCALAR
 
         obj = Object(self)
 

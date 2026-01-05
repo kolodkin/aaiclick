@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Union
 
-from .object import Object, ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
+from .object import Object
+from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from .sql_template_loader import load_sql_template
 from .factories import ValueType
 

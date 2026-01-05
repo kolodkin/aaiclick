@@ -14,7 +14,8 @@ from typing import Union, Dict, List
 import numpy as np
 
 from .context import Context
-from .object import Object, ColumnMeta, Schema, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .object import Object
+from .models import Schema, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
 
