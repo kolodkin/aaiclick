@@ -10,6 +10,85 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 - Automatic table naming with Snowflake IDs
 - Support for scalars, arrays, and dictionaries
 - Element-wise operations on arrays
+- Automatic lifecycle management and staleness detection
+
+## Object Lifecycle and Staleness
+
+### Context Management
+
+Objects are managed by a `Context` and automatically cleaned up when the context exits. All objects created within a context become **stale** when the context is closed.
+
+```python
+async with Context() as ctx:
+    obj = await ctx.create_object_from_value([1, 2, 3])
+    data = await obj.data()  # ✓ Works fine
+
+# Context exits, obj becomes stale
+
+data = await obj.data()  # ✗ RuntimeError: Cannot use stale Object
+```
+
+### Staleness Detection
+
+Objects have built-in staleness detection that prevents operations on stale objects:
+
+**Properties:**
+- `obj.stale` - Returns `True` if object is stale, `False` otherwise
+- `obj.ctx` - Raises `RuntimeError` if object is stale
+- `obj.ch_client` - Raises `RuntimeError` if object is stale
+
+**Methods:**
+- All async database methods call `self.checkstale()` at the start
+- Clear error message: `"Cannot use stale Object. Table 't123...' has been deleted."`
+
+### Explicit Staleness Check
+
+```python
+# Manual check
+obj.checkstale()  # Raises RuntimeError if stale
+
+# Check property
+if obj.stale:
+    print("Object is stale")
+```
+
+### Best Practices
+
+**✓ DO:**
+- Keep all object operations within the context manager
+- Create and use objects in the same context
+- Allow automatic cleanup on context exit
+
+```python
+async with Context() as ctx:
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([4, 5, 6])
+    result = await (a + b)
+    data = await result.data()  # All operations in context
+```
+
+**✗ DON'T:**
+- Store objects for use outside the context
+- Try to use objects after context exits
+- Pass objects between different contexts
+
+```python
+# Bad: Storing object for later use
+async with Context() as ctx:
+    obj = await ctx.create_object_from_value([1, 2, 3])
+
+data = await obj.data()  # Error! Object is stale
+```
+
+### Implementation Details
+
+Staleness is implemented through explicit checks:
+- Each async method calls `self.checkstale()` at execution time
+- Properties `ctx` and `ch_client` also call `self.checkstale()`
+- When context exits, all registered objects have their `_ctx` set to `None`
+- Any attempt to use a stale object raises a clear `RuntimeError`
+
+This provides robust protection against accessing deleted tables.
 
 ## Table Schema and Structure
 
