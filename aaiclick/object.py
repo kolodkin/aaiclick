@@ -582,6 +582,43 @@ class Object:
         from . import ingest
         return await ingest.concat(self, other)
 
+    async def insert(self, other: Union["Object", "ValueType"]) -> None:
+        """
+        Insert another object or value into this object in place.
+
+        Modifies self's table directly by appending rows/values from other.
+        Self must have array fieldtype. Other can be:
+        - An Object (array or scalar)
+        - A ValueType (scalar or list)
+
+        Unlike concat, this method modifies the table in place without creating a new object.
+
+        Args:
+            other: Another Object or value to insert
+
+        Raises:
+            ValueError: If self does not have array fieldtype
+
+        Examples:
+            >>> # Insert another Object
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> obj_b = await ctx.create_object_from_value([4, 5, 6])
+            >>> await obj_a.insert(obj_b)
+            >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5, 6]
+            >>>
+            >>> # Insert a scalar value
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> await obj_a.insert(42)
+            >>> await obj_a.data()  # Returns [1, 2, 3, 42]
+            >>>
+            >>> # Insert a list of values
+            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
+            >>> await obj_a.insert([4, 5])
+            >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5]
+        """
+        from . import ingest
+        await ingest.insert(self, other)
+
     async def min(self) -> float:
         """
         Calculate the minimum value from the object's table.
