@@ -72,8 +72,11 @@ async def test_context_with_operations():
 
 async def test_context_create_object_with_schema():
     """Test context with create_object using explicit schema."""
+    from aaiclick import Schema, FIELDTYPE_SCALAR
+
     async with Context() as ctx:
-        obj = await ctx.create_object("value Float64")
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Float64"})
+        obj = await ctx.create_object(schema)
         ch_client = await get_ch_client()
 
         # Insert some data
@@ -99,11 +102,14 @@ async def test_context_object_stale_flag(ctx):
 
 async def test_context_factory_methods():
     """Test using factory methods via context."""
+    from aaiclick import Schema, FIELDTYPE_SCALAR
+
     async with Context() as ctx:
         # Using create_object_from_value via context
         obj1 = await ctx.create_object_from_value([1, 2, 3])
         # Using create_object via context
-        obj2 = await ctx.create_object("value Int64")
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Int64"})
+        obj2 = await ctx.create_object(schema)
 
         assert not obj1.stale
         assert not obj2.stale
