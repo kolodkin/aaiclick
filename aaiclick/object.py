@@ -110,7 +110,7 @@ class Object:
     @property
     def ch_client(self):
         """Get the ClickHouse client from the context."""
-        return self._ctx.ch_client
+        return self.ctx.ch_client
 
     @property
     def stale(self) -> bool:
@@ -136,7 +136,7 @@ class Object:
         Returns:
             Query result with all rows from the table
         """
-        return await self._ctx.ch_client.query(f"SELECT * FROM {self.table}")
+        return await self.ch_client.query(f"SELECT * FROM {self.table}")
 
     async def data(self, orient: str = ORIENT_DICT):
         """
@@ -161,7 +161,7 @@ class Object:
         WHERE table = '{self.table}'
         ORDER BY position
         """
-        columns_result = await self._ctx.ch_client.query(columns_query)
+        columns_result = await self.ch_client.query(columns_query)
 
         # Parse YAML from comments and get column names
         columns: Dict[str, ColumnMeta] = {}
@@ -192,7 +192,7 @@ class Object:
         SELECT comment FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
         """
-        result = await self._ctx.ch_client.query(columns_query)
+        result = await self.ch_client.query(columns_query)
         if result.result_rows:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
@@ -222,14 +222,14 @@ class Object:
         SELECT type FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
         """
-        type_result_a = await self._ctx.ch_client.query(type_query_a)
+        type_result_a = await self.ch_client.query(type_query_a)
         type_a = type_result_a.result_rows[0][0] if type_result_a.result_rows else "Float64"
 
         type_query_b = f"""
         SELECT type FROM system.columns
         WHERE table = '{obj_b.table}' AND name = 'value'
         """
-        type_result_b = await self._ctx.ch_client.query(type_query_b)
+        type_result_b = await self.ch_client.query(type_query_b)
         type_b = type_result_b.result_rows[0][0] if type_result_b.result_rows else "Float64"
 
         # Determine result type: promote to Float64 if mixing integer and float types
@@ -253,7 +253,7 @@ class Object:
         )
 
         # Create result object with schema (registered for automatic cleanup)
-        result = await self._ctx.create_object(schema)
+        result = await self.ctx.create_object(schema)
 
         # Insert data based on fieldtype
         if fieldtype == FIELDTYPE_ARRAY:
@@ -273,7 +273,7 @@ class Object:
             FROM {self.table} AS a, {obj_b.table} AS b
             """
 
-        await self._ctx.ch_client.command(insert_query)
+        await self.ch_client.command(insert_query)
 
         return result
 
@@ -614,7 +614,7 @@ class Object:
         Returns:
             float: Minimum value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT min(value) FROM {self.table}")
+        result = await self.ch_client.query(f"SELECT min(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def max(self) -> float:
@@ -624,7 +624,7 @@ class Object:
         Returns:
             float: Maximum value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT max(value) FROM {self.table}")
+        result = await self.ch_client.query(f"SELECT max(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def sum(self) -> float:
@@ -634,7 +634,7 @@ class Object:
         Returns:
             float: Sum of values from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT sum(value) FROM {self.table}")
+        result = await self.ch_client.query(f"SELECT sum(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def mean(self) -> float:
@@ -644,7 +644,7 @@ class Object:
         Returns:
             float: Mean value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT avg(value) FROM {self.table}")
+        result = await self.ch_client.query(f"SELECT avg(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def std(self) -> float:
@@ -654,7 +654,7 @@ class Object:
         Returns:
             float: Standard deviation from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
+        result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     def __repr__(self) -> str:
