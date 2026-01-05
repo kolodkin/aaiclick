@@ -50,23 +50,18 @@ async def test_context_with_operations():
         a = await ctx.create_object_from_value([1, 2, 3])
         b = await ctx.create_object_from_value([4, 5, 6])
 
-        # Operations create new objects that are NOT tracked by context
+        # Operations create new objects that ARE tracked by context
         result = await (a + b)
         data = await result.data()
         assert data == [5, 7, 9]
 
         assert not a.stale
         assert not b.stale
-        # Result object is not tracked by context
         assert not result.stale
 
-    # Only a and b are stale, result is still alive
+    # All objects cleaned up when context exits
     assert a.stale
     assert b.stale
-    assert not result.stale
-
-    # Clean up result manually
-    await ctx.delete(result)
     assert result.stale
 
 
@@ -160,20 +155,16 @@ async def test_context_concat_operation():
         obj1 = await ctx.create_object_from_value([1, 2, 3])
         obj2 = await ctx.create_object_from_value([4, 5, 6])
 
-        # Concat creates a new object not tracked by context
+        # Concat creates a new object tracked by context
         result = await obj1.concat(obj2)
         data = await result.data()
         assert data == [1, 2, 3, 4, 5, 6]
 
         assert not result.stale
 
-    # Original objects are stale, result is not
+    # All objects cleaned up when context exits
     assert obj1.stale
     assert obj2.stale
-    assert not result.stale
-
-    # Clean up result
-    await ctx.delete(result)
     assert result.stale
 
 

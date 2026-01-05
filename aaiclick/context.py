@@ -178,8 +178,7 @@ class Context:
                        columns={"aai_id": "UInt64", "value": "Float64"}
                    )
             register: Whether to register the object for automatic cleanup (default: True).
-                     Internal operations set this to False to allow result objects to
-                     outlive the context.
+                     All objects are registered and cleaned up when context exits.
 
         Returns:
             Object: New Object instance with created table
