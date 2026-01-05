@@ -5,12 +5,10 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
-from dataclasses import dataclass
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from .context import Context
-    from .factories import ValueType
+from typing import Optional, Dict, List, Tuple, Any, Union
+from dataclasses import dataclass
 
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
@@ -56,7 +54,7 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(self, ctx: "Context", table: Optional[str] = None):
+    def __init__(self, ctx: Context, table: Optional[str] = None):
         """
         Initialize an Object.
 
@@ -74,7 +72,7 @@ class Object:
         return self._table_name
 
     @property
-    def ctx(self) -> "Context":
+    def ctx(self) -> Context:
         """Get the context managing this object."""
         self.checkstale()
         return self._ctx
@@ -174,7 +172,7 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
+    async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
         Apply an operator on two objects using SQL templates.
 
@@ -254,7 +252,7 @@ class Object:
 
         return result
 
-    async def __add__(self, other: "Object") -> "Object":
+    async def __add__(self, other: Object) -> Object:
         """
         Add two objects together.
 
@@ -271,7 +269,7 @@ class Object:
         self.checkstale()
         return await operators.add(self, other)
 
-    async def __sub__(self, other: "Object") -> "Object":
+    async def __sub__(self, other: Object) -> Object:
         """
         Subtract one object from another.
 
@@ -288,7 +286,7 @@ class Object:
         self.checkstale()
         return await operators.sub(self, other)
 
-    async def __mul__(self, other: "Object") -> "Object":
+    async def __mul__(self, other: Object) -> Object:
         """
         Multiply two objects together.
 
@@ -305,7 +303,7 @@ class Object:
         self.checkstale()
         return await operators.mul(self, other)
 
-    async def __truediv__(self, other: "Object") -> "Object":
+    async def __truediv__(self, other: Object) -> Object:
         """
         Divide one object by another.
 
@@ -322,7 +320,7 @@ class Object:
         self.checkstale()
         return await operators.truediv(self, other)
 
-    async def __floordiv__(self, other: "Object") -> "Object":
+    async def __floordiv__(self, other: Object) -> Object:
         """
         Floor divide one object by another.
 
@@ -339,7 +337,7 @@ class Object:
         self.checkstale()
         return await operators.floordiv(self, other)
 
-    async def __mod__(self, other: "Object") -> "Object":
+    async def __mod__(self, other: Object) -> Object:
         """
         Modulo operation between two objects.
 
@@ -356,7 +354,7 @@ class Object:
         self.checkstale()
         return await operators.mod(self, other)
 
-    async def __pow__(self, other: "Object") -> "Object":
+    async def __pow__(self, other: Object) -> Object:
         """
         Raise one object to the power of another.
 
@@ -373,7 +371,7 @@ class Object:
         self.checkstale()
         return await operators.pow(self, other)
 
-    async def __eq__(self, other: "Object") -> "Object":
+    async def __eq__(self, other: Object) -> Object:
         """
         Check equality between two objects.
 
@@ -390,7 +388,7 @@ class Object:
         self.checkstale()
         return await operators.eq(self, other)
 
-    async def __ne__(self, other: "Object") -> "Object":
+    async def __ne__(self, other: Object) -> Object:
         """
         Check inequality between two objects.
 
@@ -407,7 +405,7 @@ class Object:
         self.checkstale()
         return await operators.ne(self, other)
 
-    async def __lt__(self, other: "Object") -> "Object":
+    async def __lt__(self, other: Object) -> Object:
         """
         Check if one object is less than another.
 
@@ -424,7 +422,7 @@ class Object:
         self.checkstale()
         return await operators.lt(self, other)
 
-    async def __le__(self, other: "Object") -> "Object":
+    async def __le__(self, other: Object) -> Object:
         """
         Check if one object is less than or equal to another.
 
@@ -441,7 +439,7 @@ class Object:
         self.checkstale()
         return await operators.le(self, other)
 
-    async def __gt__(self, other: "Object") -> "Object":
+    async def __gt__(self, other: Object) -> Object:
         """
         Check if one object is greater than another.
 
@@ -458,7 +456,7 @@ class Object:
         self.checkstale()
         return await operators.gt(self, other)
 
-    async def __ge__(self, other: "Object") -> "Object":
+    async def __ge__(self, other: Object) -> Object:
         """
         Check if one object is greater than or equal to another.
 
@@ -475,7 +473,7 @@ class Object:
         self.checkstale()
         return await operators.ge(self, other)
 
-    async def __and__(self, other: "Object") -> "Object":
+    async def __and__(self, other: Object) -> Object:
         """
         Bitwise AND operation between two objects.
 
@@ -492,7 +490,7 @@ class Object:
         self.checkstale()
         return await operators.and_(self, other)
 
-    async def __or__(self, other: "Object") -> "Object":
+    async def __or__(self, other: Object) -> Object:
         """
         Bitwise OR operation between two objects.
 
@@ -509,7 +507,7 @@ class Object:
         self.checkstale()
         return await operators.or_(self, other)
 
-    async def __xor__(self, other: "Object") -> "Object":
+    async def __xor__(self, other: Object) -> Object:
         """
         Bitwise XOR operation between two objects.
 

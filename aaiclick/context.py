@@ -101,7 +101,7 @@ class Context:
             )
         return self._ch_client
 
-    def _register_object(self, obj: "Object") -> None:
+    def _register_object(self, obj: Object) -> None:
         """
         Register an Object to be tracked by this context.
 
@@ -134,7 +134,7 @@ class Context:
 
         return False
 
-    async def _delete_object(self, obj: "Object") -> None:
+    async def _delete_object(self, obj: Object) -> None:
         """
         Internal method to delete an object's table and mark it as stale.
 
@@ -144,7 +144,7 @@ class Context:
         await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
         obj._ctx = None
 
-    async def delete(self, obj: "Object") -> None:
+    async def delete(self, obj: Object) -> None:
         """
         Delete an Object's table and mark it as stale.
 
@@ -167,7 +167,7 @@ class Context:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-    async def create_object(self, schema: "Schema"):
+    async def create_object(self, schema: Schema):
         """
         Create a new Object with a ClickHouse table using the specified schema.
 
