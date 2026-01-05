@@ -5,7 +5,7 @@ This module provides a context manager that manages the lifecycle of Objects cre
 within its scope, automatically cleaning up tables when the context exits.
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
 import weakref
 
 from clickhouse_connect import get_async_client
@@ -19,6 +19,10 @@ from .env import (
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_DB,
 )
+
+if TYPE_CHECKING:
+    from .object import Object
+    from .models import Schema
 
 
 # Global connection pool shared across all Context instances
@@ -99,7 +103,7 @@ class Context:
             )
         return self._ch_client
 
-    def _register_object(self, obj: "Object") -> None:
+    def _register_object(self, obj: Object) -> None:
         """
         Register an Object to be tracked by this context.
 
@@ -132,7 +136,7 @@ class Context:
 
         return False
 
-    async def _delete_object(self, obj: "Object") -> None:
+    async def _delete_object(self, obj: Object) -> None:
         """
         Internal method to delete an object's table and mark it as stale.
 
@@ -142,7 +146,7 @@ class Context:
         await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
         obj._ctx = None
 
-    async def delete(self, obj: "Object") -> None:
+    async def delete(self, obj: Object) -> None:
         """
         Delete an Object's table and mark it as stale.
 
@@ -165,7 +169,7 @@ class Context:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-    async def create_object(self, schema: "Schema"):
+    async def create_object(self, schema: Schema):
         """
         Create a new Object with a ClickHouse table using the specified schema.
 
