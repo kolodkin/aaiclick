@@ -103,6 +103,16 @@ class Object:
         return self._table_name
 
     @property
+    def ctx(self) -> "Context":
+        """Get the context managing this object."""
+        return self._ctx
+
+    @property
+    def ch_client(self):
+        """Get the ClickHouse client from the context."""
+        return self._ctx.ch_client
+
+    @property
     def stale(self) -> bool:
         """Check if this object's context has been cleaned up."""
         return self._ctx is None
