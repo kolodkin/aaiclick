@@ -23,7 +23,6 @@ from .snowflake import get_snowflake_ids
 ValueScalarType = Union[int, float, bool, str]
 ValueListType = Union[List[int], List[float], List[bool], List[str]]
 ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
-Schema = Union[str, List[str]]
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
