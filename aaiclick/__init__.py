@@ -11,10 +11,11 @@ __version__ = "0.1.0"
 from .context import Context, get_ch_client
 
 # Import core objects
-from .object import (
-    Object,
-    DataResult,
+from .object import Object, DataResult
+from .models import (
+    Schema,
     ColumnMeta,
+    ColumnType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,

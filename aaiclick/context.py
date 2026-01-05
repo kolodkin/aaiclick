@@ -5,6 +5,8 @@ This module provides a context manager that manages the lifecycle of Objects cre
 within its scope, automatically cleaning up tables when the context exits.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Dict
 import weakref
 
@@ -99,7 +101,7 @@ class Context:
             )
         return self._ch_client
 
-    def _register_object(self, obj: "Object") -> None:
+    def _register_object(self, obj: Object) -> None:
         """
         Register an Object to be tracked by this context.
 
@@ -132,7 +134,7 @@ class Context:
 
         return False
 
-    async def _delete_object(self, obj: "Object") -> None:
+    async def _delete_object(self, obj: Object) -> None:
         """
         Internal method to delete an object's table and mark it as stale.
 
@@ -142,7 +144,7 @@ class Context:
         await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
         obj._ctx = None
 
-    async def delete(self, obj: "Object") -> None:
+    async def delete(self, obj: Object) -> None:
         """
         Delete an Object's table and mark it as stale.
 
@@ -165,27 +167,59 @@ class Context:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-    async def create_object(self, schema):
+    async def create_object(self, schema: Schema):
         """
         Create a new Object with a ClickHouse table using the specified schema.
 
+        This is the ONLY method that creates Objects and their tables in the entire codebase.
+        All objects are automatically registered and cleaned up when context exits.
+
         Args:
-            schema: Column definition(s). Can be:
-                - str: Single column definition (e.g., "value Float64")
-                - list[str]: Multiple column definitions (e.g., ["id Int64", "value Float64"])
+            schema: Schema dataclass with fieldtype and columns dict.
+                   Example: Schema(
+                       fieldtype='a',
+                       columns={"aai_id": "UInt64", "value": "Float64"}
+                   )
 
         Returns:
             Object: New Object instance with created table
 
         Examples:
             >>> async with Context() as ctx:
-            ...     obj = await ctx.create_object("value Float64")
-            ...     # Multiple columns
-            ...     obj2 = await ctx.create_object(["id Int64", "name String"])
+            ...     from aaiclick.object import Schema
+            ...     schema = Schema(
+            ...         fieldtype='a',
+            ...         columns={"aai_id": "UInt64", "value": "Float64"}
+            ...     )
+            ...     obj = await ctx.create_object(schema)
         """
-        from .factories import create_object
+        from .object import Object
+        from .models import ColumnMeta, FIELDTYPE_SCALAR
 
-        obj = await create_object(schema, ctx=self)
+        obj = Object(self)
+
+        # Build column definitions with comments derived from fieldtype
+        columns = []
+        for name, col_type in schema.columns.items():
+            col_def = f"{name} {col_type}"
+            # Determine comment based on column name and schema fieldtype
+            if name == "aai_id":
+                comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+            else:
+                comment = ColumnMeta(fieldtype=schema.fieldtype).to_yaml()
+
+            if comment:
+                col_def += f" COMMENT '{comment}'"
+            columns.append(col_def)
+
+        # Create table with all columns and comments in single query
+        create_query = f"""
+        CREATE TABLE {obj.table} (
+            {', '.join(columns)}
+        ) ENGINE = MergeTree ORDER BY tuple()
+        """
+        await self.ch_client.command(create_query)
+
         self._register_object(obj)
         return obj
 

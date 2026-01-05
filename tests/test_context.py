@@ -50,30 +50,28 @@ async def test_context_with_operations():
         a = await ctx.create_object_from_value([1, 2, 3])
         b = await ctx.create_object_from_value([4, 5, 6])
 
-        # Operations create new objects that are NOT tracked by context
+        # Operations create new objects that ARE tracked by context
         result = await (a + b)
         data = await result.data()
         assert data == [5, 7, 9]
 
         assert not a.stale
         assert not b.stale
-        # Result object is not tracked by context
         assert not result.stale
 
-    # Only a and b are stale, result is still alive
+    # All objects cleaned up when context exits
     assert a.stale
     assert b.stale
-    assert not result.stale
-
-    # Clean up result manually
-    await ctx.delete(result)
     assert result.stale
 
 
 async def test_context_create_object_with_schema():
     """Test context with create_object using explicit schema."""
+    from aaiclick import Schema, FIELDTYPE_SCALAR
+
     async with Context() as ctx:
-        obj = await ctx.create_object("value Float64")
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Float64"})
+        obj = await ctx.create_object(schema)
         ch_client = await get_ch_client()
 
         # Insert some data
@@ -99,11 +97,14 @@ async def test_context_object_stale_flag(ctx):
 
 async def test_context_factory_methods():
     """Test using factory methods via context."""
+    from aaiclick import Schema, FIELDTYPE_SCALAR
+
     async with Context() as ctx:
         # Using create_object_from_value via context
         obj1 = await ctx.create_object_from_value([1, 2, 3])
         # Using create_object via context
-        obj2 = await ctx.create_object("value Int64")
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Int64"})
+        obj2 = await ctx.create_object(schema)
 
         assert not obj1.stale
         assert not obj2.stale
@@ -154,20 +155,16 @@ async def test_context_concat_operation():
         obj1 = await ctx.create_object_from_value([1, 2, 3])
         obj2 = await ctx.create_object_from_value([4, 5, 6])
 
-        # Concat creates a new object not tracked by context
+        # Concat creates a new object tracked by context
         result = await obj1.concat(obj2)
         data = await result.data()
         assert data == [1, 2, 3, 4, 5, 6]
 
         assert not result.stale
 
-    # Original objects are stale, result is not
+    # All objects cleaned up when context exits
     assert obj1.stale
     assert obj2.stale
-    assert not result.stale
-
-    # Clean up result
-    await ctx.delete(result)
     assert result.stale
 
 

@@ -5,74 +5,23 @@ This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
 """
 
-from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
-
-import yaml
-
-if TYPE_CHECKING:
-    from .context import Context
-    from .factories import ValueType
 
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
-
-
-# Fieldtype constants
-FIELDTYPE_SCALAR = "s"
-FIELDTYPE_ARRAY = "a"
-FIELDTYPE_DICT = "d"
-
-# Orient constants for data() method
-ORIENT_DICT = "dict"
-ORIENT_RECORDS = "records"
-
-
-@dataclass
-class ColumnMeta:
-    """
-    Metadata for a column parsed from YAML comment.
-
-    Attributes:
-        fieldtype: 's' for scalar, 'a' for array
-    """
-
-    fieldtype: Optional[str] = None
-
-    def to_yaml(self) -> str:
-        """
-        Convert metadata to single-line YAML format for column comment.
-
-        Returns:
-            str: YAML string like "{fieldtype: a}"
-        """
-        if self.fieldtype is None:
-            return ""
-
-        return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
-
-    @classmethod
-    def from_yaml(cls, comment: str) -> "ColumnMeta":
-        """
-        Parse YAML from column comment string.
-
-        Args:
-            comment: Column comment string containing YAML
-
-        Returns:
-            ColumnMeta: Parsed metadata
-        """
-        if not comment or not comment.strip():
-            return cls()
-
-        try:
-            data = yaml.safe_load(comment)
-            if not isinstance(data, dict):
-                return cls()
-
-            return cls(fieldtype=data.get("fieldtype"))
-        except yaml.YAMLError:
-            return cls()
+from .models import (
+    Schema,
+    ColumnMeta,
+    ColumnType,
+    FIELDTYPE_SCALAR,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    ORIENT_DICT,
+    ORIENT_RECORDS,
+)
 
 
 @dataclass
@@ -105,36 +54,7 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    # Methods that access the database and should check stale status
-    _DB_METHODS = frozenset({
-        'result', 'data', 'copy', 'concat', 'min', 'max', 'sum', 'mean', 'std',
-        '_apply_operator', '_get_fieldtype',
-        '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
-        '__mod__', '__pow__', '__eq__', '__ne__', '__lt__', '__le__',
-        '__gt__', '__ge__', '__and__', '__or__', '__xor__'
-    })
-
-    def __getattribute__(self, name):
-        """
-        Override attribute access to check stale status before database operations.
-
-        Raises:
-            RuntimeError: If attempting to call a database method on a stale object
-        """
-        # Get the attribute using object's __getattribute__ to avoid recursion
-        attr = object.__getattribute__(self, name)
-
-        # Check if this is a DB method and if object is stale (context is None)
-        if name in object.__getattribute__(self, '_DB_METHODS'):
-            if object.__getattribute__(self, '_ctx') is None:
-                table_name = object.__getattribute__(self, '_table_name')
-                raise RuntimeError(
-                    f"Cannot use stale Object. Table '{table_name}' has been deleted."
-                )
-
-        return attr
-
-    def __init__(self, ctx: "Context", table: Optional[str] = None):
+    def __init__(self, ctx: Context, table: Optional[str] = None):
         """
         Initialize an Object.
 
@@ -150,6 +70,18 @@ class Object:
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
+
+    @property
+    def ctx(self) -> Context:
+        """Get the context managing this object."""
+        self.checkstale()
+        return self._ctx
+
+    @property
+    def ch_client(self):
+        """Get the ClickHouse client from the context."""
+        self.checkstale()
+        return self.ctx.ch_client
 
     @property
     def stale(self) -> bool:
@@ -175,7 +107,8 @@ class Object:
         Returns:
             Query result with all rows from the table
         """
-        return await self._ctx.ch_client.query(f"SELECT * FROM {self.table}")
+        self.checkstale()
+        return await self.ch_client.query(f"SELECT * FROM {self.table}")
 
     async def data(self, orient: str = ORIENT_DICT):
         """
@@ -191,6 +124,7 @@ class Object:
             - For array: returns list of values
             - For dict: returns dict or list of dicts based on orient
         """
+        self.checkstale()
         from . import data_extraction
 
         # Query column names and comments
@@ -200,7 +134,7 @@ class Object:
         WHERE table = '{self.table}'
         ORDER BY position
         """
-        columns_result = await self._ctx.ch_client.query(columns_query)
+        columns_result = await self.ch_client.query(columns_query)
 
         # Parse YAML from comments and get column names
         columns: Dict[str, ColumnMeta] = {}
@@ -227,17 +161,18 @@ class Object:
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
+        self.checkstale()
         columns_query = f"""
         SELECT comment FROM system.columns
         WHERE table = '{self.table}' AND name = 'value'
         """
-        result = await self._ctx.ch_client.query(columns_query)
+        result = await self.ch_client.query(columns_query)
         if result.result_rows:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
         return None
 
-    async def _apply_operator(self, obj_b: "Object", operator: str) -> "Object":
+    async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
         Apply an operator on two objects using SQL templates.
 
@@ -248,41 +183,76 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
+        self.checkstale()
         from . import operators
 
         # Get SQL expression from operator mapping
         expression = operators.OPERATOR_EXPRESSIONS[operator]
 
-        result = Object(self._ctx)
-
         # Check if operating on scalars or arrays
         fieldtype = await self._get_fieldtype()
 
-        # Choose template based on fieldtype
-        if fieldtype == FIELDTYPE_ARRAY:
-            # Array operation - use array template
-            template = load_sql_template("apply_op_array")
+        # Get value column types from both operands
+        type_query_a = f"""
+        SELECT type FROM system.columns
+        WHERE table = '{self.table}' AND name = 'value'
+        """
+        type_result_a = await self.ch_client.query(type_query_a)
+        type_a = type_result_a.result_rows[0][0] if type_result_a.result_rows else "Float64"
+
+        type_query_b = f"""
+        SELECT type FROM system.columns
+        WHERE table = '{obj_b.table}' AND name = 'value'
+        """
+        type_result_b = await self.ch_client.query(type_query_b)
+        type_b = type_result_b.result_rows[0][0] if type_result_b.result_rows else "Float64"
+
+        # Determine result type: promote to Float64 if mixing integer and float types
+        int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+        float_types = {"Float32", "Float64"}
+
+        if (type_a in int_types and type_b in float_types) or (type_a in float_types and type_b in int_types):
+            # Mixed types: promote to Float64
+            value_type = "Float64"
+        elif type_a in float_types or type_b in float_types:
+            # At least one float: use Float64
+            value_type = "Float64"
         else:
-            # Scalar operation - use scalar template
-            template = load_sql_template("apply_op_scalar")
+            # Both same category: use first operand's type
+            value_type = type_a
 
-        create_query = template.format(
-            result_table=result.table,
-            expression=expression,
-            left_table=self.table,
-            right_table=obj_b.table
+        # Build schema for result table
+        schema = Schema(
+            fieldtype=fieldtype,
+            columns={"aai_id": "UInt64", "value": value_type}
         )
-        await self._ctx.ch_client.command(create_query)
 
-        # Add comments (all results now have aai_id)
-        aai_id_comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-        value_comment = ColumnMeta(fieldtype=fieldtype).to_yaml()
-        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN aai_id '{aai_id_comment}'")
-        await self._ctx.ch_client.command(f"ALTER TABLE {result.table} COMMENT COLUMN value '{value_comment}'")
+        # Create result object with schema (registered for automatic cleanup)
+        result = await self.ctx.create_object(schema)
+
+        # Insert data based on fieldtype
+        if fieldtype == FIELDTYPE_ARRAY:
+            # Array operation
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT a.rn as aai_id, {expression} AS value
+            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
+            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {obj_b.table}) AS b
+            ON a.rn = b.rn
+            """
+        else:
+            # Scalar operation
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT 1 AS aai_id, {expression} AS value
+            FROM {self.table} AS a, {obj_b.table} AS b
+            """
+
+        await self.ch_client.command(insert_query)
 
         return result
 
-    async def __add__(self, other: "Object") -> "Object":
+    async def __add__(self, other: Object) -> Object:
         """
         Add two objects together.
 
@@ -299,7 +269,7 @@ class Object:
         self.checkstale()
         return await operators.add(self, other)
 
-    async def __sub__(self, other: "Object") -> "Object":
+    async def __sub__(self, other: Object) -> Object:
         """
         Subtract one object from another.
 
@@ -316,7 +286,7 @@ class Object:
         self.checkstale()
         return await operators.sub(self, other)
 
-    async def __mul__(self, other: "Object") -> "Object":
+    async def __mul__(self, other: Object) -> Object:
         """
         Multiply two objects together.
 
@@ -333,7 +303,7 @@ class Object:
         self.checkstale()
         return await operators.mul(self, other)
 
-    async def __truediv__(self, other: "Object") -> "Object":
+    async def __truediv__(self, other: Object) -> Object:
         """
         Divide one object by another.
 
@@ -350,7 +320,7 @@ class Object:
         self.checkstale()
         return await operators.truediv(self, other)
 
-    async def __floordiv__(self, other: "Object") -> "Object":
+    async def __floordiv__(self, other: Object) -> Object:
         """
         Floor divide one object by another.
 
@@ -367,7 +337,7 @@ class Object:
         self.checkstale()
         return await operators.floordiv(self, other)
 
-    async def __mod__(self, other: "Object") -> "Object":
+    async def __mod__(self, other: Object) -> Object:
         """
         Modulo operation between two objects.
 
@@ -384,7 +354,7 @@ class Object:
         self.checkstale()
         return await operators.mod(self, other)
 
-    async def __pow__(self, other: "Object") -> "Object":
+    async def __pow__(self, other: Object) -> Object:
         """
         Raise one object to the power of another.
 
@@ -401,7 +371,7 @@ class Object:
         self.checkstale()
         return await operators.pow(self, other)
 
-    async def __eq__(self, other: "Object") -> "Object":
+    async def __eq__(self, other: Object) -> Object:
         """
         Check equality between two objects.
 
@@ -418,7 +388,7 @@ class Object:
         self.checkstale()
         return await operators.eq(self, other)
 
-    async def __ne__(self, other: "Object") -> "Object":
+    async def __ne__(self, other: Object) -> Object:
         """
         Check inequality between two objects.
 
@@ -435,7 +405,7 @@ class Object:
         self.checkstale()
         return await operators.ne(self, other)
 
-    async def __lt__(self, other: "Object") -> "Object":
+    async def __lt__(self, other: Object) -> Object:
         """
         Check if one object is less than another.
 
@@ -452,7 +422,7 @@ class Object:
         self.checkstale()
         return await operators.lt(self, other)
 
-    async def __le__(self, other: "Object") -> "Object":
+    async def __le__(self, other: Object) -> Object:
         """
         Check if one object is less than or equal to another.
 
@@ -469,7 +439,7 @@ class Object:
         self.checkstale()
         return await operators.le(self, other)
 
-    async def __gt__(self, other: "Object") -> "Object":
+    async def __gt__(self, other: Object) -> Object:
         """
         Check if one object is greater than another.
 
@@ -486,7 +456,7 @@ class Object:
         self.checkstale()
         return await operators.gt(self, other)
 
-    async def __ge__(self, other: "Object") -> "Object":
+    async def __ge__(self, other: Object) -> Object:
         """
         Check if one object is greater than or equal to another.
 
@@ -503,7 +473,7 @@ class Object:
         self.checkstale()
         return await operators.ge(self, other)
 
-    async def __and__(self, other: "Object") -> "Object":
+    async def __and__(self, other: Object) -> Object:
         """
         Bitwise AND operation between two objects.
 
@@ -520,7 +490,7 @@ class Object:
         self.checkstale()
         return await operators.and_(self, other)
 
-    async def __or__(self, other: "Object") -> "Object":
+    async def __or__(self, other: Object) -> Object:
         """
         Bitwise OR operation between two objects.
 
@@ -537,7 +507,7 @@ class Object:
         self.checkstale()
         return await operators.or_(self, other)
 
-    async def __xor__(self, other: "Object") -> "Object":
+    async def __xor__(self, other: Object) -> Object:
         """
         Bitwise XOR operation between two objects.
 
@@ -619,7 +589,8 @@ class Object:
         Returns:
             float: Minimum value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT min(value) FROM {self.table}")
+        self.checkstale()
+        result = await self.ch_client.query(f"SELECT min(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def max(self) -> float:
@@ -629,7 +600,8 @@ class Object:
         Returns:
             float: Maximum value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT max(value) FROM {self.table}")
+        self.checkstale()
+        result = await self.ch_client.query(f"SELECT max(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def sum(self) -> float:
@@ -639,7 +611,8 @@ class Object:
         Returns:
             float: Sum of values from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT sum(value) FROM {self.table}")
+        self.checkstale()
+        result = await self.ch_client.query(f"SELECT sum(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def mean(self) -> float:
@@ -649,7 +622,8 @@ class Object:
         Returns:
             float: Mean value from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT avg(value) FROM {self.table}")
+        self.checkstale()
+        result = await self.ch_client.query(f"SELECT avg(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     async def std(self) -> float:
@@ -659,7 +633,8 @@ class Object:
         Returns:
             float: Standard deviation from the 'value' column
         """
-        result = await self._ctx.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
+        self.checkstale()
+        result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 
     def __repr__(self) -> str:
