@@ -64,6 +64,45 @@ async def copy(obj: Object) -> Object:
     return result
 
 
+def _are_types_compatible(target_type: str, source_type: str) -> bool:
+    """
+    Check if source_type can be inserted into target_type.
+
+    ClickHouse allows casting between numeric types (Int*, UInt*, Float*),
+    but not between numeric and string types.
+
+    Args:
+        target_type: ClickHouse type of target column
+        source_type: ClickHouse type of source column
+
+    Returns:
+        bool: True if types are compatible for insertion
+    """
+    # Exact match is always compatible
+    if target_type == source_type:
+        return True
+
+    # Define numeric type families
+    int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+    float_types = {"Float32", "Float64"}
+    numeric_types = int_types | float_types
+
+    # Check if both are numeric types (compatible)
+    if target_type in numeric_types and source_type in numeric_types:
+        return True
+
+    # String types
+    string_types = {"String", "FixedString"}
+
+    # Numeric and string types are incompatible
+    if (target_type in numeric_types and source_type in string_types) or \
+       (target_type in string_types and source_type in numeric_types):
+        return False
+
+    # For other types, be conservative and reject
+    return False
+
+
 async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     """
     Concatenate two objects together.
@@ -230,7 +269,32 @@ async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
     Args:
         obj_a: Target Object (must have array fieldtype)
         obj_b: Source Object (array or scalar)
+
+    Raises:
+        ValueError: If value types are incompatible
     """
+    # Get the value type from target object
+    target_type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{obj_a.table}' AND name = 'value'
+    """
+    target_type_result = await obj_a.ch_client.query(target_type_query)
+    target_value_type = target_type_result.result_rows[0][0] if target_type_result.result_rows else "String"
+
+    # Get the value type from source object
+    source_type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{obj_b.table}' AND name = 'value'
+    """
+    source_type_result = await obj_a.ch_client.query(source_type_query)
+    source_value_type = source_type_result.result_rows[0][0] if source_type_result.result_rows else "String"
+
+    # Validate type compatibility
+    if not _are_types_compatible(target_value_type, source_value_type):
+        raise ValueError(
+            f"Cannot insert {source_value_type} into {target_value_type}: types are incompatible"
+        )
+
     # Get max aai_id from target table
     max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
     max_id_result = await obj_a.ch_client.query(max_id_query)
@@ -239,7 +303,8 @@ async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
     # Insert data from obj_b with renumbered aai_ids
     insert_query = f"""
     INSERT INTO {obj_a.table}
-    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id, value
+    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id,
+           CAST(value AS {target_value_type}) as value
     FROM {obj_b.table}
     """
     await obj_a.ch_client.command(insert_query)
@@ -254,11 +319,38 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
     Args:
         obj_a: Target Object (must have array fieldtype)
         value: Value to insert (scalar or list)
+
+    Raises:
+        ValueError: If value types are incompatible
     """
     from .factories import create_object_from_value
 
     # Create a temporary object from the value
     temp_obj = await create_object_from_value(value, obj_a.ctx)
+
+    # Get the value type from temp object
+    temp_type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{temp_obj.table}' AND name = 'value'
+    """
+    temp_type_result = await obj_a.ch_client.query(temp_type_query)
+    temp_value_type = temp_type_result.result_rows[0][0] if temp_type_result.result_rows else "String"
+
+    # Get the value type from target object
+    target_type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{obj_a.table}' AND name = 'value'
+    """
+    target_type_result = await obj_a.ch_client.query(target_type_query)
+    target_value_type = target_type_result.result_rows[0][0] if target_type_result.result_rows else "String"
+
+    # Validate type compatibility
+    if not _are_types_compatible(target_value_type, temp_value_type):
+        # Delete the temporary object before raising error
+        await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
+        raise ValueError(
+            f"Cannot insert {temp_value_type} into {target_value_type}: types are incompatible"
+        )
 
     # Get the data from temp object
     temp_data_query = f"SELECT value FROM {temp_obj.table}"
@@ -271,14 +363,14 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
         max_id_result = await obj_a.ch_client.query(max_id_query)
         next_id = (max_id_result.result_rows[0][0] or 0) + 1
 
-        # Build insert data
-        data = []
-        for row in temp_result.result_rows:
-            data.append([next_id, row[0]])
-            next_id += 1
-
-        # Use clickhouse-connect's built-in insert
-        await obj_a.ch_client.insert(obj_a.table, data)
+        # Insert with type casting
+        insert_select_query = f"""
+        INSERT INTO {obj_a.table}
+        SELECT {next_id} + row_number() OVER (ORDER BY aai_id) - 1 as aai_id,
+               CAST(value AS {target_value_type}) as value
+        FROM {temp_obj.table}
+        """
+        await obj_a.ch_client.command(insert_select_query)
 
     # Delete the temporary object
     await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
