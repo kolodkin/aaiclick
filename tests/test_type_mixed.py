@@ -387,3 +387,80 @@ async def test_mixed_int_string_concat_fails(ctx):
     with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
         await a.concat(b)
 
+
+# =============================================================================
+# Insert Tests with Mixed Types
+# =============================================================================
+
+
+async def test_mixed_int_float_insert_fails(ctx):
+    """Test that inserting float array into int array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([4.5, 5.5, 6.5])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.insert(b)
+
+
+async def test_mixed_float_int_insert_fails(ctx):
+    """Test that inserting int array into float array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await ctx.create_object_from_value([1.5, 2.5, 3.5])
+    b = await ctx.create_object_from_value([4, 5, 6])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.insert(b)
+
+
+async def test_mixed_int_string_insert_fails(ctx):
+    """Test that inserting string array into int array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value(["a", "b", "c"])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.insert(b)
+
+
+async def test_mixed_insert_float_value_into_int_fails(ctx):
+    """Test that inserting float value into int array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.insert(4.5)
+
+
+async def test_mixed_insert_float_list_into_int_fails(ctx):
+    """Test that inserting float list into int array fails with type error."""
+    import pytest
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+        await a.insert([4.5, 5.5])
+
+
+async def test_mixed_insert_modifies_in_place(ctx):
+    """Test that insert with same type modifies the original object."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+    original_table = a.table
+
+    await a.insert([4, 5])
+    data = await a.data()
+
+    # Verify data was inserted
+    assert data == [1, 2, 3, 4, 5]
+    # Verify table name unchanged (in-place modification)
+    assert a.table == original_table
+
