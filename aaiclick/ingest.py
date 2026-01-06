@@ -103,6 +103,39 @@ def _are_types_compatible(target_type: str, source_type: str) -> bool:
     return False
 
 
+async def _concat_preserve_ids(result: Object, obj_a: Object, obj_b: Object) -> None:
+    """
+    Concat by preserving original aai_ids from both objects.
+
+    Used when min(obj_b) > max(obj_a), so no ID conflicts exist.
+    """
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT aai_id, value FROM {obj_a.table}
+    UNION ALL
+    SELECT aai_id, value FROM {obj_b.table}
+    ORDER BY aai_id
+    """
+    await obj_a.ch_client.command(insert_query)
+
+
+async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max_a_id: int) -> None:
+    """
+    Concat by preserving obj_a IDs but renumbering obj_b IDs.
+
+    Used when there's an ID conflict (min(obj_b) <= max(obj_a)).
+    """
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT aai_id, value FROM {obj_a.table}
+    UNION ALL
+    SELECT row_number() OVER (ORDER BY aai_id) + {max_a_id} as aai_id, value
+    FROM {obj_b.table}
+    ORDER BY aai_id
+    """
+    await obj_a.ch_client.command(insert_query)
+
+
 async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     """
     Concatenate two objects together.
@@ -143,28 +176,13 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     min_b_result = await obj_a.ch_client.query(min_b_query)
     min_b_id = min_b_result.result_rows[0][0]
 
-    # Check if there's an ID conflict
+    # Dispatch based on ID conflict check
     if min_b_id is not None and min_b_id <= max_a_id:
-        # ID conflict: renumber obj_b's IDs to come after obj_a
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, value FROM {obj_a.table}
-        UNION ALL
-        SELECT row_number() OVER (ORDER BY aai_id) + {max_a_id} as aai_id, value
-        FROM {obj_b.table}
-        ORDER BY aai_id
-        """
+        # ID conflict: renumber obj_b
+        await _concat_renumber_ids(result, obj_a, obj_b, max_a_id)
     else:
-        # No conflict: preserve original IDs
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, value FROM {obj_a.table}
-        UNION ALL
-        SELECT aai_id, value FROM {obj_b.table}
-        ORDER BY aai_id
-        """
-
-    await obj_a.ch_client.command(insert_query)
+        # No conflict: preserve IDs
+        await _concat_preserve_ids(result, obj_a, obj_b)
 
     return result
 
@@ -281,6 +299,21 @@ async def concat(obj_a: Object, obj_b: Union[Object, ValueType]) -> Object:
         return await _concat_value_to_object(obj_a, obj_b)
 
 
+async def _insert_renumber_ids(obj_a: Object, obj_b: Object, next_id: int, target_value_type: str) -> None:
+    """
+    Insert obj_b into obj_a with sequential ID renumbering.
+
+    Always renumbers obj_b's IDs to start from next_id for sequential ordering.
+    """
+    insert_query = f"""
+    INSERT INTO {obj_a.table}
+    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id,
+           CAST(value AS {target_value_type}) as value
+    FROM {obj_b.table}
+    """
+    await obj_a.ch_client.command(insert_query)
+
+
 async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
     """
     Insert data from obj_b into obj_a in place.
@@ -321,14 +354,8 @@ async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
     max_id_result = await obj_a.ch_client.query(max_id_query)
     next_id = (max_id_result.result_rows[0][0] or 0) + 1
 
-    # Insert data from obj_b with renumbered aai_ids
-    insert_query = f"""
-    INSERT INTO {obj_a.table}
-    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id,
-           CAST(value AS {target_value_type}) as value
-    FROM {obj_b.table}
-    """
-    await obj_a.ch_client.command(insert_query)
+    # Always renumber for insert (maintains sequential IDs)
+    await _insert_renumber_ids(obj_a, obj_b, next_id, target_value_type)
 
 
 async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
