@@ -248,6 +248,6 @@ class Context:
         """
         from .factories import create_object_from_value
 
-        obj = await create_object_from_value(val, ctx=self)
+        obj = await create_object_from_value(val, self.ch_client, self)
         self._register_object(obj)
         return obj

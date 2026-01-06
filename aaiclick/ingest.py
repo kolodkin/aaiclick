@@ -239,7 +239,7 @@ async def _concat_value_to_object(obj_a: Object, value: ValueType) -> Object:
     result = await copy(obj_a)
 
     # Create a temporary object from the value
-    temp_obj = await create_object_from_value(value, obj_a.ctx)
+    temp_obj = await create_object_from_value(value, obj_a.ch_client, obj_a.ctx)
 
     # Get the data from temp object
     temp_data_query = f"SELECT value FROM {temp_obj.table}"
@@ -435,7 +435,7 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
         return
 
     # Create a temporary object from the value
-    temp_obj = await create_object_from_value(value, obj_a.ctx)
+    temp_obj = await create_object_from_value(value, obj_a.ch_client, obj_a.ctx)
 
     # Get the value type from temp object
     temp_type_query = f"""

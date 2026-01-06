@@ -1,10 +1,11 @@
 """
 aaiclick.factories - Factory functions for creating Object instances.
 
-This module provides internal factory functions to create Object instances with ClickHouse tables,
+This module provides database-level factory functions to create Object instances with ClickHouse tables,
 automatically inferring schemas from Python values using numpy for type detection.
 
 Note: These functions are internal and should only be called via Context methods.
+Each factory function takes ch_client and ctx parameters instead of using Object instances.
 """
 
 from __future__ import annotations
@@ -13,8 +14,6 @@ from typing import Union, Dict, List
 
 import numpy as np
 
-from .context import Context
-from .object import Object
 from .models import Schema, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .snowflake import get_snowflake_ids
 
@@ -66,9 +65,9 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"  # Default fallback
 
 
-async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
+async def create_object_from_value(val, ch_client, ctx):
     """
-    Create a new Object from Python values with automatic schema inference.
+    Create a new Object from Python values with automatic schema inference at database level.
 
     Internal function - use Context.create_object_from_value() instead.
 
@@ -78,10 +77,11 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
-        ctx: Context instance managing this object
+        ch_client: ClickHouse client instance
+        ctx: Context instance for creating result object
 
     Returns:
-        Object: New Object instance with data
+        New Object instance with data
 
     Table Schema Details:
         - All tables include aai_id column with snowflake IDs
@@ -136,7 +136,7 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
                 data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
 
                 # Use clickhouse-connect's built-in insert
-                await ctx.ch_client.insert(obj.table, data)
+                await ch_client.insert(obj.table, data)
 
         else:
             # Dict of scalars: one column per key, single row with aai_id
@@ -169,7 +169,7 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
 
             # Insert single row
             insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-            await ctx.ch_client.command(insert_query)
+            await ch_client.command(insert_query)
 
     elif isinstance(val, list):
         # List: single column "value" with multiple rows
@@ -192,7 +192,7 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
             # Zip aai_ids with values to create rows
             data = [list(row) for row in zip(aai_ids, val)]
             # Use clickhouse-connect's built-in insert
-            await ctx.ch_client.insert(obj.table, data)
+            await ch_client.insert(obj.table, data)
 
     else:
         # Scalar: single row with aai_id and value
@@ -218,6 +218,6 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
             value_str = str(val)
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
-        await ctx.ch_client.command(insert_query)
+        await ch_client.command(insert_query)
 
     return obj
