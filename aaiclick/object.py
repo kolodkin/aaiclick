@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 
+from . import operators
 from .snowflake import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from .models import (
@@ -185,8 +186,6 @@ class Object:
         """
         self.checkstale()
         obj_b.checkstale()
-        from . import operators
-
         return await operators._apply_operator_db(
             self.table, obj_b.table, operator, self.ch_client, self.ctx
         )
@@ -203,8 +202,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.add(self, other)
 
@@ -220,8 +217,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.sub(self, other)
 
@@ -237,8 +232,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.mul(self, other)
 
@@ -254,8 +247,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.truediv(self, other)
 
@@ -271,8 +262,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.floordiv(self, other)
 
@@ -288,8 +277,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.mod(self, other)
 
@@ -305,8 +292,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.pow(self, other)
 
@@ -322,8 +307,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.eq(self, other)
 
@@ -339,8 +322,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.ne(self, other)
 
@@ -356,8 +337,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.lt(self, other)
 
@@ -373,8 +352,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.le(self, other)
 
@@ -390,8 +367,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.gt(self, other)
 
@@ -407,8 +382,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table (boolean values)
         """
-        from . import operators
-
         self.checkstale()
         return await operators.ge(self, other)
 
@@ -424,8 +397,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.and_(self, other)
 
@@ -441,8 +412,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.or_(self, other)
 
@@ -458,8 +427,6 @@ class Object:
         Returns:
             Object: New Object instance pointing to result table
         """
-        from . import operators
-
         self.checkstale()
         return await operators.xor(self, other)
 
