@@ -170,6 +170,89 @@ async def test_int_array_concat_with_empty_list(ctx):
 
 
 # =============================================================================
+# Insert Tests
+# =============================================================================
+
+
+async def test_int_array_insert(ctx):
+    """Test inserting integer arrays in place."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+    b = await ctx.create_object_from_value([4, 5, 6])
+
+    await a.insert(b)
+    data = await a.data()
+
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_int_scalar_insert_fails(ctx):
+    """Test that insert method on scalar fails."""
+    import pytest
+
+    a = await ctx.create_object_from_value(42)
+    b = await ctx.create_object_from_value([1, 2, 3])
+
+    with pytest.raises(ValueError, match="insert requires obj_a to have array fieldtype"):
+        await a.insert(b)
+
+
+async def test_int_array_insert_with_scalar_value(ctx):
+    """Test inserting scalar value into integer array in place."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    await a.insert(42)
+    data = await a.data()
+
+    assert data == [1, 2, 3, 42]
+
+
+async def test_int_array_insert_with_list_value(ctx):
+    """Test inserting list value into integer array in place."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    await a.insert([4, 5, 6])
+    data = await a.data()
+
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_int_array_insert_with_empty_list(ctx):
+    """Test inserting empty list into integer array."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+
+    await a.insert([])
+    data = await a.data()
+
+    assert data == [1, 2, 3]
+
+
+async def test_int_array_insert_modifies_in_place(ctx):
+    """Test that insert modifies the original object in place."""
+    a = await ctx.create_object_from_value([1, 2, 3])
+    original_table = a.table
+
+    await a.insert([4, 5])
+    data = await a.data()
+
+    # Verify data was inserted
+    assert data == [1, 2, 3, 4, 5]
+    # Verify table name unchanged (in-place modification)
+    assert a.table == original_table
+
+
+async def test_int_array_multiple_inserts(ctx):
+    """Test multiple consecutive inserts."""
+    a = await ctx.create_object_from_value([1, 2])
+
+    await a.insert([3, 4])
+    await a.insert(5)
+    await a.insert([6])
+
+    data = await a.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+# =============================================================================
 # Statistics Tests
 # =============================================================================
 
