@@ -325,6 +325,10 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
     """
     from .factories import create_object_from_value
 
+    # Handle empty list as no-op
+    if isinstance(value, list) and len(value) == 0:
+        return
+
     # Create a temporary object from the value
     temp_obj = await create_object_from_value(value, obj_a.ctx)
 
