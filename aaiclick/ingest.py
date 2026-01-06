@@ -133,15 +133,37 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     # Create result object with schema (registered for automatic cleanup)
     result = await obj_a.ctx.create_object(schema)
 
-    # Insert concatenated data preserving original Snowflake IDs
-    # Snowflake IDs have timestamps, so obj_b's IDs will naturally be >= obj_a's IDs
-    insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT aai_id, value FROM {obj_a.table}
-    UNION ALL
-    SELECT aai_id, value FROM {obj_b.table}
-    ORDER BY aai_id
-    """
+    # Get max aai_id from obj_a to check for ID conflicts
+    max_a_query = f"SELECT max(aai_id) FROM {obj_a.table}"
+    max_a_result = await obj_a.ch_client.query(max_a_query)
+    max_a_id = max_a_result.result_rows[0][0] or 0
+
+    # Get min aai_id from obj_b
+    min_b_query = f"SELECT min(aai_id) FROM {obj_b.table}"
+    min_b_result = await obj_a.ch_client.query(min_b_query)
+    min_b_id = min_b_result.result_rows[0][0]
+
+    # Check if there's an ID conflict
+    if min_b_id is not None and min_b_id <= max_a_id:
+        # ID conflict: renumber obj_b's IDs to come after obj_a
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, value FROM {obj_a.table}
+        UNION ALL
+        SELECT row_number() OVER (ORDER BY aai_id) + {max_a_id} as aai_id, value
+        FROM {obj_b.table}
+        ORDER BY aai_id
+        """
+    else:
+        # No conflict: preserve original IDs
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, value FROM {obj_a.table}
+        UNION ALL
+        SELECT aai_id, value FROM {obj_b.table}
+        ORDER BY aai_id
+        """
+
     await obj_a.ch_client.command(insert_query)
 
     return result
