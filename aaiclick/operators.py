@@ -157,7 +157,9 @@ async def sub(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a - obj_b
     """
-    return await obj_a._apply_operator(obj_b, "-")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "-", obj_a.ch_client, obj_a.ctx)
 
 
 async def mul(obj_a: Object, obj_b: Object) -> Object:
@@ -171,7 +173,9 @@ async def mul(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a * obj_b
     """
-    return await obj_a._apply_operator(obj_b, "*")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "*", obj_a.ch_client, obj_a.ctx)
 
 
 async def truediv(obj_a: Object, obj_b: Object) -> Object:
@@ -185,7 +189,9 @@ async def truediv(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a / obj_b
     """
-    return await obj_a._apply_operator(obj_b, "/")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "/", obj_a.ch_client, obj_a.ctx)
 
 
 async def floordiv(obj_a: Object, obj_b: Object) -> Object:
@@ -199,7 +205,9 @@ async def floordiv(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a // obj_b
     """
-    return await obj_a._apply_operator(obj_b, "//")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "//", obj_a.ch_client, obj_a.ctx)
 
 
 async def mod(obj_a: Object, obj_b: Object) -> Object:
@@ -213,7 +221,9 @@ async def mod(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a % obj_b
     """
-    return await obj_a._apply_operator(obj_b, "%")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "%", obj_a.ch_client, obj_a.ctx)
 
 
 async def pow(obj_a: Object, obj_b: Object) -> Object:
@@ -227,7 +237,9 @@ async def pow(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a ** obj_b
     """
-    return await obj_a._apply_operator(obj_b, "**")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "**", obj_a.ch_client, obj_a.ctx)
 
 
 # Comparison Operators
@@ -243,7 +255,9 @@ async def eq(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a == obj_b
     """
-    return await obj_a._apply_operator(obj_b, "==")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "==", obj_a.ch_client, obj_a.ctx)
 
 
 async def ne(obj_a: Object, obj_b: Object) -> Object:
@@ -257,7 +271,9 @@ async def ne(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a != obj_b
     """
-    return await obj_a._apply_operator(obj_b, "!=")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "!=", obj_a.ch_client, obj_a.ctx)
 
 
 async def lt(obj_a: Object, obj_b: Object) -> Object:
@@ -271,7 +287,9 @@ async def lt(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a < obj_b
     """
-    return await obj_a._apply_operator(obj_b, "<")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "<", obj_a.ch_client, obj_a.ctx)
 
 
 async def le(obj_a: Object, obj_b: Object) -> Object:
@@ -285,7 +303,9 @@ async def le(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a <= obj_b
     """
-    return await obj_a._apply_operator(obj_b, "<=")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "<=", obj_a.ch_client, obj_a.ctx)
 
 
 async def gt(obj_a: Object, obj_b: Object) -> Object:
@@ -299,7 +319,9 @@ async def gt(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a > obj_b
     """
-    return await obj_a._apply_operator(obj_b, ">")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, ">", obj_a.ch_client, obj_a.ctx)
 
 
 async def ge(obj_a: Object, obj_b: Object) -> Object:
@@ -313,7 +335,9 @@ async def ge(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with boolean result of obj_a >= obj_b
     """
-    return await obj_a._apply_operator(obj_b, ">=")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, ">=", obj_a.ch_client, obj_a.ctx)
 
 
 # Bitwise Operators
@@ -329,7 +353,9 @@ async def and_(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a & obj_b
     """
-    return await obj_a._apply_operator(obj_b, "&")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "&", obj_a.ch_client, obj_a.ctx)
 
 
 async def or_(obj_a: Object, obj_b: Object) -> Object:
@@ -343,7 +369,9 @@ async def or_(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a | obj_b
     """
-    return await obj_a._apply_operator(obj_b, "|")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "|", obj_a.ch_client, obj_a.ctx)
 
 
 async def xor(obj_a: Object, obj_b: Object) -> Object:
@@ -357,4 +385,6 @@ async def xor(obj_a: Object, obj_b: Object) -> Object:
     Returns:
         Object: New Object with result of obj_a ^ obj_b
     """
-    return await obj_a._apply_operator(obj_b, "^")
+    obj_a.checkstale()
+    obj_b.checkstale()
+    return await _apply_operator_db(obj_a.table, obj_b.table, "^", obj_a.ch_client, obj_a.ctx)
