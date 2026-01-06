@@ -184,73 +184,12 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
+        obj_b.checkstale()
         from . import operators
 
-        # Get SQL expression from operator mapping
-        expression = operators.OPERATOR_EXPRESSIONS[operator]
-
-        # Check if operating on scalars or arrays
-        fieldtype = await self._get_fieldtype()
-
-        # Get value column types from both operands
-        type_query_a = f"""
-        SELECT type FROM system.columns
-        WHERE table = '{self.table}' AND name = 'value'
-        """
-        type_result_a = await self.ch_client.query(type_query_a)
-        type_a = type_result_a.result_rows[0][0] if type_result_a.result_rows else "Float64"
-
-        type_query_b = f"""
-        SELECT type FROM system.columns
-        WHERE table = '{obj_b.table}' AND name = 'value'
-        """
-        type_result_b = await self.ch_client.query(type_query_b)
-        type_b = type_result_b.result_rows[0][0] if type_result_b.result_rows else "Float64"
-
-        # Determine result type: promote to Float64 if mixing integer and float types
-        int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
-        float_types = {"Float32", "Float64"}
-
-        if (type_a in int_types and type_b in float_types) or (type_a in float_types and type_b in int_types):
-            # Mixed types: promote to Float64
-            value_type = "Float64"
-        elif type_a in float_types or type_b in float_types:
-            # At least one float: use Float64
-            value_type = "Float64"
-        else:
-            # Both same category: use first operand's type
-            value_type = type_a
-
-        # Build schema for result table
-        schema = Schema(
-            fieldtype=fieldtype,
-            columns={"aai_id": "UInt64", "value": value_type}
+        return await operators._apply_operator_db(
+            self.table, obj_b.table, operator, self.ch_client, self.ctx
         )
-
-        # Create result object with schema (registered for automatic cleanup)
-        result = await self.ctx.create_object(schema)
-
-        # Insert data based on fieldtype
-        if fieldtype == FIELDTYPE_ARRAY:
-            # Array operation
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT a.rn as aai_id, {expression} AS value
-            FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {self.table}) AS a
-            INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {obj_b.table}) AS b
-            ON a.rn = b.rn
-            """
-        else:
-            # Scalar operation
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT 1 AS aai_id, {expression} AS value
-            FROM {self.table} AS a, {obj_b.table} AS b
-            """
-
-        await self.ch_client.command(insert_query)
-
-        return result
 
     async def __add__(self, other: Object) -> Object:
         """
