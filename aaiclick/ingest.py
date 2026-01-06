@@ -221,6 +221,69 @@ async def concat(obj_a: Object, obj_b: Union[Object, ValueType]) -> Object:
         return await _concat_value_to_object(obj_a, obj_b)
 
 
+async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
+    """
+    Insert data from obj_b into obj_a in place.
+
+    Helper function for insert when both arguments are Objects.
+
+    Args:
+        obj_a: Target Object (must have array fieldtype)
+        obj_b: Source Object (array or scalar)
+    """
+    # Get max aai_id from target table
+    max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
+    max_id_result = await obj_a.ch_client.query(max_id_query)
+    next_id = (max_id_result.result_rows[0][0] or 0) + 1
+
+    # Insert data from obj_b with renumbered aai_ids
+    insert_query = f"""
+    INSERT INTO {obj_a.table}
+    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id, value
+    FROM {obj_b.table}
+    """
+    await obj_a.ch_client.command(insert_query)
+
+
+async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
+    """
+    Insert a value into obj_a in place.
+
+    Helper function for insert when second argument is a ValueType.
+
+    Args:
+        obj_a: Target Object (must have array fieldtype)
+        value: Value to insert (scalar or list)
+    """
+    from .factories import create_object_from_value
+
+    # Create a temporary object from the value
+    temp_obj = await create_object_from_value(value, obj_a.ctx)
+
+    # Get the data from temp object
+    temp_data_query = f"SELECT value FROM {temp_obj.table}"
+    temp_result = await obj_a.ch_client.query(temp_data_query)
+
+    # Insert the values into obj_a table
+    if temp_result.result_rows:
+        # Get next aai_id
+        max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
+        max_id_result = await obj_a.ch_client.query(max_id_query)
+        next_id = (max_id_result.result_rows[0][0] or 0) + 1
+
+        # Build insert data
+        data = []
+        for row in temp_result.result_rows:
+            data.append([next_id, row[0]])
+            next_id += 1
+
+        # Use clickhouse-connect's built-in insert
+        await obj_a.ch_client.insert(obj_a.table, data)
+
+    # Delete the temporary object
+    await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
+
+
 async def insert(obj_a: Object, obj_b: Union[Object, ValueType]) -> None:
     """
     Insert data from obj_b into obj_a in place (modifying obj_a's table).
@@ -260,46 +323,8 @@ async def insert(obj_a: Object, obj_b: Union[Object, ValueType]) -> None:
     if fieldtype_a != FIELDTYPE_ARRAY:
         raise ValueError("insert requires obj_a to have array fieldtype")
 
-    # Handle Object case
+    # Dispatch to appropriate helper function based on obj_b type
     if isinstance(obj_b, Object):
-        # Get max aai_id from target table
-        max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
-        max_id_result = await obj_a.ch_client.query(max_id_query)
-        next_id = (max_id_result.result_rows[0][0] or 0) + 1
-
-        # Insert data from obj_b with renumbered aai_ids
-        insert_query = f"""
-        INSERT INTO {obj_a.table}
-        SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id, value
-        FROM {obj_b.table}
-        """
-        await obj_a.ch_client.command(insert_query)
+        await _insert_object_to_object(obj_a, obj_b)
     else:
-        # Handle ValueType case
-        from .factories import create_object_from_value
-
-        # Create a temporary object from the value
-        temp_obj = await create_object_from_value(obj_b, obj_a.ctx)
-
-        # Get the data from temp object
-        temp_data_query = f"SELECT value FROM {temp_obj.table}"
-        temp_result = await obj_a.ch_client.query(temp_data_query)
-
-        # Insert the values into obj_a table
-        if temp_result.result_rows:
-            # Get next aai_id
-            max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
-            max_id_result = await obj_a.ch_client.query(max_id_query)
-            next_id = (max_id_result.result_rows[0][0] or 0) + 1
-
-            # Build insert data
-            data = []
-            for row in temp_result.result_rows:
-                data.append([next_id, row[0]])
-                next_id += 1
-
-            # Use clickhouse-connect's built-in insert
-            await obj_a.ch_client.insert(obj_a.table, data)
-
-        # Delete the temporary object
-        await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
+        await _insert_value_to_object(obj_a, obj_b)
