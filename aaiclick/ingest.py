@@ -146,9 +146,8 @@ async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max
 
     # Insert ID mappings (row_num -> new_snowflake_id)
     if new_ids:
-        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
-        insert_mapping = f"INSERT INTO {temp_table} (row_num, new_id) VALUES {values}"
-        await obj_a.ch_client.command(insert_mapping)
+        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
+        await obj_a.ch_client.insert(temp_table, data)
 
     # Insert data with preserved obj_a IDs and renumbered obj_b IDs
     insert_query = f"""
@@ -358,9 +357,8 @@ async def _insert_renumber_ids(obj_a: Object, obj_b: Object, target_value_type: 
 
     # Insert ID mappings (row_num -> new_snowflake_id)
     if new_ids:
-        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
-        insert_mapping = f"INSERT INTO {temp_table} (row_num, new_id) VALUES {values}"
-        await obj_a.ch_client.command(insert_mapping)
+        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
+        await obj_a.ch_client.insert(temp_table, data)
 
     # Insert data with new Snowflake IDs
     insert_query = f"""
@@ -484,9 +482,8 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
         await obj_a.ch_client.command(create_temp)
 
         # Insert ID mappings (row_num -> new_snowflake_id)
-        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
-        insert_mapping = f"INSERT INTO {temp_id_table} (row_num, new_id) VALUES {values}"
-        await obj_a.ch_client.command(insert_mapping)
+        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
+        await obj_a.ch_client.insert(temp_id_table, data)
 
         # Insert with type casting and Snowflake IDs
         insert_select_query = f"""
