@@ -133,15 +133,14 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     # Create result object with schema (registered for automatic cleanup)
     result = await obj_a.ctx.create_object(schema)
 
-    # Insert concatenated data
+    # Insert concatenated data preserving original Snowflake IDs
+    # Snowflake IDs have timestamps, so obj_b's IDs will naturally be >= obj_a's IDs
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT row_number() OVER (ORDER BY t, aai_id) as aai_id, value
-    FROM (
-        SELECT 1 as t, * FROM {obj_a.table}
-        UNION ALL
-        SELECT 2 as t, * FROM {obj_b.table}
-    )
+    SELECT aai_id, value FROM {obj_a.table}
+    UNION ALL
+    SELECT aai_id, value FROM {obj_b.table}
+    ORDER BY aai_id
     """
     await obj_a.ch_client.command(insert_query)
 
