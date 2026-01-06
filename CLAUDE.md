@@ -43,6 +43,34 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Runtime imports: Use lazy imports inside methods when modules need each other
     - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
 
+### ClickHouse Client Guidelines
+
+**Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
+
+- **Use `ch_client.insert()` for in-memory data** (not string-formatted INSERT):
+  ```python
+  # GOOD
+  data = [[id1, val1], [id2, val2]]
+  await ch_client.insert(table_name, data)
+
+  # BAD
+  values = ", ".join(f"({id_val}, {val})" for ...)
+  await ch_client.command(f"INSERT INTO {table} VALUES {values}")
+  ```
+
+- **Prefer database operations over fetching to Python**:
+  - **Good**: `INSERT...SELECT`, `JOIN`, subqueries, window functions
+  - **Bad**: Query → Python processing → Insert
+  ```python
+  # GOOD: Database-internal
+  await ch_client.command(f"INSERT INTO {dest} SELECT ... FROM {src} JOIN ...")
+
+  # BAD: Python round-trip
+  rows = await ch_client.query(f"SELECT * FROM {src}")
+  data = [[process(row) for row in rows]]
+  await ch_client.insert(dest, data)
+  ```
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
