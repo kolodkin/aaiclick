@@ -1,16 +1,11 @@
 """
 aaiclick.operators - Operator implementations for Object class.
 
-This module contains static functions that implement all operators for Object instances.
-Each operator function takes two Object parameters and returns a new Object with the result.
+This module contains database-level functions that implement all operators.
+Each operator function takes table names and ch_client instead of Object instances.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .object import Object
 
 from .models import Schema, ColumnMeta, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
@@ -39,7 +34,7 @@ OPERATOR_EXPRESSIONS = {
 }
 
 
-async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_client, ctx) -> Object:
+async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_client, ctx):
     """
     Apply an operator on two tables at the database level.
 
@@ -51,9 +46,8 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
         ctx: Context instance for creating result object
 
     Returns:
-        Object: New Object instance pointing to result table
+        New Object instance pointing to result table
     """
-    from .object import Object
 
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
@@ -130,261 +124,261 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
 
 # Arithmetic Operators
 
-async def add(obj_a: Object, obj_b: Object) -> Object:
+async def add(table_a: str, table_b: str, ch_client, ctx):
     """
-    Add two objects together.
+    Add two tables together at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a + obj_b
+        New Object with result of table_a + table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "+", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "+", ch_client, ctx)
 
 
-async def sub(obj_a: Object, obj_b: Object) -> Object:
+async def sub(table_a: str, table_b: str, ch_client, ctx):
     """
-    Subtract one object from another.
+    Subtract one table from another at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a - obj_b
+        New Object with result of table_a - table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "-", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "-", ch_client, ctx)
 
 
-async def mul(obj_a: Object, obj_b: Object) -> Object:
+async def mul(table_a: str, table_b: str, ch_client, ctx):
     """
-    Multiply two objects together.
+    Multiply two tables together at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a * obj_b
+        New Object with result of table_a * table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "*", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "*", ch_client, ctx)
 
 
-async def truediv(obj_a: Object, obj_b: Object) -> Object:
+async def truediv(table_a: str, table_b: str, ch_client, ctx):
     """
-    Divide one object by another.
+    Divide one table by another at database level.
 
     Args:
-        obj_a: First Object (numerator)
-        obj_b: Second Object (denominator)
+        table_a: First table name (numerator)
+        table_b: Second table name (denominator)
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a / obj_b
+        New Object with result of table_a / table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "/", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "/", ch_client, ctx)
 
 
-async def floordiv(obj_a: Object, obj_b: Object) -> Object:
+async def floordiv(table_a: str, table_b: str, ch_client, ctx):
     """
-    Floor divide one object by another.
+    Floor divide one table by another at database level.
 
     Args:
-        obj_a: First Object (numerator)
-        obj_b: Second Object (denominator)
+        table_a: First table name (numerator)
+        table_b: Second table name (denominator)
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a // obj_b
+        New Object with result of table_a // table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "//", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "//", ch_client, ctx)
 
 
-async def mod(obj_a: Object, obj_b: Object) -> Object:
+async def mod(table_a: str, table_b: str, ch_client, ctx):
     """
-    Modulo operation between two objects.
+    Modulo operation between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a % obj_b
+        New Object with result of table_a % table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "%", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "%", ch_client, ctx)
 
 
-async def pow(obj_a: Object, obj_b: Object) -> Object:
+async def pow(table_a: str, table_b: str, ch_client, ctx):
     """
-    Raise one object to the power of another.
+    Raise one table to the power of another at database level.
 
     Args:
-        obj_a: First Object (base)
-        obj_b: Second Object (exponent)
+        table_a: First table name (base)
+        table_b: Second table name (exponent)
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a ** obj_b
+        New Object with result of table_a ** table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "**", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "**", ch_client, ctx)
 
 
 # Comparison Operators
 
-async def eq(obj_a: Object, obj_b: Object) -> Object:
+async def eq(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check equality between two objects.
+    Check equality between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a == obj_b
+        New Object with boolean result of table_a == table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "==", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "==", ch_client, ctx)
 
 
-async def ne(obj_a: Object, obj_b: Object) -> Object:
+async def ne(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check inequality between two objects.
+    Check inequality between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a != obj_b
+        New Object with boolean result of table_a != table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "!=", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "!=", ch_client, ctx)
 
 
-async def lt(obj_a: Object, obj_b: Object) -> Object:
+async def lt(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one object is less than another.
+    Check if one table is less than another at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a < obj_b
+        New Object with boolean result of table_a < table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "<", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "<", ch_client, ctx)
 
 
-async def le(obj_a: Object, obj_b: Object) -> Object:
+async def le(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one object is less than or equal to another.
+    Check if one table is less than or equal to another at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a <= obj_b
+        New Object with boolean result of table_a <= table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "<=", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "<=", ch_client, ctx)
 
 
-async def gt(obj_a: Object, obj_b: Object) -> Object:
+async def gt(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one object is greater than another.
+    Check if one table is greater than another at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a > obj_b
+        New Object with boolean result of table_a > table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, ">", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, ">", ch_client, ctx)
 
 
-async def ge(obj_a: Object, obj_b: Object) -> Object:
+async def ge(table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one object is greater than or equal to another.
+    Check if one table is greater than or equal to another at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with boolean result of obj_a >= obj_b
+        New Object with boolean result of table_a >= table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, ">=", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, ">=", ch_client, ctx)
 
 
 # Bitwise Operators
 
-async def and_(obj_a: Object, obj_b: Object) -> Object:
+async def and_(table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise AND operation between two objects.
+    Bitwise AND operation between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a & obj_b
+        New Object with result of table_a & table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "&", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "&", ch_client, ctx)
 
 
-async def or_(obj_a: Object, obj_b: Object) -> Object:
+async def or_(table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise OR operation between two objects.
+    Bitwise OR operation between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a | obj_b
+        New Object with result of table_a | table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "|", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "|", ch_client, ctx)
 
 
-async def xor(obj_a: Object, obj_b: Object) -> Object:
+async def xor(table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise XOR operation between two objects.
+    Bitwise XOR operation between two tables at database level.
 
     Args:
-        obj_a: First Object
-        obj_b: Second Object
+        table_a: First table name
+        table_b: Second table name
+        ch_client: ClickHouse client instance
+        ctx: Context instance
 
     Returns:
-        Object: New Object with result of obj_a ^ obj_b
+        New Object with result of table_a ^ table_b
     """
-    obj_a.checkstale()
-    obj_b.checkstale()
-    return await _apply_operator_db(obj_a.table, obj_b.table, "^", obj_a.ch_client, obj_a.ctx)
+    return await _apply_operator_db(table_a, table_b, "^", ch_client, ctx)

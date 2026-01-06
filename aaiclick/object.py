@@ -203,7 +203,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.add(self, other)
+        other.checkstale()
+        return await operators.add(self.table, other.table, self.ch_client, self.ctx)
 
     async def __sub__(self, other: Object) -> Object:
         """
@@ -218,7 +219,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.sub(self, other)
+        other.checkstale()
+        return await operators.sub(self.table, other.table, self.ch_client, self.ctx)
 
     async def __mul__(self, other: Object) -> Object:
         """
@@ -233,7 +235,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.mul(self, other)
+        other.checkstale()
+        return await operators.mul(self.table, other.table, self.ch_client, self.ctx)
 
     async def __truediv__(self, other: Object) -> Object:
         """
@@ -248,7 +251,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.truediv(self, other)
+        other.checkstale()
+        return await operators.truediv(self.table, other.table, self.ch_client, self.ctx)
 
     async def __floordiv__(self, other: Object) -> Object:
         """
@@ -263,7 +267,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.floordiv(self, other)
+        other.checkstale()
+        return await operators.floordiv(self.table, other.table, self.ch_client, self.ctx)
 
     async def __mod__(self, other: Object) -> Object:
         """
@@ -278,7 +283,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.mod(self, other)
+        other.checkstale()
+        return await operators.mod(self.table, other.table, self.ch_client, self.ctx)
 
     async def __pow__(self, other: Object) -> Object:
         """
@@ -293,7 +299,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.pow(self, other)
+        other.checkstale()
+        return await operators.pow(self.table, other.table, self.ch_client, self.ctx)
 
     async def __eq__(self, other: Object) -> Object:
         """
@@ -308,7 +315,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.eq(self, other)
+        other.checkstale()
+        return await operators.eq(self.table, other.table, self.ch_client, self.ctx)
 
     async def __ne__(self, other: Object) -> Object:
         """
@@ -323,7 +331,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.ne(self, other)
+        other.checkstale()
+        return await operators.ne(self.table, other.table, self.ch_client, self.ctx)
 
     async def __lt__(self, other: Object) -> Object:
         """
@@ -338,7 +347,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.lt(self, other)
+        other.checkstale()
+        return await operators.lt(self.table, other.table, self.ch_client, self.ctx)
 
     async def __le__(self, other: Object) -> Object:
         """
@@ -353,7 +363,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.le(self, other)
+        other.checkstale()
+        return await operators.le(self.table, other.table, self.ch_client, self.ctx)
 
     async def __gt__(self, other: Object) -> Object:
         """
@@ -368,7 +379,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.gt(self, other)
+        other.checkstale()
+        return await operators.gt(self.table, other.table, self.ch_client, self.ctx)
 
     async def __ge__(self, other: Object) -> Object:
         """
@@ -383,7 +395,8 @@ class Object:
             Object: New Object instance pointing to result table (boolean values)
         """
         self.checkstale()
-        return await operators.ge(self, other)
+        other.checkstale()
+        return await operators.ge(self.table, other.table, self.ch_client, self.ctx)
 
     async def __and__(self, other: Object) -> Object:
         """
@@ -398,7 +411,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.and_(self, other)
+        other.checkstale()
+        return await operators.and_(self.table, other.table, self.ch_client, self.ctx)
 
     async def __or__(self, other: Object) -> Object:
         """
@@ -413,7 +427,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.or_(self, other)
+        other.checkstale()
+        return await operators.or_(self.table, other.table, self.ch_client, self.ctx)
 
     async def __xor__(self, other: Object) -> Object:
         """
@@ -428,7 +443,8 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        return await operators.xor(self, other)
+        other.checkstale()
+        return await operators.xor(self.table, other.table, self.ch_client, self.ctx)
 
     async def copy(self) -> "Object":
         """
