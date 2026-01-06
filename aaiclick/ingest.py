@@ -12,6 +12,7 @@ from .object import Object
 from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from .sql_template_loader import load_sql_template
 from .factories import ValueType
+from .snowflake import get_snowflake_ids
 
 
 async def copy(obj: Object) -> Object:
@@ -121,19 +122,51 @@ async def _concat_preserve_ids(result: Object, obj_a: Object, obj_b: Object) -> 
 
 async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max_a_id: int) -> None:
     """
-    Concat by preserving obj_a IDs but renumbering obj_b IDs.
+    Concat by preserving obj_a IDs but renumbering obj_b IDs using Snowflake IDs.
 
     Used when there's an ID conflict (min(obj_b) <= max(obj_a)).
     """
+    # Get count of rows in obj_b
+    count_query = f"SELECT count(*) FROM {obj_b.table}"
+    count_result = await obj_a.ch_client.query(count_query)
+    count_b = count_result.result_rows[0][0]
+
+    # Generate Snowflake IDs for obj_b rows
+    new_ids = get_snowflake_ids(count_b)
+
+    # Create temporary table for new ID mappings
+    temp_table = f"temp_ids_{result.table}"
+    create_temp = f"""
+    CREATE TABLE {temp_table} (
+        row_num UInt64,
+        new_id UInt64
+    ) ENGINE = Memory
+    """
+    await obj_a.ch_client.command(create_temp)
+
+    # Insert ID mappings (row_num -> new_snowflake_id)
+    if new_ids:
+        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
+        insert_mapping = f"INSERT INTO {temp_table} (row_num, new_id) VALUES {values}"
+        await obj_a.ch_client.command(insert_mapping)
+
+    # Insert data with preserved obj_a IDs and renumbered obj_b IDs
     insert_query = f"""
     INSERT INTO {result.table}
     SELECT aai_id, value FROM {obj_a.table}
     UNION ALL
-    SELECT row_number() OVER (ORDER BY aai_id) + {max_a_id} as aai_id, value
-    FROM {obj_b.table}
+    SELECT t.new_id as aai_id, b.value
+    FROM (
+        SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+        FROM {obj_b.table}
+    ) b
+    JOIN {temp_table} t ON b.row_num = t.row_num
     ORDER BY aai_id
     """
     await obj_a.ch_client.command(insert_query)
+
+    # Clean up temporary table
+    await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
 async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
@@ -299,19 +332,50 @@ async def concat(obj_a: Object, obj_b: Union[Object, ValueType]) -> Object:
         return await _concat_value_to_object(obj_a, obj_b)
 
 
-async def _insert_renumber_ids(obj_a: Object, obj_b: Object, next_id: int, target_value_type: str) -> None:
+async def _insert_renumber_ids(obj_a: Object, obj_b: Object, target_value_type: str) -> None:
     """
-    Insert obj_b into obj_a with sequential ID renumbering.
+    Insert obj_b into obj_a with Snowflake ID renumbering.
 
-    Always renumbers obj_b's IDs to start from next_id for sequential ordering.
+    Always renumbers obj_b's IDs using Snowflake ID generation.
     """
+    # Get count of rows in obj_b
+    count_query = f"SELECT count(*) FROM {obj_b.table}"
+    count_result = await obj_a.ch_client.query(count_query)
+    count_b = count_result.result_rows[0][0]
+
+    # Generate Snowflake IDs for obj_b rows
+    new_ids = get_snowflake_ids(count_b)
+
+    # Create temporary table for new ID mappings
+    temp_table = f"temp_ids_{obj_a.table}_{id(obj_b)}"
+    create_temp = f"""
+    CREATE TABLE {temp_table} (
+        row_num UInt64,
+        new_id UInt64
+    ) ENGINE = Memory
+    """
+    await obj_a.ch_client.command(create_temp)
+
+    # Insert ID mappings (row_num -> new_snowflake_id)
+    if new_ids:
+        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
+        insert_mapping = f"INSERT INTO {temp_table} (row_num, new_id) VALUES {values}"
+        await obj_a.ch_client.command(insert_mapping)
+
+    # Insert data with new Snowflake IDs
     insert_query = f"""
     INSERT INTO {obj_a.table}
-    SELECT row_number() OVER (ORDER BY aai_id) + {next_id - 1} as aai_id,
-           CAST(value AS {target_value_type}) as value
-    FROM {obj_b.table}
+    SELECT t.new_id as aai_id, CAST(b.value AS {target_value_type}) as value
+    FROM (
+        SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+        FROM {obj_b.table}
+    ) b
+    JOIN {temp_table} t ON b.row_num = t.row_num
     """
     await obj_a.ch_client.command(insert_query)
+
+    # Clean up temporary table
+    await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
 async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
@@ -349,13 +413,8 @@ async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
             f"Cannot insert {source_value_type} into {target_value_type}: types are incompatible"
         )
 
-    # Get max aai_id from target table
-    max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
-    max_id_result = await obj_a.ch_client.query(max_id_query)
-    next_id = (max_id_result.result_rows[0][0] or 0) + 1
-
-    # Always renumber for insert (maintains sequential IDs)
-    await _insert_renumber_ids(obj_a, obj_b, next_id, target_value_type)
+    # Always renumber for insert using Snowflake IDs
+    await _insert_renumber_ids(obj_a, obj_b, target_value_type)
 
 
 async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
@@ -404,25 +463,45 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
             f"Cannot insert {temp_value_type} into {target_value_type}: types are incompatible"
         )
 
-    # Get the data from temp object
-    temp_data_query = f"SELECT value FROM {temp_obj.table}"
-    temp_result = await obj_a.ch_client.query(temp_data_query)
+    # Get count of rows in temp object
+    count_query = f"SELECT count(*) FROM {temp_obj.table}"
+    count_result = await obj_a.ch_client.query(count_query)
+    count_temp = count_result.result_rows[0][0]
 
-    # Insert the values into obj_a table
-    if temp_result.result_rows:
-        # Get next aai_id
-        max_id_query = f"SELECT max(aai_id) FROM {obj_a.table}"
-        max_id_result = await obj_a.ch_client.query(max_id_query)
-        next_id = (max_id_result.result_rows[0][0] or 0) + 1
+    # Insert the values into obj_a table using Snowflake IDs
+    if count_temp > 0:
+        # Generate Snowflake IDs for temp rows
+        new_ids = get_snowflake_ids(count_temp)
 
-        # Insert with type casting
+        # Create temporary table for new ID mappings
+        temp_id_table = f"temp_ids_{obj_a.table}_{id(temp_obj)}"
+        create_temp = f"""
+        CREATE TABLE {temp_id_table} (
+            row_num UInt64,
+            new_id UInt64
+        ) ENGINE = Memory
+        """
+        await obj_a.ch_client.command(create_temp)
+
+        # Insert ID mappings (row_num -> new_snowflake_id)
+        values = ", ".join(f"({i+1}, {id_val})" for i, id_val in enumerate(new_ids))
+        insert_mapping = f"INSERT INTO {temp_id_table} (row_num, new_id) VALUES {values}"
+        await obj_a.ch_client.command(insert_mapping)
+
+        # Insert with type casting and Snowflake IDs
         insert_select_query = f"""
         INSERT INTO {obj_a.table}
-        SELECT {next_id} + row_number() OVER (ORDER BY aai_id) - 1 as aai_id,
-               CAST(value AS {target_value_type}) as value
-        FROM {temp_obj.table}
+        SELECT t.new_id as aai_id, CAST(v.value AS {target_value_type}) as value
+        FROM (
+            SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+            FROM {temp_obj.table}
+        ) v
+        JOIN {temp_id_table} t ON v.row_num = t.row_num
         """
         await obj_a.ch_client.command(insert_select_query)
+
+        # Clean up ID mapping table
+        await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_id_table}")
 
     # Delete the temporary object
     await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
