@@ -108,6 +108,38 @@ aaiclick/
   - Called by Context methods
   - Accept `ch_client` parameter (mandatory)
 
+## Distributed Computing & Order Preservation
+
+aaiclick is a **distributed computing framework** where order is automatically preserved via **Snowflake IDs**:
+
+- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
+- **Temporal ordering**: IDs naturally preserve chronological order across distributed operations
+- **No explicit ordering needed**: Operations like `insert()` and `concat()` don't need ORDER BY clauses
+- **Insert/Concat behavior**: Preserve existing Snowflake IDs from source data
+  - IDs already encode temporal order from when data was created
+  - Order maintained when data is retrieved (via `.data()`)
+  - Simpler logic - no ID renumbering or conflict detection needed
+  - More efficient - direct database operations without Python round-trips
+
+**Important**: Order after concat/insert is **always creation order**, not argument order!
+
+**Example showing creation order**:
+```python
+# Scenario 1: obj_a created first
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T1
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T2
+result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
+result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
+
+# Scenario 2: obj_b created first
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T1
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T2
+result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
+result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
+```
+
+The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
+
 ## Making Changes
 
 1. Read relevant files before editing

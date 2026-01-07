@@ -58,6 +58,53 @@ The execution flow and operation results are tracked in a dedicated flow table.
 3. **Transparency**: ClickHouse operations are abstracted behind Python syntax
 4. **Persistence**: All intermediate results are stored in ClickHouse
 5. **Traceability**: Complete operation history via flow tracking
+6. **Distributed Order Preservation**: Order is maintained via Snowflake IDs containing creation timestamps, eliminating need for explicit ordering
+
+## Snowflake IDs & Order Preservation
+
+aaiclick uses **Snowflake IDs** (64-bit identifiers) for all row identifiers (`aai_id`):
+
+**Snowflake ID Structure:**
+- **Timestamp** (41 bits): Millisecond-precision creation time (~69 years range)
+- **Machine ID** (10 bits): Worker/machine identifier (1024 machines)
+- **Sequence** (12 bits): Per-millisecond counter (4096 IDs/ms)
+
+**Benefits for Distributed Computing:**
+- **Temporal ordering**: IDs naturally preserve chronological order across all nodes
+- **No coordination needed**: Each machine generates unique IDs independently
+- **Simplified operations**: `insert()` and `concat()` don't need explicit ORDER BY clauses
+- **ID preservation**: Operations preserve existing Snowflake IDs from source data
+  - IDs already encode temporal order from creation time
+  - No renumbering or conflict detection needed
+  - More efficient - direct database operations
+
+**Critical Insight - Creation Order Matters:**
+
+Result order is **always based on creation time** (Snowflake ID timestamps), not concat argument order!
+
+```python
+# Example 1: obj_a created first
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # T1
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # T2
+result = await obj_a.concat(obj_b)  # [1, 2, 3, 4, 5, 6]
+result = await obj_b.concat(obj_a)  # [1, 2, 3, 4, 5, 6] - same!
+
+# Example 2: obj_b created first
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # T1
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # T2
+result = await obj_a.concat(obj_b)  # [4, 5, 6, 1, 2, 3]
+result = await obj_b.concat(obj_a)  # [4, 5, 6, 1, 2, 3] - same!
+```
+
+**Why This Matters - Temporal Causality in Distributed Systems:**
+
+This design ensures **temporal causality** - a fundamental requirement for distributed computing:
+
+1. **Causality Preservation**: Events that happen earlier in time always appear before events that happen later, regardless of where or how they're processed.
+
+2. **No Race Conditions**: Concat order doesn't matter - `concat(a, b)` and `concat(b, a)` give the same result. This eliminates a whole class of distributed computing bugs.
+
+This approach differs from traditional array operations where `concat([1,2,3], [4,5,6])` ≠ `concat([4,5,6], [1,2,3])`. In aaiclick, operation order is irrelevant - only creation time matters. This makes distributed computing much simpler and more reliable.
 
 ## Future Extensions
 
