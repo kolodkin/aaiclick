@@ -17,26 +17,26 @@ THRESHOLD = 1e-5
 
 
 @pytest.mark.parametrize(
-    "values,expected_result",
+    "data_type,values,expected_result",
     [
         # Integer arrays
-        ([5, 2, 8, 1, 9], 1),
-        ([10, 20, 30], 10),
-        ([-5, -10, -15], -15),
-        ([42], 42),
-        ([0, 0, 0], 0),
+        pytest.param("int", [5, 2, 8, 1, 9], 1, id="int-mixed"),
+        pytest.param("int", [10, 20, 30], 10, id="int-ascending"),
+        pytest.param("int", [-5, -10, -15], -15, id="int-negative"),
+        pytest.param("int", [42], 42, id="int-single"),
+        pytest.param("int", [0, 0, 0], 0, id="int-zeros"),
         # Float arrays
-        ([5.5, 2.2, 8.8, 1.1, 9.9], 1.1),
-        ([10.0, 20.0, 30.0], 10.0),
-        ([-5.5, -10.5], -10.5),
-        ([3.14], 3.14),
+        pytest.param("float", [5.5, 2.2, 8.8, 1.1, 9.9], 1.1, id="float-mixed"),
+        pytest.param("float", [10.0, 20.0, 30.0], 10.0, id="float-ascending"),
+        pytest.param("float", [-5.5, -10.5], -10.5, id="float-negative"),
+        pytest.param("float", [3.14], 3.14, id="float-single"),
         # Boolean arrays (as UInt8)
-        ([True, False, True], 0),
-        ([True, True, True], 1),
-        ([False, False, False], 0),
+        pytest.param("bool", [True, False, True], 0, id="bool-mixed"),
+        pytest.param("bool", [True, True, True], 1, id="bool-all-true"),
+        pytest.param("bool", [False, False, False], 0, id="bool-all-false"),
     ],
 )
-async def test_array_min(ctx, values, expected_result):
+async def test_array_min(ctx, data_type, values, expected_result):
     """Test min() on arrays across numeric types."""
     obj = await ctx.create_object_from_value(values)
 
@@ -54,26 +54,26 @@ async def test_array_min(ctx, values, expected_result):
 
 
 @pytest.mark.parametrize(
-    "values,expected_result",
+    "data_type,values,expected_result",
     [
         # Integer arrays
-        ([5, 2, 8, 1, 9], 9),
-        ([10, 20, 30], 30),
-        ([-5, -10, -15], -5),
-        ([42], 42),
-        ([0, 0, 0], 0),
+        pytest.param("int", [5, 2, 8, 1, 9], 9, id="int-mixed"),
+        pytest.param("int", [10, 20, 30], 30, id="int-ascending"),
+        pytest.param("int", [-5, -10, -15], -5, id="int-negative"),
+        pytest.param("int", [42], 42, id="int-single"),
+        pytest.param("int", [0, 0, 0], 0, id="int-zeros"),
         # Float arrays
-        ([5.5, 2.2, 8.8, 1.1, 9.9], 9.9),
-        ([10.0, 20.0, 30.0], 30.0),
-        ([-5.5, -10.5], -5.5),
-        ([3.14], 3.14),
+        pytest.param("float", [5.5, 2.2, 8.8, 1.1, 9.9], 9.9, id="float-mixed"),
+        pytest.param("float", [10.0, 20.0, 30.0], 30.0, id="float-ascending"),
+        pytest.param("float", [-5.5, -10.5], -5.5, id="float-negative"),
+        pytest.param("float", [3.14], 3.14, id="float-single"),
         # Boolean arrays (as UInt8)
-        ([True, False, True], 1),
-        ([True, True, True], 1),
-        ([False, False, False], 0),
+        pytest.param("bool", [True, False, True], 1, id="bool-mixed"),
+        pytest.param("bool", [True, True, True], 1, id="bool-all-true"),
+        pytest.param("bool", [False, False, False], 0, id="bool-all-false"),
     ],
 )
-async def test_array_max(ctx, values, expected_result):
+async def test_array_max(ctx, data_type, values, expected_result):
     """Test max() on arrays across numeric types."""
     obj = await ctx.create_object_from_value(values)
 
@@ -91,26 +91,26 @@ async def test_array_max(ctx, values, expected_result):
 
 
 @pytest.mark.parametrize(
-    "values,expected_result",
+    "data_type,values,expected_result",
     [
         # Integer arrays
-        ([1, 2, 3, 4, 5], 15),
-        ([10, 20, 30], 60),
-        ([-5, -10, 5, 10], 0),
-        ([42], 42),
-        ([0, 0, 0], 0),
+        pytest.param("int", [1, 2, 3, 4, 5], 15, id="int-sequential"),
+        pytest.param("int", [10, 20, 30], 60, id="int-multiples"),
+        pytest.param("int", [-5, -10, 5, 10], 0, id="int-canceling"),
+        pytest.param("int", [42], 42, id="int-single"),
+        pytest.param("int", [0, 0, 0], 0, id="int-zeros"),
         # Float arrays
-        ([1.1, 2.2, 3.3, 4.4, 5.5], 16.5),
-        ([10.0, 20.0, 30.0], 60.0),
-        ([-5.5, 5.5], 0.0),
-        ([3.14], 3.14),
+        pytest.param("float", [1.1, 2.2, 3.3, 4.4, 5.5], 16.5, id="float-sequential"),
+        pytest.param("float", [10.0, 20.0, 30.0], 60.0, id="float-multiples"),
+        pytest.param("float", [-5.5, 5.5], 0.0, id="float-canceling"),
+        pytest.param("float", [3.14], 3.14, id="float-single"),
         # Boolean arrays (counts True values)
-        ([True, False, True, True, False], 3),
-        ([True, True, True], 3),
-        ([False, False, False], 0),
+        pytest.param("bool", [True, False, True, True, False], 3, id="bool-mixed"),
+        pytest.param("bool", [True, True, True], 3, id="bool-all-true"),
+        pytest.param("bool", [False, False, False], 0, id="bool-all-false"),
     ],
 )
-async def test_array_sum(ctx, values, expected_result):
+async def test_array_sum(ctx, data_type, values, expected_result):
     """Test sum() on arrays across numeric types."""
     obj = await ctx.create_object_from_value(values)
 
@@ -128,24 +128,24 @@ async def test_array_sum(ctx, values, expected_result):
 
 
 @pytest.mark.parametrize(
-    "values,expected_result",
+    "data_type,values,expected_result",
     [
         # Integer arrays
-        ([10, 20, 30, 40], 25.0),
-        ([1, 2, 3, 4, 5], 3.0),
-        ([0, 0, 0], 0.0),
-        ([42], 42.0),
+        pytest.param("int", [10, 20, 30, 40], 25.0, id="int-multiples"),
+        pytest.param("int", [1, 2, 3, 4, 5], 3.0, id="int-sequential"),
+        pytest.param("int", [0, 0, 0], 0.0, id="int-zeros"),
+        pytest.param("int", [42], 42.0, id="int-single"),
         # Float arrays
-        ([10.5, 20.5, 30.5, 40.5], 25.5),
-        ([1.0, 2.0, 3.0], 2.0),
-        ([3.14], 3.14),
+        pytest.param("float", [10.5, 20.5, 30.5, 40.5], 25.5, id="float-multiples"),
+        pytest.param("float", [1.0, 2.0, 3.0], 2.0, id="float-sequential"),
+        pytest.param("float", [3.14], 3.14, id="float-single"),
         # Boolean arrays (proportion of True values)
-        ([True, False, True, False], 0.5),
-        ([True, True, True], 1.0),
-        ([False, False, False], 0.0),
+        pytest.param("bool", [True, False, True, False], 0.5, id="bool-half"),
+        pytest.param("bool", [True, True, True], 1.0, id="bool-all-true"),
+        pytest.param("bool", [False, False, False], 0.0, id="bool-all-false"),
     ],
 )
-async def test_array_mean(ctx, values, expected_result):
+async def test_array_mean(ctx, data_type, values, expected_result):
     """Test mean() on arrays across numeric types."""
     obj = await ctx.create_object_from_value(values)
 
@@ -160,7 +160,7 @@ async def test_array_mean(ctx, values, expected_result):
 
 
 @pytest.mark.parametrize(
-    "values",
+    "data_type,values",
     [
         # Integer arrays
         [2, 4, 6, 8],
@@ -177,7 +177,7 @@ async def test_array_mean(ctx, values, expected_result):
         [False, False, False],
     ],
 )
-async def test_array_std(ctx, values):
+async def test_array_std(ctx, data_type, values):
     """Test std() on arrays across numeric types."""
     obj = await ctx.create_object_from_value(values)
 
@@ -193,7 +193,7 @@ async def test_array_std(ctx, values):
 
 
 @pytest.mark.parametrize(
-    "array_a,array_b,operator",
+    "data_type,array_a,array_b,operator",
     [
         # Integer operations
         ([10, 20, 30], [5, 10, 15], "+"),
@@ -205,7 +205,7 @@ async def test_array_std(ctx, values):
         ([1.5, 2.5], [3.5, 4.5], "+"),
     ],
 )
-async def test_statistics_after_operation(ctx, array_a, array_b, operator):
+async def test_statistics_after_operation(ctx, data_type, array_a, array_b, operator):
     """Test statistics on result of arithmetic operations."""
     obj_a = await ctx.create_object_from_value(array_a)
     obj_b = await ctx.create_object_from_value(array_b)
@@ -268,7 +268,7 @@ async def test_single_value_statistics(ctx, value):
 
 
 @pytest.mark.parametrize(
-    "values,expected_min,expected_max,expected_sum,expected_mean,expected_std",
+    "data_type,values,expected_min,expected_max,expected_sum,expected_mean,expected_std",
     [
         # All same values (std should be 0)
         ([5, 5, 5, 5], 5, 5, 20, 5.0, 0.0),
@@ -281,7 +281,7 @@ async def test_single_value_statistics(ctx, value):
         ([0, 5, 0, 5], 0, 5, 10, 2.5, 2.5),
     ],
 )
-async def test_special_cases(ctx, values, expected_min, expected_max, expected_sum, expected_mean, expected_std):
+async def test_special_cases(ctx, data_type, values, expected_min, expected_max, expected_sum, expected_mean, expected_std):
     """Test statistics on special case arrays."""
     obj = await ctx.create_object_from_value(values)
 
@@ -298,7 +298,7 @@ async def test_special_cases(ctx, values, expected_min, expected_max, expected_s
 
 
 @pytest.mark.parametrize(
-    "values",
+    "data_type,values",
     [
         # All negative integers
         [-10, -20, -30, -40],
@@ -309,7 +309,7 @@ async def test_special_cases(ctx, values, expected_min, expected_max, expected_s
         [-2.5, 2.5, -5.0, 5.0],
     ],
 )
-async def test_negative_numbers_statistics(ctx, values):
+async def test_negative_numbers_statistics(ctx, data_type, values):
     """Test statistics with negative numbers."""
     obj = await ctx.create_object_from_value(values)
 

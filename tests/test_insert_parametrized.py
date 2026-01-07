@@ -15,24 +15,24 @@ THRESHOLD = 1e-5
 
 
 @pytest.mark.parametrize(
-    "array_a,array_b,expected_result",
+    "data_type,array_a,array_b,expected_result",
     [
         # Integer arrays
-        ([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6]),
-        ([10], [20, 30], [10, 20, 30]),
-        ([1, 2], [3], [1, 2, 3]),
-        ([0, 0], [0, 0], [0, 0, 0, 0]),
+        pytest.param("int", [1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int-basic"),
+        pytest.param("int", [10], [20, 30], [10, 20, 30], id="int-single-multi"),
+        pytest.param("int", [1, 2], [3], [1, 2, 3], id="int-multi-single"),
+        pytest.param("int", [0, 0], [0, 0], [0, 0, 0, 0], id="int-zeros"),
         # Float arrays
-        ([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5]),
-        ([10.0], [20.0, 30.0], [10.0, 20.0, 30.0]),
-        ([0.0, 0.0], [0.0], [0.0, 0.0, 0.0]),
+        pytest.param("float", [1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float-basic"),
+        pytest.param("float", [10.0], [20.0, 30.0], [10.0, 20.0, 30.0], id="float-single-multi"),
+        pytest.param("float", [0.0, 0.0], [0.0], [0.0, 0.0, 0.0], id="float-zeros"),
         # String arrays
-        (["hello", "world"], ["foo", "bar"], ["hello", "world", "foo", "bar"]),
-        (["apple"], ["banana", "cherry"], ["apple", "banana", "cherry"]),
-        (["a", "b"], ["c"], ["a", "b", "c"]),
+        pytest.param("str", ["hello", "world"], ["foo", "bar"], ["hello", "world", "foo", "bar"], id="str-basic"),
+        pytest.param("str", ["apple"], ["banana", "cherry"], ["apple", "banana", "cherry"], id="str-single-multi"),
+        pytest.param("str", ["a", "b"], ["c"], ["a", "b", "c"], id="str-multi-single"),
     ],
 )
-async def test_array_insert(ctx, array_a, array_b, expected_result):
+async def test_array_insert(ctx, data_type, array_a, array_b, expected_result):
     """Test inserting arrays of the same type in place."""
     obj_a = await ctx.create_object_from_value(array_a)
     obj_b = await ctx.create_object_from_value(array_b)
@@ -54,22 +54,22 @@ async def test_array_insert(ctx, array_a, array_b, expected_result):
 
 
 @pytest.mark.parametrize(
-    "array,scalar_value,expected_result",
+    "data_type,array,scalar_value,expected_result",
     [
         # Integer arrays + scalar
-        ([1, 2, 3], 42, [1, 2, 3, 42]),
-        ([10], 20, [10, 20]),
-        ([0, 0], 1, [0, 0, 1]),
+        pytest.param("int", [1, 2, 3], 42, [1, 2, 3, 42], id="int-basic"),
+        pytest.param("int", [10], 20, [10, 20], id="int-single-array"),
+        pytest.param("int", [0, 0], 1, [0, 0, 1], id="int-zeros-plus-one"),
         # Float arrays + scalar
-        ([1.5, 2.5], 3.5, [1.5, 2.5, 3.5]),
-        ([10.0], 20.0, [10.0, 20.0]),
-        ([0.0], 1.0, [0.0, 1.0]),
+        pytest.param("float", [1.5, 2.5], 3.5, [1.5, 2.5, 3.5], id="float-basic"),
+        pytest.param("float", [10.0], 20.0, [10.0, 20.0], id="float-single-array"),
+        pytest.param("float", [0.0], 1.0, [0.0, 1.0], id="float-zero-plus-one"),
         # String arrays + scalar
-        (["hello", "world"], "test", ["hello", "world", "test"]),
-        (["a"], "b", ["a", "b"]),
+        pytest.param("str", ["hello", "world"], "test", ["hello", "world", "test"], id="str-basic"),
+        pytest.param("str", ["a"], "b", ["a", "b"], id="str-single-array"),
     ],
 )
-async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected_result):
+async def test_array_insert_with_scalar_value(ctx, data_type, array, scalar_value, expected_result):
     """Test inserting scalar value into array in place."""
     obj = await ctx.create_object_from_value(array)
 
@@ -90,21 +90,21 @@ async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected
 
 
 @pytest.mark.parametrize(
-    "array,list_value,expected_result",
+    "data_type,array,list_value,expected_result",
     [
         # Integer arrays + list
-        ([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6]),
-        ([10], [20, 30], [10, 20, 30]),
-        ([0], [1, 2, 3], [0, 1, 2, 3]),
+        pytest.param("int", [1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int-basic"),
+        pytest.param("int", [10], [20, 30], [10, 20, 30], id="int-single-multi"),
+        pytest.param("int", [0], [1, 2, 3], [0, 1, 2, 3], id="int-zero-plus-list"),
         # Float arrays + list
-        ([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5]),
-        ([10.0], [20.0, 30.0], [10.0, 20.0, 30.0]),
+        pytest.param("float", [1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float-basic"),
+        pytest.param("float", [10.0], [20.0, 30.0], [10.0, 20.0, 30.0], id="float-single-multi"),
         # String arrays + list
-        (["hello"], ["world", "test"], ["hello", "world", "test"]),
-        (["a", "b"], ["c", "d", "e"], ["a", "b", "c", "d", "e"]),
+        pytest.param("str", ["hello"], ["world", "test"], ["hello", "world", "test"], id="str-single-multi"),
+        pytest.param("str", ["a", "b"], ["c", "d", "e"], ["a", "b", "c", "d", "e"], id="str-basic"),
     ],
 )
-async def test_array_insert_with_list_value(ctx, array, list_value, expected_result):
+async def test_array_insert_with_list_value(ctx, data_type, array, list_value, expected_result):
     """Test inserting list value into array in place."""
     obj = await ctx.create_object_from_value(array)
 
@@ -125,20 +125,20 @@ async def test_array_insert_with_list_value(ctx, array, list_value, expected_res
 
 
 @pytest.mark.parametrize(
-    "array,expected_result",
+    "data_type,array,expected_result",
     [
         # Integer arrays
-        ([1, 2, 3], [1, 2, 3]),
-        ([42], [42]),
+        pytest.param("int", [1, 2, 3], [1, 2, 3], id="int-array"),
+        pytest.param("int", [42], [42], id="int-single"),
         # Float arrays
-        ([1.5, 2.5, 3.5], [1.5, 2.5, 3.5]),
-        ([3.14], [3.14]),
+        pytest.param("float", [1.5, 2.5, 3.5], [1.5, 2.5, 3.5], id="float-array"),
+        pytest.param("float", [3.14], [3.14], id="float-single"),
         # String arrays
-        (["hello", "world"], ["hello", "world"]),
-        (["test"], ["test"]),
+        pytest.param("str", ["hello", "world"], ["hello", "world"], id="str-array"),
+        pytest.param("str", ["test"], ["test"], id="str-single"),
     ],
 )
-async def test_array_insert_with_empty_list(ctx, array, expected_result):
+async def test_array_insert_with_empty_list(ctx, data_type, array, expected_result):
     """Test inserting empty list into array (should remain unchanged)."""
     obj = await ctx.create_object_from_value(array)
 
@@ -159,20 +159,20 @@ async def test_array_insert_with_empty_list(ctx, array, expected_result):
 
 
 @pytest.mark.parametrize(
-    "initial_array,insert_value,expected_result",
+    "data_type,initial_array,insert_value,expected_result",
     [
         # Integer arrays
-        ([1, 2, 3], [4, 5], [1, 2, 3, 4, 5]),
-        ([10], 20, [10, 20]),
+        pytest.param("int", [1, 2, 3], [4, 5], [1, 2, 3, 4, 5], id="int-list"),
+        pytest.param("int", [10], 20, [10, 20], id="int-scalar"),
         # Float arrays
-        ([1.5, 2.5], [3.5], [1.5, 2.5, 3.5]),
-        ([10.0], 20.0, [10.0, 20.0]),
+        pytest.param("float", [1.5, 2.5], [3.5], [1.5, 2.5, 3.5], id="float-list"),
+        pytest.param("float", [10.0], 20.0, [10.0, 20.0], id="float-scalar"),
         # String arrays
-        (["hello"], ["world"], ["hello", "world"]),
-        (["a"], "b", ["a", "b"]),
+        pytest.param("str", ["hello"], ["world"], ["hello", "world"], id="str-list"),
+        pytest.param("str", ["a"], "b", ["a", "b"], id="str-scalar"),
     ],
 )
-async def test_insert_modifies_in_place(ctx, initial_array, insert_value, expected_result):
+async def test_insert_modifies_in_place(ctx, data_type, initial_array, insert_value, expected_result):
     """Test that insert modifies the original object in place."""
     obj = await ctx.create_object_from_value(initial_array)
     original_table = obj.table
@@ -197,20 +197,20 @@ async def test_insert_modifies_in_place(ctx, initial_array, insert_value, expect
 
 
 @pytest.mark.parametrize(
-    "initial_array,inserts,expected_result",
+    "data_type,initial_array,inserts,expected_result",
     [
         # Integer arrays - multiple inserts
-        ([1, 2], [[3, 4], 5, [6]], [1, 2, 3, 4, 5, 6]),
-        ([10], [[20, 30], 40], [10, 20, 30, 40]),
+        pytest.param("int", [1, 2], [[3, 4], 5, [6]], [1, 2, 3, 4, 5, 6], id="int-complex"),
+        pytest.param("int", [10], [[20, 30], 40], [10, 20, 30, 40], id="int-simple"),
         # Float arrays - multiple inserts
-        ([1.5], [[2.5, 3.5], 4.5], [1.5, 2.5, 3.5, 4.5]),
-        ([10.0], [20.0, [30.0]], [10.0, 20.0, 30.0]),
+        pytest.param("float", [1.5], [[2.5, 3.5], 4.5], [1.5, 2.5, 3.5, 4.5], id="float-complex"),
+        pytest.param("float", [10.0], [20.0, [30.0]], [10.0, 20.0, 30.0], id="float-simple"),
         # String arrays - multiple inserts
-        (["a"], [["b", "c"], "d"], ["a", "b", "c", "d"]),
-        (["hello"], ["world", ["test"]], ["hello", "world", "test"]),
+        pytest.param("str", ["a"], [["b", "c"], "d"], ["a", "b", "c", "d"], id="str-complex"),
+        pytest.param("str", ["hello"], ["world", ["test"]], ["hello", "world", "test"], id="str-simple"),
     ],
 )
-async def test_multiple_inserts(ctx, initial_array, inserts, expected_result):
+async def test_multiple_inserts(ctx, data_type, initial_array, inserts, expected_result):
     """Test multiple consecutive inserts."""
     obj = await ctx.create_object_from_value(initial_array)
 
@@ -233,23 +233,23 @@ async def test_multiple_inserts(ctx, initial_array, inserts, expected_result):
 
 
 @pytest.mark.parametrize(
-    "scalar_value,array_value",
+    "data_type,scalar_value,array_value",
     [
         # Integer scalar + array
-        (42, [1, 2, 3]),
-        (0, [10, 20]),
+        pytest.param("int", 42, [1, 2, 3], id="int-positive"),
+        pytest.param("int", 0, [10, 20], id="int-zero"),
         # Float scalar + array
-        (3.14, [1.0, 2.0]),
-        (0.0, [5.5, 6.6]),
+        pytest.param("float", 3.14, [1.0, 2.0], id="float-pi"),
+        pytest.param("float", 0.0, [5.5, 6.6], id="float-zero"),
         # Boolean scalar + array
-        (True, [1, 2, 3]),
-        (False, [0, 0]),
+        pytest.param("bool", True, [1, 2, 3], id="bool-true"),
+        pytest.param("bool", False, [0, 0], id="bool-false"),
         # String scalar + array
-        ("hello", ["a", "b"]),
-        ("", ["test"]),
+        pytest.param("str", "hello", ["a", "b"], id="str-text"),
+        pytest.param("str", "", ["test"], id="str-empty"),
     ],
 )
-async def test_scalar_insert_fails(ctx, scalar_value, array_value):
+async def test_scalar_insert_fails(ctx, data_type, scalar_value, array_value):
     """Test that insert method on scalar fails."""
     scalar_obj = await ctx.create_object_from_value(scalar_value)
     array_obj = await ctx.create_object_from_value(array_value)
@@ -264,16 +264,16 @@ async def test_scalar_insert_fails(ctx, scalar_value, array_value):
 
 
 @pytest.mark.parametrize(
-    "array_a,array_b",
+    "data_type,array_a,array_b",
     [
         # Note: Result order is based on Snowflake ID timestamps (creation order),
         # not argument order. These tests verify data integrity.
-        ([1, 2, 3], [4, 5, 6]),
-        ([5.5, 6.6], [7.7, 8.8]),
-        (["a", "b"], ["c", "d"]),
+        pytest.param("int", [1, 2, 3], [4, 5, 6], id="int-arrays"),
+        pytest.param("float", [5.5, 6.6], [7.7, 8.8], id="float-arrays"),
+        pytest.param("str", ["a", "b"], ["c", "d"], id="str-arrays"),
     ],
 )
-async def test_insert_preserves_data_integrity(ctx, array_a, array_b):
+async def test_insert_preserves_data_integrity(ctx, data_type, array_a, array_b):
     """Test that insert preserves all data from both arrays."""
     obj_a = await ctx.create_object_from_value(array_a)
     obj_b = await ctx.create_object_from_value(array_b)
