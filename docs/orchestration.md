@@ -383,44 +383,6 @@ async with Context() as ctx:
     result = await job.wait()
 ```
 
-## Database Schema
-
-### Indexes
-
-```sql
--- Jobs
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_created_at ON jobs(created_at);
-
--- Tasks
-CREATE INDEX idx_tasks_job_id ON tasks(job_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
-CREATE INDEX idx_tasks_worker_id ON tasks(worker_id);
-CREATE INDEX idx_tasks_created_at ON tasks(created_at);
-CREATE INDEX idx_tasks_job_status ON tasks(job_id, status);
-
--- Workers
-CREATE INDEX idx_workers_status ON workers(status);
-CREATE INDEX idx_workers_last_heartbeat ON workers(last_heartbeat);
-CREATE INDEX idx_workers_hostname ON workers(hostname);
-```
-
-### Constraints
-
-```sql
--- Task status must be valid
-ALTER TABLE tasks ADD CONSTRAINT check_task_status
-    CHECK (status IN ('pending', 'claimed', 'running', 'completed', 'failed', 'cancelled'));
-
--- Job status must be valid
-ALTER TABLE jobs ADD CONSTRAINT check_job_status
-    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'));
-
--- Worker status must be valid
-ALTER TABLE workers ADD CONSTRAINT check_worker_status
-    CHECK (status IN ('active', 'idle', 'stopped'));
-```
-
 ## Configuration
 
 ### Environment Variables
