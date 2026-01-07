@@ -12,7 +12,6 @@ from .object import Object
 from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 from .sql_template_loader import load_sql_template
 from .context import create_object_from_value
-from .snowflake import get_snowflake_ids
 
 
 async def copy(obj: Object) -> Object:
@@ -104,63 +103,20 @@ def _are_types_compatible(target_type: str, source_type: str) -> bool:
     return False
 
 
-async def _concat_with_snowflake_ids(result: Object, obj_a: Object, obj_b: Object) -> None:
+async def _concat_simple(result: Object, obj_a: Object, obj_b: Object) -> None:
     """
-    Concat by generating new Snowflake IDs for all rows.
+    Concat by preserving existing Snowflake IDs from both objects.
 
-    Both obj_a and obj_b get new Snowflake IDs that preserve insertion order.
-    Order is naturally maintained via Snowflake ID timestamps.
+    Order is maintained via existing Snowflake IDs when data is retrieved.
+    No ID renumbering needed - IDs already encode temporal order.
     """
-    # Get counts for both objects
-    count_a_query = f"SELECT count(*) FROM {obj_a.table}"
-    count_a_result = await obj_a.ch_client.query(count_a_query)
-    count_a = count_a_result.result_rows[0][0]
-
-    count_b_query = f"SELECT count(*) FROM {obj_b.table}"
-    count_b_result = await obj_a.ch_client.query(count_b_query)
-    count_b = count_b_result.result_rows[0][0]
-
-    # Generate Snowflake IDs for all rows
-    total_count = count_a + count_b
-    new_ids = get_snowflake_ids(total_count)
-
-    # Create temporary table for new ID mappings
-    temp_table = f"temp_ids_{result.table}"
-    create_temp = f"""
-    CREATE TABLE {temp_table} (
-        row_num UInt64,
-        new_id UInt64
-    ) ENGINE = Memory
-    """
-    await obj_a.ch_client.command(create_temp)
-
-    # Insert ID mappings (row_num -> new_snowflake_id)
-    if new_ids:
-        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
-        await obj_a.ch_client.insert(temp_table, data)
-
-    # Insert data with new Snowflake IDs
-    # obj_a rows get IDs 1..count_a, obj_b rows get IDs (count_a+1)..total
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT t.new_id as aai_id, a.value
-    FROM (
-        SELECT row_number() OVER () as row_num, value
-        FROM {obj_a.table}
-    ) a
-    JOIN {temp_table} t ON a.row_num = t.row_num
+    SELECT aai_id, value FROM {obj_a.table}
     UNION ALL
-    SELECT t.new_id as aai_id, b.value
-    FROM (
-        SELECT row_number() OVER () + {count_a} as row_num, value
-        FROM {obj_b.table}
-    ) b
-    JOIN {temp_table} t ON b.row_num = t.row_num
+    SELECT aai_id, value FROM {obj_b.table}
     """
     await obj_a.ch_client.command(insert_query)
-
-    # Clean up temporary table
-    await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
 
@@ -196,8 +152,8 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     # Create result object with schema (registered for automatic cleanup)
     result = await obj_a.ctx.create_object(schema)
 
-    # Always use Snowflake IDs - order preserved via timestamps
-    await _concat_with_snowflake_ids(result, obj_a, obj_b)
+    # Preserve existing Snowflake IDs - order maintained when data is retrieved
+    await _concat_simple(result, obj_a, obj_b)
 
     return result
 
@@ -222,33 +178,22 @@ async def _concat_value_to_object(obj_a: Object, value: ValueType) -> Object:
     # Create a temporary object from the value
     temp_obj = await create_object_from_value(value, obj_a.ctx)
 
-    # Get the data from temp object
-    temp_data_query = f"SELECT value FROM {temp_obj.table}"
-    temp_result = await obj_a.ch_client.query(temp_data_query)
+    # Get column type from result table
+    type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{result.table}' AND name = 'value'
+    """
+    type_result = await obj_a.ch_client.query(type_query)
+    col_type = type_result.result_rows[0][0] if type_result.result_rows else "String"
 
-    # Insert the values into result table
-    if temp_result.result_rows:
-        # Get column type from result table
-        type_query = f"""
-        SELECT type FROM system.columns
-        WHERE table = '{result.table}' AND name = 'value'
-        """
-        type_result = await obj_a.ch_client.query(type_query)
-        col_type = type_result.result_rows[0][0] if type_result.result_rows else "String"
-
-        # Get next aai_id
-        max_id_query = f"SELECT max(aai_id) FROM {result.table}"
-        max_id_result = await obj_a.ch_client.query(max_id_query)
-        next_id = (max_id_result.result_rows[0][0] or 0) + 1
-
-        # Build insert data
-        data = []
-        for row in temp_result.result_rows:
-            data.append([next_id, row[0]])
-            next_id += 1
-
-        # Use clickhouse-connect's built-in insert
-        await obj_a.ch_client.insert(result.table, data)
+    # Insert preserving existing Snowflake IDs from temp object
+    # Order is maintained via existing Snowflake IDs when data is retrieved
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT aai_id, CAST(value AS {col_type}) as value
+    FROM {temp_obj.table}
+    """
+    await obj_a.ch_client.command(insert_query)
 
     # Delete the temporary object
     await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
@@ -312,49 +257,19 @@ async def concat(obj_a: Object, obj_b: Union[Object, ValueType]) -> Object:
         return await _concat_value_to_object(obj_a, obj_b)
 
 
-async def _insert_renumber_ids(obj_a: Object, obj_b: Object, target_value_type: str) -> None:
+async def _insert_simple(obj_a: Object, obj_b: Object, target_value_type: str) -> None:
     """
-    Insert obj_b into obj_a with Snowflake ID renumbering.
+    Insert obj_b into obj_a preserving existing Snowflake IDs.
 
-    Always generates new Snowflake IDs. Order is preserved via Snowflake ID timestamps.
+    Order is maintained via existing Snowflake IDs when data is retrieved.
+    No ID renumbering needed - IDs already encode temporal order.
     """
-    # Get count of rows in obj_b
-    count_query = f"SELECT count(*) FROM {obj_b.table}"
-    count_result = await obj_a.ch_client.query(count_query)
-    count_b = count_result.result_rows[0][0]
-
-    # Generate Snowflake IDs for obj_b rows
-    new_ids = get_snowflake_ids(count_b)
-
-    # Create temporary table for new ID mappings
-    temp_table = f"temp_ids_{obj_a.table}_{id(obj_b)}"
-    create_temp = f"""
-    CREATE TABLE {temp_table} (
-        row_num UInt64,
-        new_id UInt64
-    ) ENGINE = Memory
-    """
-    await obj_a.ch_client.command(create_temp)
-
-    # Insert ID mappings (row_num -> new_snowflake_id)
-    if new_ids:
-        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
-        await obj_a.ch_client.insert(temp_table, data)
-
-    # Insert data with new Snowflake IDs
     insert_query = f"""
     INSERT INTO {obj_a.table}
-    SELECT t.new_id as aai_id, CAST(b.value AS {target_value_type}) as value
-    FROM (
-        SELECT row_number() OVER () as row_num, value
-        FROM {obj_b.table}
-    ) b
-    JOIN {temp_table} t ON b.row_num = t.row_num
+    SELECT aai_id, CAST(value AS {target_value_type}) as value
+    FROM {obj_b.table}
     """
     await obj_a.ch_client.command(insert_query)
-
-    # Clean up temporary table
-    await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
 async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
@@ -392,8 +307,8 @@ async def _insert_object_to_object(obj_a: Object, obj_b: Object) -> None:
             f"Cannot insert {source_value_type} into {target_value_type}: types are incompatible"
         )
 
-    # Always renumber for insert using Snowflake IDs
-    await _insert_renumber_ids(obj_a, obj_b, target_value_type)
+    # Preserve existing Snowflake IDs
+    await _insert_simple(obj_a, obj_b, target_value_type)
 
 
 async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
@@ -440,45 +355,14 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
             f"Cannot insert {temp_value_type} into {target_value_type}: types are incompatible"
         )
 
-    # Get count of rows in temp object
-    count_query = f"SELECT count(*) FROM {temp_obj.table}"
-    count_result = await obj_a.ch_client.query(count_query)
-    count_temp = count_result.result_rows[0][0]
-
-    # Insert the values into obj_a table using Snowflake IDs
-    if count_temp > 0:
-        # Generate Snowflake IDs for temp rows
-        new_ids = get_snowflake_ids(count_temp)
-
-        # Create temporary table for new ID mappings
-        temp_id_table = f"temp_ids_{obj_a.table}_{id(temp_obj)}"
-        create_temp = f"""
-        CREATE TABLE {temp_id_table} (
-            row_num UInt64,
-            new_id UInt64
-        ) ENGINE = Memory
-        """
-        await obj_a.ch_client.command(create_temp)
-
-        # Insert ID mappings (row_num -> new_snowflake_id)
-        data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
-        await obj_a.ch_client.insert(temp_id_table, data)
-
-        # Insert with type casting and Snowflake IDs
-        # Order is preserved via Snowflake ID timestamps
-        insert_select_query = f"""
-        INSERT INTO {obj_a.table}
-        SELECT t.new_id as aai_id, CAST(v.value AS {target_value_type}) as value
-        FROM (
-            SELECT row_number() OVER () as row_num, value
-            FROM {temp_obj.table}
-        ) v
-        JOIN {temp_id_table} t ON v.row_num = t.row_num
-        """
-        await obj_a.ch_client.command(insert_select_query)
-
-        # Clean up ID mapping table
-        await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_id_table}")
+    # Insert preserving existing Snowflake IDs from temp object
+    # Order is maintained via existing Snowflake IDs when data is retrieved
+    insert_query = f"""
+    INSERT INTO {obj_a.table}
+    SELECT aai_id, CAST(value AS {target_value_type}) as value
+    FROM {temp_obj.table}
+    """
+    await obj_a.ch_client.command(insert_query)
 
     # Delete the temporary object
     await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")

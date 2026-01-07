@@ -73,7 +73,10 @@ aaiclick uses **Snowflake IDs** (64-bit identifiers) for all row identifiers (`a
 - **Temporal ordering**: IDs naturally preserve chronological order across all nodes
 - **No coordination needed**: Each machine generates unique IDs independently
 - **Simplified operations**: `insert()` and `concat()` don't need explicit ORDER BY clauses
-- **Conflict-free**: Always generate new Snowflake IDs for inserted/concatenated data
+- **ID preservation**: Operations preserve existing Snowflake IDs from source data
+  - IDs already encode temporal order from creation time
+  - No renumbering or conflict detection needed
+  - More efficient - direct database operations
 
 **Example:**
 ```python
@@ -82,9 +85,9 @@ obj_a = await ctx.create_object_from_value([1, 2, 3])
 obj_b = await ctx.create_object_from_value([4, 5, 6])
 result = await obj_a.concat(obj_b)
 
-# New Snowflake IDs are generated for all elements
-# Order is preserved through timestamp-based IDs
-# Result: [1, 2, 3, 4, 5, 6] with ascending Snowflake IDs
+# Existing Snowflake IDs are preserved from obj_a and obj_b
+# Order is maintained through timestamp-based IDs assigned at creation
+# Result: [1, 2, 3, 4, 5, 6] with IDs from original objects
 ```
 
 ## Future Extensions

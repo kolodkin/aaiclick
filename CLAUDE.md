@@ -115,12 +115,13 @@ aaiclick is a **distributed computing framework** where order is automatically p
 - **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
 - **Temporal ordering**: IDs naturally preserve chronological order across distributed operations
 - **No explicit ordering needed**: Operations like `insert()` and `concat()` don't need ORDER BY clauses
-- **Insert/Concat behavior**: Always generate new Snowflake IDs for inserted/concatenated data
-  - Maintains temporal order of operations
-  - Avoids ID conflicts in distributed environment
-  - Simpler logic without conditional strategies
+- **Insert/Concat behavior**: Preserve existing Snowflake IDs from source data
+  - IDs already encode temporal order from when data was created
+  - Order maintained when data is retrieved (via `.data()`)
+  - Simpler logic - no ID renumbering or conflict detection needed
+  - More efficient - direct database operations without Python round-trips
 
-**Example**: When concatenating arrays `[1, 2, 3]` and `[4, 5, 6]`, new Snowflake IDs are generated for all elements. The result maintains order through timestamp-based IDs rather than explicit ordering.
+**Example**: When concatenating arrays `[1, 2, 3]` and `[4, 5, 6]`, their existing Snowflake IDs are preserved. The result maintains order through the timestamp-based IDs that were assigned when each element was originally created.
 
 ## Making Changes
 
