@@ -121,7 +121,24 @@ aaiclick is a **distributed computing framework** where order is automatically p
   - Simpler logic - no ID renumbering or conflict detection needed
   - More efficient - direct database operations without Python round-trips
 
-**Example**: When concatenating arrays `[1, 2, 3]` and `[4, 5, 6]`, their existing Snowflake IDs are preserved. The result maintains order through the timestamp-based IDs that were assigned when each element was originally created.
+**Important**: Order after concat/insert is **always creation order**, not argument order!
+
+**Example showing creation order**:
+```python
+# Scenario 1: obj_a created first
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T1
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T2
+result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
+result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
+
+# Scenario 2: obj_b created first
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T1
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T2
+result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
+result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
+```
+
+The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
 
 ## Making Changes
 

@@ -78,17 +78,25 @@ aaiclick uses **Snowflake IDs** (64-bit identifiers) for all row identifiers (`a
   - No renumbering or conflict detection needed
   - More efficient - direct database operations
 
-**Example:**
-```python
-# Concatenate two arrays
-obj_a = await ctx.create_object_from_value([1, 2, 3])
-obj_b = await ctx.create_object_from_value([4, 5, 6])
-result = await obj_a.concat(obj_b)
+**Critical Insight - Creation Order Matters:**
 
-# Existing Snowflake IDs are preserved from obj_a and obj_b
-# Order is maintained through timestamp-based IDs assigned at creation
-# Result: [1, 2, 3, 4, 5, 6] with IDs from original objects
+Result order is **always based on creation time** (Snowflake ID timestamps), not concat argument order!
+
+```python
+# Example 1: obj_a created first
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # T1
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # T2
+result = await obj_a.concat(obj_b)  # [1, 2, 3, 4, 5, 6]
+result = await obj_b.concat(obj_a)  # [1, 2, 3, 4, 5, 6] - same!
+
+# Example 2: obj_b created first
+obj_b = await ctx.create_object_from_value([4, 5, 6])  # T1
+obj_a = await ctx.create_object_from_value([1, 2, 3])  # T2
+result = await obj_a.concat(obj_b)  # [4, 5, 6, 1, 2, 3]
+result = await obj_b.concat(obj_a)  # [4, 5, 6, 1, 2, 3] - same!
 ```
+
+This behavior ensures **temporal causality** in distributed systems - data is always ordered by when it was created, regardless of how operations are combined.
 
 ## Future Extensions
 
