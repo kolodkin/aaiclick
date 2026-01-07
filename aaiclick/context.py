@@ -22,7 +22,15 @@ from .env import (
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_DB,
 )
-from .models import ValueScalarType, ValueListType, ValueType
+from .models import (
+    ValueScalarType,
+    ValueListType,
+    ValueType,
+    Schema,
+    ColumnMeta,
+    FIELDTYPE_SCALAR,
+    FIELDTYPE_ARRAY,
+)
 from .snowflake import get_snowflake_ids
 
 
@@ -197,7 +205,6 @@ class Context:
             ...     obj = await ctx.create_object(schema)
         """
         from .object import Object
-        from .models import ColumnMeta, FIELDTYPE_SCALAR
 
         obj = Object(self)
 
@@ -320,7 +327,6 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
     from .object import Object
-    from .models import Schema, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

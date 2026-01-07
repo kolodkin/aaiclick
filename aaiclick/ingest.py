@@ -11,6 +11,7 @@ from typing import Union
 from .object import Object
 from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 from .sql_template_loader import load_sql_template
+from .context import create_object_from_value
 from .snowflake import get_snowflake_ids
 
 
@@ -232,8 +233,6 @@ async def _concat_value_to_object(obj_a: Object, value: ValueType) -> Object:
     Returns:
         Object: New Object instance with concatenated data
     """
-    from .context import create_object_from_value
-
     # First copy obj_a
     result = await copy(obj_a)
 
@@ -427,8 +426,6 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
     Raises:
         ValueError: If value types are incompatible
     """
-    from .context import create_object_from_value
-
     # Handle empty list as no-op
     if isinstance(value, list) and len(value) == 0:
         return
