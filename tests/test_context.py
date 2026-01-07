@@ -247,6 +247,16 @@ async def test_stale_object_prevents_copy(ctx):
         await obj.copy()
 
 
+async def test_stale_object_prevents_insert(ctx):
+    """Test that stale objects prevent insert."""
+    obj1 = await ctx.create_object_from_value([1, 2, 3])
+    obj2 = await ctx.create_object_from_value([4, 5, 6])
+
+    await ctx.delete(obj1)
+    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
+        await obj1.insert(obj2)
+
+
 async def test_stale_object_allows_property_access(ctx):
     """Test that stale objects still allow property access."""
     obj = await ctx.create_object_from_value([1, 2, 3])
