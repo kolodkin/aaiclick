@@ -111,7 +111,7 @@ async def test_int_scalar_concat_fails(ctx):
     a = await ctx.create_object_from_value(42)
     b = await ctx.create_object_from_value([1, 2, 3])
 
-    with pytest.raises(ValueError, match="concat requires obj_a to have array fieldtype"):
+    with pytest.raises(ValueError, match="concat requires first table to have array fieldtype"):
         await a.concat(b)
 
 
@@ -192,7 +192,7 @@ async def test_int_scalar_insert_fails(ctx):
     a = await ctx.create_object_from_value(42)
     b = await ctx.create_object_from_value([1, 2, 3])
 
-    with pytest.raises(ValueError, match="insert requires obj_a to have array fieldtype"):
+    with pytest.raises(ValueError, match="insert requires target table to have array fieldtype"):
         await a.insert(b)
 
 

@@ -228,23 +228,20 @@ async def test_stale_object_prevents_aggregates(ctx):
         await obj.std()
 
 
-async def test_stale_object_prevents_concat(ctx):
-    """Test that stale objects prevent concat."""
+@pytest.mark.parametrize("method", ["copy", "concat", "insert"])
+async def test_stale_object_prevents_operations(ctx, method):
+    """Test that stale objects prevent copy, concat, and insert operations."""
     obj1 = await ctx.create_object_from_value([1, 2, 3])
     obj2 = await ctx.create_object_from_value([4, 5, 6])
 
     await ctx.delete(obj1)
     with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        await obj1.concat(obj2)
-
-
-async def test_stale_object_prevents_copy(ctx):
-    """Test that stale objects prevent copy."""
-    obj = await ctx.create_object_from_value([1, 2, 3])
-
-    await ctx.delete(obj)
-    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        await obj.copy()
+        if method == "copy":
+            await obj1.copy()
+        elif method == "concat":
+            await obj1.concat(obj2)
+        elif method == "insert":
+            await obj1.insert(obj2)
 
 
 async def test_stale_object_allows_property_access(ctx):
