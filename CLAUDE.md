@@ -108,6 +108,20 @@ aaiclick/
   - Called by Context methods
   - Accept `ch_client` parameter (mandatory)
 
+## Distributed Computing & Order Preservation
+
+aaiclick is a **distributed computing framework** where order is automatically preserved via **Snowflake IDs**:
+
+- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
+- **Temporal ordering**: IDs naturally preserve chronological order across distributed operations
+- **No explicit ordering needed**: Operations like `insert()` and `concat()` don't need ORDER BY clauses
+- **Insert/Concat behavior**: Always generate new Snowflake IDs for inserted/concatenated data
+  - Maintains temporal order of operations
+  - Avoids ID conflicts in distributed environment
+  - Simpler logic without conditional strategies
+
+**Example**: When concatenating arrays `[1, 2, 3]` and `[4, 5, 6]`, new Snowflake IDs are generated for all elements. The result maintains order through timestamp-based IDs rather than explicit ordering.
+
 ## Making Changes
 
 1. Read relevant files before editing

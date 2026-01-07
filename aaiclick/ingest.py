@@ -104,35 +104,25 @@ def _are_types_compatible(target_type: str, source_type: str) -> bool:
     return False
 
 
-async def _concat_preserve_ids(result: Object, obj_a: Object, obj_b: Object) -> None:
+async def _concat_with_snowflake_ids(result: Object, obj_a: Object, obj_b: Object) -> None:
     """
-    Concat by preserving original aai_ids from both objects.
+    Concat by generating new Snowflake IDs for all rows.
 
-    Used when min(obj_b) > max(obj_a), so no ID conflicts exist.
+    Both obj_a and obj_b get new Snowflake IDs that preserve insertion order.
+    Order is naturally maintained via Snowflake ID timestamps.
     """
-    insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT aai_id, value FROM {obj_a.table}
-    UNION ALL
-    SELECT aai_id, value FROM {obj_b.table}
-    ORDER BY aai_id
-    """
-    await obj_a.ch_client.command(insert_query)
+    # Get counts for both objects
+    count_a_query = f"SELECT count(*) FROM {obj_a.table}"
+    count_a_result = await obj_a.ch_client.query(count_a_query)
+    count_a = count_a_result.result_rows[0][0]
 
+    count_b_query = f"SELECT count(*) FROM {obj_b.table}"
+    count_b_result = await obj_a.ch_client.query(count_b_query)
+    count_b = count_b_result.result_rows[0][0]
 
-async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max_a_id: int) -> None:
-    """
-    Concat by preserving obj_a IDs but renumbering obj_b IDs using Snowflake IDs.
-
-    Used when there's an ID conflict (min(obj_b) <= max(obj_a)).
-    """
-    # Get count of rows in obj_b
-    count_query = f"SELECT count(*) FROM {obj_b.table}"
-    count_result = await obj_a.ch_client.query(count_query)
-    count_b = count_result.result_rows[0][0]
-
-    # Generate Snowflake IDs for obj_b rows
-    new_ids = get_snowflake_ids(count_b)
+    # Generate Snowflake IDs for all rows
+    total_count = count_a + count_b
+    new_ids = get_snowflake_ids(total_count)
 
     # Create temporary table for new ID mappings
     temp_table = f"temp_ids_{result.table}"
@@ -149,18 +139,23 @@ async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max
         data = [[i+1, id_val] for i, id_val in enumerate(new_ids)]
         await obj_a.ch_client.insert(temp_table, data)
 
-    # Insert data with preserved obj_a IDs and renumbered obj_b IDs
+    # Insert data with new Snowflake IDs
+    # obj_a rows get IDs 1..count_a, obj_b rows get IDs (count_a+1)..total
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, value FROM {obj_a.table}
+    SELECT t.new_id as aai_id, a.value
+    FROM (
+        SELECT row_number() OVER () as row_num, value
+        FROM {obj_a.table}
+    ) a
+    JOIN {temp_table} t ON a.row_num = t.row_num
     UNION ALL
     SELECT t.new_id as aai_id, b.value
     FROM (
-        SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+        SELECT row_number() OVER () + {count_a} as row_num, value
         FROM {obj_b.table}
     ) b
     JOIN {temp_table} t ON b.row_num = t.row_num
-    ORDER BY aai_id
     """
     await obj_a.ch_client.command(insert_query)
 
@@ -168,11 +163,14 @@ async def _concat_renumber_ids(result: Object, obj_a: Object, obj_b: Object, max
     await obj_a.ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
+
+
 async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     """
     Concatenate two objects together.
 
     Helper function for concat when both arguments are Objects.
+    Always generates new Snowflake IDs for all rows to maintain temporal order.
 
     Args:
         obj_a: First Object (must have array fieldtype)
@@ -198,23 +196,8 @@ async def _concat_object_to_object(obj_a: Object, obj_b: Object) -> Object:
     # Create result object with schema (registered for automatic cleanup)
     result = await obj_a.ctx.create_object(schema)
 
-    # Get max aai_id from obj_a to check for ID conflicts
-    max_a_query = f"SELECT max(aai_id) FROM {obj_a.table}"
-    max_a_result = await obj_a.ch_client.query(max_a_query)
-    max_a_id = max_a_result.result_rows[0][0] or 0
-
-    # Get min aai_id from obj_b
-    min_b_query = f"SELECT min(aai_id) FROM {obj_b.table}"
-    min_b_result = await obj_a.ch_client.query(min_b_query)
-    min_b_id = min_b_result.result_rows[0][0]
-
-    # Dispatch based on ID conflict check
-    if min_b_id is not None and min_b_id <= max_a_id:
-        # ID conflict: renumber obj_b
-        await _concat_renumber_ids(result, obj_a, obj_b, max_a_id)
-    else:
-        # No conflict: preserve IDs
-        await _concat_preserve_ids(result, obj_a, obj_b)
+    # Always use Snowflake IDs - order preserved via timestamps
+    await _concat_with_snowflake_ids(result, obj_a, obj_b)
 
     return result
 
@@ -333,7 +316,7 @@ async def _insert_renumber_ids(obj_a: Object, obj_b: Object, target_value_type: 
     """
     Insert obj_b into obj_a with Snowflake ID renumbering.
 
-    Always renumbers obj_b's IDs using Snowflake ID generation.
+    Always generates new Snowflake IDs. Order is preserved via Snowflake ID timestamps.
     """
     # Get count of rows in obj_b
     count_query = f"SELECT count(*) FROM {obj_b.table}"
@@ -363,7 +346,7 @@ async def _insert_renumber_ids(obj_a: Object, obj_b: Object, target_value_type: 
     INSERT INTO {obj_a.table}
     SELECT t.new_id as aai_id, CAST(b.value AS {target_value_type}) as value
     FROM (
-        SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+        SELECT row_number() OVER () as row_num, value
         FROM {obj_b.table}
     ) b
     JOIN {temp_table} t ON b.row_num = t.row_num
@@ -482,11 +465,12 @@ async def _insert_value_to_object(obj_a: Object, value: ValueType) -> None:
         await obj_a.ch_client.insert(temp_id_table, data)
 
         # Insert with type casting and Snowflake IDs
+        # Order is preserved via Snowflake ID timestamps
         insert_select_query = f"""
         INSERT INTO {obj_a.table}
         SELECT t.new_id as aai_id, CAST(v.value AS {target_value_type}) as value
         FROM (
-            SELECT row_number() OVER (ORDER BY aai_id) as row_num, value
+            SELECT row_number() OVER () as row_num, value
             FROM {temp_obj.table}
         ) v
         JOIN {temp_id_table} t ON v.row_num = t.row_num
