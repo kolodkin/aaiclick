@@ -463,7 +463,7 @@ class Object:
         """
         self.checkstale()
         from . import ingest
-        return await ingest.copy_db(self.table, self.ch_client, self.ctx)
+        return await ingest.copy_db(self.table, self.ch_client, self.ctx.create_object)
 
     async def concat(self, other: Union["Object", "ValueType"]) -> "Object":
         """
@@ -507,11 +507,15 @@ class Object:
         if isinstance(other, Object):
             other.checkstale()
             return await ingest.concat_objects_db(
-                self.table, other.table, self.ch_client, self.ctx
+                self.table, other.table, self.ch_client, self.ctx.create_object
             )
         else:
             return await ingest.concat_value_db(
-                self.table, other, self.ch_client, self.ctx
+                self.table,
+                other,
+                self.ch_client,
+                self.ctx.create_object,
+                self.ctx.create_object_from_value,
             )
 
     async def insert(self, other: Union["Object", "ValueType"]) -> None:
@@ -555,7 +559,7 @@ class Object:
             await ingest.insert_object_db(self.table, other.table, self.ch_client)
         else:
             await ingest.insert_value_db(
-                self.table, other, self.ch_client, self.ctx
+                self.table, other, self.ch_client, self.ctx.create_object_from_value
             )
 
     async def min(self) -> float:

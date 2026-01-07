@@ -7,6 +7,8 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
+from typing import Callable, Awaitable
+
 from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
@@ -116,7 +118,7 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client, ctx):
+async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Awaitable]):
     """
     Copy a table to a new object at database level.
 
@@ -126,7 +128,7 @@ async def copy_db(table: str, ch_client, ctx):
     Args:
         table: Source table name
         ch_client: ClickHouse client instance
-        ctx: Context instance for creating result object
+        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with copied data
@@ -134,7 +136,7 @@ async def copy_db(table: str, ch_client, ctx):
     fieldtype, columns = await _get_table_schema(table, ch_client)
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
-    result = await ctx.create_object(schema)
+    result = await create_object(schema)
 
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
     await ch_client.command(insert_query)
@@ -142,7 +144,12 @@ async def copy_db(table: str, ch_client, ctx):
     return result
 
 
-async def concat_objects_db(table_a: str, table_b: str, ch_client, ctx):
+async def concat_objects_db(
+    table_a: str,
+    table_b: str,
+    ch_client,
+    create_object: Callable[[Schema], Awaitable],
+):
     """
     Concatenate two tables at database level.
 
@@ -153,7 +160,7 @@ async def concat_objects_db(table_a: str, table_b: str, ch_client, ctx):
         table_a: First table name (must have array fieldtype)
         table_b: Second table name
         ch_client: ClickHouse client instance
-        ctx: Context instance for creating result object
+        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with concatenated data
@@ -172,7 +179,7 @@ async def concat_objects_db(table_a: str, table_b: str, ch_client, ctx):
         columns={"aai_id": "UInt64", "value": value_type}
     )
 
-    result = await ctx.create_object(schema)
+    result = await create_object(schema)
 
     insert_query = f"""
     INSERT INTO {result.table}
@@ -185,7 +192,13 @@ async def concat_objects_db(table_a: str, table_b: str, ch_client, ctx):
     return result
 
 
-async def concat_value_db(table_a: str, value: ValueType, ch_client, ctx):
+async def concat_value_db(
+    table_a: str,
+    value: ValueType,
+    ch_client,
+    create_object: Callable[[Schema], Awaitable],
+    create_object_from_value: Callable[[ValueType], Awaitable],
+):
     """
     Concatenate a value to a table at database level.
 
@@ -195,7 +208,8 @@ async def concat_value_db(table_a: str, value: ValueType, ch_client, ctx):
         table_a: Source table name (must have array fieldtype)
         value: Value to append (scalar or list)
         ch_client: ClickHouse client instance
-        ctx: Context instance for creating result object
+        create_object: Async callable to create a new Object from Schema
+        create_object_from_value: Async callable to create Object from value
 
     Returns:
         Object: New Object instance with concatenated data
@@ -207,10 +221,9 @@ async def concat_value_db(table_a: str, value: ValueType, ch_client, ctx):
     if fieldtype_a != FIELDTYPE_ARRAY:
         raise ValueError("concat requires first table to have array fieldtype")
 
-    result = await copy_db(table_a, ch_client, ctx)
+    result = await copy_db(table_a, ch_client, create_object)
 
-    from .context import create_object_from_value
-    temp_obj = await create_object_from_value(value, ctx)
+    temp_obj = await create_object_from_value(value)
 
     col_type = await _get_value_column_type(result.table, ch_client)
 
@@ -262,7 +275,12 @@ async def insert_object_db(table_a: str, table_b: str, ch_client) -> None:
     await ch_client.command(insert_query)
 
 
-async def insert_value_db(table_a: str, value: ValueType, ch_client, ctx) -> None:
+async def insert_value_db(
+    table_a: str,
+    value: ValueType,
+    ch_client,
+    create_object_from_value: Callable[[ValueType], Awaitable],
+) -> None:
     """
     Insert a value into a table at database level.
 
@@ -270,7 +288,7 @@ async def insert_value_db(table_a: str, value: ValueType, ch_client, ctx) -> Non
         table_a: Target table name (must have array fieldtype)
         value: Value to insert (scalar or list)
         ch_client: ClickHouse client instance
-        ctx: Context instance for creating temporary object
+        create_object_from_value: Async callable to create Object from value
 
     Raises:
         ValueError: If table_a does not have array fieldtype
@@ -283,8 +301,7 @@ async def insert_value_db(table_a: str, value: ValueType, ch_client, ctx) -> Non
     if isinstance(value, list) and len(value) == 0:
         return
 
-    from .context import create_object_from_value
-    temp_obj = await create_object_from_value(value, ctx)
+    temp_obj = await create_object_from_value(value)
 
     target_value_type = await _get_value_column_type(table_a, ch_client)
     temp_value_type = await _get_value_column_type(temp_obj.table, ch_client)
