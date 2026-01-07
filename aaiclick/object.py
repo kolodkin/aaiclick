@@ -461,8 +461,9 @@ class Object:
             >>> obj_copy = await obj_a.copy()
             >>> await obj_copy.data()  # Returns [1, 2, 3]
         """
+        self.checkstale()
         from . import ingest
-        return await ingest.copy(self)
+        return await ingest.copy_db(self.table, self.ch_client, self.ctx)
 
     async def concat(self, other: Union["Object", "ValueType"]) -> "Object":
         """
@@ -501,8 +502,17 @@ class Object:
             >>> result = await obj_a.concat([4, 5])
             >>> await result.data()  # Returns [1, 2, 3, 4, 5]
         """
+        self.checkstale()
         from . import ingest
-        return await ingest.concat(self, other)
+        if isinstance(other, Object):
+            other.checkstale()
+            return await ingest.concat_objects_db(
+                self.table, other.table, self.ch_client, self.ctx
+            )
+        else:
+            return await ingest.concat_value_db(
+                self.table, other, self.ch_client, self.ctx
+            )
 
     async def insert(self, other: Union["Object", "ValueType"]) -> None:
         """
@@ -538,8 +548,15 @@ class Object:
             >>> await obj_a.insert([4, 5])
             >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5]
         """
+        self.checkstale()
         from . import ingest
-        await ingest.insert(self, other)
+        if isinstance(other, Object):
+            other.checkstale()
+            await ingest.insert_object_db(self.table, other.table, self.ch_client)
+        else:
+            await ingest.insert_value_db(
+                self.table, other, self.ch_client, self.ctx
+            )
 
     async def min(self) -> float:
         """

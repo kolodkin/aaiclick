@@ -29,9 +29,8 @@ from .models import (
 # Import Snowflake ID generation
 from .snowflake import get_snowflake_id, get_snowflake_ids
 
-# Import ingest functions
-from .ingest import concat
-
 # Note: Factory functions (create_object, create_object_from_value) are internal.
 # Use Context.create_object() and Context.create_object_from_value() instead.
+# Note: Ingest functions (copy, concat, insert) are db-level in ingest.py.
+# Use Object.copy(), Object.concat(), Object.insert() methods instead.
 
