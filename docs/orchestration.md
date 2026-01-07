@@ -527,41 +527,7 @@ async def health_check():
 
 **Problem**: Distributed operations like `map()` need to partition data across tasks without copying or reading all data.
 
-**Current limitation**: The `Object` class represents entire ClickHouse tables. To process data in parallel chunks, we need a way to reference subsets of an Object's data.
-
-**Proposed solution**: Introduce a `View` concept that represents a filtered/sliced view of an Object:
-
-```python
-class View:
-    """
-    Represents a subset of an Object's data without copying.
-    Backed by ClickHouse table with WHERE/LIMIT/OFFSET.
-    """
-    table_id: str      # Reference to underlying Object table
-    offset: int        # Row offset (ordered by Snowflake ID)
-    limit: int         # Max rows to include
-    # Future: filters, projections, etc.
-```
-
-**Usage in orchestration**:
-```python
-# Worker receives View parameters in task kwargs
-async def process_chunk(table_id: str, offset: int, limit: int):
-    # Create View from parameters
-    view = View(table_id=table_id, offset=offset, limit=limit)
-
-    # Process the view (operates on subset via SQL WHERE clause)
-    result = await transform(view)
-    return result
-```
-
-**Benefits**:
-- No data copying - Views reference original table
-- Efficient partitioning using Snowflake ID ordering
-- Natural integration with ClickHouse query engine
-- Enables zero-copy slicing and filtering
-
-**Status**: Not yet implemented. Current workaround passes `table_id`, `offset`, `limit` as separate kwargs.
+**Limitation**: The `Object` class represents entire ClickHouse tables. To process data in parallel chunks, we need a way to reference subsets of an Object's data without materializing separate table copies.
 
 ## References
 
