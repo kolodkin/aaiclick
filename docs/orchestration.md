@@ -219,26 +219,33 @@ Tasks can create additional tasks during execution via aaiclick operators:
 async def map(callback: str, obj: Object) -> Object:
     """
     Apply callback to each element of obj in parallel.
-    Creates one task per chunk of data.
+    Creates one task per chunk of data using offset/limit.
     """
     from aaiclick.orchestration import add_task_to_current_job
 
     # Get current job context
     job_id = get_current_job_id()
 
-    # Split object into chunks
-    chunk_ids = await obj.get_chunk_table_ids()
+    # Get total row count without reading data
+    total_rows = await obj.count()
+    chunk_size = 10000  # Configurable chunk size
 
-    # Create task for each chunk
-    for chunk_id in chunk_ids:
+    # Create task for each chunk using offset/limit
+    # Note: Requires View concept (see Known Design Gaps)
+    for offset in range(0, total_rows, chunk_size):
         await add_task_to_current_job(
             job_id=job_id,
             entrypoint=callback,
-            kwargs={"chunk": chunk_id}
+            kwargs={
+                "table_id": obj.table_id,
+                "offset": offset,
+                "limit": chunk_size
+            }
         )
 
     # Return handle to future results
-    return await create_result_collector(job_id, len(chunk_ids))
+    num_chunks = (total_rows + chunk_size - 1) // chunk_size
+    return await create_result_collector(job_id, num_chunks)
 ```
 
 ### 3. Worker Task Execution Loop
@@ -513,6 +520,48 @@ async def health_check():
 1. **Task failure**: Propagate to job if critical
 2. **Cancellation**: Cancel all pending tasks
 3. **Cleanup**: Remove temporary resources
+
+## Known Design Gaps
+
+### View vs Object
+
+**Problem**: Distributed operations like `map()` need to partition data across tasks without copying or reading all data.
+
+**Current limitation**: The `Object` class represents entire ClickHouse tables. To process data in parallel chunks, we need a way to reference subsets of an Object's data.
+
+**Proposed solution**: Introduce a `View` concept that represents a filtered/sliced view of an Object:
+
+```python
+class View:
+    """
+    Represents a subset of an Object's data without copying.
+    Backed by ClickHouse table with WHERE/LIMIT/OFFSET.
+    """
+    table_id: str      # Reference to underlying Object table
+    offset: int        # Row offset (ordered by Snowflake ID)
+    limit: int         # Max rows to include
+    # Future: filters, projections, etc.
+```
+
+**Usage in orchestration**:
+```python
+# Worker receives View parameters in task kwargs
+async def process_chunk(table_id: str, offset: int, limit: int):
+    # Create View from parameters
+    view = View(table_id=table_id, offset=offset, limit=limit)
+
+    # Process the view (operates on subset via SQL WHERE clause)
+    result = await transform(view)
+    return result
+```
+
+**Benefits**:
+- No data copying - Views reference original table
+- Efficient partitioning using Snowflake ID ordering
+- Natural integration with ClickHouse query engine
+- Enables zero-copy slicing and filtering
+
+**Status**: Not yet implemented. Current workaround passes `table_id`, `offset`, `limit` as separate kwargs.
 
 ## References
 
