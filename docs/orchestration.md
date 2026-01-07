@@ -547,16 +547,6 @@ async def health_check():
 2. **Cancellation**: Cancel all pending tasks
 3. **Cleanup**: Remove temporary resources
 
-## Future Enhancements
-
-- **Priority queues**: High-priority jobs
-- **Resource constraints**: CPU/memory limits per task
-- **Task dependencies**: DAG-based execution
-- **Workflow templates**: Reusable job patterns
-- **Distributed transactions**: Cross-system consistency
-- **Streaming results**: Real-time result consumption
-- **Task scheduling**: Cron-like scheduled jobs
-
 ## References
 
 - [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
