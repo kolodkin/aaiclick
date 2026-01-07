@@ -102,11 +102,7 @@ This design ensures **temporal causality** - a fundamental requirement for distr
 
 1. **Causality Preservation**: Events that happen earlier in time always appear before events that happen later, regardless of where or how they're processed.
 
-2. **Deterministic Results**: Multiple workers can perform the same operations independently and always get identical results, because order is based on creation timestamps, not operation sequence.
-
-3. **No Race Conditions**: Concat order doesn't matter - `concat(a, b)` and `concat(b, a)` give the same result. This eliminates a whole class of distributed computing bugs.
-
-4. **Distributed Correctness**: In a multi-node environment, data created on different machines at different times maintains its temporal relationships when combined, ensuring computational correctness.
+2. **No Race Conditions**: Concat order doesn't matter - `concat(a, b)` and `concat(b, a)` give the same result. This eliminates a whole class of distributed computing bugs.
 
 This approach differs from traditional array operations where `concat([1,2,3], [4,5,6])` ≠ `concat([4,5,6], [1,2,3])`. In aaiclick, operation order is irrelevant - only creation time matters. This makes distributed computing much simpler and more reliable.
 
