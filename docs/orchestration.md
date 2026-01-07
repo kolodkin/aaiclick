@@ -189,20 +189,25 @@ class Worker(SQLModel, table=True):
 ```python
 from aaiclick.orchestration import create_job
 
-# Create job with initial tasks
+# Create job with initial task
 job = await create_job(
     name="data_processing_pipeline",
     tasks=[
         {
-            "entrypoint": "myapp.processors.load_data",
+            "entrypoint": "myapp.processors.load_and_process_data",
             "kwargs": {"source": "dataset_v1"}
-        },
-        {
-            "entrypoint": "myapp.processors.validate_data",
-            "kwargs": {"input_obj": "${previous_task_result}"}
         }
     ]
 )
+
+# The initial task can dynamically create follow-up tasks during execution:
+# async def load_and_process_data(source: str):
+#     data_obj = await load_data(source)
+#     # Create validation task with actual table ID
+#     await add_task_to_current_job(
+#         entrypoint="myapp.processors.validate_data",
+#         kwargs={"input_obj": data_obj.table_id}
+#     )
 ```
 
 ### 2. Dynamic Task Creation
