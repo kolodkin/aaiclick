@@ -65,7 +65,17 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
-        run: uv run pytest -v
+        run: |
+          mkdir -p tmp
+          uv run pytest -v --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Pytest Results
+          path: tmp/pytest-report.xml
+          reporter: java-junit
 
       - name: Run examples and capture output
         env:
