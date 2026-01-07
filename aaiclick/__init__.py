@@ -21,6 +21,9 @@ from .models import (
     FIELDTYPE_DICT,
     ORIENT_DICT,
     ORIENT_RECORDS,
+    ValueScalarType,
+    ValueListType,
+    ValueType,
 )
 
 # Import Snowflake ID generation

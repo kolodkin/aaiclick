@@ -4,7 +4,7 @@ aaiclick.models - Data models and type definitions for the aaiclick framework.
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from typing import Optional, Dict, Union, Literal
+from typing import Optional, Dict, Union, Literal, List
 from dataclasses import dataclass
 
 import yaml
@@ -30,6 +30,11 @@ FIELDTYPE_DICT = "d"
 # Orient constants for data() method
 ORIENT_DICT = "dict"
 ORIENT_RECORDS = "records"
+
+# Value type aliases for factory functions
+ValueScalarType = Union[int, float, bool, str]
+ValueListType = Union[List[int], List[float], List[bool], List[str]]
+ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
 
 
 @dataclass

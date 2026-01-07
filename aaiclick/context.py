@@ -22,6 +22,7 @@ from .env import (
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_DB,
 )
+from .models import ValueScalarType, ValueListType, ValueType
 from .snowflake import get_snowflake_ids
 
 
@@ -251,12 +252,6 @@ class Context:
         obj = await create_object_from_value(val, ctx=self)
         self._register_object(obj)
         return obj
-
-
-# Type aliases
-ValueScalarType = Union[int, float, bool, str]
-ValueListType = Union[List[int], List[float], List[bool], List[str]]
-ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:

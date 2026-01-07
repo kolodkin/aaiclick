@@ -9,9 +9,8 @@ from __future__ import annotations
 from typing import Union
 
 from .object import Object
-from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
+from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 from .sql_template_loader import load_sql_template
-from .context import ValueType
 from .snowflake import get_snowflake_ids
 
 
