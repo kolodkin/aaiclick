@@ -55,15 +55,7 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(
-        self,
-        ctx: Context,
-        table: Optional[str] = None,
-        where: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        order_by: Optional[str] = None,
-    ):
+    def __init__(self, ctx: Context, table: Optional[str] = None):
         """
         Initialize an Object.
 
@@ -71,17 +63,13 @@ class Object:
             ctx: Context instance managing this object
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
-            where: Optional WHERE clause for view mode
-            limit: Optional LIMIT for view mode
-            offset: Optional OFFSET for view mode
-            order_by: Optional ORDER BY clause for view mode
         """
         self._ctx = ctx
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
-        self._where = where
-        self._limit = limit
-        self._offset = offset
-        self._order_by = order_by
+        self._where = None
+        self._limit = None
+        self._offset = None
+        self._order_by = None
 
     @property
     def table(self) -> str:
@@ -702,14 +690,11 @@ class View(Object):
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
         """
-        super().__init__(
-            ctx=source.ctx,
-            table=source.table,
-            where=where,
-            limit=limit,
-            offset=offset,
-            order_by=order_by,
-        )
+        super().__init__(ctx=source.ctx, table=source.table)
+        self._where = where
+        self._limit = limit
+        self._offset = offset
+        self._order_by = order_by
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
