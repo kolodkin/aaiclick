@@ -21,7 +21,11 @@ async def extract_scalar_data(obj: Object) -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    data_result = await obj.ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    # Use subquery for views, direct table for objects
+    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    # Apply ORDER BY aai_id only if view doesn't have custom order_by
+    order_clause = "" if obj.order_by else " ORDER BY aai_id"
+    data_result = await obj.ch_client.query(f"SELECT value FROM {source}{order_clause}")
     rows = data_result.result_rows
     return rows[0][0] if rows else None
 
@@ -36,7 +40,11 @@ async def extract_array_data(obj: Object) -> List[Any]:
     Returns:
         List of values ordered by aai_id
     """
-    data_result = await obj.ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    # Use subquery for views, direct table for objects
+    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    # Apply ORDER BY aai_id only if view doesn't have custom order_by
+    order_clause = "" if obj.order_by else " ORDER BY aai_id"
+    data_result = await obj.ch_client.query(f"SELECT value FROM {source}{order_clause}")
     rows = data_result.result_rows
     return [row[0] for row in rows]
 
@@ -59,7 +67,11 @@ async def extract_dict_data(
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    data_result = await obj.ch_client.query(f"SELECT * FROM {obj.table} ORDER BY aai_id")
+    # Use subquery for views, direct table for objects
+    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    # Apply ORDER BY aai_id only if view doesn't have custom order_by
+    order_clause = "" if obj.order_by else " ORDER BY aai_id"
+    data_result = await obj.ch_client.query(f"SELECT * FROM {source}{order_clause}")
     rows = data_result.result_rows
 
     # Filter out aai_id from output

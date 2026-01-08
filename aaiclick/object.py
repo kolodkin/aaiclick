@@ -121,6 +121,27 @@ class Object:
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
 
+    def _build_select(self, columns: str = "*") -> str:
+        """
+        Build a SELECT query with view constraints applied.
+
+        Args:
+            columns: Column specification (default "*")
+
+        Returns:
+            str: SELECT query string, potentially wrapped in subquery for views
+        """
+        query = f"SELECT {columns} FROM {self.table}"
+        if self.where:
+            query += f" WHERE {self.where}"
+        if self.order_by:
+            query += f" ORDER BY {self.order_by}"
+        if self.limit is not None:
+            query += f" LIMIT {self.limit}"
+        if self.offset is not None:
+            query += f" OFFSET {self.offset}"
+        return query
+
     async def result(self):
         """
         Query and return all data from the object's table.
@@ -674,6 +695,32 @@ class Object:
         self.checkstale()
         result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
+
+    def view(
+        self,
+        where: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+    ) -> "View":
+        """
+        Create a read-only view of this object with query constraints.
+
+        Args:
+            where: Optional WHERE clause condition
+            limit: Optional LIMIT for number of rows
+            offset: Optional OFFSET for skipping rows
+            order_by: Optional ORDER BY clause
+
+        Returns:
+            View: A new View instance with the specified constraints
+
+        Examples:
+            >>> obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+            >>> view = obj.view(where="value > 2", limit=2)
+            >>> await view.data()  # Returns [3, 4]
+        """
+        return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
     def __repr__(self) -> str:
         """String representation of the Object."""
