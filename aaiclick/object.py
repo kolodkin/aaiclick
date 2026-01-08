@@ -690,13 +690,21 @@ class View(Object):
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
         """
-        # Copy attributes from source without calling super().__init__()
-        self._ctx = source._ctx
-        self._table_name = source._table_name
+        self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
+
+    @property
+    def ctx(self) -> Context:
+        """Get the context from the source object."""
+        return self._source.ctx
+
+    @property
+    def table(self) -> str:
+        """Get the table name from the source object."""
+        return self._source.table
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
@@ -714,4 +722,4 @@ class View(Object):
         if self._order_by:
             constraints.append(f"order_by='{self._order_by}'")
         constraint_str = ", ".join(constraints) if constraints else "no constraints"
-        return f"View(table='{self._table_name}', {constraint_str})"
+        return f"View(table='{self.table}', {constraint_str})"
