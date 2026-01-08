@@ -690,7 +690,9 @@ class View(Object):
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
         """
-        super().__init__(ctx=source.ctx, table=source.table)
+        # Copy attributes from source without calling super().__init__()
+        self._ctx = source._ctx
+        self._table_name = source._table_name
         self._where = where
         self._limit = limit
         self._offset = offset
