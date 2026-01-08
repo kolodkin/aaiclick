@@ -291,25 +291,33 @@ Uses PostgreSQL row-level locking for safe concurrent access:
 ```sql
 -- Implemented via SQLModel/SQLAlchemy
 -- Prioritizes tasks from oldest running jobs first
-UPDATE tasks
-SET
-    status = 'claimed',
-    worker_id = :worker_id,
-    claimed_at = NOW()
-WHERE id = (
-    SELECT t.id FROM tasks t
-    JOIN jobs j ON t.job_id = j.id
-    WHERE t.status = 'pending'
-    ORDER BY j.started_at ASC
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED
+-- Also marks job as started when first task is claimed
+WITH claimed_task AS (
+    UPDATE tasks
+    SET
+        status = 'claimed',
+        worker_id = :worker_id,
+        claimed_at = NOW()
+    WHERE id = (
+        SELECT t.id FROM tasks t
+        JOIN jobs j ON t.job_id = j.id
+        WHERE t.status = 'pending'
+        ORDER BY j.started_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING *
 )
-RETURNING *;
+UPDATE jobs
+SET started_at = COALESCE(started_at, NOW())
+WHERE id = (SELECT job_id FROM claimed_task)
+RETURNING (SELECT * FROM claimed_task);
 ```
 
 **Key features:**
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
 - `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
+- `COALESCE(started_at, NOW())`: Atomically set job's started_at when first task is claimed
 - Atomic update: Prevents race conditions
 
 ## API / Interfaces
