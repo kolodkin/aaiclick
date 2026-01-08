@@ -7,7 +7,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
-- After pushing changes, check pull request status using the `review-pr-checks` skill or run `.claude/skills/review-pr-checks/review-pr-checks.sh`
+- After pushing changes, check pull request status using the `pr-checks` skill or run `.claude/skills/pr-checks/pr-checks.sh`
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
@@ -147,4 +147,4 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 3. Update tests if needed
 4. Commit with descriptive messages
 5. Push to feature branch
-6. Check PR status via `review-pr-checks` skill (do NOT run tests locally)
+6. Check PR status via `pr-checks` skill (do NOT run tests locally)
