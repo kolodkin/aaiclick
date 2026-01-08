@@ -514,15 +514,22 @@ class Object:
                 arg.checkstale()
                 tables.append(arg.table)
             else:
+                # Skip empty lists to avoid type conflicts
+                if isinstance(arg, list) and len(arg) == 0:
+                    continue
                 # Convert ValueType to temporary Object
                 temp = await self.ctx.create_object_from_value(arg)
                 temp_objects.append(temp)
                 tables.append(temp.table)
 
-        # Single database operation for all tables
-        result = await ingest.concat_objects_db(
-            tables, self.ch_client, self.ctx.create_object
-        )
+        # If all args were empty lists, just copy self
+        if len(tables) == 1:
+            result = await self.copy()
+        else:
+            # Single database operation for all tables
+            result = await ingest.concat_objects_db(
+                tables, self.ch_client, self.ctx.create_object
+            )
 
         # Cleanup temporary objects
         for temp in temp_objects:
