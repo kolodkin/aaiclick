@@ -707,10 +707,10 @@ class View(Object):
             order_by: Optional ORDER BY clause
         """
         self._source = source
-        self._view_where = where
-        self._view_limit = limit
-        self._view_offset = offset
-        self._view_order_by = order_by
+        self._where = where
+        self._limit = limit
+        self._offset = offset
+        self._order_by = order_by
 
     @property
     def ctx(self) -> Context:
@@ -725,22 +725,22 @@ class View(Object):
     @property
     def where(self) -> Optional[str]:
         """Get WHERE clause."""
-        return self._view_where
+        return self._where
 
     @property
     def limit(self) -> Optional[int]:
         """Get LIMIT."""
-        return self._view_limit
+        return self._limit
 
     @property
     def offset(self) -> Optional[int]:
         """Get OFFSET."""
-        return self._view_offset
+        return self._offset
 
     @property
     def order_by(self) -> Optional[str]:
         """Get ORDER BY clause."""
-        return self._view_order_by
+        return self._order_by
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
