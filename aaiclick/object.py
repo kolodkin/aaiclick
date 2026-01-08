@@ -66,10 +66,6 @@ class Object:
         """
         self._ctx = ctx
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
-        self._where = None
-        self._limit = None
-        self._offset = None
-        self._order_by = None
 
     @property
     def table(self) -> str:
@@ -81,6 +77,26 @@ class Object:
         """Get the context managing this object."""
         self.checkstale()
         return self._ctx
+
+    @property
+    def where(self) -> Optional[str]:
+        """Get WHERE clause (None for base Object)."""
+        return None
+
+    @property
+    def limit(self) -> Optional[int]:
+        """Get LIMIT (None for base Object)."""
+        return None
+
+    @property
+    def offset(self) -> Optional[int]:
+        """Get OFFSET (None for base Object)."""
+        return None
+
+    @property
+    def order_by(self) -> Optional[str]:
+        """Get ORDER BY clause (None for base Object)."""
+        return None
 
     @property
     def ch_client(self):
@@ -691,10 +707,10 @@ class View(Object):
             order_by: Optional ORDER BY clause
         """
         self._source = source
-        self._where = where
-        self._limit = limit
-        self._offset = offset
-        self._order_by = order_by
+        self._view_where = where
+        self._view_limit = limit
+        self._view_offset = offset
+        self._view_order_by = order_by
 
     @property
     def ctx(self) -> Context:
@@ -706,6 +722,26 @@ class View(Object):
         """Get the table name from the source object."""
         return self._source.table
 
+    @property
+    def where(self) -> Optional[str]:
+        """Get WHERE clause."""
+        return self._view_where
+
+    @property
+    def limit(self) -> Optional[int]:
+        """Get LIMIT."""
+        return self._view_limit
+
+    @property
+    def offset(self) -> Optional[int]:
+        """Get OFFSET."""
+        return self._view_offset
+
+    @property
+    def order_by(self) -> Optional[str]:
+        """Get ORDER BY clause."""
+        return self._view_order_by
+
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
         raise RuntimeError("Cannot insert into a view")
@@ -713,13 +749,13 @@ class View(Object):
     def __repr__(self) -> str:
         """String representation of the View."""
         constraints = []
-        if self._where:
-            constraints.append(f"where='{self._where}'")
-        if self._limit:
-            constraints.append(f"limit={self._limit}")
-        if self._offset:
-            constraints.append(f"offset={self._offset}")
-        if self._order_by:
-            constraints.append(f"order_by='{self._order_by}'")
+        if self.where:
+            constraints.append(f"where='{self.where}'")
+        if self.limit:
+            constraints.append(f"limit={self.limit}")
+        if self.offset:
+            constraints.append(f"offset={self.offset}")
+        if self.order_by:
+            constraints.append(f"order_by='{self.order_by}'")
         constraint_str = ", ".join(constraints) if constraints else "no constraints"
         return f"View(table='{self.table}', {constraint_str})"
