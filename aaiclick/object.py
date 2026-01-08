@@ -55,7 +55,15 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(self, ctx: Context, table: Optional[str] = None):
+    def __init__(
+        self,
+        ctx: Context,
+        table: Optional[str] = None,
+        where: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+    ):
         """
         Initialize an Object.
 
@@ -63,9 +71,17 @@ class Object:
             ctx: Context instance managing this object
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
+            where: Optional WHERE clause for view mode
+            limit: Optional LIMIT for view mode
+            offset: Optional OFFSET for view mode
+            order_by: Optional ORDER BY clause for view mode
         """
         self._ctx = ctx
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
+        self._where = where
+        self._limit = limit
+        self._offset = offset
+        self._order_by = order_by
 
     @property
     def table(self) -> str:
@@ -658,3 +674,57 @@ class Object:
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
+
+
+class View(Object):
+    """
+    A view of an Object with query constraints (WHERE, LIMIT, OFFSET, ORDER BY).
+
+    Views are read-only and reference the same underlying table as their source Object.
+    They cannot be modified with operations like insert().
+    """
+
+    def __init__(
+        self,
+        source: Object,
+        where: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+    ):
+        """
+        Initialize a View.
+
+        Args:
+            source: Source Object to create view from
+            where: Optional WHERE clause
+            limit: Optional LIMIT
+            offset: Optional OFFSET
+            order_by: Optional ORDER BY clause
+        """
+        super().__init__(
+            ctx=source.ctx,
+            table=source.table,
+            where=where,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+        )
+
+    async def insert(self, *args) -> None:
+        """Views are read-only and cannot be modified."""
+        raise RuntimeError("Cannot insert into a view")
+
+    def __repr__(self) -> str:
+        """String representation of the View."""
+        constraints = []
+        if self._where:
+            constraints.append(f"where='{self._where}'")
+        if self._limit:
+            constraints.append(f"limit={self._limit}")
+        if self._offset:
+            constraints.append(f"offset={self._offset}")
+        if self._order_by:
+            constraints.append(f"order_by='{self._order_by}'")
+        constraint_str = ", ".join(constraints) if constraints else "no constraints"
+        return f"View(table='{self._table_name}', {constraint_str})"
