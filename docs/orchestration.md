@@ -300,7 +300,7 @@ WHERE id = (
     SELECT t.id FROM tasks t
     JOIN jobs j ON t.job_id = j.id
     WHERE t.status = 'pending'
-    ORDER BY j.started_at ASC, t.created_at ASC
+    ORDER BY j.started_at ASC
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
@@ -310,7 +310,6 @@ RETURNING *;
 **Key features:**
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
 - `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
-- `ORDER BY t.created_at ASC`: Within same job, process tasks in creation order (temporal causality)
 - Atomic update: Prevents race conditions
 
 ## API / Interfaces
