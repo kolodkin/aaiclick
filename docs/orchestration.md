@@ -291,7 +291,7 @@ Uses PostgreSQL row-level locking for safe concurrent access:
 ```sql
 -- Implemented via SQLModel/SQLAlchemy
 -- Prioritizes tasks from oldest running jobs first
--- Also marks job as started when first task is claimed
+-- Also marks job as started and running when first task is claimed
 WITH claimed_task AS (
     UPDATE tasks
     SET
@@ -309,7 +309,9 @@ WITH claimed_task AS (
     RETURNING *
 )
 UPDATE jobs
-SET started_at = COALESCE(started_at, NOW())
+SET
+    started_at = COALESCE(started_at, NOW()),
+    status = CASE WHEN started_at IS NULL THEN 'running' ELSE status END
 WHERE id = (SELECT job_id FROM claimed_task)
 RETURNING (SELECT * FROM claimed_task);
 ```
@@ -318,6 +320,7 @@ RETURNING (SELECT * FROM claimed_task);
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
 - `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
 - `COALESCE(started_at, NOW())`: Atomically set job's started_at when first task is claimed
+- `CASE WHEN started_at IS NULL`: Set job status to 'running' on first task claim
 - Atomic update: Prevents race conditions
 
 ## API / Interfaces
