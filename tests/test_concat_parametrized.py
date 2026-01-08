@@ -218,3 +218,89 @@ async def test_concat_preserves_data_integrity(ctx, data_type, array_a, array_b)
             assert abs(actual_sum - expected_sum) < THRESHOLD
         else:
             assert actual_sum == expected_sum
+
+
+# =============================================================================
+# Multi-Argument Concat Tests (*args)
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "data_type,array_a,array_b,array_c,expected_result",
+    [
+        # Integer arrays - three objects
+        pytest.param("int", [1, 2], [3, 4], [5, 6], [1, 2, 3, 4, 5, 6], id="int-three-arrays"),
+        pytest.param("int", [10], [20], [30], [10, 20, 30], id="int-three-singles"),
+        # Float arrays - three objects
+        pytest.param("float", [1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], id="float-three-arrays"),
+        # String arrays - three objects
+        pytest.param("str", ["a", "b"], ["c", "d"], ["e", "f"], ["a", "b", "c", "d", "e", "f"], id="str-three-arrays"),
+    ],
+)
+async def test_array_concat_multiple_objects(ctx, data_type, array_a, array_b, array_c, expected_result):
+    """Test concatenating multiple objects with *args."""
+    obj_a = await ctx.create_object_from_value(array_a)
+    obj_b = await ctx.create_object_from_value(array_b)
+    obj_c = await ctx.create_object_from_value(array_c)
+
+    result = await obj_a.concat(obj_b, obj_c)
+    data = await result.data()
+
+    # Use threshold for float comparisons
+    if len(expected_result) > 0 and isinstance(expected_result[0], float):
+        for i, val in enumerate(data):
+            assert abs(val - expected_result[i]) < THRESHOLD
+    else:
+        assert data == expected_result
+
+
+@pytest.mark.parametrize(
+    "data_type,array,scalar1,scalar2,list_val,expected_result",
+    [
+        # Integer mixed types
+        pytest.param("int", [1, 2], 3, 4, [5, 6], [1, 2, 3, 4, 5, 6], id="int-mixed"),
+        # Float mixed types
+        pytest.param("float", [1.0, 2.0], 3.0, 4.0, [5.0, 6.0], [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], id="float-mixed"),
+        # String mixed types
+        pytest.param("str", ["a"], "b", "c", ["d", "e"], ["a", "b", "c", "d", "e"], id="str-mixed"),
+    ],
+)
+async def test_array_concat_mixed_types(ctx, data_type, array, scalar1, scalar2, list_val, expected_result):
+    """Test concatenating with mixed argument types (objects, scalars, lists)."""
+    obj = await ctx.create_object_from_value(array)
+
+    result = await obj.concat(scalar1, scalar2, list_val)
+    data = await result.data()
+
+    # Use threshold for float comparisons
+    if len(expected_result) > 0 and isinstance(expected_result[0], float):
+        for i, val in enumerate(data):
+            assert abs(val - expected_result[i]) < THRESHOLD
+    else:
+        assert data == expected_result
+
+
+@pytest.mark.parametrize(
+    "data_type,arrays,expected_result",
+    [
+        # Integer arrays - four objects
+        pytest.param("int", [[1], [2], [3], [4]], [1, 2, 3, 4], id="int-four-singles"),
+        pytest.param("int", [[1, 2], [3], [4, 5], [6]], [1, 2, 3, 4, 5, 6], id="int-four-mixed"),
+        # Float arrays - four objects
+        pytest.param("float", [[1.0], [2.0], [3.0], [4.0]], [1.0, 2.0, 3.0, 4.0], id="float-four-singles"),
+    ],
+)
+async def test_array_concat_many_arguments(ctx, data_type, arrays, expected_result):
+    """Test concatenating many objects (4+) to verify single operation efficiency."""
+    obj_a = await ctx.create_object_from_value(arrays[0])
+    other_objs = [await ctx.create_object_from_value(arr) for arr in arrays[1:]]
+
+    result = await obj_a.concat(*other_objs)
+    data = await result.data()
+
+    # Use threshold for float comparisons
+    if len(expected_result) > 0 and isinstance(expected_result[0], float):
+        for i, val in enumerate(data):
+            assert abs(val - expected_result[i]) < THRESHOLD
+    else:
+        assert data == expected_result

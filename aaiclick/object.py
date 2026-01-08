@@ -465,24 +465,23 @@ class Object:
         from . import ingest
         return await ingest.copy_db(self.table, self.ch_client, self.ctx.create_object)
 
-    async def concat(self, other: Union["Object", "ValueType"]) -> "Object":
+    async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
-        Concatenate another object or value to this object.
+        Concatenate multiple objects or values to this object.
 
-        Creates a new Object with rows from self followed by rows/values from other.
-        Self must have array fieldtype. Other can be:
+        Creates a new Object with rows from self followed by all args.
+        Self must have array fieldtype. Each arg can be:
         - An Object (array or scalar)
         - A ValueType (scalar or list)
 
-        When other is a ValueType, the function first copies self, then inserts the value(s).
-
         Args:
-            other: Another Object or value to concatenate
+            *args: Variable number of Objects or ValueTypes to concatenate
 
         Returns:
             Object: New Object instance with concatenated data
 
         Raises:
+            ValueError: If no arguments provided
             ValueError: If self does not have array fieldtype
 
         Examples:
@@ -492,48 +491,70 @@ class Object:
             >>> result = await obj_a.concat(obj_b)
             >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
             >>>
-            >>> # Concatenate with a scalar value
-            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
-            >>> result = await obj_a.concat(42)
-            >>> await result.data()  # Returns [1, 2, 3, 42]
+            >>> # Concatenate with multiple objects
+            >>> result = await obj_a.concat(obj_b, obj_c, obj_d)
+            >>> await result.data()  # Returns concatenated data
             >>>
-            >>> # Concatenate with a list of values
-            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
-            >>> result = await obj_a.concat([4, 5])
-            >>> await result.data()  # Returns [1, 2, 3, 4, 5]
+            >>> # Concatenate with mixed types
+            >>> result = await obj_a.concat(42, [7, 8], obj_b)
+            >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
         """
+        if not args:
+            raise ValueError("concat requires at least one argument")
+
         self.checkstale()
         from . import ingest
-        if isinstance(other, Object):
-            other.checkstale()
-            return await ingest.concat_objects_db(
-                self.table, other.table, self.ch_client, self.ctx.create_object
-            )
+
+        # Convert all arguments to table names
+        tables = [self.table]
+        temp_objects = []
+
+        for arg in args:
+            if isinstance(arg, Object):
+                arg.checkstale()
+                tables.append(arg.table)
+            else:
+                # Skip empty lists to avoid type conflicts
+                if isinstance(arg, list) and len(arg) == 0:
+                    continue
+                # Convert ValueType to temporary Object
+                temp = await self.ctx.create_object_from_value(arg)
+                temp_objects.append(temp)
+                tables.append(temp.table)
+
+        # If all args were empty lists, just copy self
+        if len(tables) == 1:
+            result = await self.copy()
         else:
-            return await ingest.concat_value_db(
-                self.table,
-                other,
-                self.ch_client,
-                self.ctx.create_object,
-                self.ctx.create_object_from_value,
+            # Single database operation for all tables
+            result = await ingest.concat_objects_db(
+                tables, self.ch_client, self.ctx.create_object
             )
 
-    async def insert(self, other: Union["Object", "ValueType"]) -> None:
-        """
-        Insert another object or value into this object in place.
+        # Cleanup temporary objects
+        for temp in temp_objects:
+            await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
-        Modifies self's table directly by appending rows/values from other.
-        Self must have array fieldtype. Other can be:
+        return result
+
+    async def insert(self, *args: Union["Object", "ValueType"]) -> None:
+        """
+        Insert multiple objects or values into this object in place.
+
+        Modifies self's table directly by appending data from all args.
+        Self must have array fieldtype. Each arg can be:
         - An Object (array or scalar)
         - A ValueType (scalar or list)
 
         Unlike concat, this method modifies the table in place without creating a new object.
 
         Args:
-            other: Another Object or value to insert
+            *args: Variable number of Objects or ValueTypes to insert
 
         Raises:
+            ValueError: If no arguments provided
             ValueError: If self does not have array fieldtype
+            ValueError: If any arg type is incompatible
 
         Examples:
             >>> # Insert another Object
@@ -542,25 +563,42 @@ class Object:
             >>> await obj_a.insert(obj_b)
             >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5, 6]
             >>>
-            >>> # Insert a scalar value
-            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
-            >>> await obj_a.insert(42)
-            >>> await obj_a.data()  # Returns [1, 2, 3, 42]
-            >>>
-            >>> # Insert a list of values
-            >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
-            >>> await obj_a.insert([4, 5])
-            >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5]
+            >>> # Insert multiple objects and values
+            >>> await obj_a.insert(obj_b, 42, [7, 8])
+            >>> await obj_a.data()  # Returns [1, 2, 3, 4, 5, 6, 42, 7, 8]
         """
+        if not args:
+            raise ValueError("insert requires at least one argument")
+
         self.checkstale()
         from . import ingest
-        if isinstance(other, Object):
-            other.checkstale()
-            await ingest.insert_object_db(self.table, other.table, self.ch_client)
-        else:
-            await ingest.insert_value_db(
-                self.table, other, self.ch_client, self.ctx.create_object_from_value
+
+        # Convert all arguments to table names
+        source_tables = []
+        temp_objects = []
+
+        for arg in args:
+            if isinstance(arg, Object):
+                arg.checkstale()
+                source_tables.append(arg.table)
+            else:
+                # Skip empty lists
+                if isinstance(arg, list) and len(arg) == 0:
+                    continue
+                # Convert ValueType to temporary Object
+                temp = await self.ctx.create_object_from_value(arg)
+                temp_objects.append(temp)
+                source_tables.append(temp.table)
+
+        # Single database operation for all sources
+        if source_tables:
+            await ingest.insert_objects_db(
+                self.table, source_tables, self.ch_client
             )
+
+        # Cleanup temporary objects
+        for temp in temp_objects:
+            await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
     async def min(self) -> float:
         """

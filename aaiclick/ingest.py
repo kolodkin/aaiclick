@@ -145,20 +145,18 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
 
 
 async def concat_objects_db(
-    table_a: str,
-    table_b: str,
+    tables: list[str],
     ch_client,
     create_object: Callable[[Schema], Awaitable],
 ):
     """
-    Concatenate two tables at database level.
+    Concatenate multiple tables at database level via single UNION ALL.
 
-    Preserves existing Snowflake IDs from both tables.
+    Preserves existing Snowflake IDs from all tables.
     Order is maintained via existing Snowflake IDs when data is retrieved.
 
     Args:
-        table_a: First table name (must have array fieldtype)
-        table_b: Second table name
+        tables: List of table names (first must have array fieldtype, minimum 2)
         ch_client: ClickHouse client instance
         create_object: Async callable to create a new Object from Schema
 
@@ -166,13 +164,17 @@ async def concat_objects_db(
         Object: New Object instance with concatenated data
 
     Raises:
-        ValueError: If table_a does not have array fieldtype
+        ValueError: If less than 2 tables provided
+        ValueError: If first table does not have array fieldtype
     """
-    fieldtype_a = await _get_fieldtype(table_a, ch_client)
-    if fieldtype_a != FIELDTYPE_ARRAY:
+    if len(tables) < 2:
+        raise ValueError("concat requires at least 2 tables")
+
+    fieldtype = await _get_fieldtype(tables[0], ch_client)
+    if fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("concat requires first table to have array fieldtype")
 
-    value_type = await _get_value_column_type(table_a, ch_client)
+    value_type = await _get_value_column_type(tables[0], ch_client)
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -181,142 +183,62 @@ async def concat_objects_db(
 
     result = await create_object(schema)
 
+    # Single multi-table UNION ALL operation
+    union_parts = [f"SELECT aai_id, value FROM {table}" for table in tables]
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, value FROM {table_a}
-    UNION ALL
-    SELECT aai_id, value FROM {table_b}
+    {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)
 
     return result
 
 
-async def concat_value_db(
-    table_a: str,
-    value: ValueType,
+async def insert_objects_db(
+    target_table: str,
+    source_tables: list[str],
     ch_client,
-    create_object: Callable[[Schema], Awaitable],
-    create_object_from_value: Callable[[ValueType], Awaitable],
-):
+) -> None:
     """
-    Concatenate a value to a table at database level.
-
-    First copies table_a, then inserts the value.
-
-    Args:
-        table_a: Source table name (must have array fieldtype)
-        value: Value to append (scalar or list)
-        ch_client: ClickHouse client instance
-        create_object: Async callable to create a new Object from Schema
-        create_object_from_value: Async callable to create Object from value
-
-    Returns:
-        Object: New Object instance with concatenated data
-
-    Raises:
-        ValueError: If table_a does not have array fieldtype
-    """
-    fieldtype_a = await _get_fieldtype(table_a, ch_client)
-    if fieldtype_a != FIELDTYPE_ARRAY:
-        raise ValueError("concat requires first table to have array fieldtype")
-
-    result = await copy_db(table_a, ch_client, create_object)
-
-    temp_obj = await create_object_from_value(value)
-
-    col_type = await _get_value_column_type(result.table, ch_client)
-
-    insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT aai_id, CAST(value AS {col_type}) as value
-    FROM {temp_obj.table}
-    """
-    await ch_client.command(insert_query)
-
-    await ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
-
-    return result
-
-
-async def insert_object_db(table_a: str, table_b: str, ch_client) -> None:
-    """
-    Insert data from one table into another at database level.
+    Insert data from multiple source tables into target via single operation.
 
     Preserves existing Snowflake IDs. Order is maintained via existing
     Snowflake IDs when data is retrieved.
 
     Args:
-        table_a: Target table name (must have array fieldtype)
-        table_b: Source table name
+        target_table: Target table name (must have array fieldtype)
+        source_tables: List of source table names
         ch_client: ClickHouse client instance
 
     Raises:
-        ValueError: If table_a does not have array fieldtype
-        ValueError: If value types are incompatible
+        ValueError: If target table does not have array fieldtype
+        ValueError: If any source value types are incompatible with target
     """
-    fieldtype_a = await _get_fieldtype(table_a, ch_client)
-    if fieldtype_a != FIELDTYPE_ARRAY:
-        raise ValueError("insert requires target table to have array fieldtype")
-
-    target_value_type = await _get_value_column_type(table_a, ch_client)
-    source_value_type = await _get_value_column_type(table_b, ch_client)
-
-    if not _are_types_compatible(target_value_type, source_value_type):
-        raise ValueError(
-            f"Cannot insert {source_value_type} into {target_value_type}: types are incompatible"
-        )
-
-    insert_query = f"""
-    INSERT INTO {table_a}
-    SELECT aai_id, CAST(value AS {target_value_type}) as value
-    FROM {table_b}
-    """
-    await ch_client.command(insert_query)
-
-
-async def insert_value_db(
-    table_a: str,
-    value: ValueType,
-    ch_client,
-    create_object_from_value: Callable[[ValueType], Awaitable],
-) -> None:
-    """
-    Insert a value into a table at database level.
-
-    Args:
-        table_a: Target table name (must have array fieldtype)
-        value: Value to insert (scalar or list)
-        ch_client: ClickHouse client instance
-        create_object_from_value: Async callable to create Object from value
-
-    Raises:
-        ValueError: If table_a does not have array fieldtype
-        ValueError: If value types are incompatible
-    """
-    fieldtype_a = await _get_fieldtype(table_a, ch_client)
-    if fieldtype_a != FIELDTYPE_ARRAY:
-        raise ValueError("insert requires target table to have array fieldtype")
-
-    if isinstance(value, list) and len(value) == 0:
+    if not source_tables:
         return
 
-    temp_obj = await create_object_from_value(value)
+    fieldtype = await _get_fieldtype(target_table, ch_client)
+    if fieldtype != FIELDTYPE_ARRAY:
+        raise ValueError("insert requires target table to have array fieldtype")
 
-    target_value_type = await _get_value_column_type(table_a, ch_client)
-    temp_value_type = await _get_value_column_type(temp_obj.table, ch_client)
+    target_value_type = await _get_value_column_type(target_table, ch_client)
 
-    if not _are_types_compatible(target_value_type, temp_value_type):
-        await ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
-        raise ValueError(
-            f"Cannot insert {temp_value_type} into {target_value_type}: types are incompatible"
-        )
+    # Validate all source types are compatible
+    for source_table in source_tables:
+        source_value_type = await _get_value_column_type(source_table, ch_client)
+        if not _are_types_compatible(target_value_type, source_value_type):
+            raise ValueError(
+                f"Cannot insert {source_value_type} into {target_value_type}: "
+                f"types are incompatible"
+            )
 
+    # Single multi-source INSERT with UNION ALL
+    union_parts = [
+        f"SELECT aai_id, CAST(value AS {target_value_type}) as value FROM {table}"
+        for table in source_tables
+    ]
     insert_query = f"""
-    INSERT INTO {table_a}
-    SELECT aai_id, CAST(value AS {target_value_type}) as value
-    FROM {temp_obj.table}
+    INSERT INTO {target_table}
+    {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)
-
-    await ch_client.command(f"DROP TABLE IF EXISTS {temp_obj.table}")
