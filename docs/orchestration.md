@@ -529,6 +529,16 @@ async def health_check():
 
 **Limitation**: The `Object` class represents entire ClickHouse tables. To process data in parallel chunks, we need a way to reference subsets of an Object's data without materializing separate table copies.
 
+## Packaging Consideration
+
+Database migrations must be bundled with the aaiclick package and executable via CLI:
+
+```bash
+python -m aaiclick migrate
+```
+
+This ensures users can initialize and upgrade the orchestration database schema without manual migration management.
+
 ## References
 
 - [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
