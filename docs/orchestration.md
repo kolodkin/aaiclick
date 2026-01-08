@@ -255,6 +255,7 @@ async def map(callback: str, obj: Object) -> Object:
 async def worker_main_loop(worker_id: str):
     while True:
         # Claim next available task (atomic operation)
+        # Prioritizes tasks from oldest running jobs
         task = await claim_next_task(worker_id)
 
         if task is None:
@@ -265,9 +266,11 @@ async def worker_main_loop(worker_id: str):
             # Update task status
             await update_task_status(task.id, "running")
 
-            # Import and execute entrypoint
-            func = import_function(task.entrypoint)
-            result_obj = await func(**task.kwargs)
+            # Execute task with Context bound to job
+            async with Context(job_id=task.job_id) as ctx:
+                # Import and execute entrypoint
+                func = import_function(task.entrypoint)
+                result_obj = await func(**task.kwargs)
 
             # Store result
             await update_task_result(
@@ -287,15 +290,17 @@ Uses PostgreSQL row-level locking for safe concurrent access:
 
 ```sql
 -- Implemented via SQLModel/SQLAlchemy
+-- Prioritizes tasks from oldest running jobs first
 UPDATE tasks
 SET
     status = 'claimed',
     worker_id = :worker_id,
     claimed_at = NOW()
 WHERE id = (
-    SELECT id FROM tasks
-    WHERE status = 'pending'
-    ORDER BY created_at ASC
+    SELECT t.id FROM tasks t
+    JOIN jobs j ON t.job_id = j.id
+    WHERE t.status = 'pending'
+    ORDER BY j.started_at ASC, t.created_at ASC
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
@@ -304,7 +309,8 @@ RETURNING *;
 
 **Key features:**
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
-- `ORDER BY created_at ASC`: Process tasks in creation order (temporal causality)
+- `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
+- `ORDER BY t.created_at ASC`: Within same job, process tasks in creation order (temporal causality)
 - Atomic update: Prevents race conditions
 
 ## API / Interfaces
@@ -377,22 +383,6 @@ await deregister_worker(worker.id)
 
 # List active workers
 workers = await list_workers(status="active")
-```
-
-### Context Integration
-
-```python
-from aaiclick import Context
-
-# Execute job synchronously
-async with Context() as ctx:
-    job = await ctx.execute_job(
-        name="pipeline",
-        tasks=[{"entrypoint": "myapp.process", "kwargs": {}}]
-    )
-
-    # Wait for completion
-    result = await job.wait()
 ```
 
 ## Configuration
