@@ -1,5 +1,8 @@
+---
 name: pr-checks
 description: Check PR status and verify GitHub Actions CI workflows. Use after git push or when user asks to check PR/CI status.
+---
+
 enabled: true
 
 installation:

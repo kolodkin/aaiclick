@@ -1,3 +1,8 @@
+---
+name: chdb-eval
+description: Use chdb (embedded ClickHouse) to evaluate and validate ClickHouse SQL syntax without a running server. Use for SQL syntax validation and testing.
+---
+
 # chdb-eval: Evaluating ClickHouse SQL Without a Server
 
 This skill explains how to use **chdb** (ClickHouse embedded in Python) to evaluate and validate ClickHouse SQL syntax when you don't have access to a running ClickHouse server.
