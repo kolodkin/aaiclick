@@ -582,14 +582,16 @@ class Object:
         self.checkstale()
         from . import ingest
 
-        # Convert all arguments to table names
-        tables = [self.table]
+        # Convert all arguments to sources and base tables
+        sources = [self._get_source_subquery()]
+        base_tables = [self._get_base_table()]
         temp_objects = []
 
         for arg in args:
             if isinstance(arg, Object):
                 arg.checkstale()
-                tables.append(arg.table)
+                sources.append(arg._get_source_subquery())
+                base_tables.append(arg._get_base_table())
             else:
                 # Skip empty lists to avoid type conflicts
                 if isinstance(arg, list) and len(arg) == 0:
@@ -597,15 +599,16 @@ class Object:
                 # Convert ValueType to temporary Object
                 temp = await self.ctx.create_object_from_value(arg)
                 temp_objects.append(temp)
-                tables.append(temp.table)
+                sources.append(temp._get_source_subquery())
+                base_tables.append(temp._get_base_table())
 
         # If all args were empty lists, just copy self
-        if len(tables) == 1:
+        if len(sources) == 1:
             result = await self.copy()
         else:
-            # Single database operation for all tables
+            # Single database operation for all sources
             result = await ingest.concat_objects_db(
-                tables, self.ch_client, self.ctx.create_object
+                sources, base_tables, self.ch_client, self.ctx.create_object
             )
 
         # Cleanup temporary objects

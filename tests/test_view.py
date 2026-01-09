@@ -123,3 +123,77 @@ async def test_view_both_sides():
 
         # Should add first 3 elements: [10+1, 15+2, 20+3] = [11, 17, 23]
         assert data == [11, 17, 23]
+
+
+async def test_view_concat():
+    """Test concat with a view."""
+    async with Context() as ctx:
+        # Create two objects
+        obj_a = await ctx.create_object_from_value([10, 20, 30, 40, 50])
+        obj_b = await ctx.create_object_from_value([1, 2, 3])
+
+        # Create a view that filters obj_a
+        view = obj_a.view(where="value > 20")  # [30, 40, 50]
+
+        # Concat view with obj_b
+        result = await view.concat(obj_b)
+        data = await result.data()
+
+        # Should get filtered values followed by obj_b: [30, 40, 50, 1, 2, 3]
+        assert data == [30, 40, 50, 1, 2, 3]
+
+
+async def test_view_concat_with_limit():
+    """Test concat with a view that has LIMIT."""
+    async with Context() as ctx:
+        # Create two objects
+        obj_a = await ctx.create_object_from_value([100, 200, 300, 400, 500])
+        obj_b = await ctx.create_object_from_value([1, 2])
+
+        # Create a view with limit
+        view = obj_a.view(limit=3)  # [100, 200, 300]
+
+        # Concat view with obj_b
+        result = await view.concat(obj_b)
+        data = await result.data()
+
+        # Should get first 3 from obj_a followed by obj_b: [100, 200, 300, 1, 2]
+        assert data == [100, 200, 300, 1, 2]
+
+
+async def test_concat_view_as_argument():
+    """Test using a view as an argument to concat."""
+    async with Context() as ctx:
+        # Create two objects
+        obj_a = await ctx.create_object_from_value([1, 2, 3])
+        obj_b = await ctx.create_object_from_value([10, 20, 30, 40, 50])
+
+        # Create a view of obj_b
+        view_b = obj_b.view(where="value <= 30")  # [10, 20, 30]
+
+        # Concat obj_a with view_b
+        result = await obj_a.concat(view_b)
+        data = await result.data()
+
+        # Should get obj_a followed by filtered obj_b: [1, 2, 3, 10, 20, 30]
+        assert data == [1, 2, 3, 10, 20, 30]
+
+
+async def test_concat_multiple_views():
+    """Test concat with multiple views."""
+    async with Context() as ctx:
+        # Create three objects
+        obj_a = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+        obj_b = await ctx.create_object_from_value([10, 20, 30, 40])
+        obj_c = await ctx.create_object_from_value([100, 200, 300])
+
+        # Create views
+        view_a = obj_a.view(limit=2)  # [1, 2]
+        view_b = obj_b.view(where="value >= 20")  # [20, 30, 40]
+
+        # Concat view_a with view_b and obj_c
+        result = await view_a.concat(view_b, obj_c)
+        data = await result.data()
+
+        # Should get [1, 2, 20, 30, 40, 100, 200, 300]
+        assert data == [1, 2, 20, 30, 40, 100, 200, 300]
