@@ -789,6 +789,15 @@ class View(Object):
         """Get ORDER BY clause."""
         return self._order_by
 
+    @property
+    def stale(self) -> bool:
+        """Check if source object's context has been cleaned up."""
+        return self._source.stale
+
+    def checkstale(self):
+        """Check if source object is stale and raise error if so."""
+        self._source.checkstale()
+
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
         raise RuntimeError("Cannot insert into a view")
