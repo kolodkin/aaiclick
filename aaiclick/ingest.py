@@ -187,7 +187,14 @@ async def concat_objects_db(
     result = await create_object(schema)
 
     # Single multi-table UNION ALL operation using sources (can be subqueries)
-    union_parts = [f"SELECT aai_id, value FROM {source}" for source in sources]
+    # Add alias for subqueries (sources starting with '(')
+    union_parts = []
+    for i, source in enumerate(sources):
+        if source.startswith('('):
+            union_parts.append(f"SELECT aai_id, value FROM {source} AS s{i}")
+        else:
+            union_parts.append(f"SELECT aai_id, value FROM {source}")
+
     insert_query = f"""
     INSERT INTO {result.table}
     {' UNION ALL '.join(union_parts)}
