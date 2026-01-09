@@ -300,6 +300,94 @@ rows = await obj.data(orient=aaiclick.ORIENT_RECORDS)
 # [{"id": 1, "name": "Alice", "age": 30}, {"id": 2, "name": "Bob", "age": 25}, ...]
 ```
 
+## Views
+
+The `View` class provides a read-only filtered view of an Object with SQL query constraints applied. Views reference the same underlying ClickHouse table without creating data copies.
+
+### Creating Views
+
+Views are created using the `obj.view()` method with optional constraint parameters:
+
+```python
+obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+view = obj.view(where="value > 2", limit=2, order_by="value ASC")
+await view.data()  # Returns [3, 4]
+```
+
+### View Constraints
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `where` | `Optional[str]` | WHERE clause condition for filtering rows (e.g., `"value > 2"`) |
+| `limit` | `Optional[int]` | Maximum number of rows to return from the query |
+| `offset` | `Optional[int]` | Number of rows to skip before returning results |
+| `order_by` | `Optional[str]` | ORDER BY clause for sorting results (e.g., `"value DESC"`) |
+
+### Key Characteristics
+
+**Read-Only:** Views cannot be modified with write operations like `insert()`. Attempting to insert will raise a `RuntimeError`.
+
+**Same Table Reference:** Views don't create new tables - they query the source Object's table with constraints applied.
+
+**Supports Read Operations:** All read operations work on Views:
+- `.data()` - retrieve filtered data
+- Arithmetic and comparison operators - create new Objects from filtered data
+- Aggregation methods (`.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`)
+
+**Automatic Staleness Detection:** Views inherit staleness checks from the source Object.
+
+### Examples
+
+**Filtering with WHERE:**
+```python
+obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+view = obj.view(where="value > 2")
+await view.data()  # Returns [3, 4, 5]
+```
+
+**Pagination with LIMIT and OFFSET:**
+```python
+obj = await ctx.create_object_from_value([10, 20, 30, 40, 50])
+page1 = obj.view(limit=2, offset=0)
+await page1.data()  # Returns [10, 20]
+
+page2 = obj.view(limit=2, offset=2)
+await page2.data()  # Returns [30, 40]
+```
+
+**Custom Ordering:**
+```python
+obj = await ctx.create_object_from_value([3, 1, 4, 1, 5])
+sorted_view = obj.view(order_by="value DESC")
+await sorted_view.data()  # Returns [5, 4, 3, 1, 1]
+```
+
+**Combining Constraints:**
+```python
+obj = await ctx.create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+view = obj.view(
+    where="value % 2 = 0",  # Even numbers only
+    order_by="value DESC",   # Descending order
+    limit=3                  # Top 3
+)
+await view.data()  # Returns [10, 8, 6]
+```
+
+**Operations on Views:**
+```python
+obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+view = obj.view(where="value > 2")
+
+# Arithmetic operations create new Objects
+doubled = await view * await ctx.create_object_from_value(2)
+await doubled.data()  # Returns [6, 8, 10]
+
+# Aggregations work on filtered data
+total = await view.sum()  # Returns 12 (3 + 4 + 5)
+```
+
+For complete runnable examples, see `examples/view_examples.py`.
+
 ## Column Metadata
 
 When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
