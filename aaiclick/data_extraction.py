@@ -21,8 +21,7 @@ async def extract_scalar_data(obj: Object) -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    # Use subquery for views, direct table for objects
-    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    source = obj._get_source()
     # Apply ORDER BY aai_id only if view doesn't have custom order_by
     order_clause = "" if obj.order_by else " ORDER BY aai_id"
     data_result = await obj.ch_client.query(f"SELECT value FROM {source}{order_clause}")
@@ -40,8 +39,7 @@ async def extract_array_data(obj: Object) -> List[Any]:
     Returns:
         List of values ordered by aai_id
     """
-    # Use subquery for views, direct table for objects
-    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    source = obj._get_source()
     # Apply ORDER BY aai_id only if view doesn't have custom order_by
     order_clause = "" if obj.order_by else " ORDER BY aai_id"
     data_result = await obj.ch_client.query(f"SELECT value FROM {source}{order_clause}")
@@ -67,8 +65,7 @@ async def extract_dict_data(
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    # Use subquery for views, direct table for objects
-    source = f"({obj._build_select()})" if obj.where or obj.limit or obj.offset or obj.order_by else obj.table
+    source = obj._get_source()
     # Apply ORDER BY aai_id only if view doesn't have custom order_by
     order_clause = "" if obj.order_by else " ORDER BY aai_id"
     data_result = await obj.ch_client.query(f"SELECT * FROM {source}{order_clause}")
