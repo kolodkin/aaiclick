@@ -81,7 +81,7 @@ async def test_view_operator_addition():
         view = obj_a.view(where="value > 20")  # Should get [30, 40, 50]
 
         # Add view and obj_b
-        result = await view + obj_b
+        result = await (view + obj_b)
         data = await result.data()
 
         # Should add first 3 elements: [30+1, 40+2, 50+3] = [31, 42, 53]
@@ -99,7 +99,7 @@ async def test_view_operator_with_limit():
         view = obj_a.view(limit=2)  # Should get [100, 200]
 
         # Multiply view and obj_b
-        result = await view * obj_b
+        result = await (view * obj_b)
         data = await result.data()
 
         # Should multiply first 2 elements: [100*1, 200*2] = [100, 400]
@@ -118,7 +118,7 @@ async def test_view_both_sides():
         view_b = obj_b.view(limit=3)  # [1, 2, 3]
 
         # Add both views
-        result = await view_a + view_b
+        result = await (view_a + view_b)
         data = await result.data()
 
         # Should add first 3 elements: [10+1, 15+2, 20+3] = [11, 17, 23]
