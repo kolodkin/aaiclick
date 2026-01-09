@@ -338,55 +338,8 @@ await view.data()  # Returns [3, 4]
 
 ### Examples
 
-**Filtering with WHERE:**
-```python
-obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
-view = obj.view(where="value > 2")
-await view.data()  # Returns [3, 4, 5]
-```
-
-**Pagination with LIMIT and OFFSET:**
-```python
-obj = await ctx.create_object_from_value([10, 20, 30, 40, 50])
-page1 = obj.view(limit=2, offset=0)
-await page1.data()  # Returns [10, 20]
-
-page2 = obj.view(limit=2, offset=2)
-await page2.data()  # Returns [30, 40]
-```
-
-**Custom Ordering:**
-```python
-obj = await ctx.create_object_from_value([3, 1, 4, 1, 5])
-sorted_view = obj.view(order_by="value DESC")
-await sorted_view.data()  # Returns [5, 4, 3, 1, 1]
-```
-
-**Combining Constraints:**
-```python
-obj = await ctx.create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-view = obj.view(
-    where="value % 2 = 0",  # Even numbers only
-    order_by="value DESC",   # Descending order
-    limit=3                  # Top 3
-)
-await view.data()  # Returns [10, 8, 6]
-```
-
-**Operations on Views:**
-```python
-obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
-view = obj.view(where="value > 2")
-
-# Arithmetic operations create new Objects
-doubled = await view * await ctx.create_object_from_value(2)
-await doubled.data()  # Returns [6, 8, 10]
-
-# Aggregations work on filtered data
-total = await view.sum()  # Returns 12 (3 + 4 + 5)
-```
-
-For complete runnable examples, see `examples/view_examples.py`.
+For complete runnable examples of filtering, pagination, sorting, combining constraints, and performing operations on views, see:
+- `examples/view_examples.py` - Comprehensive examples of all View capabilities
 
 ## Column Metadata
 
