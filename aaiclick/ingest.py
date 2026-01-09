@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
-from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -145,18 +145,18 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
 
 
 async def concat_objects_db(
-    tables: list[str],
+    query_infos: list[QueryInfo],
     ch_client,
     create_object: Callable[[Schema], Awaitable],
 ):
     """
-    Concatenate multiple tables at database level via single UNION ALL.
+    Concatenate multiple sources at database level via single UNION ALL.
 
-    Preserves existing Snowflake IDs from all tables.
+    Preserves existing Snowflake IDs from all sources.
     Order is maintained via existing Snowflake IDs when data is retrieved.
 
     Args:
-        tables: List of table names (first must have array fieldtype, minimum 2)
+        query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
         ch_client: ClickHouse client instance
         create_object: Async callable to create a new Object from Schema
 
@@ -164,17 +164,18 @@ async def concat_objects_db(
         Object: New Object instance with concatenated data
 
     Raises:
-        ValueError: If less than 2 tables provided
-        ValueError: If first table does not have array fieldtype
+        ValueError: If less than 2 query_infos provided
+        ValueError: If first source does not have array fieldtype
     """
-    if len(tables) < 2:
-        raise ValueError("concat requires at least 2 tables")
+    if len(query_infos) < 2:
+        raise ValueError("concat requires at least 2 sources")
 
-    fieldtype = await _get_fieldtype(tables[0], ch_client)
+    # Use base_table for metadata queries
+    fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
     if fieldtype != FIELDTYPE_ARRAY:
-        raise ValueError("concat requires first table to have array fieldtype")
+        raise ValueError("concat requires first source to have array fieldtype")
 
-    value_type = await _get_value_column_type(tables[0], ch_client)
+    value_type = await _get_value_column_type(query_infos[0].base_table, ch_client)
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -183,8 +184,15 @@ async def concat_objects_db(
 
     result = await create_object(schema)
 
-    # Single multi-table UNION ALL operation
-    union_parts = [f"SELECT aai_id, value FROM {table}" for table in tables]
+    # Single multi-table UNION ALL operation using sources (can be subqueries)
+    # Add alias for subqueries (sources starting with '(')
+    union_parts = []
+    for i, info in enumerate(query_infos):
+        if info.source.startswith('('):
+            union_parts.append(f"SELECT aai_id, value FROM {info.source} AS s{i}")
+        else:
+            union_parts.append(f"SELECT aai_id, value FROM {info.source}")
+
     insert_query = f"""
     INSERT INTO {result.table}
     {' UNION ALL '.join(union_parts)}

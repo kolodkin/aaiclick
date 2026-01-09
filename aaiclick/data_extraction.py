@@ -21,7 +21,8 @@ async def extract_scalar_data(obj: Object) -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    data_result = await obj.ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    query = obj._build_select(columns="value", default_order_by="aai_id")
+    data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return rows[0][0] if rows else None
 
@@ -36,7 +37,8 @@ async def extract_array_data(obj: Object) -> List[Any]:
     Returns:
         List of values ordered by aai_id
     """
-    data_result = await obj.ch_client.query(f"SELECT value FROM {obj.table} ORDER BY aai_id")
+    query = obj._build_select(columns="value", default_order_by="aai_id")
+    data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return [row[0] for row in rows]
 
@@ -59,7 +61,8 @@ async def extract_dict_data(
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    data_result = await obj.ch_client.query(f"SELECT * FROM {obj.table} ORDER BY aai_id")
+    query = obj._build_select(columns="*", default_order_by="aai_id")
+    data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
 
     # Filter out aai_id from output

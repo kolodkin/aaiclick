@@ -17,6 +17,7 @@ from .models import (
     Schema,
     ColumnMeta,
     ColumnType,
+    QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -79,6 +80,26 @@ class Object:
         return self._ctx
 
     @property
+    def where(self) -> Optional[str]:
+        """Get WHERE clause (None for base Object)."""
+        return None
+
+    @property
+    def limit(self) -> Optional[int]:
+        """Get LIMIT (None for base Object)."""
+        return None
+
+    @property
+    def offset(self) -> Optional[int]:
+        """Get OFFSET (None for base Object)."""
+        return None
+
+    @property
+    def order_by(self) -> Optional[str]:
+        """Get ORDER BY clause (None for base Object)."""
+        return None
+
+    @property
     def ch_client(self):
         """Get the ClickHouse client from the context."""
         self.checkstale()
@@ -88,6 +109,11 @@ class Object:
     def stale(self) -> bool:
         """Check if this object's context has been cleaned up."""
         return self._ctx is None
+
+    @property
+    def has_constraints(self) -> bool:
+        """Check if this object has any view constraints."""
+        return bool(self.where or self.limit is not None or self.offset is not None or self.order_by)
 
     def checkstale(self):
         """
@@ -100,6 +126,43 @@ class Object:
             raise RuntimeError(
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
+
+    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+        """
+        Build a SELECT query with view constraints applied.
+
+        Args:
+            columns: Column specification (default "*")
+            default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+
+        Returns:
+            str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
+        """
+        query = f"SELECT {columns} FROM {self.table}"
+        if self.where:
+            query += f" WHERE {self.where}"
+        # Use custom order_by if set, otherwise use default
+        order_clause = self.order_by or default_order_by
+        if order_clause:
+            query += f" ORDER BY {order_clause}"
+        if self.limit is not None:
+            query += f" LIMIT {self.limit}"
+        if self.offset is not None:
+            query += f" OFFSET {self.offset}"
+        return query
+
+    def _get_query_info(self) -> QueryInfo:
+        """
+        Get query information for database operations.
+
+        Encapsulates both the data source (which may be a subquery for Views)
+        and the base table name (for metadata queries).
+
+        Returns:
+            QueryInfo: NamedTuple with source and base_table fields
+        """
+        source = f"({self._build_select()})" if self.has_constraints else self.table
+        return QueryInfo(source=source, base_table=self.table)
 
     async def result(self):
         """
@@ -186,8 +249,10 @@ class Object:
         """
         self.checkstale()
         obj_b.checkstale()
+        info_a = self._get_query_info()
+        info_b = obj_b._get_query_info()
         return await operators._apply_operator_db(
-            self.table, obj_b.table, operator, self.ch_client, self.ctx
+            info_a, info_b, operator, self.ch_client, self.ctx
         )
 
     async def __add__(self, other: Object) -> Object:
@@ -204,7 +269,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.add(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.add(info_a, info_b, self.ch_client, self.ctx)
 
     async def __sub__(self, other: Object) -> Object:
         """
@@ -220,7 +287,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.sub(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.sub(info_a, info_b, self.ch_client, self.ctx)
 
     async def __mul__(self, other: Object) -> Object:
         """
@@ -236,7 +305,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.mul(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.mul(info_a, info_b, self.ch_client, self.ctx)
 
     async def __truediv__(self, other: Object) -> Object:
         """
@@ -252,7 +323,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.truediv(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.truediv(info_a, info_b, self.ch_client, self.ctx)
 
     async def __floordiv__(self, other: Object) -> Object:
         """
@@ -268,7 +341,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.floordiv(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.floordiv(info_a, info_b, self.ch_client, self.ctx)
 
     async def __mod__(self, other: Object) -> Object:
         """
@@ -284,7 +359,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.mod(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.mod(info_a, info_b, self.ch_client, self.ctx)
 
     async def __pow__(self, other: Object) -> Object:
         """
@@ -300,7 +377,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.pow(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.pow(info_a, info_b, self.ch_client, self.ctx)
 
     async def __eq__(self, other: Object) -> Object:
         """
@@ -316,7 +395,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.eq(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.eq(info_a, info_b, self.ch_client, self.ctx)
 
     async def __ne__(self, other: Object) -> Object:
         """
@@ -332,7 +413,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.ne(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.ne(info_a, info_b, self.ch_client, self.ctx)
 
     async def __lt__(self, other: Object) -> Object:
         """
@@ -348,7 +431,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.lt(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.lt(info_a, info_b, self.ch_client, self.ctx)
 
     async def __le__(self, other: Object) -> Object:
         """
@@ -364,7 +449,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.le(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.le(info_a, info_b, self.ch_client, self.ctx)
 
     async def __gt__(self, other: Object) -> Object:
         """
@@ -380,7 +467,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.gt(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.gt(info_a, info_b, self.ch_client, self.ctx)
 
     async def __ge__(self, other: Object) -> Object:
         """
@@ -396,7 +485,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.ge(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.ge(info_a, info_b, self.ch_client, self.ctx)
 
     async def __and__(self, other: Object) -> Object:
         """
@@ -412,7 +503,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.and_(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.and_(info_a, info_b, self.ch_client, self.ctx)
 
     async def __or__(self, other: Object) -> Object:
         """
@@ -428,7 +521,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.or_(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.or_(info_a, info_b, self.ch_client, self.ctx)
 
     async def __xor__(self, other: Object) -> Object:
         """
@@ -444,7 +539,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.xor(self.table, other.table, self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.xor(info_a, info_b, self.ch_client, self.ctx)
 
     async def copy(self) -> "Object":
         """
@@ -505,14 +602,14 @@ class Object:
         self.checkstale()
         from . import ingest
 
-        # Convert all arguments to table names
-        tables = [self.table]
+        # Convert all arguments to QueryInfo
+        query_infos = [self._get_query_info()]
         temp_objects = []
 
         for arg in args:
             if isinstance(arg, Object):
                 arg.checkstale()
-                tables.append(arg.table)
+                query_infos.append(arg._get_query_info())
             else:
                 # Skip empty lists to avoid type conflicts
                 if isinstance(arg, list) and len(arg) == 0:
@@ -520,15 +617,15 @@ class Object:
                 # Convert ValueType to temporary Object
                 temp = await self.ctx.create_object_from_value(arg)
                 temp_objects.append(temp)
-                tables.append(temp.table)
+                query_infos.append(temp._get_query_info())
 
         # If all args were empty lists, just copy self
-        if len(tables) == 1:
+        if len(query_infos) == 1:
             result = await self.copy()
         else:
-            # Single database operation for all tables
+            # Single database operation for all sources
             result = await ingest.concat_objects_db(
-                tables, self.ch_client, self.ctx.create_object
+                query_infos, self.ch_client, self.ctx.create_object
             )
 
         # Cleanup temporary objects
@@ -655,6 +752,122 @@ class Object:
         result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
         return result.result_rows[0][0]
 
+    def view(
+        self,
+        where: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+    ) -> "View":
+        """
+        Create a read-only view of this object with query constraints.
+
+        Args:
+            where: Optional WHERE clause condition
+            limit: Optional LIMIT for number of rows
+            offset: Optional OFFSET for skipping rows
+            order_by: Optional ORDER BY clause
+
+        Returns:
+            View: A new View instance with the specified constraints
+
+        Examples:
+            >>> obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+            >>> view = obj.view(where="value > 2", limit=2)
+            >>> await view.data()  # Returns [3, 4]
+        """
+        return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
+
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
+
+
+class View(Object):
+    """
+    A view of an Object with query constraints (WHERE, LIMIT, OFFSET, ORDER BY).
+
+    Views are read-only and reference the same underlying table as their source Object.
+    They cannot be modified with operations like insert().
+    """
+
+    def __init__(
+        self,
+        source: Object,
+        where: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+    ):
+        """
+        Initialize a View.
+
+        Args:
+            source: Source Object to create view from
+            where: Optional WHERE clause
+            limit: Optional LIMIT
+            offset: Optional OFFSET
+            order_by: Optional ORDER BY clause
+        """
+        self._source = source
+        self._where = where
+        self._limit = limit
+        self._offset = offset
+        self._order_by = order_by
+
+    @property
+    def ctx(self) -> Context:
+        """Get the context from the source object."""
+        return self._source.ctx
+
+    @property
+    def table(self) -> str:
+        """Get the table name from the source object."""
+        return self._source.table
+
+    @property
+    def where(self) -> Optional[str]:
+        """Get WHERE clause."""
+        return self._where
+
+    @property
+    def limit(self) -> Optional[int]:
+        """Get LIMIT."""
+        return self._limit
+
+    @property
+    def offset(self) -> Optional[int]:
+        """Get OFFSET."""
+        return self._offset
+
+    @property
+    def order_by(self) -> Optional[str]:
+        """Get ORDER BY clause."""
+        return self._order_by
+
+    @property
+    def stale(self) -> bool:
+        """Check if source object's context has been cleaned up."""
+        return self._source.stale
+
+    def checkstale(self):
+        """Check if source object is stale and raise error if so."""
+        self._source.checkstale()
+
+    async def insert(self, *args) -> None:
+        """Views are read-only and cannot be modified."""
+        raise RuntimeError("Cannot insert into a view")
+
+    def __repr__(self) -> str:
+        """String representation of the View."""
+        constraints = []
+        if self.where:
+            constraints.append(f"where='{self.where}'")
+        if self.limit:
+            constraints.append(f"limit={self.limit}")
+        if self.offset:
+            constraints.append(f"offset={self.offset}")
+        if self.order_by:
+            constraints.append(f"order_by='{self.order_by}'")
+        constraint_str = ", ".join(constraints) if constraints else "no constraints"
+        return f"View(table='{self.table}', {constraint_str})"
