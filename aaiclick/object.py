@@ -129,7 +129,7 @@ class Object:
             columns: Column specification (default "*")
 
         Returns:
-            str: SELECT query string, potentially wrapped in subquery for views
+            str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         query = f"SELECT {columns} FROM {self.table}"
         if self.where:
@@ -141,17 +141,6 @@ class Object:
         if self.offset is not None:
             query += f" OFFSET {self.offset}"
         return query
-
-    def _get_source(self) -> str:
-        """
-        Get the source for queries - either table name or subquery.
-
-        Returns:
-            str: Table name if no constraints, otherwise subquery wrapped in parentheses
-        """
-        if self.where or self.limit is not None or self.offset is not None or self.order_by:
-            return f"({self._build_select()})"
-        return self.table
 
     async def result(self):
         """
