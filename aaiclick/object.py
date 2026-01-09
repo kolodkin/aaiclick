@@ -109,6 +109,11 @@ class Object:
         """Check if this object's context has been cleaned up."""
         return self._ctx is None
 
+    @property
+    def has_constraints(self) -> bool:
+        """Check if this object has any view constraints."""
+        return bool(self.where or self.limit is not None or self.offset is not None or self.order_by)
+
     def checkstale(self):
         """
         Check if object is stale and raise error if so.
@@ -155,7 +160,7 @@ class Object:
         Returns:
             str: Table name or (SELECT ...) subquery
         """
-        if self.where or self.limit is not None or self.offset is not None or self.order_by:
+        if self.has_constraints:
             return f"({self._build_select()})"
         return self.table
 
