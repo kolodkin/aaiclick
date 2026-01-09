@@ -141,22 +141,6 @@ except Exception as e:
     print(f"✓ Invalid SQL correctly rejected: {e}")
 ```
 
-### Test UNION ALL
-
-```python
-import chdb
-
-# Validate UNION ALL syntax
-sql = """
-SELECT number as id, 'group1' as source FROM numbers(5)
-UNION ALL
-SELECT number + 100 as id, 'group2' as source FROM numbers(5)
-"""
-
-result = chdb.query(sql)
-print(result)
-```
-
 ## Documentation
 
 For more details, see the official chdb documentation:
