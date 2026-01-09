@@ -34,13 +34,15 @@ OPERATOR_EXPRESSIONS = {
 }
 
 
-async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_client, ctx):
+async def _apply_operator_db(source_a: str, source_b: str, table_a: str, table_b: str, operator: str, ch_client, ctx):
     """
     Apply an operator on two tables at the database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table name or subquery)
+        source_b: Second data source (table name or subquery)
+        table_a: First base table name (for metadata queries)
+        table_b: Second base table name (for metadata queries)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
         ctx: Context instance for creating result object
@@ -52,7 +54,7 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
-    # Get fieldtype from first table's value column
+    # Get fieldtype from first table's value column (use base table for metadata)
     fieldtype_query = f"""
     SELECT comment FROM system.columns
     WHERE table = '{table_a}' AND name = 'value'
@@ -64,7 +66,7 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
         if meta.fieldtype:
             fieldtype = meta.fieldtype
 
-    # Get value column types from both tables
+    # Get value column types from both tables (use base tables for metadata)
     type_query_a = f"""
     SELECT type FROM system.columns
     WHERE table = '{table_a}' AND name = 'value'
@@ -99,14 +101,14 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
     # Create result object with schema
     result = await ctx.create_object(schema)
 
-    # Insert data based on fieldtype
+    # Insert data based on fieldtype (use sources for data queries)
     if fieldtype == FIELDTYPE_ARRAY:
         # Array operation
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT a.rn as aai_id, {expression} AS value
-        FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {table_a}) AS a
-        INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {table_b}) AS b
+        FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {source_a}) AS a
+        INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {source_b}) AS b
         ON a.rn = b.rn
         """
     else:
@@ -114,7 +116,7 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT 1 AS aai_id, {expression} AS value
-        FROM {table_a} AS a, {table_b} AS b
+        FROM {source_a} AS a, {source_b} AS b
         """
 
     await ch_client.command(insert_query)
@@ -124,261 +126,293 @@ async def _apply_operator_db(table_a: str, table_b: str, operator: str, ch_clien
 
 # Arithmetic Operators
 
-async def add(table_a: str, table_b: str, ch_client, ctx):
+async def add(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Add two tables together at database level.
+    Add two sources together at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a + table_b
+        New Object with result of source_a + source_b
     """
-    return await _apply_operator_db(table_a, table_b, "+", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "+", ch_client, ctx)
 
 
-async def sub(table_a: str, table_b: str, ch_client, ctx):
+async def sub(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Subtract one table from another at database level.
+    Subtract one source from another at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a - table_b
+        New Object with result of source_a - source_b
     """
-    return await _apply_operator_db(table_a, table_b, "-", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "-", ch_client, ctx)
 
 
-async def mul(table_a: str, table_b: str, ch_client, ctx):
+async def mul(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Multiply two tables together at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a * table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "*", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "*", ch_client, ctx)
 
 
-async def truediv(table_a: str, table_b: str, ch_client, ctx):
+async def truediv(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Divide one table by another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name (numerator)
-        table_b: Second table name (denominator)
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a / table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "/", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "/", ch_client, ctx)
 
 
-async def floordiv(table_a: str, table_b: str, ch_client, ctx):
+async def floordiv(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Floor divide one table by another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name (numerator)
-        table_b: Second table name (denominator)
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a // table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "//", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "//", ch_client, ctx)
 
 
-async def mod(table_a: str, table_b: str, ch_client, ctx):
+async def mod(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Modulo operation between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a % table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "%", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "%", ch_client, ctx)
 
 
-async def pow(table_a: str, table_b: str, ch_client, ctx):
+async def pow(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Raise one table to the power of another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name (base)
-        table_b: Second table name (exponent)
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a ** table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "**", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "**", ch_client, ctx)
 
 
 # Comparison Operators
 
-async def eq(table_a: str, table_b: str, ch_client, ctx):
+async def eq(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check equality between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a == table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "==", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "==", ch_client, ctx)
 
 
-async def ne(table_a: str, table_b: str, ch_client, ctx):
+async def ne(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check inequality between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a != table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "!=", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "!=", ch_client, ctx)
 
 
-async def lt(table_a: str, table_b: str, ch_client, ctx):
+async def lt(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one table is less than another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a < table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "<", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "<", ch_client, ctx)
 
 
-async def le(table_a: str, table_b: str, ch_client, ctx):
+async def le(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one table is less than or equal to another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a <= table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "<=", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "<=", ch_client, ctx)
 
 
-async def gt(table_a: str, table_b: str, ch_client, ctx):
+async def gt(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one table is greater than another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a > table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, ">", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, ">", ch_client, ctx)
 
 
-async def ge(table_a: str, table_b: str, ch_client, ctx):
+async def ge(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Check if one table is greater than or equal to another at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with boolean result of table_a >= table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, ">=", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, ">=", ch_client, ctx)
 
 
 # Bitwise Operators
 
-async def and_(table_a: str, table_b: str, ch_client, ctx):
+async def and_(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise AND operation between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a & table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "&", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "&", ch_client, ctx)
 
 
-async def or_(table_a: str, table_b: str, ch_client, ctx):
+async def or_(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise OR operation between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a | table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "|", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "|", ch_client, ctx)
 
 
-async def xor(table_a: str, table_b: str, ch_client, ctx):
+async def xor(source_a: str, source_b: str, table_a: str, table_b: str, ch_client, ctx):
     """
-    Bitwise XOR operation between two tables at database level.
+    Apply operator at database level.
 
     Args:
-        table_a: First table name
-        table_b: Second table name
+        source_a: First data source (table or subquery)
+        source_b: Second data source (table or subquery)
+        table_a: First base table name (for metadata)
+        table_b: Second base table name (for metadata)
         ch_client: ClickHouse client instance
         ctx: Context instance
 
     Returns:
-        New Object with result of table_a ^ table_b
+        New Object with result
     """
-    return await _apply_operator_db(table_a, table_b, "^", ch_client, ctx)
+    return await _apply_operator_db(source_a, source_b, table_a, table_b, "^", ch_client, ctx)
