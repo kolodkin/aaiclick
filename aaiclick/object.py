@@ -17,6 +17,7 @@ from .models import (
     Schema,
     ColumnMeta,
     ColumnType,
+    QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -150,31 +151,18 @@ class Object:
             query += f" OFFSET {self.offset}"
         return query
 
-    def _get_source_subquery(self) -> str:
+    def _get_query_info(self) -> QueryInfo:
         """
-        Get source for operator queries - table name or wrapped subquery.
+        Get query information for database operations.
 
-        For Views with constraints, returns a wrapped SELECT subquery.
-        For regular Objects without constraints, returns the table name directly.
+        Encapsulates both the data source (which may be a subquery for Views)
+        and the base table name (for metadata queries).
 
         Returns:
-            str: Table name or (SELECT ...) subquery
+            QueryInfo: NamedTuple with source and base_table fields
         """
-        if self.has_constraints:
-            return f"({self._build_select()})"
-        return self.table
-
-    def _get_base_table(self) -> str:
-        """
-        Get the base table name for metadata queries.
-
-        For both Objects and Views, returns the underlying table name.
-        Used for querying system.columns and other metadata.
-
-        Returns:
-            str: Base table name
-        """
-        return self.table
+        source = f"({self._build_select()})" if self.has_constraints else self.table
+        return QueryInfo(source=source, base_table=self.table)
 
     async def result(self):
         """
@@ -261,10 +249,10 @@ class Object:
         """
         self.checkstale()
         obj_b.checkstale()
+        info_a = self._get_query_info()
+        info_b = obj_b._get_query_info()
         return await operators._apply_operator_db(
-            self._get_source_subquery(), obj_b._get_source_subquery(),
-            self._get_base_table(), obj_b._get_base_table(),
-            operator, self.ch_client, self.ctx
+            info_a, info_b, operator, self.ch_client, self.ctx
         )
 
     async def __add__(self, other: Object) -> Object:
@@ -281,7 +269,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.add(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.add(info_a, info_b, self.ch_client, self.ctx)
 
     async def __sub__(self, other: Object) -> Object:
         """
@@ -297,7 +287,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.sub(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.sub(info_a, info_b, self.ch_client, self.ctx)
 
     async def __mul__(self, other: Object) -> Object:
         """
@@ -313,7 +305,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.mul(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.mul(info_a, info_b, self.ch_client, self.ctx)
 
     async def __truediv__(self, other: Object) -> Object:
         """
@@ -329,7 +323,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.truediv(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.truediv(info_a, info_b, self.ch_client, self.ctx)
 
     async def __floordiv__(self, other: Object) -> Object:
         """
@@ -345,7 +341,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.floordiv(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.floordiv(info_a, info_b, self.ch_client, self.ctx)
 
     async def __mod__(self, other: Object) -> Object:
         """
@@ -361,7 +359,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.mod(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.mod(info_a, info_b, self.ch_client, self.ctx)
 
     async def __pow__(self, other: Object) -> Object:
         """
@@ -377,7 +377,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.pow(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.pow(info_a, info_b, self.ch_client, self.ctx)
 
     async def __eq__(self, other: Object) -> Object:
         """
@@ -393,7 +395,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.eq(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.eq(info_a, info_b, self.ch_client, self.ctx)
 
     async def __ne__(self, other: Object) -> Object:
         """
@@ -409,7 +413,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.ne(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.ne(info_a, info_b, self.ch_client, self.ctx)
 
     async def __lt__(self, other: Object) -> Object:
         """
@@ -425,7 +431,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.lt(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.lt(info_a, info_b, self.ch_client, self.ctx)
 
     async def __le__(self, other: Object) -> Object:
         """
@@ -441,7 +449,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.le(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.le(info_a, info_b, self.ch_client, self.ctx)
 
     async def __gt__(self, other: Object) -> Object:
         """
@@ -457,7 +467,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.gt(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.gt(info_a, info_b, self.ch_client, self.ctx)
 
     async def __ge__(self, other: Object) -> Object:
         """
@@ -473,7 +485,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.ge(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.ge(info_a, info_b, self.ch_client, self.ctx)
 
     async def __and__(self, other: Object) -> Object:
         """
@@ -489,7 +503,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.and_(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.and_(info_a, info_b, self.ch_client, self.ctx)
 
     async def __or__(self, other: Object) -> Object:
         """
@@ -505,7 +521,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.or_(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.or_(info_a, info_b, self.ch_client, self.ctx)
 
     async def __xor__(self, other: Object) -> Object:
         """
@@ -521,7 +539,9 @@ class Object:
         """
         self.checkstale()
         other.checkstale()
-        return await operators.xor(self._get_source_subquery(), other._get_source_subquery(), self._get_base_table(), other._get_base_table(), self.ch_client, self.ctx)
+        info_a = self._get_query_info()
+        info_b = other._get_query_info()
+        return await operators.xor(info_a, info_b, self.ch_client, self.ctx)
 
     async def copy(self) -> "Object":
         """
@@ -582,16 +602,14 @@ class Object:
         self.checkstale()
         from . import ingest
 
-        # Convert all arguments to sources and base tables
-        sources = [self._get_source_subquery()]
-        base_tables = [self._get_base_table()]
+        # Convert all arguments to QueryInfo
+        query_infos = [self._get_query_info()]
         temp_objects = []
 
         for arg in args:
             if isinstance(arg, Object):
                 arg.checkstale()
-                sources.append(arg._get_source_subquery())
-                base_tables.append(arg._get_base_table())
+                query_infos.append(arg._get_query_info())
             else:
                 # Skip empty lists to avoid type conflicts
                 if isinstance(arg, list) and len(arg) == 0:
@@ -599,16 +617,15 @@ class Object:
                 # Convert ValueType to temporary Object
                 temp = await self.ctx.create_object_from_value(arg)
                 temp_objects.append(temp)
-                sources.append(temp._get_source_subquery())
-                base_tables.append(temp._get_base_table())
+                query_infos.append(temp._get_query_info())
 
         # If all args were empty lists, just copy self
-        if len(sources) == 1:
+        if len(query_infos) == 1:
             result = await self.copy()
         else:
             # Single database operation for all sources
             result = await ingest.concat_objects_db(
-                sources, base_tables, self.ch_client, self.ctx.create_object
+                query_infos, self.ch_client, self.ctx.create_object
             )
 
         # Cleanup temporary objects

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
-from .models import ColumnMeta, Schema, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -145,8 +145,7 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
 
 
 async def concat_objects_db(
-    sources: list[str],
-    base_tables: list[str],
+    query_infos: list[QueryInfo],
     ch_client,
     create_object: Callable[[Schema], Awaitable],
 ):
@@ -157,8 +156,7 @@ async def concat_objects_db(
     Order is maintained via existing Snowflake IDs when data is retrieved.
 
     Args:
-        sources: List of data sources (table names or subqueries, minimum 2)
-        base_tables: List of base table names for metadata queries
+        query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
         ch_client: ClickHouse client instance
         create_object: Async callable to create a new Object from Schema
 
@@ -166,18 +164,18 @@ async def concat_objects_db(
         Object: New Object instance with concatenated data
 
     Raises:
-        ValueError: If less than 2 sources provided
+        ValueError: If less than 2 query_infos provided
         ValueError: If first source does not have array fieldtype
     """
-    if len(sources) < 2:
+    if len(query_infos) < 2:
         raise ValueError("concat requires at least 2 sources")
 
-    # Use base_tables for metadata queries
-    fieldtype = await _get_fieldtype(base_tables[0], ch_client)
+    # Use base_table for metadata queries
+    fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
     if fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("concat requires first source to have array fieldtype")
 
-    value_type = await _get_value_column_type(base_tables[0], ch_client)
+    value_type = await _get_value_column_type(query_infos[0].base_table, ch_client)
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -189,11 +187,11 @@ async def concat_objects_db(
     # Single multi-table UNION ALL operation using sources (can be subqueries)
     # Add alias for subqueries (sources starting with '(')
     union_parts = []
-    for i, source in enumerate(sources):
-        if source.startswith('('):
-            union_parts.append(f"SELECT aai_id, value FROM {source} AS s{i}")
+    for i, info in enumerate(query_infos):
+        if info.source.startswith('('):
+            union_parts.append(f"SELECT aai_id, value FROM {info.source} AS s{i}")
         else:
-            union_parts.append(f"SELECT aai_id, value FROM {source}")
+            union_parts.append(f"SELECT aai_id, value FROM {info.source}")
 
     insert_query = f"""
     INSERT INTO {result.table}

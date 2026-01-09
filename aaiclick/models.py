@@ -4,7 +4,7 @@ aaiclick.models - Data models and type definitions for the aaiclick framework.
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from typing import Optional, Dict, Union, Literal, List
+from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass
 
 import yaml
@@ -35,6 +35,22 @@ ORIENT_RECORDS = "records"
 ValueScalarType = Union[int, float, bool, str]
 ValueListType = Union[List[int], List[float], List[bool], List[str]]
 ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
+
+
+class QueryInfo(NamedTuple):
+    """
+    Query information for database operations.
+
+    Couples the data source (which may be a subquery) with the base table name
+    (used for metadata queries). This makes it easier to pass both values together
+    in operator and concat operations.
+
+    Attributes:
+        source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
+        base_table: Base table name for metadata queries (always a simple table name)
+    """
+    source: str
+    base_table: str
 
 
 @dataclass
