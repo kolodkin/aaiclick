@@ -180,7 +180,7 @@ async def test_scalar_concat_fails(ctx, data_type, scalar_value, array_value):
     scalar_obj = await ctx.create_object_from_value(scalar_value)
     array_obj = await ctx.create_object_from_value(array_value)
 
-    with pytest.raises(ValueError, match="concat requires first table to have array fieldtype"):
+    with pytest.raises(ValueError, match="concat requires first source to have array fieldtype"):
         await scalar_obj.concat(array_obj)
 
 
