@@ -121,12 +121,13 @@ class Object:
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
 
-    def _build_select(self, columns: str = "*") -> str:
+    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
         Build a SELECT query with view constraints applied.
 
         Args:
             columns: Column specification (default "*")
+            default_order_by: Default ORDER BY clause if view doesn't have custom order_by
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -134,8 +135,10 @@ class Object:
         query = f"SELECT {columns} FROM {self.table}"
         if self.where:
             query += f" WHERE {self.where}"
-        if self.order_by:
-            query += f" ORDER BY {self.order_by}"
+        # Use custom order_by if set, otherwise use default
+        order_clause = self.order_by or default_order_by
+        if order_clause:
+            query += f" ORDER BY {order_clause}"
         if self.limit is not None:
             query += f" LIMIT {self.limit}"
         if self.offset is not None:
