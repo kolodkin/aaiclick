@@ -300,6 +300,26 @@ rows = await obj.data(orient=aaiclick.ORIENT_RECORDS)
 # [{"id": 1, "name": "Alice", "age": 30}, {"id": 2, "name": "Bob", "age": 25}, ...]
 ```
 
+## Column Metadata
+
+When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
+
+### Fieldtype Constants
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value |
+| `FIELDTYPE_ARRAY` | `'a'` | Array - list of values |
+| `FIELDTYPE_DICT` | `'d'` | Dict - structured record |
+
+### Example Column Comment
+
+```yaml
+{fieldtype: a}
+```
+
+This indicates an array column.
+
 ## Views
 
 The `View` class provides a read-only filtered view of an Object with SQL query constraints applied. Views reference the same underlying ClickHouse table without creating data copies.
@@ -340,26 +360,6 @@ await view.data()  # Returns [3, 4]
 
 For complete runnable examples of filtering, pagination, sorting, combining constraints, and performing operations on views, see:
 - `examples/view_examples.py` - Comprehensive examples of all View capabilities
-
-## Column Metadata
-
-When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
-
-### Fieldtype Constants
-
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value |
-| `FIELDTYPE_ARRAY` | `'a'` | Array - list of values |
-| `FIELDTYPE_DICT` | `'d'` | Dict - structured record |
-
-### Example Column Comment
-
-```yaml
-{fieldtype: a}
-```
-
-This indicates an array column.
 
 ## Implementation Details
 
