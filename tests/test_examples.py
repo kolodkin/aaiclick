@@ -17,3 +17,11 @@ async def test_statistics_example(ctx):
 
     # Run the example - should complete without errors
     await main()
+
+
+async def test_views_example(ctx):
+    """Test that the views example runs successfully."""
+    from aaiclick.examples.views import main
+
+    # Run the example - should complete without errors
+    await main()
