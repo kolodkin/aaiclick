@@ -110,8 +110,8 @@ class Task(SQLModel, table=True):
     # Example: "aaiclick.operators.map_function"
 
     kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    # Dictionary mapping parameter names to Object table IDs
-    # Example: {"input_obj": "tbl_abc123", "threshold": 0.5}
+    # Dictionary mapping parameter names to serialized values
+    # See "Task Parameter Serialization" section for object_type formats
 
     # Status tracking
     status: str = Field(default="pending", index=True)
@@ -182,6 +182,75 @@ class Worker(SQLModel, table=True):
     started_at: datetime = Field(default_factory=datetime.utcnow)
 ```
 
+## Task Parameter Serialization
+
+Task kwargs are stored as JSONB and can contain three types of parameters identified by `object_type`:
+
+### Object Parameters
+
+Reference to a full aaiclick Object (entire ClickHouse table):
+
+```json
+{
+    "object_type": "object",
+    "table_id": "t123456789"
+}
+```
+
+Worker deserializes to an `Object` instance with the specified table.
+
+### View Parameters
+
+Reference to a subset/view of an Object with query constraints:
+
+```json
+{
+    "object_type": "view",
+    "table_id": "t123456789",
+    "offset": 0,
+    "limit": 10000,
+    "where": "value > 100",
+    "order_by": "aai_id ASC"
+}
+```
+
+Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`.
+
+### Python Object Parameters
+
+Native Python values (JSONB serializable):
+
+```json
+{
+    "object_type": "pyobj",
+    "value": {"threshold": 0.5, "max_iter": 100}
+}
+```
+
+Worker deserializes to the native Python value. Supports primitives, lists, dicts, etc.
+
+### Example Task Kwargs
+
+```python
+# Task with mixed parameter types
+task_kwargs = {
+    "input_data": {
+        "object_type": "view",
+        "table_id": "t987654321",
+        "offset": 10000,
+        "limit": 10000
+    },
+    "config": {
+        "object_type": "pyobj",
+        "value": {"threshold": 0.5}
+    },
+    "reference_table": {
+        "object_type": "object",
+        "table_id": "t111222333"
+    }
+}
+```
+
 ## Task Execution Flow
 
 ### 1. Job Creation
@@ -195,7 +264,12 @@ job = await create_job(
     tasks=[
         {
             "entrypoint": "myapp.processors.load_and_process_data",
-            "kwargs": {"source": "dataset_v1"}
+            "kwargs": {
+                "source": {
+                    "object_type": "pyobj",
+                    "value": "dataset_v1"
+                }
+            }
         }
     ]
 )
@@ -203,10 +277,15 @@ job = await create_job(
 # The initial task can dynamically create follow-up tasks during execution:
 # async def load_and_process_data(source: str):
 #     data_obj = await load_data(source)
-#     # Create validation task with actual table ID
+#     # Create validation task with Object serialization
 #     await add_task_to_current_job(
 #         entrypoint="myapp.processors.validate_data",
-#         kwargs={"input_obj": data_obj.table_id}
+#         kwargs={
+#             "input_obj": {
+#                 "object_type": "object",
+#                 "table_id": data_obj.table_id
+#             }
+#         }
 #     )
 ```
 
@@ -230,16 +309,18 @@ async def map(callback: str, obj: Object) -> Object:
     total_rows = await obj.count()
     chunk_size = 10000  # Configurable chunk size
 
-    # Create task for each chunk using offset/limit
-    # Note: Requires View concept (see Known Design Gaps)
+    # Create task for each chunk using View serialization
     for offset in range(0, total_rows, chunk_size):
         await add_task_to_current_job(
             job_id=job_id,
             entrypoint=callback,
             kwargs={
-                "table_id": obj.table_id,
-                "offset": offset,
-                "limit": chunk_size
+                "chunk": {
+                    "object_type": "view",
+                    "table_id": obj.table_id,
+                    "offset": offset,
+                    "limit": chunk_size
+                }
             }
         )
 
@@ -520,14 +601,6 @@ async def health_check():
 1. **Task failure**: Propagate to job if critical
 2. **Cancellation**: Cancel all pending tasks
 3. **Cleanup**: Remove temporary resources
-
-## Known Design Gaps
-
-### View vs Object
-
-**Problem**: Distributed operations like `map()` need to partition data across tasks without copying or reading all data.
-
-**Limitation**: The `Object` class represents entire ClickHouse tables. To process data in parallel chunks, we need a way to reference subsets of an Object's data without materializing separate table copies.
 
 ## Packaging Consideration
 
