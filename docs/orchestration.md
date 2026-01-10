@@ -274,20 +274,6 @@ job = await create_job(
         }
     ]
 )
-
-# The initial task can dynamically create follow-up tasks during execution:
-# async def load_and_process_data(source: str):
-#     data_obj = await load_data(source)
-#     # Create validation task with Object serialization
-#     await add_task_to_current_job(
-#         entrypoint="myapp.processors.validate_data",
-#         kwargs={
-#             "input_obj": {
-#                 "object_type": "object",
-#                 "table_id": data_obj.table_id
-#             }
-#         }
-#     )
 ```
 
 ### 2. Dynamic Task Creation
