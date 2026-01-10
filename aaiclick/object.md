@@ -320,6 +320,47 @@ When tables are created via factory functions, each column gets a YAML comment c
 
 This indicates an array column.
 
+## Views
+
+The `View` class provides a read-only filtered view of an Object with SQL query constraints applied. Views reference the same underlying ClickHouse table without creating data copies.
+
+### Creating Views
+
+Views are created using the `obj.view()` method with optional constraint parameters:
+
+```python
+obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+view = obj.view(where="value > 2", limit=2, order_by="value ASC")
+await view.data()  # Returns [3, 4]
+```
+
+### View Constraints
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `where` | `Optional[str]` | WHERE clause condition for filtering rows (e.g., `"value > 2"`) |
+| `limit` | `Optional[int]` | Maximum number of rows to return from the query |
+| `offset` | `Optional[int]` | Number of rows to skip before returning results |
+| `order_by` | `Optional[str]` | ORDER BY clause for sorting results (e.g., `"value DESC"`) |
+
+### Key Characteristics
+
+**Read-Only:** Views cannot be modified with write operations like `insert()`. Attempting to insert will raise a `RuntimeError`.
+
+**Same Table Reference:** Views don't create new tables - they query the source Object's table with constraints applied.
+
+**Supports Read Operations:** All read operations work on Views:
+- `.data()` - retrieve filtered data
+- Arithmetic and comparison operators - create new Objects from filtered data
+- Aggregation methods (`.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`)
+
+**Automatic Staleness Detection:** Views inherit staleness checks from the source Object.
+
+### Examples
+
+For complete runnable examples of filtering, pagination, sorting, combining constraints, and performing operations on views, see:
+- `examples/view_examples.py` - Comprehensive examples of all View capabilities
+
 ## Implementation Details
 
 ### Operator Architecture
