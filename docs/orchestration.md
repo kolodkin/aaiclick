@@ -35,6 +35,8 @@ As aaiclick scales to handle large-scale data processing, we need:
 └───────────────────────────────────┘
 ```
 
+**Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
+
 ## Technology Stack
 
 - **SQLModel**: Type-safe ORM with Pydantic integration
