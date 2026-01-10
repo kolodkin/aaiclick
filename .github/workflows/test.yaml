@@ -92,6 +92,7 @@ jobs:
           # List of examples to run (update this list when adding new examples):
           # - basic_operators: Basic arithmetic operations and object creation
           # - statistics: Statistical methods (min, max, sum, mean, std)
+          # - views: Query constraints (WHERE, LIMIT, OFFSET, ORDER BY)
         run: |
           # Create tmp directory for output files
           mkdir -p tmp
@@ -104,6 +105,10 @@ jobs:
           echo "Running statistics example..."
           uv run python -m aaiclick.examples.statistics > tmp/statistics_output.txt 2>&1
           echo "Statistics example completed successfully!"
+
+          echo "Running views example..."
+          uv run python -m aaiclick.examples.views > tmp/views_output.txt 2>&1
+          echo "Views example completed successfully!"
 
       - name: Add example outputs to summary
         if: always()

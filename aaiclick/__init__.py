@@ -16,6 +16,7 @@ from .models import (
     Schema,
     ColumnMeta,
     ColumnType,
+    QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,

@@ -16,12 +16,14 @@ from pathlib import Path
 EXAMPLE_METADATA = {
     "basic_operators": "Basic Operators Example",
     "statistics": "Statistics Example",
+    "views": "Views Example",
 }
 
 # Preferred display order (examples not in this list appear at the end)
 DISPLAY_ORDER = [
     "basic_operators",
     "statistics",
+    "views",
 ]
 
 
