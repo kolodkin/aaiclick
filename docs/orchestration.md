@@ -338,7 +338,12 @@ async def worker_main_loop(worker_id: str):
             async with Context(job_id=task.job_id) as ctx:
                 # Import and execute entrypoint
                 func = import_function(task.entrypoint)
-                result_obj = await func(**task.kwargs)
+
+                # Deserialize task kwargs (see Task Parameter Serialization section)
+                # Converts object_type formats to Object/View/native Python instances
+                task_kwargs = deserialize_task_params(task.kwargs, ctx)
+
+                result_obj = await func(**task_kwargs)
 
             # Store result
             await update_task_result(
