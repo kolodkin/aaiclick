@@ -209,12 +209,11 @@ Reference to a subset/view of an Object with query constraints:
     "table_id": "t123456789",
     "offset": 0,
     "limit": 10000,
-    "where": "value > 100",
-    "order_by": "aai_id ASC"
+    "where": "value > 100"
 }
 ```
 
-Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`.
+Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`. Default ordering is `aai_id ASC`.
 
 ### Python Object Parameters
 
