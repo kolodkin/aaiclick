@@ -53,6 +53,32 @@ As aaiclick scales to handle large-scale data processing, we need:
 
 ## Data Models
 
+### Status Enums
+
+```python
+from enum import StrEnum
+
+class JobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+class TaskStatus(StrEnum):
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+class WorkerStatus(StrEnum):
+    ACTIVE = "active"
+    IDLE = "idle"
+    STOPPED = "stopped"
+```
+
 ### Job
 
 Represents a workflow containing one or more tasks.
@@ -72,8 +98,7 @@ class Job(SQLModel, table=True):
     description: Optional[str] = None
 
     # Status tracking
-    status: str = Field(default="pending", index=True)
-    # Status values: pending, running, completed, failed, cancelled
+    status: JobStatus = Field(default=JobStatus.PENDING, index=True)
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -86,9 +111,9 @@ class Job(SQLModel, table=True):
 
 **Job Status Lifecycle:**
 ```
-pending → running → completed
-                 → failed
-                 → cancelled
+PENDING → RUNNING → COMPLETED
+                  → FAILED
+                  → CANCELLED
 ```
 
 ### Task
@@ -116,8 +141,7 @@ class Task(SQLModel, table=True):
     # See "Task Parameter Serialization" section for object_type formats
 
     # Status tracking
-    status: str = Field(default="pending", index=True)
-    # Status values: pending, claimed, running, completed, failed, cancelled
+    status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
 
     # Result
     result_table_id: Optional[str] = None
@@ -144,10 +168,10 @@ class Task(SQLModel, table=True):
 
 **Task Status Lifecycle:**
 ```
-pending → claimed → running → completed
-                           → failed → pending (if retries remain)
-                                   → failed (max retries exceeded)
-       → cancelled
+PENDING → CLAIMED → RUNNING → COMPLETED
+                            → FAILED → PENDING (if retries remain)
+                                    → FAILED (max retries exceeded)
+        → CANCELLED
 ```
 
 ### Worker
@@ -170,8 +194,7 @@ class Worker(SQLModel, table=True):
     pid: int
 
     # Status
-    status: str = Field(default="active", index=True)
-    # Status values: active, idle, stopped
+    status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
 
     # Heartbeat
     last_heartbeat: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -349,7 +372,7 @@ async def worker_main_loop(worker_id: str):
             await update_task_result(
                 task.id,
                 result_table_id=result_obj.table_id,
-                status="completed"
+                status=TaskStatus.COMPLETED
             )
 
         except Exception as e:
@@ -416,7 +439,7 @@ job = await get_job(job_id)
 print(f"Status: {job.status}, Progress: {job.completed_tasks}/{job.total_tasks}")
 
 # List jobs
-jobs = await list_jobs(status="running")
+jobs = await list_jobs(status=JobStatus.RUNNING)
 
 # Cancel job
 await cancel_job(job_id)
@@ -465,7 +488,7 @@ await worker_heartbeat(worker.id)
 await deregister_worker(worker.id)
 
 # List active workers
-workers = await list_workers(status="active")
+workers = await list_workers(status=WorkerStatus.ACTIVE)
 ```
 
 ## Configuration
