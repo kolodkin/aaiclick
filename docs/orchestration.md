@@ -117,6 +117,22 @@ PENDING → RUNNING → COMPLETED
                   → CANCELLED
 ```
 
+### TaskDependency
+
+Junction table for task dependencies (many-to-many relationship).
+
+```python
+from sqlmodel import Field, SQLModel
+
+class TaskDependency(SQLModel, table=True):
+    __tablename__ = "task_dependencies"
+
+    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+    depends_on_task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+```
+
+**Purpose**: Represents that `task_id` depends on `depends_on_task_id` (must complete before the dependent task can execute).
+
 ### TaskGroup
 
 Represents a logical grouping of tasks within a job.
@@ -202,6 +218,10 @@ class Task(SQLModel, table=True):
     group: Optional[TaskGroup] = Relationship(back_populates="tasks")
 ```
 
+**Task Dependencies**:
+- Dependencies are managed via the TaskDependency junction table
+- A task can only be claimed if all tasks it depends on (via TaskDependency) have status COMPLETED
+
 **Task Status Lifecycle:**
 ```
 PENDING → CLAIMED → RUNNING → COMPLETED
@@ -209,6 +229,10 @@ PENDING → CLAIMED → RUNNING → COMPLETED
                                     → FAILED (max retries exceeded)
         → CANCELLED
 ```
+
+**Dependency Constraints**:
+- A task can only be claimed if all its `dependencies` have status COMPLETED
+- Circular dependencies are not allowed
 
 ### Worker
 
@@ -423,6 +447,7 @@ Uses PostgreSQL row-level locking for safe concurrent access:
 ```sql
 -- Implemented via SQLModel/SQLAlchemy
 -- Prioritizes tasks from oldest running jobs first
+-- Respects task dependencies
 -- Also marks job as started and running when first task is claimed
 WITH claimed_task AS (
     UPDATE tasks
@@ -434,6 +459,13 @@ WITH claimed_task AS (
         SELECT t.id FROM tasks t
         JOIN jobs j ON t.job_id = j.id
         WHERE t.status = 'pending'
+        -- Only claim if all dependencies are completed
+        AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies td
+            JOIN tasks dep ON td.depends_on_task_id = dep.id
+            WHERE td.task_id = t.id
+            AND dep.status != 'completed'
+        )
         ORDER BY j.started_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -450,6 +482,7 @@ RETURNING (SELECT * FROM claimed_task);
 
 **Key features:**
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
+- `NOT EXISTS`: Only claim tasks where all dependencies are completed
 - `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
 - `COALESCE(started_at, NOW())`: Atomically set job's started_at when first task is claimed
 - `CASE WHEN started_at IS NULL`: Set job status to 'running' on first task claim
