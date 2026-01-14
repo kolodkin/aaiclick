@@ -119,7 +119,7 @@ PENDING → RUNNING → COMPLETED
 
 ### TaskDependency
 
-Junction table for task dependencies (many-to-many relationship).
+Junction table for task-to-task dependencies (many-to-many).
 
 ```python
 from sqlmodel import Field, SQLModel
@@ -132,6 +132,22 @@ class TaskDependency(SQLModel, table=True):
 ```
 
 **Purpose**: Represents that `task_id` depends on `depends_on_task_id` (must complete before the dependent task can execute).
+
+### TaskGroupMembership
+
+Junction table for task-to-group membership (many-to-many).
+
+```python
+from sqlmodel import Field, SQLModel
+
+class TaskGroupMembership(SQLModel, table=True):
+    __tablename__ = "task_group_memberships"
+
+    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+    group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
+```
+
+**Purpose**: Associates tasks with task groups. Tasks can belong to multiple groups.
 
 ### TaskGroup
 
@@ -157,7 +173,6 @@ class TaskGroup(SQLModel, table=True):
 
     # Relationships
     job: Job = Relationship(back_populates="task_groups")
-    tasks: list["Task"] = Relationship(back_populates="group")
 ```
 
 **TaskGroup Purpose**:
@@ -165,6 +180,7 @@ class TaskGroup(SQLModel, table=True):
 - Enables parallel execution of tasks within the group
 - Used with `context.apply([TaskGroup(...)])` for dynamic task spawning
 - Tasks in a group can have internal dependencies
+- Task membership managed via TaskGroupMembership junction table
 
 ### Task
 
@@ -180,7 +196,6 @@ class Task(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
-    group_id: Optional[int] = Field(default=None, foreign_key="task_groups.id", index=True)
 
     # Execution specification
     entrypoint: str = Field()
@@ -215,11 +230,11 @@ class Task(SQLModel, table=True):
 
     # Relationships
     job: Job = Relationship(back_populates="tasks")
-    group: Optional[TaskGroup] = Relationship(back_populates="tasks")
 ```
 
-**Task Dependencies**:
-- Dependencies are managed via the TaskDependency junction table
+**Task Dependencies and Groups**:
+- Task dependencies managed via TaskDependency junction table
+- Task group membership managed via TaskGroupMembership junction table
 - A task can only be claimed if all tasks it depends on (via TaskDependency) have status COMPLETED
 
 **Task Status Lifecycle:**
