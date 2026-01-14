@@ -117,38 +117,6 @@ PENDING → RUNNING → COMPLETED
                   → CANCELLED
 ```
 
-### TaskDependency
-
-Junction table for task-to-task dependencies (many-to-many).
-
-```python
-from sqlmodel import Field, SQLModel
-
-class TaskDependency(SQLModel, table=True):
-    __tablename__ = "task_dependencies"
-
-    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
-    depends_on_task_id: int = Field(foreign_key="tasks.id", primary_key=True)
-```
-
-**Purpose**: Represents that `task_id` depends on `depends_on_task_id` (must complete before the dependent task can execute).
-
-### TaskGroupMembership
-
-Junction table for task-to-group membership (many-to-many).
-
-```python
-from sqlmodel import Field, SQLModel
-
-class TaskGroupMembership(SQLModel, table=True):
-    __tablename__ = "task_group_memberships"
-
-    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
-    group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
-```
-
-**Purpose**: Associates tasks with task groups. Tasks can belong to multiple groups.
-
 ### TaskGroup
 
 Represents a logical grouping of tasks within a job.
@@ -173,14 +141,40 @@ class TaskGroup(SQLModel, table=True):
 
     # Relationships
     job: Job = Relationship(back_populates="task_groups")
+    tasks: list["Task"] = Relationship(back_populates="group")
 ```
 
-**TaskGroup Purpose**:
-- Logical organization of related tasks
-- Enables parallel execution of tasks within the group
-- Used with `context.apply([TaskGroup(...)])` for dynamic task spawning
-- Tasks in a group can have internal dependencies
-- Task membership managed via TaskGroupMembership junction table
+### TaskGroupDependency
+
+Junction table for task group dependencies. A task group can have many previous task groups it depends on.
+
+```python
+from sqlmodel import Field, SQLModel
+
+class TaskGroupDependency(SQLModel, table=True):
+    __tablename__ = "task_group_dependencies"
+
+    group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
+    depends_on_group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
+```
+
+**Purpose**: Represents that `group_id` depends on `depends_on_group_id` (all tasks in the dependency group must complete before tasks in the dependent group can execute).
+
+### TaskDependency
+
+Junction table for task dependencies. A task can have many previous tasks it depends on.
+
+```python
+from sqlmodel import Field, SQLModel
+
+class TaskDependency(SQLModel, table=True):
+    __tablename__ = "task_dependencies"
+
+    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+    depends_on_task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+```
+
+**Purpose**: Represents that `task_id` depends on `depends_on_task_id` (must complete before the dependent task can execute).
 
 ### Task
 
@@ -196,6 +190,7 @@ class Task(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
+    group_id: Optional[int] = Field(default=None, foreign_key="task_groups.id", index=True)
 
     # Execution specification
     entrypoint: str = Field()
@@ -230,12 +225,14 @@ class Task(SQLModel, table=True):
 
     # Relationships
     job: Job = Relationship(back_populates="tasks")
+    group: Optional[TaskGroup] = Relationship(back_populates="tasks")
 ```
 
 **Task Dependencies and Groups**:
-- Task dependencies managed via TaskDependency junction table
-- Task group membership managed via TaskGroupMembership junction table
-- A task can only be claimed if all tasks it depends on (via TaskDependency) have status COMPLETED
+- Each task belongs to one TaskGroup (optional, via group_id foreign key)
+- Task dependencies managed via TaskDependency junction table (task → task)
+- TaskGroup dependencies managed via TaskGroupDependency junction table (group → group)
+- A task can only be claimed if all its dependencies are completed
 
 **Task Status Lifecycle:**
 ```
