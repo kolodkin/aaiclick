@@ -144,37 +144,37 @@ class TaskGroup(SQLModel, table=True):
     tasks: list["Task"] = Relationship(back_populates="group")
 ```
 
-### TaskGroupDependency
+### Dependency
 
-Junction table for task group dependencies. A task group can have many previous task groups it depends on.
-
-```python
-from sqlmodel import Field, SQLModel
-
-class TaskGroupDependency(SQLModel, table=True):
-    __tablename__ = "task_group_dependencies"
-
-    group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
-    depends_on_group_id: int = Field(foreign_key="task_groups.id", primary_key=True)
-```
-
-**Purpose**: Represents that `group_id` depends on `depends_on_group_id` (all tasks in the dependency group must complete before tasks in the dependent group can execute).
-
-### TaskDependency
-
-Junction table for task dependencies. A task can have many previous tasks it depends on.
+Unified dependency table supporting all dependency types between tasks and groups.
 
 ```python
 from sqlmodel import Field, SQLModel
 
-class TaskDependency(SQLModel, table=True):
-    __tablename__ = "task_dependencies"
+class Dependency(SQLModel, table=True):
+    __tablename__ = "dependencies"
 
-    task_id: int = Field(foreign_key="tasks.id", primary_key=True)
-    depends_on_task_id: int = Field(foreign_key="tasks.id", primary_key=True)
+    # Entity that must complete first
+    previous_id: int = Field(primary_key=True, index=True)
+    previous_type: str = Field(primary_key=True)  # 'task' or 'group'
+
+    # Entity that waits (executes after previous completes)
+    next_id: int = Field(primary_key=True, index=True)
+    next_type: str = Field(primary_key=True)  # 'task' or 'group'
 ```
 
-**Purpose**: Represents that `task_id` depends on `depends_on_task_id` (must complete before the dependent task can execute).
+**Supported Dependency Types:**
+- Task → Task: `previous_type='task'`, `next_type='task'`
+- Task → Group: `previous_type='task'`, `next_type='group'` (all tasks in next group wait for previous task)
+- Group → Task: `previous_type='group'`, `next_type='task'` (next task waits for all tasks in previous group)
+- Group → Group: `previous_type='group'`, `next_type='group'` (next group waits for all tasks in previous group)
+
+**Benefits:**
+- Single unified table for all dependency relationships
+- Intuitive previous/next naming for workflow dependencies
+- Flexible schema supporting future entity types
+- Simplified querying across all dependency types
+- Validation enforced at ORM/application level
 
 ### Task
 
@@ -230,9 +230,8 @@ class Task(SQLModel, table=True):
 
 **Task Dependencies and Groups**:
 - Each task belongs to one TaskGroup (optional, via group_id foreign key)
-- Task dependencies managed via TaskDependency junction table (task → task)
-- TaskGroup dependencies managed via TaskGroupDependency junction table (group → group)
-- A task can only be claimed if all its dependencies are completed
+- All dependencies (task → task, task → group, group → task, group → group) managed via unified Dependency table
+- A task can only be claimed if all its direct dependencies are satisfied (completed tasks/groups)
 
 **Task Status Lifecycle:**
 ```
@@ -243,8 +242,9 @@ PENDING → CLAIMED → RUNNING → COMPLETED
 ```
 
 **Dependency Constraints**:
-- A task can only be claimed if all its `dependencies` have status COMPLETED
+- A task can only be claimed if all its `previous` dependencies (tasks/groups) have status COMPLETED
 - Circular dependencies are not allowed
+- Dependencies managed via unified Dependency table with previous/next relationships
 
 ### Worker
 
@@ -459,7 +459,7 @@ Uses PostgreSQL row-level locking for safe concurrent access:
 ```sql
 -- Implemented via SQLModel/SQLAlchemy
 -- Prioritizes tasks from oldest running jobs first
--- Respects task dependencies
+-- Respects all dependency types via unified dependency table
 -- Also marks job as started and running when first task is claimed
 WITH claimed_task AS (
     UPDATE tasks
@@ -471,12 +471,43 @@ WITH claimed_task AS (
         SELECT t.id FROM tasks t
         JOIN jobs j ON t.job_id = j.id
         WHERE t.status = 'pending'
-        -- Only claim if all dependencies are completed
+        -- Check previous task → next task dependencies
         AND NOT EXISTS (
-            SELECT 1 FROM task_dependencies td
-            JOIN tasks dep ON td.depends_on_task_id = dep.id
-            WHERE td.task_id = t.id
-            AND dep.status != 'completed'
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.id
+            WHERE d.next_id = t.id
+            AND d.next_type = 'task'
+            AND d.previous_type = 'task'
+            AND prev.status != 'completed'
+        )
+        -- Check previous group → next task dependencies (all tasks in previous group must be completed)
+        AND NOT EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.group_id
+            WHERE d.next_id = t.id
+            AND d.next_type = 'task'
+            AND d.previous_type = 'group'
+            AND prev.status != 'completed'
+        )
+        -- Check previous task → next group dependencies (if task is in next group that waits for previous task)
+        AND NOT EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.id
+            WHERE d.next_id = t.group_id
+            AND d.next_type = 'group'
+            AND d.previous_type = 'task'
+            AND prev.status != 'completed'
+            AND t.group_id IS NOT NULL
+        )
+        -- Check previous group → next group dependencies (if task is in next group that waits for previous group)
+        AND NOT EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.group_id
+            WHERE d.next_id = t.group_id
+            AND d.next_type = 'group'
+            AND d.previous_type = 'group'
+            AND prev.status != 'completed'
+            AND t.group_id IS NOT NULL
         )
         ORDER BY j.started_at ASC
         LIMIT 1
@@ -494,11 +525,12 @@ RETURNING (SELECT * FROM claimed_task);
 
 **Key features:**
 - `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
-- `NOT EXISTS`: Only claim tasks where all dependencies are completed
+- `NOT EXISTS`: Only claim tasks where all previous dependencies (tasks/groups) are completed
 - `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
 - `COALESCE(started_at, NOW())`: Atomically set job's started_at when first task is claimed
 - `CASE WHEN started_at IS NULL`: Set job status to 'running' on first task claim
 - Atomic update: Prevents race conditions
+- Unified dependency checking: Single table handles all dependency types (task→task, task→group, group→task, group→group)
 
 ## API / Interfaces
 
