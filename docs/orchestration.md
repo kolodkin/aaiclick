@@ -105,8 +105,9 @@ class Job(SQLModel, table=True):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
-    # Relationship
+    # Relationships
     tasks: list["Task"] = Relationship(back_populates="job")
+    task_groups: list["TaskGroup"] = Relationship(back_populates="job")
 ```
 
 **Job Status Lifecycle:**
@@ -115,6 +116,39 @@ PENDING → RUNNING → COMPLETED
                   → FAILED
                   → CANCELLED
 ```
+
+### TaskGroup
+
+Represents a logical grouping of tasks within a job.
+
+```python
+from datetime import datetime
+from typing import Optional
+from sqlmodel import Field, SQLModel, Relationship
+
+class TaskGroup(SQLModel, table=True):
+    __tablename__ = "task_groups"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: int = Field(foreign_key="jobs.id", index=True)
+
+    # Group metadata
+    name: str = Field(index=True)
+    description: Optional[str] = None
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+    # Relationships
+    job: Job = Relationship(back_populates="task_groups")
+    tasks: list["Task"] = Relationship(back_populates="group")
+```
+
+**TaskGroup Purpose**:
+- Logical organization of related tasks
+- Enables parallel execution of tasks within the group
+- Used with `context.apply([TaskGroup(...)])` for dynamic task spawning
+- Tasks in a group can have internal dependencies
 
 ### Task
 
@@ -130,6 +164,7 @@ class Task(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
+    group_id: Optional[int] = Field(default=None, foreign_key="task_groups.id", index=True)
 
     # Execution specification
     entrypoint: str = Field()
@@ -162,8 +197,9 @@ class Task(SQLModel, table=True):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
-    # Relationship
+    # Relationships
     job: Job = Relationship(back_populates="tasks")
+    group: Optional[TaskGroup] = Relationship(back_populates="tasks")
 ```
 
 **Task Status Lifecycle:**
