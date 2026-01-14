@@ -107,7 +107,7 @@ class Job(SQLModel, table=True):
 
     # Relationships
     tasks: list["Task"] = Relationship(back_populates="job")
-    task_groups: list["TaskGroup"] = Relationship(back_populates="job")
+    groups: list["Group"] = Relationship(back_populates="job")
 ```
 
 **Job Status Lifecycle:**
@@ -117,20 +117,21 @@ PENDING → RUNNING → COMPLETED
                   → CANCELLED
 ```
 
-### TaskGroup
+### Group
 
-Represents a logical grouping of tasks within a job.
+Represents a logical grouping of tasks and other groups within a job. Groups can be nested.
 
 ```python
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel, Relationship
 
-class TaskGroup(SQLModel, table=True):
-    __tablename__ = "task_groups"
+class Group(SQLModel, table=True):
+    __tablename__ = "groups"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
+    parent_group_id: Optional[int] = Field(default=None, foreign_key="groups.id", index=True)
 
     # Group metadata
     name: str = Field(index=True)
@@ -140,9 +141,20 @@ class TaskGroup(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
     # Relationships
-    job: Job = Relationship(back_populates="task_groups")
+    job: Job = Relationship(back_populates="groups")
     tasks: list["Task"] = Relationship(back_populates="group")
+    parent_group: Optional["Group"] = Relationship(
+        back_populates="child_groups",
+        sa_relationship_kwargs={"remote_side": "Group.id"}
+    )
+    child_groups: list["Group"] = Relationship(back_populates="parent_group")
 ```
+
+**Nested Group Support:**
+- Groups can contain tasks via `group_id` foreign key in Task
+- Groups can contain other groups via `parent_group_id` foreign key
+- Enables hierarchical workflow organization
+- Dependencies can be defined at any level of the hierarchy
 
 ### Dependency
 
@@ -190,7 +202,7 @@ class Task(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
-    group_id: Optional[int] = Field(default=None, foreign_key="task_groups.id", index=True)
+    group_id: Optional[int] = Field(default=None, foreign_key="groups.id", index=True)
 
     # Execution specification
     entrypoint: str = Field()
@@ -225,11 +237,12 @@ class Task(SQLModel, table=True):
 
     # Relationships
     job: Job = Relationship(back_populates="tasks")
-    group: Optional[TaskGroup] = Relationship(back_populates="tasks")
+    group: Optional[Group] = Relationship(back_populates="tasks")
 ```
 
 **Task Dependencies and Groups**:
-- Each task belongs to one TaskGroup (optional, via group_id foreign key)
+- Each task belongs to one Group (optional, via group_id foreign key)
+- Groups can be nested (group contains other groups via parent_group_id)
 - All dependencies (task → task, task → group, group → task, group → group) managed via unified Dependency table
 - A task can only be claimed if all its direct dependencies are satisfied (completed tasks/groups)
 
