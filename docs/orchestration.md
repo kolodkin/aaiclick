@@ -661,24 +661,86 @@ source_task >> extract_group >> [transform_task1, transform_task2]
 class Task(SQLModel, table=True):
     # ... fields ...
 
-    def __rshift__(self, other):
-        """A >> B: B depends on A"""
-        return create_dependency(previous=self, next=other)
+    def depends_on(self, other: Union["Task", "Group"]) -> "Task":
+        """
+        Declare that this task depends on another task or group.
+        Creates a Dependency record in the database.
 
-    def __lshift__(self, other):
+        Args:
+            other: Task or Group that must complete before this task
+
+        Returns:
+            self (for chaining)
+        """
+        dependency = Dependency(
+            previous_id=other.id,
+            previous_type="task" if isinstance(other, Task) else "group",
+            next_id=self.id,
+            next_type="task"
+        )
+        session.add(dependency)
+        return self
+
+    def __rshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
+        """A >> B: B depends on A"""
+        if isinstance(other, list):
+            for item in other:
+                item.depends_on(self)
+            return other
+        else:
+            other.depends_on(self)
+            return other
+
+    def __lshift__(self, other: Union["Task", "Group", list]) -> "Task":
         """A << B: A depends on B"""
-        return create_dependency(previous=other, next=self)
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
 
 class Group(SQLModel, table=True):
     # ... fields ...
 
-    def __rshift__(self, other):
-        """A >> B: B depends on A"""
-        return create_dependency(previous=self, next=other)
+    def depends_on(self, other: Union[Task, "Group"]) -> "Group":
+        """
+        Declare that this group depends on a task or another group.
+        Creates a Dependency record in the database.
 
-    def __lshift__(self, other):
+        Args:
+            other: Task or Group that must complete before tasks in this group
+
+        Returns:
+            self (for chaining)
+        """
+        dependency = Dependency(
+            previous_id=other.id,
+            previous_type="task" if isinstance(other, Task) else "group",
+            next_id=self.id,
+            next_type="group"
+        )
+        session.add(dependency)
+        return self
+
+    def __rshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
+        """A >> B: B depends on A"""
+        if isinstance(other, list):
+            for item in other:
+                item.depends_on(self)
+            return other
+        else:
+            other.depends_on(self)
+            return other
+
+    def __lshift__(self, other: Union[Task, "Group", list]) -> "Group":
         """A << B: A depends on B"""
-        return create_dependency(previous=other, next=self)
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
 ```
 
 ### Worker Management
