@@ -15,41 +15,66 @@ As aaiclick scales to handle large-scale data processing, we need:
 ## Architecture
 
 ```
-┌─────────────┐
-│  aaiclick   │
-│  operators  │ ──┐
-└─────────────┘   │
-                  │  Creates tasks dynamically
-                  ▼
-┌──────────────────────────────────────┐
-│         PostgreSQL Database          │
-│  ┌────────┐  ┌──────┐  ┌──────────┐ │
-│  │  Jobs  │──│Tasks │  │ Workers  │ │
-│  └────────┘  └──────┘  └──────────┘ │
-└──────────────────────────────────────┘
-                  ▲
-                  │  Polls and executes
-                  │
-┌─────────────────┴─────────────────┐
-│  Worker Pool (N processes/nodes)  │
-└───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    Context Manager                      │
+│  ┌──────────────────────┐  ┌──────────────────────────┐│
+│  │  ClickHouse Client   │  │  PostgreSQL Session      ││
+│  │  (Data operations)   │  │  (Orchestration state)   ││
+│  └──────────────────────┘  └──────────────────────────┘│
+└─────────────────────────────────────────────────────────┘
+           │                              │
+           │ Objects/Views                │ Jobs/Tasks/Groups
+           ▼                              ▼
+┌────────────────────┐      ┌──────────────────────────────┐
+│   ClickHouse DB    │      │      PostgreSQL Database     │
+│   (Object data)    │      │  ┌────┐ ┌──────┐ ┌────────┐ │
+└────────────────────┘      │  │Jobs│─│Tasks │ │Workers │ │
+                            │  └────┘ └──────┘ └────────┘ │
+                            │  ┌──────┐ ┌──────────────┐  │
+                            │  │Groups│ │Dependencies  │  │
+                            │  └──────┘ └──────────────┘  │
+                            └──────────────────────────────┘
+                                        ▲
+                                        │ Polls and executes
+                                        │
+                            ┌───────────┴────────────────┐
+                            │ Worker Pool (N processes)  │
+                            └────────────────────────────┘
 ```
+
+**Context Dual-Database Architecture**:
+- **ClickHouse Client**: Manages Object data (tables, views, queries)
+- **PostgreSQL Session**: Manages orchestration state (jobs, tasks, groups, dependencies)
+- Context provides unified interface to both databases
+- `context.create_object()` → ClickHouse
+- `context.apply(tasks)` → PostgreSQL
 
 **Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
 
 ## Technology Stack
 
 - **SQLModel**: Type-safe ORM with Pydantic integration
-- **Alembic**: Database migrations
-- **PostgreSQL**: Persistent state store
-- **asyncpg** (via SQLModel): Async database driver
+- **Alembic**: Database migrations for PostgreSQL
+- **PostgreSQL**: Orchestration state store (jobs, tasks, groups, dependencies)
+- **ClickHouse**: Data storage (Objects and Views)
+- **asyncpg** (via SQLModel): Async PostgreSQL driver
 
-### Why PostgreSQL?
+### Why Dual-Database Architecture?
 
+**PostgreSQL for Orchestration State:**
 - **ACID compliance**: Strong consistency guarantees for job state
-- **Row-level locking**: Safe concurrent task claiming by workers
+- **Row-level locking**: Safe concurrent task claiming by workers (`FOR UPDATE SKIP LOCKED`)
 - **JSONB support**: Flexible task parameter storage
-- **Mature ecosystem**: Alembic, connection pooling, monitoring
+- **Mature ecosystem**: Alembic migrations, connection pooling, monitoring
+- **Relational integrity**: Foreign keys for job→task→group relationships
+
+**ClickHouse for Data:**
+- **Columnar storage**: Efficient for analytical workloads
+- **High performance**: Fast aggregations and scans
+- **Scalability**: Handles massive datasets
+- **aaiclick Objects**: All data processing operates on ClickHouse tables
+
+**Context bridges both databases**: Provides unified API for orchestration (PostgreSQL) and data operations (ClickHouse).
 
 ## Data Models
 
@@ -594,6 +619,54 @@ task = await get_task(task_id)
 await retry_failed_tasks(job_id)
 ```
 
+### Context API for DAG Construction
+
+```python
+from aaiclick.orchestration import Context, Task, Group
+
+# Create orchestration context for a job
+context = Context(job_id=job.id)
+
+# Define tasks and groups in memory
+task1 = Task(entrypoint="myapp.func1", kwargs={...})
+task2 = Task(entrypoint="myapp.func2", kwargs={...})
+group1 = Group(name="processing")
+
+# Set up dependencies using operators
+task1 >> task2
+task2.group_id = group1.id
+
+# Commit tasks, groups, and dependencies to database
+await context.apply(task1)  # Apply single task
+await context.apply([task1, task2, group1])  # Apply multiple tasks/groups
+
+# context.apply() performs:
+# - Inserts/updates Task and Group records in database
+# - Inserts Dependency records created by >> and << operators
+# - Validates circular dependencies
+# - Returns committed objects with IDs assigned
+```
+
+**`context.apply()` Signature:**
+```python
+async def apply(
+    self,
+    items: Union[Task, Group, List[Union[Task, Group]]]
+) -> Union[Task, Group, List[Union[Task, Group]]]:
+    """
+    Commit tasks, groups, and their dependencies to the database.
+
+    Args:
+        items: Single Task/Group or list of Task/Group objects
+
+    Returns:
+        Same items with database IDs populated
+
+    Raises:
+        CircularDependencyError: If circular dependencies detected
+    """
+```
+
 ### DAG Construction with Dependency Operators
 
 Airflow-like syntax for defining dependencies between tasks and groups:
@@ -645,6 +718,36 @@ task1 >> [task2, task3, task4]
 # Complex DAG
 source_task >> extract_group >> [transform_task1, transform_task2]
 [transform_task1, transform_task2] >> load_group >> final_task
+
+# Commit all tasks, groups, and dependencies to the database
+await context.apply([source_task, extract_group, transform_task1, transform_task2, load_group, final_task])
+# Or pass individual items
+await context.apply(source_task)
+await context.apply(extract_group)
+```
+
+**Using `context.apply()` to commit DAGs:**
+
+```python
+from aaiclick.orchestration import Context, Task, Group
+
+# Create context for a job
+context = Context(job_id=job.id)
+
+# Define tasks
+extract = Task(entrypoint="myapp.extract", kwargs={...})
+transform = Task(entrypoint="myapp.transform", kwargs={...})
+load = Task(entrypoint="myapp.load", kwargs={...})
+
+# Define dependencies
+extract >> transform >> load
+
+# Commit all tasks and dependencies to database
+await context.apply([extract, transform, load])
+# context.apply() saves:
+# - All Task/Group objects
+# - All Dependency records created by >> and << operators
+# - Validates no circular dependencies exist
 ```
 
 **Operator Semantics:**
