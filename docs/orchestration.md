@@ -594,6 +594,93 @@ task = await get_task(task_id)
 await retry_failed_tasks(job_id)
 ```
 
+### DAG Construction with Dependency Operators
+
+Airflow-like syntax for defining dependencies between tasks and groups:
+
+```python
+from aaiclick.orchestration import Task, Group
+
+# Task → Task dependencies
+task1 = Task(entrypoint="myapp.extract", kwargs={...})
+task2 = Task(entrypoint="myapp.transform", kwargs={...})
+task3 = Task(entrypoint="myapp.load", kwargs={...})
+
+# task2 depends on task1 (task1 executes before task2)
+task1 >> task2
+
+# task3 depends on task2
+task2 >> task3
+
+# Equivalent chaining
+task1 >> task2 >> task3
+
+# Reverse syntax (task1 depends on task2)
+task2 << task1  # Same as: task1 >> task2
+
+# Group → Group dependencies
+extract_group = Group(name="extract")
+transform_group = Group(name="transform")
+load_group = Group(name="load")
+
+extract_group >> transform_group >> load_group
+
+# Task → Group dependencies (task completes before all tasks in group start)
+validation_task = Task(entrypoint="myapp.validate", kwargs={...})
+validation_task >> transform_group
+
+# Group → Task dependencies (all tasks in group complete before task starts)
+transform_group >> final_report_task
+
+# Mixed dependencies
+task1 >> group1 >> task2 >> group2 >> task3
+
+# Multiple dependencies (fan-out and fan-in)
+# Fan-out: task1 must complete before task2, task3, and task4 can start
+task1 >> [task2, task3, task4]
+
+# Fan-in: task5 waits for task2, task3, and task4 to complete
+[task2, task3, task4] >> task5
+
+# Complex DAG
+source_task >> extract_group >> [transform_task1, transform_task2]
+[transform_task1, transform_task2] >> load_group >> final_task
+```
+
+**Operator Semantics:**
+- `A >> B`: B depends on A (A is previous, B is next)
+- `A << B`: A depends on B (B is previous, A is next)
+- `A >> [B, C, D]`: B, C, and D all depend on A
+- `[A, B, C] >> D`: D depends on all of A, B, and C
+- Works with any combination of Task and Group objects
+- Dependencies are stored in the unified Dependency table
+- Circular dependencies are detected and rejected
+
+**Implementation:**
+```python
+class Task(SQLModel, table=True):
+    # ... fields ...
+
+    def __rshift__(self, other):
+        """A >> B: B depends on A"""
+        return create_dependency(previous=self, next=other)
+
+    def __lshift__(self, other):
+        """A << B: A depends on B"""
+        return create_dependency(previous=other, next=self)
+
+class Group(SQLModel, table=True):
+    # ... fields ...
+
+    def __rshift__(self, other):
+        """A >> B: B depends on A"""
+        return create_dependency(previous=self, next=other)
+
+    def __lshift__(self, other):
+        """A << B: A depends on B"""
+        return create_dependency(previous=other, next=self)
+```
+
 ### Worker Management
 
 ```python
