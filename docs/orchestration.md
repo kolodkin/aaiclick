@@ -650,11 +650,25 @@ source_task >> extract_group >> [transform_task1, transform_task2]
 **Operator Semantics:**
 - `A >> B`: B depends on A (A is previous, B is next)
 - `A << B`: A depends on B (B is previous, A is next)
-- `A >> [B, C, D]`: B, C, and D all depend on A
-- `[A, B, C] >> D`: D depends on all of A, B, and C
+- `A >> [B, C, D]`: B, C, and D all depend on A (fan-out)
+- `[A, B, C] >> D`: D depends on all of A, B, and C (fan-in)
 - Works with any combination of Task and Group objects
 - Dependencies are stored in the unified Dependency table
 - Circular dependencies are detected and rejected
+
+**How Fan-In Works (`[A, B] >> C`):**
+
+Fan-in is **not** a built-in Python feature. It uses Python's **reverse operator** mechanism:
+
+1. Python evaluates `[A, B] >> C`
+2. Python first tries `list.__rshift__([A, B], C)` - but lists don't support `>>`
+3. Python falls back to the **reverse operator**: `C.__rrshift__([A, B])`
+4. The `__rrshift__` method on `C` receives the list `[A, B]` and calls `C.depends_on(A)` and `C.depends_on(B)`
+
+This means:
+- `__rshift__`: Normal operator called on left operand (`A >> B` → `A.__rshift__(B)`)
+- `__rrshift__`: Reverse operator called on right operand when left doesn't support operation (`[A, B] >> C` → `C.__rrshift__([A, B])`)
+- Same pattern for `__lshift__` and `__rlshift__`
 
 **Implementation:**
 ```python
@@ -700,6 +714,25 @@ class Task(SQLModel, table=True):
             self.depends_on(other)
         return self
 
+    def __rrshift__(self, other: Union["Task", "Group", list]) -> "Task":
+        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
+
+    def __rlshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
+        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
+        if isinstance(other, list):
+            for item in other:
+                item.depends_on(self)
+            return other
+        else:
+            other.depends_on(self)
+            return other
+
 class Group(SQLModel, table=True):
     # ... fields ...
 
@@ -741,6 +774,25 @@ class Group(SQLModel, table=True):
         else:
             self.depends_on(other)
         return self
+
+    def __rrshift__(self, other: Union[Task, "Group", list]) -> "Group":
+        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
+
+    def __rlshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
+        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
+        if isinstance(other, list):
+            for item in other:
+                item.depends_on(self)
+            return other
+        else:
+            other.depends_on(self)
+            return other
 ```
 
 ### Worker Management
