@@ -76,6 +76,12 @@ As aaiclick scales to handle large-scale data processing, we need:
 
 **Context bridges both databases**: Provides unified API for orchestration (PostgreSQL) and data operations (ClickHouse).
 
+**High-Level Factory APIs**:
+- **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
+- **`create_job(name, entry)`**: Factory for creating Job with single entry point (Task or callback)
+- **`context.apply(tasks)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
+- Factories provide simple interface for common workflows
+
 ## Data Models
 
 ### Status Enums
@@ -390,22 +396,27 @@ task_kwargs = {
 ### 1. Job Creation
 
 ```python
-from aaiclick.orchestration import create_job
+from aaiclick.orchestration import create_job, create_task
 
-# Create job with initial task
+# Option 1: Create job with callback string
 job = await create_job(
     name="data_processing_pipeline",
-    tasks=[
-        {
-            "entrypoint": "myapp.processors.load_and_process_data",
-            "kwargs": {
-                "source": {
-                    "object_type": "pyobj",
-                    "value": "dataset_v1"
-                }
-            }
+    entry="myapp.processors.load_and_process_data"
+)
+
+# Option 2: Create task first, then job
+task = create_task(
+    callback="myapp.processors.load_and_process_data",
+    kwargs={
+        "source": {
+            "object_type": "pyobj",
+            "value": "dataset_v1"
         }
-    ]
+    }
+)
+job = await create_job(
+    name="data_processing_pipeline",
+    entry=task
 )
 ```
 
@@ -575,15 +586,38 @@ RETURNING (SELECT * FROM claimed_task);
 ### Job Management
 
 ```python
+from typing import Callable, Union
 from aaiclick.orchestration import (
     create_job,
+    create_task,
     get_job,
     list_jobs,
-    cancel_job
+    cancel_job,
+    Task
 )
 
-# Create job
-job = await create_job(name="pipeline", tasks=[...])
+# Create task from callback function
+task = create_task(
+    callback="myapp.processors.process_data",
+    kwargs={
+        "input": {
+            "object_type": "object",
+            "table_id": "tbl_xyz"
+        }
+    }
+)
+
+# Create job with single entry point task
+job = await create_job(
+    name="data_pipeline",
+    entry=task  # Single Task as entry point
+)
+
+# Or create job with callback directly
+job = await create_job(
+    name="data_pipeline",
+    entry="myapp.processors.process_data"  # Callback string as entry point
+)
 
 # Get job status
 job = await get_job(job_id)
@@ -594,6 +628,39 @@ jobs = await list_jobs(status=JobStatus.RUNNING)
 
 # Cancel job
 await cancel_job(job_id)
+```
+
+**`create_task()` Factory:**
+```python
+def create_task(callback: str, kwargs: dict) -> Task:
+    """
+    Factory function for creating Task objects.
+
+    Args:
+        callback: Importable function path (e.g., "myapp.module.function")
+        kwargs: Task parameters (supports object/view/pyobj serialization)
+
+    Returns:
+        Task object (not yet committed to database)
+    """
+```
+
+**`create_job()` Factory:**
+```python
+async def create_job(
+    name: str,
+    entry: Union[str, Task]
+) -> Job:
+    """
+    Create a new job with a single entry point.
+
+    Args:
+        name: Job name
+        entry: Entry point - either callback string or Task object
+
+    Returns:
+        Job object with entry task committed to database
+    """
 ```
 
 ### Task Management
