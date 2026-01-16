@@ -454,10 +454,9 @@ async def map(callback: str, obj: Object) -> Object:
                 }
             }
         )
-        task.job_id = ctx.job_id  # Associate with current job
         tasks.append(task)
 
-    # Commit all tasks to database
+    # Commit all tasks to database (context automatically sets job_id)
     await ctx.apply(tasks)
 
     # Return handle to future results
