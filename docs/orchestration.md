@@ -431,20 +431,20 @@ async def map(callback: str, obj: Object) -> Object:
     Apply callback to each element of obj in parallel.
     Creates one task per chunk of data using offset/limit.
     """
-    from aaiclick.orchestration import add_task_to_current_job
+    from aaiclick.orchestration import create_task, get_current_context
 
-    # Get current job context
-    job_id = get_current_job_id()
+    # Get current context (has access to job_id and PostgreSQL session)
+    ctx = get_current_context()
 
     # Get total row count without reading data
     total_rows = await obj.count()
     chunk_size = 10000  # Configurable chunk size
 
-    # Create task for each chunk using View serialization
+    # Create task for each chunk using create_task factory
+    tasks = []
     for offset in range(0, total_rows, chunk_size):
-        await add_task_to_current_job(
-            job_id=job_id,
-            entrypoint=callback,
+        task = create_task(
+            callback=callback,
             kwargs={
                 "chunk": {
                     "object_type": "view",
@@ -454,10 +454,15 @@ async def map(callback: str, obj: Object) -> Object:
                 }
             }
         )
+        task.job_id = ctx.job_id  # Associate with current job
+        tasks.append(task)
+
+    # Commit all tasks to database
+    await ctx.apply(tasks)
 
     # Return handle to future results
     num_chunks = (total_rows + chunk_size - 1) // chunk_size
-    return await create_result_collector(job_id, num_chunks)
+    return await create_result_collector(ctx.job_id, num_chunks)
 ```
 
 ### 3. Worker Task Execution Loop
