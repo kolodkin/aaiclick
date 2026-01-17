@@ -5,6 +5,7 @@ Tests in-place insertion into arrays with objects, scalar values, and list value
 """
 
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 

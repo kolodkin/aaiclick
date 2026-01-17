@@ -5,6 +5,7 @@ Tests array concatenation with objects, scalar values, and list values.
 """
 
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 

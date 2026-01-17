@@ -7,6 +7,7 @@ String type does not support statistics.
 
 import numpy as np
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 

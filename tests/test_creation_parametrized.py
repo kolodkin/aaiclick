@@ -6,6 +6,7 @@ using pytest parametrization for comprehensive coverage.
 """
 
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 
