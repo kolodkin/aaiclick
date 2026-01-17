@@ -3,7 +3,7 @@ Tests for Context manager functionality.
 """
 
 import pytest
-from aaiclick import Context, get_ch_client
+from aaiclick import Context, get_context, create_object_from_value, create_object
 
 
 async def test_context_basic_usage():
@@ -71,8 +71,8 @@ async def test_context_create_object_with_schema():
 
     async with Context() as ctx:
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Float64"})
-        obj = await ctx.create_object(schema)
-        ch_client = await get_ch_client()
+        obj = await create_object(schema)
+        ch_client = ctx.ch_client
 
         # Insert some data
         await ch_client.command(f"INSERT INTO {obj.table} VALUES (3.14)")
@@ -100,11 +100,11 @@ async def test_context_factory_methods():
     from aaiclick import Schema, FIELDTYPE_SCALAR
 
     async with Context() as ctx:
-        # Using create_object_from_value via context
+        # Using create_object_from_value
         obj1 = await create_object_from_value([1, 2, 3])
-        # Using create_object via context
+        # Using create_object
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Int64"})
-        obj2 = await ctx.create_object(schema)
+        obj2 = await create_object(schema)
 
         assert not obj1.stale
         assert not obj2.stale
