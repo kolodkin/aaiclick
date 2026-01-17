@@ -24,6 +24,7 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
+from .context import get_context
 
 
 @dataclass
@@ -64,7 +65,6 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        from .context import get_context
         self._ctx = get_context()
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
 

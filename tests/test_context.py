@@ -3,7 +3,6 @@ Tests for Context manager functionality.
 """
 
 import pytest
-from aaiclick import create_object_from_value, create_object
 from aaiclick import Context, get_context, create_object_from_value, create_object
 
 
