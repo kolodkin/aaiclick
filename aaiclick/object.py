@@ -24,7 +24,7 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .context import get_context, Context
+from .context import get_context, Context, create_object_from_value
 
 
 @dataclass
@@ -615,7 +615,7 @@ class Object:
                 if isinstance(arg, list) and len(arg) == 0:
                     continue
                 # Convert ValueType to temporary Object
-                temp = await self.ctx.create_object_from_value(arg)
+                temp = await create_object_from_value(arg)
                 temp_objects.append(temp)
                 query_infos.append(temp._get_query_info())
 
@@ -683,7 +683,7 @@ class Object:
                 if isinstance(arg, list) and len(arg) == 0:
                     continue
                 # Convert ValueType to temporary Object
-                temp = await self.ctx.create_object_from_value(arg)
+                temp = await create_object_from_value(arg)
                 temp_objects.append(temp)
                 source_tables.append(temp.table)
 
