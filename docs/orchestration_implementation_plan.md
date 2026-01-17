@@ -5,7 +5,7 @@
 Implement orchestration backend to support basic job creation and execution, starting with this simple example:
 
 ```python
-def task1():
+async def task1():
     a = 1
     b = 2
     c = a + b
@@ -147,7 +147,7 @@ print(f"Job {job.id} created")
    - `execute_task(task: Task) -> Any`
      - Import callback function from entrypoint string
      - Deserialize kwargs (basic support for pyobj type)
-     - Call function with kwargs
+     - Call function with kwargs (await if async function)
      - Return result
 
 4. Implement task execution loop in `_test_async()`:
