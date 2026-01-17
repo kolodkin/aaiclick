@@ -253,8 +253,9 @@ class Task(SQLModel, table=True):
 
     # Logging
     log_path: Optional[str] = None
-    # Path to task log file: {AAICLICK_LOG_DIR}/{task_id}.log
+    # Path to task log file: {get_logs_dir()}/{task_id}.log
     # Captures stdout and stderr during task execution
+    # OS-dependent defaults: ~/.aaiclick/logs (macOS), /var/log/aaiclick (Linux)
 
     # Error tracking
     error_message: Optional[str] = None
@@ -488,7 +489,7 @@ async def worker_main_loop(worker_id: str):
             await update_task_status(task.id, "running")
 
             # Set up task logging
-            log_path = f"{os.getenv('AAICLICK_LOG_DIR')}/{task.id}.log"
+            log_path = f"{get_logs_dir()}/{task.id}.log"
             await update_task_log_path(task.id, log_path)
 
             # Execute task with Context bound to job
@@ -502,7 +503,7 @@ async def worker_main_loop(worker_id: str):
                     # Converts object_type formats to Object/View/native Python instances
                     task_kwargs = deserialize_task_params(task.kwargs, ctx)
 
-                    # All print() and errors write to {AAICLICK_LOG_DIR}/{task.id}.log
+                    # All print() and errors write to {get_logs_dir()}/{task.id}.log
                     result_obj = await func(**task_kwargs)
 
             # Store result
@@ -1038,8 +1039,8 @@ POSTGRES_USER=aaiclick
 POSTGRES_PASSWORD=secret
 POSTGRES_DB=aaiclick_orchestration
 
-# Task logging
-AAICLICK_LOG_DIR=/var/log/aaiclick  # Shared mount for task logs (all workers)
+# Task logging (optional - defaults via get_logs_dir())
+AAICLICK_LOG_DIR=<custom-path>  # Override default log directory
 
 # Worker settings
 WORKER_HEARTBEAT_INTERVAL=30  # seconds
@@ -1049,6 +1050,36 @@ WORKER_MAX_RETRIES=3
 # Job settings
 JOB_DEFAULT_TIMEOUT=86400     # seconds (24 hours)
 ```
+
+**Log Directory Resolution**:
+
+The log directory is resolved via `get_logs_dir()` which provides OS-dependent defaults:
+
+```python
+def get_logs_dir() -> str:
+    """
+    Get task log directory with OS-dependent defaults.
+
+    Defaults:
+    - macOS: ${HOME}/.aaiclick/logs
+    - Linux: /var/log/aaiclick
+
+    Returns:
+        Log directory path (creates if doesn't exist)
+    """
+    if custom_dir := os.getenv("AAICLICK_LOG_DIR"):
+        return custom_dir
+
+    if sys.platform == "darwin":  # macOS
+        return os.path.expanduser("~/.aaiclick/logs")
+    else:  # Linux
+        return "/var/log/aaiclick"
+```
+
+**Notes**:
+- For distributed workers, use a shared mount (NFS, EFS, etc.) and set `AAICLICK_LOG_DIR` to the mount path
+- Single-machine deployments can use local filesystem with defaults
+- Directory is created automatically if it doesn't exist
 
 ### Database Connection
 

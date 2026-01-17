@@ -57,7 +57,7 @@ if __name__ == "__main__":
    POSTGRES_USER=aaiclick
    POSTGRES_PASSWORD=secret
    POSTGRES_DB=aaiclick
-   AAICLICK_LOG_DIR=/var/log/aaiclick  # Shared mount for task logs (all workers)
+   AAICLICK_LOG_DIR=<optional>  # Override default OS-dependent log directory
    ```
 
 **Deliverables**:
@@ -154,10 +154,11 @@ print(f"Job {job.id} created")
 
 4. Implement task logging:
    - Create `aaiclick/orchestration/logging.py`:
+     - `get_logs_dir()` - Returns OS-dependent log directory (see orchestration.md)
      - `capture_task_output(task_id: int)` context manager
      - Redirects stdout and stderr to log file
-     - Log path: `{AAICLICK_LOG_DIR}/{task_id}.log`
-     - AAICLICK_LOG_DIR is a shared mount accessible by all workers
+     - Log path: `{get_logs_dir()}/{task_id}.log`
+     - For distributed workers: set AAICLICK_LOG_DIR to shared mount
      - Both stdout and stderr write to the same log file
      - Ensure log directory exists before writing
      - Flush logs after each write for real-time visibility
@@ -296,8 +297,8 @@ async def test_basic_job_execution():
     assert tasks[0].status == TaskStatus.COMPLETED
 
     # Verify log file created
-    log_dir = os.getenv("AAICLICK_LOG_DIR")
-    log_file = f"{log_dir}/{tasks[0].id}.log"
+    from aaiclick.orchestration.logging import get_logs_dir
+    log_file = f"{get_logs_dir()}/{tasks[0].id}.log"
     assert os.path.exists(log_file)
     with open(log_file) as f:
         log_content = f.read()
