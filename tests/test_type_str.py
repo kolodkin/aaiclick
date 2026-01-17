@@ -2,10 +2,10 @@
 Tests for string (String) data type - scalars and arrays.
 
 Note: String type does not support arithmetic operators (+, -) or statistics.
-from aaiclick import create_object_from_value, create_object
 Only creation and data() retrieval are tested.
 """
 
+from aaiclick import create_object_from_value, create_object
 
 
 # =============================================================================

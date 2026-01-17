@@ -2,11 +2,12 @@
 Tests for mixed data types (int + float combinations) - scalars, arrays, and operators.
 
 This file tests operations between different numeric types to ensure proper
-from aaiclick import create_object_from_value, create_object
 type coercion and result accuracy.
 """
 
 import numpy as np
+
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 
