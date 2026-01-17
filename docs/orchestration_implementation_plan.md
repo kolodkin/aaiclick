@@ -93,12 +93,14 @@ if __name__ == "__main__":
      - Return Job object
 
 3. Create `aaiclick/orchestration/database.py`:
-   - `get_postgres_engine()` - create async engine from env vars
-   - `get_postgres_session()` - create async session
-   - Connection pooling configuration
+   - Create global asyncpg.Pool instance (similar to ClickHouse pool)
+   - `get_postgres_pool()` - returns global pool, initializes on first call
+   - `get_postgres_connection()` - helper to acquire connection from pool
+   - Pool initialized with env vars (POSTGRES_HOST, POSTGRES_PORT, etc.)
 
 4. Update `create_job()` to commit to database:
-   - Create async session
+   - Acquire connection from global pool
+   - Create session within transaction
    - Insert Job record
    - Create Task from entry point
    - Set task.job_id
@@ -211,8 +213,8 @@ job.test()  # Blocks until job completes (test mode)
 **Tasks**:
 1. Update `aaiclick/context.py`:
    - Add `job_id` parameter to `Context.__init__()`
-   - Add `_postgres_session` attribute
-   - Initialize PostgreSQL session alongside ClickHouse client
+   - Store reference to global asyncpg.Pool (from `get_postgres_pool()`)
+   - Each operation (apply, etc.) acquires connection from pool and creates session
 
 2. Create context-local storage for current context:
    ```python
@@ -241,16 +243,21 @@ job.test()  # Blocks until job completes (test mode)
 
 4. Add `apply()` method to Context:
    - Accept Task, Group, or list
+   - Acquire connection from global pool
+   - Create session for transaction
    - Generate snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
    - Set job_id on all tasks and groups
    - Insert into PostgreSQL
+   - Commit transaction and close session
    - Return committed objects
 
 **Deliverables**:
+- Global asyncpg.Pool shared across all Context instances
 - Tasks execute with Context bound to job_id
 - Context available via `get_current_context()`
 - Tasks can access ClickHouse client via context
 - `context.apply()` works for committing tasks
+- Each operation creates its own session from pool
 
 ---
 

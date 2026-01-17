@@ -15,11 +15,21 @@ As aaiclick scales to handle large-scale data processing, we need:
 ## Architecture
 
 ```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Global Resources                           │
+│  ┌─────────────────────┐        ┌──────────────────────────┐    │
+│  │  ClickHouse Pool    │        │  asyncpg.Pool (Global)   │    │
+│  │  (urllib3 Pool)     │        │  (PostgreSQL Connections)│    │
+│  └─────────────────────┘        └──────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+           │                                      │
+           │ Shared by all Context instances     │
+           ▼                                      ▼
 ┌─────────────────────────────────────────────────────────┐
 │                    Context Manager                      │
 │  ┌──────────────────────┐  ┌──────────────────────────┐│
-│  │  ClickHouse Client   │  │  PostgreSQL Session      ││
-│  │  (Data operations)   │  │  (Orchestration state)   ││
+│  │  ClickHouse Client   │  │  Acquires from Pool      ││
+│  │  (Data operations)   │  │  (per operation)         ││
 │  └──────────────────────┘  └──────────────────────────┘│
 └─────────────────────────────────────────────────────────┘
            │                              │
@@ -44,10 +54,13 @@ As aaiclick scales to handle large-scale data processing, we need:
 
 **Context Dual-Database Architecture**:
 - **ClickHouse Client**: Manages Object data (tables, views, queries)
-- **PostgreSQL Session**: Manages orchestration state (jobs, tasks, groups, dependencies)
+  - Uses global urllib3 connection pool
+- **PostgreSQL Pool**: Global asyncpg.Pool shared across all Context instances
+  - Context acquires connections from pool for each operation
+  - Each operation creates its own session for transaction isolation
 - Context provides unified interface to both databases
 - `context.create_object()` → ClickHouse
-- `context.apply(tasks)` → PostgreSQL
+- `context.apply(tasks)` → PostgreSQL (acquires connection, creates session)
 
 **Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
 
@@ -75,6 +88,17 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **aaiclick Objects**: All data processing operates on ClickHouse tables
 
 **Context bridges both databases**: Provides unified API for orchestration (PostgreSQL) and data operations (ClickHouse).
+
+**Connection Pooling Pattern** (similar to ClickHouse):
+- **Global asyncpg.Pool**: Shared across all Context instances
+- Context uses pool to acquire connections for operations
+- Each operation (`apply()`, `claim_task()`, etc.) creates its own session
+- Benefits:
+  - Connection reuse across all Context instances
+  - Better transaction isolation per operation
+  - No long-lived transactions
+  - Pool management handled globally
+  - Similar pattern to ClickHouse client pooling
 
 **High-Level Factory APIs**:
 - **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
