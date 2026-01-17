@@ -13,7 +13,7 @@ def task1():
 
 def main():
     job = create_job("orch_basic_example", task1)
-    job.run()
+    job.test()
 
 if __name__ == "__main__":
     main()
@@ -118,22 +118,28 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 3: Job.run() Method
+### Phase 3: Job.test() Method
 
-**Objective**: Implement synchronous job execution
+**Objective**: Implement synchronous job testing (similar to Airflow)
+
+**Note**: `job.test()` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
 
 **Tasks**:
-1. Add `run()` method to `Job` model in `models.py`:
+1. Add `test()` method to `Job` model in `models.py`:
    ```python
-   def run(self):
-       """Execute job synchronously in current process"""
+   def test(self):
+       """Execute job synchronously in current process (test mode)
+
+       Invokes the worker execute flow for testing/debugging.
+       Similar to Airflow's test execution mode.
+       """
        import asyncio
-       asyncio.run(self._run_async())
+       asyncio.run(self._test_async())
    ```
 
-2. Implement `_run_async()` helper:
-   - Create in-process worker
-   - Claim and execute tasks in order
+2. Implement `_test_async()` helper:
+   - Create in-process worker simulation
+   - Use worker execute flow (claim and execute tasks)
    - Update job status (PENDING → RUNNING → COMPLETED/FAILED)
    - Handle errors
 
@@ -144,11 +150,11 @@ print(f"Job {job.id} created")
      - Call function with kwargs
      - Return result
 
-4. Implement task execution loop in `_run_async()`:
+4. Implement task execution loop in `_test_async()`:
    - Query pending tasks for this job (ordered by created_at)
    - For each task:
      - Update status to RUNNING
-     - Execute via `execute_task()`
+     - Execute via `execute_task()` (worker execute flow)
      - Store result if applicable
      - Update status to COMPLETED
      - Handle failures (set status to FAILED, store error)
@@ -160,12 +166,12 @@ print(f"Job {job.id} created")
 **Example Flow**:
 ```python
 job = create_job("example", "mymodule.task1")
-job.run()  # Blocks until job completes
+job.test()  # Blocks until job completes (test mode)
 # Job status is now COMPLETED
 ```
 
 **Deliverables**:
-- `Job.run()` executes all tasks in job
+- `Job.test()` executes all tasks in job using worker execute flow
 - Task results captured
 - Job status transitions work correctly
 - Basic example from goal works end-to-end
@@ -255,8 +261,8 @@ async def test_basic_job_execution():
     # Create job
     job = await create_job("test_job", "tests.fixtures.simple_task")
 
-    # Run job
-    job.run()
+    # Test job (invokes worker execute flow synchronously)
+    job.test()
 
     # Verify job completed
     assert job.status == JobStatus.COMPLETED
@@ -297,7 +303,7 @@ Phase 1-5 implementation is complete when:
 
 1. ✅ User can define a simple Python function
 2. ✅ User can create a job with `create_job(name, callback)`
-3. ✅ User can run job synchronously with `job.run()`
+3. ✅ User can test job synchronously with `job.test()` (invokes worker execute flow)
 4. ✅ Task execution has access to Context (ClickHouse + PostgreSQL)
 5. ✅ Job and task state persisted to PostgreSQL
 6. ✅ Basic tests passing

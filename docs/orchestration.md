@@ -632,6 +632,28 @@ jobs = await list_jobs(status=JobStatus.RUNNING)
 
 # Cancel job
 await cancel_job(job_id)
+
+# Test job execution (synchronous, for testing/debugging)
+job.test()  # Similar to Airflow - invokes worker execute flow
+```
+
+**`job.test()` Method:**
+```python
+def test(self):
+    """
+    Execute job synchronously in current process (test mode).
+
+    Invokes the worker execute flow for testing and debugging.
+    Similar to Airflow's test execution mode - runs tasks sequentially
+    in the current process instead of distributing to workers.
+
+    Useful for:
+    - Local development and debugging
+    - Integration tests
+    - Validating job logic before deployment
+
+    Note: Blocks until job completes (COMPLETED/FAILED status)
+    """
 ```
 
 **`create_task()` Factory:**
