@@ -85,7 +85,7 @@ data = await obj.data()  # Error! Object is stale
 Staleness is implemented through explicit checks:
 - Each async method calls `self.checkstale()` at execution time
 - Properties `ctx` and `ch_client` also call `self.checkstale()`
-- When context exits, all registered objects have their `_ctx` set to `None`
+- When context exits, all registered objects have their `_stale` flag set to `True`
 - Any attempt to use a stale object raises a clear `RuntimeError`
 
 This provides robust protection against accessing deleted tables.
