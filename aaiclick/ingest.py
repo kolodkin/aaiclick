@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
-from .context import get_context
+from .context import create_object
 from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
@@ -133,11 +133,10 @@ async def copy_db(table: str, ch_client):
     Returns:
         Object: New Object instance with copied data
     """
-    ctx = get_context()
     fieldtype, columns = await _get_table_schema(table, ch_client)
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
-    result = await ctx.create_object(schema)
+    result = await create_object(schema)
 
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
     await ch_client.command(insert_query)
@@ -169,8 +168,6 @@ async def concat_objects_db(
     if len(query_infos) < 2:
         raise ValueError("concat requires at least 2 sources")
 
-    ctx = get_context()
-
     # Use base_table for metadata queries
     fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
     if fieldtype != FIELDTYPE_ARRAY:
@@ -183,7 +180,7 @@ async def concat_objects_db(
         columns={"aai_id": "UInt64", "value": value_type}
     )
 
-    result = await ctx.create_object(schema)
+    result = await create_object(schema)
 
     # Single multi-table UNION ALL operation using sources (can be subqueries)
     # Add alias for subqueries (sources starting with '(')

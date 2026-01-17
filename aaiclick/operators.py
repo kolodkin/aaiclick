@@ -7,7 +7,7 @@ Each operator function takes table names and ch_client instead of Object instanc
 
 from __future__ import annotations
 
-from .context import get_context
+from .context import create_object
 from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
@@ -48,8 +48,6 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     Returns:
         New Object instance pointing to result table
     """
-    ctx = get_context()
-
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
@@ -98,7 +96,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     )
 
     # Create result object with schema
-    result = await ctx.create_object(schema)
+    result = await create_object(schema)
 
     # Insert data based on fieldtype (use sources for data queries)
     if fieldtype == FIELDTYPE_ARRAY:

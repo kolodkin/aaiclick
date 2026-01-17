@@ -425,7 +425,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         )
 
         # Create object with schema
-        obj = await ctx.create_object(schema)
+        obj = await create_object(schema)
 
         # Generate snowflake IDs for all rows
         aai_ids = get_snowflake_ids(len(val))
@@ -447,7 +447,7 @@ async def create_object_from_value(val: ValueType) -> Object:
         )
 
         # Create object with schema
-        obj = await ctx.create_object(schema)
+        obj = await create_object(schema)
 
         # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
