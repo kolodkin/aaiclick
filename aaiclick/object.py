@@ -7,7 +7,7 @@ and supports operations through operator overloading.
 
 from __future__ import annotations
 
-from typing import Optional, Dict, List, Tuple, Any, Union
+from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
 from dataclasses import dataclass
 
 from . import operators
@@ -25,6 +25,9 @@ from .models import (
     ORIENT_RECORDS,
 )
 from .context import get_context
+
+if TYPE_CHECKING:
+    from .context import Context
 
 
 @dataclass
