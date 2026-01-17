@@ -251,6 +251,11 @@ class Task(SQLModel, table=True):
     result_table_id: Optional[str] = None
     # ClickHouse table ID of the result Object
 
+    # Logging
+    log_path: Optional[str] = None
+    # Path to task log file: {AAICLICK_LOG_DIR}/{task_id}.log
+    # Captures stdout and stderr during task execution
+
     # Error tracking
     error_message: Optional[str] = None
     retry_count: int = Field(default=0)
@@ -482,16 +487,23 @@ async def worker_main_loop(worker_id: str):
             # Update task status
             await update_task_status(task.id, "running")
 
+            # Set up task logging
+            log_path = f"{os.getenv('AAICLICK_LOG_DIR')}/{task.id}.log"
+            await update_task_log_path(task.id, log_path)
+
             # Execute task with Context bound to job
             async with Context(job_id=task.job_id) as ctx:
-                # Import and execute entrypoint
-                func = import_function(task.entrypoint)
+                # Capture stdout/stderr to log file
+                with capture_task_output(task.id):
+                    # Import and execute entrypoint
+                    func = import_function(task.entrypoint)
 
-                # Deserialize task kwargs (see Task Parameter Serialization section)
-                # Converts object_type formats to Object/View/native Python instances
-                task_kwargs = deserialize_task_params(task.kwargs, ctx)
+                    # Deserialize task kwargs (see Task Parameter Serialization section)
+                    # Converts object_type formats to Object/View/native Python instances
+                    task_kwargs = deserialize_task_params(task.kwargs, ctx)
 
-                result_obj = await func(**task_kwargs)
+                    # All print() and errors write to {AAICLICK_LOG_DIR}/{task.id}.log
+                    result_obj = await func(**task_kwargs)
 
             # Store result
             await update_task_result(
@@ -501,7 +513,7 @@ async def worker_main_loop(worker_id: str):
             )
 
         except Exception as e:
-            # Handle failure
+            # Handle failure (error also logged to task log file)
             await handle_task_failure(task, error=str(e))
 ```
 
@@ -1025,6 +1037,9 @@ POSTGRES_PORT=5432
 POSTGRES_USER=aaiclick
 POSTGRES_PASSWORD=secret
 POSTGRES_DB=aaiclick_orchestration
+
+# Task logging
+AAICLICK_LOG_DIR=/var/log/aaiclick  # Shared mount for task logs (all workers)
 
 # Worker settings
 WORKER_HEARTBEAT_INTERVAL=30  # seconds

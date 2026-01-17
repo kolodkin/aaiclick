@@ -57,6 +57,7 @@ if __name__ == "__main__":
    POSTGRES_USER=aaiclick
    POSTGRES_PASSWORD=secret
    POSTGRES_DB=aaiclick
+   AAICLICK_LOG_DIR=/var/log/aaiclick  # Shared mount for task logs (all workers)
    ```
 
 **Deliverables**:
@@ -147,10 +148,30 @@ print(f"Job {job.id} created")
    - `execute_task(task: Task) -> Any`
      - Import callback function from entrypoint string
      - Deserialize kwargs (basic support for pyobj type)
+     - Capture stdout/stderr to log file
      - Call function with kwargs (await if async function)
      - Return result
 
-4. Implement task execution loop in `_test_async()`:
+4. Implement task logging:
+   - Create `aaiclick/orchestration/logging.py`:
+     - `capture_task_output(task_id: int)` context manager
+     - Redirects stdout and stderr to log file
+     - Log path: `{AAICLICK_LOG_DIR}/{task_id}.log`
+     - AAICLICK_LOG_DIR is a shared mount accessible by all workers
+     - Both stdout and stderr write to the same log file
+     - Ensure log directory exists before writing
+     - Flush logs after each write for real-time visibility
+
+   - Use in `execute_task()`:
+     ```python
+     async def execute_task(task: Task) -> Any:
+         with capture_task_output(task.id):
+             # All print() and errors go to {AAICLICK_LOG_DIR}/{task.id}.log
+             result = await func(**kwargs)
+         return result
+     ```
+
+5. Implement task execution loop in `_test_async()`:
    - Query pending tasks for this job (ordered by created_at)
    - For each task:
      - Update status to RUNNING
@@ -159,7 +180,7 @@ print(f"Job {job.id} created")
      - Update status to COMPLETED
      - Handle failures (set status to FAILED, store error)
 
-5. Add result handling:
+6. Add result handling:
    - If task returns an Object, store table_id in result_table_id
    - For simple values, serialize to JSONB or skip
 
@@ -172,6 +193,7 @@ job.test()  # Blocks until job completes (test mode)
 
 **Deliverables**:
 - `Job.test()` executes all tasks in job using worker execute flow
+- Task stdout/stderr captured to `{AAICLICK_LOG_DIR}/{task_id}.log`
 - Task results captured
 - Job status transitions work correctly
 - Basic example from goal works end-to-end
@@ -235,7 +257,8 @@ job.test()  # Blocks until job completes (test mode)
 1. Create `tests/test_orchestration_basic.py`:
    - Test `create_task()` factory
    - Test `create_job()` factory
-   - Test `job.run()` execution
+   - Test `job.test()` execution
+   - Test task logging (verify log file created)
    - Test task with ClickHouse Object operations
 
 2. Create `examples/orchestration_basic.py`:
@@ -271,6 +294,14 @@ async def test_basic_job_execution():
     tasks = await get_job_tasks(job.id)
     assert len(tasks) == 1
     assert tasks[0].status == TaskStatus.COMPLETED
+
+    # Verify log file created
+    log_dir = os.getenv("AAICLICK_LOG_DIR")
+    log_file = f"{log_dir}/{tasks[0].id}.log"
+    assert os.path.exists(log_file)
+    with open(log_file) as f:
+        log_content = f.read()
+        assert "expected output" in log_content
 ```
 
 **Deliverables**:
