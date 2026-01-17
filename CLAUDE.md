@@ -126,14 +126,14 @@ aaiclick is a **distributed computing framework** where order is automatically p
 **Example showing creation order**:
 ```python
 # Scenario 1: obj_a created first
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T1
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T2
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T1
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
 result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
 
 # Scenario 2: obj_b created first
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T1
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T2
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T1
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
 result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 ```

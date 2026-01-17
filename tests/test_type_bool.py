@@ -16,22 +16,22 @@ THRESHOLD = 1e-5
 
 async def test_bool_scalar_creation_true(ctx):
     """Test creating a True boolean scalar object."""
-    obj = await ctx.create_object_from_value(True)
+    obj = await create_object_from_value(True)
     data = await obj.data()
     assert data == 1  # Stored as UInt8
 
 
 async def test_bool_scalar_creation_false(ctx):
     """Test creating a False boolean scalar object."""
-    obj = await ctx.create_object_from_value(False)
+    obj = await create_object_from_value(False)
     data = await obj.data()
     assert data == 0  # Stored as UInt8
 
 
 async def test_bool_scalar_add(ctx):
     """Test addition of boolean scalars (as integers)."""
-    a = await ctx.create_object_from_value(True)  # 1
-    b = await ctx.create_object_from_value(True)  # 1
+    a = await create_object_from_value(True)  # 1
+    b = await create_object_from_value(True)  # 1
 
     result = await (a + b)
     data = await result.data()
@@ -42,8 +42,8 @@ async def test_bool_scalar_add(ctx):
 
 async def test_bool_scalar_sub(ctx):
     """Test subtraction of boolean scalars (as integers)."""
-    a = await ctx.create_object_from_value(True)   # 1
-    b = await ctx.create_object_from_value(False)  # 0
+    a = await create_object_from_value(True)   # 1
+    b = await create_object_from_value(False)  # 0
 
     result = await (a - b)
     data = await result.data()
@@ -58,15 +58,15 @@ async def test_bool_scalar_sub(ctx):
 
 async def test_bool_array_creation(ctx):
     """Test creating a boolean array object."""
-    obj = await ctx.create_object_from_value([True, False, True, False])
+    obj = await create_object_from_value([True, False, True, False])
     data = await obj.data()
     assert data == [1, 0, 1, 0]  # Stored as UInt8
 
 
 async def test_bool_array_add(ctx):
     """Test element-wise addition of boolean arrays."""
-    a = await ctx.create_object_from_value([True, True, False])    # [1, 1, 0]
-    b = await ctx.create_object_from_value([True, False, False])   # [1, 0, 0]
+    a = await create_object_from_value([True, True, False])    # [1, 1, 0]
+    b = await create_object_from_value([True, False, False])   # [1, 0, 0]
 
     result = await (a + b)
     data = await result.data()
@@ -77,8 +77,8 @@ async def test_bool_array_add(ctx):
 
 async def test_bool_array_sub(ctx):
     """Test element-wise subtraction of boolean arrays."""
-    a = await ctx.create_object_from_value([True, True, True])     # [1, 1, 1]
-    b = await ctx.create_object_from_value([False, True, False])   # [0, 1, 0]
+    a = await create_object_from_value([True, True, True])     # [1, 1, 1]
+    b = await create_object_from_value([False, True, False])   # [0, 1, 0]
 
     result = await (a - b)
     data = await result.data()
@@ -93,7 +93,7 @@ async def test_bool_array_sub(ctx):
 
 async def test_bool_array_min(ctx):
     """Test min() on boolean array."""
-    obj = await ctx.create_object_from_value([True, False, True])  # [1, 0, 1]
+    obj = await create_object_from_value([True, False, True])  # [1, 0, 1]
 
     result = await obj.min()
 
@@ -103,7 +103,7 @@ async def test_bool_array_min(ctx):
 
 async def test_bool_array_max(ctx):
     """Test max() on boolean array."""
-    obj = await ctx.create_object_from_value([True, False, True])  # [1, 0, 1]
+    obj = await create_object_from_value([True, False, True])  # [1, 0, 1]
 
     result = await obj.max()
 
@@ -113,7 +113,7 @@ async def test_bool_array_max(ctx):
 
 async def test_bool_array_sum(ctx):
     """Test sum() on boolean array (counts True values)."""
-    obj = await ctx.create_object_from_value([True, False, True, True, False])  # [1, 0, 1, 1, 0]
+    obj = await create_object_from_value([True, False, True, True, False])  # [1, 0, 1, 1, 0]
 
     result = await obj.sum()
 
@@ -123,7 +123,7 @@ async def test_bool_array_sum(ctx):
 
 async def test_bool_array_mean(ctx):
     """Test mean() on boolean array (proportion of True values)."""
-    obj = await ctx.create_object_from_value([True, False, True, False])  # [1, 0, 1, 0]
+    obj = await create_object_from_value([True, False, True, False])  # [1, 0, 1, 0]
 
     result = await obj.mean()
 
@@ -134,7 +134,7 @@ async def test_bool_array_mean(ctx):
 async def test_bool_array_std(ctx):
     """Test std() on boolean array."""
     values = [True, False, True, False]  # [1, 0, 1, 0]
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.std()
     expected = np.std([1, 0, 1, 0], ddof=0)
@@ -145,7 +145,7 @@ async def test_bool_array_std(ctx):
 
 async def test_bool_all_true(ctx):
     """Test statistics on all-True array."""
-    obj = await ctx.create_object_from_value([True, True, True])  # [1, 1, 1]
+    obj = await create_object_from_value([True, True, True])  # [1, 1, 1]
 
     assert await obj.min() == 1
     assert await obj.max() == 1
@@ -157,7 +157,7 @@ async def test_bool_all_true(ctx):
 
 async def test_bool_all_false(ctx):
     """Test statistics on all-False array."""
-    obj = await ctx.create_object_from_value([False, False, False])  # [0, 0, 0]
+    obj = await create_object_from_value([False, False, False])  # [0, 0, 0]
 
     assert await obj.min() == 0
     assert await obj.max() == 0

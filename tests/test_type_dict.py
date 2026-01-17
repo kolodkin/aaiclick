@@ -13,7 +13,7 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS
 
 async def test_dict_creation_simple(ctx):
     """Test creating a dict object with simple values."""
-    obj = await ctx.create_object_from_value({"id": 1, "name": "Alice", "age": 30})
+    obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
 
     data = await obj.data()
 
@@ -26,7 +26,7 @@ async def test_dict_creation_simple(ctx):
 
 async def test_dict_creation_mixed_types(ctx):
     """Test creating a dict with mixed value types."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "count": 42,
         "price": 19.99,
         "name": "item"
@@ -42,7 +42,7 @@ async def test_dict_creation_mixed_types(ctx):
 
 async def test_dict_creation_all_int(ctx):
     """Test creating a dict with all integer values."""
-    obj = await ctx.create_object_from_value({"x": 10, "y": 20, "z": 30})
+    obj = await create_object_from_value({"x": 10, "y": 20, "z": 30})
 
     data = await obj.data()
 
@@ -52,7 +52,7 @@ async def test_dict_creation_all_int(ctx):
 
 async def test_dict_creation_all_float(ctx):
     """Test creating a dict with all float values."""
-    obj = await ctx.create_object_from_value({"a": 1.1, "b": 2.2, "c": 3.3})
+    obj = await create_object_from_value({"a": 1.1, "b": 2.2, "c": 3.3})
 
     data = await obj.data()
 
@@ -62,7 +62,7 @@ async def test_dict_creation_all_float(ctx):
 
 async def test_dict_creation_all_string(ctx):
     """Test creating a dict with all string values."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "first": "hello",
         "second": "world",
         "third": "test"
@@ -82,7 +82,7 @@ async def test_dict_creation_all_string(ctx):
 
 async def test_dict_orient_dict(ctx):
     """Test data() with orient=ORIENT_DICT returns dict."""
-    obj = await ctx.create_object_from_value({"x": 10, "y": 20})
+    obj = await create_object_from_value({"x": 10, "y": 20})
 
     data = await obj.data(orient=ORIENT_DICT)
 
@@ -93,7 +93,7 @@ async def test_dict_orient_dict(ctx):
 
 async def test_dict_orient_records(ctx):
     """Test data() with orient=ORIENT_RECORDS returns list of dicts."""
-    obj = await ctx.create_object_from_value({"x": 10, "y": 20})
+    obj = await create_object_from_value({"x": 10, "y": 20})
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
@@ -105,7 +105,7 @@ async def test_dict_orient_records(ctx):
 
 async def test_dict_default_orient_is_dict(ctx):
     """Test that default orient is ORIENT_DICT."""
-    obj = await ctx.create_object_from_value({"a": 1, "b": 2})
+    obj = await create_object_from_value({"a": 1, "b": 2})
 
     data_default = await obj.data()
     data_explicit = await obj.data(orient=ORIENT_DICT)
@@ -120,7 +120,7 @@ async def test_dict_default_orient_is_dict(ctx):
 
 async def test_dict_single_field(ctx):
     """Test dict with a single field."""
-    obj = await ctx.create_object_from_value({"only": 42})
+    obj = await create_object_from_value({"only": 42})
 
     data = await obj.data()
 
@@ -130,7 +130,7 @@ async def test_dict_single_field(ctx):
 
 async def test_dict_with_empty_string(ctx):
     """Test dict containing empty string value."""
-    obj = await ctx.create_object_from_value({"name": "", "value": 123})
+    obj = await create_object_from_value({"name": "", "value": 123})
 
     data = await obj.data()
 
@@ -141,7 +141,7 @@ async def test_dict_with_empty_string(ctx):
 
 async def test_dict_with_zero_values(ctx):
     """Test dict containing zero values."""
-    obj = await ctx.create_object_from_value({"zero_int": 0, "zero_float": 0.0})
+    obj = await create_object_from_value({"zero_int": 0, "zero_float": 0.0})
 
     data = await obj.data()
 
@@ -156,7 +156,7 @@ async def test_dict_with_zero_values(ctx):
 
 async def test_dict_of_arrays_creation(ctx):
     """Test creating a dict with array values."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "id": [1, 2, 3],
         "value": [10, 20, 30]
     })
@@ -171,7 +171,7 @@ async def test_dict_of_arrays_creation(ctx):
 
 async def test_dict_of_arrays_orient_dict(ctx):
     """Test dict of arrays with orient=ORIENT_DICT returns dict with arrays."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "name": ["Alice", "Bob"],
         "age": [30, 25]
     })
@@ -186,7 +186,7 @@ async def test_dict_of_arrays_orient_dict(ctx):
 
 async def test_dict_of_arrays_orient_records(ctx):
     """Test dict of arrays with orient=ORIENT_RECORDS returns list of row dicts."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "name": ["Alice", "Bob", "Charlie"],
         "age": [30, 25, 35]
     })
@@ -203,7 +203,7 @@ async def test_dict_of_arrays_orient_records(ctx):
 
 async def test_dict_of_arrays_floats(ctx):
     """Test dict with float arrays."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "x": [1.5, 2.5, 3.5],
         "y": [4.5, 5.5, 6.5]
     })
@@ -217,7 +217,7 @@ async def test_dict_of_arrays_floats(ctx):
 
 async def test_dict_of_arrays_strings(ctx):
     """Test dict with string arrays."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "first": ["John", "Jane"],
         "last": ["Doe", "Smith"]
     })
@@ -231,7 +231,7 @@ async def test_dict_of_arrays_strings(ctx):
 
 async def test_dict_of_arrays_records_preserves_order(ctx):
     """Test that orient=ORIENT_RECORDS preserves array order."""
-    obj = await ctx.create_object_from_value({
+    obj = await create_object_from_value({
         "letter": ["z", "a", "m"],
         "number": [3, 1, 2]
     })

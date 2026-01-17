@@ -7,8 +7,8 @@ operations, enabling execution of Python-equivalent computations at scale.
 
 __version__ = "0.1.0"
 
-# Import context manager (primary API) and context accessor
-from .context import Context, get_context
+# Import context manager (primary API), context accessor, and factory functions
+from .context import Context, get_context, create_object, create_object_from_value
 
 # Import core objects
 from .object import Object, DataResult
@@ -30,8 +30,6 @@ from .models import (
 # Import Snowflake ID generation
 from .snowflake import get_snowflake_id, get_snowflake_ids
 
-# Note: Factory functions (create_object, create_object_from_value) are internal.
-# Use Context.create_object() and Context.create_object_from_value() instead.
-# Note: Ingest functions (copy, concat, insert) are db-level in ingest.py.
+# Note: Ingest functions (copy_db, concat_objects_db, insert_objects_db) are internal.
 # Use Object.copy(), Object.concat(), Object.insert() methods instead.
 

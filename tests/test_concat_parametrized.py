@@ -34,8 +34,8 @@ THRESHOLD = 1e-5
 )
 async def test_array_concat(ctx, data_type, array_a, array_b, expected_result):
     """Test concatenating arrays of the same type."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
 
     result = await obj_a.concat(obj_b)
     data = await result.data()
@@ -71,7 +71,7 @@ async def test_array_concat(ctx, data_type, array_a, array_b, expected_result):
 )
 async def test_array_concat_with_scalar_value(ctx, data_type, array, scalar_value, expected_result):
     """Test concatenating array with scalar value."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     result = await obj.concat(scalar_value)
     data = await result.data()
@@ -106,7 +106,7 @@ async def test_array_concat_with_scalar_value(ctx, data_type, array, scalar_valu
 )
 async def test_array_concat_with_list_value(ctx, data_type, array, list_value, expected_result):
     """Test concatenating array with list value."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     result = await obj.concat(list_value)
     data = await result.data()
@@ -140,7 +140,7 @@ async def test_array_concat_with_list_value(ctx, data_type, array, list_value, e
 )
 async def test_array_concat_with_empty_list(ctx, data_type, array, expected_result):
     """Test concatenating array with empty list (should return same data)."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     result = await obj.concat([])
     data = await result.data()
@@ -177,8 +177,8 @@ async def test_array_concat_with_empty_list(ctx, data_type, array, expected_resu
 )
 async def test_scalar_concat_fails(ctx, data_type, scalar_value, array_value):
     """Test that concat method on scalar fails."""
-    scalar_obj = await ctx.create_object_from_value(scalar_value)
-    array_obj = await ctx.create_object_from_value(array_value)
+    scalar_obj = await create_object_from_value(scalar_value)
+    array_obj = await create_object_from_value(array_value)
 
     with pytest.raises(ValueError, match="concat requires first source to have array fieldtype"):
         await scalar_obj.concat(array_obj)
@@ -201,8 +201,8 @@ async def test_scalar_concat_fails(ctx, data_type, scalar_value, array_value):
 )
 async def test_concat_preserves_data_integrity(ctx, data_type, array_a, array_b):
     """Test that concat preserves all data from both arrays."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
 
     result = await obj_a.concat(obj_b)
     data = await result.data()
@@ -239,9 +239,9 @@ async def test_concat_preserves_data_integrity(ctx, data_type, array_a, array_b)
 )
 async def test_array_concat_multiple_objects(ctx, data_type, array_a, array_b, array_c, expected_result):
     """Test concatenating multiple objects with *args."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
-    obj_c = await ctx.create_object_from_value(array_c)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
+    obj_c = await create_object_from_value(array_c)
 
     result = await obj_a.concat(obj_b, obj_c)
     data = await result.data()
@@ -267,7 +267,7 @@ async def test_array_concat_multiple_objects(ctx, data_type, array_a, array_b, a
 )
 async def test_array_concat_mixed_types(ctx, data_type, array, scalar1, scalar2, list_val, expected_result):
     """Test concatenating with mixed argument types (objects, scalars, lists)."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     result = await obj.concat(scalar1, scalar2, list_val)
     data = await result.data()
@@ -292,8 +292,8 @@ async def test_array_concat_mixed_types(ctx, data_type, array, scalar1, scalar2,
 )
 async def test_array_concat_many_arguments(ctx, data_type, arrays, expected_result):
     """Test concatenating many objects (4+) to verify single operation efficiency."""
-    obj_a = await ctx.create_object_from_value(arrays[0])
-    other_objs = [await ctx.create_object_from_value(arr) for arr in arrays[1:]]
+    obj_a = await create_object_from_value(arrays[0])
+    other_objs = [await create_object_from_value(arr) for arr in arrays[1:]]
 
     result = await obj_a.concat(*other_objs)
     data = await result.data()

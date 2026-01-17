@@ -38,7 +38,7 @@ THRESHOLD = 1e-5
 )
 async def test_array_min(ctx, data_type, values, expected_result):
     """Test min() on arrays across numeric types."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.min()
 
@@ -75,7 +75,7 @@ async def test_array_min(ctx, data_type, values, expected_result):
 )
 async def test_array_max(ctx, data_type, values, expected_result):
     """Test max() on arrays across numeric types."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.max()
 
@@ -112,7 +112,7 @@ async def test_array_max(ctx, data_type, values, expected_result):
 )
 async def test_array_sum(ctx, data_type, values, expected_result):
     """Test sum() on arrays across numeric types."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.sum()
 
@@ -147,7 +147,7 @@ async def test_array_sum(ctx, data_type, values, expected_result):
 )
 async def test_array_mean(ctx, data_type, values, expected_result):
     """Test mean() on arrays across numeric types."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.mean()
 
@@ -179,7 +179,7 @@ async def test_array_mean(ctx, data_type, values, expected_result):
 )
 async def test_array_std(ctx, data_type, values):
     """Test std() on arrays across numeric types."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     result = await obj.std()
     expected = np.std(values, ddof=0)
@@ -207,8 +207,8 @@ async def test_array_std(ctx, data_type, values):
 )
 async def test_statistics_after_operation(ctx, data_type, array_a, array_b, operator):
     """Test statistics on result of arithmetic operations."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
 
     # Apply operation
     if operator == "+":
@@ -251,7 +251,7 @@ async def test_statistics_after_operation(ctx, data_type, array_a, array_b, oper
 )
 async def test_single_value_statistics(ctx, data_type, value):
     """Test statistics on single-element arrays."""
-    obj = await ctx.create_object_from_value(value)
+    obj = await create_object_from_value(value)
 
     expected_val = float(value[0])
 
@@ -283,7 +283,7 @@ async def test_single_value_statistics(ctx, data_type, value):
 )
 async def test_special_cases(ctx, data_type, values, expected_min, expected_max, expected_sum, expected_mean, expected_std):
     """Test statistics on special case arrays."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     assert abs(await obj.min() - expected_min) < THRESHOLD
     assert abs(await obj.max() - expected_max) < THRESHOLD
@@ -311,7 +311,7 @@ async def test_special_cases(ctx, data_type, values, expected_min, expected_max,
 )
 async def test_negative_numbers_statistics(ctx, data_type, values):
     """Test statistics with negative numbers."""
-    obj = await ctx.create_object_from_value(values)
+    obj = await create_object_from_value(values)
 
     expected_min = np.min(values)
     expected_max = np.max(values)

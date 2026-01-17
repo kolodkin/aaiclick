@@ -204,87 +204,65 @@ class Context:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-    async def create_object(self, schema: Schema):
-        """
-        Create a new Object with a ClickHouse table using the specified schema.
 
-        This is the ONLY method that creates Objects and their tables in the entire codebase.
-        All objects are automatically registered and cleaned up when context exits.
+async def create_object(schema: Schema):
+    """
+    Create a new Object with a ClickHouse table using the specified schema.
 
-        Args:
-            schema: Schema dataclass with fieldtype and columns dict.
-                   Example: Schema(
-                       fieldtype='a',
-                       columns={"aai_id": "UInt64", "value": "Float64"}
-                   )
+    This function creates Objects and their tables, automatically registering them
+    with the current context for cleanup when the context exits.
 
-        Returns:
-            Object: New Object instance with created table
+    Args:
+        schema: Schema dataclass with fieldtype and columns dict.
+               Example: Schema(
+                   fieldtype='a',
+                   columns={"aai_id": "UInt64", "value": "Float64"}
+               )
 
-        Examples:
-            >>> async with Context() as ctx:
-            ...     from aaiclick.object import Schema
-            ...     schema = Schema(
-            ...         fieldtype='a',
-            ...         columns={"aai_id": "UInt64", "value": "Float64"}
-            ...     )
-            ...     obj = await ctx.create_object(schema)
-        """
-        from .object import Object
+    Returns:
+        Object: New Object instance with created table
 
-        obj = Object()
+    Raises:
+        RuntimeError: If no active context (must be called within 'async with Context()')
 
-        # Build column definitions with comments derived from fieldtype
-        columns = []
-        for name, col_type in schema.columns.items():
-            col_def = f"{name} {col_type}"
-            # Determine comment based on column name and schema fieldtype
-            if name == "aai_id":
-                comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-            else:
-                comment = ColumnMeta(fieldtype=schema.fieldtype).to_yaml()
+    Examples:
+        >>> async with Context():
+        ...     from aaiclick import Schema
+        ...     schema = Schema(
+        ...         fieldtype='a',
+        ...         columns={"aai_id": "UInt64", "value": "Float64"}
+        ...     )
+        ...     obj = await create_object(schema)
+    """
+    from .object import Object
 
-            if comment:
-                col_def += f" COMMENT '{comment}'"
-            columns.append(col_def)
+    ctx = get_context()
+    obj = Object()
 
-        # Create table with all columns and comments in single query
-        create_query = f"""
-        CREATE TABLE {obj.table} (
-            {', '.join(columns)}
-        ) ENGINE = MergeTree ORDER BY tuple()
-        """
-        await self.ch_client.command(create_query)
+    # Build column definitions with comments derived from fieldtype
+    columns = []
+    for name, col_type in schema.columns.items():
+        col_def = f"{name} {col_type}"
+        # Determine comment based on column name and schema fieldtype
+        if name == "aai_id":
+            comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
+        else:
+            comment = ColumnMeta(fieldtype=schema.fieldtype).to_yaml()
 
-        self._register_object(obj)
-        return obj
+        if comment:
+            col_def += f" COMMENT '{comment}'"
+        columns.append(col_def)
 
-    async def create_object_from_value(self, val):
-        """
-        Create a new Object from Python values with automatic schema inference.
+    # Create table with all columns and comments in single query
+    create_query = f"""
+    CREATE TABLE {obj.table} (
+        {', '.join(columns)}
+    ) ENGINE = MergeTree ORDER BY tuple()
+    """
+    await ctx.ch_client.command(create_query)
 
-        Args:
-            val: Value to create object from. Can be:
-                - Scalar (int, float, bool, str): Creates "aai_id" and "value" columns
-                - List of scalars: Creates "aai_id" and "value" columns with multiple rows
-                - Dict of scalars: Creates "aai_id" plus one column per key
-                - Dict of arrays: Creates "aai_id" plus one column per key with multiple rows
-
-        Returns:
-            Object: New Object instance with data
-
-        Examples:
-            >>> async with Context() as ctx:
-            ...     # Scalar
-            ...     obj = await ctx.create_object_from_value(42)
-            ...     # List
-            ...     obj = await ctx.create_object_from_value([1, 2, 3])
-            ...     # Dict
-            ...     obj = await ctx.create_object_from_value({"x": [1, 2], "y": [3, 4]})
-        """
-        obj = await create_object_from_value(val)
-        self._register_object(obj)
-        return obj
+    ctx._register_object(obj)
+    return obj
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
@@ -389,7 +367,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             )
 
             # Create object with schema
-            obj = await ctx.create_object(schema)
+            obj = await create_object(schema)
 
             # Generate snowflake IDs for all rows
             aai_ids = get_snowflake_ids(array_len or 0)
@@ -426,7 +404,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             )
 
             # Create object with schema
-            obj = await ctx.create_object(schema)
+            obj = await create_object(schema)
 
             # Generate single aai_id for scalar dict
             aai_id = get_snowflake_ids(1)[0]

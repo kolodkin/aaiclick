@@ -20,7 +20,7 @@ Objects are managed by a `Context` and automatically cleaned up when the context
 
 ```python
 async with Context() as ctx:
-    obj = await ctx.create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3])
     data = await obj.data()  # ✓ Works fine
 
 # Context exits, obj becomes stale
@@ -61,8 +61,8 @@ if obj.stale:
 
 ```python
 async with Context() as ctx:
-    a = await ctx.create_object_from_value([1, 2, 3])
-    b = await ctx.create_object_from_value([4, 5, 6])
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
     result = await (a + b)
     data = await result.data()  # All operations in context
 ```
@@ -75,7 +75,7 @@ async with Context() as ctx:
 ```python
 # Bad: Storing object for later use
 async with Context() as ctx:
-    obj = await ctx.create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3])
 
 data = await obj.data()  # Error! Object is stale
 ```
@@ -329,7 +329,7 @@ The `View` class provides a read-only filtered view of an Object with SQL query 
 Views are created using the `obj.view()` method with optional constraint parameters:
 
 ```python
-obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+obj = await create_object_from_value([1, 2, 3, 4, 5])
 view = obj.view(where="value > 2", limit=2, order_by="value ASC")
 await view.data()  # Returns [3, 4]
 ```

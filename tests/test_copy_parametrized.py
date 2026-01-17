@@ -39,7 +39,7 @@ THRESHOLD = 1e-5
 )
 async def test_scalar_copy(ctx, data_type, input_value, expected_output):
     """Test copying scalar objects across all data types."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
 
     copy = await obj.copy()
     data = await copy.data()
@@ -86,7 +86,7 @@ async def test_scalar_copy(ctx, data_type, input_value, expected_output):
 )
 async def test_array_copy(ctx, data_type, input_value, expected_output):
     """Test copying array objects across all data types."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
 
     copy = await obj.copy()
     data = await copy.data()
@@ -120,7 +120,7 @@ async def test_array_copy(ctx, data_type, input_value, expected_output):
 )
 async def test_copy_preserves_order(ctx, data_type, input_value):
     """Test that copy preserves original array order."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
 
     copy = await obj.copy()
     data = await copy.data()
@@ -151,7 +151,7 @@ async def test_copy_preserves_order(ctx, data_type, input_value):
 )
 async def test_multiple_copies_create_different_tables(ctx, data_type, input_value):
     """Test that multiple copies create different tables."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
 
     copy1 = await obj.copy()
     copy2 = await obj.copy()
