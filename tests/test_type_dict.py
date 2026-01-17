@@ -2,10 +2,9 @@
 Tests for dict data type - creation, data() with orient options.
 
 Dict type stores multiple named columns in a single row.
-from aaiclick import create_object_from_value, create_object
 """
 
-from aaiclick import ORIENT_DICT, ORIENT_RECORDS
+from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value, create_object
 
 
 # =============================================================================

@@ -8,6 +8,8 @@ causality in distributed systems.
 
 import asyncio
 
+from aaiclick import create_object_from_value, create_object
+
 
 async def test_concat_preserves_creation_order_a_first(ctx):
     """Test that concat result is based on creation order when obj_a created first."""
