@@ -7,6 +7,7 @@ Each operator function takes table names and ch_client instead of Object instanc
 
 from __future__ import annotations
 
+from .context import get_context
 from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
@@ -34,7 +35,7 @@ OPERATOR_EXPRESSIONS = {
 }
 
 
-async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client, ctx):
+async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
     """
     Apply an operator on two tables at the database level.
 
@@ -43,11 +44,11 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         info_b: QueryInfo for second operand (contains source and base_table)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
-        ctx: Context instance for creating result object
 
     Returns:
         New Object instance pointing to result table
     """
+    ctx = get_context()
 
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
@@ -124,7 +125,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
 
 # Arithmetic Operators
 
-async def add(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def add(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Add two sources together at database level.
 
@@ -132,15 +133,14 @@ async def add(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result of info_a + info_b
     """
-    return await _apply_operator_db(info_a, info_b, "+", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "+", ch_client)
 
 
-async def sub(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def sub(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Subtract one source from another at database level.
 
@@ -148,15 +148,14 @@ async def sub(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result of info_a - info_b
     """
-    return await _apply_operator_db(info_a, info_b, "-", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "-", ch_client)
 
 
-async def mul(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def mul(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -164,15 +163,14 @@ async def mul(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "*", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "*", ch_client)
 
 
-async def truediv(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def truediv(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -180,15 +178,14 @@ async def truediv(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "/", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "/", ch_client)
 
 
-async def floordiv(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def floordiv(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -196,15 +193,14 @@ async def floordiv(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "//", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "//", ch_client)
 
 
-async def mod(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def mod(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -212,15 +208,14 @@ async def mod(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "%", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "%", ch_client)
 
 
-async def pow(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def pow(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -228,17 +223,16 @@ async def pow(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "**", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "**", ch_client)
 
 
 # Comparison Operators
 
-async def eq(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def eq(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -246,15 +240,14 @@ async def eq(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "==", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "==", ch_client)
 
 
-async def ne(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def ne(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -262,15 +255,14 @@ async def ne(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "!=", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "!=", ch_client)
 
 
-async def lt(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def lt(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -278,15 +270,14 @@ async def lt(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "<", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "<", ch_client)
 
 
-async def le(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def le(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -294,15 +285,14 @@ async def le(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "<=", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "<=", ch_client)
 
 
-async def gt(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def gt(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -310,15 +300,14 @@ async def gt(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, ">", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, ">", ch_client)
 
 
-async def ge(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def ge(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -326,17 +315,16 @@ async def ge(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, ">=", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, ">=", ch_client)
 
 
 # Bitwise Operators
 
-async def and_(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def and_(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -344,15 +332,14 @@ async def and_(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "&", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "&", ch_client)
 
 
-async def or_(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def or_(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -360,15 +347,14 @@ async def or_(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "|", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "|", ch_client)
 
 
-async def xor(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
+async def xor(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     """
     Apply operator at database level.
 
@@ -376,9 +362,8 @@ async def xor(info_a: QueryInfo, info_b: QueryInfo, ch_client, ctx):
         info_a: QueryInfo for first operand
         info_b: QueryInfo for second operand
         ch_client: ClickHouse client instance
-        ctx: Context instance
 
     Returns:
         New Object with result
     """
-    return await _apply_operator_db(info_a, info_b, "^", ch_client, ctx)
+    return await _apply_operator_db(info_a, info_b, "^", ch_client)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
+from .context import get_context
 from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
@@ -118,7 +119,7 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Awaitable]):
+async def copy_db(table: str, ch_client):
     """
     Copy a table to a new object at database level.
 
@@ -128,15 +129,15 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
     Args:
         table: Source table name
         ch_client: ClickHouse client instance
-        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with copied data
     """
+    ctx = get_context()
     fieldtype, columns = await _get_table_schema(table, ch_client)
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
-    result = await create_object(schema)
+    result = await ctx.create_object(schema)
 
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
     await ch_client.command(insert_query)
@@ -147,7 +148,6 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
 async def concat_objects_db(
     query_infos: list[QueryInfo],
     ch_client,
-    create_object: Callable[[Schema], Awaitable],
 ):
     """
     Concatenate multiple sources at database level via single UNION ALL.
@@ -158,7 +158,6 @@ async def concat_objects_db(
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
         ch_client: ClickHouse client instance
-        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with concatenated data
@@ -169,6 +168,8 @@ async def concat_objects_db(
     """
     if len(query_infos) < 2:
         raise ValueError("concat requires at least 2 sources")
+
+    ctx = get_context()
 
     # Use base_table for metadata queries
     fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
@@ -182,7 +183,7 @@ async def concat_objects_db(
         columns={"aai_id": "UInt64", "value": value_type}
     )
 
-    result = await create_object(schema)
+    result = await ctx.create_object(schema)
 
     # Single multi-table UNION ALL operation using sources (can be subqueries)
     # Add alias for subqueries (sources starting with '(')

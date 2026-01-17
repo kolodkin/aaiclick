@@ -8,7 +8,7 @@ operations, enabling execution of Python-equivalent computations at scale.
 __version__ = "0.1.0"
 
 # Import context manager (primary API) and client helper
-from .context import Context, get_ch_client
+from .context import Context, get_context, get_ch_client
 
 # Import core objects
 from .object import Object, DataResult

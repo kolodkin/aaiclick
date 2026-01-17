@@ -7,6 +7,7 @@ within its scope, automatically cleaning up tables when the context exits.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Optional, Dict, Union, List
 import weakref
 
@@ -32,6 +33,26 @@ from .models import (
     FIELDTYPE_ARRAY,
 )
 from .snowflake import get_snowflake_ids
+
+
+# Global ContextVar to hold the current Context instance
+_current_context: ContextVar['Context'] = ContextVar('current_context')
+
+
+def get_context() -> 'Context':
+    """
+    Get the current Context instance from ContextVar.
+
+    Returns:
+        Context: The active Context instance
+
+    Raises:
+        RuntimeError: If no active context (must be called within 'async with Context()')
+    """
+    try:
+        return _current_context.get()
+    except LookupError:
+        raise RuntimeError("No active context - must be called within 'async with Context()'")
 
 
 # Global connection pool shared across all Context instances
@@ -94,6 +115,7 @@ class Context:
         """Initialize a Context."""
         self._ch_client: Optional[AsyncClient] = None
         self._objects: Dict[int, weakref.ref] = {}
+        self._token = None
 
     @property
     def ch_client(self) -> AsyncClient:
@@ -123,14 +145,15 @@ class Context:
         self._objects[id(obj)] = weakref.ref(obj)
 
     async def __aenter__(self):
-        """Enter the context, initializing the client if needed."""
+        """Enter the context, initializing the client and setting ContextVar."""
         if self._ch_client is None:
             self._ch_client = await get_ch_client()
+        self._token = _current_context.set(self)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """
-        Exit the context, cleaning up all tracked Objects.
+        Exit the context, cleaning up all tracked Objects and resetting ContextVar.
 
         Deletes all tables and marks Objects as stale.
         """
@@ -142,6 +165,9 @@ class Context:
 
         # Clear the tracking dict
         self._objects.clear()
+
+        # Reset the ContextVar
+        _current_context.reset(self._token)
 
         return False
 
@@ -206,7 +232,7 @@ class Context:
         """
         from .object import Object
 
-        obj = Object(self)
+        obj = Object()
 
         # Build column definitions with comments derived from fieldtype
         columns = []
@@ -256,7 +282,7 @@ class Context:
             ...     # Dict
             ...     obj = await ctx.create_object_from_value({"x": [1, 2], "y": [3, 4]})
         """
-        obj = await create_object_from_value(val, ctx=self)
+        obj = await create_object_from_value(val)
         self._register_object(obj)
         return obj
 
@@ -302,7 +328,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         return "String"  # Default fallback
 
 
-async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
+async def create_object_from_value(val: ValueType) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
@@ -314,7 +340,6 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
-        ctx: Context instance managing this object
 
     Returns:
         Object: New Object instance with data
@@ -327,6 +352,8 @@ async def create_object_from_value(val: ValueType, ctx: Context) -> Object:
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
     from .object import Object
+
+    ctx = get_context()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

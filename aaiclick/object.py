@@ -56,16 +56,16 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(self, ctx: Context, table: Optional[str] = None):
+    def __init__(self, table: Optional[str] = None):
         """
         Initialize an Object.
 
         Args:
-            ctx: Context instance managing this object
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        self._ctx = ctx
+        from .context import get_context
+        self._ctx = get_context()
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
 
     @property
@@ -271,7 +271,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.add(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.add(info_a, info_b, self.ch_client)
 
     async def __sub__(self, other: Object) -> Object:
         """
@@ -289,7 +289,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.sub(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.sub(info_a, info_b, self.ch_client)
 
     async def __mul__(self, other: Object) -> Object:
         """
@@ -307,7 +307,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.mul(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.mul(info_a, info_b, self.ch_client)
 
     async def __truediv__(self, other: Object) -> Object:
         """
@@ -325,7 +325,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.truediv(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.truediv(info_a, info_b, self.ch_client)
 
     async def __floordiv__(self, other: Object) -> Object:
         """
@@ -343,7 +343,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.floordiv(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.floordiv(info_a, info_b, self.ch_client)
 
     async def __mod__(self, other: Object) -> Object:
         """
@@ -361,7 +361,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.mod(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.mod(info_a, info_b, self.ch_client)
 
     async def __pow__(self, other: Object) -> Object:
         """
@@ -379,7 +379,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.pow(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.pow(info_a, info_b, self.ch_client)
 
     async def __eq__(self, other: Object) -> Object:
         """
@@ -397,7 +397,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.eq(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.eq(info_a, info_b, self.ch_client)
 
     async def __ne__(self, other: Object) -> Object:
         """
@@ -415,7 +415,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.ne(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.ne(info_a, info_b, self.ch_client)
 
     async def __lt__(self, other: Object) -> Object:
         """
@@ -433,7 +433,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.lt(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.lt(info_a, info_b, self.ch_client)
 
     async def __le__(self, other: Object) -> Object:
         """
@@ -451,7 +451,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.le(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.le(info_a, info_b, self.ch_client)
 
     async def __gt__(self, other: Object) -> Object:
         """
@@ -469,7 +469,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.gt(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.gt(info_a, info_b, self.ch_client)
 
     async def __ge__(self, other: Object) -> Object:
         """
@@ -487,7 +487,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.ge(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.ge(info_a, info_b, self.ch_client)
 
     async def __and__(self, other: Object) -> Object:
         """
@@ -505,7 +505,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.and_(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.and_(info_a, info_b, self.ch_client)
 
     async def __or__(self, other: Object) -> Object:
         """
@@ -523,7 +523,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.or_(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.or_(info_a, info_b, self.ch_client)
 
     async def __xor__(self, other: Object) -> Object:
         """
@@ -541,7 +541,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators.xor(info_a, info_b, self.ch_client, self.ctx)
+        return await operators.xor(info_a, info_b, self.ch_client)
 
     async def copy(self) -> "Object":
         """
@@ -560,7 +560,7 @@ class Object:
         """
         self.checkstale()
         from . import ingest
-        return await ingest.copy_db(self.table, self.ch_client, self.ctx.create_object)
+        return await ingest.copy_db(self.table, self.ch_client)
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
@@ -625,7 +625,7 @@ class Object:
         else:
             # Single database operation for all sources
             result = await ingest.concat_objects_db(
-                query_infos, self.ch_client, self.ctx.create_object
+                query_infos, self.ch_client
             )
 
         # Cleanup temporary objects
