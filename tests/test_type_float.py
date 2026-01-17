@@ -2,6 +2,7 @@
 Tests for float (Float64) data type - scalars, arrays, operators, and statistics.
 """
 
+from aaiclick import create_object_from_value, create_object
 import numpy as np
 
 THRESHOLD = 1e-5

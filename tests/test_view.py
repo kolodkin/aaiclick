@@ -2,6 +2,7 @@
 Tests for Object view functionality.
 """
 
+from aaiclick import create_object_from_value, create_object
 from aaiclick import Context
 
 

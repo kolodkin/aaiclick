@@ -2,6 +2,7 @@
 Tests for boolean (UInt8) data type - scalars, arrays, operators, and statistics.
 
 Note: Booleans are stored as UInt8 in ClickHouse (True=1, False=0),
+from aaiclick import create_object_from_value, create_object
 so arithmetic operations work on the underlying integer values.
 """
 
