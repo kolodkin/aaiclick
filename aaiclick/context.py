@@ -179,7 +179,7 @@ class Context:
             obj: Object to delete
         """
         await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
-        obj._ctx = None
+        obj._stale = True
 
     async def delete(self, obj: Object) -> None:
         """

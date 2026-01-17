@@ -65,8 +65,8 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
         """
-        self._ctx = get_context()
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
+        self._stale = False
 
     @property
     def table(self) -> str:
@@ -77,7 +77,7 @@ class Object:
     def ctx(self) -> Context:
         """Get the context managing this object."""
         self.checkstale()
-        return self._ctx
+        return get_context()
 
     @property
     def where(self) -> Optional[str]:
@@ -107,8 +107,8 @@ class Object:
 
     @property
     def stale(self) -> bool:
-        """Check if this object's context has been cleaned up."""
-        return self._ctx is None
+        """Check if this object has been deleted."""
+        return self._stale
 
     @property
     def has_constraints(self) -> bool:
@@ -120,9 +120,9 @@ class Object:
         Check if object is stale and raise error if so.
 
         Raises:
-            RuntimeError: If object context is None (stale)
+            RuntimeError: If object has been deleted (stale)
         """
-        if self._ctx is None:
+        if self._stale:
             raise RuntimeError(
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
