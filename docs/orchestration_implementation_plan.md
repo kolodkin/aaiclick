@@ -39,7 +39,7 @@ if __name__ == "__main__":
    - `Job` model (minimal fields: id, name, status, created_at)
    - `Task` model (minimal fields: id, job_id, entrypoint, kwargs, status, result_table_id)
    - `Worker` model (minimal fields: id, hostname, pid, status)
-   - **Note**: See orchestration.md for ID generation strategy (63-bit snowflake IDs stored as BIGINT)
+   - **Note**: See orchestration.md for ID generation strategy (snowflake IDs from `aaiclick.snowflake`)
 
 3. Initialize Alembic:
    ```bash
@@ -81,13 +81,13 @@ if __name__ == "__main__":
 2. Create `aaiclick/orchestration/factories.py`:
    - Implement `create_task(callback: str, kwargs: dict = None) -> Task`
      - Accept callback as string (e.g., "mymodule.task1")
-     - Generate 63-bit snowflake ID for task
+     - Generate snowflake ID for task using `get_snowflake_id()`
      - Create Task object (not committed to DB)
      - Default kwargs to empty dict
 
    - Implement `create_job(name: str, entry: Union[str, Task]) -> Job`
      - Accept callback string or Task object
-     - Generate 63-bit snowflake ID for job
+     - Generate snowflake ID for job using `get_snowflake_id()`
      - Create Job and initial Task
      - Commit both to PostgreSQL
      - Return Job object
@@ -241,7 +241,7 @@ job.test()  # Blocks until job completes (test mode)
 
 4. Add `apply()` method to Context:
    - Accept Task, Group, or list
-   - Generate 63-bit snowflake IDs for Groups (if not already set)
+   - Generate snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
    - Set job_id on all tasks and groups
    - Insert into PostgreSQL
    - Return committed objects
