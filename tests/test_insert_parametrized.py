@@ -5,6 +5,7 @@ Tests in-place insertion into arrays with objects, scalar values, and list value
 """
 
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 
@@ -34,8 +35,8 @@ THRESHOLD = 1e-5
 )
 async def test_array_insert(ctx, data_type, array_a, array_b, expected_result):
     """Test inserting arrays of the same type in place."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
@@ -71,7 +72,7 @@ async def test_array_insert(ctx, data_type, array_a, array_b, expected_result):
 )
 async def test_array_insert_with_scalar_value(ctx, data_type, array, scalar_value, expected_result):
     """Test inserting scalar value into array in place."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     await obj.insert(scalar_value)
     data = await obj.data()
@@ -106,7 +107,7 @@ async def test_array_insert_with_scalar_value(ctx, data_type, array, scalar_valu
 )
 async def test_array_insert_with_list_value(ctx, data_type, array, list_value, expected_result):
     """Test inserting list value into array in place."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     await obj.insert(list_value)
     data = await obj.data()
@@ -140,7 +141,7 @@ async def test_array_insert_with_list_value(ctx, data_type, array, list_value, e
 )
 async def test_array_insert_with_empty_list(ctx, data_type, array, expected_result):
     """Test inserting empty list into array (should remain unchanged)."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     await obj.insert([])
     data = await obj.data()
@@ -174,7 +175,7 @@ async def test_array_insert_with_empty_list(ctx, data_type, array, expected_resu
 )
 async def test_insert_modifies_in_place(ctx, data_type, initial_array, insert_value, expected_result):
     """Test that insert modifies the original object in place."""
-    obj = await ctx.create_object_from_value(initial_array)
+    obj = await create_object_from_value(initial_array)
     original_table = obj.table
 
     await obj.insert(insert_value)
@@ -212,7 +213,7 @@ async def test_insert_modifies_in_place(ctx, data_type, initial_array, insert_va
 )
 async def test_multiple_inserts(ctx, data_type, initial_array, inserts, expected_result):
     """Test multiple consecutive inserts."""
-    obj = await ctx.create_object_from_value(initial_array)
+    obj = await create_object_from_value(initial_array)
 
     for insert_value in inserts:
         await obj.insert(insert_value)
@@ -251,8 +252,8 @@ async def test_multiple_inserts(ctx, data_type, initial_array, inserts, expected
 )
 async def test_scalar_insert_fails(ctx, data_type, scalar_value, array_value):
     """Test that insert method on scalar fails."""
-    scalar_obj = await ctx.create_object_from_value(scalar_value)
-    array_obj = await ctx.create_object_from_value(array_value)
+    scalar_obj = await create_object_from_value(scalar_value)
+    array_obj = await create_object_from_value(array_value)
 
     with pytest.raises(ValueError, match="insert requires target table to have array fieldtype"):
         await scalar_obj.insert(array_obj)
@@ -275,8 +276,8 @@ async def test_scalar_insert_fails(ctx, data_type, scalar_value, array_value):
 )
 async def test_insert_preserves_data_integrity(ctx, data_type, array_a, array_b):
     """Test that insert preserves all data from both arrays."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
@@ -313,9 +314,9 @@ async def test_insert_preserves_data_integrity(ctx, data_type, array_a, array_b)
 )
 async def test_array_insert_multiple_objects(ctx, data_type, array_a, array_b, array_c, expected_result):
     """Test inserting multiple objects with *args."""
-    obj_a = await ctx.create_object_from_value(array_a)
-    obj_b = await ctx.create_object_from_value(array_b)
-    obj_c = await ctx.create_object_from_value(array_c)
+    obj_a = await create_object_from_value(array_a)
+    obj_b = await create_object_from_value(array_b)
+    obj_c = await create_object_from_value(array_c)
 
     await obj_a.insert(obj_b, obj_c)
     data = await obj_a.data()
@@ -341,7 +342,7 @@ async def test_array_insert_multiple_objects(ctx, data_type, array_a, array_b, a
 )
 async def test_array_insert_mixed_types(ctx, data_type, array, scalar1, scalar2, list_val, expected_result):
     """Test inserting with mixed argument types (objects, scalars, lists)."""
-    obj = await ctx.create_object_from_value(array)
+    obj = await create_object_from_value(array)
 
     await obj.insert(scalar1, scalar2, list_val)
     data = await obj.data()
@@ -366,8 +367,8 @@ async def test_array_insert_mixed_types(ctx, data_type, array, scalar1, scalar2,
 )
 async def test_array_insert_many_arguments(ctx, data_type, arrays, expected_result):
     """Test inserting many objects (4+) to verify single operation efficiency."""
-    obj_a = await ctx.create_object_from_value(arrays[0])
-    other_objs = [await ctx.create_object_from_value(arr) for arr in arrays[1:]]
+    obj_a = await create_object_from_value(arrays[0])
+    other_objs = [await create_object_from_value(arr) for arr in arrays[1:]]
 
     await obj_a.insert(*other_objs)
     data = await obj_a.data()

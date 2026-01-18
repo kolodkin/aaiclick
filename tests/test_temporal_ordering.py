@@ -8,17 +8,19 @@ causality in distributed systems.
 
 import asyncio
 
+from aaiclick import create_object_from_value, create_object
+
 
 async def test_concat_preserves_creation_order_a_first(ctx):
     """Test that concat result is based on creation order when obj_a created first."""
     # Create obj_a first (T1)
-    obj_a = await ctx.create_object_from_value([1, 2, 3])
+    obj_a = await create_object_from_value([1, 2, 3])
 
     # Small delay to ensure different timestamps
     await asyncio.sleep(0.01)
 
     # Create obj_b second (T2)
-    obj_b = await ctx.create_object_from_value([4, 5, 6])
+    obj_b = await create_object_from_value([4, 5, 6])
 
     # Both concat orders should give same result: [1, 2, 3, 4, 5, 6]
     result1 = await obj_a.concat(obj_b)
@@ -36,13 +38,13 @@ async def test_concat_preserves_creation_order_a_first(ctx):
 async def test_concat_preserves_creation_order_b_first(ctx):
     """Test that concat result is based on creation order when obj_b created first."""
     # Create obj_b first (T1)
-    obj_b = await ctx.create_object_from_value([4, 5, 6])
+    obj_b = await create_object_from_value([4, 5, 6])
 
     # Small delay to ensure different timestamps
     await asyncio.sleep(0.01)
 
     # Create obj_a second (T2)
-    obj_a = await ctx.create_object_from_value([1, 2, 3])
+    obj_a = await create_object_from_value([1, 2, 3])
 
     # Both concat orders should give same result: [4, 5, 6, 1, 2, 3]
     result1 = await obj_a.concat(obj_b)
@@ -60,14 +62,14 @@ async def test_concat_preserves_creation_order_b_first(ctx):
 async def test_insert_preserves_creation_order_a_first(ctx):
     """Test that insert result is based on creation order when obj_a created first."""
     # Create obj_a first (T1)
-    obj_a1 = await ctx.create_object_from_value([1, 2, 3])
-    obj_a2 = await ctx.create_object_from_value([1, 2, 3])
+    obj_a1 = await create_object_from_value([1, 2, 3])
+    obj_a2 = await create_object_from_value([1, 2, 3])
 
     # Small delay to ensure different timestamps
     await asyncio.sleep(0.01)
 
     # Create obj_b second (T2)
-    obj_b = await ctx.create_object_from_value([4, 5, 6])
+    obj_b = await create_object_from_value([4, 5, 6])
 
     # Insert in both directions
     await obj_a1.insert(obj_b)
@@ -85,14 +87,14 @@ async def test_insert_preserves_creation_order_a_first(ctx):
 async def test_insert_preserves_creation_order_b_first(ctx):
     """Test that insert result is based on creation order when obj_b created first."""
     # Create obj_b first (T1)
-    obj_b = await ctx.create_object_from_value([4, 5, 6])
+    obj_b = await create_object_from_value([4, 5, 6])
 
     # Small delay to ensure different timestamps
     await asyncio.sleep(0.01)
 
     # Create obj_a second (T2)
-    obj_a1 = await ctx.create_object_from_value([1, 2, 3])
-    obj_a2 = await ctx.create_object_from_value([1, 2, 3])
+    obj_a1 = await create_object_from_value([1, 2, 3])
+    obj_a2 = await create_object_from_value([1, 2, 3])
 
     # Insert obj_b into both obj_a instances
     await obj_a1.insert(obj_b)
@@ -122,7 +124,7 @@ async def test_insert_preserves_creation_order_b_first(ctx):
 async def test_concat_with_value_preserves_creation_order(ctx):
     """Test that concat with value preserves creation order."""
     # Create obj_a first
-    obj_a = await ctx.create_object_from_value([1, 2, 3])
+    obj_a = await create_object_from_value([1, 2, 3])
 
     # Small delay
     await asyncio.sleep(0.01)
@@ -138,7 +140,7 @@ async def test_concat_with_value_preserves_creation_order(ctx):
 async def test_insert_with_value_preserves_creation_order(ctx):
     """Test that insert with value preserves creation order."""
     # Create obj_a first
-    obj_a = await ctx.create_object_from_value([1, 2, 3])
+    obj_a = await create_object_from_value([1, 2, 3])
 
     # Small delay
     await asyncio.sleep(0.01)
@@ -154,13 +156,13 @@ async def test_insert_with_value_preserves_creation_order(ctx):
 async def test_multiple_concat_preserves_temporal_order(ctx):
     """Test that multiple concat operations maintain temporal order."""
     # Create three objects at different times
-    obj1 = await ctx.create_object_from_value([1, 2])
+    obj1 = await create_object_from_value([1, 2])
     await asyncio.sleep(0.01)
 
-    obj2 = await ctx.create_object_from_value([3, 4])
+    obj2 = await create_object_from_value([3, 4])
     await asyncio.sleep(0.01)
 
-    obj3 = await ctx.create_object_from_value([5, 6])
+    obj3 = await create_object_from_value([5, 6])
 
     # Concat in various orders - all should give same result
     result1 = await obj1.concat(obj2)

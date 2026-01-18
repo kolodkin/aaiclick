@@ -12,7 +12,7 @@ Views are read-only and reference the underlying table data.
 
 import asyncio
 
-from aaiclick import Context, ORIENT_RECORDS
+from aaiclick import Context, ORIENT_RECORDS, create_object_from_value
 
 
 async def example(context):
@@ -21,7 +21,7 @@ async def example(context):
     print("Example 1: WHERE clause with int scalar array")
     print("-" * 50)
 
-    obj_int = await context.create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    obj_int = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     print(f"Original data: {await obj_int.data()}\n")
 
     # Filter values greater than 5
@@ -41,7 +41,7 @@ async def example(context):
     print("Example 2: LIMIT and OFFSET with int scalar array")
     print("-" * 50)
 
-    obj_nums = await context.create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80])
+    obj_nums = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80])
     print(f"Original data: {await obj_nums.data()}\n")
 
     # Get first 3 elements
@@ -61,7 +61,7 @@ async def example(context):
     print("Example 3: ORDER BY with int scalar array")
     print("-" * 50)
 
-    obj_unsorted = await context.create_object_from_value([50, 20, 80, 10, 40, 60, 30, 70])
+    obj_unsorted = await create_object_from_value([50, 20, 80, 10, 40, 60, 30, 70])
     print(f"Original data: {await obj_unsorted.data()}\n")
 
     # Sort ascending
@@ -77,7 +77,7 @@ async def example(context):
     print("Example 4: Mixed constraints with int scalar array")
     print("-" * 50)
 
-    obj_mixed = await context.create_object_from_value([15, 8, 42, 23, 4, 16, 35, 12, 28, 50])
+    obj_mixed = await create_object_from_value([15, 8, 42, 23, 4, 16, 35, 12, 28, 50])
     print(f"Original data: {await obj_mixed.data()}\n")
 
     # WHERE + LIMIT
@@ -97,7 +97,7 @@ async def example(context):
     print("Example 5: WHERE clause with dict of scalars")
     print("-" * 50)
 
-    obj_dict_scalar = await context.create_object_from_value(
+    obj_dict_scalar = await create_object_from_value(
         {"id": 101, "name": "Alice", "age": 30, "score": 95.5}
     )
     print(f"Original data: {await obj_dict_scalar.data()}\n")
@@ -115,7 +115,7 @@ async def example(context):
     print("Example 6: WHERE clause with dict of arrays")
     print("-" * 50)
 
-    obj_dict_arrays = await context.create_object_from_value(
+    obj_dict_arrays = await create_object_from_value(
         {
             "id": [1, 2, 3, 4, 5, 6],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"],
@@ -149,7 +149,7 @@ async def example(context):
     print("Example 7: LIMIT and OFFSET with dict of arrays")
     print("-" * 50)
 
-    people = await context.create_object_from_value(
+    people = await create_object_from_value(
         {
             "id": [1, 2, 3, 4, 5, 6, 7, 8],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry"],
@@ -190,7 +190,7 @@ async def example(context):
     print("Example 8: ORDER BY with dict of arrays")
     print("-" * 50)
 
-    products = await context.create_object_from_value(
+    products = await create_object_from_value(
         {
             "id": [101, 102, 103, 104, 105],
             "name": ["Laptop", "Mouse", "Keyboard", "Monitor", "Headset"],
@@ -232,7 +232,7 @@ async def example(context):
     print("Example 9: Mixed constraints with dict of arrays")
     print("-" * 50)
 
-    students = await context.create_object_from_value(
+    students = await create_object_from_value(
         {
             "id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"],
@@ -279,7 +279,7 @@ async def example(context):
     print("Example 10: Views are read-only")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([1, 2, 3, 4, 5])
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"Original data: {await obj.data()}\n")
 
     view = obj.view(where="value > 2")
@@ -297,8 +297,8 @@ async def example(context):
     print("Example 11: Views work with operators")
     print("-" * 50)
 
-    obj_a = await context.create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    obj_b = await context.create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    obj_a = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    obj_b = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
 
     print(f"Original data A: {await obj_a.data()}")
     print(f"Original data B: {await obj_b.data()}\n")

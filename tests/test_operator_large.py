@@ -5,6 +5,7 @@ Each test uses NUM_ITEMS=10000 to validate performance and correctness at scale.
 Each operator is tested with different type combinations.
 """
 
+from aaiclick import create_object_from_value, create_object
 
 # Number of items for large array tests
 NUM_ITEMS = 10000
@@ -17,8 +18,8 @@ async def test_add_int_float(ctx):
     float_array = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj_int = await ctx.create_object_from_value(int_array)
-    obj_float = await ctx.create_object_from_value(float_array)
+    obj_int = await create_object_from_value(int_array)
+    obj_float = await create_object_from_value(float_array)
 
     # Perform addition
     result = await (obj_int + obj_float)
@@ -41,8 +42,8 @@ async def test_sub_float_float(ctx):
     float_array2 = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj1 = await ctx.create_object_from_value(float_array1)
-    obj2 = await ctx.create_object_from_value(float_array2)
+    obj1 = await create_object_from_value(float_array1)
+    obj2 = await create_object_from_value(float_array2)
 
     # Perform subtraction
     result = await (obj1 - obj2)
@@ -64,7 +65,7 @@ async def test_min_int(ctx):
     int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
 
     # Create object
-    obj = await ctx.create_object_from_value(int_array)
+    obj = await create_object_from_value(int_array)
 
     # Get minimum
     min_val = await obj.min()
@@ -81,7 +82,7 @@ async def test_max_float(ctx):
     float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
 
     # Create object
-    obj = await ctx.create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array)
 
     # Get maximum
     max_val = await obj.max()
@@ -98,7 +99,7 @@ async def test_sum_float(ctx):
     float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
 
     # Create object
-    obj = await ctx.create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array)
 
     # Get sum
     sum_val = await obj.sum()
@@ -116,7 +117,7 @@ async def test_mean_int(ctx):
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create object
-    obj = await ctx.create_object_from_value(int_array)
+    obj = await create_object_from_value(int_array)
 
     # Get mean
     mean_val = await obj.mean()
@@ -134,7 +135,7 @@ async def test_std_float(ctx):
     float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
 
     # Create object
-    obj = await ctx.create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array)
 
     # Get standard deviation
     std_val = await obj.std()
@@ -155,8 +156,8 @@ async def test_add_int_int(ctx):
     int_array2 = list(range(NUM_ITEMS, NUM_ITEMS * 2))  # [10000, 10001, ..., 19999]
 
     # Create objects
-    obj1 = await ctx.create_object_from_value(int_array1)
-    obj2 = await ctx.create_object_from_value(int_array2)
+    obj1 = await create_object_from_value(int_array1)
+    obj2 = await create_object_from_value(int_array2)
 
     # Perform addition
     result = await (obj1 + obj2)
@@ -179,8 +180,8 @@ async def test_sub_int_int(ctx):
     int_array2 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create objects
-    obj1 = await ctx.create_object_from_value(int_array1)
-    obj2 = await ctx.create_object_from_value(int_array2)
+    obj1 = await create_object_from_value(int_array1)
+    obj2 = await create_object_from_value(int_array2)
 
     # Perform subtraction
     result = await (obj1 - obj2)

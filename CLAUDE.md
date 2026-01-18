@@ -96,17 +96,19 @@ aaiclick/
 
 ## Architecture
 
-- **Context**: Primary API for creating and managing Objects
+- **Context**: Primary API for managing Object lifecycle
   - Manages ClickHouse client lifecycle
   - Tracks Objects via weakref for automatic cleanup
-  - Provides `create_object()` and `create_object_from_value()` methods
+  - Uses ContextVar for async-safe global context management
+  - Accessed via `async with Context():` pattern or `get_context()` function
+- **Module-level Functions**: `create_object()` and `create_object_from_value()`
+  - Exported from package for direct use
+  - Use `get_context()` internally to access the current context
+  - No need to pass context explicitly
 - **Connection Pool**: Shared urllib3 PoolManager across all Context instances
   - Defined in `context.py` as global `_pool`
   - All clients share the same connection pool for efficiency
   - `get_ch_client()` creates clients using the shared pool
-- **Factories**: Internal functions (not exported in `__init__.py`)
-  - Called by Context methods
-  - Accept `ch_client` parameter (mandatory)
 
 ## Distributed Computing & Order Preservation
 
@@ -126,14 +128,14 @@ aaiclick is a **distributed computing framework** where order is automatically p
 **Example showing creation order**:
 ```python
 # Scenario 1: obj_a created first
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T1
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T2
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T1
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
 result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
 
 # Scenario 2: obj_b created first
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T1
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T2
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T1
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
 result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 ```

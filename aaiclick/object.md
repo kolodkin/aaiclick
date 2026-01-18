@@ -19,8 +19,8 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 Objects are managed by a `Context` and automatically cleaned up when the context exits. All objects created within a context become **stale** when the context is closed.
 
 ```python
-async with Context() as ctx:
-    obj = await ctx.create_object_from_value([1, 2, 3])
+async with Context():
+    obj = await create_object_from_value([1, 2, 3])
     data = await obj.data()  # ✓ Works fine
 
 # Context exits, obj becomes stale
@@ -60,9 +60,9 @@ if obj.stale:
 - Allow automatic cleanup on context exit
 
 ```python
-async with Context() as ctx:
-    a = await ctx.create_object_from_value([1, 2, 3])
-    b = await ctx.create_object_from_value([4, 5, 6])
+async with Context():
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
     result = await (a + b)
     data = await result.data()  # All operations in context
 ```
@@ -74,8 +74,8 @@ async with Context() as ctx:
 
 ```python
 # Bad: Storing object for later use
-async with Context() as ctx:
-    obj = await ctx.create_object_from_value([1, 2, 3])
+async with Context():
+    obj = await create_object_from_value([1, 2, 3])
 
 data = await obj.data()  # Error! Object is stale
 ```
@@ -85,7 +85,7 @@ data = await obj.data()  # Error! Object is stale
 Staleness is implemented through explicit checks:
 - Each async method calls `self.checkstale()` at execution time
 - Properties `ctx` and `ch_client` also call `self.checkstale()`
-- When context exits, all registered objects have their `_ctx` set to `None`
+- When context exits, all registered objects have their `_stale` flag set to `True`
 - Any attempt to use a stale object raises a clear `RuntimeError`
 
 This provides robust protection against accessing deleted tables.
@@ -329,7 +329,7 @@ The `View` class provides a read-only filtered view of an Object with SQL query 
 Views are created using the `obj.view()` method with optional constraint parameters:
 
 ```python
-obj = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+obj = await create_object_from_value([1, 2, 3, 4, 5])
 view = obj.view(where="value > 2", limit=2, order_by="value ASC")
 await view.data()  # Returns [3, 4]
 ```

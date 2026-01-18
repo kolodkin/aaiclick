@@ -6,6 +6,7 @@ using pytest parametrization for comprehensive coverage.
 """
 
 import pytest
+from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
 
@@ -41,7 +42,7 @@ THRESHOLD = 1e-5
 )
 async def test_scalar_creation(ctx, data_type, input_value, expected_output):
     """Test creating scalar objects across all data types."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
     data = await obj.data()
 
     # Use threshold for float comparisons, exact match for others
@@ -83,7 +84,7 @@ async def test_scalar_creation(ctx, data_type, input_value, expected_output):
 )
 async def test_array_creation(ctx, data_type, input_value, expected_output):
     """Test creating array objects across all data types."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
     data = await obj.data()
 
     assert data == expected_output
@@ -107,7 +108,7 @@ async def test_array_creation(ctx, data_type, input_value, expected_output):
 )
 async def test_array_preserves_order(ctx, data_type, input_value):
     """Test that arrays preserve insertion order (not sorted)."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
     data = await obj.data()
 
     assert data == input_value
@@ -144,7 +145,7 @@ async def test_array_preserves_order(ctx, data_type, input_value):
 )
 async def test_edge_cases(ctx, data_type, input_value, expected_output):
     """Test edge cases for object creation."""
-    obj = await ctx.create_object_from_value(input_value)
+    obj = await create_object_from_value(input_value)
     data = await obj.data()
 
     # Use threshold for float comparisons
