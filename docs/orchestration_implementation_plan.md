@@ -212,9 +212,12 @@ job.test()  # Blocks until job completes (test mode)
 
 **Tasks**:
 1. Update `aaiclick/context.py`:
-   - Add `job_id` parameter to `Context.__init__()`
+   - Add `job_id` parameter to `Context.__init__()` with default `None`
+   - New signature: `def __init__(self, job_id: Optional[int] = None)`
+   - **Backward Compatibility**: Existing code `Context()` continues to work
    - Store reference to global asyncpg.Pool (from `get_postgres_pool()`)
    - Each operation (apply, etc.) acquires connection from pool and creates session
+   - If `job_id` is None, orchestration features (apply, etc.) raise helpful error
 
 2. Create context-local storage for current context:
    ```python

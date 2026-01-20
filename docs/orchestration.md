@@ -93,6 +93,9 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **Global asyncpg.Pool**: Shared across all Context instances
 - Context uses pool to acquire connections for operations
 - Each operation (`apply()`, `claim_task()`, etc.) creates its own session
+- **Backward Compatibility**: `job_id` parameter is optional (defaults to None)
+  - `Context()` - works without orchestration (existing usage)
+  - `Context(job_id=123)` - enables orchestration features
 - Benefits:
   - Connection reuse across all Context instances
   - Better transaction isolation per operation
