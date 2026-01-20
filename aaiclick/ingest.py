@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
-from .context import create_object
+from .data_context import create_object
 from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 

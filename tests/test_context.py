@@ -1,14 +1,14 @@
 """
-Tests for Context manager functionality.
+Tests for DataContext manager functionality.
 """
 
 import pytest
-from aaiclick import Context, get_context, create_object_from_value, create_object
+from aaiclick import DataContext, get_context, create_object_from_value, create_object
 
 
 async def test_context_basic_usage():
     """Test basic context manager usage with automatic cleanup."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         obj = await create_object_from_value([1, 2, 3])
         data = await obj.data()
         assert data == [1, 2, 3]
@@ -20,7 +20,7 @@ async def test_context_basic_usage():
 
 async def test_context_multiple_objects():
     """Test context manager with multiple objects."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
         obj3 = await create_object_from_value(42)
@@ -46,7 +46,7 @@ async def test_context_multiple_objects():
 
 async def test_context_with_operations():
     """Test context manager with object operations."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
 
@@ -69,7 +69,7 @@ async def test_context_create_object_with_schema():
     """Test context with create_object using explicit schema."""
     from aaiclick import Schema, FIELDTYPE_SCALAR
 
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Float64"})
         obj = await create_object(schema)
         ch_client = ctx.ch_client
@@ -99,7 +99,7 @@ async def test_context_factory_methods():
     """Test using factory methods via context."""
     from aaiclick import Schema, FIELDTYPE_SCALAR
 
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Using create_object_from_value
         obj1 = await create_object_from_value([1, 2, 3])
         # Using create_object
@@ -115,7 +115,7 @@ async def test_context_factory_methods():
 
 async def test_context_weakref_behavior():
     """Test that context uses weakref and doesn't prevent garbage collection."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         obj = await create_object_from_value([1, 2, 3])
         table_name = obj.table
 
@@ -131,7 +131,7 @@ async def test_context_weakref_behavior():
 
 async def test_context_dict_values():
     """Test context with dict values."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Dict of scalars
         obj1 = await create_object_from_value({"name": "Alice", "age": 30})
         data1 = await obj1.data()
@@ -151,7 +151,7 @@ async def test_context_dict_values():
 
 async def test_context_concat_operation():
     """Test context with concat operation."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
 
@@ -170,7 +170,7 @@ async def test_context_concat_operation():
 
 async def test_context_client_usage():
     """Test that context can use global client."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Context should use global client if none provided
         assert ctx.ch_client is not None
 
@@ -259,7 +259,7 @@ async def test_stale_object_allows_property_access(ctx):
 
 async def test_context_stale_error_messages():
     """Test that error messages include table name."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         obj = await create_object_from_value([1, 2, 3])
         table_name = obj.table
 

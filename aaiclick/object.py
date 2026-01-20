@@ -24,7 +24,7 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .context import get_context, Context, create_object_from_value
+from .data_context import get_context, DataContext, create_object_from_value
 
 
 @dataclass

@@ -2,12 +2,12 @@
 Statistics example for aaiclick.
 
 This example demonstrates how to use the statistical methods (min, max, sum, mean, std)
-on Objects containing numeric data within a Context.
+on Objects containing numeric data within a DataContext.
 """
 
 import asyncio
 
-from aaiclick import Context, create_object_from_value
+from aaiclick import DataContext, create_object_from_value
 
 
 async def example(context):
@@ -124,7 +124,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 

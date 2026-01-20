@@ -12,7 +12,7 @@ Views are read-only and reference the underlying table data.
 
 import asyncio
 
-from aaiclick import Context, ORIENT_RECORDS, create_object_from_value
+from aaiclick import DataContext, ORIENT_RECORDS, create_object_from_value
 
 
 async def example(context):
@@ -326,7 +326,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 
