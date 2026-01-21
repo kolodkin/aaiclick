@@ -1,12 +1,13 @@
 """
 Basic operators example for aaiclick.
 
-This example demonstrates how to use Context with create_object_from_value
+This example demonstrates how to use DataContext with create_object_from_value
 for automatic schema inference and basic arithmetic operators on Objects.
 """
 
 import asyncio
-from aaiclick import Context, ORIENT_RECORDS, Object
+
+from aaiclick import DataContext, ORIENT_RECORDS, Object, create_object_from_value
 
 
 async def example(context):
@@ -15,15 +16,15 @@ async def example(context):
     print("Example 1: Creating objects from scalar values")
     print("-" * 50)
 
-    obj_scalar_int = await context.create_object_from_value(42)
+    obj_scalar_int = await create_object_from_value(42)
     print(f"Created from int: {obj_scalar_int}")
     print(f"Value: {await obj_scalar_int.data()}\n")
 
-    obj_scalar_float = await context.create_object_from_value(3.14)
+    obj_scalar_float = await create_object_from_value(3.14)
     print(f"Created from float: {obj_scalar_float}")
     print(f"Value: {await obj_scalar_float.data()}\n")
 
-    obj_scalar_str = await context.create_object_from_value("Hello, ClickHouse!")
+    obj_scalar_str = await create_object_from_value("Hello, ClickHouse!")
     print(f"Created from string: {obj_scalar_str}")
     print(f"Value: {await obj_scalar_str.data()}")
 
@@ -32,15 +33,15 @@ async def example(context):
     print("Example 2: Creating objects from lists (numpy infers dtype)")
     print("-" * 50)
 
-    obj_list_int = await context.create_object_from_value([1, 2, 3, 4, 5])
+    obj_list_int = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"Created from int list: {obj_list_int}")
     print(f"Values: {await obj_list_int.data()}\n")
 
-    obj_list_float = await context.create_object_from_value([1.5, 2.5, 3.5, 4.5])
+    obj_list_float = await create_object_from_value([1.5, 2.5, 3.5, 4.5])
     print(f"Created from float list: {obj_list_float}")
     print(f"Values: {await obj_list_float.data()}\n")
 
-    obj_list_str = await context.create_object_from_value(["apple", "banana", "cherry"])
+    obj_list_str = await create_object_from_value(["apple", "banana", "cherry"])
     print(f"Created from string list: {obj_list_str}")
     print(f"Values: {await obj_list_str.data()}")
 
@@ -50,14 +51,14 @@ async def example(context):
     print("-" * 50)
 
     # Dict of scalars (single row)
-    obj_dict = await context.create_object_from_value(
+    obj_dict = await create_object_from_value(
         {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
     )
     print(f"Created from dict of scalars: {obj_dict}")
     print(f"Values: {await obj_dict.data()}\n")
 
     # Dict of arrays (multiple rows)
-    obj_dict_arrays = await context.create_object_from_value(
+    obj_dict_arrays = await create_object_from_value(
         {
             "id": [1, 2, 3],
             "name": ["Alice", "Bob", "Charlie"],
@@ -80,8 +81,8 @@ async def example(context):
     print("-" * 50)
 
     # Create two numeric objects for operations
-    obj_a = await context.create_object_from_value([10.0, 20.0, 30.0])
-    obj_b = await context.create_object_from_value([2.0, 4.0, 5.0])
+    obj_a = await create_object_from_value([10.0, 20.0, 30.0])
+    obj_b = await create_object_from_value([2.0, 4.0, 5.0])
 
     print(f"Created {obj_a}")
     print(f"Values in a: {await obj_a.data()}\n")
@@ -125,8 +126,8 @@ async def example(context):
     print("Example 5: Comparison operators")
     print("-" * 50)
 
-    obj_x = await context.create_object_from_value([1, 5, 10, 15])
-    obj_y = await context.create_object_from_value([5, 5, 8, 20])
+    obj_x = await create_object_from_value([1, 5, 10, 15])
+    obj_y = await create_object_from_value([5, 5, 8, 20])
 
     print(f"Values in x: {await obj_x.data()}")
     print(f"Values in y: {await obj_y.data()}\n")
@@ -160,8 +161,8 @@ async def example(context):
     print("Example 6: Bitwise operators")
     print("-" * 50)
 
-    obj_m = await context.create_object_from_value([12, 10, 8])  # Binary: 1100, 1010, 1000
-    obj_n = await context.create_object_from_value([10, 12, 4])  # Binary: 1010, 1100, 0100
+    obj_m = await create_object_from_value([12, 10, 8])  # Binary: 1100, 1010, 1000
+    obj_n = await create_object_from_value([10, 12, 4])  # Binary: 1010, 1100, 0100
 
     print(f"Values in m: {await obj_m.data()}")
     print(f"Values in n: {await obj_n.data()}\n")
@@ -183,8 +184,8 @@ async def example(context):
     print("Example 7: Automatic table name generation with Snowflake IDs")
     print("-" * 50)
 
-    obj_auto = await context.create_object_from_value(42)
-    obj_auto2 = await context.create_object_from_value(99)
+    obj_auto = await create_object_from_value(42)
+    obj_auto2 = await create_object_from_value(99)
     print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
     print(f"  Object 1 -> table: {obj_auto.table}")
     print(f"  Object 2 -> table: {obj_auto2.table}")
@@ -197,7 +198,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 

@@ -84,14 +84,14 @@ Result order is **always based on creation time** (Snowflake ID timestamps), not
 
 ```python
 # Example 1: obj_a created first
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # T1
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # T2
+obj_a = await create_object_from_value([1, 2, 3])  # T1
+obj_b = await create_object_from_value([4, 5, 6])  # T2
 result = await obj_a.concat(obj_b)  # [1, 2, 3, 4, 5, 6]
 result = await obj_b.concat(obj_a)  # [1, 2, 3, 4, 5, 6] - same!
 
 # Example 2: obj_b created first
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # T1
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # T2
+obj_b = await create_object_from_value([4, 5, 6])  # T1
+obj_a = await create_object_from_value([1, 2, 3])  # T2
 result = await obj_a.concat(obj_b)  # [4, 5, 6, 1, 2, 3]
 result = await obj_b.concat(obj_a)  # [4, 5, 6, 1, 2, 3] - same!
 ```

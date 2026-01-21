@@ -2,14 +2,15 @@
 Tests for Object view functionality.
 """
 
-from aaiclick import Context
+from aaiclick import create_object_from_value, create_object
+from aaiclick import DataContext
 
 
 async def test_view_where_limit():
     """Test creating a view with WHERE and LIMIT constraints."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create an object with array data
-        obj = await ctx.create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
         # Create a view with WHERE and LIMIT
         view = obj.view(where="value > 5", limit=3)
@@ -23,9 +24,9 @@ async def test_view_where_limit():
 
 async def test_view_offset():
     """Test creating a view with OFFSET constraint."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create an object with array data
-        obj = await ctx.create_object_from_value([10, 20, 30, 40, 50])
+        obj = await create_object_from_value([10, 20, 30, 40, 50])
 
         # Create a view with OFFSET
         view = obj.view(offset=2, limit=2)
@@ -39,9 +40,9 @@ async def test_view_offset():
 
 async def test_view_order_by():
     """Test creating a view with ORDER BY constraint."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create an object with array data
-        obj = await ctx.create_object_from_value([3, 1, 4, 1, 5])
+        obj = await create_object_from_value([3, 1, 4, 1, 5])
 
         # Create a view with ORDER BY descending
         view = obj.view(order_by="value DESC", limit=3)
@@ -55,9 +56,9 @@ async def test_view_order_by():
 
 async def test_view_insert_blocked():
     """Test that insert() is blocked on views."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create an object with array data
-        obj = await ctx.create_object_from_value([1, 2, 3])
+        obj = await create_object_from_value([1, 2, 3])
 
         # Create a view
         view = obj.view(limit=2)
@@ -72,10 +73,10 @@ async def test_view_insert_blocked():
 
 async def test_view_operator_addition():
     """Test that operators work with views."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create two objects
-        obj_a = await ctx.create_object_from_value([10, 20, 30, 40, 50])
-        obj_b = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+        obj_a = await create_object_from_value([10, 20, 30, 40, 50])
+        obj_b = await create_object_from_value([1, 2, 3, 4, 5])
 
         # Create a view with filter on obj_a
         view = obj_a.view(where="value > 20")  # Should get [30, 40, 50]
@@ -90,10 +91,10 @@ async def test_view_operator_addition():
 
 async def test_view_operator_with_limit():
     """Test operators with view having LIMIT."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create two objects
-        obj_a = await ctx.create_object_from_value([100, 200, 300, 400])
-        obj_b = await ctx.create_object_from_value([1, 2, 3, 4])
+        obj_a = await create_object_from_value([100, 200, 300, 400])
+        obj_b = await create_object_from_value([1, 2, 3, 4])
 
         # Create view with limit
         view = obj_a.view(limit=2)  # Should get [100, 200]
@@ -108,10 +109,10 @@ async def test_view_operator_with_limit():
 
 async def test_view_both_sides():
     """Test operators when both operands are views."""
-    async with Context() as ctx:
+    async with DataContext() as ctx:
         # Create two objects
-        obj_a = await ctx.create_object_from_value([5, 10, 15, 20, 25])
-        obj_b = await ctx.create_object_from_value([1, 2, 3, 4, 5])
+        obj_a = await create_object_from_value([5, 10, 15, 20, 25])
+        obj_b = await create_object_from_value([1, 2, 3, 4, 5])
 
         # Create views on both
         view_a = obj_a.view(where="value >= 10")  # [10, 15, 20, 25]

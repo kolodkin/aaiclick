@@ -8,7 +8,8 @@ This example demonstrates how to use data manipulation methods:
 """
 
 import asyncio
-from aaiclick import Context
+
+from aaiclick import DataContext, create_object_from_value
 
 
 async def example(context):
@@ -17,7 +18,7 @@ async def example(context):
     print("Example 1: Copying objects")
     print("-" * 50)
 
-    original = await context.create_object_from_value([1, 2, 3])
+    original = await create_object_from_value([1, 2, 3])
     print(f"Original object: {original}")
     print(f"Original data: {await original.data()}")
     print(f"Original table: {original.table}\n")
@@ -34,8 +35,8 @@ async def example(context):
     print("Example 2: Concatenate (non-mutating)")
     print("-" * 50)
 
-    obj_a = await context.create_object_from_value([1, 2, 3])
-    obj_b = await context.create_object_from_value([4, 5, 6])
+    obj_a = await create_object_from_value([1, 2, 3])
+    obj_b = await create_object_from_value([4, 5, 6])
 
     print(f"Object A: {await obj_a.data()}")
     print(f"Object B: {await obj_b.data()}\n")
@@ -52,7 +53,7 @@ async def example(context):
     print("Example 3: Concatenate with scalar value")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([10, 20, 30])
+    obj = await create_object_from_value([10, 20, 30])
     print(f"Original array: {await obj.data()}\n")
 
     # Concat with scalar
@@ -65,7 +66,7 @@ async def example(context):
     print("Example 4: Concatenate with list value")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([1, 2])
+    obj = await create_object_from_value([1, 2])
     print(f"Original array: {await obj.data()}\n")
 
     # Concat with list
@@ -78,8 +79,8 @@ async def example(context):
     print("Example 5: Insert (mutating - modifies in place)")
     print("-" * 50)
 
-    obj_x = await context.create_object_from_value([100, 200, 300])
-    obj_y = await context.create_object_from_value([400, 500, 600])
+    obj_x = await create_object_from_value([100, 200, 300])
+    obj_y = await create_object_from_value([400, 500, 600])
 
     print(f"Object X before: {await obj_x.data()}")
     print(f"Object Y: {await obj_y.data()}")
@@ -96,7 +97,7 @@ async def example(context):
     print("Example 6: Insert with scalar value")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3])
     print(f"Before insert: {await obj.data()}")
     print(f"Table: {obj.table}\n")
 
@@ -109,7 +110,7 @@ async def example(context):
     print("Example 7: Insert with list value")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([10, 20])
+    obj = await create_object_from_value([10, 20])
     print(f"Before insert: {await obj.data()}")
     print(f"Table: {obj.table}\n")
 
@@ -122,7 +123,7 @@ async def example(context):
     print("Example 8: Multiple consecutive inserts")
     print("-" * 50)
 
-    obj = await context.create_object_from_value([1, 2])
+    obj = await create_object_from_value([1, 2])
     print(f"Initial: {await obj.data()}")
 
     await obj.insert(3)
@@ -140,7 +141,7 @@ async def example(context):
     print("-" * 50)
 
     # Using concat (non-mutating)
-    a1 = await context.create_object_from_value([1, 2, 3])
+    a1 = await create_object_from_value([1, 2, 3])
     print(f"concat approach:")
     print(f"  Original a1: {await a1.data()}, table: {a1.table}")
     a1_new = await a1.concat([4, 5])
@@ -148,7 +149,7 @@ async def example(context):
     print(f"  Original a1 unchanged: {await a1.data()}, table: {a1.table}\n")
 
     # Using insert (mutating)
-    a2 = await context.create_object_from_value([1, 2, 3])
+    a2 = await create_object_from_value([1, 2, 3])
     print(f"insert approach:")
     print(f"  Original a2: {await a2.data()}, table: {a2.table}")
     await a2.insert([4, 5])
@@ -160,7 +161,7 @@ async def example(context):
     print("-" * 50)
 
     # Start with initial data
-    dataset = await context.create_object_from_value([10.5, 20.3, 30.7])
+    dataset = await create_object_from_value([10.5, 20.3, 30.7])
     print(f"Initial dataset: {await dataset.data()}")
 
     # Add more measurements in place
@@ -189,7 +190,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 

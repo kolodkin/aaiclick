@@ -34,7 +34,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - **Import ordering**: Organize imports in three groups, separated by blank lines:
   1. Python native (standard library): `import asyncio`, `import json`
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
-  3. Current package imports: `from aaiclick import Context`
+  3. Current package imports: `from aaiclick import DataContext`
 
 - **Circular imports**: Use two-pattern approach
   - Type annotations: Add `from __future__ import annotations` at top of file
@@ -85,7 +85,7 @@ ClickHouse connection (all optional with sensible defaults):
 ```
 aaiclick/
 ├── aaiclick/          # Main package
-│   ├── context.py     # Context manager and connection pool management
+│   ├── data_context.py     # DataContext manager and connection pool management
 │   ├── object.py      # Core Object class
 │   ├── factories.py   # Factory functions for creating objects (internal)
 │   └── __init__.py    # Package exports
@@ -96,17 +96,19 @@ aaiclick/
 
 ## Architecture
 
-- **Context**: Primary API for creating and managing Objects
+- **DataContext**: Primary API for managing Object lifecycle
   - Manages ClickHouse client lifecycle
   - Tracks Objects via weakref for automatic cleanup
-  - Provides `create_object()` and `create_object_from_value()` methods
-- **Connection Pool**: Shared urllib3 PoolManager across all Context instances
-  - Defined in `context.py` as global `_pool`
+  - Uses ContextVar for async-safe global context management
+  - Accessed via `async with DataContext():` pattern or `get_context()` function
+- **Module-level Functions**: `create_object()` and `create_object_from_value()`
+  - Exported from package for direct use
+  - Use `get_context()` internally to access the current context
+  - No need to pass context explicitly
+- **Connection Pool**: Shared urllib3 PoolManager across all DataContext instances
+  - Defined in `data_context.py` as global `_pool`
   - All clients share the same connection pool for efficiency
   - `get_ch_client()` creates clients using the shared pool
-- **Factories**: Internal functions (not exported in `__init__.py`)
-  - Called by Context methods
-  - Accept `ch_client` parameter (mandatory)
 
 ## Distributed Computing & Order Preservation
 
@@ -126,14 +128,14 @@ aaiclick is a **distributed computing framework** where order is automatically p
 **Example showing creation order**:
 ```python
 # Scenario 1: obj_a created first
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T1
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T2
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T1
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
 result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
 
 # Scenario 2: obj_b created first
-obj_b = await ctx.create_object_from_value([4, 5, 6])  # Created at time T1
-obj_a = await ctx.create_object_from_value([1, 2, 3])  # Created at time T2
+obj_b = await create_object_from_value([4, 5, 6])  # Created at time T1
+obj_a = await create_object_from_value([1, 2, 3])  # Created at time T2
 result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
 result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 ```

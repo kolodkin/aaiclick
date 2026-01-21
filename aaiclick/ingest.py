@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
+from .data_context import create_object
 from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
@@ -118,7 +119,7 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Awaitable]):
+async def copy_db(table: str, ch_client):
     """
     Copy a table to a new object at database level.
 
@@ -128,7 +129,6 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
     Args:
         table: Source table name
         ch_client: ClickHouse client instance
-        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with copied data
@@ -147,7 +147,6 @@ async def copy_db(table: str, ch_client, create_object: Callable[[Schema], Await
 async def concat_objects_db(
     query_infos: list[QueryInfo],
     ch_client,
-    create_object: Callable[[Schema], Awaitable],
 ):
     """
     Concatenate multiple sources at database level via single UNION ALL.
@@ -158,7 +157,6 @@ async def concat_objects_db(
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
         ch_client: ClickHouse client instance
-        create_object: Async callable to create a new Object from Schema
 
     Returns:
         Object: New Object instance with concatenated data

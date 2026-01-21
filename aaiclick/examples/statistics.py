@@ -2,11 +2,12 @@
 Statistics example for aaiclick.
 
 This example demonstrates how to use the statistical methods (min, max, sum, mean, std)
-on Objects containing numeric data within a Context.
+on Objects containing numeric data within a DataContext.
 """
 
 import asyncio
-from aaiclick import Context
+
+from aaiclick import DataContext, create_object_from_value
 
 
 async def example(context):
@@ -16,7 +17,7 @@ async def example(context):
     print("-" * 50)
 
     data = [10.0, 20.0, 30.0, 40.0, 50.0]
-    obj = await context.create_object_from_value(data)
+    obj = await create_object_from_value(data)
     print(f"Created object: {obj}")
     print(f"Data: {data}\n")
 
@@ -38,7 +39,7 @@ async def example(context):
     print("-" * 50)
 
     int_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    obj_int = await context.create_object_from_value(int_data)
+    obj_int = await create_object_from_value(int_data)
     print(f"Created object: {obj_int}")
     print(f"Data: {int_data}\n")
 
@@ -56,8 +57,8 @@ async def example(context):
     data_a = [100.0, 200.0, 300.0]
     data_b = [50.0, 100.0, 150.0]
 
-    obj_a = await context.create_object_from_value(data_a)
-    obj_b = await context.create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a)
+    obj_b = await create_object_from_value(data_b)
 
     print(f"Data A: {data_a}")
     print(f"Data B: {data_b}\n")
@@ -84,7 +85,7 @@ async def example(context):
     print("-" * 50)
 
     temperatures = [72.5, 75.0, 68.3, 71.2, 74.8, 69.5, 73.1, 76.2]
-    obj_temp = await context.create_object_from_value(temperatures)
+    obj_temp = await create_object_from_value(temperatures)
 
     print(f"Daily temperatures (°F): {temperatures}\n")
 
@@ -106,7 +107,7 @@ async def example(context):
     print("-" * 50)
 
     single_value = [42.0]
-    obj_single = await context.create_object_from_value(single_value)
+    obj_single = await create_object_from_value(single_value)
     print(f"Single value data: {single_value}\n")
 
     print(f"Minimum:          {await obj_single.min()}")
@@ -123,7 +124,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 
