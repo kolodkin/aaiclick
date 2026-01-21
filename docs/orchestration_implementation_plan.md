@@ -27,10 +27,10 @@ if __name__ == "__main__":
 
 **Tasks**:
 1. Add PostgreSQL dependencies to `pyproject.toml`:
-   - `sqlmodel`
-   - `asyncpg`
-   - `alembic`
-   - `psycopg2-binary` (for Alembic)
+   - `sqlmodel` (includes Pydantic as transitive dependency - SQLModel is built on Pydantic)
+   - `asyncpg` (async PostgreSQL driver)
+   - `alembic` (database migrations)
+   - `psycopg2-binary` (for Alembic migrations - sync driver)
 
 2. Create `aaiclick/orchestration/models.py`:
    - `JobStatus` enum (PENDING, RUNNING, COMPLETED, FAILED)
@@ -61,11 +61,18 @@ if __name__ == "__main__":
    AAICLICK_LOG_DIR=<optional>  # Override default OS-dependent log directory
    ```
 
+6. Update CI/CD workflow (`.github/workflows/test.yaml`):
+   - Add PostgreSQL service (similar to ClickHouse service)
+   - Add step to run Alembic migrations before tests
+   - Add PostgreSQL environment variables to test and example steps
+   - Migration step should gracefully skip if `alembic.ini` doesn't exist yet
+
 **Deliverables**:
 - `aaiclick/orchestration/models.py` with basic models
 - `aaiclick/orchestration/migrations/` with Alembic setup
 - Initial migration script
 - Database can be created with `alembic upgrade head`
+- CI/CD workflow configured with PostgreSQL service and migrations
 
 ---
 

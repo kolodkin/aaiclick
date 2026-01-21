@@ -32,6 +32,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -63,6 +77,33 @@ jobs:
             sleep 2
           done
 
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U aaiclick; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run Alembic migrations
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        run: |
+          # Run migrations if alembic.ini exists (orchestration backend implemented)
+          if [ -f "alembic.ini" ]; then
+            echo "Running Alembic migrations..."
+            uv run alembic upgrade head
+          else
+            echo "No alembic.ini found - skipping migrations (orchestration not yet implemented)"
+          fi
+
       - name: Run tests
         env:
           CLICKHOUSE_HOST: localhost
@@ -70,6 +111,11 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
         run: |
           mkdir -p tmp
           uv run pytest -v --junitxml=tmp/pytest-report.xml
@@ -89,6 +135,11 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DB: default
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
           # List of examples to run (update this list when adding new examples):
           # - basic_operators: Basic arithmetic operations and object creation
           # - statistics: Statistical methods (min, max, sum, mean, std)
