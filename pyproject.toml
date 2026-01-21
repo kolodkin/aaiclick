@@ -30,10 +30,6 @@ dependencies = [
     "clickhouse-connect>=0.6.0",
     "numpy>=1.24.0",
     "pyyaml>=6.0",
-    "sqlmodel>=0.0.14",
-    "asyncpg>=0.29.0",
-    "alembic>=1.13.0",
-    "psycopg2-binary>=2.9.9",
 ]
 
 [project.optional-dependencies]
