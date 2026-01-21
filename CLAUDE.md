@@ -80,6 +80,18 @@ ClickHouse connection (all optional with sensible defaults):
 - `CLICKHOUSE_PASSWORD` (default: "")
 - `CLICKHOUSE_DB` (default: "default")
 
+PostgreSQL connection for orchestration backend (required when using orchestration):
+- `POSTGRES_HOST` (default: "localhost")
+- `POSTGRES_PORT` (default: 5432)
+- `POSTGRES_USER` (default: "aaiclick")
+- `POSTGRES_PASSWORD` (default: "secret")
+- `POSTGRES_DB` (default: "aaiclick")
+
+Orchestration logging (optional):
+- `AAICLICK_LOG_DIR` - Override default OS-dependent log directory
+  - macOS default: `~/.aaiclick/logs`
+  - Linux default: `/var/log/aaiclick`
+
 ## Project Structure
 
 ```

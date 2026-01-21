@@ -23,44 +23,60 @@ As aaiclick scales to handle large-scale data processing, we need:
 │  └─────────────────────┘        └──────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
            │                                      │
-           │ Shared by all Context instances     │
+           │                                      │
            ▼                                      ▼
-┌─────────────────────────────────────────────────────────┐
-│                    Context Manager                      │
-│  ┌──────────────────────┐  ┌──────────────────────────┐│
-│  │  ClickHouse Client   │  │  Acquires from Pool      ││
-│  │  (Data operations)   │  │  (per operation)         ││
-│  └──────────────────────┘  └──────────────────────────┘│
-└─────────────────────────────────────────────────────────┘
-           │                              │
-           │ Objects/Views                │ Jobs/Tasks/Groups
-           ▼                              ▼
-┌────────────────────┐      ┌──────────────────────────────┐
-│   ClickHouse DB    │      │      PostgreSQL Database     │
-│   (Object data)    │      │  ┌────┐ ┌──────┐ ┌────────┐ │
-└────────────────────┘      │  │Jobs│─│Tasks │ │Workers │ │
-                            │  └────┘ └──────┘ └────────┘ │
-                            │  ┌──────┐ ┌──────────────┐  │
-                            │  │Groups│ │Dependencies  │  │
-                            │  └──────┘ └──────────────┘  │
-                            └──────────────────────────────┘
-                                        ▲
-                                        │ Polls and executes
-                                        │
-                            ┌───────────┴────────────────┐
-                            │ Worker Pool (N processes)  │
-                            └────────────────────────────┘
+┌──────────────────────┐           ┌──────────────────────────┐
+│   DataContext        │           │    OrchContext           │
+│  (ClickHouse data)   │           │  (Orchestration state)   │
+│  ┌────────────────┐  │           │  ┌────────────────────┐ │
+│  │ ClickHouse     │  │           │  │ Acquires from Pool │ │
+│  │ Client         │  │           │  │ (per operation)    │ │
+│  └────────────────┘  │           │  └────────────────────┘ │
+│                      │           │  job_id: Optional[int] │
+└──────────────────────┘           └──────────────────────────┘
+           │                                      │
+           │ Objects/Views                        │ Jobs/Tasks/Groups
+           ▼                                      ▼
+┌────────────────────┐           ┌──────────────────────────────┐
+│   ClickHouse DB    │           │      PostgreSQL Database     │
+│   (Object data)    │           │  ┌────┐ ┌──────┐ ┌────────┐ │
+└────────────────────┘           │  │Jobs│─│Tasks │ │Workers │ │
+                                 │  └────┘ └──────┘ └────────┘ │
+                                 │  ┌──────┐ ┌──────────────┐  │
+                                 │  │Groups│ │Dependencies  │  │
+                                 │  └──────┘ └──────────────┘  │
+                                 └──────────────────────────────┘
+                                             ▲
+                                             │ Polls and executes
+                                             │
+                                 ┌───────────┴────────────────┐
+                                 │ Worker Pool (N processes)  │
+                                 │ (uses both contexts)       │
+                                 └────────────────────────────┘
 ```
 
-**Context Dual-Database Architecture**:
-- **ClickHouse Client**: Manages Object data (tables, views, queries)
+**Dual-Context Architecture**:
+- **DataContext** (`aaiclick.data_context`): Manages ClickHouse data operations
+  - Handles Objects and Views
   - Uses global urllib3 connection pool
-- **PostgreSQL Pool**: Global asyncpg.Pool shared across all Context instances
-  - Context acquires connections from pool for each operation
+  - Example: `async with DataContext() as data_ctx:`
+
+- **OrchContext** (`aaiclick.orchestration`): Manages PostgreSQL orchestration state
+  - Handles Jobs, Tasks, Groups, Dependencies
+  - Uses global asyncpg.Pool (connections acquired per operation)
   - Each operation creates its own session for transaction isolation
-- Context provides unified interface to both databases
-- `context.create_object()` → ClickHouse
-- `context.apply(tasks)` → PostgreSQL (acquires connection, creates session)
+  - Example: `async with OrchContext(job_id=123) as orch_ctx:`
+
+- **Task Execution**: Workers use **both** contexts
+  - DataContext for data operations (Objects)
+  - OrchContext for orchestration operations (apply, etc.)
+  - Example:
+    ```python
+    async with DataContext() as data_ctx:
+        async with OrchContext(job_id=task.job_id) as orch_ctx:
+            # Task has access to both contexts
+            result = await func(**task.kwargs)
+    ```
 
 **Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
 
@@ -87,29 +103,33 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **Scalability**: Handles massive datasets
 - **aaiclick Objects**: All data processing operates on ClickHouse tables
 
-**Context bridges both databases**: Provides unified API for orchestration (PostgreSQL) and data operations (ClickHouse).
+**Separation of Concerns**:
+- **DataContext** is independent - handles only ClickHouse operations
+- **OrchContext** is independent - handles only PostgreSQL orchestration
+- Both can be used together or separately
 
-**Connection Pooling Pattern** (similar to ClickHouse):
-- **Global asyncpg.Pool**: Shared across all Context instances
-- Context uses pool to acquire connections for operations
+**OrchContext Connection Pooling** (similar to ClickHouse pattern):
+- **Global asyncpg.Pool**: Shared across all OrchContext instances
+- OrchContext acquires connections from pool for each operation
 - Each operation (`apply()`, `claim_task()`, etc.) creates its own session
-- **Backward Compatibility**: `job_id` parameter is optional (defaults to None)
-  - `Context()` - works without orchestration (existing usage)
-  - `Context(job_id=123)` - enables orchestration features
+- **job_id parameter**: Required for OrchContext
+  - `OrchContext(job_id=123)` - associates context with specific job
+  - Enables dynamic task creation within job
 - Benefits:
-  - Connection reuse across all Context instances
+  - Connection reuse across all OrchContext instances
   - Better transaction isolation per operation
   - No long-lived transactions
   - Pool management handled globally
-  - Similar pattern to ClickHouse client pooling
+  - Consistent pattern with ClickHouse urllib3 pool
 
 **High-Level Factory APIs**:
 - **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
   - Generates snowflake ID for task
 - **`create_job(name, entry)`**: Factory for creating Job with single entry point (Task or callback)
   - Generates snowflake ID for job
-- **`context.apply(tasks)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
+- **`orch_ctx.apply(tasks)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
   - Generates snowflake IDs for groups
+  - Requires OrchContext with job_id
 - Factories provide simple interface for common workflows
 - IDs generated before database insertion (no round-trip needed)
 

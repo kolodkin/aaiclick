@@ -206,45 +206,49 @@ job.test()  # Blocks until job completes (test mode)
 
 ---
 
-### Phase 4: Context Integration
+### Phase 4: OrchContext Integration
 
-**Objective**: Make Context available during task execution
+**Objective**: Create OrchContext for orchestration and make both contexts available during task execution
 
 **Tasks**:
-1. Update `aaiclick/context.py`:
-   - Add `job_id` parameter to `Context.__init__()` with default `None`
-   - New signature: `def __init__(self, job_id: Optional[int] = None)`
-   - **Backward Compatibility**: Existing code `Context()` continues to work
+1. Create `aaiclick/orchestration/context.py`:
+   - Define `OrchContext` class
+   - Signature: `def __init__(self, job_id: int)`
+   - **Note**: `job_id` is required (not optional) for OrchContext
    - Store reference to global asyncpg.Pool (from `get_postgres_pool()`)
    - Each operation (apply, etc.) acquires connection from pool and creates session
-   - If `job_id` is None, orchestration features (apply, etc.) raise helpful error
+   - Implements context manager protocol (`__aenter__`, `__aexit__`)
 
-2. Create context-local storage for current context:
+2. Create context-local storage for OrchContext:
    ```python
    # In aaiclick/orchestration/context.py
    from contextvars import ContextVar
 
-   _current_context: ContextVar[Optional[Context]] = ContextVar('context', default=None)
+   _current_orch_context: ContextVar[Optional[OrchContext]] = ContextVar('orch_context', default=None)
 
-   def get_current_context() -> Context:
-       return _current_context.get()
+   def get_orch_context() -> OrchContext:
+       """Get current OrchContext (for orchestration operations)"""
+       return _current_orch_context.get()
 
-   def set_current_context(ctx: Context):
-       _current_context.set(ctx)
+   def set_orch_context(ctx: OrchContext):
+       _current_orch_context.set(ctx)
    ```
 
-3. Update `execute_task()` to use Context:
+3. Update `execute_task()` to use both contexts:
    ```python
    async def execute_task(task: Task) -> Any:
-       async with Context(job_id=task.job_id) as ctx:
-           set_current_context(ctx)
-           # Import and execute function
-           func = import_callback(task.entrypoint)
-           result = await func(**task.kwargs)
-           return result
+       # Both contexts available during task execution
+       async with DataContext() as data_ctx:
+           async with OrchContext(job_id=task.job_id) as orch_ctx:
+               set_orch_context(orch_ctx)
+               # Import and execute function
+               func = import_callback(task.entrypoint)
+               # Task can use both data_ctx and orch_ctx
+               result = await func(**task.kwargs)
+               return result
    ```
 
-4. Add `apply()` method to Context:
+4. Add `apply()` method to OrchContext:
    - Accept Task, Group, or list
    - Acquire connection from global pool
    - Create session for transaction
@@ -255,11 +259,12 @@ job.test()  # Blocks until job completes (test mode)
    - Return committed objects
 
 **Deliverables**:
-- Global asyncpg.Pool shared across all Context instances
-- Tasks execute with Context bound to job_id
-- Context available via `get_current_context()`
-- Tasks can access ClickHouse client via context
-- `context.apply()` works for committing tasks
+- Global asyncpg.Pool shared across all OrchContext instances
+- OrchContext class with job_id parameter
+- Tasks execute with both DataContext (data) and OrchContext (orchestration)
+- OrchContext available via `get_orch_context()`
+- DataContext remains unchanged (backward compatible)
+- `orch_ctx.apply()` works for committing tasks
 - Each operation creates its own session from pool
 
 ---
