@@ -26,13 +26,13 @@ if __name__ == "__main__":
 **Objective**: Set up PostgreSQL schema for basic job/task tracking
 
 **Tasks**:
-1. Add PostgreSQL dependencies to `pyproject.toml`:
+1. ⏳ Add PostgreSQL dependencies to `pyproject.toml`:
    - `sqlmodel` (includes Pydantic as transitive dependency - SQLModel is built on Pydantic)
    - `asyncpg` (async PostgreSQL driver)
    - `alembic` (database migrations)
    - `psycopg2-binary` (for Alembic migrations - sync driver)
 
-2. Create `aaiclick/orchestration/models.py`:
+2. ⏳ Create `aaiclick/orchestration/models.py`:
    - `JobStatus` enum (PENDING, RUNNING, COMPLETED, FAILED)
    - `TaskStatus` enum (PENDING, CLAIMED, RUNNING, COMPLETED, FAILED)
    - `WorkerStatus` enum (ACTIVE, IDLE, STOPPED)
@@ -41,17 +41,17 @@ if __name__ == "__main__":
    - `Worker` model (minimal fields: id, hostname, pid, status)
    - **Note**: See orchestration.md for ID generation strategy (snowflake IDs from `aaiclick.snowflake`)
 
-3. Initialize Alembic:
+3. ⏳ Initialize Alembic:
    ```bash
    alembic init aaiclick/orchestration/migrations
    ```
 
-4. Create initial migration:
+4. ⏳ Create initial migration:
    - Configure `alembic.ini` and `env.py` for SQLModel
    - Generate migration for Job, Task, Worker tables
    - Test migration up/down
 
-5. Add environment variables to `CLAUDE.md`:
+5. ✅ Add environment variables to `CLAUDE.md`:
    ```bash
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
@@ -61,7 +61,7 @@ if __name__ == "__main__":
    AAICLICK_LOG_DIR=<optional>  # Override default OS-dependent log directory
    ```
 
-6. Update CI/CD workflow (`.github/workflows/test.yaml`):
+6. ✅ Update CI/CD workflow (`.github/workflows/test.yaml`):
    - Add PostgreSQL service (similar to ClickHouse service)
    - Add step to run Alembic migrations before tests
    - Add PostgreSQL environment variables to test and example steps
