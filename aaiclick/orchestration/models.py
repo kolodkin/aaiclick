@@ -8,10 +8,21 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Dict, Optional
 
 from sqlmodel import JSON, Column, Field, SQLModel
+
+
+# Python 3.10 compatibility: StrEnum was added in 3.11
+try:
+    from enum import StrEnum
+except ImportError:
+
+    class StrEnum(str, Enum):
+        """String Enum for Python 3.10 compatibility."""
+
+        pass
 
 
 class JobStatus(StrEnum):
