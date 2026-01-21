@@ -1,9 +1,3 @@
-"""
-Alembic environment configuration for aaiclick orchestration backend.
-
-This module configures Alembic to work with SQLModel models.
-"""
-
 import os
 from logging.config import fileConfig
 
@@ -11,8 +5,8 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
-# Import all models to ensure they're registered with SQLModel
-from aaiclick.orchestration.models import Dependency, Group, Job, Task, Worker
+# Import models module to ensure all models are registered with SQLModel metadata
+import aaiclick.orchestration.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -53,6 +47,7 @@ def run_migrations_offline() -> None:
 
     Calls to context.execute() here emit the given string to the
     script output.
+
     """
     url = get_url()
     context.configure(
@@ -71,6 +66,7 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
+
     """
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = get_url()
