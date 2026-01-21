@@ -8,7 +8,7 @@ operations, enabling execution of Python-equivalent computations at scale.
 __version__ = "0.1.0"
 
 # Import context manager (primary API), context accessor, and factory functions
-from .context import Context, get_context, create_object, create_object_from_value
+from .data_context import DataContext, get_context, create_object, create_object_from_value
 
 # Import core objects
 from .object import Object, DataResult

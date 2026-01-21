@@ -1,5 +1,5 @@
 """
-aaiclick.context - Context manager for managing ClickHouse client and Object lifecycle.
+aaiclick.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
 
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.
@@ -35,24 +35,24 @@ from .models import (
 from .snowflake import get_snowflake_ids
 
 
-# Global ContextVar to hold the current Context instance
-_current_context: ContextVar['Context'] = ContextVar('current_context')
+# Global ContextVar to hold the current DataContext instance
+_current_context: ContextVar['DataContext'] = ContextVar('current_context')
 
 
-def get_context() -> 'Context':
+def get_context() -> 'DataContext':
     """
-    Get the current Context instance from ContextVar.
+    Get the current DataContext instance from ContextVar.
 
     Returns:
-        Context: The active Context instance
+        DataContext: The active DataContext instance
 
     Raises:
-        RuntimeError: If no active context (must be called within 'async with Context()')
+        RuntimeError: If no active context (must be called within 'async with DataContext()')
     """
     try:
         return _current_context.get()
     except LookupError:
-        raise RuntimeError("No active context - must be called within 'async with Context()'")
+        raise RuntimeError("No active context - must be called within 'async with DataContext()'")
 
 
 # Global connection pool shared across all Context instances
@@ -95,9 +95,9 @@ async def get_ch_client() -> AsyncClient:
     )
 
 
-class Context:
+class DataContext:
     """
-    Context manager for managing ClickHouse client and Object lifecycle.
+    DataContext manager for managing ClickHouse client and Object lifecycle.
 
     This context manager:
     - Manages a ClickHouse client instance (automatically initialized on enter)
@@ -105,14 +105,14 @@ class Context:
     - Automatically deletes tables and marks Objects as stale on exit
 
     Example:
-        >>> async with Context() as ctx:
+        >>> async with DataContext() as ctx:
         ...     obj = await ctx.create_object_from_value([1, 2, 3])
         ...     # Use obj...
         ... # Tables are automatically deleted here
     """
 
     def __init__(self):
-        """Initialize a Context."""
+        """Initialize a DataContext."""
         self._ch_client: Optional[AsyncClient] = None
         self._objects: Dict[int, weakref.ref] = {}
         self._token = None
@@ -130,7 +130,7 @@ class Context:
         """
         if self._ch_client is None:
             raise RuntimeError(
-                "Context client not initialized. Use 'async with Context() as ctx:' to enter context."
+                "DataContext client not initialized. Use 'async with DataContext() as ctx:' to enter context."
             )
         return self._ch_client
 
@@ -191,7 +191,7 @@ class Context:
             obj: Object to delete
 
         Example:
-            >>> async with Context() as ctx:
+            >>> async with DataContext() as ctx:
             ...     obj = await ctx.create_object_from_value([1, 2, 3])
             ...     result = await (obj + obj)
             ...     await ctx.delete(result)  # Clean up intermediate result
@@ -223,10 +223,10 @@ async def create_object(schema: Schema):
         Object: New Object instance with created table
 
     Raises:
-        RuntimeError: If no active context (must be called within 'async with Context()')
+        RuntimeError: If no active context (must be called within 'async with DataContext()')
 
     Examples:
-        >>> async with Context():
+        >>> async with DataContext():
         ...     from aaiclick import Schema
         ...     schema = Schema(
         ...         fieldtype='a',
@@ -310,7 +310,7 @@ async def create_object_from_value(val: ValueType) -> Object:
     """
     Create a new Object from Python values with automatic schema inference.
 
-    Internal function - use Context.create_object_from_value() instead.
+    Internal function - use DataContext.create_object_from_value() instead.
 
     Args:
         val: Value to create object from. Can be:

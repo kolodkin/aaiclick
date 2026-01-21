@@ -16,14 +16,14 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 ### Context Management
 
-Objects are managed by a `Context` and automatically cleaned up when the context exits. All objects created within a context become **stale** when the context is closed.
+Objects are managed by a `DataContext` and automatically cleaned up when the context exits. All objects created within a context become **stale** when the context is closed.
 
 ```python
-async with Context():
+async with DataContext():
     obj = await create_object_from_value([1, 2, 3])
     data = await obj.data()  # ✓ Works fine
 
-# Context exits, obj becomes stale
+# DataContext exits, obj becomes stale
 
 data = await obj.data()  # ✗ RuntimeError: Cannot use stale Object
 ```
@@ -60,7 +60,7 @@ if obj.stale:
 - Allow automatic cleanup on context exit
 
 ```python
-async with Context():
+async with DataContext():
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4, 5, 6])
     result = await (a + b)
@@ -74,7 +74,7 @@ async with Context():
 
 ```python
 # Bad: Storing object for later use
-async with Context():
+async with DataContext():
     obj = await create_object_from_value([1, 2, 3])
 
 data = await obj.data()  # Error! Object is stale

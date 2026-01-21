@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from aaiclick import Context, get_context, create_object_from_value, create_object
+from aaiclick import DataContext, get_context, create_object_from_value, create_object
 
 
 @pytest.fixture(scope="session")
@@ -25,12 +25,12 @@ def event_loop():
 @pytest.fixture
 async def ctx():
     """
-    Fixture that provides a Context for tests.
+    Fixture that provides a DataContext for tests.
 
     Usage:
         async def test_example(ctx):
             obj = await create_object_from_value([1, 2, 3])
             # Tables are automatically cleaned up
     """
-    async with Context() as context:
+    async with DataContext() as context:
         yield context

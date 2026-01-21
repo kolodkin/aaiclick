@@ -7,7 +7,7 @@ Each operator function takes table names and ch_client instead of Object instanc
 
 from __future__ import annotations
 
-from .context import create_object
+from .data_context import create_object
 from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 

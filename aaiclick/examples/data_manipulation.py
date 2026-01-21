@@ -9,7 +9,7 @@ This example demonstrates how to use data manipulation methods:
 
 import asyncio
 
-from aaiclick import Context, create_object_from_value
+from aaiclick import DataContext, create_object_from_value
 
 
 async def example(context):
@@ -190,7 +190,7 @@ async def example(context):
 
 async def main():
     """Main entry point that creates context and calls example."""
-    async with Context() as context:
+    async with DataContext() as context:
         await example(context)
 
 
