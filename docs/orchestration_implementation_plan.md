@@ -32,13 +32,15 @@ if __name__ == "__main__":
    - `alembic` (database migrations)
    - `psycopg2-binary` (for Alembic migrations - sync driver)
 
-2. ⏳ Create `aaiclick/orchestration/models.py`:
+2. ✅ Create `aaiclick/orchestration/models.py`:
    - `JobStatus` enum (PENDING, RUNNING, COMPLETED, FAILED)
    - `TaskStatus` enum (PENDING, CLAIMED, RUNNING, COMPLETED, FAILED)
    - `WorkerStatus` enum (ACTIVE, IDLE, STOPPED)
    - `Job` model (minimal fields: id, name, status, created_at)
    - `Task` model (minimal fields: id, job_id, entrypoint, kwargs, status, result_table_id)
    - `Worker` model (minimal fields: id, hostname, pid, status)
+   - `Group` model (for task grouping with parent_group_id for nesting)
+   - `Dependency` model (unified dependency tracking: previous/next id+type)
    - **Note**: See orchestration.md for ID generation strategy (snowflake IDs from `aaiclick.snowflake`)
 
 3. ⏳ Initialize Alembic:
