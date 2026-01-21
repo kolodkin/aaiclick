@@ -43,6 +43,19 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Runtime imports: Use lazy imports inside methods when modules need each other
     - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
 
+- **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
+  - Simply import what needs to be exported
+  - Python will automatically make imported names available
+  - Reduces maintenance burden (no need to update two lists)
+  - Example:
+    ```python
+    # GOOD - Just import
+    from .models import Job, Task, Worker
+
+    # BAD - Don't add __all__
+    __all__ = ["Job", "Task", "Worker"]
+    ```
+
 ### ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
