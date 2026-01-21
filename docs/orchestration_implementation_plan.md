@@ -211,7 +211,7 @@ job.test()  # Blocks until job completes (test mode)
 **Objective**: Create OrchContext for orchestration and make both contexts available during task execution
 
 **Tasks**:
-1. Create `aaiclick/orchestration/context.py`:
+1. Create `aaiclick/orch_context.py`:
    - Define `OrchContext` class
    - Signature: `def __init__(self, job_id: int)`
    - **Note**: `job_id` is required (not optional) for OrchContext
@@ -221,7 +221,7 @@ job.test()  # Blocks until job completes (test mode)
 
 2. Create context-local storage for OrchContext:
    ```python
-   # In aaiclick/orchestration/context.py
+   # In aaiclick/orch_context.py
    from contextvars import ContextVar
 
    _current_orch_context: ContextVar[Optional[OrchContext]] = ContextVar('orch_context', default=None)

@@ -61,7 +61,7 @@ As aaiclick scales to handle large-scale data processing, we need:
   - Uses global urllib3 connection pool
   - Example: `async with DataContext() as data_ctx:`
 
-- **OrchContext** (`aaiclick.orchestration`): Manages PostgreSQL orchestration state
+- **OrchContext** (`aaiclick.orch_context`): Manages PostgreSQL orchestration state
   - Handles Jobs, Tasks, Groups, Dependencies
   - Uses global asyncpg.Pool (connections acquired per operation)
   - Each operation creates its own session for transaction isolation
