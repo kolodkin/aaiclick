@@ -26,7 +26,7 @@ if __name__ == "__main__":
 **Objective**: Set up PostgreSQL schema for basic job/task tracking
 
 **Tasks**:
-1. ⏳ Add PostgreSQL dependencies to `pyproject.toml`:
+1. ✅ Add PostgreSQL dependencies to `pyproject.toml`:
    - `sqlmodel` (includes Pydantic as transitive dependency - SQLModel is built on Pydantic)
    - `asyncpg` (async PostgreSQL driver)
    - `alembic` (database migrations)
@@ -43,15 +43,15 @@ if __name__ == "__main__":
    - `Dependency` model (unified dependency tracking: previous/next id+type)
    - **Note**: See orchestration.md for ID generation strategy (snowflake IDs from `aaiclick.snowflake`)
 
-3. ⏳ Initialize Alembic:
+3. ✅ Initialize Alembic:
    ```bash
    alembic init aaiclick/orchestration/migrations
    ```
 
-4. ⏳ Create initial migration:
+4. ✅ Create initial migration:
    - Configure `alembic.ini` and `env.py` for SQLModel
-   - Generate migration for Job, Task, Worker tables
-   - Test migration up/down
+   - Create migration for Job, Task, Worker, Group, Dependency tables
+   - Includes upgrade() and downgrade() functions
 
 5. ✅ Add environment variables to `CLAUDE.md`:
    ```bash
