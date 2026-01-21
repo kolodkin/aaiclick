@@ -84,6 +84,52 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   await ch_client.insert(dest, data)
   ```
 
+### Alembic Migration Guidelines
+
+**Always use Alembic built-in commands for creating migrations:**
+
+- **Create new migration**: Use `alembic revision -m "description"` or `alembic revision --autogenerate -m "description"`
+  ```bash
+  # Create empty migration file (manual)
+  alembic revision -m "add user table"
+
+  # Auto-generate migration from model changes (requires database connection)
+  alembic revision --autogenerate -m "add user table"
+  ```
+
+- **Apply migrations**: Use `alembic upgrade head` or `alembic upgrade +1`
+  ```bash
+  # Apply all pending migrations
+  alembic upgrade head
+
+  # Apply next migration
+  alembic upgrade +1
+  ```
+
+- **Rollback migrations**: Use `alembic downgrade -1` or `alembic downgrade <revision>`
+  ```bash
+  # Rollback last migration
+  alembic downgrade -1
+
+  # Rollback to specific revision
+  alembic downgrade abc123
+  ```
+
+- **Check status**: Use `alembic current` and `alembic history`
+  ```bash
+  # Show current revision
+  alembic current
+
+  # Show migration history
+  alembic history --verbose
+  ```
+
+**Important**:
+- Never manually create migration files from scratch
+- Always use `alembic revision` to generate the migration file skeleton
+- Fill in `upgrade()` and `downgrade()` functions with actual migration code
+- Test both upgrade and downgrade paths
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
