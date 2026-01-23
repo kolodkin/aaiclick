@@ -2,47 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import Union
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
 from aaiclick.snowflake import get_snowflake_id
 
+from .context import get_orch_context_session
 from .models import Job, JobStatus, Task, TaskStatus
-
-
-# Lazy-initialized async engine
-_engine: list[object] = [None]
-
-
-async def get_async_engine():
-    """Get or create the async SQLAlchemy engine."""
-    if _engine[0] is None:
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = os.getenv("POSTGRES_PORT", "5432")
-        user = os.getenv("POSTGRES_USER", "aaiclick")
-        password = os.getenv("POSTGRES_PASSWORD", "secret")
-        database = os.getenv("POSTGRES_DB", "aaiclick")
-
-        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-        _engine[0] = create_async_engine(database_url, echo=False)
-
-    return _engine[0]
-
-
-async def reset_async_engine():
-    """Reset the async SQLAlchemy engine.
-
-    Disposes the existing engine and sets it to None, forcing
-    a new engine to be created on next get_async_engine() call.
-
-    Used primarily for test cleanup to ensure test isolation.
-    """
-    if _engine[0] is not None:
-        await _engine[0].dispose()
-        _engine[0] = None
 
 
 def create_task(callback: str, kwargs: dict = None) -> Task:
@@ -107,9 +73,8 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
     # Set task's job_id
     task.job_id = job_id
 
-    # Commit to database using SQLAlchemy ORM
-    engine = await get_async_engine()
-    async with AsyncSession(engine, expire_on_commit=False) as session:
+    # Commit to database using OrchContext session
+    async with get_orch_context_session() as session:
         # Add job and task using ORM
         session.add(job)
         session.add(task)

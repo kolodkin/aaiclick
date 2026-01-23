@@ -46,8 +46,8 @@ async def reset_postgres_pool():
     """
     yield
     # Clean up after test using reset methods from pool-related files
+    from aaiclick.orchestration.context import reset_orch_context_engine
     from aaiclick.orchestration.database import reset_postgres_pool
-    from aaiclick.orchestration.factories import reset_async_engine
 
     await reset_postgres_pool()
-    await reset_async_engine()
+    await reset_orch_context_engine()
