@@ -2,14 +2,34 @@
 
 from __future__ import annotations
 
-import json
+import os
 from datetime import datetime
 from typing import Union
 
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
 from aaiclick.snowflake import get_snowflake_id
 
-from .database import get_postgres_pool
 from .models import Job, JobStatus, Task, TaskStatus
+
+
+# Lazy-initialized async engine
+_engine: list[object] = [None]
+
+
+async def get_async_engine():
+    """Get or create the async SQLAlchemy engine."""
+    if _engine[0] is None:
+        host = os.getenv("POSTGRES_HOST", "localhost")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        user = os.getenv("POSTGRES_USER", "aaiclick")
+        password = os.getenv("POSTGRES_PASSWORD", "secret")
+        database = os.getenv("POSTGRES_DB", "aaiclick")
+
+        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+        _engine[0] = create_async_engine(database_url, echo=False)
+
+    return _engine[0]
 
 
 def create_task(callback: str, kwargs: dict = None) -> Task:
@@ -74,48 +94,14 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
     # Set task's job_id
     task.job_id = job_id
 
-    # Commit to database
-    pool = await get_postgres_pool()
-    async with pool.acquire() as conn:
-        # Insert job
-        await conn.execute(
-            """
-            INSERT INTO jobs (id, name, status, created_at, started_at, completed_at, error)
-            VALUES ($1::BIGINT, $2, $3, $4, $5, $6, $7)
-            """,
-            job.id,
-            job.name,
-            job.status.value,
-            job.created_at,
-            job.started_at,
-            job.completed_at,
-            job.error,
-        )
+    # Commit to database using SQLAlchemy ORM
+    engine = await get_async_engine()
+    async with AsyncSession(engine) as session:
+        # Add job and task using ORM
+        session.add(job)
+        session.add(task)
 
-        # Insert task
-        await conn.execute(
-            """
-            INSERT INTO tasks (
-                id, job_id, group_id, entrypoint, kwargs, status,
-                created_at, claimed_at, started_at, completed_at,
-                worker_id, result_table_id, log_path, error
-            )
-            VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4, $5::JSONB, $6, $7, $8, $9, $10, $11::BIGINT, $12::BIGINT, $13, $14)
-            """,
-            task.id,
-            task.job_id,
-            task.group_id,
-            task.entrypoint,
-            json.dumps(task.kwargs),
-            task.status.value,
-            task.created_at,
-            task.claimed_at,
-            task.started_at,
-            task.completed_at,
-            task.worker_id,
-            task.result_table_id,
-            task.log_path,
-            task.error,
-        )
+        # Commit transaction
+        await session.commit()
 
     return job
