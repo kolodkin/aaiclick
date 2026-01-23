@@ -140,11 +140,11 @@ check_pr_exists() {
 # Step 5: Check for PR review comments
 check_review_comments() {
     echo ""
-    echo -e "${BLUE}🔍 Checking for PR review comments...${NC}"
+    echo -e "${BLUE}🔍 Checking for unresolved PR review comments...${NC}"
     echo ""
 
-    # Get PR review decision and reviews
-    REVIEW_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewDecision,reviews,comments 2>/dev/null)
+    # Get PR review decision
+    REVIEW_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewDecision 2>/dev/null)
 
     if [ -z "$REVIEW_DATA" ]; then
         echo -e "${YELLOW}⚠️  Could not fetch PR review data${NC}"
@@ -152,31 +152,54 @@ check_review_comments() {
     fi
 
     REVIEW_DECISION=$(echo "$REVIEW_DATA" | jq -r '.reviewDecision')
-
     echo -e "${BLUE}Review Status: ${NC}$REVIEW_DECISION"
 
-    # Check for review comments
-    COMMENT_COUNT=$(echo "$REVIEW_DATA" | jq -r '.comments | length')
+    # Get unresolved review threads using GraphQL API
+    UNRESOLVED_THREADS=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+              comments(first: 1) {
+                nodes {
+                  path
+                  body
+                  line
+                }
+              }
+            }
+          }
+        }
+      }
+    }' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F number="$PR_NUMBER" 2>/dev/null)
 
-    if [ "$COMMENT_COUNT" -gt 0 ]; then
+    # Count unresolved threads
+    UNRESOLVED_COUNT=$(echo "$UNRESOLVED_THREADS" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' 2>/dev/null || echo "0")
+
+    if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
         echo ""
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${YELLOW}📝 PR HAS $COMMENT_COUNT REVIEW COMMENT(S)${NC}"
+        echo -e "${YELLOW}📝 PR HAS $UNRESOLVED_COUNT UNRESOLVED REVIEW THREAD(S)${NC}"
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
-        # Display comments
-        gh pr view "$PR_NUMBER" --repo "$REPO" --comments | head -n 100
+        # Display unresolved comments
+        echo "$UNRESOLVED_THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[0] | "File: \(.path)\nLine: \(.line // "N/A")\nComment: \(.body)\n---"' 2>/dev/null
 
         echo ""
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo -e "${YELLOW}💡 Agent should address review comments${NC}"
+        echo -e "${YELLOW}💡 Agent should address unresolved review comments${NC}"
         echo ""
         echo "Commands to help:"
-        echo "  • View comments: gh pr view $PR_NUMBER --comments"
+        echo "  • View all comments: gh pr view $PR_NUMBER --comments"
         echo "  • Reply to comment: gh pr comment $PR_NUMBER --body \"response\""
         echo "  • View diff: gh pr diff $PR_NUMBER"
+        echo ""
+    else
+        echo -e "${GREEN}✅ No unresolved review comments${NC}"
         echo ""
     fi
 
@@ -192,8 +215,8 @@ check_review_comments() {
         return 0
     elif [ "$REVIEW_DECISION" = "REVIEW_REQUIRED" ]; then
         echo -e "${YELLOW}⏳ PR is awaiting review${NC}"
-        if [ "$COMMENT_COUNT" -gt 0 ]; then
-            echo -e "${YELLOW}But comments exist - consider addressing them${NC}"
+        if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
+            echo -e "${YELLOW}But unresolved comments exist - consider addressing them${NC}"
         fi
         echo ""
         return 0

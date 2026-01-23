@@ -196,15 +196,17 @@ prompt: |
 
   ## Step 6: Check and Address PR Review Comments
 
-  After workflows pass, **ALWAYS check for PR review comments**:
+  After workflows pass, **ALWAYS check for unresolved PR review thread comments**:
 
   ```bash
-  # Check for review comments on the PR
-  gh pr view --json reviews,reviewDecision
+  # Check for unresolved review threads using GraphQL API
+  gh api graphql -f query='...' # (handled by pr-checks.sh script)
 
   # List all review comments (including resolved)
   gh pr view --comments
   ```
+
+  **NOTE:** The pr-checks script now filters and displays ONLY unresolved review thread comments, so agents focus on active feedback that needs to be addressed.
 
   ### Agent Workflow for Review Comments
 
