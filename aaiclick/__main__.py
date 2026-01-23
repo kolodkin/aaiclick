@@ -5,29 +5,37 @@ Usage:
     python -m aaiclick migrate --help # Show migration help
 """
 
-import sys
+import argparse
 
 
 def main():
     """Main CLI entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: python -m aaiclick <command>")
-        print("\nAvailable commands:")
-        print("  migrate    Run database migrations")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        prog="aaiclick",
+        description="aaiclick command-line interface",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    command = sys.argv[1]
+    # Add migrate subcommand
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Run database migrations",
+    )
+    migrate_parser.add_argument(
+        "args",
+        nargs="*",
+        help="Additional arguments for migration command",
+    )
 
-    if command == "migrate":
+    args = parser.parse_args()
+
+    if args.command == "migrate":
         from aaiclick.orchestration.migrate import run_migrations
 
         # Pass remaining args to migration command
-        run_migrations(sys.argv[2:])
+        run_migrations(args.args if hasattr(args, "args") else [])
     else:
-        print(f"Unknown command: {command}")
-        print("\nAvailable commands:")
-        print("  migrate    Run database migrations")
-        sys.exit(1)
+        parser.print_help()
 
 
 if __name__ == "__main__":
