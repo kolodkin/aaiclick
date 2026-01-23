@@ -17,22 +17,23 @@ As aaiclick scales to handle large-scale data processing, we need:
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Global Resources                           │
-│  ┌─────────────────────┐        ┌──────────────────────────┐    │
-│  │  ClickHouse Pool    │        │  SQLAlchemy AsyncEngine  │    │
-│  │  (urllib3 Pool)     │        │  (Global, manages pool)  │    │
-│  └─────────────────────┘        └──────────────────────────┘    │
+│  ┌─────────────────────┐                                         │
+│  │  ClickHouse Pool    │                                         │
+│  │  (urllib3 Pool)     │                                         │
+│  └─────────────────────┘                                         │
 └──────────────────────────────────────────────────────────────────┘
-           │                                      │
-           │                                      │
-           ▼                                      ▼
+           │
+           │
+           ▼
 ┌──────────────────────┐           ┌──────────────────────────┐
 │   DataContext        │           │    OrchContext           │
 │  (ClickHouse data)   │           │  (Orchestration state)   │
 │  ┌────────────────┐  │           │  ┌────────────────────┐ │
-│  │ ClickHouse     │  │           │  │ Creates sessions   │ │
-│  │ Client         │  │           │  │ from engine        │ │
+│  │ ClickHouse     │  │           │  │ AsyncEngine        │ │
+│  │ Client         │  │           │  │ (per-context)      │ │
 │  └────────────────┘  │           │  └────────────────────┘ │
-│                      │           │  job_id: Optional[int] │
+│                      │           │  Creates/disposes on   │
+│                      │           │  enter/exit            │
 └──────────────────────┘           └──────────────────────────┘
            │                                      │
            │ Objects/Views                        │ Jobs/Tasks/Groups
@@ -63,7 +64,8 @@ As aaiclick scales to handle large-scale data processing, we need:
 
 - **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
   - Handles Jobs, Tasks, Groups, Dependencies
-  - Uses global SQLAlchemy AsyncEngine (engine manages connection pooling internally via asyncpg)
+  - Creates fresh SQLAlchemy AsyncEngine on `__aenter__`, disposes on `__aexit__`
+  - Ensures proper async lifecycle and test isolation
   - Each operation creates its own AsyncSession for transaction isolation
   - Example: `async with OrchContext() as orch_ctx:`
 

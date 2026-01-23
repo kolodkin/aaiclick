@@ -106,11 +106,12 @@ if __name__ == "__main__":
    - See: `aaiclick/orchestration/factories.py:12-107`
 
 3. ✅ `aaiclick/orchestration/context.py`:
-   - Global SQLAlchemy AsyncEngine (engine manages connection pooling internally)
-   - `_get_engine()` - private function returns global engine, initializes on first call
+   - Each OrchContext creates its own SQLAlchemy AsyncEngine on `__aenter__`
+   - Engine disposed on `__aexit__` (proper async lifecycle)
    - Engine initialized with env vars (POSTGRES_HOST, POSTGRES_PORT, etc.)
-   - Each operation creates AsyncSession from engine for transactions
-   - OrchContext provides access to engine via ContextVar pattern
+   - Each operation creates AsyncSession from context's engine for transactions
+   - OrchContext provides access via ContextVar pattern
+   - Ensures test isolation without cleanup fixtures
    - See: `aaiclick/orchestration/context.py`
 
 4. ✅ Database persistence in `create_job()`:
@@ -238,10 +239,11 @@ job.test()  # Blocks until job completes (test mode)
 1. ✅ Created `aaiclick/orchestration/context.py`:
    - Define `OrchContext` class
    - Signature: `def __init__(self)`
-   - Uses global SQLAlchemy AsyncEngine (via `_get_engine()`)
-   - Each operation creates AsyncSession from engine for transactions
+   - Creates SQLAlchemy AsyncEngine in `__aenter__` (per-context)
+   - Disposes engine in `__aexit__` (proper async cleanup)
+   - Each operation creates AsyncSession from context's engine
    - Implements context manager protocol (`__aenter__`, `__aexit__`)
-   - **Implementation**: `aaiclick/orchestration/context.py:82-141`
+   - **Implementation**: `aaiclick/orchestration/context.py:38-127`
 
 2. ✅ Context-local storage for OrchContext:
    ```python
@@ -281,13 +283,14 @@ job.test()  # Blocks until job completes (test mode)
    - Return committed objects
 
 **Deliverables**:
-- ✅ Global SQLAlchemy AsyncEngine shared across all OrchContext instances
+- ✅ Per-context SQLAlchemy AsyncEngine (created on enter, disposed on exit)
 - ✅ OrchContext class (no job_id parameter - simplified)
 - ⚠️ Tasks execute with both DataContext (data) and OrchContext (orchestration) (planned)
 - ✅ OrchContext available via `get_orch_context()`
 - ✅ DataContext remains unchanged (backward compatible)
 - ⚠️ `orch_ctx.apply()` works for committing tasks (planned)
-- ✅ Each operation creates its own AsyncSession from global engine
+- ✅ Each operation creates its own AsyncSession from context's engine
+- ✅ Proper async lifecycle ensures test isolation without cleanup fixtures
 
 ---
 
