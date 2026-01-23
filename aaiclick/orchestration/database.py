@@ -49,12 +49,13 @@ async def get_postgres_pool() -> asyncpg.Pool:
 async def get_postgres_connection():
     """Acquire a connection from the global pool.
 
-    Use as async context manager:
-        async with get_postgres_connection() as conn:
+    Use like this:
+        conn = await get_postgres_connection()
+        async with conn:
             result = await conn.fetch("SELECT * FROM jobs")
 
     Returns:
-        Connection context manager from pool
+        Connection context manager from pool (must be awaited first)
     """
     pool = await get_postgres_pool()
     return pool.acquire()
