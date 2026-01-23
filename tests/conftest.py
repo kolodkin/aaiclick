@@ -10,6 +10,7 @@ import asyncio
 import pytest
 
 from aaiclick import DataContext, create_object, create_object_from_value, get_context
+from aaiclick.orchestration.context import OrchContext
 
 
 @pytest.fixture(scope="session")
@@ -37,17 +38,35 @@ async def ctx():
 
 
 @pytest.fixture(autouse=True)
+async def orch_ctx():
+    """
+    Fixture that provides an OrchContext for orchestration tests.
+
+    Automatically used for all tests to ensure OrchContext is available.
+    The engine is automatically disposed when the context exits.
+
+    Usage:
+        async def test_example(orch_ctx):
+            job = await create_job("my_job", "mymodule.task1")
+            # Engine is automatically cleaned up
+    """
+    async with OrchContext() as context:
+        yield context
+
+
+@pytest.fixture(autouse=True)
 async def reset_postgres_pool():
     """
-    Reset PostgreSQL connection pool and SQLAlchemy engine after each test.
+    Reset PostgreSQL connection pool after each test.
 
     This ensures tests don't interfere with each other through
     shared connection pool state.
+
+    Note: SQLAlchemy engine cleanup is handled automatically by
+    OrchContext.__aexit__() via the orch_ctx fixture.
     """
     yield
-    # Clean up after test using reset methods from pool-related files
-    from aaiclick.orchestration.context import reset_orch_context_engine
+    # Clean up after test using reset method from database.py
     from aaiclick.orchestration.database import reset_postgres_pool
 
     await reset_postgres_pool()
-    await reset_orch_context_engine()
