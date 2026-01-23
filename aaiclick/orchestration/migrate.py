@@ -14,10 +14,9 @@ def get_alembic_config() -> Config:
     Returns:
         Alembic Config object configured for orchestration migrations
     """
-    # Get the project root (where alembic.ini lives)
-    # When running as installed package, use package location
-    package_dir = Path(__file__).parent.parent.parent
-    alembic_ini = package_dir / "alembic.ini"
+    # Get the orchestration package directory (where alembic.ini lives)
+    orchestration_dir = Path(__file__).parent
+    alembic_ini = orchestration_dir / "alembic.ini"
 
     if not alembic_ini.exists():
         raise FileNotFoundError(
@@ -29,7 +28,7 @@ def get_alembic_config() -> Config:
     config = Config(str(alembic_ini))
 
     # Set script location to migrations directory
-    migrations_dir = package_dir / "aaiclick" / "orchestration" / "migrations"
+    migrations_dir = orchestration_dir / "migrations"
     config.set_main_option("script_location", str(migrations_dir))
 
     return config
