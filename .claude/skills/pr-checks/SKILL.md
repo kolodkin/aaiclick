@@ -227,25 +227,25 @@ prompt: |
      ```bash
      git push
      ```
-  5. **Post reply to EACH comment individually using gh CLI** (REQUIRED - agent posts, not script):
+  5. **Reply to EACH comment thread individually using gh CLI** (REQUIRED - agent posts, not script):
      ```bash
      # For each review comment that was addressed:
      # 1. Get the commit SHA that addressed it
      COMMIT_SHA=$(git log --format="%h" --grep="<search term>" -1)
 
-     # 2. Post individual reply for that specific comment
-     gh pr comment 33 --body "✅ Addressed: <brief description of change>
+     # 2. Post reply to that specific comment thread
+     gh pr comment 33 --body "✅ Agent Addressed: <brief description of change>
 
 Commit: $COMMIT_SHA"
      ```
      **Example:**
      ```bash
-     # Post separate reply for each review comment
-     gh pr comment 33 --body "✅ Addressed: Updated to use argparse instead of manual sys.argv parsing
+     # Reply to each comment thread separately
+     gh pr comment 33 --body "✅ Agent Addressed: Updated to use argparse instead of manual sys.argv parsing
 
 Commit: 2d7f087"
      ```
-     **IMPORTANT**: Post individual replies for EACH review comment - do NOT post a single summary comment
+     **IMPORTANT**: Reply to EACH comment thread individually - do NOT post a single summary comment
   6. **Reviewers manually resolve threads** after verifying fixes
 
   ### Agent Commands for Responding to Reviews
@@ -270,15 +270,15 @@ Commit: 2d7f087"
   - Make the requested change
   - Ensure change aligns with project guidelines (CLAUDE.md)
   - Commit and push
-  - Post reply using gh CLI:
+  - Reply to the comment thread using gh CLI:
     ```bash
-    gh pr comment 33 --body "✅ Addressed: <description>
+    gh pr comment 33 --body "✅ Agent Addressed: <description>
 
 Commit: $(git rev-parse --short HEAD)"
     ```
 
   **For clarification questions:**
-  - Respond with clear explanation using `gh pr comment`:
+  - Respond with clear explanation by replying to the comment:
     ```bash
     gh pr comment 33 --body "<explanation with examples if needed>"
     ```
@@ -288,9 +288,9 @@ Commit: $(git rev-parse --short HEAD)"
   - Follow project conventions from CLAUDE.md
   - Update code to match requested style
   - Apply same fix throughout codebase if applicable
-  - Post reply confirming the change:
+  - Reply to the comment confirming the change:
     ```bash
-    gh pr comment 33 --body "✅ Applied style change: <description>
+    gh pr comment 33 --body "✅ Agent Addressed: <description>
 
 Commit: $(git rev-parse --short HEAD)"
     ```
