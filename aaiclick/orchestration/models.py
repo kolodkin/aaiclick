@@ -62,7 +62,7 @@ class Job(SQLModel, table=True):
 
     __tablename__ = "jobs"
 
-    id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True))
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     name: str = Field(index=True)
     status: JobStatus = Field(default=JobStatus.PENDING, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -80,7 +80,7 @@ class Group(SQLModel, table=True):
 
     __tablename__ = "groups"
 
-    id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True))
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(foreign_key="jobs.id", sa_column=Column(BigInteger, index=True))
     parent_group_id: Optional[int] = Field(default=None, foreign_key="groups.id", sa_column=Column(BigInteger, index=True, nullable=True))
     name: str = Field()
@@ -96,7 +96,7 @@ class Task(SQLModel, table=True):
 
     __tablename__ = "tasks"
 
-    id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True))
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(foreign_key="jobs.id", sa_column=Column(BigInteger, index=True))
     group_id: Optional[int] = Field(default=None, foreign_key="groups.id", sa_column=Column(BigInteger, index=True, nullable=True))
     entrypoint: str = Field()
@@ -121,7 +121,7 @@ class Worker(SQLModel, table=True):
 
     __tablename__ = "workers"
 
-    id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True))
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     hostname: str = Field(index=True)
     pid: int = Field()
     status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
@@ -143,11 +143,11 @@ class Dependency(SQLModel, table=True):
     __tablename__ = "dependencies"
 
     # Entity that must complete first
-    previous_id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True, index=True))
+    previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
     previous_type: str = Field(primary_key=True)  # 'task' or 'group'
 
     # Entity that waits (executes after previous completes)
-    next_id: int = Field(primary_key=True, sa_column=Column(BigInteger, primary_key=True, index=True))
+    next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
     next_type: str = Field(primary_key=True)  # 'task' or 'group'
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
