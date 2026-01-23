@@ -181,7 +181,7 @@ prompt: |
   After push, continuously monitor the workflow:
   1. Check status every 10 seconds
   2. If "in_progress" or "queued" → continue polling
-  3. If "completed" with "success" → report success, stop polling
+  3. If "completed" with "success" → report success, then check for review comments (Step 6)
   4. If "completed" with "failure" → fetch logs, report to agent, agent fixes
 
   ## Success Criteria
@@ -192,5 +192,69 @@ prompt: |
   - ✅ Errors analyzed and resolved
   - ✅ User informed of status
   - ✅ **Polling continues until definitive result**
+  - ✅ **PR review comments addressed**
+
+  ## Step 6: Check and Address PR Review Comments
+
+  After workflows pass, **ALWAYS check for PR review comments**:
+
+  ```bash
+  # Check for review comments on the PR
+  gh pr view --json reviews,reviewDecision
+
+  # List all review comments (including resolved)
+  gh pr view --comments
+  ```
+
+  ### Review Comment Workflow
+
+  1. **After CI passes**, check PR for review comments
+  2. **If unresolved comments exist**:
+     - Read each comment carefully
+     - Understand the requested change
+     - Implement the fix
+     - Commit with message: `Address review: <brief description>`
+     - Push changes
+     - **Optionally reply** to comment: `gh pr comment <pr-number> --body "✅ Addressed in commit <sha>"`
+  3. **If review requests changes**:
+     - Address ALL requested changes
+     - Push fixes
+     - Comment on PR: `@reviewer Ready for re-review - addressed all feedback`
+  4. **Repeat** until PR is approved
+
+  ### Review Comment Commands
+
+  ```bash
+  # View PR with review decision
+  gh pr view <pr-number> --json reviewDecision,reviews
+
+  # List all comments
+  gh pr view <pr-number> --comments
+
+  # Reply to specific review comment
+  gh pr comment <pr-number> --body "Response text"
+
+  # Request re-review after addressing feedback
+  gh pr review <pr-number> --comment --body "@reviewer Ready for re-review"
+  ```
+
+  ### Handling Review Comments
+
+  **For code change requests:**
+  - Read the file and understand current implementation
+  - Make the requested change
+  - Ensure change aligns with project guidelines (CLAUDE.md)
+  - Test if applicable
+  - Commit and push
+
+  **For clarification questions:**
+  - Respond with clear explanation in PR comment
+  - Provide code examples if helpful
+  - Offer to implement alternative if needed
+
+  **For style/convention feedback:**
+  - Follow project conventions from CLAUDE.md
+  - Update code to match requested style
+  - Apply same fix throughout codebase if applicable
 
   Be PROACTIVE: Don't wait for user to ask - automatically check and poll workflows after every push!
