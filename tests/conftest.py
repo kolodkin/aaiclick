@@ -48,24 +48,3 @@ async def orch_ctx():
     """
     async with OrchContext() as context:
         yield context
-
-
-@pytest.fixture(autouse=True)
-async def cleanup_engine():
-    """
-    Reset SQLAlchemy engine after each test to ensure isolation.
-
-    The global engine persists across tests, and asyncpg connections in the pool
-    retain protocol state (prepared statements, Futures, transactions) that goes
-    beyond what SQLAlchemy's pool_reset_on_return can clean. Disposing the engine
-    ensures each test gets fresh connections with clean asyncpg protocol state.
-
-    Without this, tests fail with:
-    - "InterfaceError: another operation is in progress" (stale transactions)
-    - "RuntimeError: Future attached to different loop" (stale asyncpg Futures)
-    """
-    yield
-    # Clean up after test
-    from aaiclick.orchestration.context import _reset_engine
-
-    await _reset_engine()

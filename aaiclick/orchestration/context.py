@@ -5,16 +5,13 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 
 # Global ContextVar to hold the current OrchContext instance
 _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
-
-# Global async engine (SQLAlchemy manages connection pooling internally)
-_engine: list[Optional[AsyncEngine]] = [None]
 
 
 def get_orch_context() -> 'OrchContext':
@@ -38,58 +35,12 @@ def get_orch_context() -> 'OrchContext':
         raise RuntimeError("No active OrchContext - must be called within 'async with OrchContext()'")
 
 
-def _get_engine() -> AsyncEngine:
-    """Get or create the global async SQLAlchemy engine (private).
-
-    Engine is initialized on first call using environment variables:
-    - POSTGRES_HOST (default: "localhost")
-    - POSTGRES_PORT (default: 5432)
-    - POSTGRES_USER (default: "aaiclick")
-    - POSTGRES_PASSWORD (default: "secret")
-    - POSTGRES_DB (default: "aaiclick")
-
-    SQLAlchemy manages connection pooling internally via asyncpg.
-
-    Returns:
-        AsyncEngine for orchestration database
-    """
-    if _engine[0] is None:
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = os.getenv("POSTGRES_PORT", "5432")
-        user = os.getenv("POSTGRES_USER", "aaiclick")
-        password = os.getenv("POSTGRES_PASSWORD", "secret")
-        database = os.getenv("POSTGRES_DB", "aaiclick")
-
-        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-        _engine[0] = create_async_engine(database_url, echo=False)
-
-    return _engine[0]
-
-
-async def _reset_engine():
-    """Reset the global async SQLAlchemy engine (private).
-
-    Disposes the existing engine and sets it to None, forcing
-    a new engine to be created on next call.
-
-    Required for test isolation because asyncpg connections in the pool
-    retain protocol state (prepared statements, transactions, Futures)
-    beyond what SQLAlchemy's pool_reset_on_return can clean. This ensures
-    each test gets fresh connections with clean asyncpg protocol state.
-    """
-    if _engine[0] is not None:
-        await _engine[0].dispose()
-        _engine[0] = None
-
-
 class OrchContext:
     """
     OrchContext manager for orchestration database access.
 
-    This context manager:
-    - Provides access to the global SQLAlchemy AsyncEngine
-    - Sets itself in ContextVar for global access via get_orch_context()
-    - SQLAlchemy manages connection pooling internally
+    Each context creates its own SQLAlchemy AsyncEngine on enter and disposes
+    it on exit, ensuring proper async lifecycle and test isolation.
 
     Example:
         >>> async with OrchContext() as ctx:
@@ -100,30 +51,62 @@ class OrchContext:
     def __init__(self):
         """Initialize OrchContext."""
         self._token = None
+        self._engine: AsyncEngine | None = None
 
     @property
     def engine(self) -> AsyncEngine:
         """
-        Get the global async SQLAlchemy engine.
+        Get the async SQLAlchemy engine for this context.
 
         Returns:
-            AsyncEngine: The SQLAlchemy engine (global, shared across contexts)
+            AsyncEngine: The SQLAlchemy engine for this context
+
+        Raises:
+            RuntimeError: If accessed outside of context manager
 
         Example:
             async with OrchContext() as ctx:
                 engine = ctx.engine
         """
-        return _get_engine()
+        if self._engine is None:
+            raise RuntimeError("Engine not initialized - must be called within context")
+        return self._engine
 
     async def __aenter__(self):
-        """Enter the context, initializing the engine and setting ContextVar."""
-        _get_engine()  # Ensure engine is initialized
+        """
+        Enter the context, creating engine and setting ContextVar.
+
+        Creates a new SQLAlchemy AsyncEngine using environment variables:
+        - POSTGRES_HOST (default: "localhost")
+        - POSTGRES_PORT (default: 5432)
+        - POSTGRES_USER (default: "aaiclick")
+        - POSTGRES_PASSWORD (default: "secret")
+        - POSTGRES_DB (default: "aaiclick")
+        """
+        host = os.getenv("POSTGRES_HOST", "localhost")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        user = os.getenv("POSTGRES_USER", "aaiclick")
+        password = os.getenv("POSTGRES_PASSWORD", "secret")
+        database = os.getenv("POSTGRES_DB", "aaiclick")
+
+        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+        self._engine = create_async_engine(database_url, echo=False)
+
         self._token = _current_orch_context.set(self)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Exit the context, resetting ContextVar."""
+        """
+        Exit the context, disposing engine and resetting ContextVar.
+
+        Properly disposes the async engine, closing all connections.
+        """
         _current_orch_context.reset(self._token)
+
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+
         return False
 
     @asynccontextmanager
