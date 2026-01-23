@@ -98,7 +98,7 @@ jobs:
         run: |
           # Run migrations using package CLI
           echo "Running database migrations..."
-          uv run python -m aaiclick migrate
+          uv run python -m aaiclick migrate upgrade head
 
       - name: Run tests
         env:
