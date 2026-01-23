@@ -7,7 +7,7 @@ from typing import Union
 
 from aaiclick.snowflake import get_snowflake_id
 
-from .database import get_postgres_connection
+from .database import get_postgres_pool
 from .models import Job, JobStatus, Task, TaskStatus
 
 
@@ -74,7 +74,8 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
     task.job_id = job_id
 
     # Commit to database
-    async with get_postgres_connection() as conn:
+    pool = await get_postgres_pool()
+    async with pool.acquire() as conn:
         # Insert job
         await conn.execute(
             """
