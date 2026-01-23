@@ -8,11 +8,11 @@ from typing import Optional
 import asyncpg
 
 
-_pool: Optional[asyncpg.Pool] = None
+_pool: list[Optional[asyncpg.Pool]] = [None]
 
 
 async def get_postgres_pool() -> asyncpg.Pool:
-    """Get or create the global PostgreSQL connection pool.
+    """Get or create the PostgreSQL connection pool.
 
     Pool is initialized on first call using environment variables:
     - POSTGRES_HOST (default: "localhost")
@@ -22,23 +22,21 @@ async def get_postgres_pool() -> asyncpg.Pool:
     - POSTGRES_DB (default: "aaiclick")
 
     Returns:
-        Global asyncpg connection pool
+        asyncpg connection pool
 
     Example:
         pool = await get_postgres_pool()
         async with pool.acquire() as conn:
             result = await conn.fetch("SELECT * FROM jobs")
     """
-    global _pool
-
-    if _pool is None:
+    if _pool[0] is None:
         host = os.getenv("POSTGRES_HOST", "localhost")
         port = int(os.getenv("POSTGRES_PORT", "5432"))
         user = os.getenv("POSTGRES_USER", "aaiclick")
         password = os.getenv("POSTGRES_PASSWORD", "secret")
         database = os.getenv("POSTGRES_DB", "aaiclick")
 
-        _pool = await asyncpg.create_pool(
+        _pool[0] = await asyncpg.create_pool(
             host=host,
             port=port,
             user=user,
@@ -48,4 +46,4 @@ async def get_postgres_pool() -> asyncpg.Pool:
             max_size=10,
         )
 
-    return _pool
+    return _pool[0]
