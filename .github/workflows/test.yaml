@@ -88,7 +88,7 @@ jobs:
             sleep 2
           done
 
-      - name: Run Alembic migrations
+      - name: Run database migrations
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -96,13 +96,9 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
         run: |
-          # Run migrations if alembic.ini exists (orchestration backend implemented)
-          if [ -f "alembic.ini" ]; then
-            echo "Running Alembic migrations..."
-            uv run alembic upgrade head
-          else
-            echo "No alembic.ini found - skipping migrations (orchestration not yet implemented)"
-          fi
+          # Run migrations using package CLI
+          echo "Running database migrations..."
+          uv run python -m aaiclick migrate
 
       - name: Run tests
         env:
