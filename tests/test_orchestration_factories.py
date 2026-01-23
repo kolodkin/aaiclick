@@ -59,13 +59,13 @@ async def test_create_job_with_string():
 
     # Verify job was persisted to database
     async with get_postgres_connection() as conn:
-        row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
+        row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1::BIGINT", job.id)
         assert row is not None
         assert row["name"] == "test_job"
         assert row["status"] == "pending"
 
         # Verify task was created and persisted
-        task_rows = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1", job.id)
+        task_rows = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1::BIGINT", job.id)
         assert len(task_rows) == 1
         assert task_rows[0]["entrypoint"] == "mymodule.task1"
         assert task_rows[0]["status"] == "pending"
@@ -82,7 +82,7 @@ async def test_create_job_with_task():
 
     # Verify task has job_id assigned
     async with get_postgres_connection() as conn:
-        task_row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1", task.id)
+        task_row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1::BIGINT", task.id)
         assert task_row is not None
         assert task_row["job_id"] == job.id
         assert task_row["entrypoint"] == "mymodule.task2"
@@ -122,10 +122,10 @@ async def test_job_task_relationship():
 
     async with get_postgres_connection() as conn:
         # Get job
-        job_row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
+        job_row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1::BIGINT", job.id)
         assert job_row is not None
 
         # Get tasks for this job
-        tasks = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1", job.id)
+        tasks = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1::BIGINT", job.id)
         assert len(tasks) == 1
         assert tasks[0]["job_id"] == job.id

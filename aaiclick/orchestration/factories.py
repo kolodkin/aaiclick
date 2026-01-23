@@ -79,7 +79,7 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
         await conn.execute(
             """
             INSERT INTO jobs (id, name, status, created_at, started_at, completed_at, error)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1::BIGINT, $2, $3, $4, $5, $6, $7)
             """,
             job.id,
             job.name,
@@ -98,7 +98,7 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
                 created_at, claimed_at, started_at, completed_at,
                 worker_id, result_table_id, log_path, error
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4, $5, $6, $7, $8, $9, $10, $11::BIGINT, $12::BIGINT, $13, $14)
             """,
             task.id,
             task.job_id,
