@@ -1,5 +1,6 @@
 """Tests for orchestration factory functions."""
 
+import json
 from datetime import datetime
 
 from aaiclick.orchestration import (
@@ -70,7 +71,7 @@ async def test_create_job_with_string():
         assert len(task_rows) == 1
         assert task_rows[0]["entrypoint"] == "mymodule.task1"
         assert task_rows[0]["status"] == "PENDING"
-        assert task_rows[0]["kwargs"] == {}
+        assert json.loads(task_rows[0]["kwargs"]) == {}
 
 
 async def test_create_job_with_task():
@@ -88,7 +89,7 @@ async def test_create_job_with_task():
         assert task_row is not None
         assert task_row["job_id"] == job.id
         assert task_row["entrypoint"] == "mymodule.task2"
-        assert task_row["kwargs"] == {"param": "value"}
+        assert json.loads(task_row["kwargs"]) == {"param": "value"}
 
 
 async def test_create_job_unique_ids():
