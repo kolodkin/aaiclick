@@ -519,36 +519,14 @@ task_kwargs = {
 
 ## Task Execution Flow
 
-### 1. Job Creation
+### 1. Job Creation ✅ IMPLEMENTED
 
-```python
-from aaiclick.orchestration import create_job, create_task
+**See**: Factory APIs section above for `create_job()` and `create_task()` usage
+**Implementation**: `aaiclick/orchestration/factories.py:30-107`
 
-# Option 1: Create job with callback string
-job = await create_job(
-    name="data_processing_pipeline",
-    entry="myapp.processors.load_and_process_data"
-)
+### 2. Dynamic Task Creation ⚠️ NOT YET IMPLEMENTED (Phase 8+)
 
-# Option 2: Create task first, then job
-task = create_task(
-    callback="myapp.processors.load_and_process_data",
-    kwargs={
-        "source": {
-            "object_type": "pyobj",
-            "value": "dataset_v1"
-        }
-    }
-)
-job = await create_job(
-    name="data_processing_pipeline",
-    entry=task
-)
-```
-
-### 2. Dynamic Task Creation
-
-Tasks can create additional tasks during execution via aaiclick operators:
+Tasks will be able to create additional tasks during execution via aaiclick operators:
 
 ```python
 # In aaiclick/operators.py
@@ -590,10 +568,12 @@ async def map(callback: str, obj: Object) -> Object:
     return await create_result_collector(ctx.job_id, num_chunks)
 ```
 
-### 3. Worker Task Execution Loop
+### 3. Worker Task Execution Loop ⚠️ NOT YET IMPLEMENTED (Phase 6+)
+
+The following describes planned worker functionality:
 
 ```python
-# Worker main loop
+# Worker main loop (planned for Phase 6+)
 async def worker_main_loop(worker_id: str):
     while True:
         # Claim next available task (atomic operation)
@@ -722,107 +702,18 @@ RETURNING (SELECT * FROM claimed_task);
 
 ### Job Management
 
-```python
-from typing import Callable, Union
-from aaiclick.orchestration import (
-    create_job,
-    create_task,
-    get_job,
-    list_jobs,
-    cancel_job,
-    Task
-)
+**Implemented (Phase 2):**
+- ✅ `create_task()` - See Factory APIs section
+- ✅ `create_job()` - See Factory APIs section
+- **Implementation**: `aaiclick/orchestration/factories.py`
 
-# Create task from callback function
-task = create_task(
-    callback="myapp.processors.process_data",
-    kwargs={
-        "input": {
-            "object_type": "object",
-            "table_id": "tbl_xyz"
-        }
-    }
-)
+**Not Yet Implemented (Phase 3+):**
+- ⚠️ `get_job(job_id)` - Get job status and details
+- ⚠️ `list_jobs(status)` - List jobs by status
+- ⚠️ `cancel_job(job_id)` - Cancel a running job
+- ⚠️ `job.test()` - Execute job synchronously for testing (Phase 3)
 
-# Create job with single entry point task
-job = await create_job(
-    name="data_pipeline",
-    entry=task  # Single Task as entry point
-)
-
-# Or create job with callback directly
-job = await create_job(
-    name="data_pipeline",
-    entry="myapp.processors.process_data"  # Callback string as entry point
-)
-
-# Get job status
-job = await get_job(job_id)
-print(f"Status: {job.status}, Progress: {job.completed_tasks}/{job.total_tasks}")
-
-# List jobs
-jobs = await list_jobs(status=JobStatus.RUNNING)
-
-# Cancel job
-await cancel_job(job_id)
-
-# Test job execution (synchronous, for testing/debugging)
-job.test()  # Similar to Airflow - invokes worker execute flow
-```
-
-**`job.test()` Method:**
-```python
-def test(self):
-    """
-    Execute job synchronously in current process (test mode).
-
-    Invokes the worker execute flow for testing and debugging.
-    Similar to Airflow's test execution mode - runs tasks sequentially
-    in the current process instead of distributing to workers.
-
-    Useful for:
-    - Local development and debugging
-    - Integration tests
-    - Validating job logic before deployment
-
-    Note: Blocks until job completes (COMPLETED/FAILED status)
-    """
-```
-
-**`create_task()` Factory:**
-```python
-def create_task(callback: str, kwargs: dict) -> Task:
-    """
-    Factory function for creating Task objects.
-
-    Args:
-        callback: Importable function path (e.g., "myapp.module.function")
-        kwargs: Task parameters (supports object/view/pyobj serialization)
-
-    Returns:
-        Task object (not yet committed to database)
-    """
-```
-
-**`create_job()` Factory:**
-```python
-async def create_job(
-    name: str,
-    entry: Union[str, Task]
-) -> Job:
-    """
-    Create a new job with a single entry point.
-
-    Args:
-        name: Job name
-        entry: Entry point - either callback string or Task object
-
-    Returns:
-        Job object with entry task committed to database
-    """
-```
-
-### Task Management
+### Task Management ⚠️ NOT YET IMPLEMENTED (Phase 4+)
 
 ```python
 from aaiclick.orchestration import (
@@ -845,7 +736,7 @@ task = await get_task(task_id)
 await retry_failed_tasks(job_id)
 ```
 
-### Context API for DAG Construction
+### Context API for DAG Construction ⚠️ NOT YET IMPLEMENTED (Phase 4+)
 
 ```python
 from aaiclick.orchestration import Context, Task, Group
@@ -893,9 +784,9 @@ async def apply(
     """
 ```
 
-### DAG Construction with Dependency Operators
+### DAG Construction with Dependency Operators ⚠️ NOT YET IMPLEMENTED (Phase 7+)
 
-Airflow-like syntax for defining dependencies between tasks and groups:
+Planned Airflow-like syntax for defining dependencies between tasks and groups:
 
 ```python
 from aaiclick.orchestration import Task, Group
@@ -1124,7 +1015,7 @@ class Group(SQLModel, table=True):
             return other
 ```
 
-### Worker Management
+### Worker Management ⚠️ NOT YET IMPLEMENTED (Phase 6+)
 
 ```python
 from aaiclick.orchestration import (
@@ -1238,35 +1129,15 @@ async with pool.acquire() as conn:
 
 ## Implementation Plan
 
-### Phase 1: Core Infrastructure
-1. Set up SQLModel models (Job, Task, Worker)
-2. Configure Alembic migrations
-3. Implement database connection management
-4. Create basic CRUD operations
+**See**: `docs/orchestration_implementation_plan.md` for detailed phase-by-phase implementation plan
 
-### Phase 2: Worker Implementation
-1. Implement task claiming logic (with locking)
-2. Build worker main loop
-3. Add heartbeat mechanism
-4. Implement error handling and retries
-
-### Phase 3: Job Management
-1. Job creation API
-2. Task scheduling logic
-3. Job status tracking
-4. Progress monitoring
-
-### Phase 4: Dynamic Task Creation
-1. Add context tracking for current job
-2. Implement `add_task_to_current_job()`
-3. Integrate with aaiclick operators (`map`, `filter`, etc.)
-4. Handle result collection
-
-### Phase 5: Integration & Testing
-1. Integrate with Context
-2. Add comprehensive tests
-3. Performance benchmarking
-4. Documentation
+**Current Status**:
+- ✅ Phase 1: Database Setup (complete)
+- ✅ Phase 2: Core Factories (complete)
+- ⚠️ Phase 3: Job.test() Method (planned)
+- ⚠️ Phase 4: OrchContext Integration (planned)
+- ⚠️ Phase 5: Testing & Examples (planned)
+- ⚠️ Phase 6+: Distributed Workers, Groups, Dependencies, Dynamic Task Creation
 
 ## Monitoring & Observability
 
