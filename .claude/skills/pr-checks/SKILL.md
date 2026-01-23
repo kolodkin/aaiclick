@@ -229,31 +229,52 @@ prompt: |
      ```bash
      git push
      ```
-  5. **Reply to EACH comment thread individually using gh CLI** (REQUIRED - agent posts, not script):
+  5. **Reply to EACH comment thread individually using gh API** (REQUIRED - agent posts, not script):
      ```bash
      # For each review comment that was addressed:
      # 1. Get the commit SHA that addressed it
-     COMMIT_SHA=$(git log --format="%h" --grep="<search term>" -1)
+     COMMIT_SHA=$(git log --format="%h" -1)
 
-     # 2. Post reply to that specific comment thread
-     gh pr comment 33 --body "✅ Agent Addressed: <brief description of change>
+     # 2. Get review comment IDs and identify which ones to reply to
+     gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
 
-Commit: $COMMIT_SHA"
+     # 3. Reply to the specific comment thread using in_reply_to parameter
+     gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+       -f body="✅ Agent Addressed: <brief description of change>
+
+Commit: $COMMIT_SHA" \
+       -F in_reply_to=COMMENT_ID
      ```
      **Example:**
      ```bash
-     # Reply to each comment thread separately
-     gh pr comment 33 --body "✅ Agent Addressed: Updated to use argparse instead of manual sys.argv parsing
+     # Get comment IDs
+     gh api repos/kolodkin/aaiclick/pulls/33/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
 
-Commit: 2d7f087"
+     # Reply to specific comment thread (e.g., ID 2722079595)
+     gh api -X POST repos/kolodkin/aaiclick/pulls/33/comments \
+       -f body="✅ Agent Addressed: Updated to use argparse instead of manual sys.argv parsing
+
+Commit: 2d7f087" \
+       -F in_reply_to=2722079595
      ```
-     **IMPORTANT**: Reply to EACH comment thread individually - do NOT post a single summary comment
+     **IMPORTANT**:
+     - Reply to EACH comment thread individually - do NOT post a single summary comment
+     - Use `gh api` with `in_reply_to` parameter to post threaded replies
+     - Do NOT use `gh pr comment` as it posts general PR comments, not threaded replies
   6. **Reviewers manually resolve threads** after verifying fixes
 
   ### Agent Commands for Responding to Reviews
 
   ```bash
-  # Post general reply to PR
+  # Get review comment IDs to identify which to reply to
+  gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
+
+  # Reply to specific review comment thread (threaded reply)
+  gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+    -f body="✅ Agent Addressed: <description>" \
+    -F in_reply_to=COMMENT_ID
+
+  # Post general PR comment (NOT recommended for review responses)
   gh pr comment <pr-number> --body "Response text"
 
   # Request re-review after addressing feedback
@@ -272,17 +293,26 @@ Commit: 2d7f087"
   - Make the requested change
   - Ensure change aligns with project guidelines (CLAUDE.md)
   - Commit and push
-  - Reply to the comment thread using gh CLI:
+  - Reply to the comment thread using gh API:
     ```bash
-    gh pr comment 33 --body "✅ Agent Addressed: <description>
+    # Get comment ID first
+    gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
 
-Commit: $(git rev-parse --short HEAD)"
+    # Reply to thread
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="✅ Agent Addressed: <description>
+
+Commit: $(git rev-parse --short HEAD)" \
+      -F in_reply_to=COMMENT_ID
     ```
 
   **For clarification questions:**
-  - Respond with clear explanation by replying to the comment:
+  - Respond with clear explanation by replying to the comment thread:
     ```bash
-    gh pr comment 33 --body "<explanation with examples if needed>"
+    # Reply to the question in the comment thread
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="<explanation with examples if needed>" \
+      -F in_reply_to=COMMENT_ID
     ```
   - Offer to implement alternative if needed
 
@@ -290,11 +320,13 @@ Commit: $(git rev-parse --short HEAD)"
   - Follow project conventions from CLAUDE.md
   - Update code to match requested style
   - Apply same fix throughout codebase if applicable
-  - Reply to the comment confirming the change:
+  - Reply to the comment thread confirming the change:
     ```bash
-    gh pr comment 33 --body "✅ Agent Addressed: <description>
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="✅ Agent Addressed: <description>
 
-Commit: $(git rev-parse --short HEAD)"
+Commit: $(git rev-parse --short HEAD)" \
+      -F in_reply_to=COMMENT_ID
     ```
 
   Be PROACTIVE: Don't wait for user to ask - automatically check and poll workflows after every push!
