@@ -206,55 +206,94 @@ prompt: |
   gh pr view --comments
   ```
 
-  ### Review Comment Workflow
+  ### Agent Workflow for Review Comments
 
-  1. **After CI passes**, check PR for review comments
-  2. **If unresolved comments exist**:
-     - Read each comment carefully
-     - Understand the requested change
-     - Implement the fix
-     - Commit with message: `Address review: <brief description>`
-     - Push changes
-     - **Optionally reply** to comment: `gh pr comment <pr-number> --body "✅ Addressed in commit <sha>"`
-  3. **If review requests changes**:
-     - Address ALL requested changes
-     - Push fixes
-     - Comment on PR: `@reviewer Ready for re-review - addressed all feedback`
-  4. **Repeat** until PR is approved
+  **The pr-checks script displays review comments to the agent. The AGENT addresses them and posts replies using gh CLI.**
 
-  ### Review Comment Commands
+  **After the script shows review comments, the agent MUST:**
+
+  1. **Read each comment carefully** and understand the requested change
+  2. **Implement the fix**:
+     - Read affected files using Read tool
+     - Make the requested change using Edit tool
+     - Ensure change aligns with project guidelines (CLAUDE.md)
+     - Test if applicable
+  3. **Commit with descriptive message**:
+     ```bash
+     git add <files>
+     git commit -m "Address review: <brief description>"
+     ```
+  4. **Push changes**:
+     ```bash
+     git push
+     ```
+  5. **Post reply to comment using gh CLI** (REQUIRED - agent posts, not script):
+     ```bash
+     # Get the commit SHA
+     COMMIT_SHA=$(git rev-parse --short HEAD)
+
+     # Post reply with resolution description and commit reference
+     gh pr comment 33 --body "✅ Addressed: <brief description of change>
+
+Commit: $COMMIT_SHA"
+     ```
+     **Example:**
+     ```bash
+     gh pr comment 33 --body "✅ Addressed: Updated to use argparse instead of manual sys.argv parsing
+
+Commit: abc123d"
+     ```
+  6. **If all feedback addressed**, post summary comment:
+     ```bash
+     gh pr comment 33 --body "Addressed all feedback - ready for re-review"
+     ```
+  7. **Reviewers manually resolve threads** after verifying fixes
+
+  ### Agent Commands for Responding to Reviews
 
   ```bash
-  # View PR with review decision
-  gh pr view <pr-number> --json reviewDecision,reviews
-
-  # List all comments
-  gh pr view <pr-number> --comments
-
-  # Reply to specific review comment
+  # Post general reply to PR
   gh pr comment <pr-number> --body "Response text"
 
   # Request re-review after addressing feedback
-  gh pr review <pr-number> --comment --body "@reviewer Ready for re-review"
+  gh pr review <pr-number> --comment --body "Ready for re-review - addressed all feedback"
   ```
 
-  ### Handling Review Comments
+  **NOTE:**
+  - The script only DISPLAYS review comments - it does NOT post replies
+  - The AGENT posts replies after addressing feedback
+  - Review thread resolution must be done manually by reviewers (GitHub API limitation for personal access tokens)
+
+  ### Agent Guidelines for Different Comment Types
 
   **For code change requests:**
   - Read the file and understand current implementation
   - Make the requested change
   - Ensure change aligns with project guidelines (CLAUDE.md)
-  - Test if applicable
   - Commit and push
+  - Post reply using gh CLI:
+    ```bash
+    gh pr comment 33 --body "✅ Addressed: <description>
+
+Commit: $(git rev-parse --short HEAD)"
+    ```
 
   **For clarification questions:**
-  - Respond with clear explanation in PR comment
-  - Provide code examples if helpful
+  - Respond with clear explanation using `gh pr comment`:
+    ```bash
+    gh pr comment 33 --body "<explanation with examples if needed>"
+    ```
   - Offer to implement alternative if needed
 
   **For style/convention feedback:**
   - Follow project conventions from CLAUDE.md
   - Update code to match requested style
   - Apply same fix throughout codebase if applicable
+  - Post reply confirming the change:
+    ```bash
+    gh pr comment 33 --body "✅ Applied style change: <description>
+
+Commit: $(git rev-parse --short HEAD)"
+    ```
 
   Be PROACTIVE: Don't wait for user to ask - automatically check and poll workflows after every push!
