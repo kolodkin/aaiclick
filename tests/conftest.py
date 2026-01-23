@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from aaiclick import DataContext, get_context, create_object_from_value, create_object
+from aaiclick import DataContext, create_object, create_object_from_value, get_context
 
 
 @pytest.fixture(scope="session")
@@ -34,3 +34,20 @@ async def ctx():
     """
     async with DataContext() as context:
         yield context
+
+
+@pytest.fixture(autouse=True)
+async def reset_postgres_pool():
+    """
+    Reset PostgreSQL connection pool after each test.
+
+    This ensures tests don't interfere with each other through
+    shared connection pool state.
+    """
+    yield
+    # Clean up after test
+    import aaiclick.orchestration.database as db_module
+
+    if db_module._pool is not None:
+        await db_module._pool.close()
+        db_module._pool = None
