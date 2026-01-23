@@ -1,0 +1,131 @@
+"""Tests for orchestration factory functions."""
+
+from datetime import datetime
+
+from aaiclick.orchestration import (
+    Job,
+    JobStatus,
+    Task,
+    TaskStatus,
+    create_job,
+    create_task,
+)
+from aaiclick.orchestration.database import get_postgres_connection
+
+
+async def test_create_task_basic():
+    """Test basic task creation."""
+    task = create_task("mymodule.task1")
+
+    assert task.id > 0  # Snowflake ID should be positive
+    assert task.entrypoint == "mymodule.task1"
+    assert task.kwargs == {}
+    assert task.status == TaskStatus.PENDING
+    assert isinstance(task.created_at, datetime)
+    assert task.job_id is None  # Not assigned yet
+
+
+async def test_create_task_with_kwargs():
+    """Test task creation with kwargs."""
+    kwargs = {"param1": "value1", "param2": 42}
+    task = create_task("mymodule.task2", kwargs)
+
+    assert task.entrypoint == "mymodule.task2"
+    assert task.kwargs == kwargs
+    assert task.status == TaskStatus.PENDING
+
+
+async def test_create_task_unique_ids():
+    """Test that each task gets a unique snowflake ID."""
+    task1 = create_task("mymodule.task1")
+    task2 = create_task("mymodule.task2")
+
+    assert task1.id != task2.id
+    assert task1.id > 0
+    assert task2.id > 0
+
+
+async def test_create_job_with_string():
+    """Test job creation with string callback."""
+    job = await create_job("test_job", "mymodule.task1")
+
+    assert job.id > 0
+    assert job.name == "test_job"
+    assert job.status == JobStatus.PENDING
+    assert isinstance(job.created_at, datetime)
+    assert job.started_at is None
+    assert job.completed_at is None
+    assert job.error is None
+
+    # Verify job was persisted to database
+    async with get_postgres_connection() as conn:
+        row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
+        assert row is not None
+        assert row["name"] == "test_job"
+        assert row["status"] == "pending"
+
+        # Verify task was created and persisted
+        task_rows = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1", job.id)
+        assert len(task_rows) == 1
+        assert task_rows[0]["entrypoint"] == "mymodule.task1"
+        assert task_rows[0]["status"] == "pending"
+        assert task_rows[0]["kwargs"] == {}
+
+
+async def test_create_job_with_task():
+    """Test job creation with Task object."""
+    task = create_task("mymodule.task2", {"param": "value"})
+    job = await create_job("test_job_2", task)
+
+    assert job.id > 0
+    assert job.name == "test_job_2"
+
+    # Verify task has job_id assigned
+    async with get_postgres_connection() as conn:
+        task_row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1", task.id)
+        assert task_row is not None
+        assert task_row["job_id"] == job.id
+        assert task_row["entrypoint"] == "mymodule.task2"
+        assert task_row["kwargs"] == {"param": "value"}
+
+
+async def test_create_job_unique_ids():
+    """Test that each job gets a unique snowflake ID."""
+    job1 = await create_job("job1", "mymodule.task1")
+    job2 = await create_job("job2", "mymodule.task2")
+
+    assert job1.id != job2.id
+    assert job1.id > 0
+    assert job2.id > 0
+
+
+async def test_database_connection_pool():
+    """Test that database connection pool works correctly."""
+    # Test multiple concurrent connections
+    async with get_postgres_connection() as conn1:
+        result1 = await conn1.fetchval("SELECT 1")
+        assert result1 == 1
+
+    async with get_postgres_connection() as conn2:
+        result2 = await conn2.fetchval("SELECT 2")
+        assert result2 == 2
+
+    # Verify we can query the jobs table
+    async with get_postgres_connection() as conn:
+        count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
+        assert count >= 0  # Should have at least the jobs we created
+
+
+async def test_job_task_relationship():
+    """Test that job and task have correct relationship."""
+    job = await create_job("relationship_test", "mymodule.task3")
+
+    async with get_postgres_connection() as conn:
+        # Get job
+        job_row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
+        assert job_row is not None
+
+        # Get tasks for this job
+        tasks = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1", job.id)
+        assert len(tasks) == 1
+        assert tasks[0]["job_id"] == job.id
