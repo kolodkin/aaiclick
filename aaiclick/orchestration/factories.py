@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Union
 
@@ -99,13 +100,13 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
                 created_at, claimed_at, started_at, completed_at,
                 worker_id, result_table_id, log_path, error
             )
-            VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4, $5, $6, $7, $8, $9, $10, $11::BIGINT, $12::BIGINT, $13, $14)
+            VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4, $5::JSONB, $6, $7, $8, $9, $10, $11::BIGINT, $12::BIGINT, $13, $14)
             """,
             task.id,
             task.job_id,
             task.group_id,
             task.entrypoint,
-            task.kwargs,
+            json.dumps(task.kwargs),
             task.status.value,
             task.created_at,
             task.claimed_at,
