@@ -227,27 +227,26 @@ prompt: |
      ```bash
      git push
      ```
-  5. **Post reply to comment using gh CLI** (REQUIRED - agent posts, not script):
+  5. **Post reply to EACH comment individually using gh CLI** (REQUIRED - agent posts, not script):
      ```bash
-     # Get the commit SHA
-     COMMIT_SHA=$(git rev-parse --short HEAD)
+     # For each review comment that was addressed:
+     # 1. Get the commit SHA that addressed it
+     COMMIT_SHA=$(git log --format="%h" --grep="<search term>" -1)
 
-     # Post reply with resolution description and commit reference
+     # 2. Post individual reply for that specific comment
      gh pr comment 33 --body "✅ Addressed: <brief description of change>
 
 Commit: $COMMIT_SHA"
      ```
      **Example:**
      ```bash
+     # Post separate reply for each review comment
      gh pr comment 33 --body "✅ Addressed: Updated to use argparse instead of manual sys.argv parsing
 
-Commit: abc123d"
+Commit: 2d7f087"
      ```
-  6. **If all feedback addressed**, post summary comment:
-     ```bash
-     gh pr comment 33 --body "Addressed all feedback - ready for re-review"
-     ```
-  7. **Reviewers manually resolve threads** after verifying fixes
+     **IMPORTANT**: Post individual replies for EACH review comment - do NOT post a single summary comment
+  6. **Reviewers manually resolve threads** after verifying fixes
 
   ### Agent Commands for Responding to Reviews
 
