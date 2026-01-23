@@ -52,21 +52,3 @@ async def orch_ctx():
     """
     async with OrchContext() as context:
         yield context
-
-
-@pytest.fixture(autouse=True)
-async def reset_postgres_pool():
-    """
-    Reset PostgreSQL connection pool after each test.
-
-    This ensures tests don't interfere with each other through
-    shared connection pool state.
-
-    Note: SQLAlchemy engine cleanup is handled automatically by
-    OrchContext.__aexit__() via the orch_ctx fixture.
-    """
-    yield
-    # Clean up after test using reset method from database.py
-    from aaiclick.orchestration.database import reset_postgres_pool
-
-    await reset_postgres_pool()
