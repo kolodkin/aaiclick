@@ -51,3 +51,21 @@ async def orch_ctx():
     """
     async with OrchContext() as context:
         yield context
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_postgres_pool():
+    """
+    Reset PostgreSQL connection pool after each test.
+
+    This ensures tests don't interfere with each other through
+    lingering connections or operations in the shared asyncpg pool.
+
+    The asyncpg pool is global and persists across tests, so we need
+    to explicitly close and reset it to avoid "operation is in progress" errors.
+    """
+    yield
+    # Clean up after test
+    from aaiclick.orchestration.database import reset_postgres_pool
+
+    await reset_postgres_pool()
