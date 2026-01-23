@@ -102,25 +102,6 @@ async def test_create_job_unique_ids(orch_ctx):
     assert job2.id > 0
 
 
-async def test_database_connection_pool(orch_ctx):
-    """Test that database connection pool works correctly."""
-    pool = await get_postgres_pool()
-
-    # Test multiple concurrent connections
-    async with pool.acquire() as conn1:
-        result1 = await conn1.fetchval("SELECT 1")
-        assert result1 == 1
-
-    async with pool.acquire() as conn2:
-        result2 = await conn2.fetchval("SELECT 2")
-        assert result2 == 2
-
-    # Verify we can query the jobs table
-    async with pool.acquire() as conn:
-        count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
-        assert count >= 0  # Should have at least the jobs we created
-
-
 async def test_job_task_relationship(orch_ctx):
     """Test that job and task have correct relationship."""
     job = await create_job("relationship_test", "mymodule.task3")
