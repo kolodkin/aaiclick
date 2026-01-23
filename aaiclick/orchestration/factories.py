@@ -96,7 +96,7 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
 
     # Commit to database using SQLAlchemy ORM
     engine = await get_async_engine()
-    async with AsyncSession(engine) as session:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
         # Add job and task using ORM
         session.add(job)
         session.add(task)
