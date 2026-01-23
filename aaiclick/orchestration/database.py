@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import asyncpg
@@ -46,16 +47,17 @@ async def get_postgres_pool() -> asyncpg.Pool:
     return _pool
 
 
+@asynccontextmanager
 async def get_postgres_connection():
     """Acquire a connection from the global pool.
 
-    Use like this:
-        conn = await get_postgres_connection()
-        async with conn:
+    Use as async context manager:
+        async with get_postgres_connection() as conn:
             result = await conn.fetch("SELECT * FROM jobs")
 
-    Returns:
-        Connection context manager from pool (must be awaited first)
+    Yields:
+        PostgreSQL connection from the pool
     """
     pool = await get_postgres_pool()
-    return pool.acquire()
+    async with pool.acquire() as conn:
+        yield conn

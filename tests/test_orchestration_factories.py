@@ -58,8 +58,7 @@ async def test_create_job_with_string():
     assert job.error is None
 
     # Verify job was persisted to database
-    conn = await get_postgres_connection()
-    async with conn:
+    async with get_postgres_connection() as conn:
         row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
         assert row is not None
         assert row["name"] == "test_job"
@@ -82,8 +81,7 @@ async def test_create_job_with_task():
     assert job.name == "test_job_2"
 
     # Verify task has job_id assigned
-    conn = await get_postgres_connection()
-    async with conn:
+    async with get_postgres_connection() as conn:
         task_row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1", task.id)
         assert task_row is not None
         assert task_row["job_id"] == job.id
@@ -104,19 +102,16 @@ async def test_create_job_unique_ids():
 async def test_database_connection_pool():
     """Test that database connection pool works correctly."""
     # Test multiple concurrent connections
-    conn1 = await get_postgres_connection()
-    async with conn1:
+    async with get_postgres_connection() as conn1:
         result1 = await conn1.fetchval("SELECT 1")
         assert result1 == 1
 
-    conn2 = await get_postgres_connection()
-    async with conn2:
+    async with get_postgres_connection() as conn2:
         result2 = await conn2.fetchval("SELECT 2")
         assert result2 == 2
 
     # Verify we can query the jobs table
-    conn = await get_postgres_connection()
-    async with conn:
+    async with get_postgres_connection() as conn:
         count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
         assert count >= 0  # Should have at least the jobs we created
 
@@ -125,8 +120,7 @@ async def test_job_task_relationship():
     """Test that job and task have correct relationship."""
     job = await create_job("relationship_test", "mymodule.task3")
 
-    conn = await get_postgres_connection()
-    async with conn:
+    async with get_postgres_connection() as conn:
         # Get job
         job_row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job.id)
         assert job_row is not None

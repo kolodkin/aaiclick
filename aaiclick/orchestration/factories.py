@@ -74,8 +74,7 @@ async def create_job(name: str, entry: Union[str, Task]) -> Job:
     task.job_id = job_id
 
     # Commit to database
-    conn = await get_postgres_connection()
-    async with conn:
+    async with get_postgres_connection() as conn:
         # Insert job
         await conn.execute(
             """
