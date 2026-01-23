@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from sqlalchemy import BigInteger
+from sqlalchemy import BigInteger, ForeignKey
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
@@ -81,8 +81,8 @@ class Group(SQLModel, table=True):
     __tablename__ = "groups"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    job_id: int = Field(foreign_key="jobs.id", sa_column=Column(BigInteger, index=True))
-    parent_group_id: Optional[int] = Field(default=None, foreign_key="groups.id", sa_column=Column(BigInteger, index=True, nullable=True))
+    job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
+    parent_group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -97,8 +97,8 @@ class Task(SQLModel, table=True):
     __tablename__ = "tasks"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    job_id: int = Field(foreign_key="jobs.id", sa_column=Column(BigInteger, index=True))
-    group_id: Optional[int] = Field(default=None, foreign_key="groups.id", sa_column=Column(BigInteger, index=True, nullable=True))
+    job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
+    group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
     entrypoint: str = Field()
     kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
@@ -106,7 +106,7 @@ class Task(SQLModel, table=True):
     claimed_at: Optional[datetime] = Field(default=None)
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
-    worker_id: Optional[int] = Field(default=None, foreign_key="workers.id", sa_column=Column(BigInteger, index=True, nullable=True))
+    worker_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True))
     result_table_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
