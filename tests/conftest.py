@@ -66,6 +66,6 @@ async def cleanup_postgres_pool():
     """
     yield
     # Clean up after test
-    from aaiclick.orchestration.database import reset_postgres_pool
+    from aaiclick.orchestration.context import _reset_postgres_pool
 
-    await reset_postgres_pool()
+    await _reset_postgres_pool()

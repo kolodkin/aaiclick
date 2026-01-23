@@ -7,11 +7,15 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import AsyncIterator, Optional
 
+import asyncpg
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 
 # Global ContextVar to hold the current OrchContext instance
 _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
+
+# Global PostgreSQL connection pool
+_pool: list[Optional[asyncpg.Pool]] = [None]
 
 
 def get_orch_context() -> 'OrchContext':
@@ -35,6 +39,52 @@ def get_orch_context() -> 'OrchContext':
         raise RuntimeError("No active OrchContext - must be called within 'async with OrchContext()'")
 
 
+async def _get_postgres_pool() -> asyncpg.Pool:
+    """Get or create the PostgreSQL connection pool (private).
+
+    Pool is initialized on first call using environment variables:
+    - POSTGRES_HOST (default: "localhost")
+    - POSTGRES_PORT (default: 5432)
+    - POSTGRES_USER (default: "aaiclick")
+    - POSTGRES_PASSWORD (default: "secret")
+    - POSTGRES_DB (default: "aaiclick")
+
+    Returns:
+        asyncpg connection pool
+    """
+    if _pool[0] is None:
+        host = os.getenv("POSTGRES_HOST", "localhost")
+        port = int(os.getenv("POSTGRES_PORT", "5432"))
+        user = os.getenv("POSTGRES_USER", "aaiclick")
+        password = os.getenv("POSTGRES_PASSWORD", "secret")
+        database = os.getenv("POSTGRES_DB", "aaiclick")
+
+        _pool[0] = await asyncpg.create_pool(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            min_size=2,
+            max_size=10,
+        )
+
+    return _pool[0]
+
+
+async def _reset_postgres_pool():
+    """Reset the PostgreSQL connection pool (private).
+
+    Closes the existing pool and sets it to None, forcing
+    a new pool to be created on next call.
+
+    Used primarily for test cleanup to ensure test isolation.
+    """
+    if _pool[0] is not None:
+        await _pool[0].close()
+        _pool[0] = None
+
+
 class OrchContext:
     """
     OrchContext manager for orchestration database connections.
@@ -56,6 +106,24 @@ class OrchContext:
         self._engine: Optional[AsyncEngine] = None
         self._token = None
 
+    def _get_engine(self) -> AsyncEngine:
+        """Get or create the async SQLAlchemy engine (private).
+
+        Returns:
+            AsyncEngine for orchestration database
+        """
+        if self._engine is None:
+            host = os.getenv("POSTGRES_HOST", "localhost")
+            port = os.getenv("POSTGRES_PORT", "5432")
+            user = os.getenv("POSTGRES_USER", "aaiclick")
+            password = os.getenv("POSTGRES_PASSWORD", "secret")
+            database = os.getenv("POSTGRES_DB", "aaiclick")
+
+            database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+            self._engine = create_async_engine(database_url, echo=False)
+
+        return self._engine
+
     @property
     def engine(self) -> AsyncEngine:
         """
@@ -75,16 +143,7 @@ class OrchContext:
 
     async def __aenter__(self):
         """Enter the context, initializing the engine and setting ContextVar."""
-        if self._engine is None:
-            host = os.getenv("POSTGRES_HOST", "localhost")
-            port = os.getenv("POSTGRES_PORT", "5432")
-            user = os.getenv("POSTGRES_USER", "aaiclick")
-            password = os.getenv("POSTGRES_PASSWORD", "secret")
-            database = os.getenv("POSTGRES_DB", "aaiclick")
-
-            database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-            self._engine = create_async_engine(database_url, echo=False)
-
+        self._get_engine()
         self._token = _current_orch_context.set(self)
         return self
 

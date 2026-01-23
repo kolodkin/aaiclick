@@ -1,14 +1,13 @@
-"""PostgreSQL database connection pool for orchestration backend."""
+"""PostgreSQL database connection pool for orchestration backend.
+
+This module re-exports pool functions from context.py for backward compatibility.
+"""
 
 from __future__ import annotations
 
-import os
-from typing import Optional
-
 import asyncpg
 
-
-_pool: list[Optional[asyncpg.Pool]] = [None]
+from .context import _get_postgres_pool, _reset_postgres_pool
 
 
 async def get_postgres_pool() -> asyncpg.Pool:
@@ -29,24 +28,7 @@ async def get_postgres_pool() -> asyncpg.Pool:
         async with pool.acquire() as conn:
             result = await conn.fetch("SELECT * FROM jobs")
     """
-    if _pool[0] is None:
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = int(os.getenv("POSTGRES_PORT", "5432"))
-        user = os.getenv("POSTGRES_USER", "aaiclick")
-        password = os.getenv("POSTGRES_PASSWORD", "secret")
-        database = os.getenv("POSTGRES_DB", "aaiclick")
-
-        _pool[0] = await asyncpg.create_pool(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            database=database,
-            min_size=2,
-            max_size=10,
-        )
-
-    return _pool[0]
+    return await _get_postgres_pool()
 
 
 async def reset_postgres_pool():
@@ -57,6 +39,4 @@ async def reset_postgres_pool():
 
     Used primarily for test cleanup to ensure test isolation.
     """
-    if _pool[0] is not None:
-        await _pool[0].close()
-        _pool[0] = None
+    await _reset_postgres_pool()
