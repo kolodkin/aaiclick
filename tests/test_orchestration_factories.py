@@ -62,13 +62,13 @@ async def test_create_job_with_string():
         row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1::BIGINT", job.id)
         assert row is not None
         assert row["name"] == "test_job"
-        assert row["status"] == "pending"
+        assert row["status"] == "PENDING"
 
         # Verify task was created and persisted
         task_rows = await conn.fetch("SELECT * FROM tasks WHERE job_id = $1::BIGINT", job.id)
         assert len(task_rows) == 1
         assert task_rows[0]["entrypoint"] == "mymodule.task1"
-        assert task_rows[0]["status"] == "pending"
+        assert task_rows[0]["status"] == "PENDING"
         assert task_rows[0]["kwargs"] == {}
 
 

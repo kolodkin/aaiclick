@@ -28,28 +28,28 @@ except ImportError:
 class JobStatus(StrEnum):
     """Job execution status."""
 
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class TaskStatus(StrEnum):
     """Task execution status."""
 
-    PENDING = "pending"
-    CLAIMED = "claimed"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class WorkerStatus(StrEnum):
     """Worker status."""
 
-    ACTIVE = "active"
-    IDLE = "idle"
-    STOPPED = "stopped"
+    ACTIVE = "ACTIVE"
+    IDLE = "IDLE"
+    STOPPED = "STOPPED"
 
 
 class Job(SQLModel, table=True):
