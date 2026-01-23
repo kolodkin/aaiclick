@@ -39,7 +39,7 @@ async def ctx():
 @pytest.fixture(autouse=True)
 async def reset_postgres_pool():
     """
-    Reset PostgreSQL connection pool after each test.
+    Reset PostgreSQL connection pool and SQLAlchemy engine after each test.
 
     This ensures tests don't interfere with each other through
     shared connection pool state.
@@ -47,7 +47,14 @@ async def reset_postgres_pool():
     yield
     # Clean up after test
     import aaiclick.orchestration.database as db_module
+    import aaiclick.orchestration.factories as factories_module
 
-    if db_module._pool is not None:
-        await db_module._pool.close()
-        db_module._pool = None
+    # Close asyncpg pool
+    if db_module._pool[0] is not None:
+        await db_module._pool[0].close()
+        db_module._pool[0] = None
+
+    # Dispose SQLAlchemy engine
+    if factories_module._engine[0] is not None:
+        await factories_module._engine[0].dispose()
+        factories_module._engine[0] = None
