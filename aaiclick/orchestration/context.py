@@ -72,7 +72,10 @@ async def _reset_engine():
     Disposes the existing engine and sets it to None, forcing
     a new engine to be created on next call.
 
-    Used primarily for test cleanup to ensure test isolation.
+    Required for test isolation because asyncpg connections in the pool
+    retain protocol state (prepared statements, transactions, Futures)
+    beyond what SQLAlchemy's pool_reset_on_return can clean. This ensures
+    each test gets fresh connections with clean asyncpg protocol state.
     """
     if _engine[0] is not None:
         await _engine[0].dispose()
