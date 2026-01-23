@@ -213,6 +213,92 @@ result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 
 The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
 
+## Specification-Driven Development
+
+**Write detailed specifications BEFORE implementing complex features.**
+
+### Workflow
+
+1. **Create Specification Document** (`docs/<feature>.md`):
+   - Describe architecture, data models, and APIs
+   - Include code examples showing intended usage
+   - Document design decisions and trade-offs
+   - Specify all data types, enums, and schemas
+   - Keep specifications detailed and comprehensive
+
+2. **Create Implementation Plan** (`docs/<feature>_implementation_plan.md`) for complex features:
+   - Break feature into phases with clear objectives
+   - List specific tasks for each phase
+   - Define deliverables and success criteria
+   - Track progress with ✅ for completed phases
+   - Include file references as implementation progresses
+
+3. **Implement Phase by Phase**:
+   - Follow the implementation plan sequentially
+   - Write comprehensive tests for each phase
+   - Commit working code frequently
+   - Update implementation plan with ✅ and file references
+
+4. **Update Documentation to Reference Implementation**:
+   - **Add implementation references**: Point to actual code files and line numbers
+   - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
+   - **Remove duplication**: Once code exists, reference it instead of duplicating
+   - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
+   - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
+
+### Documentation Patterns
+
+**For Implemented Features**:
+```markdown
+### Feature Name ✅ IMPLEMENTED
+
+**Implementation**: `path/to/file.py:line-start-line-end`
+
+Brief description with link to code instead of duplicating implementation details.
+See actual code for complete implementation.
+```
+
+**For Unimplemented Features**:
+```markdown
+### Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
+
+Detailed specification with code examples, data models, and API design.
+This serves as the design document for future implementation.
+```
+
+**For Data Models**:
+```markdown
+### ModelName
+
+**Implementation**: `aaiclick/module/models.py:line-start-line-end`
+
+**Note**: Actual implementation details (e.g., "uses UPPERCASE enums", "BIGINT for IDs")
+
+```python
+# Show actual code structure from implementation
+class ModelName:
+    field: Type = ...
+```
+```
+
+### Example: Orchestration Backend
+
+See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for reference:
+
+- **Specification**: Comprehensive design document with all phases planned
+- **Implementation Plan**: Phase-by-phase breakdown with progress tracking
+- **Phase 2 Complete**: Implementation plan updated with ✅ and file references
+- **Documentation Updated**: orchestration.md references actual code, marks implementation status
+- **No Duplication**: Implemented features point to code instead of duplicating
+
+### Benefits
+
+- **Clear roadmap**: Everyone knows what's planned and what exists
+- **No confusion**: Status markers show implementation state
+- **Easy reference**: File locations help developers find code quickly
+- **Design preservation**: Unimplemented specs remain as design docs
+- **Maintenance**: Less duplication means fewer docs to update
+
 ## Making Changes
 
 1. Read relevant files before editing
