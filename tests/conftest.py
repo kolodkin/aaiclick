@@ -37,12 +37,11 @@ async def ctx():
         yield context
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 async def orch_ctx():
     """
     Fixture that provides an OrchContext for orchestration tests.
 
-    Automatically used for all tests to ensure OrchContext is available.
     The engine is automatically disposed when the context exits.
 
     Usage:

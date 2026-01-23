@@ -14,7 +14,7 @@ from aaiclick.orchestration import (
 from aaiclick.orchestration.database import get_postgres_pool
 
 
-async def test_create_task_basic():
+async def test_create_task_basic(orch_ctx):
     """Test basic task creation."""
     task = create_task("mymodule.task1")
 
@@ -26,7 +26,7 @@ async def test_create_task_basic():
     assert task.job_id is None  # Not assigned yet
 
 
-async def test_create_task_with_kwargs():
+async def test_create_task_with_kwargs(orch_ctx):
     """Test task creation with kwargs."""
     kwargs = {"param1": "value1", "param2": 42}
     task = create_task("mymodule.task2", kwargs)
@@ -36,7 +36,7 @@ async def test_create_task_with_kwargs():
     assert task.status == TaskStatus.PENDING
 
 
-async def test_create_task_unique_ids():
+async def test_create_task_unique_ids(orch_ctx):
     """Test that each task gets a unique snowflake ID."""
     task1 = create_task("mymodule.task1")
     task2 = create_task("mymodule.task2")
@@ -46,7 +46,7 @@ async def test_create_task_unique_ids():
     assert task2.id > 0
 
 
-async def test_create_job_with_string():
+async def test_create_job_with_string(orch_ctx):
     """Test job creation with string callback."""
     job = await create_job("test_job", "mymodule.task1")
 
@@ -74,7 +74,7 @@ async def test_create_job_with_string():
         assert json.loads(task_rows[0]["kwargs"]) == {}
 
 
-async def test_create_job_with_task():
+async def test_create_job_with_task(orch_ctx):
     """Test job creation with Task object."""
     task = create_task("mymodule.task2", {"param": "value"})
     job = await create_job("test_job_2", task)
@@ -92,7 +92,7 @@ async def test_create_job_with_task():
         assert json.loads(task_row["kwargs"]) == {"param": "value"}
 
 
-async def test_create_job_unique_ids():
+async def test_create_job_unique_ids(orch_ctx):
     """Test that each job gets a unique snowflake ID."""
     job1 = await create_job("job1", "mymodule.task1")
     job2 = await create_job("job2", "mymodule.task2")
@@ -102,7 +102,7 @@ async def test_create_job_unique_ids():
     assert job2.id > 0
 
 
-async def test_database_connection_pool():
+async def test_database_connection_pool(orch_ctx):
     """Test that database connection pool works correctly."""
     pool = await get_postgres_pool()
 
@@ -121,7 +121,7 @@ async def test_database_connection_pool():
         assert count >= 0  # Should have at least the jobs we created
 
 
-async def test_job_task_relationship():
+async def test_job_task_relationship(orch_ctx):
     """Test that job and task have correct relationship."""
     job = await create_job("relationship_test", "mymodule.task3")
 
