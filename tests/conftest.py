@@ -54,18 +54,18 @@ async def orch_ctx():
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_postgres_pool():
+async def cleanup_engine():
     """
-    Reset PostgreSQL connection pool after each test.
+    Reset SQLAlchemy engine after each test.
 
     This ensures tests don't interfere with each other through
-    lingering connections or operations in the shared asyncpg pool.
+    lingering connections in the shared engine.
 
-    The asyncpg pool is global and persists across tests, so we need
-    to explicitly close and reset it to avoid "operation is in progress" errors.
+    The engine is global and persists across tests, so we need
+    to explicitly dispose and reset it for test isolation.
     """
     yield
     # Clean up after test
-    from aaiclick.orchestration.context import _reset_postgres_pool
+    from aaiclick.orchestration.context import _reset_engine
 
-    await _reset_postgres_pool()
+    await _reset_engine()
