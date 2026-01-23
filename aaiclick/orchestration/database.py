@@ -47,3 +47,16 @@ async def get_postgres_pool() -> asyncpg.Pool:
         )
 
     return _pool[0]
+
+
+async def reset_postgres_pool():
+    """Reset the PostgreSQL connection pool.
+
+    Closes the existing pool and sets it to None, forcing
+    a new pool to be created on next get_postgres_pool() call.
+
+    Used primarily for test cleanup to ensure test isolation.
+    """
+    if _pool[0] is not None:
+        await _pool[0].close()
+        _pool[0] = None

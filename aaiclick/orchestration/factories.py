@@ -32,6 +32,19 @@ async def get_async_engine():
     return _engine[0]
 
 
+async def reset_async_engine():
+    """Reset the async SQLAlchemy engine.
+
+    Disposes the existing engine and sets it to None, forcing
+    a new engine to be created on next get_async_engine() call.
+
+    Used primarily for test cleanup to ensure test isolation.
+    """
+    if _engine[0] is not None:
+        await _engine[0].dispose()
+        _engine[0] = None
+
+
 def create_task(callback: str, kwargs: dict = None) -> Task:
     """Create a Task object (not committed to database).
 

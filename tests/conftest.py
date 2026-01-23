@@ -45,16 +45,9 @@ async def reset_postgres_pool():
     shared connection pool state.
     """
     yield
-    # Clean up after test
-    import aaiclick.orchestration.database as db_module
-    import aaiclick.orchestration.factories as factories_module
+    # Clean up after test using reset methods from pool-related files
+    from aaiclick.orchestration.database import reset_postgres_pool
+    from aaiclick.orchestration.factories import reset_async_engine
 
-    # Close asyncpg pool
-    if db_module._pool[0] is not None:
-        await db_module._pool[0].close()
-        db_module._pool[0] = None
-
-    # Dispose SQLAlchemy engine
-    if factories_module._engine[0] is not None:
-        await factories_module._engine[0].dispose()
-        factories_module._engine[0] = None
+    await reset_postgres_pool()
+    await reset_async_engine()
