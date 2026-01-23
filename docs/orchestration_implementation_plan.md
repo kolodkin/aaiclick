@@ -105,22 +105,22 @@ if __name__ == "__main__":
 
    - See: `aaiclick/orchestration/factories.py:12-107`
 
-3. ✅ `aaiclick/orchestration/database.py`:
-   - Global asyncpg.Pool instance (similar to ClickHouse pool)
-   - `get_postgres_pool()` - returns global pool, initializes on first call
-   - Pool initialized with env vars (POSTGRES_HOST, POSTGRES_PORT, etc.)
-   - Each operation uses `pool.acquire()` context manager for connections
-   - See: `aaiclick/orchestration/database.py`
+3. ✅ `aaiclick/orchestration/context.py`:
+   - Global SQLAlchemy AsyncEngine (engine manages connection pooling internally)
+   - `_get_engine()` - private function returns global engine, initializes on first call
+   - Engine initialized with env vars (POSTGRES_HOST, POSTGRES_PORT, etc.)
+   - Each operation creates AsyncSession from engine for transactions
+   - OrchContext provides access to engine via ContextVar pattern
+   - See: `aaiclick/orchestration/context.py`
 
 4. ✅ Database persistence in `create_job()`:
-   - Acquires connection from global pool via `pool.acquire()`
-   - Inserts Job record with BIGINT IDs
-   - Creates Task from entry point
-   - Sets task.job_id
-   - Inserts Task record with JSON-serialized kwargs
-   - Uses explicit transaction management
+   - Uses `get_orch_context_session()` to get AsyncSession
+   - Inserts Job and Task using SQLAlchemy ORM (session.add, session.commit)
+   - BIGINT IDs for Job and Task (snowflake IDs)
+   - JSON-serialized kwargs handled automatically by SQLModel
+   - Transaction isolation via session
    - Returns Job with id populated
-   - See: `aaiclick/orchestration/factories.py:78-107`
+   - See: `aaiclick/orchestration/factories.py:30-107`
 
 5. ✅ CLI Migration Support:
    - `python -m aaiclick migrate` - runs database migrations
@@ -235,36 +235,36 @@ job.test()  # Blocks until job completes (test mode)
 **Objective**: Create OrchContext for orchestration and make both contexts available during task execution
 
 **Tasks**:
-1. Create `aaiclick/orch_context.py`:
+1. ✅ Created `aaiclick/orchestration/context.py`:
    - Define `OrchContext` class
-   - Signature: `def __init__(self, job_id: int)`
-   - **Note**: `job_id` is required (not optional) for OrchContext
-   - Store reference to global asyncpg.Pool (from `get_postgres_pool()`)
-   - Each operation (apply, etc.) acquires connection from pool and creates session
+   - Signature: `def __init__(self)`
+   - Uses global SQLAlchemy AsyncEngine (via `_get_engine()`)
+   - Each operation creates AsyncSession from engine for transactions
    - Implements context manager protocol (`__aenter__`, `__aexit__`)
+   - **Implementation**: `aaiclick/orchestration/context.py:82-141`
 
-2. Create context-local storage for OrchContext:
+2. ✅ Context-local storage for OrchContext:
    ```python
-   # In aaiclick/orch_context.py
+   # In aaiclick/orchestration/context.py
    from contextvars import ContextVar
 
-   _current_orch_context: ContextVar[Optional[OrchContext]] = ContextVar('orch_context', default=None)
+   _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
 
    def get_orch_context() -> OrchContext:
        """Get current OrchContext (for orchestration operations)"""
-       return _current_orch_context.get()
-
-   def set_orch_context(ctx: OrchContext):
-       _current_orch_context.set(ctx)
+       try:
+           return _current_orch_context.get()
+       except LookupError:
+           raise RuntimeError("No active OrchContext")
    ```
+   **Implementation**: `aaiclick/orchestration/context.py:14-38`
 
-3. Update `execute_task()` to use both contexts:
+3. ⚠️ Update `execute_task()` to use both contexts (planned):
    ```python
    async def execute_task(task: Task) -> Any:
        # Both contexts available during task execution
        async with DataContext() as data_ctx:
-           async with OrchContext(job_id=task.job_id) as orch_ctx:
-               set_orch_context(orch_ctx)
+           async with OrchContext() as orch_ctx:
                # Import and execute function
                func = import_callback(task.entrypoint)
                # Task can use both data_ctx and orch_ctx
@@ -272,24 +272,22 @@ job.test()  # Blocks until job completes (test mode)
                return result
    ```
 
-4. Add `apply()` method to OrchContext:
+4. ⚠️ Add `apply()` method to OrchContext (planned):
    - Accept Task, Group, or list
-   - Acquire connection from global pool
-   - Create session for transaction
+   - Create AsyncSession from global engine
    - Generate snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
    - Set job_id on all tasks and groups
-   - Insert into PostgreSQL
-   - Commit transaction and close session
+   - Insert into PostgreSQL using ORM (session.add, session.commit)
    - Return committed objects
 
 **Deliverables**:
-- Global asyncpg.Pool shared across all OrchContext instances
-- OrchContext class with job_id parameter
-- Tasks execute with both DataContext (data) and OrchContext (orchestration)
-- OrchContext available via `get_orch_context()`
-- DataContext remains unchanged (backward compatible)
-- `orch_ctx.apply()` works for committing tasks
-- Each operation creates its own session from pool
+- ✅ Global SQLAlchemy AsyncEngine shared across all OrchContext instances
+- ✅ OrchContext class (no job_id parameter - simplified)
+- ⚠️ Tasks execute with both DataContext (data) and OrchContext (orchestration) (planned)
+- ✅ OrchContext available via `get_orch_context()`
+- ✅ DataContext remains unchanged (backward compatible)
+- ⚠️ `orch_ctx.apply()` works for committing tasks (planned)
+- ✅ Each operation creates its own AsyncSession from global engine
 
 ---
 

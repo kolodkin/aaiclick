@@ -18,8 +18,8 @@ As aaiclick scales to handle large-scale data processing, we need:
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Global Resources                           │
 │  ┌─────────────────────┐        ┌──────────────────────────┐    │
-│  │  ClickHouse Pool    │        │  asyncpg.Pool (Global)   │    │
-│  │  (urllib3 Pool)     │        │  (PostgreSQL Connections)│    │
+│  │  ClickHouse Pool    │        │  SQLAlchemy AsyncEngine  │    │
+│  │  (urllib3 Pool)     │        │  (Global, manages pool)  │    │
 │  └─────────────────────┘        └──────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
            │                                      │
@@ -29,8 +29,8 @@ As aaiclick scales to handle large-scale data processing, we need:
 │   DataContext        │           │    OrchContext           │
 │  (ClickHouse data)   │           │  (Orchestration state)   │
 │  ┌────────────────┐  │           │  ┌────────────────────┐ │
-│  │ ClickHouse     │  │           │  │ Acquires from Pool │ │
-│  │ Client         │  │           │  │ (per operation)    │ │
+│  │ ClickHouse     │  │           │  │ Creates sessions   │ │
+│  │ Client         │  │           │  │ from engine        │ │
 │  └────────────────┘  │           │  └────────────────────┘ │
 │                      │           │  job_id: Optional[int] │
 └──────────────────────┘           └──────────────────────────┘
@@ -61,11 +61,11 @@ As aaiclick scales to handle large-scale data processing, we need:
   - Uses global urllib3 connection pool
   - Example: `async with DataContext() as data_ctx:`
 
-- **OrchContext** (`aaiclick.orch_context`): Manages PostgreSQL orchestration state
+- **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
   - Handles Jobs, Tasks, Groups, Dependencies
-  - Uses global asyncpg.Pool (connections acquired per operation)
-  - Each operation creates its own session for transaction isolation
-  - Example: `async with OrchContext(job_id=123) as orch_ctx:`
+  - Uses global SQLAlchemy AsyncEngine (engine manages connection pooling internally via asyncpg)
+  - Each operation creates its own AsyncSession for transaction isolation
+  - Example: `async with OrchContext() as orch_ctx:`
 
 - **Task Execution**: Workers use **both** contexts
   - DataContext for data operations (Objects)
@@ -108,19 +108,17 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **OrchContext** is independent - handles only PostgreSQL orchestration
 - Both can be used together or separately
 
-**OrchContext Connection Pooling** (similar to ClickHouse pattern):
-- **Global asyncpg.Pool**: Shared across all OrchContext instances
-- OrchContext acquires connections from pool for each operation
-- Each operation (`apply()`, `claim_task()`, etc.) creates its own session
-- **job_id parameter**: Required for OrchContext
-  - `OrchContext(job_id=123)` - associates context with specific job
-  - Enables dynamic task creation within job
+**OrchContext Connection Management**:
+- **Global SQLAlchemy AsyncEngine**: Shared across all OrchContext instances
+  - Engine manages connection pooling internally via asyncpg
+  - No separate pool management needed
+- OrchContext creates AsyncSessions from the global engine for each operation
+- Each operation (`apply()`, `claim_task()`, etc.) uses its own session
 - Benefits:
-  - Connection reuse across all OrchContext instances
+  - Connection pooling handled automatically by SQLAlchemy
   - Better transaction isolation per operation
   - No long-lived transactions
-  - Pool management handled globally
-  - Consistent pattern with ClickHouse urllib3 pool
+  - Engine lifecycle managed globally (similar to ClickHouse urllib3 pool pattern)
 
 **High-Level Factory APIs**:
 - **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
@@ -1099,33 +1097,26 @@ def get_logs_dir() -> str:
 The orchestration backend uses a global asyncpg connection pool (not SQLAlchemy engine):
 
 ```python
-import asyncpg
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-# Global connection pool (initialized on first use)
-_pool: Optional[asyncpg.Pool] = None
+# Global async engine (SQLAlchemy manages connection pooling internally)
+_engine: list[Optional[AsyncEngine]] = [None]
 
-async def get_postgres_pool() -> asyncpg.Pool:
-    """Get or create the global PostgreSQL connection pool."""
-    global _pool
-    if _pool is None:
-        _pool = await asyncpg.create_pool(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            user=os.getenv("POSTGRES_USER", "aaiclick"),
-            password=os.getenv("POSTGRES_PASSWORD", "secret"),
-            database=os.getenv("POSTGRES_DB", "aaiclick"),
-            min_size=2,
-            max_size=10,
-        )
-    return _pool
+def _get_engine() -> AsyncEngine:
+    """Get or create the global SQLAlchemy AsyncEngine."""
+    if _engine[0] is None:
+        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+        _engine[0] = create_async_engine(database_url, echo=False)
+    return _engine[0]
 
-# Usage pattern
-pool = await get_postgres_pool()
-async with pool.acquire() as conn:
-    result = await conn.fetch("SELECT * FROM jobs")
+# Usage pattern - create sessions from the global engine
+async with OrchContext():
+    async with get_orch_context_session() as session:
+        result = await session.execute(select(Job))
+        jobs = result.scalars().all()
 ```
 
-**Note**: Phase 2 implementation uses asyncpg directly. Future phases may add SQLAlchemy/SQLModel ORM layer for complex queries while maintaining the asyncpg pool for simple operations.
+**Implementation**: `aaiclick/orchestration/context.py` defines the global engine and context management.
 
 ## Implementation Plan
 

@@ -42,12 +42,9 @@ async def orch_ctx():
     """
     Fixture that provides an OrchContext for orchestration tests.
 
-    The engine is automatically disposed when the context exits.
-
     Usage:
         async def test_example(orch_ctx):
             job = await create_job("my_job", "mymodule.task1")
-            # Engine is automatically cleaned up
     """
     async with OrchContext() as context:
         yield context
@@ -60,9 +57,6 @@ async def cleanup_engine():
 
     This ensures tests don't interfere with each other through
     lingering connections in the shared engine.
-
-    The engine is global and persists across tests, so we need
-    to explicitly dispose and reset it for test isolation.
     """
     yield
     # Clean up after test
