@@ -40,7 +40,7 @@ async def example_simple_job():
     # The callback string references a function in this module
     job = await create_job(
         "simple_arithmetic_job",
-        "aaiclick.data.examples.orchestration_basic.simple_arithmetic",
+        "aaiclick.examples.orchestration_basic.simple_arithmetic",
     )
 
     print(f"Created job: {job.name} (ID: {job.id})")
@@ -57,7 +57,7 @@ async def example_job_with_task():
 
     # Create a task with parameters
     task = create_task(
-        "aaiclick.data.examples.orchestration_basic.task_with_params",
+        "aaiclick.examples.orchestration_basic.task_with_params",
         {"x": 5, "y": 7},
     )
 

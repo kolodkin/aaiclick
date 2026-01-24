@@ -82,7 +82,7 @@ class TestExecution:
 
     async def test_import_callback_basic(self, orch_ctx):
         """Test importing a callback function."""
-        func = import_callback("tests.fixtures.sample_tasks.simple_task")
+        func = import_callback("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
         assert callable(func)
         func()  # Should not raise
@@ -91,7 +91,7 @@ class TestExecution:
         """Test importing an async callback function."""
         import asyncio
 
-        func = import_callback("tests.fixtures.sample_tasks.async_task")
+        func = import_callback("aaiclick.orchestration.fixtures.sample_tasks.async_task")
 
         assert callable(func)
         assert asyncio.iscoroutinefunction(func)
@@ -139,7 +139,7 @@ class TestExecution:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            task = create_task("tests.fixtures.sample_tasks.simple_task")
+            task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
             task.job_id = 1  # Set a dummy job_id
 
             await execute_task(task)  # Should not raise
@@ -149,7 +149,7 @@ class TestExecution:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            task = create_task("tests.fixtures.sample_tasks.async_task")
+            task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
             task.job_id = 1
 
             await execute_task(task)  # Should not raise
@@ -160,7 +160,7 @@ class TestExecution:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
             task = create_task(
-                "tests.fixtures.sample_tasks.task_with_args",
+                "aaiclick.orchestration.fixtures.sample_tasks.task_with_args",
                 {"x": 5, "y": 7},
             )
             task.job_id = 1
@@ -176,7 +176,7 @@ class TestRunJobTasks:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            job = await create_job("test_job", "tests.fixtures.sample_tasks.simple_task")
+            job = await create_job("test_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
             await run_job_tasks(job)
 
@@ -196,7 +196,7 @@ class TestRunJobTasks:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
             task = create_task(
-                "tests.fixtures.sample_tasks.task_with_args",
+                "aaiclick.orchestration.fixtures.sample_tasks.task_with_args",
                 {"x": 3, "y": 4},
             )
             job = await create_job("test_job_args", task)
@@ -210,7 +210,7 @@ class TestRunJobTasks:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            job = await create_job("test_job_fail", "tests.fixtures.sample_tasks.failing_task")
+            job = await create_job("test_job_fail", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
 
             await run_job_tasks(job)
 
@@ -231,7 +231,7 @@ class TestRunJobTasks:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            job = await create_job("test_job_log", "tests.fixtures.sample_tasks.task_with_output")
+            job = await create_job("test_job_log", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
             await run_job_tasks(job)
 
@@ -263,7 +263,7 @@ class TestJobTest:
                 from aaiclick.orchestration.context import OrchContext
 
                 async with OrchContext():
-                    job = await create_job("test_sync", "tests.fixtures.sample_tasks.simple_task")
+                    job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
                     return job
 
             job = asyncio.run(create_and_test())
@@ -283,7 +283,7 @@ class TestJobTest:
 
                 async with OrchContext():
                     task = create_task(
-                        "tests.fixtures.sample_tasks.async_task_with_args",
+                        "aaiclick.orchestration.fixtures.sample_tasks.async_task_with_args",
                         {"x": 100, "y": 200},
                     )
                     job = await create_job("test_sync_args", task)
