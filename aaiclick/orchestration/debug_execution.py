@@ -4,16 +4,10 @@ This module provides functions for running jobs in debug/test mode,
 separate from execution.py to avoid circular imports with models.py.
 """
 
-from __future__ import annotations
-
 import asyncio
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .models import Job
 
 
-def run_job_test(job: Job) -> None:
+def run_job_test(job) -> None:
     """
     Execute job synchronously in current process (test mode).
 
@@ -30,7 +24,7 @@ def run_job_test(job: Job) -> None:
     asyncio.run(run_job_test_async(job))
 
 
-async def run_job_test_async(job: Job) -> None:
+async def run_job_test_async(job) -> None:
     """
     Async implementation of test execution.
 

@@ -56,28 +56,11 @@ This document contains guidelines for AI agents (like Claude Code) working on th
         something()
     ```
 
-- **Prefer base/common files over circular dependencies**:
-  - When two modules would import each other, extract shared code to a separate module
+- **Avoid circular dependencies**: Extract shared code to a separate module
+  - When two modules would import each other, create a base/common module
   - Example: Instead of `models.py` ↔ `execution.py` circular import, create `debug_execution.py`
   - This keeps dependencies one-directional and code easier to understand
-
-- **Circular imports (when unavoidable)**: Use `from __future__ import annotations` with `TYPE_CHECKING`
-  - Add `from __future__ import annotations` at top of file for deferred evaluation
-  - Use `TYPE_CHECKING` to import types only during static analysis
-  - Use lazy imports inside methods for runtime dependencies
-  - Example:
-    ```python
-    from __future__ import annotations
-
-    from typing import TYPE_CHECKING
-
-    if TYPE_CHECKING:
-        from .models import Job  # Only imported for type checking
-
-    def run_job_test(job: Job) -> None:  # Type hint works without runtime import
-        from .execution import run_job_tasks  # Lazy import for runtime
-        run_job_tasks(job)
-    ```
+  - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
   - Simply import what needs to be exported
