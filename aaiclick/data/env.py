@@ -1,5 +1,5 @@
 """
-aaiclick.env - Environment variable configuration.
+aaiclick.data.env - Environment variable configuration.
 
 This module centralizes all environment variable reading with sensible defaults.
 """

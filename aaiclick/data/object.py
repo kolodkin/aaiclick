@@ -1,5 +1,5 @@
 """
-aaiclick.object - Core Object class for the aaiclick framework.
+aaiclick.data.object - Core Object class for the aaiclick framework.
 
 This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.

@@ -2,7 +2,7 @@
 Tests for Snowflake ID generation.
 """
 
-from aaiclick.snowflake import (
+from aaiclick.data.snowflake import (
     SnowflakeGenerator,
     get_snowflake_id,
     get_snowflake_ids,

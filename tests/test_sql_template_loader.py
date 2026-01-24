@@ -2,7 +2,7 @@
 Tests for SQL template loader functionality.
 """
 
-from aaiclick.sql_template_loader import load_sql_template
+from aaiclick.data.sql_template_loader import load_sql_template
 
 
 def test_load_apply_op_array_template():

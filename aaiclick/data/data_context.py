@@ -1,5 +1,5 @@
 """
-aaiclick.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
+aaiclick.data.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
 
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.

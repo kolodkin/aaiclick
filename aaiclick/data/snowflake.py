@@ -1,5 +1,5 @@
 """
-aaiclick.snowflake - Snowflake ID generator for unique table naming.
+aaiclick.data.snowflake - Snowflake ID generator for unique table naming.
 
 This module provides a Snowflake ID generator that creates unique,
 time-ordered IDs suitable for distributed systems.
