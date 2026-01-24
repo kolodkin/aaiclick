@@ -56,12 +56,23 @@ This document contains guidelines for AI agents (like Claude Code) working on th
         something()
     ```
 
-- **Circular imports**: Use two-pattern approach
-  - Type annotations: Add `from __future__ import annotations` at top of file
-    - Allows `Object` instead of `"Object"` in type hints
-    - Required for Python 3.10+
-  - Runtime imports: Use lazy imports inside methods when modules need each other
-    - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
+- **Circular imports**: Use `from __future__ import annotations` with `TYPE_CHECKING`
+  - Add `from __future__ import annotations` at top of file for deferred evaluation
+  - Use `TYPE_CHECKING` to import types only during static analysis
+  - Use lazy imports inside methods for runtime dependencies
+  - Example:
+    ```python
+    from __future__ import annotations
+
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from .models import Job  # Only imported for type checking
+
+    def run_job_test(job: Job) -> None:  # Type hint works without runtime import
+        from .execution import run_job_tasks  # Lazy import for runtime
+        run_job_tasks(job)
+    ```
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
   - Simply import what needs to be exported
