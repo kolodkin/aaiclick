@@ -27,7 +27,14 @@ class TestLogging:
 
     async def test_get_logs_dir_default(self, orch_ctx, monkeypatch):
         """Test get_logs_dir returns OS-dependent default."""
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
         monkeypatch.delenv("AAICLICK_LOG_DIR", raising=False)
+
+        # Mock Path.mkdir to avoid permission issues in CI
+        mock_mkdir = MagicMock()
+        monkeypatch.setattr(Path, "mkdir", mock_mkdir)
 
         log_dir = get_logs_dir()
 
@@ -35,6 +42,9 @@ class TestLogging:
             assert log_dir == os.path.expanduser("~/.aaiclick/logs")
         else:
             assert log_dir == "/var/log/aaiclick"
+
+        # Verify mkdir was called
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
     async def test_get_logs_dir_custom(self, orch_ctx, monkeypatch):
         """Test get_logs_dir with custom directory."""

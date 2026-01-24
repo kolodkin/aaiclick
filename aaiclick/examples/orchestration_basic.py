@@ -72,8 +72,58 @@ async def example_job_with_task():
     return job
 
 
+async def async_main():
+    """
+    Async entry point that creates jobs and tests them using async methods.
+
+    This is suitable for calling from async test contexts where asyncio.run()
+    cannot be used (e.g., pytest-asyncio).
+    """
+    from aaiclick.orchestration.execution import run_job_tasks
+
+    print("=" * 50)
+    print("aaiclick Orchestration Basic Example")
+    print("=" * 50)
+    print("\nNote: This example requires:")
+    print("      - Running PostgreSQL server (localhost:5432)")
+    print("      - Database migrations applied (python -m aaiclick migrate)")
+    print()
+
+    async with OrchContext():
+        # Example 1: Create a simple job
+        job1 = await example_simple_job()
+
+        # Example 2: Create a job with task parameters
+        job2 = await example_job_with_task()
+
+        # Test execution using async method (within the context)
+        print("\n" + "=" * 50)
+        print("Testing Job Execution (Async Mode)")
+        print("-" * 50)
+
+        print(f"\nRunning job: {job1.name}")
+        await run_job_tasks(job1)
+        print(f"Job status: {job1.status}")
+        assert job1.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {job1.status}"
+
+        print(f"\nRunning job: {job2.name}")
+        await run_job_tasks(job2)
+        print(f"Job status: {job2.status}")
+        assert job2.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {job2.status}"
+
+    print("\n" + "=" * 50)
+    print("All examples completed successfully!")
+    print("=" * 50)
+
+
 async def main():
-    """Main entry point that creates context and runs examples."""
+    """
+    Main entry point demonstrating job.test() synchronous mode.
+
+    This uses job.test() which internally calls asyncio.run(), so it cannot
+    be called from within an already-running event loop. For async contexts,
+    use async_main() instead.
+    """
     print("=" * 50)
     print("aaiclick Orchestration Basic Example")
     print("=" * 50)
@@ -90,6 +140,8 @@ async def main():
         job2 = await example_job_with_task()
 
     # Test execution (runs outside OrchContext, creates its own)
+    # Note: job.test() uses asyncio.run() internally, so this only works
+    # when not already inside an event loop
     print("\n" + "=" * 50)
     print("Testing Job Execution (Synchronous Test Mode)")
     print("-" * 50)
