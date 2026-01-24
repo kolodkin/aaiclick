@@ -115,7 +115,7 @@ async def run_job_tasks(job: Job) -> None:
     Execute all tasks for a job synchronously (test mode).
 
     This simulates worker behavior but runs in the current process.
-    Tasks are executed in order of creation (snowflake ID).
+    Tasks are fetched and executed one at a time in order of creation (snowflake ID).
 
     Args:
         job: Job whose tasks to execute
@@ -130,21 +130,24 @@ async def run_job_tasks(job: Job) -> None:
         session.add(job)
         await session.commit()
 
-    async with get_orch_context_session() as session:
-        # Get all pending tasks for this job
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id, Task.status == TaskStatus.PENDING).order_by(Task.id)
-        )
-        tasks = list(result.scalars().all())
-
     job_failed = False
     error_msg = None
 
-    for task in tasks:
+    # Fetch and execute one task at a time until no more pending tasks
+    while True:
         async with get_orch_context_session() as session:
-            # Reload task to get fresh state
-            result = await session.execute(select(Task).where(Task.id == task.id))
-            task = result.scalar_one()
+            # Fetch next pending task for this job
+            result = await session.execute(
+                select(Task)
+                .where(Task.job_id == job.id, Task.status == TaskStatus.PENDING)
+                .order_by(Task.id)
+                .limit(1)
+            )
+            task = result.scalar_one_or_none()
+
+            if task is None:
+                # No more pending tasks
+                break
 
             # Update task to RUNNING
             task.status = TaskStatus.RUNNING
@@ -152,12 +155,15 @@ async def run_job_tasks(job: Job) -> None:
             session.add(task)
             await session.commit()
 
+            # Store task_id for later use (task object detaches after session closes)
+            task_id = task.id
+
         try:
             result = await execute_task(task)
 
             async with get_orch_context_session() as session:
                 # Reload and update task to COMPLETED
-                db_result = await session.execute(select(Task).where(Task.id == task.id))
+                db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
                 task.status = TaskStatus.COMPLETED
@@ -179,7 +185,7 @@ async def run_job_tasks(job: Job) -> None:
 
             async with get_orch_context_session() as session:
                 # Reload and update task to FAILED
-                db_result = await session.execute(select(Task).where(Task.id == task.id))
+                db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
                 task.status = TaskStatus.FAILED

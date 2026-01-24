@@ -33,15 +33,12 @@ async def task_with_params(x: int, y: int):
 async def example_simple_job():
     """Example: Create and run a simple job with one task."""
     print("\n" + "=" * 50)
-    print("Example 1: Simple Job with Callback String")
+    print("Example 1: Simple Job with Callable Function")
     print("-" * 50)
 
-    # Create a job using a callback string
-    # The callback string references a function in this module
-    job = await create_job(
-        "simple_arithmetic_job",
-        "aaiclick.examples.orchestration_basic.simple_arithmetic",
-    )
+    # Create a job using a callable function directly
+    # The function is automatically converted to its module path string
+    job = await create_job("simple_arithmetic_job", simple_arithmetic)
 
     print(f"Created job: {job.name} (ID: {job.id})")
     print(f"Initial status: {job.status}")
@@ -55,11 +52,8 @@ async def example_job_with_task():
     print("Example 2: Job with Task Object and Parameters")
     print("-" * 50)
 
-    # Create a task with parameters
-    task = create_task(
-        "aaiclick.examples.orchestration_basic.task_with_params",
-        {"x": 5, "y": 7},
-    )
+    # Create a task with callable and parameters
+    task = create_task(task_with_params, {"x": 5, "y": 7})
 
     # Create job with the task
     job = await create_job("parametrized_job", task)
