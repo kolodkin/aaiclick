@@ -31,23 +31,15 @@ install_gh() {
     echo -e "${YELLOW}⚠️  GitHub CLI not found. Installing...${NC}"
 
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo "Installing on Linux..."
+        echo "Installing on Linux (local)..."
         wget -q "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}.tar.gz"
         tar -xzf "${GH_ARCHIVE}.tar.gz"
-        # Try system-wide install first, fall back to local install
-        if sudo mv "${GH_ARCHIVE}/bin/gh" /usr/local/bin/ 2>/dev/null; then
-            rm -rf "${GH_ARCHIVE}"*
-            echo -e "${GREEN}✓ GitHub CLI installed successfully (system-wide)${NC}"
-            gh --version
-        else
-            # Fall back to local installation
-            mkdir -p ~/.local/bin
-            mv "${GH_ARCHIVE}/bin/gh" ~/.local/bin/
-            rm -rf "${GH_ARCHIVE}"*
-            export PATH="$HOME/.local/bin:$PATH"
-            echo -e "${GREEN}✓ GitHub CLI installed successfully (local: ~/.local/bin)${NC}"
-            gh --version
-        fi
+        mkdir -p ~/.local/bin
+        mv "${GH_ARCHIVE}/bin/gh" ~/.local/bin/
+        rm -rf "${GH_ARCHIVE}"*
+        export PATH="$HOME/.local/bin:$PATH"
+        echo -e "${GREEN}✓ GitHub CLI installed successfully (~/.local/bin)${NC}"
+        gh --version
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "Installing on macOS..."
