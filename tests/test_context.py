@@ -3,7 +3,7 @@ Tests for DataContext manager functionality.
 """
 
 import pytest
-from aaiclick import DataContext, get_context, create_object_from_value, create_object
+from aaiclick import DataContext, get_data_context, create_object_from_value, create_object
 
 
 async def test_context_basic_usage():

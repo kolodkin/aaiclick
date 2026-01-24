@@ -171,10 +171,10 @@ aaiclick/
   - Manages ClickHouse client lifecycle
   - Tracks Objects via weakref for automatic cleanup
   - Uses ContextVar for async-safe global context management
-  - Accessed via `async with DataContext():` pattern or `get_context()` function
+  - Accessed via `async with DataContext():` pattern or `get_data_context()` function
 - **Module-level Functions**: `create_object()` and `create_object_from_value()`
   - Exported from package for direct use
-  - Use `get_context()` internally to access the current context
+  - Use `get_data_context()` internally to access the current context
   - No need to pass context explicitly
 - **Connection Pool**: Shared urllib3 PoolManager across all DataContext instances
   - Defined in `data_context.py` as global `_pool`

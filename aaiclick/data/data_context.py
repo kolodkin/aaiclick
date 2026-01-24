@@ -1,5 +1,5 @@
 """
-aaiclick.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
+aaiclick.data.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
 
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.
@@ -32,14 +32,14 @@ from .models import (
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
 )
-from .snowflake import get_snowflake_ids
+from ..snowflake_id import get_snowflake_ids
 
 
 # Global ContextVar to hold the current DataContext instance
 _current_context: ContextVar['DataContext'] = ContextVar('current_context')
 
 
-def get_context() -> 'DataContext':
+def get_data_context() -> 'DataContext':
     """
     Get the current DataContext instance from ContextVar.
 
@@ -236,7 +236,7 @@ async def create_object(schema: Schema):
     """
     from .object import Object
 
-    ctx = get_context()
+    ctx = get_data_context()
     obj = Object()
 
     # Build column definitions with comments derived from fieldtype
@@ -331,7 +331,7 @@ async def create_object_from_value(val: ValueType) -> Object:
     """
     from .object import Object
 
-    ctx = get_context()
+    ctx = get_data_context()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

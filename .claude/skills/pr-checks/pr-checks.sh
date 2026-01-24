@@ -13,6 +13,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# GitHub CLI version for installation
+GH_VERSION="2.62.0"
+GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64"
+
 echo -e "${BLUE}🔍 GitHub Actions Workflow Checker${NC}"
 echo ""
 
@@ -27,12 +31,14 @@ install_gh() {
     echo -e "${YELLOW}⚠️  GitHub CLI not found. Installing...${NC}"
 
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo "Installing on Linux..."
-        wget -q https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz
-        tar -xzf gh_2.62.0_linux_amd64.tar.gz
-        sudo mv gh_2.62.0_linux_amd64/bin/gh /usr/local/bin/
-        rm -rf gh_2.62.0_linux_amd64*
-        echo -e "${GREEN}✓ GitHub CLI installed successfully${NC}"
+        echo "Installing on Linux (local)..."
+        wget -q "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}.tar.gz"
+        tar -xzf "${GH_ARCHIVE}.tar.gz"
+        mkdir -p ~/.local/bin
+        mv "${GH_ARCHIVE}/bin/gh" ~/.local/bin/
+        rm -rf "${GH_ARCHIVE}"*
+        export PATH="$HOME/.local/bin:$PATH"
+        echo -e "${GREEN}✓ GitHub CLI installed successfully (~/.local/bin)${NC}"
         gh --version
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then

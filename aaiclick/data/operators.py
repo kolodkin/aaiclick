@@ -1,5 +1,5 @@
 """
-aaiclick.operators - Operator implementations for Object class.
+aaiclick.data.operators - Operator implementations for Object class.
 
 This module contains database-level functions that implement all operators.
 Each operator function takes table names and ch_client instead of Object instances.

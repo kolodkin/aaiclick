@@ -1,5 +1,5 @@
 """
-aaiclick.snowflake - Snowflake ID generator for unique table naming.
+aaiclick.snowflake_id - Snowflake ID generator for unique table naming.
 
 This module provides a Snowflake ID generator that creates unique,
 time-ordered IDs suitable for distributed systems.
@@ -22,7 +22,7 @@ This provides:
 
 import time
 import threading
-from .env import SNOWFLAKE_MACHINE_ID
+from .data.env import SNOWFLAKE_MACHINE_ID
 
 # Custom epoch: January 1, 2024 00:00:00 UTC
 # This gives us ~69 years from this epoch (41 bits of milliseconds)

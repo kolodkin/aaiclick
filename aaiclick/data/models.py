@@ -1,5 +1,5 @@
 """
-aaiclick.models - Data models and type definitions for the aaiclick framework.
+aaiclick.data.models - Data models and type definitions for the aaiclick framework.
 
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
