@@ -146,15 +146,15 @@ jobs:
 
           # Run each example and capture output
           echo "Running basic_operators example..."
-          uv run python -m examples.basic_operators > tmp/basic_operators_output.txt 2>&1
+          uv run python -m aaiclick.examples.basic_operators > tmp/basic_operators_output.txt 2>&1
           echo "Basic operators example completed successfully!"
 
           echo "Running statistics example..."
-          uv run python -m examples.statistics > tmp/statistics_output.txt 2>&1
+          uv run python -m aaiclick.examples.statistics > tmp/statistics_output.txt 2>&1
           echo "Statistics example completed successfully!"
 
           echo "Running views example..."
-          uv run python -m examples.views > tmp/views_output.txt 2>&1
+          uv run python -m aaiclick.examples.views > tmp/views_output.txt 2>&1
           echo "Views example completed successfully!"
 
       - name: Add example outputs to summary
