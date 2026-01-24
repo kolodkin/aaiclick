@@ -48,7 +48,6 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
 - **Top-level imports**: Keep all imports at the top of the file
   - Do NOT import inside functions unless avoiding circular imports
-  - Use `TYPE_CHECKING` for type-only imports that would cause circular dependencies
   - Example of proper lazy import (only when necessary):
     ```python
     def method(self):
@@ -56,11 +55,12 @@ This document contains guidelines for AI agents (like Claude Code) working on th
         something()
     ```
 
-- **Avoid circular dependencies**: Extract shared code to a separate module
-  - When two modules would import each other, create a base/common module
-  - Example: Instead of `models.py` ↔ `execution.py` circular import, create `debug_execution.py`
-  - This keeps dependencies one-directional and code easier to understand
-  - Use `from __future__ import annotations` for deferred type evaluation
+- **Circular imports**: Use two-pattern approach
+  - Type annotations: Add `from __future__ import annotations` at top of file
+    - Allows `Object` instead of `"Object"` in type hints
+    - Required for Python 3.10+
+  - Runtime imports: Use lazy imports inside methods when modules need each other
+    - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
   - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
