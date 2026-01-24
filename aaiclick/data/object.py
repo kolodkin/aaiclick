@@ -1,5 +1,5 @@
 """
-aaiclick.object - Core Object class for the aaiclick framework.
+aaiclick.data.object - Core Object class for the aaiclick framework.
 
 This module provides the Object class that represents data in ClickHouse tables
 and supports operations through operator overloading.
@@ -11,7 +11,7 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 
 from . import operators
-from .snowflake import get_snowflake_id
+from ..snowflake_id import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from .models import (
     Schema,
@@ -24,7 +24,7 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .data_context import get_context, DataContext, create_object_from_value
+from .data_context import get_data_context, DataContext, create_object_from_value
 
 
 @dataclass
@@ -77,7 +77,7 @@ class Object:
     def ctx(self) -> Context:
         """Get the context managing this object."""
         self.checkstale()
-        return get_context()
+        return get_data_context()
 
     @property
     def where(self) -> Optional[str]:

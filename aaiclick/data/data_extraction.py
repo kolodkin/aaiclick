@@ -1,5 +1,5 @@
 """
-aaiclick.data_extraction - Functions for extracting data from Object tables.
+aaiclick.data.data_extraction - Functions for extracting data from Object tables.
 
 This module provides specialized extraction functions for different table types.
 """

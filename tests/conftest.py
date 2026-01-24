@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from aaiclick import DataContext, create_object, create_object_from_value, get_context
+from aaiclick import DataContext, create_object, create_object_from_value, get_data_context
 from aaiclick.orchestration.context import OrchContext
 
 
