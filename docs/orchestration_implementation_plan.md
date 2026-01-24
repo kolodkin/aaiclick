@@ -187,17 +187,18 @@ print(f"Job {job.id} created")
    - See: `aaiclick/orchestration/execution.py:82-165`
 
 6. ✅ Add result handling:
-   - Stores result_table_id if result has table_id attribute
-   - See: `aaiclick/orchestration/execution.py:118-122`
+   - Converts task return values to Objects via `create_object_from_value()`
+   - Stores result as JSON with `object_type` and `table_id` fields
+   - See: `aaiclick/orchestration/execution.py:168-172`
 
 **Deliverables**:
-- ✅ `Job.test()` executes all tasks in job using worker execute flow
+- ✅ `test_job()` executes all tasks in job using worker execute flow
 - ✅ Task stdout/stderr captured to `{AAICLICK_LOG_DIR}/{task_id}.log`
-- ✅ Task results captured
+- ✅ Task results captured as Objects via `create_object_from_value()`
 - ✅ Job status transitions work correctly
 - ✅ Basic example from goal works end-to-end
 - ✅ Example: `aaiclick/examples/orchestration_basic.py`
-- ✅ Tests: `tests/test_orchestration_execution.py`
+- ✅ Tests: `aaiclick/orchestration/test_orchestration_execution.py`
 
 ---
 

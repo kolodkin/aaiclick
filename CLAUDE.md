@@ -18,9 +18,14 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
   - Shared fixtures go in `aaiclick/conftest.py`
 
+- **Flat test structure**: Do NOT use test classes - keep tests as flat module functions
+  - Tests should be simple `async def test_*():` or `def test_*():` functions
+  - Group related tests by file, not by class
+  - This keeps tests simple and reduces boilerplate
+
 - **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
-- pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
-- Simply define async test functions with `async def test_*():`
+  - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
+  - Simply define async test functions with `async def test_*():`
 
 
 ## Code Quality
