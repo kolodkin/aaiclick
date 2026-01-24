@@ -57,8 +57,8 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
 - **Circular imports**: Use two-pattern approach
   - Type annotations: Add `from __future__ import annotations` at top of file
+    - Defers evaluation of type hints, avoiding import-time circular dependencies
     - Allows `Object` instead of `"Object"` in type hints
-    - Required for Python 3.10+
   - Runtime imports: Use lazy imports inside methods when modules need each other
     - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
   - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
