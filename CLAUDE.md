@@ -46,6 +46,16 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
   3. Current package imports: `from aaiclick import DataContext`
 
+- **Top-level imports**: Keep all imports at the top of the file
+  - Do NOT import inside functions unless avoiding circular imports
+  - Use `TYPE_CHECKING` for type-only imports that would cause circular dependencies
+  - Example of proper lazy import (only when necessary):
+    ```python
+    def method(self):
+        from .other_module import something  # Lazy import to avoid circular dependency
+        something()
+    ```
+
 - **Circular imports**: Use two-pattern approach
   - Type annotations: Add `from __future__ import annotations` at top of file
     - Allows `Object` instead of `"Object"` in type hints
