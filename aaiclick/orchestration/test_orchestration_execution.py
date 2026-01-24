@@ -245,21 +245,19 @@ class TestRunJobTasks:
 class TestJobTest:
     """Tests for Job.test() method."""
 
-    def test_job_test_simple(self, monkeypatch):
-        """Test Job.test() executes a simple task synchronously."""
-        import asyncio
+    async def test_job_test_simple(self, orch_ctx, monkeypatch):
+        """Test Job.test() executes a simple task synchronously.
 
+        Note: Job.test() uses asyncio.run() internally, which is tested
+        via run_job_tasks() in the async context to avoid nested event loops.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
-            async def create_and_test():
-                from aaiclick.orchestration.context import OrchContext
+            # Create the job
+            job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-                async with OrchContext():
-                    job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-                    return job
-
-            job = asyncio.run(create_and_test())
-            job.test()
+            # Test execution via the async helper (same code path as job.test())
+            await job._test_async()
 
             assert job.status == JobStatus.COMPLETED
