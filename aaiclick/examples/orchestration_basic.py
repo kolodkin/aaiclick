@@ -4,14 +4,14 @@ Basic orchestration example for aaiclick.
 This example demonstrates how to create and execute jobs using the
 orchestration backend. It shows the basic workflow of:
 1. Creating a job with a task
-2. Executing the job using test_job() for synchronous testing
+2. Executing the job using job.test() for synchronous testing
 
 Note: This requires a running PostgreSQL server for job/task state storage.
 """
 
 import asyncio
 
-from aaiclick.orchestration import JobStatus, create_job, create_task, test_job
+from aaiclick.orchestration import JobStatus, create_job, create_task
 from aaiclick.orchestration.context import OrchContext
 
 
@@ -117,9 +117,9 @@ async def async_main():
 
 async def main():
     """
-    Main entry point demonstrating test_job() synchronous mode.
+    Main entry point demonstrating job.test() synchronous mode.
 
-    This uses test_job() which internally calls asyncio.run(), so it cannot
+    This uses job.test() which internally calls asyncio.run(), so it cannot
     be called from within an already-running event loop. For async contexts,
     use async_main() instead.
 
@@ -144,15 +144,15 @@ async def main():
         _ = await example_job_with_task()
 
     # Test execution (runs outside OrchContext, creates its own)
-    # Note: test_job() uses asyncio.run() internally, so this only works
+    # Note: job.test() uses asyncio.run() internally, so this only works
     # when not already inside an event loop
     print("\n" + "=" * 50)
     print("Testing Job Execution (Synchronous Test Mode)")
     print("-" * 50)
 
     print(f"\nRunning job: {job1.name}")
-    test_job(job1)  # Blocks until job completes
-    print(f"Job status after test_job(): {job1.status}")
+    job1.test()  # Blocks until job completes
+    print(f"Job status after test(): {job1.status}")
     assert job1.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {job1.status}"
 
     # Note: job2 (parametrized) not tested - Object deserialization not yet implemented

@@ -70,6 +70,21 @@ class Job(SQLModel, table=True):
     completed_at: Optional[datetime] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
+    def test(self) -> None:
+        """
+        Execute job synchronously in current process (test mode).
+
+        Invokes the worker execute flow for testing/debugging.
+        Similar to Airflow's test execution mode.
+
+        Example:
+            job = await create_job("my_job", "mymodule.task1")
+            job.test()  # Blocks until job completes
+        """
+        from .testing import test_job
+
+        test_job(self)
+
 
 class Group(SQLModel, table=True):
     """

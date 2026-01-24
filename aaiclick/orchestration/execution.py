@@ -14,38 +14,6 @@ from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
 
 
-def test_job(job: Job) -> None:
-    """
-    Execute job synchronously in current process (test mode).
-
-    Invokes the worker execute flow for testing/debugging.
-    Similar to Airflow's test execution mode.
-
-    Args:
-        job: Job to execute
-
-    Example:
-        job = await create_job("my_job", "mymodule.task1")
-        test_job(job)  # Blocks until job completes
-    """
-    asyncio.run(test_job_async(job))
-
-
-async def test_job_async(job: Job) -> None:
-    """
-    Async implementation of test execution.
-
-    Runs all tasks for this job within an OrchContext.
-
-    Args:
-        job: Job to execute
-    """
-    from .context import OrchContext
-
-    async with OrchContext():
-        await run_job_tasks(job)
-
-
 def import_callback(entrypoint: str) -> Callable:
     """
     Import a callback function from an entrypoint string.
