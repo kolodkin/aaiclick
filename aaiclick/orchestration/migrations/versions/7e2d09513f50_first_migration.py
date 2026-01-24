@@ -81,7 +81,7 @@ def upgrade() -> None:
     sa.Column('started_at', sa.DateTime(), nullable=True),
     sa.Column('completed_at', sa.DateTime(), nullable=True),
     sa.Column('worker_id', sa.BigInteger(), nullable=True),
-    sa.Column('result_table_id', sa.BigInteger(), nullable=True),
+    sa.Column('result', sa.JSON(), nullable=True),
     sa.Column('log_path', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('error', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.ForeignKeyConstraint(['group_id'], ['groups.id'], ),

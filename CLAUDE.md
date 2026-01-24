@@ -18,9 +18,14 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
   - Shared fixtures go in `aaiclick/conftest.py`
 
+- **Flat test structure**: Do NOT use test classes - keep tests as flat module functions
+  - Tests should be simple `async def test_*():` or `def test_*():` functions
+  - Group related tests by file, not by class
+  - This keeps tests simple and reduces boilerplate
+
 - **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
-- pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
-- Simply define async test functions with `async def test_*():`
+  - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
+  - Simply define async test functions with `async def test_*():`
 
 
 ## Code Quality
@@ -41,12 +46,22 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
   3. Current package imports: `from aaiclick import DataContext`
 
+- **Top-level imports**: Keep all imports at the top of the file
+  - Do NOT import inside functions unless avoiding circular imports
+  - Example of proper lazy import (only when necessary):
+    ```python
+    def method(self):
+        from .other_module import something  # Lazy import to avoid circular dependency
+        something()
+    ```
+
 - **Circular imports**: Use two-pattern approach
   - Type annotations: Add `from __future__ import annotations` at top of file
+    - Defers evaluation of type hints, avoiding import-time circular dependencies
     - Allows `Object` instead of `"Object"` in type hints
-    - Required for Python 3.10+
   - Runtime imports: Use lazy imports inside methods when modules need each other
     - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
+  - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
   - Simply import what needs to be exported

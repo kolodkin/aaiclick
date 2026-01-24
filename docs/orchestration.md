@@ -356,19 +356,17 @@ class Task(SQLModel, table=True):
     # Example: "aaiclick.operators.map_function"
 
     kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    # Dictionary mapping parameter names to serialized values
-    # Stored as JSON in PostgreSQL (deserialized to dict in Python)
-    # See "Task Parameter Serialization" section for object_type formats
+    # Dictionary mapping parameter names to serialized Object/View references
+    # All parameters must be aaiclick Objects or Views (no native Python values)
+    # See "Task Parameter Serialization" section for format
 
     # Status tracking
     status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
 
-    # Result
-    result_table_id: Optional[int] = Field(
-        default=None,
-        sa_column=Column(BigInteger, nullable=True)
-    )
-    # ClickHouse table ID of the result Object (snowflake ID)
+    # Result (JSON - same format as kwargs)
+    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Serialized Object or View reference (see "Task Return Values" section)
+    # null if task returns None
 
     # Logging
     log_path: Optional[str] = None
@@ -451,7 +449,7 @@ class Worker(SQLModel, table=True):
 
 ## Task Parameter Serialization
 
-Task kwargs are stored as JSONB and can contain three types of parameters identified by `object_type`:
+Task kwargs are stored as JSONB. All parameters must be aaiclick Objects or Views - native Python values are not supported. This ensures type safety and enables distributed processing where data remains in ClickHouse.
 
 ### Object Parameters
 
@@ -482,33 +480,16 @@ Reference to a subset/view of an Object with query constraints:
 
 Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`. Default ordering is `aai_id ASC`.
 
-### Python Object Parameters
-
-Native Python values (JSONB serializable):
-
-```json
-{
-    "object_type": "pyobj",
-    "value": {"threshold": 0.5, "max_iter": 100}
-}
-```
-
-Worker deserializes to the native Python value. Supports primitives, lists, dicts, etc.
-
 ### Example Task Kwargs
 
 ```python
-# Task with mixed parameter types
+# Task with Object and View parameters
 task_kwargs = {
     "input_data": {
         "object_type": "view",
         "table_id": "t987654321",
         "offset": 10000,
         "limit": 10000
-    },
-    "config": {
-        "object_type": "pyobj",
-        "value": {"threshold": 0.5}
     },
     "reference_table": {
         "object_type": "object",
@@ -517,12 +498,68 @@ task_kwargs = {
 }
 ```
 
+## Task Return Values
+
+Task functions can return any value. The execution flow automatically converts return values to aaiclick Objects:
+
+- **`None`**: Task produces no output data (`task.result` is `null`)
+- **Any other value**: Automatically converted to Object via `create_object_from_value()`
+
+The return value is serialized to JSON in `Task.result`:
+
+```json
+// Object return value (auto-converted from any Python value)
+{
+    "object_type": "object",
+    "table_id": "t123456789"
+}
+
+// None return value
+null
+```
+
+```python
+# Task that returns a computed value (auto-converted to Object)
+async def compute_sum(data: Object):
+    values = await data.data()
+    total = sum(values)
+    return total  # Auto-converted via create_object_from_value(total)
+
+# Task that returns a list (auto-converted to Object)
+async def process_data(data: Object):
+    results = [x * 2 for x in await data.data()]
+    return results  # Auto-converted via create_object_from_value(results)
+
+# Task that returns None (side-effect only)
+async def log_summary(data: Object):
+    count = await data.count()
+    print(f"Processed {count} rows")
+    # task.result is null
+```
+
+**Note**: If a task already returns an Object, it is stored directly without re-conversion.
+
 ## Task Execution Flow
 
 ### 1. Job Creation ✅ IMPLEMENTED
 
 **See**: Factory APIs section above for `create_job()` and `create_task()` usage
 **Implementation**: `aaiclick/orchestration/factories.py:30-107`
+
+### 1.1 Job Testing ✅ IMPLEMENTED
+
+Execute a job synchronously for testing/debugging:
+
+```python
+job = await create_job("my_job", "mymodule.task1")
+job.test()  # Blocks until job completes
+# Job status is now COMPLETED or FAILED
+```
+
+**Implementation**:
+- `aaiclick/orchestration/models.py:73-96` - `Job.test()` and `Job._test_async()` methods
+- `aaiclick/orchestration/execution.py` - Task execution logic
+- `aaiclick/orchestration/logging.py` - Task logging utilities
 
 ### 2. Dynamic Task Creation ⚠️ NOT YET IMPLEMENTED (Phase 8+)
 
@@ -707,11 +744,14 @@ RETURNING (SELECT * FROM claimed_task);
 - ✅ `create_job()` - See Factory APIs section
 - **Implementation**: `aaiclick/orchestration/factories.py`
 
-**Not Yet Implemented (Phase 3+):**
+**Implemented (Phase 3):**
+- ✅ `job.test()` - Execute job synchronously for testing
+  - **Implementation**: `aaiclick/orchestration/models.py:73-96`
+
+**Not Yet Implemented (Phase 4+):**
 - ⚠️ `get_job(job_id)` - Get job status and details
 - ⚠️ `list_jobs(status)` - List jobs by status
 - ⚠️ `cancel_job(job_id)` - Cancel a running job
-- ⚠️ `job.test()` - Execute job synchronously for testing (Phase 3)
 
 ### Task Management ⚠️ NOT YET IMPLEMENTED (Phase 4+)
 
@@ -1127,9 +1167,9 @@ async with OrchContext():
 **Current Status**:
 - ✅ Phase 1: Database Setup (complete)
 - ✅ Phase 2: Core Factories (complete)
-- ⚠️ Phase 3: Job.test() Method (planned)
-- ⚠️ Phase 4: OrchContext Integration (planned)
-- ⚠️ Phase 5: Testing & Examples (planned)
+- ✅ Phase 3: Job.test() Method (complete)
+- ⚠️ Phase 4: OrchContext Integration (partially complete - apply() not yet implemented)
+- ⚠️ Phase 5: Testing & Examples (in progress)
 - ⚠️ Phase 6+: Distributed Workers, Groups, Dependencies, Dynamic Task Creation
 
 ## Monitoring & Observability

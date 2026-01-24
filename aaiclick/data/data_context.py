@@ -314,13 +314,14 @@ async def create_object_from_value(val: ValueType) -> Object:
 
     Args:
         val: Value to create object from. Can be:
+            - Object or View: Returned directly without modification
             - Scalar (int, float, bool, str): Creates "aai_id" and "value" columns, single row
             - List of scalars: Creates "aai_id" and "value" columns with multiple rows
             - Dict of scalars: Creates "aai_id" plus one column per key, single row
             - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
 
     Returns:
-        Object: New Object instance with data
+        Object: New Object instance with data (or passed Object/View directly)
 
     Table Schema Details:
         - All tables include aai_id column with snowflake IDs
@@ -329,7 +330,11 @@ async def create_object_from_value(val: ValueType) -> Object:
         - Dict of scalars: Single row with aai_id plus columns for each key
         - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
     """
-    from .object import Object
+    from .object import Object, View
+
+    # Return Objects and Views directly without modification
+    if isinstance(val, (Object, View)):
+        return val
 
     ctx = get_data_context()
 
