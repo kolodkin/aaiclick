@@ -11,7 +11,7 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 
 from . import operators
-from .snowflake import get_snowflake_id
+from ..snowflake_id import get_snowflake_id
 from .sql_template_loader import load_sql_template
 from .models import (
     Schema,

@@ -34,16 +34,19 @@ install_gh() {
         echo "Installing on Linux..."
         wget -q "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}.tar.gz"
         tar -xzf "${GH_ARCHIVE}.tar.gz"
-        # Try to install, but ensure cleanup happens regardless of success/failure
+        # Try system-wide install first, fall back to local install
         if sudo mv "${GH_ARCHIVE}/bin/gh" /usr/local/bin/ 2>/dev/null; then
             rm -rf "${GH_ARCHIVE}"*
-            echo -e "${GREEN}✓ GitHub CLI installed successfully${NC}"
+            echo -e "${GREEN}✓ GitHub CLI installed successfully (system-wide)${NC}"
             gh --version
         else
+            # Fall back to local installation
+            mkdir -p ~/.local/bin
+            mv "${GH_ARCHIVE}/bin/gh" ~/.local/bin/
             rm -rf "${GH_ARCHIVE}"*
-            echo -e "${RED}❌ Error: Could not install gh CLI (sudo failed)${NC}"
-            echo "Try running manually: sudo mv gh_*/bin/gh /usr/local/bin/"
-            exit 1
+            export PATH="$HOME/.local/bin:$PATH"
+            echo -e "${GREEN}✓ GitHub CLI installed successfully (local: ~/.local/bin)${NC}"
+            gh --version
         fi
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
