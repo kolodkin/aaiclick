@@ -356,19 +356,17 @@ class Task(SQLModel, table=True):
     # Example: "aaiclick.operators.map_function"
 
     kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    # Dictionary mapping parameter names to serialized values
-    # Stored as JSON in PostgreSQL (deserialized to dict in Python)
-    # See "Task Parameter Serialization" section for object_type formats
+    # Dictionary mapping parameter names to serialized Object/View references
+    # All parameters must be aaiclick Objects or Views (no native Python values)
+    # See "Task Parameter Serialization" section for format
 
     # Status tracking
     status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
 
-    # Result
-    result_table_id: Optional[int] = Field(
-        default=None,
-        sa_column=Column(BigInteger, nullable=True)
-    )
-    # ClickHouse table ID of the result Object (snowflake ID)
+    # Result (JSON - same format as kwargs)
+    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Serialized Object or View reference (see "Task Return Values" section)
+    # null if task returns None
 
     # Logging
     log_path: Optional[str] = None
@@ -451,7 +449,7 @@ class Worker(SQLModel, table=True):
 
 ## Task Parameter Serialization
 
-Task kwargs are stored as JSONB and can contain three types of parameters identified by `object_type`:
+Task kwargs are stored as JSONB. All parameters must be aaiclick Objects or Views - native Python values are not supported. This ensures type safety and enables distributed processing where data remains in ClickHouse.
 
 ### Object Parameters
 
@@ -482,23 +480,10 @@ Reference to a subset/view of an Object with query constraints:
 
 Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`. Default ordering is `aai_id ASC`.
 
-### Python Object Parameters
-
-Native Python values (JSONB serializable):
-
-```json
-{
-    "object_type": "pyobj",
-    "value": {"threshold": 0.5, "max_iter": 100}
-}
-```
-
-Worker deserializes to the native Python value. Supports primitives, lists, dicts, etc.
-
 ### Example Task Kwargs
 
 ```python
-# Task with mixed parameter types
+# Task with Object and View parameters
 task_kwargs = {
     "input_data": {
         "object_type": "view",
@@ -506,15 +491,56 @@ task_kwargs = {
         "offset": 10000,
         "limit": 10000
     },
-    "config": {
-        "object_type": "pyobj",
-        "value": {"threshold": 0.5}
-    },
     "reference_table": {
         "object_type": "object",
         "table_id": "t111222333"
     }
 }
+```
+
+## Task Return Values
+
+Task functions must return either:
+- **`None`**: Task produces no output data
+- **`Object`**: Task produces output data stored in ClickHouse
+- **`View`**: Task produces a view reference to existing data
+
+The return value is serialized to JSON in `Task.result` using the same format as input parameters:
+
+```json
+// Object return value
+{
+    "object_type": "object",
+    "table_id": "t123456789"
+}
+
+// View return value
+{
+    "object_type": "view",
+    "table_id": "t123456789",
+    "offset": 0,
+    "limit": 10000
+}
+
+// None return value
+null
+```
+
+```python
+# Task that returns an Object
+async def transform_data(input_data: Object) -> Object:
+    result = await input_data.map(lambda x: x * 2)
+    return result  # Serialized to {"object_type": "object", "table_id": ...}
+
+# Task that returns a View
+async def filter_data(input_data: Object) -> View:
+    return input_data.view(where="value > 100")  # Serialized to {"object_type": "view", ...}
+
+# Task that returns None (side-effect only)
+async def log_summary(data: Object) -> None:
+    count = await data.count()
+    print(f"Processed {count} rows")
+    # task.result is null
 ```
 
 ## Task Execution Flow

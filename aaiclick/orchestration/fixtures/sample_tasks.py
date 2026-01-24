@@ -1,4 +1,8 @@
-"""Sample task functions for orchestration tests."""
+"""Sample task functions for orchestration tests.
+
+Note: Task parameters must be aaiclick Objects or Views.
+Native Python values are not supported as task parameters.
+"""
 
 
 def simple_task():
@@ -14,18 +18,6 @@ async def async_task():
     a = 10
     b = 20
     print(a + b)
-
-
-def task_with_args(x: int, y: int):
-    """A task that takes arguments."""
-    result = x * y
-    print(f"Result: {result}")
-
-
-async def async_task_with_args(x: int, y: int):
-    """An async task that takes arguments."""
-    result = x + y
-    print(f"Sum: {result}")
 
 
 def failing_task():

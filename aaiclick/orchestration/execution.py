@@ -43,10 +43,11 @@ def deserialize_task_params(kwargs: dict) -> dict:
     """
     Deserialize task parameters from JSON format.
 
-    Currently supports:
-    - pyobj: Native Python values stored directly
+    All parameters must be aaiclick Objects or Views - native Python values
+    are not supported. This ensures type safety and enables distributed
+    processing where data remains in ClickHouse.
 
-    Future support (Phase 8+):
+    Supported object_type values:
     - object: Reference to aaiclick Object
     - view: Reference to aaiclick View
 
@@ -55,22 +56,68 @@ def deserialize_task_params(kwargs: dict) -> dict:
 
     Returns:
         dict: Deserialized kwargs ready for function call
+
+    Raises:
+        NotImplementedError: Object/View deserialization not yet implemented
+        ValueError: Unknown object_type
     """
+    if not kwargs:
+        return {}
+
     result = {}
     for key, value in kwargs.items():
-        if isinstance(value, dict) and "object_type" in value:
-            obj_type = value["object_type"]
-            if obj_type == "pyobj":
-                result[key] = value["value"]
-            elif obj_type == "object":
-                raise NotImplementedError("Object parameter type not yet implemented")
-            elif obj_type == "view":
-                raise NotImplementedError("View parameter type not yet implemented")
-            else:
-                raise ValueError(f"Unknown object_type: {obj_type}")
+        if not isinstance(value, dict) or "object_type" not in value:
+            raise ValueError(
+                f"Parameter '{key}' must be an Object or View reference with 'object_type' field. "
+                "Native Python values are not supported."
+            )
+
+        obj_type = value["object_type"]
+        if obj_type == "object":
+            raise NotImplementedError("Object parameter type not yet implemented")
+        elif obj_type == "view":
+            raise NotImplementedError("View parameter type not yet implemented")
         else:
-            result[key] = value
+            raise ValueError(f"Unknown object_type: {obj_type}. Must be 'object' or 'view'.")
+
     return result
+
+
+def serialize_result(result: Any) -> dict:
+    """
+    Serialize a task result to JSON format.
+
+    Results must be aaiclick Objects or Views - native Python values
+    are not supported.
+
+    Args:
+        result: Task result (Object or View)
+
+    Returns:
+        dict: Serialized result in JSON format
+
+    Raises:
+        TypeError: If result is not an Object or View
+    """
+    # Check for Object (has table_id attribute, no view constraints)
+    if hasattr(result, "table_id") and hasattr(result, "table"):
+        # Check if it's a View (has view constraints like offset, limit, where)
+        if hasattr(result, "_offset") or hasattr(result, "_limit") or hasattr(result, "_where"):
+            serialized = {"object_type": "view", "table_id": result.table_id}
+            if hasattr(result, "_offset") and result._offset is not None:
+                serialized["offset"] = result._offset
+            if hasattr(result, "_limit") and result._limit is not None:
+                serialized["limit"] = result._limit
+            if hasattr(result, "_where") and result._where is not None:
+                serialized["where"] = result._where
+            return serialized
+        else:
+            return {"object_type": "object", "table_id": result.table_id}
+
+    raise TypeError(
+        f"Task result must be an Object or View, got {type(result).__name__}. "
+        "Native Python values are not supported as return values."
+    )
 
 
 async def execute_task(task: Task) -> Any:
@@ -154,9 +201,9 @@ async def run_job_tasks(job: Job) -> None:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
 
-                # Store result if it has a table_id (Object)
-                if hasattr(result, "table_id"):
-                    task.result_table_id = result.table_id
+                # Serialize result to JSON (Object or View reference)
+                if result is not None:
+                    task.result = serialize_result(result)
 
                 session.add(task)
                 await session.commit()

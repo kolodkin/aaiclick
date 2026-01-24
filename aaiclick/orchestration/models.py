@@ -134,7 +134,7 @@ class Task(SQLModel, table=True):
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
     worker_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True))
-    result_table_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
 

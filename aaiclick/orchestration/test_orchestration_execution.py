@@ -104,38 +104,49 @@ class TestExecution:
         with pytest.raises(ValueError, match="Invalid entrypoint format"):
             import_callback("no_dot_in_name")
 
-    async def test_deserialize_task_params_pyobj(self, orch_ctx):
-        """Test deserializing pyobj parameters."""
-        kwargs = {
-            "x": {"object_type": "pyobj", "value": 5},
-            "y": {"object_type": "pyobj", "value": 10},
-        }
+    async def test_deserialize_task_params_empty(self, orch_ctx):
+        """Test deserializing empty parameters."""
+        result = deserialize_task_params({})
+        assert result == {}
 
-        result = deserialize_task_params(kwargs)
+    async def test_deserialize_task_params_rejects_native_python(self, orch_ctx):
+        """Test that native Python values are rejected."""
+        import pytest
 
-        assert result == {"x": 5, "y": 10}
-
-    async def test_deserialize_task_params_plain(self, orch_ctx):
-        """Test deserializing plain parameters (no object_type)."""
         kwargs = {"x": 5, "y": 10}
 
-        result = deserialize_task_params(kwargs)
+        with pytest.raises(ValueError, match="must be an Object or View"):
+            deserialize_task_params(kwargs)
 
-        assert result == {"x": 5, "y": 10}
+    async def test_deserialize_task_params_rejects_unknown_type(self, orch_ctx):
+        """Test that unknown object_type is rejected."""
+        import pytest
 
-    async def test_deserialize_task_params_mixed(self, orch_ctx):
-        """Test deserializing mixed parameters."""
-        kwargs = {
-            "x": {"object_type": "pyobj", "value": 5},
-            "y": 10,  # plain value
-        }
+        kwargs = {"x": {"object_type": "unknown", "value": 5}}
 
-        result = deserialize_task_params(kwargs)
+        with pytest.raises(ValueError, match="Unknown object_type"):
+            deserialize_task_params(kwargs)
 
-        assert result == {"x": 5, "y": 10}
+    async def test_deserialize_task_params_object_not_implemented(self, orch_ctx):
+        """Test that object type raises NotImplementedError (not yet implemented)."""
+        import pytest
+
+        kwargs = {"data": {"object_type": "object", "table_id": "t123"}}
+
+        with pytest.raises(NotImplementedError):
+            deserialize_task_params(kwargs)
+
+    async def test_deserialize_task_params_view_not_implemented(self, orch_ctx):
+        """Test that view type raises NotImplementedError (not yet implemented)."""
+        import pytest
+
+        kwargs = {"data": {"object_type": "view", "table_id": "t123", "limit": 100}}
+
+        with pytest.raises(NotImplementedError):
+            deserialize_task_params(kwargs)
 
     async def test_execute_task_sync_function(self, orch_ctx, monkeypatch):
-        """Test executing a sync task function."""
+        """Test executing a sync task function with no parameters."""
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
@@ -145,24 +156,11 @@ class TestExecution:
             await execute_task(task)  # Should not raise
 
     async def test_execute_task_async_function(self, orch_ctx, monkeypatch):
-        """Test executing an async task function."""
+        """Test executing an async task function with no parameters."""
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
             task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-            task.job_id = 1
-
-            await execute_task(task)  # Should not raise
-
-    async def test_execute_task_with_args(self, orch_ctx, monkeypatch):
-        """Test executing a task with arguments."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-            task = create_task(
-                "aaiclick.orchestration.fixtures.sample_tasks.task_with_args",
-                {"x": 5, "y": 7},
-            )
             task.job_id = 1
 
             await execute_task(task)  # Should not raise
@@ -189,21 +187,6 @@ class TestRunJobTasks:
                 tasks = list(result.scalars().all())
                 assert len(tasks) == 1
                 assert tasks[0].status == TaskStatus.COMPLETED
-
-    async def test_run_job_tasks_with_args(self, orch_ctx, monkeypatch):
-        """Test running a job with task arguments."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-            task = create_task(
-                "aaiclick.orchestration.fixtures.sample_tasks.task_with_args",
-                {"x": 3, "y": 4},
-            )
-            job = await create_job("test_job_args", task)
-
-            await run_job_tasks(job)
-
-            assert job.status == JobStatus.COMPLETED
 
     async def test_run_job_tasks_failing_task(self, orch_ctx, monkeypatch):
         """Test running a job with a failing task."""
@@ -264,29 +247,6 @@ class TestJobTest:
 
                 async with OrchContext():
                     job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-                    return job
-
-            job = asyncio.run(create_and_test())
-            job.test()
-
-            assert job.status == JobStatus.COMPLETED
-
-    def test_job_test_with_args(self, monkeypatch):
-        """Test Job.test() with task arguments."""
-        import asyncio
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-            async def create_and_test():
-                from aaiclick.orchestration.context import OrchContext
-
-                async with OrchContext():
-                    task = create_task(
-                        "aaiclick.orchestration.fixtures.sample_tasks.async_task_with_args",
-                        {"x": 100, "y": 200},
-                    )
-                    job = await create_job("test_sync_args", task)
                     return job
 
             job = asyncio.run(create_and_test())
