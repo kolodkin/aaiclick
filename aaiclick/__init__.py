@@ -10,7 +10,7 @@ __version__ = "0.1.0"
 # Import context manager (primary API), context accessor, and factory functions
 from .data import (
     DataContext,
-    get_context,
+    get_data_context,
     create_object,
     create_object_from_value,
 )

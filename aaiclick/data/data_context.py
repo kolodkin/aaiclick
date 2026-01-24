@@ -39,7 +39,7 @@ from ..snowflake_id import get_snowflake_ids
 _current_context: ContextVar['DataContext'] = ContextVar('current_context')
 
 
-def get_context() -> 'DataContext':
+def get_data_context() -> 'DataContext':
     """
     Get the current DataContext instance from ContextVar.
 
@@ -236,7 +236,7 @@ async def create_object(schema: Schema):
     """
     from .object import Object
 
-    ctx = get_context()
+    ctx = get_data_context()
     obj = Object()
 
     # Build column definitions with comments derived from fieldtype
@@ -331,7 +331,7 @@ async def create_object_from_value(val: ValueType) -> Object:
     """
     from .object import Object
 
-    ctx = get_context()
+    ctx = get_data_context()
 
     if isinstance(val, dict):
         # Check if any values are lists (dict of arrays)

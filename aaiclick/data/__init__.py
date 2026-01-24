@@ -10,7 +10,7 @@ from .data_context import (
     create_object,
     create_object_from_value,
     get_ch_client,
-    get_context,
+    get_data_context,
     get_pool,
 )
 from .models import (

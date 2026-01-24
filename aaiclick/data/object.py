@@ -24,7 +24,7 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .data_context import get_context, DataContext, create_object_from_value
+from .data_context import get_data_context, DataContext, create_object_from_value
 
 
 @dataclass
@@ -77,7 +77,7 @@ class Object:
     def ctx(self) -> Context:
         """Get the context managing this object."""
         self.checkstale()
-        return get_context()
+        return get_data_context()
 
     @property
     def where(self) -> Optional[str]:
