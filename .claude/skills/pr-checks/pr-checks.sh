@@ -30,10 +30,17 @@ install_gh() {
         echo "Installing on Linux..."
         wget -q https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz
         tar -xzf gh_2.62.0_linux_amd64.tar.gz
-        sudo mv gh_2.62.0_linux_amd64/bin/gh /usr/local/bin/
-        rm -rf gh_2.62.0_linux_amd64*
-        echo -e "${GREEN}✓ GitHub CLI installed successfully${NC}"
-        gh --version
+        # Try to install, but ensure cleanup happens regardless of success/failure
+        if sudo mv gh_2.62.0_linux_amd64/bin/gh /usr/local/bin/ 2>/dev/null; then
+            rm -rf gh_2.62.0_linux_amd64*
+            echo -e "${GREEN}✓ GitHub CLI installed successfully${NC}"
+            gh --version
+        else
+            rm -rf gh_2.62.0_linux_amd64*
+            echo -e "${RED}❌ Error: Could not install gh CLI (sudo failed)${NC}"
+            echo "Try running manually: sudo mv gh_*/bin/gh /usr/local/bin/"
+            exit 1
+        fi
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "Installing on macOS..."
