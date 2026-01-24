@@ -33,7 +33,7 @@ from .data import (
 )
 
 # Import Snowflake ID generation
-from .data import get_snowflake_id, get_snowflake_ids
+from .snowflake_id import get_snowflake_id, get_snowflake_ids
 
 # Note: Ingest functions (copy_db, concat_objects_db, insert_objects_db) are internal.
 # Use Object.copy(), Object.concat(), Object.insert() methods instead.

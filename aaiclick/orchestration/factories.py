@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Union
 
-from aaiclick.data.snowflake import get_snowflake_id
+from aaiclick.snowflake_id import get_snowflake_id
 
 from .context import get_orch_context_session
 from .models import Job, JobStatus, Task, TaskStatus

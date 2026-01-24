@@ -28,4 +28,3 @@ from .models import (
     ValueType,
 )
 from .object import DataResult, Object
-from .snowflake import get_snowflake_id, get_snowflake_ids

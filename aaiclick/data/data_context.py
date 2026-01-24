@@ -32,7 +32,7 @@ from .models import (
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
 )
-from .snowflake import get_snowflake_ids
+from ..snowflake_id import get_snowflake_ids
 
 
 # Global ContextVar to hold the current DataContext instance
