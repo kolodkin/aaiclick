@@ -70,6 +70,33 @@ class Job(SQLModel, table=True):
     completed_at: Optional[datetime] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
+    def test(self) -> None:
+        """
+        Execute job synchronously in current process (test mode).
+
+        Invokes the worker execute flow for testing/debugging.
+        Similar to Airflow's test execution mode.
+
+        Example:
+            job = await create_job("my_job", "mymodule.task1")
+            job.test()  # Blocks until job completes
+        """
+        import asyncio
+
+        asyncio.run(self._test_async())
+
+    async def _test_async(self) -> None:
+        """
+        Async implementation of test execution.
+
+        Runs all tasks for this job within an OrchContext.
+        """
+        from .context import OrchContext
+        from .execution import run_job_tasks
+
+        async with OrchContext():
+            await run_job_tasks(self)
+
 
 class Group(SQLModel, table=True):
     """

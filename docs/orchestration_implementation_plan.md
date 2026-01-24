@@ -149,85 +149,55 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 3: Job.test() Method
+### Phase 3: Job.test() Method ✅
 
 **Objective**: Implement synchronous job testing (similar to Airflow)
 
 **Note**: `job.test()` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
 
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/models.py:56-96` - `Job.test()` and `Job._test_async()` methods
+- `aaiclick/orchestration/execution.py` - Task execution logic
+- `aaiclick/orchestration/logging.py` - Task logging utilities
+
 **Tasks**:
-1. Add `test()` method to `Job` model in `models.py`:
-   ```python
-   def test(self):
-       """Execute job synchronously in current process (test mode)
+1. ✅ Add `test()` method to `Job` model in `models.py`:
+   - See: `aaiclick/orchestration/models.py:73-96`
 
-       Invokes the worker execute flow for testing/debugging.
-       Similar to Airflow's test execution mode.
-       """
-       import asyncio
-       asyncio.run(self._test_async())
-   ```
+2. ✅ Implement `_test_async()` helper:
+   - Creates OrchContext and calls `run_job_tasks()`
+   - See: `aaiclick/orchestration/models.py:86-96`
 
-2. Implement `_test_async()` helper:
-   - Create in-process worker simulation
-   - Use worker execute flow (claim and execute tasks)
-   - Update job status (PENDING → RUNNING → COMPLETED/FAILED)
-   - Handle errors
+3. ✅ Create `aaiclick/orchestration/execution.py`:
+   - `import_callback(entrypoint: str)` - Import function from string
+   - `deserialize_task_params(kwargs: dict)` - Deserialize task parameters
+   - `execute_task(task: Task)` - Execute single task with logging
+   - `run_job_tasks(job: Job)` - Execute all tasks in job
+   - See: `aaiclick/orchestration/execution.py`
 
-3. Create `aaiclick/orchestration/execution.py`:
-   - `execute_task(task: Task) -> Any`
-     - Import callback function from entrypoint string
-     - Deserialize kwargs (basic support for pyobj type)
-     - Capture stdout/stderr to log file
-     - Call function with kwargs (await if async function)
-     - Return result
+4. ✅ Implement task logging:
+   - `aaiclick/orchestration/logging.py`:
+     - `get_logs_dir()` - Returns OS-dependent log directory
+     - `capture_task_output(task_id: int)` - Context manager for stdout/stderr capture
+   - See: `aaiclick/orchestration/logging.py`
 
-4. Implement task logging:
-   - Create `aaiclick/orchestration/logging.py`:
-     - `get_logs_dir()` - Returns OS-dependent log directory (see orchestration.md)
-     - `capture_task_output(task_id: int)` context manager
-     - Redirects stdout and stderr to log file
-     - Log path: `{get_logs_dir()}/{task_id}.log`
-     - For distributed workers: set AAICLICK_LOG_DIR to shared mount
-     - Both stdout and stderr write to the same log file
-     - Ensure log directory exists before writing
-     - Flush logs after each write for real-time visibility
+5. ✅ Implement task execution loop in `run_job_tasks()`:
+   - Queries pending tasks, executes in order
+   - Updates status through RUNNING → COMPLETED/FAILED
+   - See: `aaiclick/orchestration/execution.py:82-165`
 
-   - Use in `execute_task()`:
-     ```python
-     async def execute_task(task: Task) -> Any:
-         with capture_task_output(task.id):
-             # All print() and errors go to {AAICLICK_LOG_DIR}/{task.id}.log
-             result = await func(**kwargs)
-         return result
-     ```
-
-5. Implement task execution loop in `_test_async()`:
-   - Query pending tasks for this job (ordered by created_at)
-   - For each task:
-     - Update status to RUNNING
-     - Execute via `execute_task()` (worker execute flow)
-     - Store result if applicable
-     - Update status to COMPLETED
-     - Handle failures (set status to FAILED, store error)
-
-6. Add result handling:
-   - If task returns an Object, store table_id in result_table_id
-   - For simple values, serialize to JSONB or skip
-
-**Example Flow**:
-```python
-job = create_job("example", "mymodule.task1")
-job.test()  # Blocks until job completes (test mode)
-# Job status is now COMPLETED
-```
+6. ✅ Add result handling:
+   - Stores result_table_id if result has table_id attribute
+   - See: `aaiclick/orchestration/execution.py:118-122`
 
 **Deliverables**:
-- `Job.test()` executes all tasks in job using worker execute flow
-- Task stdout/stderr captured to `{AAICLICK_LOG_DIR}/{task_id}.log`
-- Task results captured
-- Job status transitions work correctly
-- Basic example from goal works end-to-end
+- ✅ `Job.test()` executes all tasks in job using worker execute flow
+- ✅ Task stdout/stderr captured to `{AAICLICK_LOG_DIR}/{task_id}.log`
+- ✅ Task results captured
+- ✅ Job status transitions work correctly
+- ✅ Basic example from goal works end-to-end
+- ✅ Example: `aaiclick/examples/orchestration_basic.py`
+- ✅ Tests: `tests/test_orchestration_execution.py`
 
 ---
 
