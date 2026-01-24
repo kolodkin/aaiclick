@@ -130,10 +130,10 @@ As aaiclick scales to handle large-scale data processing, we need:
   - Generates snowflake ID for job
   - Commits Job and Task to PostgreSQL with JSON-serialized kwargs
   - **Implementation**: `aaiclick/orchestration/factories.py:30-107`
-- **`orch_ctx.apply(tasks)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
-  - Generates snowflake IDs for groups
-  - Requires OrchContext with job_id
-  - **Status**: Not yet implemented (Phase 4+)
+- **`orch_ctx.apply(tasks, job_id)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
+  - Generates snowflake IDs for groups if not already set
+  - Sets job_id on all items
+  - **Implementation**: `aaiclick/orchestration/context.py:129-175`
 - Factories provide simple interface for common workflows
 - IDs generated before database insertion (no round-trip needed)
 
@@ -776,31 +776,28 @@ task = await get_task(task_id)
 await retry_failed_tasks(job_id)
 ```
 
-### Context API for DAG Construction ⚠️ NOT YET IMPLEMENTED (Phase 4+)
+### Context API for DAG Construction ✅ IMPLEMENTED (Phase 4)
+
+**Implementation**: `aaiclick/orchestration/context.py:129-175`
 
 ```python
-from aaiclick.orchestration import Context, Task, Group
+from aaiclick.orchestration import OrchContext, Task, Group, create_task
 
-# Create orchestration context for a job
-context = Context(job_id=job.id)
+# Create orchestration context
+async with OrchContext() as ctx:
+    # Define tasks in memory
+    task1 = create_task("myapp.func1", kwargs={...})
+    task2 = create_task("myapp.func2", kwargs={...})
+    group1 = Group(name="processing")
 
-# Define tasks and groups in memory
-task1 = Task(entrypoint="myapp.func1", kwargs={...})
-task2 = Task(entrypoint="myapp.func2", kwargs={...})
-group1 = Group(name="processing")
+    # Commit tasks and groups to database with job_id
+    await ctx.apply(task1, job_id=job.id)  # Apply single task
+    await ctx.apply([task1, task2, group1], job_id=job.id)  # Apply multiple
 
-# Set up dependencies using operators
-task1 >> task2
-task2.group_id = group1.id
-
-# Commit tasks, groups, and dependencies to database
-await context.apply(task1)  # Apply single task
-await context.apply([task1, task2, group1])  # Apply multiple tasks/groups
-
-# context.apply() performs:
-# - Inserts/updates Task and Group records in database
-# - Inserts Dependency records created by >> and << operators
-# - Validates circular dependencies
+# ctx.apply() performs:
+# - Sets job_id on all items
+# - Generates snowflake IDs for Groups if not set
+# - Inserts Task and Group records in database
 # - Returns committed objects with IDs assigned
 ```
 
@@ -808,19 +805,18 @@ await context.apply([task1, task2, group1])  # Apply multiple tasks/groups
 ```python
 async def apply(
     self,
-    items: Union[Task, Group, List[Union[Task, Group]]]
-) -> Union[Task, Group, List[Union[Task, Group]]]:
+    items: Task | Group | list[Task | Group],
+    job_id: int,
+) -> Task | Group | list[Task | Group]:
     """
     Commit tasks, groups, and their dependencies to the database.
 
     Args:
         items: Single Task/Group or list of Task/Group objects
+        job_id: Job ID to assign to all items
 
     Returns:
         Same items with database IDs populated
-
-    Raises:
-        CircularDependencyError: If circular dependencies detected
     """
 ```
 
@@ -1168,7 +1164,7 @@ async with OrchContext():
 - ✅ Phase 1: Database Setup (complete)
 - ✅ Phase 2: Core Factories (complete)
 - ✅ Phase 3: Job.test() Method (complete)
-- ⚠️ Phase 4: OrchContext Integration (partially complete - apply() not yet implemented)
+- ✅ Phase 4: OrchContext Integration (complete)
 - ⚠️ Phase 5: Testing & Examples (in progress)
 - ⚠️ Phase 6+: Distributed Workers, Groups, Dependencies, Dynamic Task Creation
 

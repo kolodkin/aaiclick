@@ -202,9 +202,13 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 4: OrchContext Integration
+### Phase 4: OrchContext Integration ✅
 
 **Objective**: Create OrchContext for orchestration and make both contexts available during task execution
+
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/context.py` - OrchContext class and apply() method
+- `aaiclick/orchestration/execution.py:85-118` - execute_task() with DataContext
 
 **Tasks**:
 1. ✅ Created `aaiclick/orchestration/context.py`:
@@ -217,49 +221,28 @@ print(f"Job {job.id} created")
    - **Implementation**: `aaiclick/orchestration/context.py:38-127`
 
 2. ✅ Context-local storage for OrchContext:
-   ```python
-   # In aaiclick/orchestration/context.py
-   from contextvars import ContextVar
+   - **Implementation**: `aaiclick/orchestration/context.py:14-38`
 
-   _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
+3. ✅ Update `execute_task()` to use both contexts:
+   - Tasks execute within DataContext for ClickHouse operations
+   - OrchContext is available from the outer context (run_job_tasks)
+   - **Implementation**: `aaiclick/orchestration/execution.py:85-118`
 
-   def get_orch_context() -> OrchContext:
-       """Get current OrchContext (for orchestration operations)"""
-       try:
-           return _current_orch_context.get()
-       except LookupError:
-           raise RuntimeError("No active OrchContext")
-   ```
-   **Implementation**: `aaiclick/orchestration/context.py:14-38`
-
-3. ⚠️ Update `execute_task()` to use both contexts (planned):
-   ```python
-   async def execute_task(task: Task) -> Any:
-       # Both contexts available during task execution
-       async with DataContext() as data_ctx:
-           async with OrchContext() as orch_ctx:
-               # Import and execute function
-               func = import_callback(task.entrypoint)
-               # Task can use both data_ctx and orch_ctx
-               result = await func(**task.kwargs)
-               return result
-   ```
-
-4. ⚠️ Add `apply()` method to OrchContext (planned):
-   - Accept Task, Group, or list
-   - Create AsyncSession from global engine
-   - Generate snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
-   - Set job_id on all tasks and groups
-   - Insert into PostgreSQL using ORM (session.add, session.commit)
-   - Return committed objects
+4. ✅ Add `apply()` method to OrchContext:
+   - Accepts Task, Group, or list with job_id parameter
+   - Generates snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
+   - Sets job_id on all tasks and groups
+   - Inserts into PostgreSQL using ORM (session.add, session.commit)
+   - Returns committed objects
+   - **Implementation**: `aaiclick/orchestration/context.py:129-175`
 
 **Deliverables**:
 - ✅ Per-context SQLAlchemy AsyncEngine (created on enter, disposed on exit)
 - ✅ OrchContext class (no job_id parameter - simplified)
-- ⚠️ Tasks execute with both DataContext (data) and OrchContext (orchestration) (planned)
+- ✅ Tasks execute with both DataContext (data) and OrchContext (orchestration)
 - ✅ OrchContext available via `get_orch_context()`
 - ✅ DataContext remains unchanged (backward compatible)
-- ⚠️ `orch_ctx.apply()` works for committing tasks (planned)
+- ✅ `orch_ctx.apply()` works for committing tasks
 - ✅ Each operation creates its own AsyncSession from context's engine
 - ✅ Proper async lifecycle ensures test isolation without cleanup fixtures
 

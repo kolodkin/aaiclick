@@ -84,10 +84,12 @@ def deserialize_task_params(kwargs: dict) -> dict:
 
 async def execute_task(task: Task) -> Any:
     """
-    Execute a single task.
+    Execute a single task with both DataContext and OrchContext available.
 
     Imports the callback function, deserializes kwargs,
-    captures output, and executes the function.
+    captures output, and executes the function. Tasks have access to:
+    - DataContext: For ClickHouse Object operations (created fresh for each task)
+    - OrchContext: For orchestration operations (from the outer context)
 
     Args:
         task: Task to execute
@@ -98,14 +100,19 @@ async def execute_task(task: Task) -> Any:
     Raises:
         Exception: Re-raises any exception from the task function
     """
+    from aaiclick import DataContext
+
     func = import_callback(task.entrypoint)
     kwargs = deserialize_task_params(task.kwargs)
 
     with capture_task_output(task.id):
-        if asyncio.iscoroutinefunction(func):
-            result = await func(**kwargs)
-        else:
-            result = func(**kwargs)
+        # Wrap execution with DataContext so tasks can use ClickHouse operations
+        # OrchContext is already available from the outer context (run_job_tasks)
+        async with DataContext():
+            if asyncio.iscoroutinefunction(func):
+                result = await func(**kwargs)
+            else:
+                result = func(**kwargs)
 
     return result
 
