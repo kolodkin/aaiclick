@@ -13,6 +13,11 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 
 ## Testing Guidelines
 
+- **Test file location**: Place test files alongside the modules they test
+  - `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
+  - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
+  - Shared fixtures go in `aaiclick/conftest.py`
+
 - **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
 - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
 - Simply define async test functions with `async def test_*():`
@@ -155,14 +160,24 @@ Orchestration logging (optional):
 
 ```
 aaiclick/
-├── aaiclick/          # Main package
-│   ├── data_context.py     # DataContext manager and connection pool management
-│   ├── object.py      # Core Object class
-│   ├── factories.py   # Factory functions for creating objects (internal)
-│   └── __init__.py    # Package exports
-├── tests/             # Test suite
-├── pyproject.toml     # Project configuration
-└── CLAUDE.md          # This file
+├── aaiclick/                # Main package
+│   ├── conftest.py          # Shared test fixtures
+│   ├── snowflake_id.py      # Snowflake ID generation
+│   ├── test_snowflake.py    # Tests for snowflake_id.py
+│   ├── data/                # Data module
+│   │   ├── data_context.py  # DataContext manager
+│   │   ├── object.py        # Core Object class
+│   │   ├── test_*.py        # Tests alongside modules
+│   │   └── ...
+│   ├── examples/            # Example scripts
+│   │   ├── run_all.py       # Run all examples
+│   │   └── ...
+│   └── orchestration/       # Orchestration module
+│       ├── factories.py
+│       ├── test_*.py        # Tests alongside modules
+│       └── ...
+├── pyproject.toml           # Project configuration
+└── CLAUDE.md                # This file
 ```
 
 ## Architecture
