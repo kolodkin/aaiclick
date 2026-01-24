@@ -114,7 +114,7 @@ jobs:
           POSTGRES_DB: aaiclick
         run: |
           mkdir -p tmp
-          uv run pytest -v --junitxml=tmp/pytest-report.xml
+          uv run pytest aaiclick/ -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v1
@@ -136,26 +136,11 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
-          # List of examples to run (update this list when adding new examples):
-          # - basic_operators: Basic arithmetic operations and object creation
-          # - statistics: Statistical methods (min, max, sum, mean, std)
-          # - views: Query constraints (WHERE, LIMIT, OFFSET, ORDER BY)
         run: |
-          # Create tmp directory for output files
           mkdir -p tmp
-
-          # Run each example and capture output
-          echo "Running basic_operators example..."
-          uv run python -m aaiclick.examples.basic_operators > tmp/basic_operators_output.txt 2>&1
-          echo "Basic operators example completed successfully!"
-
-          echo "Running statistics example..."
-          uv run python -m aaiclick.examples.statistics > tmp/statistics_output.txt 2>&1
-          echo "Statistics example completed successfully!"
-
-          echo "Running views example..."
-          uv run python -m aaiclick.examples.views > tmp/views_output.txt 2>&1
-          echo "Views example completed successfully!"
+          echo "Running all examples..."
+          uv run python -m aaiclick.examples.run_all > tmp/examples_output.txt 2>&1
+          echo "All examples completed successfully!"
 
       - name: Add example outputs to summary
         if: always()
