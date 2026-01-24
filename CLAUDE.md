@@ -43,6 +43,19 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Runtime imports: Use lazy imports inside methods when modules need each other
     - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
 
+- **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
+  - Simply import what needs to be exported
+  - Python will automatically make imported names available
+  - Reduces maintenance burden (no need to update two lists)
+  - Example:
+    ```python
+    # GOOD - Just import
+    from .models import Job, Task, Worker
+
+    # BAD - Don't add __all__
+    __all__ = ["Job", "Task", "Worker"]
+    ```
+
 ### ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
@@ -71,6 +84,52 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   await ch_client.insert(dest, data)
   ```
 
+### Alembic Migration Guidelines
+
+**Always use Alembic built-in commands for creating migrations:**
+
+- **Create new migration**: Use `alembic revision -m "description"` or `alembic revision --autogenerate -m "description"`
+  ```bash
+  # Create empty migration file (manual)
+  alembic revision -m "add user table"
+
+  # Auto-generate migration from model changes (requires database connection)
+  alembic revision --autogenerate -m "add user table"
+  ```
+
+- **Apply migrations**: Use `alembic upgrade head` or `alembic upgrade +1`
+  ```bash
+  # Apply all pending migrations
+  alembic upgrade head
+
+  # Apply next migration
+  alembic upgrade +1
+  ```
+
+- **Rollback migrations**: Use `alembic downgrade -1` or `alembic downgrade <revision>`
+  ```bash
+  # Rollback last migration
+  alembic downgrade -1
+
+  # Rollback to specific revision
+  alembic downgrade abc123
+  ```
+
+- **Check status**: Use `alembic current` and `alembic history`
+  ```bash
+  # Show current revision
+  alembic current
+
+  # Show migration history
+  alembic history --verbose
+  ```
+
+**Important**:
+- Never manually create migration files from scratch
+- Always use `alembic revision` to generate the migration file skeleton
+- Fill in `upgrade()` and `downgrade()` functions with actual migration code
+- Test both upgrade and downgrade paths
+
 ## Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
@@ -79,6 +138,18 @@ ClickHouse connection (all optional with sensible defaults):
 - `CLICKHOUSE_USER` (default: "default")
 - `CLICKHOUSE_PASSWORD` (default: "")
 - `CLICKHOUSE_DB` (default: "default")
+
+PostgreSQL connection for orchestration backend (required when using orchestration):
+- `POSTGRES_HOST` (default: "localhost")
+- `POSTGRES_PORT` (default: 5432)
+- `POSTGRES_USER` (default: "aaiclick")
+- `POSTGRES_PASSWORD` (default: "secret")
+- `POSTGRES_DB` (default: "aaiclick")
+
+Orchestration logging (optional):
+- `AAICLICK_LOG_DIR` - Override default OS-dependent log directory
+  - macOS default: `~/.aaiclick/logs`
+  - Linux default: `/var/log/aaiclick`
 
 ## Project Structure
 
@@ -141,6 +212,84 @@ result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 ```
 
 The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
+
+## Specification-Driven Development
+
+**Write detailed specifications BEFORE implementing complex features.**
+
+### Workflow
+
+1. **Create Specification Document** (`docs/<feature>.md`):
+   - Describe architecture, data models, and APIs
+   - Include code examples showing intended usage
+   - Document design decisions and trade-offs
+   - Specify all data types, enums, and schemas
+   - Keep specifications detailed and comprehensive
+
+2. **Create Implementation Plan** (`docs/<feature>_implementation_plan.md`) for complex features:
+   - Break feature into phases with clear objectives
+   - List specific tasks for each phase
+   - Define deliverables and success criteria
+   - Track progress with ✅ for completed phases
+   - Include file references as implementation progresses
+
+3. **Implement Phase by Phase**:
+   - Follow the implementation plan sequentially
+   - Write comprehensive tests for each phase
+   - Commit working code frequently
+   - Update implementation plan with ✅ and file references
+
+4. **Update Documentation to Reference Implementation**:
+   - **Add implementation references**: Point to actual code files and line numbers
+   - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
+   - **Remove duplication**: Once code exists, reference it instead of duplicating
+   - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
+   - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
+
+### Documentation Patterns
+
+**For Implemented Features**:
+```markdown
+### Feature Name ✅ IMPLEMENTED
+
+**Implementation**: `path/to/file.py:line-start-line-end`
+
+Brief description with link to code instead of duplicating implementation details.
+See actual code for complete implementation.
+```
+
+**For Unimplemented Features**:
+```markdown
+### Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
+
+Detailed specification with code examples, data models, and API design.
+This serves as the design document for future implementation.
+```
+
+**For Data Models**:
+```markdown
+### ModelName
+
+**Implementation**: `aaiclick/module/models.py:line-start-line-end`
+
+**Note**: Actual implementation details (e.g., "uses UPPERCASE enums", "BIGINT for IDs")
+
+```python
+# Show actual code structure from implementation
+class ModelName:
+    field: Type = ...
+```
+```
+
+### Example: Orchestration Backend
+
+See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for reference:
+
+- **Specification**: Comprehensive design document with all phases planned
+- **Implementation Plan**: Phase-by-phase breakdown with progress tracking
+- **Phase 2 Complete**: Implementation plan updated with ✅ and file references
+- **Documentation Updated**: orchestration.md references actual code, marks implementation status
+- **No Duplication**: Implemented features point to code instead of duplicating
 
 ## Making Changes
 

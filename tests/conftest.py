@@ -9,7 +9,8 @@ import asyncio
 
 import pytest
 
-from aaiclick import DataContext, get_context, create_object_from_value, create_object
+from aaiclick import DataContext, create_object, create_object_from_value, get_context
+from aaiclick.orchestration.context import OrchContext
 
 
 @pytest.fixture(scope="session")
@@ -33,4 +34,17 @@ async def ctx():
             # Tables are automatically cleaned up
     """
     async with DataContext() as context:
+        yield context
+
+
+@pytest.fixture
+async def orch_ctx():
+    """
+    Fixture that provides an OrchContext for orchestration tests.
+
+    Usage:
+        async def test_example(orch_ctx):
+            job = await create_job("my_job", "mymodule.task1")
+    """
+    async with OrchContext() as context:
         yield context

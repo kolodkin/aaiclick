@@ -181,7 +181,7 @@ prompt: |
   After push, continuously monitor the workflow:
   1. Check status every 10 seconds
   2. If "in_progress" or "queued" → continue polling
-  3. If "completed" with "success" → report success, stop polling
+  3. If "completed" with "success" → report success, then check for review comments (Step 6)
   4. If "completed" with "failure" → fetch logs, report to agent, agent fixes
 
   ## Success Criteria
@@ -192,5 +192,141 @@ prompt: |
   - ✅ Errors analyzed and resolved
   - ✅ User informed of status
   - ✅ **Polling continues until definitive result**
+  - ✅ **PR review comments addressed**
+
+  ## Step 6: Check and Address PR Review Comments
+
+  After workflows pass, **ALWAYS check for unresolved PR review thread comments**:
+
+  ```bash
+  # Check for unresolved review threads using GraphQL API
+  gh api graphql -f query='...' # (handled by pr-checks.sh script)
+
+  # List all review comments (including resolved)
+  gh pr view --comments
+  ```
+
+  **NOTE:** The pr-checks script now filters and displays ONLY unresolved review thread comments, so agents focus on active feedback that needs to be addressed.
+
+  ### Agent Workflow for Review Comments
+
+  **The pr-checks script displays review comments to the agent. The AGENT addresses them and posts replies using gh CLI.**
+
+  **After the script shows review comments, the agent MUST:**
+
+  1. **Read each comment carefully** and understand the requested change
+  2. **Implement the fix**:
+     - Read affected files using Read tool
+     - Make the requested change using Edit tool
+     - Ensure change aligns with project guidelines (CLAUDE.md)
+     - Test if applicable
+  3. **Commit with descriptive message**:
+     ```bash
+     git add <files>
+     git commit -m "Address review: <brief description>"
+     ```
+  4. **Push changes**:
+     ```bash
+     git push
+     ```
+  5. **Reply to EACH comment thread individually using gh API** (REQUIRED - agent posts, not script):
+     ```bash
+     # For each review comment that was addressed:
+     # 1. Get the commit SHA that addressed it
+     COMMIT_SHA=$(git log --format="%h" -1)
+
+     # 2. Get review comment IDs and identify which ones to reply to
+     gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
+
+     # 3. Reply to the specific comment thread using in_reply_to parameter
+     gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+       -f body="✅ Agent Addressed: <brief description of change>
+
+Commit: $COMMIT_SHA" \
+       -F in_reply_to=COMMENT_ID
+     ```
+     **Example:**
+     ```bash
+     # Get comment IDs
+     gh api repos/kolodkin/aaiclick/pulls/33/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
+
+     # Reply to specific comment thread (e.g., ID 2722079595)
+     gh api -X POST repos/kolodkin/aaiclick/pulls/33/comments \
+       -f body="✅ Agent Addressed: Updated to use argparse instead of manual sys.argv parsing
+
+Commit: 2d7f087" \
+       -F in_reply_to=2722079595
+     ```
+     **IMPORTANT**:
+     - Reply to EACH comment thread individually - do NOT post a single summary comment
+     - Use `gh api` with `in_reply_to` parameter to post threaded replies
+     - Do NOT use `gh pr comment` as it posts general PR comments, not threaded replies
+  6. **Reviewers manually resolve threads** after verifying fixes
+
+  ### Agent Commands for Responding to Reviews
+
+  ```bash
+  # Get review comment IDs to identify which to reply to
+  gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
+
+  # Reply to specific review comment thread (threaded reply)
+  gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+    -f body="✅ Agent Addressed: <description>" \
+    -F in_reply_to=COMMENT_ID
+
+  # Post general PR comment (NOT recommended for review responses)
+  gh pr comment <pr-number> --body "Response text"
+
+  # Request re-review after addressing feedback
+  gh pr review <pr-number> --comment --body "Ready for re-review - addressed all feedback"
+  ```
+
+  **NOTE:**
+  - The script only DISPLAYS review comments - it does NOT post replies
+  - The AGENT posts replies after addressing feedback
+  - Review thread resolution must be done manually by reviewers (GitHub API limitation for personal access tokens)
+
+  ### Agent Guidelines for Different Comment Types
+
+  **For code change requests:**
+  - Read the file and understand current implementation
+  - Make the requested change
+  - Ensure change aligns with project guidelines (CLAUDE.md)
+  - Commit and push
+  - Reply to the comment thread using gh API:
+    ```bash
+    # Get comment ID first
+    gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq -r '.[] | "ID: \(.id)\nPath: \(.path)\nBody: \(.body[0:100])\n---"'
+
+    # Reply to thread
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="✅ Agent Addressed: <description>
+
+Commit: $(git rev-parse --short HEAD)" \
+      -F in_reply_to=COMMENT_ID
+    ```
+
+  **For clarification questions:**
+  - Respond with clear explanation by replying to the comment thread:
+    ```bash
+    # Reply to the question in the comment thread
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="<explanation with examples if needed>" \
+      -F in_reply_to=COMMENT_ID
+    ```
+  - Offer to implement alternative if needed
+
+  **For style/convention feedback:**
+  - Follow project conventions from CLAUDE.md
+  - Update code to match requested style
+  - Apply same fix throughout codebase if applicable
+  - Reply to the comment thread confirming the change:
+    ```bash
+    gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+      -f body="✅ Agent Addressed: <description>
+
+Commit: $(git rev-parse --short HEAD)" \
+      -F in_reply_to=COMMENT_ID
+    ```
 
   Be PROACTIVE: Don't wait for user to ask - automatically check and poll workflows after every push!

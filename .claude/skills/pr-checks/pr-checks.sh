@@ -137,7 +137,97 @@ check_pr_exists() {
     fi
 }
 
-# Step 5: Poll latest workflow until complete
+# Step 5: Check for PR review comments
+check_review_comments() {
+    echo ""
+    echo -e "${BLUE}🔍 Checking for unresolved PR review comments...${NC}"
+    echo ""
+
+    # Get PR review decision
+    REVIEW_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewDecision 2>/dev/null)
+
+    if [ -z "$REVIEW_DATA" ]; then
+        echo -e "${YELLOW}⚠️  Could not fetch PR review data${NC}"
+        return 0
+    fi
+
+    REVIEW_DECISION=$(echo "$REVIEW_DATA" | jq -r '.reviewDecision')
+    echo -e "${BLUE}Review Status: ${NC}$REVIEW_DECISION"
+
+    # Get unresolved review threads using GraphQL API
+    UNRESOLVED_THREADS=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+              comments(first: 1) {
+                nodes {
+                  path
+                  body
+                  line
+                }
+              }
+            }
+          }
+        }
+      }
+    }' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F number="$PR_NUMBER" 2>/dev/null)
+
+    # Count unresolved threads
+    UNRESOLVED_COUNT=$(echo "$UNRESOLVED_THREADS" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' 2>/dev/null || echo "0")
+
+    if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}📝 PR HAS $UNRESOLVED_COUNT UNRESOLVED REVIEW THREAD(S)${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+
+        # Display unresolved comments
+        echo "$UNRESOLVED_THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[0] | "File: \(.path)\nLine: \(.line // "N/A")\nComment: \(.body)\n---"' 2>/dev/null
+
+        echo ""
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo -e "${YELLOW}💡 Agent should address unresolved review comments${NC}"
+        echo ""
+        echo "Commands to help:"
+        echo "  • View all comments: gh pr view $PR_NUMBER --comments"
+        echo "  • Reply to comment: gh pr comment $PR_NUMBER --body \"response\""
+        echo "  • View diff: gh pr diff $PR_NUMBER"
+        echo ""
+    else
+        echo -e "${GREEN}✅ No unresolved review comments${NC}"
+        echo ""
+    fi
+
+    # Check review decision
+    if [ "$REVIEW_DECISION" = "CHANGES_REQUESTED" ]; then
+        echo -e "${YELLOW}⚠️  Changes requested by reviewers${NC}"
+        echo -e "${YELLOW}Please address all feedback and push changes${NC}"
+        echo ""
+        return 1
+    elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
+        echo -e "${GREEN}✅ PR is approved!${NC}"
+        echo ""
+        return 0
+    elif [ "$REVIEW_DECISION" = "REVIEW_REQUIRED" ]; then
+        echo -e "${YELLOW}⏳ PR is awaiting review${NC}"
+        if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
+            echo -e "${YELLOW}But unresolved comments exist - consider addressing them${NC}"
+        fi
+        echo ""
+        return 0
+    else
+        echo -e "${BLUE}ℹ️  Review status: $REVIEW_DECISION${NC}"
+        echo ""
+        return 0
+    fi
+}
+
+# Step 6: Poll latest workflow until complete
 poll_workflow() {
     echo ""
     echo -e "${BLUE}⏳ Waiting for GitHub to process push...${NC}"
@@ -177,6 +267,9 @@ poll_workflow() {
                 echo -e "${GREEN}STATUS: SUCCESS${NC}"
                 echo -e "${GREEN}RUN_ID: $RUN_ID${NC}"
                 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+                # Check for PR review comments after CI passes
+                check_review_comments
                 exit 0
 
             else
