@@ -83,27 +83,6 @@ def deserialize_task_params(kwargs: dict) -> dict:
     return result
 
 
-async def serialize_result(result: Any) -> dict:
-    """
-    Serialize a task result to JSON format.
-
-    Converts the result to an Object using create_object_from_value() and
-    returns a serialized reference. If result is already an Object or View,
-    create_object_from_value() returns it directly.
-
-    Args:
-        result: Task result (any value)
-
-    Returns:
-        dict: Serialized Object reference in JSON format
-    """
-    from aaiclick import create_object_from_value
-
-    # Convert to Object (returns Objects/Views directly, converts other values)
-    obj = await create_object_from_value(result)
-    return {"object_type": "object", "table_id": obj.table_id}
-
-
 async def execute_task(task: Task) -> Any:
     """
     Execute a single task.
@@ -185,9 +164,12 @@ async def run_job_tasks(job: Job) -> None:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
 
-                # Serialize result to JSON (convert to Object if needed)
+                # Convert result to Object and store reference
                 if result is not None:
-                    task.result = await serialize_result(result)
+                    from aaiclick import create_object_from_value
+
+                    obj = await create_object_from_value(result)
+                    task.result = {"object_type": "object", "table_id": obj.table_id}
 
                 session.add(task)
                 await session.commit()
