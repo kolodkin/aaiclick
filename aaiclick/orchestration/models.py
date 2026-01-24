@@ -81,9 +81,9 @@ class Job(SQLModel, table=True):
             job = await create_job("my_job", "mymodule.task1")
             job.test()  # Blocks until job completes
         """
-        from .debug_execution import test_job
+        from .debug_execution import run_job_test
 
-        test_job(self)
+        run_job_test(self)
 
 
 class Group(SQLModel, table=True):

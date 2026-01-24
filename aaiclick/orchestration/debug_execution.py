@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from .models import Job
 
 
-def test_job(job: Job) -> None:
+def run_job_test(job: Job) -> None:
     """
     Execute job synchronously in current process (test mode).
 
@@ -25,12 +25,12 @@ def test_job(job: Job) -> None:
 
     Example:
         job = await create_job("my_job", "mymodule.task1")
-        test_job(job)  # Blocks until job completes
+        run_job_test(job)  # Blocks until job completes
     """
-    asyncio.run(test_job_async(job))
+    asyncio.run(run_job_test_async(job))
 
 
-async def test_job_async(job: Job) -> None:
+async def run_job_test_async(job: Job) -> None:
     """
     Async implementation of test execution.
 
