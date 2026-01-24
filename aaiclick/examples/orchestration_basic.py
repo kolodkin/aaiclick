@@ -22,14 +22,12 @@ async def simple_arithmetic():
     b = 2
     c = a + b
     print(f"Computing: {a} + {b} = {c}")
-    return c
 
 
-async def task_with_params(x: int, y: int) -> int:
-    """A task that takes parameters and returns their product."""
+async def task_with_params(x: int, y: int):
+    """A task that takes parameters and prints their product."""
     result = x * y
     print(f"Computing: {x} * {y} = {result}")
-    return result
 
 
 async def example_simple_job():
