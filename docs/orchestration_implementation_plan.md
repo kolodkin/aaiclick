@@ -187,9 +187,9 @@ print(f"Job {job.id} created")
    - See: `aaiclick/orchestration/execution.py:82-165`
 
 6. ✅ Add result handling:
-   - Converts task return values to Objects via `create_object_from_value()`
-   - Stores result as JSON with `object_type` and `table_id` fields
-   - See: `aaiclick/orchestration/execution.py:168-172`
+   - Converts task return values to Objects via `create_object_from_value()` (data stored in ClickHouse)
+   - Stores JSON reference in `task.result` with `object_type` and `table_id` pointing to the Object
+   - See: `aaiclick/orchestration/execution.py:166-171`
 
 **Deliverables**:
 - ✅ `test_job()` executes all tasks in job using worker execute flow
