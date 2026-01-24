@@ -500,26 +500,18 @@ task_kwargs = {
 
 ## Task Return Values
 
-Task functions must return either:
-- **`None`**: Task produces no output data
-- **`Object`**: Task produces output data stored in ClickHouse
-- **`View`**: Task produces a view reference to existing data
+Task functions can return any value. The execution flow automatically converts return values to aaiclick Objects:
 
-The return value is serialized to JSON in `Task.result` using the same format as input parameters:
+- **`None`**: Task produces no output data (`task.result` is `null`)
+- **Any other value**: Automatically converted to Object via `create_object_from_value()`
+
+The return value is serialized to JSON in `Task.result`:
 
 ```json
-// Object return value
+// Object return value (auto-converted from any Python value)
 {
     "object_type": "object",
     "table_id": "t123456789"
-}
-
-// View return value
-{
-    "object_type": "view",
-    "table_id": "t123456789",
-    "offset": 0,
-    "limit": 10000
 }
 
 // None return value
@@ -527,21 +519,25 @@ null
 ```
 
 ```python
-# Task that returns an Object
-async def transform_data(input_data: Object) -> Object:
-    result = await input_data.map(lambda x: x * 2)
-    return result  # Serialized to {"object_type": "object", "table_id": ...}
+# Task that returns a computed value (auto-converted to Object)
+async def compute_sum(data: Object):
+    values = await data.data()
+    total = sum(values)
+    return total  # Auto-converted via create_object_from_value(total)
 
-# Task that returns a View
-async def filter_data(input_data: Object) -> View:
-    return input_data.view(where="value > 100")  # Serialized to {"object_type": "view", ...}
+# Task that returns a list (auto-converted to Object)
+async def process_data(data: Object):
+    results = [x * 2 for x in await data.data()]
+    return results  # Auto-converted via create_object_from_value(results)
 
 # Task that returns None (side-effect only)
-async def log_summary(data: Object) -> None:
+async def log_summary(data: Object):
     count = await data.count()
     print(f"Processed {count} rows")
     # task.result is null
 ```
+
+**Note**: If a task already returns an Object, it is stored directly without re-conversion.
 
 ## Task Execution Flow
 

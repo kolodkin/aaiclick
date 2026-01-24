@@ -83,41 +83,28 @@ def deserialize_task_params(kwargs: dict) -> dict:
     return result
 
 
-def serialize_result(result: Any) -> dict:
+async def serialize_result(result: Any) -> dict:
     """
     Serialize a task result to JSON format.
 
-    Results must be aaiclick Objects or Views - native Python values
-    are not supported.
+    If the result is already an Object, it is serialized directly.
+    Otherwise, the result is converted to an Object using create_object_from_value().
 
     Args:
-        result: Task result (Object or View)
+        result: Task result (any value)
 
     Returns:
-        dict: Serialized result in JSON format
-
-    Raises:
-        TypeError: If result is not an Object or View
+        dict: Serialized Object reference in JSON format
     """
-    # Check for Object (has table_id attribute, no view constraints)
-    if hasattr(result, "table_id") and hasattr(result, "table"):
-        # Check if it's a View (has view constraints like offset, limit, where)
-        if hasattr(result, "_offset") or hasattr(result, "_limit") or hasattr(result, "_where"):
-            serialized = {"object_type": "view", "table_id": result.table_id}
-            if hasattr(result, "_offset") and result._offset is not None:
-                serialized["offset"] = result._offset
-            if hasattr(result, "_limit") and result._limit is not None:
-                serialized["limit"] = result._limit
-            if hasattr(result, "_where") and result._where is not None:
-                serialized["where"] = result._where
-            return serialized
-        else:
-            return {"object_type": "object", "table_id": result.table_id}
+    from aaiclick import create_object_from_value
 
-    raise TypeError(
-        f"Task result must be an Object or View, got {type(result).__name__}. "
-        "Native Python values are not supported as return values."
-    )
+    # Check if already an Object (has table_id and table attributes)
+    if hasattr(result, "table_id") and hasattr(result, "table"):
+        return {"object_type": "object", "table_id": result.table_id}
+
+    # Convert any other value to Object using create_object_from_value
+    obj = await create_object_from_value(result)
+    return {"object_type": "object", "table_id": obj.table_id}
 
 
 async def execute_task(task: Task) -> Any:
@@ -201,9 +188,9 @@ async def run_job_tasks(job: Job) -> None:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
 
-                # Serialize result to JSON (Object or View reference)
+                # Serialize result to JSON (convert to Object if needed)
                 if result is not None:
-                    task.result = serialize_result(result)
+                    task.result = await serialize_result(result)
 
                 session.add(task)
                 await session.commit()
