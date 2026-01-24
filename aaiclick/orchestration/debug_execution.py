@@ -1,13 +1,19 @@
-"""Test execution utilities for orchestration jobs.
+"""Debug execution utilities for orchestration jobs.
 
-This module provides functions for running jobs in test mode,
+This module provides functions for running jobs in debug/test mode,
 separate from execution.py to avoid circular imports with models.py.
 """
 
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import Job
 
 
-def test_job(job) -> None:
+def test_job(job: Job) -> None:
     """
     Execute job synchronously in current process (test mode).
 
@@ -24,7 +30,7 @@ def test_job(job) -> None:
     asyncio.run(test_job_async(job))
 
 
-async def test_job_async(job) -> None:
+async def test_job_async(job: Job) -> None:
     """
     Async implementation of test execution.
 

@@ -81,7 +81,7 @@ class Job(SQLModel, table=True):
             job = await create_job("my_job", "mymodule.task1")
             job.test()  # Blocks until job completes
         """
-        from .testing import test_job
+        from .debug_execution import test_job
 
         test_job(self)
 
