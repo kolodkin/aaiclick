@@ -60,6 +60,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - When two modules would import each other, create a base/common module
   - Example: Instead of `models.py` ↔ `execution.py` circular import, create `debug_execution.py`
   - This keeps dependencies one-directional and code easier to understand
+  - Use `from __future__ import annotations` for deferred type evaluation
   - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
