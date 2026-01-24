@@ -87,8 +87,9 @@ async def serialize_result(result: Any) -> dict:
     """
     Serialize a task result to JSON format.
 
-    If the result is already an Object, it is serialized directly.
-    Otherwise, the result is converted to an Object using create_object_from_value().
+    Converts the result to an Object using create_object_from_value() and
+    returns a serialized reference. If result is already an Object or View,
+    create_object_from_value() returns it directly.
 
     Args:
         result: Task result (any value)
@@ -98,11 +99,7 @@ async def serialize_result(result: Any) -> dict:
     """
     from aaiclick import create_object_from_value
 
-    # Check if already an Object (has table_id and table attributes)
-    if hasattr(result, "table_id") and hasattr(result, "table"):
-        return {"object_type": "object", "table_id": result.table_id}
-
-    # Convert any other value to Object using create_object_from_value
+    # Convert to Object (returns Objects/Views directly, converts other values)
     obj = await create_object_from_value(result)
     return {"object_type": "object", "table_id": obj.table_id}
 
