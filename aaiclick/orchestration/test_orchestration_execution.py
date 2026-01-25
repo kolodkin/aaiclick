@@ -19,7 +19,7 @@ from aaiclick.orchestration import (
     execute_task,
     get_logs_dir,
     run_job_tasks,
-    run_job_test_async,
+    ajob_test,
 )
 from aaiclick.orchestration.context import get_orch_context_session
 from aaiclick.orchestration.execution import deserialize_task_params, import_callback
@@ -245,14 +245,14 @@ async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
             assert "Error message" in content
 
 
-# run_job_test() tests
+# job_test() tests
 
 
-async def test_run_job_test_simple(orch_ctx, monkeypatch):
-    """Test run_job_test() executes a simple task synchronously.
+async def test_job_test_simple(orch_ctx, monkeypatch):
+    """Test job_test() executes a simple task synchronously.
 
-    Note: run_job_test() uses asyncio.run() internally, which is tested
-    via run_job_test_async() in the async context to avoid nested event loops.
+    Note: job_test() uses asyncio.run() internally, which is tested
+    via ajob_test() in the async context to avoid nested event loops.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
@@ -260,7 +260,7 @@ async def test_run_job_test_simple(orch_ctx, monkeypatch):
         # Create the job
         job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-        # Test execution via the async helper (same code path as run_job_test())
-        await run_job_test_async(job)
+        # Test execution via the async helper (same code path as job_test())
+        await ajob_test(job)
 
         assert job.status == JobStatus.COMPLETED

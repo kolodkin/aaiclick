@@ -9,12 +9,15 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
+from ..snowflake_id import get_snowflake_id
+from .models import Group, Task, TasksType
+
 
 # Global ContextVar to hold the current OrchContext instance
-_current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
+_current_orch_context: ContextVar[OrchContext] = ContextVar('current_orch_context')
 
 
-def get_orch_context() -> 'OrchContext':
+def get_orch_context() -> OrchContext:
     """
     Get the current OrchContext instance from ContextVar.
 
@@ -125,6 +128,50 @@ class OrchContext:
         """
         async with AsyncSession(self.engine, expire_on_commit=False) as session:
             yield session
+
+    async def apply(
+        self,
+        items: TasksType,
+        job_id: int,
+    ) -> TasksType:
+        """
+        Commit tasks and groups to the database.
+
+        Sets job_id on all items, generates snowflake IDs for Groups
+        if not already set, and commits to PostgreSQL.
+
+        Args:
+            items: Single Task/Group or list of Task/Group objects
+            job_id: Job ID to assign to all items
+
+        Returns:
+            Same items with database IDs populated
+
+        Example:
+            async with OrchContext() as ctx:
+                task = create_task("mymodule.func", {"x": 1})
+                await ctx.apply(task, job_id=job.id)
+        """
+        # Normalize to list
+        items_list = items if isinstance(items, list) else [items]
+
+        async with self.get_session() as session:
+            for item in items_list:
+                # Set job_id on all items
+                item.job_id = job_id
+
+                # Generate snowflake ID for Groups if not set
+                if isinstance(item, Group) and item.id is None:
+                    item.id = get_snowflake_id()
+
+                session.add(item)
+
+            await session.commit()
+
+        # Return in same format as input
+        if isinstance(items, list):
+            return items_list
+        return items_list[0]
 
 
 @asynccontextmanager

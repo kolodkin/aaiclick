@@ -1,13 +1,13 @@
 """Task execution utilities for orchestration backend."""
 
-from __future__ import annotations
-
 import asyncio
 import importlib
 from datetime import datetime
 from typing import Any, Callable
 
 from sqlmodel import select
+
+from aaiclick import DataContext, create_object_from_value
 
 from .context import get_orch_context_session
 from .logging import capture_task_output
@@ -84,10 +84,12 @@ def deserialize_task_params(kwargs: dict) -> dict:
 
 async def execute_task(task: Task) -> Any:
     """
-    Execute a single task.
+    Execute a single task with both DataContext and OrchContext available.
 
     Imports the callback function, deserializes kwargs,
-    captures output, and executes the function.
+    captures output, and executes the function. Tasks have access to:
+    - DataContext: For ClickHouse Object operations (created fresh for each task)
+    - OrchContext: For orchestration operations (from the outer context)
 
     Args:
         task: Task to execute
@@ -102,10 +104,13 @@ async def execute_task(task: Task) -> Any:
     kwargs = deserialize_task_params(task.kwargs)
 
     with capture_task_output(task.id):
-        if asyncio.iscoroutinefunction(func):
-            result = await func(**kwargs)
-        else:
-            result = func(**kwargs)
+        # Wrap execution with DataContext so tasks can use ClickHouse operations
+        # OrchContext is already available from the outer context (run_job_tasks)
+        async with DataContext():
+            if asyncio.iscoroutinefunction(func):
+                result = await func(**kwargs)
+            else:
+                result = func(**kwargs)
 
     return result
 
@@ -171,8 +176,6 @@ async def run_job_tasks(job: Job) -> None:
 
                 # Convert result to Object and store reference
                 if result is not None:
-                    from aaiclick import create_object_from_value
-
                     obj = await create_object_from_value(result)
                     task.result = {"object_type": "object", "table_id": obj.table_id}
 

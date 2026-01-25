@@ -13,7 +13,7 @@ async def task1():
 
 def main():
     job = create_job("orch_basic_example", task1)
-    job.test()
+    job_test(job)
 
 if __name__ == "__main__":
     main()
@@ -149,24 +149,25 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 3: Job.test() Method ✅
+### Phase 3: job_test() Function ✅
 
 **Objective**: Implement synchronous job testing (similar to Airflow)
 
-**Note**: `job.test()` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
+**Note**: `job_test(job)` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
 
 **Implementation**: See the following files for complete implementation:
-- `aaiclick/orchestration/models.py:56-96` - `Job.test()` and `Job._test_async()` methods
+- `aaiclick/orchestration/debug_execution.py` - `job_test()` and `ajob_test()` functions
 - `aaiclick/orchestration/execution.py` - Task execution logic
 - `aaiclick/orchestration/logging.py` - Task logging utilities
 
 **Tasks**:
-1. ✅ Add `test()` method to `Job` model in `models.py`:
-   - See: `aaiclick/orchestration/models.py:73-96`
+1. ✅ Implement `job_test()` function in `debug_execution.py`:
+   - Standalone function (not a method on Job model to avoid coupling)
+   - See: `aaiclick/orchestration/debug_execution.py` - `job_test()` function
 
-2. ✅ Implement `_test_async()` helper:
+2. ✅ Implement `ajob_test()` helper:
    - Creates OrchContext and calls `run_job_tasks()`
-   - See: `aaiclick/orchestration/models.py:86-96`
+   - See: `aaiclick/orchestration/debug_execution.py` - `ajob_test()` function
 
 3. ✅ Create `aaiclick/orchestration/execution.py`:
    - `import_callback(entrypoint: str)` - Import function from string
@@ -202,9 +203,13 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 4: OrchContext Integration
+### Phase 4: OrchContext Integration ✅
 
 **Objective**: Create OrchContext for orchestration and make both contexts available during task execution
+
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/context.py` - OrchContext class and apply() method
+- `aaiclick/orchestration/execution.py:85-118` - execute_task() with DataContext
 
 **Tasks**:
 1. ✅ Created `aaiclick/orchestration/context.py`:
@@ -214,52 +219,31 @@ print(f"Job {job.id} created")
    - Disposes engine in `__aexit__` (proper async cleanup)
    - Each operation creates AsyncSession from context's engine
    - Implements context manager protocol (`__aenter__`, `__aexit__`)
-   - **Implementation**: `aaiclick/orchestration/context.py:38-127`
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext` class
 
 2. ✅ Context-local storage for OrchContext:
-   ```python
-   # In aaiclick/orchestration/context.py
-   from contextvars import ContextVar
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `_current_orch_context` and `get_orch_context()`
 
-   _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
+3. ✅ Update `execute_task()` to use both contexts:
+   - Tasks execute within DataContext for ClickHouse operations
+   - OrchContext is available from the outer context (run_job_tasks)
+   - **Implementation**: `aaiclick/orchestration/execution.py` - see `execute_task()` function
 
-   def get_orch_context() -> OrchContext:
-       """Get current OrchContext (for orchestration operations)"""
-       try:
-           return _current_orch_context.get()
-       except LookupError:
-           raise RuntimeError("No active OrchContext")
-   ```
-   **Implementation**: `aaiclick/orchestration/context.py:14-38`
-
-3. ⚠️ Update `execute_task()` to use both contexts (planned):
-   ```python
-   async def execute_task(task: Task) -> Any:
-       # Both contexts available during task execution
-       async with DataContext() as data_ctx:
-           async with OrchContext() as orch_ctx:
-               # Import and execute function
-               func = import_callback(task.entrypoint)
-               # Task can use both data_ctx and orch_ctx
-               result = await func(**task.kwargs)
-               return result
-   ```
-
-4. ⚠️ Add `apply()` method to OrchContext (planned):
-   - Accept Task, Group, or list
-   - Create AsyncSession from global engine
-   - Generate snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
-   - Set job_id on all tasks and groups
-   - Insert into PostgreSQL using ORM (session.add, session.commit)
-   - Return committed objects
+4. ✅ Add `apply()` method to OrchContext:
+   - Accepts Task, Group, or list with job_id parameter
+   - Generates snowflake IDs for Groups using `get_snowflake_id()` (if not already set)
+   - Sets job_id on all tasks and groups
+   - Inserts into PostgreSQL using ORM (session.add, session.commit)
+   - Returns committed objects
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 
 **Deliverables**:
 - ✅ Per-context SQLAlchemy AsyncEngine (created on enter, disposed on exit)
 - ✅ OrchContext class (no job_id parameter - simplified)
-- ⚠️ Tasks execute with both DataContext (data) and OrchContext (orchestration) (planned)
+- ✅ Tasks execute with both DataContext (data) and OrchContext (orchestration)
 - ✅ OrchContext available via `get_orch_context()`
 - ✅ DataContext remains unchanged (backward compatible)
-- ⚠️ `orch_ctx.apply()` works for committing tasks (planned)
+- ✅ `orch_ctx.apply()` works for committing tasks
 - ✅ Each operation creates its own AsyncSession from context's engine
 - ✅ Proper async lifecycle ensures test isolation without cleanup fixtures
 
@@ -273,7 +257,7 @@ print(f"Job {job.id} created")
 1. Create `tests/test_orchestration_basic.py`:
    - Test `create_task()` factory
    - Test `create_job()` factory
-   - Test `job.test()` execution
+   - Test `job_test(job)` execution
    - Test task logging (verify log file created)
    - Test task with ClickHouse Object operations
 
@@ -301,7 +285,7 @@ async def test_basic_job_execution():
     job = await create_job("test_job", "tests.fixtures.simple_task")
 
     # Test job (invokes worker execute flow synchronously)
-    job.test()
+    job_test(job)
 
     # Verify job completed
     assert job.status == JobStatus.COMPLETED
@@ -350,7 +334,7 @@ Phase 1-5 implementation is complete when:
 
 1. ✅ User can define a simple Python function
 2. ✅ User can create a job with `create_job(name, callback)`
-3. ✅ User can test job synchronously with `job.test()` (invokes worker execute flow)
+3. ✅ User can test job synchronously with `job_test(job)` (invokes worker execute flow)
 4. ✅ Task execution has access to Context (ClickHouse + PostgreSQL)
 5. ✅ Job and task state persisted to PostgreSQL
 6. ✅ Basic tests passing
