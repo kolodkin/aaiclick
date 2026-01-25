@@ -16,6 +16,7 @@ from .models import (
     Job,
     JobStatus,
     Task,
+    TasksType,
     TaskStatus,
     Worker,
     WorkerStatus,

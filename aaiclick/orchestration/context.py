@@ -10,10 +10,7 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from ..snowflake_id import get_snowflake_id
-from .models import Group, Task
-
-# Type alias for tasks/groups that can be applied
-TasksType = Task | Group | list[Task | Group]
+from .models import Group, Task, TasksType
 
 
 # Global ContextVar to hold the current OrchContext instance

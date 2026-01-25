@@ -166,3 +166,7 @@ class Dependency(SQLModel, table=True):
     next_type: str = Field(primary_key=True)  # 'task' or 'group'
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Type alias for tasks/groups that can be applied
+TasksType = Task | Group | list[Task | Group]
