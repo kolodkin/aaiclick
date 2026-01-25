@@ -196,23 +196,14 @@ prompt: |
 
   ## Step 6: Address PR Review Comments
 
-  The script displays unresolved review comments. For each comment:
+  The script displays unresolved comments with their IDs. For each:
 
-  1. **Fix the issue** and commit with `git commit -m "Address review: <description>"`
-  2. **Push changes** with `git push`
-  3. **Reply to each comment thread** using:
+  1. **Fix the issue** and commit
+  2. **Push changes**
+  3. **Reply** using the ID from script output:
      ```bash
-     # Get comment IDs
-     gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments | jq '.[] | {id, path, body}'
-
-     # Reply to thread (use in_reply_to for threaded replies)
      gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
-       -f body="✅ Agent Addressed: <description>
-
-  Commit: $(git rev-parse --short HEAD)" \
-       -F in_reply_to=COMMENT_ID
+       -f body="✅ Agent Addressed: <description>" -F in_reply_to=COMMENT_ID
      ```
-
-  **Important:** Reply to EACH comment individually. Do NOT use `gh pr comment` (posts general comments, not threaded replies).
 
   Be PROACTIVE: Check and poll workflows after every push!
