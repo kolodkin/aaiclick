@@ -17,7 +17,7 @@ if command -v gh &> /dev/null; then
 fi
 
 echo "GitHub CLI (gh) is required but not installed."
-echo "This skill requires the pr-checks skill to be installed first."
+echo "This skill requires the pr-check skill to be installed first."
 exit 1
 ```
 

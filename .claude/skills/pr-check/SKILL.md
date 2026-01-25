@@ -1,5 +1,5 @@
 ---
-name: pr-checks
+name: pr-check
 description: Check PR status and verify GitHub Actions CI workflows. Use after git push or when user asks to check PR/CI status.
 ---
 
@@ -56,7 +56,7 @@ prompt: |
 
   Execute the automated workflow checker script:
   ```bash
-  .claude/skills/pr-checks/pr-checks.sh
+  .claude/skills/pr-check/pr-check.sh
   ```
 
   This script will automatically:
@@ -126,7 +126,7 @@ prompt: |
 
   After pushing the fix, run the checker again:
   ```bash
-  .claude/skills/pr-checks/pr-checks.sh
+  .claude/skills/pr-check/pr-check.sh
   ```
 
   Repeat until workflow passes.
@@ -200,17 +200,17 @@ prompt: |
 
   ```bash
   # Check for unresolved review threads using GraphQL API
-  gh api graphql -f query='...' # (handled by pr-checks.sh script)
+  gh api graphql -f query='...' # (handled by pr-check.sh script)
 
   # List all review comments (including resolved)
   gh pr view --comments
   ```
 
-  **NOTE:** The pr-checks script now filters and displays ONLY unresolved review thread comments, so agents focus on active feedback that needs to be addressed.
+  **NOTE:** The pr-check script now filters and displays ONLY unresolved review thread comments, so agents focus on active feedback that needs to be addressed.
 
   ### Agent Workflow for Review Comments
 
-  **The pr-checks script displays review comments to the agent. The AGENT addresses them and posts replies using gh CLI.**
+  **The pr-check script displays review comments to the agent. The AGENT addresses them and posts replies using gh CLI.**
 
   **After the script shows review comments, the agent MUST:**
 

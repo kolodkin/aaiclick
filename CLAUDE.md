@@ -7,7 +7,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
-- After pushing changes, check pull request status using the `pr-checks` skill or run `.claude/skills/pr-checks/pr-checks.sh`
+- After pushing changes, check pull request status using the `pr-check` skill or run `.claude/skills/pr-check/pr-check.sh`
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
@@ -340,4 +340,4 @@ See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for 
 3. Update tests if needed
 4. Commit with descriptive messages
 5. Push to feature branch
-6. Check PR status via `pr-checks` skill (do NOT run tests locally)
+6. Check PR status via `pr-check` skill (do NOT run tests locally)
