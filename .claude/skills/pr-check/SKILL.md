@@ -206,4 +206,6 @@ prompt: |
        -f body="✅ Agent Addressed: <description>" -F in_reply_to=COMMENT_ID
      ```
 
+  **IMPORTANT:** Always prefix replies with "✅ Agent Addressed:" to clearly identify agent comments.
+
   Be PROACTIVE: Check and poll workflows after every push!
