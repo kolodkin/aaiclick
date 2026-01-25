@@ -157,6 +157,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
 async def worker_main_loop(
     worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
+    install_signal_handlers: bool = True,
 ) -> int:
     """
     Main worker execution loop.
@@ -167,6 +168,7 @@ async def worker_main_loop(
     Args:
         worker_id: Worker ID (registers new worker if None)
         max_tasks: Maximum tasks to execute (None for unlimited)
+        install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
 
     Returns:
         int: Number of tasks executed
@@ -180,9 +182,10 @@ async def worker_main_loop(
         nonlocal shutdown_requested
         shutdown_requested = True
 
-    # Register signal handlers for graceful shutdown
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    # Register signal handlers for graceful shutdown (optional for tests)
+    if install_signal_handlers:
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
 
     # Register worker if not provided
     if worker_id is None:
