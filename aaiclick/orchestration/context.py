@@ -12,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from ..snowflake_id import get_snowflake_id
 from .models import Group, Task
 
+# Type alias for tasks/groups that can be applied
+TasksType = Task | Group | list[Task | Group]
+
 
 # Global ContextVar to hold the current OrchContext instance
 _current_orch_context: ContextVar[OrchContext] = ContextVar('current_orch_context')
@@ -131,9 +134,9 @@ class OrchContext:
 
     async def apply(
         self,
-        items: Task | Group | list[Task | Group],
+        items: TasksType,
         job_id: int,
-    ) -> Task | Group | list[Task | Group]:
+    ) -> TasksType:
         """
         Commit tasks and groups to the database.
 
