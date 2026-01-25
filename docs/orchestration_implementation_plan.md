@@ -295,20 +295,79 @@ print(f"Job {job.id} created")
 
 ---
 
+### Phase 6: Distributed Workers
+
+**Objective**: Enable multi-process/multi-node task execution with atomic task claiming
+
+**Tasks**:
+1. Implement worker management functions in `aaiclick/orchestration/worker.py`:
+   - `register_worker()` - Register a new worker process
+   - `worker_heartbeat(worker_id)` - Update worker's last_heartbeat timestamp
+   - `deregister_worker(worker_id)` - Mark worker as stopped
+   - `list_workers(status)` - List workers by status
+
+2. Implement atomic task claiming in `aaiclick/orchestration/claiming.py`:
+   - `claim_next_task(worker_id)` - Claim next available task using `FOR UPDATE SKIP LOCKED`
+   - Simplified version without dependency checking (Phase 7 adds dependencies)
+   - Prioritize tasks from oldest running jobs (`ORDER BY j.started_at ASC`)
+   - Atomically update job status to RUNNING on first task claim
+
+3. Implement worker main loop in `aaiclick/orchestration/worker.py`:
+   - `worker_main_loop(worker_id)` - Main execution loop
+   - Poll for tasks, execute, update status
+   - Heartbeat updates during execution
+   - Graceful shutdown handling
+
+4. Add worker CLI commands in `aaiclick/__main__.py`:
+   - `python -m aaiclick worker start` - Start a worker process
+   - `python -m aaiclick worker list` - List active workers
+
+5. Create tests in `aaiclick/orchestration/test_worker.py`:
+   - Test worker registration/deregistration
+   - Test heartbeat updates
+   - Test atomic task claiming (concurrent workers)
+   - Test worker main loop execution
+
+**Example Usage**:
+```python
+from aaiclick.orchestration import register_worker, claim_next_task, deregister_worker
+
+# Register worker
+worker = await register_worker()
+
+# Main loop
+while True:
+    task = await claim_next_task(worker.id)
+    if task:
+        await execute_task(task)
+    else:
+        await asyncio.sleep(1)
+
+# Cleanup
+await deregister_worker(worker.id)
+```
+
+**Deliverables**:
+- Worker registration and lifecycle management
+- Atomic task claiming with `FOR UPDATE SKIP LOCKED`
+- Worker main loop for background task execution
+- CLI commands for worker management
+- Tests for concurrent task claiming
+
+---
+
 ## Out of Scope (Future Phases)
 
-The following features from the full spec are **NOT** included in this basic implementation:
+The following features are **NOT** included in Phase 6:
 
-- **Distributed workers**: Multi-process/multi-node execution (Phase 6+)
-- **Task claiming with locking**: `FOR UPDATE SKIP LOCKED` (Phase 6+)
 - **Groups**: Task grouping and nested groups (Phase 7+)
 - **Dependencies**: Task/Group dependencies with `>>` operators (Phase 7+)
 - **Dynamic task creation**: Tasks creating new tasks via `map()` (Phase 8+)
-- **Worker management**: Worker registration, heartbeat, monitoring (Phase 6+)
 - **Retry logic**: Automatic task retry on failure (Phase 9+)
 - **Advanced serialization**: View and Object parameter types (Phase 8+)
+- **Orphan task recovery**: Reclaiming tasks from dead workers (Phase 9+)
 
-These will be added incrementally after the basic implementation is stable.
+These will be added incrementally after Phase 6 is stable.
 
 ---
 
