@@ -345,18 +345,66 @@ print(f"Job {job.id} created")
 
 ---
 
+### Phase 7: Groups and Dependencies ✅
+
+**Objective**: Enable DAG-style workflow definitions with dependency operators
+
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/models.py` - Task and Group dependency operators (`>>`, `<<`, `__rrshift__`, `__rlshift__`)
+- `aaiclick/orchestration/context.py` - Updated `apply()` to save dependencies
+- `aaiclick/orchestration/claiming.py` - Dependency-aware task claiming
+- `aaiclick/orchestration/test_dependencies.py` - Comprehensive tests
+
+**Tasks**:
+1. ✅ Add dependency operators to Task and Group models:
+   - `depends_on()` method to declare dependencies
+   - `__rshift__` (A >> B: B depends on A)
+   - `__lshift__` (A << B: A depends on B)
+   - `__rrshift__` for fan-in: [A, B] >> C
+   - `__rlshift__` for fan-out: [A, B] << C
+
+2. ✅ Update `apply()` to save dependencies:
+   - Collects `_pending_dependencies` from all items
+   - Commits Dependency records to database
+
+3. ✅ Update `claim_next_task()` with dependency checking:
+   - Task → Task: Task waits for previous task to complete
+   - Group → Task: Task waits for all tasks in previous group to complete
+   - Task → Group: Tasks in group wait for previous task to complete
+   - Group → Group: Tasks in group wait for all tasks in previous group to complete
+
+4. ✅ Tests for dependency operators and claiming:
+   - `test_task_rshift_creates_dependency`
+   - `test_task_lshift_creates_dependency`
+   - `test_task_chained_rshift`
+   - `test_task_fanout`
+   - `test_task_fanin`
+   - `test_group_rshift_creates_dependency`
+   - `test_task_rshift_to_group`
+   - `test_group_to_group_dependency`
+   - `test_apply_saves_dependencies`
+   - `test_claim_respects_task_dependency`
+   - `test_claim_respects_group_dependency`
+
+**Deliverables**:
+- ✅ Airflow-like `>>` and `<<` operators for defining dependencies
+- ✅ Support for Task and Group dependencies (all 4 combinations)
+- ✅ Fan-in and fan-out patterns
+- ✅ Dependency-aware task claiming
+- ✅ Comprehensive tests
+
+---
+
 ## Out of Scope (Future Phases)
 
-The following features are **NOT** included in Phase 6:
+The following features are **NOT** included in Phase 7:
 
-- **Groups**: Task grouping and nested groups (Phase 7+)
-- **Dependencies**: Task/Group dependencies with `>>` operators (Phase 7+)
 - **Dynamic task creation**: Tasks creating new tasks via `map()` (Phase 8+)
 - **Retry logic**: Automatic task retry on failure (Phase 9+)
 - **Advanced serialization**: View and Object parameter types (Phase 8+)
 - **Orphan task recovery**: Reclaiming tasks from dead workers (Phase 9+)
 
-These will be added incrementally after Phase 6 is stable.
+These will be added incrementally after Phase 7 is stable.
 
 ---
 
@@ -372,10 +420,7 @@ Phase 1-5 implementation is complete when:
 6. ✅ Basic tests passing
 7. ✅ Example from goal works end-to-end
 
-## Next Steps After Phase 5
+## Next Steps After Phase 7
 
-Once basic implementation is working:
-- Phase 6: Distributed Workers (async task claiming)
-- Phase 7: Groups and Dependencies (DAG support)
 - Phase 8: Dynamic Task Creation (`map()` operator)
 - Phase 9: Advanced Features (retry, monitoring, views)

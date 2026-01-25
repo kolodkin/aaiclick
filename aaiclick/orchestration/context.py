@@ -135,10 +135,11 @@ class OrchContext:
         job_id: int,
     ) -> TasksType:
         """
-        Commit tasks and groups to the database.
+        Commit tasks, groups, and their dependencies to the database.
 
         Sets job_id on all items, generates snowflake IDs for Groups
-        if not already set, and commits to PostgreSQL.
+        if not already set, and commits to PostgreSQL. Also commits
+        any dependencies created by >> and << operators.
 
         Args:
             items: Single Task/Group or list of Task/Group objects
@@ -149,13 +150,18 @@ class OrchContext:
 
         Example:
             async with OrchContext() as ctx:
-                task = create_task("mymodule.func", {"x": 1})
-                await ctx.apply(task, job_id=job.id)
+                task1 = create_task("mymodule.func1", {"x": 1})
+                task2 = create_task("mymodule.func2", {"x": 2})
+                task1 >> task2  # task2 depends on task1
+                await ctx.apply([task1, task2], job_id=job.id)
         """
         # Normalize to list
         items_list = items if isinstance(items, list) else [items]
 
         async with self.get_session() as session:
+            # Collect all pending dependencies from items
+            all_dependencies = []
+
             for item in items_list:
                 # Set job_id on all items
                 item.job_id = job_id
@@ -165,6 +171,16 @@ class OrchContext:
                     item.id = get_snowflake_id()
 
                 session.add(item)
+
+                # Collect pending dependencies
+                if hasattr(item, "_get_pending_dependencies"):
+                    deps = item._get_pending_dependencies()
+                    all_dependencies.extend(deps)
+                    deps.clear()
+
+            # Add all dependencies to session
+            for dependency in all_dependencies:
+                session.add(dependency)
 
             await session.commit()
 

@@ -20,15 +20,17 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
     - Job status transitions from PENDING to RUNNING
     - Job's started_at is set to current time
 
+    Dependency checking:
+    - Task → Task: Task waits for previous task to complete
+    - Group → Task: Task waits for all tasks in previous group to complete
+    - Task → Group: Tasks in group wait for previous task to complete
+    - Group → Group: Tasks in group wait for all tasks in previous group to complete
+
     Args:
         worker_id: ID of the worker claiming the task
 
     Returns:
         Task if one was claimed, None if no tasks available
-
-    Note:
-        This simplified version does not check dependencies.
-        Dependency checking will be added in Phase 7.
     """
     async with get_orch_context_session() as session:
         # Use raw SQL for FOR UPDATE SKIP LOCKED
@@ -45,6 +47,44 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
                         SELECT t.id FROM tasks t
                         JOIN jobs j ON t.job_id = j.id
                         WHERE t.status = :pending_status
+                        -- Check task → task dependencies (previous task must be completed)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM dependencies d
+                            JOIN tasks prev ON d.previous_id = prev.id
+                            WHERE d.next_id = t.id
+                            AND d.next_type = 'task'
+                            AND d.previous_type = 'task'
+                            AND prev.status != :completed_status
+                        )
+                        -- Check group → task dependencies (all tasks in previous group must be completed)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM dependencies d
+                            JOIN tasks prev ON prev.group_id = d.previous_id
+                            WHERE d.next_id = t.id
+                            AND d.next_type = 'task'
+                            AND d.previous_type = 'group'
+                            AND prev.status != :completed_status
+                        )
+                        -- Check task → group dependencies (if task is in a group that depends on a task)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM dependencies d
+                            JOIN tasks prev ON d.previous_id = prev.id
+                            WHERE d.next_id = t.group_id
+                            AND d.next_type = 'group'
+                            AND d.previous_type = 'task'
+                            AND prev.status != :completed_status
+                            AND t.group_id IS NOT NULL
+                        )
+                        -- Check group → group dependencies (if task is in a group that depends on another group)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM dependencies d
+                            JOIN tasks prev ON prev.group_id = d.previous_id
+                            WHERE d.next_id = t.group_id
+                            AND d.next_type = 'group'
+                            AND d.previous_type = 'group'
+                            AND prev.status != :completed_status
+                            AND t.group_id IS NOT NULL
+                        )
                         ORDER BY j.started_at ASC NULLS LAST, t.id ASC
                         LIMIT 1
                         FOR UPDATE OF t SKIP LOCKED
@@ -69,6 +109,7 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
             {
                 "claimed_status": TaskStatus.RUNNING.value,
                 "pending_status": TaskStatus.PENDING.value,
+                "completed_status": TaskStatus.COMPLETED.value,
                 "running_status": JobStatus.RUNNING.value,
                 "worker_id": worker_id,
                 "now": datetime.utcnow(),
