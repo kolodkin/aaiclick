@@ -45,7 +45,7 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
                         SELECT t.id FROM tasks t
                         JOIN jobs j ON t.job_id = j.id
                         WHERE t.status = :pending_status
-                        ORDER BY j.started_at ASC NULLS FIRST, t.id ASC
+                        ORDER BY j.started_at ASC NULLS LAST, t.id ASC
                         LIMIT 1
                         FOR UPDATE OF t SKIP LOCKED
                     )
