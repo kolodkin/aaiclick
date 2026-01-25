@@ -191,18 +191,23 @@ check_review_comments() {
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
-        # Display unresolved comments
-        echo "$UNRESOLVED_THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[0] | "File: \(.path)\nLine: \(.line // "N/A")\nComment: \(.body)\n---"' 2>/dev/null
+        # Get comment IDs from REST API for reply capability
+        COMMENTS_WITH_IDS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" 2>/dev/null | jq -r '.[] | "ID: \(.id)\nFile: \(.path)\nLine: \(.line // .original_line // "N/A")\nComment: \(.body)\n---"' 2>/dev/null)
+
+        if [ -n "$COMMENTS_WITH_IDS" ]; then
+            echo "$COMMENTS_WITH_IDS"
+        else
+            # Fallback to GraphQL output without IDs
+            echo "$UNRESOLVED_THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[0] | "File: \(.path)\nLine: \(.line // "N/A")\nComment: \(.body)\n---"' 2>/dev/null
+        fi
 
         echo ""
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo -e "${YELLOW}💡 Agent should address unresolved review comments${NC}"
-        echo ""
-        echo "Commands to help:"
-        echo "  • View all comments: gh pr view $PR_NUMBER --comments"
-        echo "  • Reply to comment: gh pr comment $PR_NUMBER --body \"response\""
-        echo "  • View diff: gh pr diff $PR_NUMBER"
+        echo -e "${YELLOW}💡 Reply to comments using:${NC}"
+        echo "  gh api -X POST repos/${REPO}/pulls/${PR_NUMBER}/comments \\"
+        echo "    -f body=\"✅ Agent Addressed: <description>\" \\"
+        echo "    -F in_reply_to=COMMENT_ID"
         echo ""
     else
         echo -e "${GREEN}✅ No unresolved review comments${NC}"
