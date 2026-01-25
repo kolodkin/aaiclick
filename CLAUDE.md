@@ -7,7 +7,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
-- After pushing changes, check pull request status using the `pr-check` skill or run `.claude/skills/pr-check/pr-check.sh`
+- After pushing changes, check pull request status using the `pr-check` skill or run `.claude/skills/pr-check/run-workflow-check.sh`
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 

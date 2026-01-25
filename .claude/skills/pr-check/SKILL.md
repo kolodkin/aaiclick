@@ -56,7 +56,7 @@ prompt: |
 
   Execute the automated workflow checker script:
   ```bash
-  .claude/skills/pr-check/pr-check.sh
+  .claude/skills/pr-check/run-workflow-check.sh
   ```
 
   This script will automatically:
@@ -126,7 +126,7 @@ prompt: |
 
   After pushing the fix, run the checker again:
   ```bash
-  .claude/skills/pr-check/pr-check.sh
+  .claude/skills/pr-check/run-workflow-check.sh
   ```
 
   Repeat until workflow passes.
@@ -200,7 +200,7 @@ prompt: |
 
   ```bash
   # Check for unresolved review threads using GraphQL API
-  gh api graphql -f query='...' # (handled by pr-check.sh script)
+  gh api graphql -f query='...' # (handled by run-workflow-check.sh script)
 
   # List all review comments (including resolved)
   gh pr view --comments
