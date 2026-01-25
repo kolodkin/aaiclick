@@ -24,10 +24,10 @@ def job_test(job: Job) -> None:
         job = await create_job("my_job", "mymodule.task1")
         job_test(job)  # Blocks until job completes
     """
-    asyncio.run(job_test_async(job))
+    asyncio.run(ajob_test(job))
 
 
-async def job_test_async(job: Job) -> None:
+async def ajob_test(job: Job) -> None:
     """
     Async implementation of test execution.
 

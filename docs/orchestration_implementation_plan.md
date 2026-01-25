@@ -156,7 +156,7 @@ print(f"Job {job.id} created")
 **Note**: `job_test(job)` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
 
 **Implementation**: See the following files for complete implementation:
-- `aaiclick/orchestration/debug_execution.py` - `job_test()` and `job_test_async()` functions
+- `aaiclick/orchestration/debug_execution.py` - `job_test()` and `ajob_test()` functions
 - `aaiclick/orchestration/execution.py` - Task execution logic
 - `aaiclick/orchestration/logging.py` - Task logging utilities
 
@@ -165,9 +165,9 @@ print(f"Job {job.id} created")
    - Standalone function (not a method on Job model to avoid coupling)
    - See: `aaiclick/orchestration/debug_execution.py` - `job_test()` function
 
-2. ✅ Implement `job_test_async()` helper:
+2. ✅ Implement `ajob_test()` helper:
    - Creates OrchContext and calls `run_job_tasks()`
-   - See: `aaiclick/orchestration/debug_execution.py` - `job_test_async()` function
+   - See: `aaiclick/orchestration/debug_execution.py` - `ajob_test()` function
 
 3. ✅ Create `aaiclick/orchestration/execution.py`:
    - `import_callback(entrypoint: str)` - Import function from string
