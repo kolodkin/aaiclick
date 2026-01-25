@@ -1,13 +1,12 @@
 """Debug execution utilities for orchestration jobs.
 
-This module provides functions for running jobs in debug/test mode,
-separate from execution.py to avoid circular imports with models.py.
+This module provides functions for running jobs in debug/test mode.
 """
-
-from __future__ import annotations
 
 import asyncio
 
+from .context import OrchContext
+from .execution import run_job_tasks
 from .models import Job
 
 
@@ -37,8 +36,5 @@ async def run_job_test_async(job: Job) -> None:
     Args:
         job: Job to execute
     """
-    from .context import OrchContext
-    from .execution import run_job_tasks
-
     async with OrchContext():
         await run_job_tasks(job)

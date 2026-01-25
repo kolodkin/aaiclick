@@ -1,7 +1,5 @@
 """Task execution utilities for orchestration backend."""
 
-from __future__ import annotations
-
 import asyncio
 import importlib
 from datetime import datetime

@@ -5,8 +5,6 @@ This module defines SQLModel models for jobs, tasks, workers, groups, and depend
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -69,21 +67,6 @@ class Job(SQLModel, table=True):
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
     error: Optional[str] = Field(default=None)
-
-    def test(self) -> None:
-        """
-        Execute job synchronously in current process (test mode).
-
-        Invokes the worker execute flow for testing/debugging.
-        Similar to Airflow's test execution mode.
-
-        Example:
-            job = await create_job("my_job", "mymodule.task1")
-            job.test()  # Blocks until job completes
-        """
-        from .debug_execution import run_job_test
-
-        run_job_test(self)
 
 
 class Group(SQLModel, table=True):
