@@ -9,6 +9,9 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
+from ..snowflake_id import get_snowflake_id
+from .models import Group, Task
+
 
 # Global ContextVar to hold the current OrchContext instance
 _current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
@@ -128,9 +131,9 @@ class OrchContext:
 
     async def apply(
         self,
-        items: 'Task | Group | list[Task | Group]',
+        items: Task | Group | list[Task | Group],
         job_id: int,
-    ) -> 'Task | Group | list[Task | Group]':
+    ) -> Task | Group | list[Task | Group]:
         """
         Commit tasks and groups to the database.
 
@@ -149,9 +152,6 @@ class OrchContext:
                 task = create_task("mymodule.func", {"x": 1})
                 await ctx.apply(task, job_id=job.id)
         """
-        from ..snowflake_id import get_snowflake_id
-        from .models import Group, Task
-
         # Normalize to list
         items_list = items if isinstance(items, list) else [items]
 

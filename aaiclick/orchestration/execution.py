@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 from sqlmodel import select
 
+from aaiclick import DataContext
+
 from .context import get_orch_context_session
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
@@ -100,8 +102,6 @@ async def execute_task(task: Task) -> Any:
     Raises:
         Exception: Re-raises any exception from the task function
     """
-    from aaiclick import DataContext
-
     func = import_callback(task.entrypoint)
     kwargs = deserialize_task_params(task.kwargs)
 
