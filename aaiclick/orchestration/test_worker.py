@@ -285,8 +285,12 @@ async def test_worker_main_loop_executes_tasks(monkeypatch, tmpdir):
             "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
         )
 
-        # Run worker with max_tasks=1 (disable signal handlers for test)
-        tasks_executed = await worker_main_loop(max_tasks=1, install_signal_handlers=False)
+        # Run worker with max_tasks=1 (disable signal handlers, limit empty polls for test)
+        tasks_executed = await worker_main_loop(
+            max_tasks=1,
+            install_signal_handlers=False,
+            max_empty_polls=5,
+        )
 
         assert tasks_executed == 1
 
@@ -320,8 +324,12 @@ async def test_worker_main_loop_handles_failures(monkeypatch, tmpdir):
             "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
         )
 
-        # Run worker with max_tasks=1 (disable signal handlers for test)
-        tasks_executed = await worker_main_loop(max_tasks=1, install_signal_handlers=False)
+        # Run worker with max_tasks=1 (disable signal handlers, limit empty polls for test)
+        tasks_executed = await worker_main_loop(
+            max_tasks=1,
+            install_signal_handlers=False,
+            max_empty_polls=5,
+        )
 
         # Task was attempted but failed
         assert tasks_executed == 0  # Failed tasks don't count as executed

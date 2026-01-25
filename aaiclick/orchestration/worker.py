@@ -158,6 +158,7 @@ async def worker_main_loop(
     worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
+    max_empty_polls: Optional[int] = None,
 ) -> int:
     """
     Main worker execution loop.
@@ -169,6 +170,7 @@ async def worker_main_loop(
         worker_id: Worker ID (registers new worker if None)
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
+        max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
 
     Returns:
         int: Number of tasks executed
@@ -197,11 +199,16 @@ async def worker_main_loop(
 
     tasks_executed = 0
     last_heartbeat = datetime.utcnow()
+    empty_polls = 0
 
     try:
         while not shutdown_requested:
             # Check if we've reached max_tasks
             if max_tasks is not None and tasks_executed >= max_tasks:
+                break
+
+            # Check if we've exceeded max_empty_polls
+            if max_empty_polls is not None and empty_polls >= max_empty_polls:
                 break
 
             # Send heartbeat if needed
@@ -215,8 +222,12 @@ async def worker_main_loop(
 
             if task is None:
                 # No tasks available, wait before polling again
+                empty_polls += 1
                 await asyncio.sleep(POLL_INTERVAL)
                 continue
+
+            # Reset empty polls counter when we find a task
+            empty_polls = 0
 
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
