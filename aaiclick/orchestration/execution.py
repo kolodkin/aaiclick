@@ -166,6 +166,13 @@ async def run_job_tasks(job: Job) -> None:
         try:
             result = await execute_task(task)
 
+            # Convert result to Object (needs DataContext)
+            result_ref = None
+            if result is not None:
+                async with DataContext():
+                    obj = await create_object_from_value(result)
+                    result_ref = {"object_type": "object", "table_id": obj.table_id}
+
             async with get_orch_context_session() as session:
                 # Reload and update task to COMPLETED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
@@ -173,11 +180,7 @@ async def run_job_tasks(job: Job) -> None:
 
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
-
-                # Convert result to Object and store reference
-                if result is not None:
-                    obj = await create_object_from_value(result)
-                    task.result = {"object_type": "object", "table_id": obj.table_id}
+                task.result = result_ref
 
                 session.add(task)
                 await session.commit()
