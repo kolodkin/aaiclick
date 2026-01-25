@@ -124,7 +124,10 @@ class Worker(SQLModel, table=True):
     pid: int = Field()
     status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=datetime.utcnow)
     last_heartbeat: datetime = Field(default_factory=datetime.utcnow, index=True)
+    tasks_completed: int = Field(default=0)
+    tasks_failed: int = Field(default=0)
 
 
 class Dependency(SQLModel, table=True):
