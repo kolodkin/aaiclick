@@ -218,15 +218,15 @@ print(f"Job {job.id} created")
    - Disposes engine in `__aexit__` (proper async cleanup)
    - Each operation creates AsyncSession from context's engine
    - Implements context manager protocol (`__aenter__`, `__aexit__`)
-   - **Implementation**: `aaiclick/orchestration/context.py:38-127`
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext` class
 
 2. ✅ Context-local storage for OrchContext:
-   - **Implementation**: `aaiclick/orchestration/context.py:14-38`
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `_current_orch_context` and `get_orch_context()`
 
 3. ✅ Update `execute_task()` to use both contexts:
    - Tasks execute within DataContext for ClickHouse operations
    - OrchContext is available from the outer context (run_job_tasks)
-   - **Implementation**: `aaiclick/orchestration/execution.py:85-118`
+   - **Implementation**: `aaiclick/orchestration/execution.py` - see `execute_task()` function
 
 4. ✅ Add `apply()` method to OrchContext:
    - Accepts Task, Group, or list with job_id parameter
@@ -234,7 +234,7 @@ print(f"Job {job.id} created")
    - Sets job_id on all tasks and groups
    - Inserts into PostgreSQL using ORM (session.add, session.commit)
    - Returns committed objects
-   - **Implementation**: `aaiclick/orchestration/context.py:129-175`
+   - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 
 **Deliverables**:
 - ✅ Per-context SQLAlchemy AsyncEngine (created on enter, disposed on exit)

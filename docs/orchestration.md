@@ -125,15 +125,15 @@ As aaiclick scales to handle large-scale data processing, we need:
 **High-Level Factory APIs**:
 - **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
   - Generates snowflake ID for task
-  - **Implementation**: `aaiclick/orchestration/factories.py:12-27`
+  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_task()` function
 - **`create_job(name, entry)`**: Factory for creating Job with single entry point (Task or callback)
   - Generates snowflake ID for job
   - Commits Job and Task to PostgreSQL with JSON-serialized kwargs
-  - **Implementation**: `aaiclick/orchestration/factories.py:30-107`
+  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
 - **`orch_ctx.apply(tasks, job_id)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
   - Generates snowflake IDs for groups if not already set
   - Sets job_id on all items
-  - **Implementation**: `aaiclick/orchestration/context.py:129-175`
+  - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 - Factories provide simple interface for common workflows
 - IDs generated before database insertion (no round-trip needed)
 
@@ -186,7 +186,7 @@ id: Optional[int] = Field(default=None, primary_key=True)
 
 ### Status Enums
 
-**Implementation**: `aaiclick/orchestration/models.py:14-35`
+**Implementation**: `aaiclick/orchestration/models.py` - see `JobStatus`, `TaskStatus`, `WorkerStatus` enums
 
 **Note**: Actual implementation uses UPPERCASE enum values to match PostgreSQL enum types:
 
@@ -215,7 +215,7 @@ class WorkerStatus(StrEnum):
 
 Represents a workflow containing one or more tasks.
 
-**Implementation**: `aaiclick/orchestration/models.py:38-58`
+**Implementation**: `aaiclick/orchestration/models.py` - see `Job` class
 
 ```python
 from datetime import datetime
@@ -256,7 +256,7 @@ PENDING → RUNNING → COMPLETED
 
 Represents a logical grouping of tasks and other groups within a job. Groups can be nested.
 
-**Implementation**: `aaiclick/orchestration/models.py:104-125`
+**Implementation**: `aaiclick/orchestration/models.py` - see `Group` class
 
 ```python
 from datetime import datetime
@@ -294,7 +294,7 @@ class Group(SQLModel, table=True):
 
 Unified dependency table supporting all dependency types between tasks and groups.
 
-**Implementation**: `aaiclick/orchestration/models.py:128-141`
+**Implementation**: `aaiclick/orchestration/models.py` - see `Dependency` class
 
 ```python
 from sqlmodel import Field, SQLModel, Column
@@ -329,7 +329,7 @@ class Dependency(SQLModel, table=True):
 
 Represents a single executable unit of work within a job.
 
-**Implementation**: `aaiclick/orchestration/models.py:61-101`
+**Implementation**: `aaiclick/orchestration/models.py` - see `Task` class
 
 ```python
 from datetime import datetime
@@ -414,7 +414,7 @@ PENDING → CLAIMED → RUNNING → COMPLETED
 
 Represents an active worker process.
 
-**Implementation**: `aaiclick/orchestration/models.py:144-168`
+**Implementation**: `aaiclick/orchestration/models.py` - see `Worker` class
 
 ```python
 from datetime import datetime
@@ -544,7 +544,7 @@ async def log_summary(data: Object):
 ### 1. Job Creation ✅ IMPLEMENTED
 
 **See**: Factory APIs section above for `create_job()` and `create_task()` usage
-**Implementation**: `aaiclick/orchestration/factories.py:30-107`
+**Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
 
 ### 1.1 Job Testing ✅ IMPLEMENTED
 
@@ -746,7 +746,7 @@ RETURNING (SELECT * FROM claimed_task);
 
 **Implemented (Phase 3):**
 - ✅ `job.test()` - Execute job synchronously for testing
-  - **Implementation**: `aaiclick/orchestration/models.py:73-96`
+  - **Implementation**: `aaiclick/orchestration/models.py` - see `Job.test()` method
 
 **Not Yet Implemented (Phase 4+):**
 - ⚠️ `get_job(job_id)` - Get job status and details
@@ -778,7 +778,7 @@ await retry_failed_tasks(job_id)
 
 ### Context API for DAG Construction ✅ IMPLEMENTED (Phase 4)
 
-**Implementation**: `aaiclick/orchestration/context.py:129-175`
+**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 
 ```python
 from aaiclick.orchestration import OrchContext, Task, Group, create_task

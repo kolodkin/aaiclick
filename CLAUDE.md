@@ -276,13 +276,25 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
    - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
+### Documentation Guidelines
+
+**Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
+
+```markdown
+# BAD - line numbers become stale
+**Implementation**: `aaiclick/orchestration/context.py:129-175`
+
+# GOOD - method names are stable
+**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
+```
+
 ### Documentation Patterns
 
 **For Implemented Features**:
 ```markdown
 ### Feature Name ✅ IMPLEMENTED
 
-**Implementation**: `path/to/file.py:line-start-line-end`
+**Implementation**: `path/to/file.py` - see `ClassName.method()` or `function_name()`
 
 Brief description with link to code instead of duplicating implementation details.
 See actual code for complete implementation.
@@ -300,7 +312,7 @@ This serves as the design document for future implementation.
 ```markdown
 ### ModelName
 
-**Implementation**: `aaiclick/module/models.py:line-start-line-end`
+**Implementation**: `aaiclick/module/models.py` - see `ModelName` class
 
 **Note**: Actual implementation details (e.g., "uses UPPERCASE enums", "BIGINT for IDs")
 
