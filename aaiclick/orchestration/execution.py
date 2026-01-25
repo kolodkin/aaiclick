@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from sqlmodel import select
 
-from aaiclick import DataContext
+from aaiclick import DataContext, create_object_from_value
 
 from .context import get_orch_context_session
 from .logging import capture_task_output
@@ -178,8 +178,6 @@ async def run_job_tasks(job: Job) -> None:
 
                 # Convert result to Object and store reference
                 if result is not None:
-                    from aaiclick import create_object_from_value
-
                     obj = await create_object_from_value(result)
                     task.result = {"object_type": "object", "table_id": obj.table_id}
 
