@@ -14,10 +14,10 @@ from .models import Group, Task
 
 
 # Global ContextVar to hold the current OrchContext instance
-_current_orch_context: ContextVar['OrchContext'] = ContextVar('current_orch_context')
+_current_orch_context: ContextVar[OrchContext] = ContextVar('current_orch_context')
 
 
-def get_orch_context() -> 'OrchContext':
+def get_orch_context() -> OrchContext:
     """
     Get the current OrchContext instance from ContextVar.
 
