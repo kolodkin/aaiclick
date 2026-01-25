@@ -295,64 +295,53 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 6: Distributed Workers
+### Phase 6: Distributed Workers ✅
 
 **Objective**: Enable multi-process/multi-node task execution with atomic task claiming
 
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/worker.py` - Worker lifecycle and main loop
+- `aaiclick/orchestration/claiming.py` - Atomic task claiming with FOR UPDATE SKIP LOCKED
+- `aaiclick/__main__.py` - CLI commands for worker start/list
+- `aaiclick/orchestration/test_worker.py` - Comprehensive tests
+- `aaiclick/orchestration/migrations/versions/d7f7e092e80c_add_worker_stats_fields.py` - Worker stats migration
+
 **Tasks**:
-1. Implement worker management functions in `aaiclick/orchestration/worker.py`:
-   - `register_worker()` - Register a new worker process
-   - `worker_heartbeat(worker_id)` - Update worker's last_heartbeat timestamp
-   - `deregister_worker(worker_id)` - Mark worker as stopped
+1. ✅ Worker management functions in `aaiclick/orchestration/worker.py`:
+   - `register_worker()` - Register new worker with hostname/pid
+   - `worker_heartbeat(worker_id)` - Update last_heartbeat timestamp
+   - `deregister_worker(worker_id)` - Mark worker as STOPPED
    - `list_workers(status)` - List workers by status
+   - `get_worker(worker_id)` - Get worker by ID
 
-2. Implement atomic task claiming in `aaiclick/orchestration/claiming.py`:
-   - `claim_next_task(worker_id)` - Claim next available task using `FOR UPDATE SKIP LOCKED`
-   - Simplified version without dependency checking (Phase 7 adds dependencies)
-   - Prioritize tasks from oldest running jobs (`ORDER BY j.started_at ASC`)
-   - Atomically update job status to RUNNING on first task claim
+2. ✅ Atomic task claiming in `aaiclick/orchestration/claiming.py`:
+   - `claim_next_task(worker_id)` - Claim using `FOR UPDATE SKIP LOCKED`
+   - Prioritizes running jobs over pending (`ORDER BY started_at ASC NULLS LAST`)
+   - Atomically updates job status to RUNNING on first claim
+   - `update_task_status()` and `update_job_status()` helpers
 
-3. Implement worker main loop in `aaiclick/orchestration/worker.py`:
-   - `worker_main_loop(worker_id)` - Main execution loop
-   - Poll for tasks, execute, update status
+3. ✅ Worker main loop in `aaiclick/orchestration/worker.py`:
+   - `worker_main_loop()` - Main execution loop with graceful shutdown
+   - Optional signal handlers (SIGTERM/SIGINT)
    - Heartbeat updates during execution
-   - Graceful shutdown handling
+   - `max_tasks` and `max_empty_polls` for testing
 
-4. Add worker CLI commands in `aaiclick/__main__.py`:
-   - `python -m aaiclick worker start` - Start a worker process
-   - `python -m aaiclick worker list` - List active workers
+4. ✅ Worker CLI commands in `aaiclick/__main__.py`:
+   - `python -m aaiclick worker start [--max-tasks N]`
+   - `python -m aaiclick worker list`
 
-5. Create tests in `aaiclick/orchestration/test_worker.py`:
-   - Test worker registration/deregistration
-   - Test heartbeat updates
-   - Test atomic task claiming (concurrent workers)
-   - Test worker main loop execution
-
-**Example Usage**:
-```python
-from aaiclick.orchestration import register_worker, claim_next_task, deregister_worker
-
-# Register worker
-worker = await register_worker()
-
-# Main loop
-while True:
-    task = await claim_next_task(worker.id)
-    if task:
-        await execute_task(task)
-    else:
-        await asyncio.sleep(1)
-
-# Cleanup
-await deregister_worker(worker.id)
-```
+5. ✅ Tests in `aaiclick/orchestration/test_worker.py`:
+   - Worker registration/deregistration
+   - Heartbeat updates
+   - Atomic task claiming (concurrent workers)
+   - Worker main loop execution and failure handling
 
 **Deliverables**:
-- Worker registration and lifecycle management
-- Atomic task claiming with `FOR UPDATE SKIP LOCKED`
-- Worker main loop for background task execution
-- CLI commands for worker management
-- Tests for concurrent task claiming
+- ✅ Worker registration and lifecycle management
+- ✅ Atomic task claiming with `FOR UPDATE SKIP LOCKED`
+- ✅ Worker main loop for background task execution
+- ✅ CLI commands for worker management
+- ✅ Tests for concurrent task claiming
 
 ---
 
