@@ -551,14 +551,14 @@ async def log_summary(data: Object):
 Execute a job synchronously for testing/debugging:
 
 ```python
-from aaiclick.orchestration import create_job, run_job_test
+from aaiclick.orchestration import create_job, job_test
 
 job = await create_job("my_job", "mymodule.task1")
-run_job_test(job)  # Blocks until job completes
+job_test(job)  # Blocks until job completes
 # Job status is now COMPLETED or FAILED
 ```
 
-**Implementation**: `aaiclick/orchestration/debug_execution.py` - see `run_job_test()` function
+**Implementation**: `aaiclick/orchestration/debug_execution.py` - see `job_test()` function
 - `aaiclick/orchestration/execution.py` - Task execution logic
 - `aaiclick/orchestration/logging.py` - Task logging utilities
 
@@ -746,8 +746,8 @@ RETURNING (SELECT * FROM claimed_task);
 - **Implementation**: `aaiclick/orchestration/factories.py`
 
 **Implemented (Phase 3):**
-- ✅ `run_job_test(job)` - Execute job synchronously for testing
-  - **Implementation**: `aaiclick/orchestration/debug_execution.py` - see `run_job_test()` function
+- ✅ `job_test(job)` - Execute job synchronously for testing
+  - **Implementation**: `aaiclick/orchestration/debug_execution.py` - see `job_test()` function
 
 **Not Yet Implemented (Phase 4+):**
 - ⚠️ `get_job(job_id)` - Get job status and details
@@ -1164,7 +1164,7 @@ async with OrchContext():
 **Current Status**:
 - ✅ Phase 1: Database Setup (complete)
 - ✅ Phase 2: Core Factories (complete)
-- ✅ Phase 3: run_job_test() Function (complete)
+- ✅ Phase 3: job_test() Function (complete)
 - ✅ Phase 4: OrchContext Integration (complete)
 - ⚠️ Phase 5: Testing & Examples (in progress)
 - ⚠️ Phase 6+: Distributed Workers, Groups, Dependencies, Dynamic Task Creation

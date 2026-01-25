@@ -7,7 +7,7 @@ job creation, task execution, and workflow management.
 
 from .context import OrchContext, get_orch_context
 from .execution import execute_task, run_job_tasks
-from .debug_execution import run_job_test, run_job_test_async
+from .debug_execution import job_test, job_test_async
 from .factories import create_job, create_task
 from .logging import capture_task_output, get_logs_dir
 from .models import (

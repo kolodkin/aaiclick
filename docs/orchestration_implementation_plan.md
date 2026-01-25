@@ -13,7 +13,7 @@ async def task1():
 
 def main():
     job = create_job("orch_basic_example", task1)
-    run_job_test(job)
+    job_test(job)
 
 if __name__ == "__main__":
     main()
@@ -149,25 +149,25 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 3: run_job_test() Function ✅
+### Phase 3: job_test() Function ✅
 
 **Objective**: Implement synchronous job testing (similar to Airflow)
 
-**Note**: `run_job_test(job)` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
+**Note**: `job_test(job)` invokes the worker execute flow - it simulates a worker claiming and executing tasks, but runs synchronously in the current process for testing/debugging.
 
 **Implementation**: See the following files for complete implementation:
-- `aaiclick/orchestration/debug_execution.py` - `run_job_test()` and `run_job_test_async()` functions
+- `aaiclick/orchestration/debug_execution.py` - `job_test()` and `job_test_async()` functions
 - `aaiclick/orchestration/execution.py` - Task execution logic
 - `aaiclick/orchestration/logging.py` - Task logging utilities
 
 **Tasks**:
-1. ✅ Implement `run_job_test()` function in `debug_execution.py`:
+1. ✅ Implement `job_test()` function in `debug_execution.py`:
    - Standalone function (not a method on Job model to avoid coupling)
-   - See: `aaiclick/orchestration/debug_execution.py` - `run_job_test()` function
+   - See: `aaiclick/orchestration/debug_execution.py` - `job_test()` function
 
-2. ✅ Implement `run_job_test_async()` helper:
+2. ✅ Implement `job_test_async()` helper:
    - Creates OrchContext and calls `run_job_tasks()`
-   - See: `aaiclick/orchestration/debug_execution.py` - `run_job_test_async()` function
+   - See: `aaiclick/orchestration/debug_execution.py` - `job_test_async()` function
 
 3. ✅ Create `aaiclick/orchestration/execution.py`:
    - `import_callback(entrypoint: str)` - Import function from string
@@ -257,7 +257,7 @@ print(f"Job {job.id} created")
 1. Create `tests/test_orchestration_basic.py`:
    - Test `create_task()` factory
    - Test `create_job()` factory
-   - Test `run_job_test(job)` execution
+   - Test `job_test(job)` execution
    - Test task logging (verify log file created)
    - Test task with ClickHouse Object operations
 
@@ -285,7 +285,7 @@ async def test_basic_job_execution():
     job = await create_job("test_job", "tests.fixtures.simple_task")
 
     # Test job (invokes worker execute flow synchronously)
-    run_job_test(job)
+    job_test(job)
 
     # Verify job completed
     assert job.status == JobStatus.COMPLETED
@@ -334,7 +334,7 @@ Phase 1-5 implementation is complete when:
 
 1. ✅ User can define a simple Python function
 2. ✅ User can create a job with `create_job(name, callback)`
-3. ✅ User can test job synchronously with `run_job_test(job)` (invokes worker execute flow)
+3. ✅ User can test job synchronously with `job_test(job)` (invokes worker execute flow)
 4. ✅ Task execution has access to Context (ClickHouse + PostgreSQL)
 5. ✅ Job and task state persisted to PostgreSQL
 6. ✅ Basic tests passing

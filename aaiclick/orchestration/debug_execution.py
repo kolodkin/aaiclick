@@ -10,7 +10,7 @@ from .execution import run_job_tasks
 from .models import Job
 
 
-def run_job_test(job: Job) -> None:
+def job_test(job: Job) -> None:
     """
     Execute job synchronously in current process (test mode).
 
@@ -22,12 +22,12 @@ def run_job_test(job: Job) -> None:
 
     Example:
         job = await create_job("my_job", "mymodule.task1")
-        run_job_test(job)  # Blocks until job completes
+        job_test(job)  # Blocks until job completes
     """
-    asyncio.run(run_job_test_async(job))
+    asyncio.run(job_test_async(job))
 
 
-async def run_job_test_async(job: Job) -> None:
+async def job_test_async(job: Job) -> None:
     """
     Async implementation of test execution.
 
