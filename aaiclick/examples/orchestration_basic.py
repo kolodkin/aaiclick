@@ -18,7 +18,6 @@ from aaiclick.orchestration import (
     ajob_test,
     create_job,
     create_task,
-    job_test,
 )
 
 
@@ -112,42 +111,42 @@ async def async_main():
     print("=" * 50)
 
 
-def main():
+async def main():
     """
-    Main entry point demonstrating job_test() synchronous mode.
+    Main entry point demonstrating ajob_test() in async context.
 
-    This example shows how to use job_test() from a sync context:
-    1. Create job using asyncio.run() for the async setup
-    2. Run job_test() synchronously (no event loop running)
+    This example shows how to use ajob_test() from an async context:
+    1. Create job within OrchContext
+    2. Run ajob_test() which can be awaited
 
     Note: Only tests jobs without parameters since Object/View parameter
     deserialization is not yet fully implemented.
     """
     print("=" * 50)
-    print("aaiclick Orchestration Basic Example (Sync)")
+    print("aaiclick Orchestration Basic Example")
     print("=" * 50)
     print("\nNote: This example requires:")
     print("      - Running PostgreSQL server (localhost:5432)")
     print("      - Database migrations applied (python -m aaiclick migrate)")
     print()
 
-    # Create jobs using async context
-    async def setup_jobs():
-        async with OrchContext():
-            job1 = await example_simple_job()
-            _ = await example_job_with_task()
-            return job1
+    async with OrchContext():
+        # Example 1: Create a simple job (no parameters)
+        job1 = await example_simple_job()
 
-    job1 = asyncio.run(setup_jobs())
+        # Example 2: Demonstrate task creation with parameters
+        # Note: This task cannot be executed yet because Object/View
+        # parameter deserialization is not yet implemented
+        _ = await example_job_with_task()
 
-    # Test execution using job_test() - the sync variant
-    # This works because no event loop is running after asyncio.run() completes
+    # Test execution using ajob_test() - the async variant
+    # This creates its own OrchContext internally
     print("\n" + "=" * 50)
-    print("Testing Job Execution (Sync Mode with job_test)")
+    print("Testing Job Execution with ajob_test()")
     print("-" * 50)
 
     print(f"\nRunning job: {job1.name}")
-    job_test(job1)  # Blocks until job completes
+    await ajob_test(job1)  # Async - can be awaited
     print(f"Job status: {job1.status}")
     assert job1.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {job1.status}"
 
@@ -157,4 +156,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
