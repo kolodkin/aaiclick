@@ -196,16 +196,22 @@ prompt: |
 
   ## Step 6: Address PR Review Comments
 
-  The script displays unresolved comments with their IDs. For each:
+  The script displays unresolved comments with their IDs. For each comment:
 
-  1. **Fix the issue** and commit
-  2. **Push changes**
-  3. **Reply** using the ID from script output:
-     ```bash
-     gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
-       -f body="✅ Agent Addressed: <description>" -F in_reply_to=COMMENT_ID
-     ```
+  **Option A: Fix the issue**
+  1. Fix and commit
+  2. Push changes
+  3. Reply: `✅ Agent Addressed: <what was fixed>`
 
-  **IMPORTANT:** Always prefix replies with "✅ Agent Addressed:" to clearly identify agent comments.
+  **Option B: Ask for clarification**
+  - Reply: `❓ Agent Question: <your question>`
+
+  **Reply command:**
+  ```bash
+  gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+    -f body="✅ Agent Addressed: <description>" -F in_reply_to=COMMENT_ID
+  ```
+
+  **IMPORTANT:** Always prefix replies with "Agent" (✅ Agent Addressed / ❓ Agent Question) to identify agent comments.
 
   Be PROACTIVE: Check and poll workflows after every push!
