@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from sqlalchemy import BigInteger, ForeignKey
+from sqlalchemy import BigInteger, ForeignKey, String
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
@@ -300,11 +300,11 @@ class Dependency(SQLModel, table=True):
 
     # Entity that must complete first
     previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    previous_type: DependencyType = Field(primary_key=True)
+    previous_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
 
     # Entity that waits (executes after previous completes)
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    next_type: DependencyType = Field(primary_key=True)
+    next_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
