@@ -1,8 +1,9 @@
 """Tests for dependency operators and dependency-aware task claiming."""
 
 from aaiclick.orchestration import (
+    DEPENDENCY_GROUP,
+    DEPENDENCY_TASK,
     Dependency,
-    DependencyType,
     Group,
     OrchContext,
     Task,
@@ -32,9 +33,9 @@ async def test_task_rshift_creates_dependency():
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task1.id
-    assert dep.previous_type == DependencyType.TASK
+    assert dep.previous_type == DEPENDENCY_TASK
     assert dep.next_id == task2.id
-    assert dep.next_type == DependencyType.TASK
+    assert dep.next_type == DEPENDENCY_TASK
 
 
 async def test_task_lshift_creates_dependency():
@@ -52,9 +53,9 @@ async def test_task_lshift_creates_dependency():
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task2.id
-    assert dep.previous_type == DependencyType.TASK
+    assert dep.previous_type == DEPENDENCY_TASK
     assert dep.next_id == task1.id
-    assert dep.next_type == DependencyType.TASK
+    assert dep.next_type == DEPENDENCY_TASK
 
 
 async def test_task_chained_rshift():
@@ -120,9 +121,9 @@ async def test_group_rshift_creates_dependency():
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == group1.id
-    assert dep.previous_type == DependencyType.GROUP
+    assert dep.previous_type == DEPENDENCY_GROUP
     assert dep.next_id == task1.id
-    assert dep.next_type == DependencyType.TASK
+    assert dep.next_type == DEPENDENCY_TASK
 
 
 async def test_task_rshift_to_group():
@@ -137,9 +138,9 @@ async def test_task_rshift_to_group():
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task1.id
-    assert dep.previous_type == DependencyType.TASK
+    assert dep.previous_type == DEPENDENCY_TASK
     assert dep.next_id == group1.id
-    assert dep.next_type == DependencyType.GROUP
+    assert dep.next_type == DEPENDENCY_GROUP
 
 
 async def test_group_to_group_dependency():
@@ -154,9 +155,9 @@ async def test_group_to_group_dependency():
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == group1.id
-    assert dep.previous_type == DependencyType.GROUP
+    assert dep.previous_type == DEPENDENCY_GROUP
     assert dep.next_id == group2.id
-    assert dep.next_type == DependencyType.GROUP
+    assert dep.next_type == DEPENDENCY_GROUP
 
 
 async def test_apply_saves_dependencies():
@@ -188,8 +189,8 @@ async def test_apply_saves_dependencies():
             )
             dep = result.scalar_one_or_none()
             assert dep is not None
-            assert dep.previous_type == DependencyType.TASK
-            assert dep.next_type == DependencyType.TASK
+            assert dep.previous_type == DEPENDENCY_TASK
+            assert dep.next_type == DEPENDENCY_TASK
 
 
 async def test_claim_respects_task_dependency():

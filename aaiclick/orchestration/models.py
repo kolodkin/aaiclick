@@ -53,11 +53,9 @@ class WorkerStatus(StrEnum):
     STOPPED = "STOPPED"
 
 
-class DependencyType(StrEnum):
-    """Dependency entity type."""
-
-    TASK = "task"
-    GROUP = "group"
+# Dependency type constants
+DEPENDENCY_TASK = "task"
+DEPENDENCY_GROUP = "group"
 
 
 class Job(SQLModel, table=True):
@@ -121,9 +119,9 @@ class Group(SQLModel, table=True):
         """
         dependency = Dependency(
             previous_id=other.id,
-            previous_type=DependencyType.TASK if isinstance(other, Task) else DependencyType.GROUP,
+            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
             next_id=self.id,
-            next_type=DependencyType.GROUP,
+            next_type=DEPENDENCY_GROUP,
         )
         self.pending_dependencies.append(dependency)
         return self
@@ -219,9 +217,9 @@ class Task(SQLModel, table=True):
         """
         dependency = Dependency(
             previous_id=other.id,
-            previous_type=DependencyType.TASK if isinstance(other, Task) else DependencyType.GROUP,
+            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
             next_id=self.id,
-            next_type=DependencyType.TASK,
+            next_type=DEPENDENCY_TASK,
         )
         self.pending_dependencies.append(dependency)
         return self
@@ -300,11 +298,11 @@ class Dependency(SQLModel, table=True):
 
     # Entity that must complete first
     previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    previous_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
+    previous_type: str = Field(sa_column=Column(String, primary_key=True))
 
     # Entity that waits (executes after previous completes)
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    next_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
+    next_type: str = Field(sa_column=Column(String, primary_key=True))
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
