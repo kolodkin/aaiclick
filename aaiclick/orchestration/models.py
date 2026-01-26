@@ -53,6 +53,13 @@ class WorkerStatus(StrEnum):
     STOPPED = "STOPPED"
 
 
+class DependencyType(StrEnum):
+    """Dependency entity type."""
+
+    TASK = "task"
+    GROUP = "group"
+
+
 class Job(SQLModel, table=True):
     """
     Job model - represents a workflow execution.
@@ -114,9 +121,9 @@ class Group(SQLModel, table=True):
         """
         dependency = Dependency(
             previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
+            previous_type=DependencyType.TASK if isinstance(other, Task) else DependencyType.GROUP,
             next_id=self.id,
-            next_type="group",
+            next_type=DependencyType.GROUP,
         )
         self.pending_dependencies.append(dependency)
         return self
@@ -212,9 +219,9 @@ class Task(SQLModel, table=True):
         """
         dependency = Dependency(
             previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
+            previous_type=DependencyType.TASK if isinstance(other, Task) else DependencyType.GROUP,
             next_id=self.id,
-            next_type="task",
+            next_type=DependencyType.TASK,
         )
         self.pending_dependencies.append(dependency)
         return self
@@ -293,11 +300,11 @@ class Dependency(SQLModel, table=True):
 
     # Entity that must complete first
     previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    previous_type: str = Field(primary_key=True)  # 'task' or 'group'
+    previous_type: DependencyType = Field(primary_key=True)
 
     # Entity that waits (executes after previous completes)
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    next_type: str = Field(primary_key=True)  # 'task' or 'group'
+    next_type: DependencyType = Field(primary_key=True)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

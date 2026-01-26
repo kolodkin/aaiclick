@@ -13,6 +13,7 @@ from .factories import create_job, create_task
 from .logging import capture_task_output, get_logs_dir
 from .models import (
     Dependency,
+    DependencyType,
     Group,
     Job,
     JobStatus,
