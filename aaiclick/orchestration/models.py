@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlmodel import JSON, Column, Field, SQLModel
@@ -57,6 +57,9 @@ class WorkerStatus(StrEnum):
 DEPENDENCY_TASK = "task"
 DEPENDENCY_GROUP = "group"
 DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
+
+# Type alias for dependency type annotations (Literal requires hardcoded values)
+DependencyType = Literal["task", "group"]
 
 
 class Job(SQLModel, table=True):
