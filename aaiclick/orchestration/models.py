@@ -56,6 +56,7 @@ class WorkerStatus(StrEnum):
 # Dependency type constants
 DEPENDENCY_TASK = "task"
 DEPENDENCY_GROUP = "group"
+DependencyType = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
 
 
 class Job(SQLModel, table=True):

@@ -15,6 +15,7 @@ from .models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
     Dependency,
+    DependencyType,
     Group,
     Job,
     JobStatus,
