@@ -86,11 +86,19 @@ class Group(SQLModel, table=True):
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    def _get_pending_dependencies(self) -> List[Dependency]:
-        """Get or initialize the pending dependencies list."""
-        if not hasattr(self, "_pending_dependencies") or self._pending_dependencies is None:
-            self._pending_dependencies = []
-        return self._pending_dependencies
+    @property
+    def pending_dependencies(self) -> List[Dependency]:
+        """
+        Lazily-initialized list of dependencies not yet committed to database.
+
+        Uses double-underscore storage (__pending_dependencies) to avoid Pydantic
+        field detection. Lazy initialization is required because SQLAlchemy ORM
+        bypasses __init__ when loading objects from the database - it uses __new__
+        and sets attributes directly, so __init__-based initialization wouldn't work.
+        """
+        if not hasattr(self, "_Group__pending_dependencies"):
+            self.__pending_dependencies: List[Dependency] = []
+        return self.__pending_dependencies
 
     def depends_on(self, other: Union[Task, Group]) -> Group:
         """
@@ -110,7 +118,7 @@ class Group(SQLModel, table=True):
             next_id=self.id,
             next_type="group",
         )
-        self._get_pending_dependencies().append(dependency)
+        self.pending_dependencies.append(dependency)
         return self
 
     def __rshift__(self, other: Union[Task, Group, List[Union[Task, Group]]]) -> Union[Task, Group, List[Union[Task, Group]]]:
@@ -176,11 +184,19 @@ class Task(SQLModel, table=True):
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
-    def _get_pending_dependencies(self) -> List[Dependency]:
-        """Get or initialize the pending dependencies list."""
-        if not hasattr(self, "_pending_dependencies") or self._pending_dependencies is None:
-            self._pending_dependencies = []
-        return self._pending_dependencies
+    @property
+    def pending_dependencies(self) -> List[Dependency]:
+        """
+        Lazily-initialized list of dependencies not yet committed to database.
+
+        Uses double-underscore storage (__pending_dependencies) to avoid Pydantic
+        field detection. Lazy initialization is required because SQLAlchemy ORM
+        bypasses __init__ when loading objects from the database - it uses __new__
+        and sets attributes directly, so __init__-based initialization wouldn't work.
+        """
+        if not hasattr(self, "_Task__pending_dependencies"):
+            self.__pending_dependencies: List[Dependency] = []
+        return self.__pending_dependencies
 
     def depends_on(self, other: Union[Task, Group]) -> Task:
         """
@@ -200,7 +216,7 @@ class Task(SQLModel, table=True):
             next_id=self.id,
             next_type="task",
         )
-        self._get_pending_dependencies().append(dependency)
+        self.pending_dependencies.append(dependency)
         return self
 
     def __rshift__(self, other: Union[Task, Group, List[Union[Task, Group]]]) -> Union[Task, Group, List[Union[Task, Group]]]:

@@ -173,10 +173,9 @@ class OrchContext:
                 session.add(item)
 
                 # Collect pending dependencies
-                if hasattr(item, "_get_pending_dependencies"):
-                    deps = item._get_pending_dependencies()
-                    all_dependencies.extend(deps)
-                    deps.clear()
+                if hasattr(item, "pending_dependencies"):
+                    all_dependencies.extend(item.pending_dependencies)
+                    item.pending_dependencies.clear()
 
             # Add all dependencies to session
             for dependency in all_dependencies:
