@@ -12,6 +12,7 @@ from .execution import execute_task, run_job_tasks
 from .factories import create_job, create_task
 from .logging import capture_task_output, get_logs_dir
 from .models import (
+    DEPENDENCIES,
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
     Dependency,
