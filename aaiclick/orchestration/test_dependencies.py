@@ -29,7 +29,7 @@ async def test_task_rshift_creates_dependency():
     assert result is task2
 
     # task2 should have a pending dependency on task1
-    deps = task2.pending_dependencies
+    deps = task2.previous_dependencies
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task1.id
@@ -49,7 +49,7 @@ async def test_task_lshift_creates_dependency():
     assert result is task1
 
     # task1 should have a pending dependency on task2
-    deps = task1.pending_dependencies
+    deps = task1.previous_dependencies
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task2.id
@@ -67,12 +67,12 @@ async def test_task_chained_rshift():
     task1 >> task2 >> task3
 
     # task2 depends on task1
-    deps2 = task2.pending_dependencies
+    deps2 = task2.previous_dependencies
     assert len(deps2) == 1
     assert deps2[0].previous_id == task1.id
 
     # task3 depends on task2
-    deps3 = task3.pending_dependencies
+    deps3 = task3.previous_dependencies
     assert len(deps3) == 1
     assert deps3[0].previous_id == task2.id
 
@@ -88,7 +88,7 @@ async def test_task_fanout():
 
     # All tasks should depend on task1
     for task in [task2, task3, task4]:
-        deps = task.pending_dependencies
+        deps = task.previous_dependencies
         assert len(deps) == 1
         assert deps[0].previous_id == task1.id
 
@@ -103,7 +103,7 @@ async def test_task_fanin():
     [task1, task2, task3] >> task4
 
     # task4 should depend on all three
-    deps = task4.pending_dependencies
+    deps = task4.previous_dependencies
     assert len(deps) == 3
     dep_ids = {dep.previous_id for dep in deps}
     assert dep_ids == {task1.id, task2.id, task3.id}
@@ -117,7 +117,7 @@ async def test_group_rshift_creates_dependency():
     group1 >> task1
 
     # task1 depends on group1
-    deps = task1.pending_dependencies
+    deps = task1.previous_dependencies
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == group1.id
@@ -134,7 +134,7 @@ async def test_task_rshift_to_group():
     task1 >> group1
 
     # group1 depends on task1
-    deps = group1.pending_dependencies
+    deps = group1.previous_dependencies
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == task1.id
@@ -151,7 +151,7 @@ async def test_group_to_group_dependency():
     group1 >> group2
 
     # group2 depends on group1
-    deps = group2.pending_dependencies
+    deps = group2.previous_dependencies
     assert len(deps) == 1
     dep = deps[0]
     assert dep.previous_id == group1.id

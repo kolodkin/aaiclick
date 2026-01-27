@@ -364,7 +364,7 @@ print(f"Job {job.id} created")
    - `__rlshift__` for fan-out: [A, B] << C
 
 2. ✅ Update `apply()` to save dependencies:
-   - Collects `_pending_dependencies` from all items
+   - Dependencies auto-cascade via SQLAlchemy `previous_dependencies` relationship
    - Commits Dependency records to database
 
 3. ✅ Update `claim_next_task()` with dependency checking:

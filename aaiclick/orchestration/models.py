@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from sqlalchemy import BigInteger, ForeignKey, String
-from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 
 # Python 3.10 compatibility: StrEnum was added in 3.11
@@ -95,19 +95,13 @@ class Group(SQLModel, table=True):
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    @property
-    def pending_dependencies(self) -> List[Dependency]:
-        """
-        Lazily-initialized list of dependencies not yet committed to database.
-
-        Uses double-underscore storage (__pending_dependencies) to avoid Pydantic
-        field detection. Lazy initialization is required because SQLAlchemy ORM
-        bypasses __init__ when loading objects from the database - it uses __new__
-        and sets attributes directly, so __init__-based initialization wouldn't work.
-        """
-        if not hasattr(self, "_Group__pending_dependencies"):
-            self.__pending_dependencies: List[Dependency] = []
-        return self.__pending_dependencies
+    # Dependencies where this group is the "next" (i.e., this group depends on previous)
+    previous_dependencies: List[Dependency] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(Group.id == foreign(Dependency.next_id), Dependency.next_type == 'group')",
+            "cascade": "all, delete-orphan",
+        }
+    )
 
     def depends_on(self, other: Union[Task, Group]) -> Group:
         """
@@ -127,7 +121,7 @@ class Group(SQLModel, table=True):
             next_id=self.id,
             next_type=DEPENDENCY_GROUP,
         )
-        self.pending_dependencies.append(dependency)
+        self.previous_dependencies.append(dependency)
         return self
 
     def __rshift__(self, other: Union[Task, Group, List[Union[Task, Group]]]) -> Union[Task, Group, List[Union[Task, Group]]]:
@@ -193,19 +187,13 @@ class Task(SQLModel, table=True):
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
-    @property
-    def pending_dependencies(self) -> List[Dependency]:
-        """
-        Lazily-initialized list of dependencies not yet committed to database.
-
-        Uses double-underscore storage (__pending_dependencies) to avoid Pydantic
-        field detection. Lazy initialization is required because SQLAlchemy ORM
-        bypasses __init__ when loading objects from the database - it uses __new__
-        and sets attributes directly, so __init__-based initialization wouldn't work.
-        """
-        if not hasattr(self, "_Task__pending_dependencies"):
-            self.__pending_dependencies: List[Dependency] = []
-        return self.__pending_dependencies
+    # Dependencies where this task is the "next" (i.e., this task depends on previous)
+    previous_dependencies: List[Dependency] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(Task.id == foreign(Dependency.next_id), Dependency.next_type == 'task')",
+            "cascade": "all, delete-orphan",
+        }
+    )
 
     def depends_on(self, other: Union[Task, Group]) -> Task:
         """
@@ -225,7 +213,7 @@ class Task(SQLModel, table=True):
             next_id=self.id,
             next_type=DEPENDENCY_TASK,
         )
-        self.pending_dependencies.append(dependency)
+        self.previous_dependencies.append(dependency)
         return self
 
     def __rshift__(self, other: Union[Task, Group, List[Union[Task, Group]]]) -> Union[Task, Group, List[Union[Task, Group]]]:
