@@ -96,7 +96,7 @@ class Group(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Dependencies where this group is the "next" (i.e., this group depends on previous)
-    previous_dependencies: List[Dependency] = Relationship(
+    previous_dependencies: list["Dependency"] = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Group.id == foreign(Dependency.next_id), Dependency.next_type == 'group')",
             "cascade": "all, delete-orphan",
@@ -188,7 +188,7 @@ class Task(SQLModel, table=True):
     error: Optional[str] = Field(default=None)
 
     # Dependencies where this task is the "next" (i.e., this task depends on previous)
-    previous_dependencies: List[Dependency] = Relationship(
+    previous_dependencies: list["Dependency"] = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Task.id == foreign(Dependency.next_id), Dependency.next_type == 'task')",
             "cascade": "all, delete-orphan",
