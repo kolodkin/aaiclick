@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from sqlmodel import select
 
