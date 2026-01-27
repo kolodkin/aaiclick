@@ -13,6 +13,14 @@ from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
+# Dependency type constants
+DEPENDENCY_TASK = "task"
+DEPENDENCY_GROUP = "group"
+DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
+
+# Type alias for dependency type annotations (Literal requires hardcoded values)
+DependencyType = Literal["task", "group"]
+
 
 # Python 3.10 compatibility: StrEnum was added in 3.11
 try:
@@ -50,15 +58,6 @@ class WorkerStatus(StrEnum):
     ACTIVE = "ACTIVE"
     IDLE = "IDLE"
     STOPPED = "STOPPED"
-
-
-# Dependency type constants
-DEPENDENCY_TASK = "task"
-DEPENDENCY_GROUP = "group"
-DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
-
-# Type alias for dependency type annotations (Literal requires hardcoded values)
-DependencyType = Literal["task", "group"]
 
 
 class Job(SQLModel, table=True):
@@ -143,6 +142,7 @@ class Group(SQLModel, table=True):
         sa_relationship_kwargs={
             "primaryjoin": "and_(Group.id == foreign(Dependency.next_id), Dependency.next_type == 'group')",
             "cascade": "all, delete-orphan",
+            "overlaps": "previous_dependencies",
         }
     )
 
@@ -235,6 +235,7 @@ class Task(SQLModel, table=True):
         sa_relationship_kwargs={
             "primaryjoin": "and_(Task.id == foreign(Dependency.next_id), Dependency.next_type == 'task')",
             "cascade": "all, delete-orphan",
+            "overlaps": "previous_dependencies",
         }
     )
 
