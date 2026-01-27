@@ -138,9 +138,8 @@ class OrchContext:
         Commit tasks, groups, and their dependencies to the database.
 
         Sets job_id on all items, generates snowflake IDs for Groups
-        if not already set, and commits to PostgreSQL. Dependencies
-        created by >> and << operators are automatically cascaded
-        via SQLAlchemy relationships.
+        if not already set, and commits to PostgreSQL. Also commits
+        any dependencies created by >> and << operators.
 
         Args:
             items: Single Task/Group or list of Task/Group objects
@@ -160,6 +159,9 @@ class OrchContext:
         items_list = items if isinstance(items, list) else [items]
 
         async with self.get_session() as session:
+            # Collect all dependencies from items
+            all_dependencies = []
+
             for item in items_list:
                 # Set job_id on all items
                 item.job_id = job_id
@@ -169,6 +171,15 @@ class OrchContext:
                     item.id = get_snowflake_id()
 
                 session.add(item)
+
+                # Collect dependencies
+                if hasattr(item, "previous_dependencies"):
+                    all_dependencies.extend(item.previous_dependencies)
+                    item.previous_dependencies.clear()
+
+            # Add all dependencies to session
+            for dependency in all_dependencies:
+                session.add(dependency)
 
             await session.commit()
 
