@@ -116,27 +116,14 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
             },
         )
 
-        row = result.fetchone()
+        row = result.mappings().fetchone()
         if row is None:
             return None
 
-        # Convert row to Task object
-        task = Task(
-            id=row.id,
-            job_id=row.job_id,
-            entrypoint=row.entrypoint,
-            kwargs=row.kwargs,
-            status=TaskStatus(row.status),
-            result=row.result,
-            log_path=row.log_path,
-            error=row.error,
-            worker_id=row.worker_id,
-            created_at=row.created_at,
-            claimed_at=row.claimed_at,
-            started_at=row.started_at,
-            completed_at=row.completed_at,
-            group_id=row.group_id,
-        )
+        # Convert row dict to Task object, handling status enum conversion
+        task_data = dict(row)
+        task_data["status"] = TaskStatus(task_data["status"])
+        task = Task(**task_data)
 
         await session.commit()
         return task
@@ -161,28 +148,27 @@ async def update_task_status(
         bool: True if task was found and updated
     """
     async with get_orch_context_session() as session:
-        result_query = await session.execute(
-            text("SELECT id FROM tasks WHERE id = :task_id FOR UPDATE"),
-            {"task_id": task_id},
+        from sqlmodel import select
+
+        # Use ORM to fetch and update task with row-level lock
+        query_result = await session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
         )
-        if result_query.fetchone() is None:
+        task = query_result.scalar_one_or_none()
+        if task is None:
             return False
 
-        updates = {"status": status.value}
+        task.status = status
         if status == TaskStatus.RUNNING:
-            updates["started_at"] = datetime.utcnow()
+            task.started_at = datetime.utcnow()
         elif status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-            updates["completed_at"] = datetime.utcnow()
+            task.completed_at = datetime.utcnow()
             if error:
-                updates["error"] = error
+                task.error = error
             if result:
-                updates["result"] = result
+                task.result = result
 
-        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-        await session.execute(
-            text(f"UPDATE tasks SET {set_clause} WHERE id = :task_id"),
-            {"task_id": task_id, **updates},
-        )
+        session.add(task)
         await session.commit()
         return True
 
@@ -200,23 +186,22 @@ async def update_job_status(job_id: int, status: JobStatus, error: Optional[str]
         bool: True if job was found and updated
     """
     async with get_orch_context_session() as session:
-        result = await session.execute(
-            text("SELECT id FROM jobs WHERE id = :job_id FOR UPDATE"),
-            {"job_id": job_id},
+        from sqlmodel import select
+
+        # Use ORM to fetch and update job with row-level lock
+        query_result = await session.execute(
+            select(Job).where(Job.id == job_id).with_for_update()
         )
-        if result.fetchone() is None:
+        job = query_result.scalar_one_or_none()
+        if job is None:
             return False
 
-        updates = {"status": status.value}
+        job.status = status
         if status in (JobStatus.COMPLETED, JobStatus.FAILED):
-            updates["completed_at"] = datetime.utcnow()
+            job.completed_at = datetime.utcnow()
             if error:
-                updates["error"] = error
+                job.error = error
 
-        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-        await session.execute(
-            text(f"UPDATE jobs SET {set_clause} WHERE id = :job_id"),
-            {"job_id": job_id, **updates},
-        )
+        session.add(job)
         await session.commit()
         return True

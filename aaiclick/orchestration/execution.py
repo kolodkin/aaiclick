@@ -7,7 +7,8 @@ from typing import Any, Callable
 
 from sqlmodel import select
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick import DataContext
+from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
 from .logging import capture_task_output
@@ -115,6 +116,43 @@ async def execute_task(task: Task) -> Any:
     return result
 
 
+def serialize_task_result(result: Any) -> Optional[dict]:
+    """
+    Serialize a task result to JSON-storable format.
+
+    Handles Object and View types by creating reference dicts.
+    Non-Object/View results are converted to Objects first.
+
+    Args:
+        result: Task function return value
+
+    Returns:
+        dict: Serialized result reference, or None if result is None
+    """
+    if result is None:
+        return None
+
+    # Check View first since View is a subclass of Object
+    if isinstance(result, View):
+        return {
+            "object_type": "view",
+            "table": result.table,
+            "where": result.where,
+            "limit": result.limit,
+            "offset": result.offset,
+            "order_by": result.order_by,
+        }
+    elif isinstance(result, Object):
+        return {
+            "object_type": "object",
+            "table": result.table,
+        }
+
+    # Result is not an Object/View - this shouldn't happen in normal flow
+    # since tasks should return Object/View, but handle it gracefully
+    return None
+
+
 async def run_job_tasks(job: Job) -> None:
     """
     Execute all tasks for a job synchronously (test mode).
@@ -166,12 +204,8 @@ async def run_job_tasks(job: Job) -> None:
         try:
             result = await execute_task(task)
 
-            # Convert result to Object (needs DataContext)
-            result_ref = None
-            if result is not None:
-                async with DataContext():
-                    obj = await create_object_from_value(result)
-                    result_ref = {"object_type": "object", "table_id": obj.table_id}
+            # Serialize result (Object or View) to JSON-storable reference
+            result_ref = serialize_task_result(result)
 
             async with get_orch_context_session() as session:
                 # Reload and update task to COMPLETED
