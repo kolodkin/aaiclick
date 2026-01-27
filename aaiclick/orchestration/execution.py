@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from sqlmodel import select
 
-from aaiclick import DataContext
+from aaiclick.data import DataContext
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
