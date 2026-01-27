@@ -12,7 +12,8 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from sqlalchemy import BigInteger, ForeignKey, String
-from sqlmodel import JSON, Column, Field, SQLModel
+from sqlalchemy.orm import Mapped
+from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 
 # Python 3.10 compatibility: StrEnum was added in 3.11
@@ -95,17 +96,13 @@ class Group(SQLModel, table=True):
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    @property
-    def previous_dependencies(self) -> List[Dependency]:
-        """
-        Lazily-initialized list of dependencies not yet committed to database.
-
-        Uses double-underscore storage to avoid Pydantic field detection.
-        Lazy initialization handles both new objects and ORM-loaded objects.
-        """
-        if not hasattr(self, "_Group__previous_dependencies"):
-            self.__previous_dependencies: List[Dependency] = []
-        return self.__previous_dependencies
+    # Dependencies where this group is the "next" (i.e., this group depends on previous)
+    previous_dependencies: Mapped[list[Dependency]] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(Group.id == foreign(Dependency.next_id), Dependency.next_type == 'group')",
+            "cascade": "all, delete-orphan",
+        }
+    )
 
     def depends_on(self, other: Union[Task, Group]) -> Group:
         """
@@ -191,17 +188,13 @@ class Task(SQLModel, table=True):
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
-    @property
-    def previous_dependencies(self) -> List[Dependency]:
-        """
-        Lazily-initialized list of dependencies not yet committed to database.
-
-        Uses double-underscore storage to avoid Pydantic field detection.
-        Lazy initialization handles both new objects and ORM-loaded objects.
-        """
-        if not hasattr(self, "_Task__previous_dependencies"):
-            self.__previous_dependencies: List[Dependency] = []
-        return self.__previous_dependencies
+    # Dependencies where this task is the "next" (i.e., this task depends on previous)
+    previous_dependencies: Mapped[list[Dependency]] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(Task.id == foreign(Dependency.next_id), Dependency.next_type == 'task')",
+            "cascade": "all, delete-orphan",
+        }
+    )
 
     def depends_on(self, other: Union[Task, Group]) -> Task:
         """
