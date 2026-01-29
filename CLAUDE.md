@@ -46,9 +46,27 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   2. External packages (from pyproject.toml): `import pytest`, `import numpy`
   3. Current package imports: `from aaiclick import DataContext`
 
-- **Top-level imports**: Keep all imports at the top of the file
-  - Do NOT import inside functions unless avoiding circular imports
-  - Example of proper lazy import (only when necessary):
+- **Top-level imports**: **ALWAYS** keep imports at the top of the file
+  - Do NOT import inside functions, loops, or conditional blocks
+  - Do NOT import inside test functions - put all imports at module level
+  - The ONLY exception is lazy imports to avoid circular dependencies:
+    ```python
+    # GOOD - imports at top of file
+    from sqlmodel import select
+    from .models import Task
+
+    async def get_task(task_id: int):
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        return result.scalar_one()
+
+    # BAD - inline imports
+    async def get_task(task_id: int):
+        from sqlmodel import select  # Don't do this!
+        from .models import Task      # Don't do this!
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        return result.scalar_one()
+    ```
+  - Lazy import exception (only when necessary to break circular dependencies):
     ```python
     def method(self):
         from .other_module import something  # Lazy import to avoid circular dependency
