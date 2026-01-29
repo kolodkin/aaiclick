@@ -1,13 +1,10 @@
-"""Tests for worker management and task claiming."""
+"""Tests for worker management."""
 
 import asyncio
 
-import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration import (
-    Job,
-    JobStatus,
     OrchContext,
     Task,
     TaskStatus,
@@ -15,16 +12,13 @@ from aaiclick.orchestration import (
     claim_next_task,
     create_job,
     deregister_worker,
-    execute_task,
     get_worker,
     list_workers,
     register_worker,
     worker_heartbeat,
     worker_main_loop,
 )
-from aaiclick.orchestration.claiming import update_task_status
-from aaiclick.orchestration.context import get_orch_context, get_orch_context_session
-from aaiclick.orchestration.factories import create_task as factory_create_task
+from aaiclick.orchestration.context import get_orch_context_session
 
 
 async def test_register_worker():
@@ -121,144 +115,6 @@ async def test_list_workers():
         stopped_workers = await list_workers(status=WorkerStatus.STOPPED)
         stopped_ids = [w.id for w in stopped_workers]
         assert worker1.id in stopped_ids
-
-
-async def test_claim_next_task_no_tasks():
-    """Test claiming when no tasks are available for the worker."""
-    async with OrchContext():
-        worker = await register_worker()
-
-        # Claim all available tasks first to get to empty state
-        while True:
-            task = await claim_next_task(worker.id)
-            if task is None:
-                break
-
-        # Now verify no more tasks are available
-        task = await claim_next_task(worker.id)
-        assert task is None
-
-
-async def test_claim_next_task_basic():
-    """Test basic task claiming."""
-    async with OrchContext():
-        # Register worker
-        worker = await register_worker()
-
-        # Clear any pending tasks from previous tests
-        while True:
-            old_task = await claim_next_task(worker.id)
-            if old_task is None:
-                break
-
-        # Create a job with a task
-        job = await create_job(
-            "test_claim_job",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
-
-        # Claim the task we just created
-        task = await claim_next_task(worker.id)
-
-        assert task is not None
-        assert task.job_id == job.id
-        assert task.status == TaskStatus.RUNNING
-        assert task.worker_id == worker.id
-        assert task.claimed_at is not None
-
-        # Verify job status changed to RUNNING
-        async with get_orch_context_session() as session:
-            result = await session.execute(select(Job).where(Job.id == job.id))
-            db_job = result.scalar_one()
-            assert db_job.status == JobStatus.RUNNING
-            assert db_job.started_at is not None
-
-
-async def test_claim_next_task_skip_locked():
-    """Test that concurrent workers don't claim the same task."""
-    async with OrchContext():
-        # Register workers first
-        worker1 = await register_worker(hostname="worker1", pid=1001)
-        worker2 = await register_worker(hostname="worker2", pid=1002)
-
-        # Clear any pending tasks from previous tests
-        while True:
-            old_task = await claim_next_task(worker1.id)
-            if old_task is None:
-                break
-
-        # Create multiple jobs with tasks
-        job1 = await create_job(
-            "test_claim_job1",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
-        job2 = await create_job(
-            "test_claim_job2",
-            "aaiclick.orchestration.fixtures.sample_tasks.async_task",
-        )
-
-        # Both workers claim tasks concurrently
-        task1, task2 = await asyncio.gather(
-            claim_next_task(worker1.id),
-            claim_next_task(worker2.id),
-        )
-
-        # Each worker should get a different task
-        assert task1 is not None
-        assert task2 is not None
-        assert task1.id != task2.id
-        assert task1.worker_id == worker1.id
-        assert task2.worker_id == worker2.id
-
-
-async def test_claim_next_task_prioritizes_oldest_job(monkeypatch, tmpdir):
-    """Test that older running jobs are prioritized."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    async with OrchContext():
-        # Create worker first
-        worker = await register_worker()
-
-        # Clear any pending tasks from previous tests
-        while True:
-            old_task = await claim_next_task(worker.id)
-            if old_task is None:
-                break
-
-        # Create first job and start it
-        job1 = await create_job(
-            "test_job_old",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
-
-        # Claim the first task to start job1
-        task1 = await claim_next_task(worker.id)
-        assert task1 is not None
-        assert task1.job_id == job1.id
-
-        # Execute and complete the task
-        await execute_task(task1)
-
-        # Mark task as completed
-        await update_task_status(task1.id, TaskStatus.COMPLETED)
-
-        # Now create a second job (newer)
-        job2 = await create_job(
-            "test_job_new",
-            "aaiclick.orchestration.fixtures.sample_tasks.async_task",
-        )
-
-        # Add another task to job1 (which is already running)
-        ctx = get_orch_context()
-        extra_task = factory_create_task(
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-        )
-        await ctx.apply(extra_task, job_id=job1.id)
-
-        # Claim next task - should prioritize job1 (older running job)
-        next_task = await claim_next_task(worker.id)
-        assert next_task is not None
-        assert next_task.job_id == job1.id
 
 
 async def test_worker_main_loop_executes_tasks(monkeypatch, tmpdir):

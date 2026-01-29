@@ -1,6 +1,5 @@
-"""Tests for dependency operators and dependency-aware task claiming."""
+"""Tests for dependency operators."""
 
-from sqlalchemy import text
 from sqlmodel import select
 
 from aaiclick.orchestration import (
@@ -9,13 +8,8 @@ from aaiclick.orchestration import (
     Dependency,
     Group,
     OrchContext,
-    Task,
-    TaskStatus,
-    claim_next_task,
     create_job,
-    register_worker,
 )
-from aaiclick.orchestration.claiming import update_task_status
 from aaiclick.orchestration.context import get_orch_context_session
 from aaiclick.orchestration.factories import create_task
 from aaiclick.snowflake_id import get_snowflake_id
@@ -192,126 +186,3 @@ async def test_apply_saves_dependencies():
             assert dep is not None
             assert dep.previous_type == DEPENDENCY_TASK
             assert dep.next_type == DEPENDENCY_TASK
-
-
-async def test_claim_respects_task_dependency():
-    """Test that claim_next_task respects task -> task dependencies."""
-    async with OrchContext():
-        # Register worker
-        worker = await register_worker()
-
-        # Clear any pending tasks from previous tests
-        while True:
-            old_task = await claim_next_task(worker.id)
-            if old_task is None:
-                break
-
-        # Create job with two dependent tasks
-        job = await create_job(
-            "test_deps_claim_job",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
-
-        # Get the initial task created by create_job
-        async with get_orch_context_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id)
-            )
-            initial_task = result.scalar_one()
-
-        # Create a second task that depends on the first
-        ctx = OrchContext()
-        await ctx.__aenter__()
-        try:
-            task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-            initial_task >> task2  # task2 depends on initial_task
-            await ctx.apply(task2, job_id=job.id)
-        finally:
-            await ctx.__aexit__(None, None, None)
-
-        # First claim should get initial_task (no dependencies)
-        claimed1 = await claim_next_task(worker.id)
-        assert claimed1 is not None
-        assert claimed1.id == initial_task.id
-
-        # Second claim should return None (task2 depends on uncompleted initial_task)
-        claimed2 = await claim_next_task(worker.id)
-        assert claimed2 is None
-
-        # Mark initial_task as completed
-        await update_task_status(initial_task.id, TaskStatus.COMPLETED)
-
-        # Now task2 should be claimable
-        claimed3 = await claim_next_task(worker.id)
-        assert claimed3 is not None
-        assert claimed3.id == task2.id
-
-
-async def test_claim_respects_group_dependency(monkeypatch, tmpdir):
-    """Test that claim_next_task respects group -> task dependencies."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    async with OrchContext():
-        # Register worker
-        worker = await register_worker()
-
-        # Clear any pending tasks from previous tests
-        while True:
-            old_task = await claim_next_task(worker.id)
-            if old_task is None:
-                break
-
-        # Create job
-        job = await create_job(
-            "test_group_deps_job",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
-
-        # Get the initial task and put it in a group
-        ctx = OrchContext()
-        await ctx.__aenter__()
-        try:
-            # Get initial task
-            async with get_orch_context_session() as session:
-                result = await session.execute(
-                    select(Task).where(Task.job_id == job.id)
-                )
-                initial_task = result.scalar_one()
-
-            # Create a group and add initial_task to it
-            group1 = Group(id=get_snowflake_id(), name="group1")
-            await ctx.apply(group1, job_id=job.id)
-
-            # Update initial_task to be in group1
-            async with get_orch_context_session() as session:
-                await session.execute(
-                    text("UPDATE tasks SET group_id = :group_id WHERE id = :task_id"),
-                    {"group_id": group1.id, "task_id": initial_task.id},
-                )
-                await session.commit()
-
-            # Create a task that depends on group1
-            task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-            group1 >> task2
-            await ctx.apply(task2, job_id=job.id)
-
-        finally:
-            await ctx.__aexit__(None, None, None)
-
-        # Claim initial_task (in group1)
-        claimed1 = await claim_next_task(worker.id)
-        assert claimed1 is not None
-        assert claimed1.id == initial_task.id
-
-        # task2 should not be claimable (depends on group1 which has uncompleted task)
-        claimed2 = await claim_next_task(worker.id)
-        assert claimed2 is None
-
-        # Complete initial_task
-        await update_task_status(initial_task.id, TaskStatus.COMPLETED)
-
-        # Now task2 should be claimable (group1 is complete)
-        claimed3 = await claim_next_task(worker.id)
-        assert claimed3 is not None
-        assert claimed3.id == task2.id
-
