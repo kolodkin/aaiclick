@@ -112,11 +112,12 @@ async def test_float_array_concat(ctx):
 # =============================================================================
 
 async def test_float_array_min(ctx):
-    """Test min() on float array."""
+    """Test min() on float array. Returns Object, use .data() to extract value."""
     values = [5.5, 2.2, 8.8, 1.1, 9.9]
     obj = await create_object_from_value(values)
 
-    result = await obj.min()
+    result_obj = await obj.min()
+    result = await result_obj.data()
     expected = np.min(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -124,11 +125,12 @@ async def test_float_array_min(ctx):
 
 
 async def test_float_array_max(ctx):
-    """Test max() on float array."""
+    """Test max() on float array. Returns Object, use .data() to extract value."""
     values = [5.5, 2.2, 8.8, 1.1, 9.9]
     obj = await create_object_from_value(values)
 
-    result = await obj.max()
+    result_obj = await obj.max()
+    result = await result_obj.data()
     expected = np.max(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -136,11 +138,12 @@ async def test_float_array_max(ctx):
 
 
 async def test_float_array_sum(ctx):
-    """Test sum() on float array."""
+    """Test sum() on float array. Returns Object, use .data() to extract value."""
     values = [1.1, 2.2, 3.3, 4.4, 5.5]
     obj = await create_object_from_value(values)
 
-    result = await obj.sum()
+    result_obj = await obj.sum()
+    result = await result_obj.data()
     expected = np.sum(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -148,11 +151,12 @@ async def test_float_array_sum(ctx):
 
 
 async def test_float_array_mean(ctx):
-    """Test mean() on float array."""
+    """Test mean() on float array. Returns Object, use .data() to extract value."""
     values = [10.5, 20.5, 30.5, 40.5]
     obj = await create_object_from_value(values)
 
-    result = await obj.mean()
+    result_obj = await obj.mean()
+    result = await result_obj.data()
     expected = np.mean(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -160,11 +164,12 @@ async def test_float_array_mean(ctx):
 
 
 async def test_float_array_std(ctx):
-    """Test std() on float array."""
+    """Test std() on float array. Returns Object, use .data() to extract value."""
     values = [2.5, 4.5, 6.5, 8.5]
     obj = await create_object_from_value(values)
 
-    result = await obj.std()
+    result_obj = await obj.std()
+    result = await result_obj.data()
     expected = np.std(values, ddof=0)
 
     assert abs(result - expected) < THRESHOLD
@@ -172,7 +177,7 @@ async def test_float_array_std(ctx):
 
 
 async def test_float_statistics_after_operation(ctx):
-    """Test statistics on result of float operations."""
+    """Test statistics on result of float operations. Returns Objects, use .data() to extract values."""
     a = await create_object_from_value([10.0, 20.0, 30.0])
     b = await create_object_from_value([5.0, 10.0, 15.0])
 
@@ -180,22 +185,22 @@ async def test_float_statistics_after_operation(ctx):
 
     expected_values = np.array([15.0, 30.0, 45.0])
 
-    assert abs(await result.min() - np.min(expected_values)) < THRESHOLD
-    assert abs(await result.max() - np.max(expected_values)) < THRESHOLD
-    assert abs(await result.sum() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
-    assert abs(await result.std() - np.std(expected_values, ddof=0)) < THRESHOLD
+    assert abs(await (await result.min()).data() - np.min(expected_values)) < THRESHOLD
+    assert abs(await (await result.max()).data() - np.max(expected_values)) < THRESHOLD
+    assert abs(await (await result.sum()).data() - np.sum(expected_values)) < THRESHOLD
+    assert abs(await (await result.mean()).data() - np.mean(expected_values)) < THRESHOLD
+    assert abs(await (await result.std()).data() - np.std(expected_values, ddof=0)) < THRESHOLD
 
 
 
 async def test_float_single_value_statistics(ctx):
-    """Test statistics on a single float value."""
+    """Test statistics on a single float value. Returns Objects, use .data() to extract values."""
     values = [42.5]
     obj = await create_object_from_value(values)
 
-    assert abs(await obj.min() - 42.5) < THRESHOLD
-    assert abs(await obj.max() - 42.5) < THRESHOLD
-    assert abs(await obj.sum() - 42.5) < THRESHOLD
-    assert abs(await obj.mean() - 42.5) < THRESHOLD
-    assert abs(await obj.std() - 0.0) < THRESHOLD
+    assert abs(await (await obj.min()).data() - 42.5) < THRESHOLD
+    assert abs(await (await obj.max()).data() - 42.5) < THRESHOLD
+    assert abs(await (await obj.sum()).data() - 42.5) < THRESHOLD
+    assert abs(await (await obj.mean()).data() - 42.5) < THRESHOLD
+    assert abs(await (await obj.std()).data() - 0.0) < THRESHOLD
 

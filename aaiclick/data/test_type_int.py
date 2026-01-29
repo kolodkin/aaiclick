@@ -258,11 +258,12 @@ async def test_int_array_multiple_inserts(ctx):
 # =============================================================================
 
 async def test_int_array_min(ctx):
-    """Test min() on integer array."""
+    """Test min() on integer array. Returns Object, use .data() to extract value."""
     values = [5, 2, 8, 1, 9]
     obj = await create_object_from_value(values)
 
-    result = await obj.min()
+    result_obj = await obj.min()
+    result = await result_obj.data()
     expected = np.min(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -270,11 +271,12 @@ async def test_int_array_min(ctx):
 
 
 async def test_int_array_max(ctx):
-    """Test max() on integer array."""
+    """Test max() on integer array. Returns Object, use .data() to extract value."""
     values = [5, 2, 8, 1, 9]
     obj = await create_object_from_value(values)
 
-    result = await obj.max()
+    result_obj = await obj.max()
+    result = await result_obj.data()
     expected = np.max(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -282,11 +284,12 @@ async def test_int_array_max(ctx):
 
 
 async def test_int_array_sum(ctx):
-    """Test sum() on integer array."""
+    """Test sum() on integer array. Returns Object, use .data() to extract value."""
     values = [1, 2, 3, 4, 5]
     obj = await create_object_from_value(values)
 
-    result = await obj.sum()
+    result_obj = await obj.sum()
+    result = await result_obj.data()
     expected = np.sum(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -294,11 +297,12 @@ async def test_int_array_sum(ctx):
 
 
 async def test_int_array_mean(ctx):
-    """Test mean() on integer array."""
+    """Test mean() on integer array. Returns Object, use .data() to extract value."""
     values = [10, 20, 30, 40]
     obj = await create_object_from_value(values)
 
-    result = await obj.mean()
+    result_obj = await obj.mean()
+    result = await result_obj.data()
     expected = np.mean(values)
 
     assert abs(result - expected) < THRESHOLD
@@ -306,11 +310,12 @@ async def test_int_array_mean(ctx):
 
 
 async def test_int_array_std(ctx):
-    """Test std() on integer array."""
+    """Test std() on integer array. Returns Object, use .data() to extract value."""
     values = [2, 4, 6, 8]
     obj = await create_object_from_value(values)
 
-    result = await obj.std()
+    result_obj = await obj.std()
+    result = await result_obj.data()
     expected = np.std(values, ddof=0)
 
     assert abs(result - expected) < THRESHOLD
@@ -318,7 +323,7 @@ async def test_int_array_std(ctx):
 
 
 async def test_int_statistics_after_operation(ctx):
-    """Test statistics on result of integer operations."""
+    """Test statistics on result of integer operations. Returns Objects, use .data() to extract values."""
     a = await create_object_from_value([10, 20, 30])
     b = await create_object_from_value([5, 10, 15])
 
@@ -326,8 +331,8 @@ async def test_int_statistics_after_operation(ctx):
 
     expected_values = np.array([15, 30, 45])
 
-    assert abs(await result.min() - np.min(expected_values)) < THRESHOLD
-    assert abs(await result.max() - np.max(expected_values)) < THRESHOLD
-    assert abs(await result.sum() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
+    assert abs(await (await result.min()).data() - np.min(expected_values)) < THRESHOLD
+    assert abs(await (await result.max()).data() - np.max(expected_values)) < THRESHOLD
+    assert abs(await (await result.sum()).data() - np.sum(expected_values)) < THRESHOLD
+    assert abs(await (await result.mean()).data() - np.mean(expected_values)) < THRESHOLD
 
