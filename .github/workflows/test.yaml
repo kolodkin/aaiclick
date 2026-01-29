@@ -136,6 +136,7 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
+          AAICLICK_LOG_DIR: /tmp/aaiclick/logs
         run: |
           mkdir -p tmp
           echo "Running all examples..."

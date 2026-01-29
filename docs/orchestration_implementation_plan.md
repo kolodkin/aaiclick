@@ -249,82 +249,162 @@ print(f"Job {job.id} created")
 
 ---
 
-### Phase 5: Testing & Examples
+### Phase 5: Testing & Examples ✅
 
 **Objective**: Validate basic implementation with tests and examples
 
+**Implementation**: See the following files for complete test coverage and examples:
+- `aaiclick/orchestration/test_orchestration_factories.py` - Tests for `create_task()` and `create_job()`
+- `aaiclick/orchestration/test_orchestration_execution.py` - Tests for task execution, logging, and job_test
+- `aaiclick/examples/orchestration_basic.py` - Complete working example
+
 **Tasks**:
-1. Create `tests/test_orchestration_basic.py`:
-   - Test `create_task()` factory
-   - Test `create_job()` factory
-   - Test `job_test(job)` execution
-   - Test task logging (verify log file created)
-   - Test task with ClickHouse Object operations
+1. ✅ Create tests for orchestration:
+   - `aaiclick/orchestration/test_orchestration_factories.py`:
+     - Test `create_task()` factory (basic, with kwargs, unique IDs)
+     - Test `create_job()` factory (with string, with Task object)
+     - Test job/task relationship and database persistence
+   - `aaiclick/orchestration/test_orchestration_execution.py`:
+     - Test `import_callback()` for sync and async functions
+     - Test `deserialize_task_params()` validation
+     - Test `execute_task()` for sync and async tasks
+     - Test `run_job_tasks()` for success and failure cases
+     - Test task logging (stdout/stderr capture)
+     - Test `job_test()`/`ajob_test()` execution
 
-2. Create `examples/orchestration_basic.py`:
-   - Simple arithmetic task (from goal)
-   - Task that creates and processes Objects
-   - Task that prints results
+2. ✅ Create `aaiclick/examples/orchestration_basic.py`:
+   - Simple arithmetic task (from goal) - `simple_arithmetic()`
+   - Task with parameters - `task_with_params(x, y)`
+   - Example job execution via `ajob_test()`
+   - Full working example with OrchContext
 
-3. Add documentation to README or docs:
-   - Quick start guide
-   - Basic usage examples
-   - Environment setup instructions
+3. ✅ Documentation in specification files:
+   - `docs/orchestration.md` - Full specification with usage examples
+   - `docs/orchestration_implementation_plan.md` - Phase-by-phase progress
+   - Environment setup in `CLAUDE.md`
 
-4. Test database migrations:
-   - Clean database
-   - Run migrations
-   - Verify schema
-   - Test rollback
-
-**Example Test**:
-```python
-async def test_basic_job_execution():
-    """Test basic job creation and execution"""
-    # Create job
-    job = await create_job("test_job", "tests.fixtures.simple_task")
-
-    # Test job (invokes worker execute flow synchronously)
-    job_test(job)
-
-    # Verify job completed
-    assert job.status == JobStatus.COMPLETED
-
-    # Verify task completed
-    tasks = await get_job_tasks(job.id)
-    assert len(tasks) == 1
-    assert tasks[0].status == TaskStatus.COMPLETED
-
-    # Verify log file created
-    from aaiclick.orchestration.logging import get_logs_dir
-    log_file = f"{get_logs_dir()}/{tasks[0].id}.log"
-    assert os.path.exists(log_file)
-    with open(log_file) as f:
-        log_content = f.read()
-        assert "expected output" in log_content
-```
+4. ✅ Database migrations tested:
+   - CI/CD workflow runs migrations before tests (`.github/workflows/test.yaml`)
+   - All tests run with fresh database on each CI run
+   - Migration CLI available: `python -m aaiclick migrate`
 
 **Deliverables**:
-- Basic tests passing
-- Example from goal works
-- Documentation for basic usage
+- ✅ All tests passing (factory, execution, logging)
+- ✅ Example from goal works end-to-end
+- ✅ Documentation in specification files
+
+---
+
+### Phase 6: Distributed Workers ✅
+
+**Objective**: Enable multi-process/multi-node task execution with atomic task claiming
+
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/worker.py` - Worker lifecycle and main loop
+- `aaiclick/orchestration/claiming.py` - Atomic task claiming with FOR UPDATE SKIP LOCKED
+- `aaiclick/__main__.py` - CLI commands for worker start/list
+- `aaiclick/orchestration/test_worker.py` - Comprehensive tests
+- `aaiclick/orchestration/migrations/versions/d7f7e092e80c_add_worker_stats_fields.py` - Worker stats migration
+
+**Tasks**:
+1. ✅ Worker management functions in `aaiclick/orchestration/worker.py`:
+   - `register_worker()` - Register new worker with hostname/pid
+   - `worker_heartbeat(worker_id)` - Update last_heartbeat timestamp
+   - `deregister_worker(worker_id)` - Mark worker as STOPPED
+   - `list_workers(status)` - List workers by status
+   - `get_worker(worker_id)` - Get worker by ID
+
+2. ✅ Atomic task claiming in `aaiclick/orchestration/claiming.py`:
+   - `claim_next_task(worker_id)` - Claim using `FOR UPDATE SKIP LOCKED`
+   - Prioritizes running jobs over pending (`ORDER BY started_at ASC NULLS LAST`)
+   - Atomically updates job status to RUNNING on first claim
+   - `update_task_status()` and `update_job_status()` helpers
+
+3. ✅ Worker main loop in `aaiclick/orchestration/worker.py`:
+   - `worker_main_loop()` - Main execution loop with graceful shutdown
+   - Optional signal handlers (SIGTERM/SIGINT)
+   - Heartbeat updates during execution
+   - `max_tasks` and `max_empty_polls` for testing
+
+4. ✅ Worker CLI commands in `aaiclick/__main__.py`:
+   - `python -m aaiclick worker start [--max-tasks N]`
+   - `python -m aaiclick worker list`
+
+5. ✅ Tests in `aaiclick/orchestration/test_worker.py`:
+   - Worker registration/deregistration
+   - Heartbeat updates
+   - Atomic task claiming (concurrent workers)
+   - Worker main loop execution and failure handling
+
+**Deliverables**:
+- ✅ Worker registration and lifecycle management
+- ✅ Atomic task claiming with `FOR UPDATE SKIP LOCKED`
+- ✅ Worker main loop for background task execution
+- ✅ CLI commands for worker management
+- ✅ Tests for concurrent task claiming
+
+---
+
+### Phase 7: Groups and Dependencies ✅
+
+**Objective**: Enable DAG-style workflow definitions with dependency operators
+
+**Implementation**: See the following files for complete implementation:
+- `aaiclick/orchestration/models.py` - Task and Group dependency operators (`>>`, `<<`, `__rrshift__`, `__rlshift__`)
+- `aaiclick/orchestration/context.py` - Updated `apply()` to save dependencies
+- `aaiclick/orchestration/claiming.py` - Dependency-aware task claiming
+- `aaiclick/orchestration/test_dependencies.py` - Comprehensive tests
+
+**Tasks**:
+1. ✅ Add dependency operators to Task and Group models:
+   - `depends_on()` method to declare dependencies
+   - `__rshift__` (A >> B: B depends on A)
+   - `__lshift__` (A << B: A depends on B)
+   - `__rrshift__` for fan-in: [A, B] >> C
+   - `__rlshift__` for fan-out: [A, B] << C
+
+2. ✅ Update `apply()` to save dependencies:
+   - Dependencies auto-cascade via SQLAlchemy `previous_dependencies` relationship
+   - Commits Dependency records to database
+
+3. ✅ Update `claim_next_task()` with dependency checking:
+   - Task → Task: Task waits for previous task to complete
+   - Group → Task: Task waits for all tasks in previous group to complete
+   - Task → Group: Tasks in group wait for previous task to complete
+   - Group → Group: Tasks in group wait for all tasks in previous group to complete
+
+4. ✅ Tests for dependency operators and claiming:
+   - `test_task_rshift_creates_dependency`
+   - `test_task_lshift_creates_dependency`
+   - `test_task_chained_rshift`
+   - `test_task_fanout`
+   - `test_task_fanin`
+   - `test_group_rshift_creates_dependency`
+   - `test_task_rshift_to_group`
+   - `test_group_to_group_dependency`
+   - `test_apply_saves_dependencies`
+   - `test_claim_respects_task_dependency`
+   - `test_claim_respects_group_dependency`
+
+**Deliverables**:
+- ✅ Airflow-like `>>` and `<<` operators for defining dependencies
+- ✅ Support for Task and Group dependencies (all 4 combinations)
+- ✅ Fan-in and fan-out patterns
+- ✅ Dependency-aware task claiming
+- ✅ Comprehensive tests
 
 ---
 
 ## Out of Scope (Future Phases)
 
-The following features from the full spec are **NOT** included in this basic implementation:
+The following features are **NOT** included in Phase 7:
 
-- **Distributed workers**: Multi-process/multi-node execution (Phase 6+)
-- **Task claiming with locking**: `FOR UPDATE SKIP LOCKED` (Phase 6+)
-- **Groups**: Task grouping and nested groups (Phase 7+)
-- **Dependencies**: Task/Group dependencies with `>>` operators (Phase 7+)
 - **Dynamic task creation**: Tasks creating new tasks via `map()` (Phase 8+)
-- **Worker management**: Worker registration, heartbeat, monitoring (Phase 6+)
 - **Retry logic**: Automatic task retry on failure (Phase 9+)
 - **Advanced serialization**: View and Object parameter types (Phase 8+)
+- **Orphan task recovery**: Reclaiming tasks from dead workers (Phase 9+)
 
-These will be added incrementally after the basic implementation is stable.
+These will be added incrementally after Phase 7 is stable.
 
 ---
 
@@ -340,10 +420,7 @@ Phase 1-5 implementation is complete when:
 6. ✅ Basic tests passing
 7. ✅ Example from goal works end-to-end
 
-## Next Steps After Phase 5
+## Next Steps After Phase 7
 
-Once basic implementation is working:
-- Phase 6: Distributed Workers (async task claiming)
-- Phase 7: Groups and Dependencies (DAG support)
 - Phase 8: Dynamic Task Creation (`map()` operator)
 - Phase 9: Advanced Features (retry, monitoring, views)

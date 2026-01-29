@@ -606,9 +606,9 @@ async def map(callback: str, obj: Object) -> Object:
     return await create_result_collector(ctx.job_id, num_chunks)
 ```
 
-### 3. Worker Task Execution Loop ⚠️ NOT YET IMPLEMENTED (Phase 6+)
+### 3. Worker Task Execution Loop ✅ IMPLEMENTED (Phase 6)
 
-The following describes planned worker functionality:
+**Implementation**: `aaiclick/orchestration/worker.py` - see `worker_main_loop()` function
 
 ```python
 # Worker main loop (planned for Phase 6+)
@@ -821,9 +821,11 @@ async def apply(
     """
 ```
 
-### DAG Construction with Dependency Operators ⚠️ NOT YET IMPLEMENTED (Phase 7+)
+### DAG Construction with Dependency Operators ✅ IMPLEMENTED (Phase 7)
 
-Planned Airflow-like syntax for defining dependencies between tasks and groups:
+**Implementation**: `aaiclick/orchestration/models.py` - see `Task` and `Group` dependency operators
+
+Airflow-like syntax for defining dependencies between tasks and groups:
 
 ```python
 from aaiclick.orchestration import Task, Group
@@ -1052,7 +1054,9 @@ class Group(SQLModel, table=True):
             return other
 ```
 
-### Worker Management ⚠️ NOT YET IMPLEMENTED (Phase 6+)
+### Worker Management ✅ IMPLEMENTED (Phase 6)
+
+**Implementation**: `aaiclick/orchestration/worker.py`
 
 ```python
 from aaiclick.orchestration import (
@@ -1166,8 +1170,10 @@ async with OrchContext():
 - ✅ Phase 2: Core Factories (complete)
 - ✅ Phase 3: job_test() Function (complete)
 - ✅ Phase 4: OrchContext Integration (complete)
-- ⚠️ Phase 5: Testing & Examples (in progress)
-- ⚠️ Phase 6+: Distributed Workers, Groups, Dependencies, Dynamic Task Creation
+- ✅ Phase 5: Testing & Examples (complete)
+- ✅ Phase 6: Distributed Workers (complete)
+- ✅ Phase 7: Groups and Dependencies (complete)
+- ⚠️ Phase 8+: Dynamic Task Creation, Retry Logic
 
 ## Monitoring & Observability
 
