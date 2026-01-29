@@ -30,7 +30,8 @@ def _resolve_main_module(func: Callable) -> str:
 
     filepath = Path(code.co_filename).resolve()
 
-    # Try to find the module path by checking sys.path
+    # Collect all possible module paths from sys.path
+    candidates = []
     for path in sys.path:
         try:
             path = Path(path).resolve()
@@ -40,11 +41,15 @@ def _resolve_main_module(func: Callable) -> str:
                 parts = list(relative.parts)
                 if parts[-1].endswith(".py"):
                     parts[-1] = parts[-1][:-3]
-                return ".".join(parts)
+                candidates.append(".".join(parts))
         except (ValueError, TypeError):
             continue
 
-    return "__main__"
+    if not candidates:
+        return "__main__"
+
+    # Prefer the longest module path (most specific, from project root)
+    return max(candidates, key=len)
 
 
 def _callable_to_string(func: Callable) -> str:
