@@ -38,10 +38,11 @@ THRESHOLD = 1e-5
     ],
 )
 async def test_array_min(ctx, data_type, values, expected_result):
-    """Test min() on arrays across numeric types."""
+    """Test min() on arrays across numeric types. Returns Object, use .data() to extract value."""
     obj = await create_object_from_value(values)
 
-    result = await obj.min()
+    result_obj = await obj.min()
+    result = await result_obj.data()
 
     if isinstance(expected_result, float):
         assert abs(result - expected_result) < THRESHOLD
@@ -75,10 +76,11 @@ async def test_array_min(ctx, data_type, values, expected_result):
     ],
 )
 async def test_array_max(ctx, data_type, values, expected_result):
-    """Test max() on arrays across numeric types."""
+    """Test max() on arrays across numeric types. Returns Object, use .data() to extract value."""
     obj = await create_object_from_value(values)
 
-    result = await obj.max()
+    result_obj = await obj.max()
+    result = await result_obj.data()
 
     if isinstance(expected_result, float):
         assert abs(result - expected_result) < THRESHOLD
@@ -112,10 +114,11 @@ async def test_array_max(ctx, data_type, values, expected_result):
     ],
 )
 async def test_array_sum(ctx, data_type, values, expected_result):
-    """Test sum() on arrays across numeric types."""
+    """Test sum() on arrays across numeric types. Returns Object, use .data() to extract value."""
     obj = await create_object_from_value(values)
 
-    result = await obj.sum()
+    result_obj = await obj.sum()
+    result = await result_obj.data()
 
     if isinstance(expected_result, float):
         assert abs(result - expected_result) < THRESHOLD
@@ -147,10 +150,11 @@ async def test_array_sum(ctx, data_type, values, expected_result):
     ],
 )
 async def test_array_mean(ctx, data_type, values, expected_result):
-    """Test mean() on arrays across numeric types."""
+    """Test mean() on arrays across numeric types. Returns Object, use .data() to extract value."""
     obj = await create_object_from_value(values)
 
-    result = await obj.mean()
+    result_obj = await obj.mean()
+    result = await result_obj.data()
 
     assert abs(result - expected_result) < THRESHOLD
 
@@ -179,10 +183,11 @@ async def test_array_mean(ctx, data_type, values, expected_result):
     ],
 )
 async def test_array_std(ctx, data_type, values):
-    """Test std() on arrays across numeric types."""
+    """Test std() on arrays across numeric types. Returns Object, use .data() to extract value."""
     obj = await create_object_from_value(values)
 
-    result = await obj.std()
+    result_obj = await obj.std()
+    result = await result_obj.data()
     expected = np.std(values, ddof=0)
 
     assert abs(result - expected) < THRESHOLD
@@ -207,7 +212,7 @@ async def test_array_std(ctx, data_type, values):
     ],
 )
 async def test_statistics_after_operation(ctx, data_type, array_a, array_b, operator):
-    """Test statistics on result of arithmetic operations."""
+    """Test statistics on result of arithmetic operations. Returns Objects, use .data() to extract values."""
     obj_a = await create_object_from_value(array_a)
     obj_b = await create_object_from_value(array_b)
 
@@ -225,12 +230,12 @@ async def test_statistics_after_operation(ctx, data_type, array_a, array_b, oper
     else:
         expected_values = np.array(array_a) - np.array(array_b)
 
-    # Test all statistics
-    assert abs(await result.min() - np.min(expected_values)) < THRESHOLD
-    assert abs(await result.max() - np.max(expected_values)) < THRESHOLD
-    assert abs(await result.sum() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await result.mean() - np.mean(expected_values)) < THRESHOLD
-    assert abs(await result.std() - np.std(expected_values, ddof=0)) < THRESHOLD
+    # Test all statistics (now return Objects, use .data() to extract values)
+    assert abs(await (await result.min()).data() - np.min(expected_values)) < THRESHOLD
+    assert abs(await (await result.max()).data() - np.max(expected_values)) < THRESHOLD
+    assert abs(await (await result.sum()).data() - np.sum(expected_values)) < THRESHOLD
+    assert abs(await (await result.mean()).data() - np.mean(expected_values)) < THRESHOLD
+    assert abs(await (await result.std()).data() - np.std(expected_values, ddof=0)) < THRESHOLD
 
 
 # =============================================================================
@@ -251,16 +256,16 @@ async def test_statistics_after_operation(ctx, data_type, array_a, array_b, oper
     ],
 )
 async def test_single_value_statistics(ctx, data_type, value):
-    """Test statistics on single-element arrays."""
+    """Test statistics on single-element arrays. Returns Objects, use .data() to extract values."""
     obj = await create_object_from_value(value)
 
     expected_val = float(value[0])
 
-    assert abs(await obj.min() - expected_val) < THRESHOLD
-    assert abs(await obj.max() - expected_val) < THRESHOLD
-    assert abs(await obj.sum() - expected_val) < THRESHOLD
-    assert abs(await obj.mean() - expected_val) < THRESHOLD
-    assert abs(await obj.std() - 0.0) < THRESHOLD
+    assert abs(await (await obj.min()).data() - expected_val) < THRESHOLD
+    assert abs(await (await obj.max()).data() - expected_val) < THRESHOLD
+    assert abs(await (await obj.sum()).data() - expected_val) < THRESHOLD
+    assert abs(await (await obj.mean()).data() - expected_val) < THRESHOLD
+    assert abs(await (await obj.std()).data() - 0.0) < THRESHOLD
 
 
 # =============================================================================
@@ -283,14 +288,14 @@ async def test_single_value_statistics(ctx, data_type, value):
     ],
 )
 async def test_special_cases(ctx, data_type, values, expected_min, expected_max, expected_sum, expected_mean, expected_std):
-    """Test statistics on special case arrays."""
+    """Test statistics on special case arrays. Returns Objects, use .data() to extract values."""
     obj = await create_object_from_value(values)
 
-    assert abs(await obj.min() - expected_min) < THRESHOLD
-    assert abs(await obj.max() - expected_max) < THRESHOLD
-    assert abs(await obj.sum() - expected_sum) < THRESHOLD
-    assert abs(await obj.mean() - expected_mean) < THRESHOLD
-    assert abs(await obj.std() - expected_std) < THRESHOLD
+    assert abs(await (await obj.min()).data() - expected_min) < THRESHOLD
+    assert abs(await (await obj.max()).data() - expected_max) < THRESHOLD
+    assert abs(await (await obj.sum()).data() - expected_sum) < THRESHOLD
+    assert abs(await (await obj.mean()).data() - expected_mean) < THRESHOLD
+    assert abs(await (await obj.std()).data() - expected_std) < THRESHOLD
 
 
 # =============================================================================
@@ -311,7 +316,7 @@ async def test_special_cases(ctx, data_type, values, expected_min, expected_max,
     ],
 )
 async def test_negative_numbers_statistics(ctx, data_type, values):
-    """Test statistics with negative numbers."""
+    """Test statistics with negative numbers. Returns Objects, use .data() to extract values."""
     obj = await create_object_from_value(values)
 
     expected_min = np.min(values)
@@ -320,8 +325,8 @@ async def test_negative_numbers_statistics(ctx, data_type, values):
     expected_mean = np.mean(values)
     expected_std = np.std(values, ddof=0)
 
-    assert abs(await obj.min() - expected_min) < THRESHOLD
-    assert abs(await obj.max() - expected_max) < THRESHOLD
-    assert abs(await obj.sum() - expected_sum) < THRESHOLD
-    assert abs(await obj.mean() - expected_mean) < THRESHOLD
-    assert abs(await obj.std() - expected_std) < THRESHOLD
+    assert abs(await (await obj.min()).data() - expected_min) < THRESHOLD
+    assert abs(await (await obj.max()).data() - expected_max) < THRESHOLD
+    assert abs(await (await obj.sum()).data() - expected_sum) < THRESHOLD
+    assert abs(await (await obj.mean()).data() - expected_mean) < THRESHOLD
+    assert abs(await (await obj.std()).data() - expected_std) < THRESHOLD
