@@ -174,13 +174,13 @@ async def example(context):
     await dataset.insert([12.1, 22.4, 32.6])
     print(f"Added batch 2: {await dataset.data()}")
 
-    # Calculate statistics on final dataset
+    # Calculate statistics on final dataset (returns Objects, use .data() to extract values)
     print(f"\nFinal dataset statistics:")
     print(f"  Count: {len(await dataset.data())}")
-    print(f"  Min: {await dataset.min():.2f}")
-    print(f"  Max: {await dataset.max():.2f}")
-    print(f"  Mean: {await dataset.mean():.2f}")
-    print(f"  Std: {await dataset.std():.2f}")
+    print(f"  Min: {await (await dataset.min()).data():.2f}")
+    print(f"  Max: {await (await dataset.max()).data():.2f}")
+    print(f"  Mean: {await (await dataset.mean()).data():.2f}")
+    print(f"  Std: {await (await dataset.std()).data():.2f}")
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)
