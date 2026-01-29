@@ -9,17 +9,19 @@ from pathlib import Path
 def test_basic_worker_script():
     """Test that basic_worker.sh runs successfully and produces expected output."""
     script_path = Path(__file__).parent / "basic_worker.sh"
+    project_root = Path(__file__).parent.parent.parent
 
     with tempfile.TemporaryDirectory() as tmpdir:
         env = os.environ.copy()
         env["AAICLICK_LOG_DIR"] = tmpdir
+        env["PYTHONPATH"] = str(project_root)
 
         result = subprocess.run(
             [str(script_path)],
             capture_output=True,
             text=True,
             timeout=30,
-            cwd=script_path.parent,
+            cwd=project_root,
             env=env,
         )
 

@@ -22,11 +22,7 @@ async def periodic_print():
 async def main():
     """Register the job."""
     async with OrchContext():
-        # Use full module path so worker can import the function
-        job = await create_job(
-            "periodic_print_job",
-            "aaiclick.example_projects.basic_worker_register.periodic_print",
-        )
+        job = await create_job("periodic_print_job", periodic_print)
         print(f"Registered job: {job.name} (ID: {job.id})")
 
 
