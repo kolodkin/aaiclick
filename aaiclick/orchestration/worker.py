@@ -9,9 +9,12 @@ from typing import Optional
 
 from sqlmodel import select
 
+from aaiclick import DataContext, create_object_from_value
 from aaiclick.snowflake_id import get_snowflake_id
 
+from .claiming import claim_next_task, update_task_status
 from .context import OrchContext, get_orch_context_session
+from .execution import execute_task
 from .models import TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
@@ -175,9 +178,6 @@ async def worker_main_loop(
     Returns:
         int: Number of tasks executed
     """
-    from .claiming import claim_next_task
-    from .execution import execute_task
-
     shutdown_requested = False
 
     def signal_handler(signum, frame):
@@ -232,9 +232,6 @@ async def worker_main_loop(
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
             try:
-                from aaiclick import DataContext, create_object_from_value
-                from .claiming import update_task_status
-
                 result = await execute_task(task)
 
                 # Convert result to Object reference if present
@@ -269,8 +266,6 @@ async def worker_main_loop(
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
 
                 # Update task status to FAILED
-                from .claiming import update_task_status
-
                 await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
 
                 # Update worker stats

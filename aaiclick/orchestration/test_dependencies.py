@@ -1,5 +1,8 @@
 """Tests for dependency operators and dependency-aware task claiming."""
 
+from sqlalchemy import text
+from sqlmodel import select
+
 from aaiclick.orchestration import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
@@ -179,8 +182,6 @@ async def test_apply_saves_dependencies():
 
         # Verify dependency was saved
         async with get_orch_context_session() as session:
-            from sqlmodel import select
-
             result = await session.execute(
                 select(Dependency).where(
                     Dependency.previous_id == task1.id,
@@ -213,8 +214,6 @@ async def test_claim_respects_task_dependency():
 
         # Get the initial task created by create_job
         async with get_orch_context_session() as session:
-            from sqlmodel import select
-
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id)
             )
@@ -274,8 +273,6 @@ async def test_claim_respects_group_dependency(monkeypatch, tmpdir):
         try:
             # Get initial task
             async with get_orch_context_session() as session:
-                from sqlmodel import select
-
                 result = await session.execute(
                     select(Task).where(Task.job_id == job.id)
                 )
@@ -287,8 +284,6 @@ async def test_claim_respects_group_dependency(monkeypatch, tmpdir):
 
             # Update initial_task to be in group1
             async with get_orch_context_session() as session:
-                from sqlalchemy import text
-
                 await session.execute(
                     text("UPDATE tasks SET group_id = :group_id WHERE id = :task_id"),
                     {"group_id": group1.id, "task_id": initial_task.id},

@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from sqlmodel import select
 
 from aaiclick.orchestration import (
     Job,
@@ -14,13 +15,16 @@ from aaiclick.orchestration import (
     claim_next_task,
     create_job,
     deregister_worker,
+    execute_task,
     get_worker,
     list_workers,
     register_worker,
     worker_heartbeat,
     worker_main_loop,
 )
-from aaiclick.orchestration.context import get_orch_context_session
+from aaiclick.orchestration.claiming import update_task_status
+from aaiclick.orchestration.context import get_orch_context, get_orch_context_session
+from aaiclick.orchestration.factories import create_task as factory_create_task
 
 
 async def test_register_worker():
@@ -164,8 +168,6 @@ async def test_claim_next_task_basic():
 
         # Verify job status changed to RUNNING
         async with get_orch_context_session() as session:
-            from sqlmodel import select
-
             result = await session.execute(select(Job).where(Job.id == job.id))
             db_job = result.scalar_one()
             assert db_job.status == JobStatus.RUNNING
@@ -235,13 +237,9 @@ async def test_claim_next_task_prioritizes_oldest_job(monkeypatch, tmpdir):
         assert task1.job_id == job1.id
 
         # Execute and complete the task
-        from aaiclick.orchestration import execute_task
-
         await execute_task(task1)
 
         # Mark task as completed
-        from aaiclick.orchestration.claiming import update_task_status
-
         await update_task_status(task1.id, TaskStatus.COMPLETED)
 
         # Now create a second job (newer)
@@ -251,9 +249,6 @@ async def test_claim_next_task_prioritizes_oldest_job(monkeypatch, tmpdir):
         )
 
         # Add another task to job1 (which is already running)
-        from aaiclick.orchestration.factories import create_task as factory_create_task
-        from aaiclick.orchestration.context import get_orch_context
-
         ctx = get_orch_context()
         extra_task = factory_create_task(
             "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
@@ -296,8 +291,6 @@ async def test_worker_main_loop_executes_tasks(monkeypatch, tmpdir):
 
         # Verify task was completed
         async with get_orch_context_session() as session:
-            from sqlmodel import select
-
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id)
             )
@@ -336,8 +329,6 @@ async def test_worker_main_loop_handles_failures(monkeypatch, tmpdir):
 
         # Verify task was marked as failed
         async with get_orch_context_session() as session:
-            from sqlmodel import select
-
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id)
             )

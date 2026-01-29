@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
+from sqlmodel import select
 
 from .context import get_orch_context_session
 from .models import Job, JobStatus, Task, TaskStatus
@@ -148,8 +149,6 @@ async def update_task_status(
         bool: True if task was found and updated
     """
     async with get_orch_context_session() as session:
-        from sqlmodel import select
-
         # Use ORM to fetch and update task with row-level lock
         query_result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
@@ -186,8 +185,6 @@ async def update_job_status(job_id: int, status: JobStatus, error: Optional[str]
         bool: True if job was found and updated
     """
     async with get_orch_context_session() as session:
-        from sqlmodel import select
-
         # Use ORM to fetch and update job with row-level lock
         query_result = await session.execute(
             select(Job).where(Job.id == job_id).with_for_update()
