@@ -1,12 +1,64 @@
 """Factory functions for creating orchestration objects."""
 
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Callable, Union
 
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .context import get_orch_context_session
 from .models import Job, JobStatus, Task, TaskStatus
+
+
+def _resolve_main_module(func: Callable) -> str:
+    """Resolve the actual module path for a function defined in __main__.
+
+    When a script is run directly, its __module__ is '__main__', but we need
+    the actual importable module path for the worker to import it.
+
+    Uses two strategies:
+    1. Check __spec__ (works when run with `python -m module`)
+    2. Fall back to file-based resolution from sys.path
+
+    Args:
+        func: A callable function
+
+    Returns:
+        The resolved module path (e.g., 'aaiclick.example_projects.basic_worker_register')
+    """
+    # Strategy 1: Try __spec__ (cleanest when available, e.g., python -m)
+    main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if main_spec and main_spec.name:
+        return main_spec.name
+
+    # Strategy 2: Resolve from file path and sys.path
+    code = getattr(func, "__code__", None)
+    if code is None:
+        return "__main__"
+
+    filepath = Path(code.co_filename).resolve()
+
+    # Collect all possible module paths from sys.path
+    candidates = []
+    for path in sys.path:
+        try:
+            path = Path(path).resolve()
+            if filepath.is_relative_to(path):
+                relative = filepath.relative_to(path)
+                # Convert path to module (remove .py, replace / with .)
+                parts = list(relative.parts)
+                if parts[-1].endswith(".py"):
+                    parts[-1] = parts[-1][:-3]
+                candidates.append(".".join(parts))
+        except (ValueError, TypeError):
+            continue
+
+    if not candidates:
+        return "__main__"
+
+    # Prefer the longest module path (most specific, from project root)
+    return max(candidates, key=len)
 
 
 def _callable_to_string(func: Callable) -> str:
@@ -19,11 +71,15 @@ def _callable_to_string(func: Callable) -> str:
         String in format "module.function_name"
 
     Note:
-        For functions defined in __main__, uses __main__ as the module name.
-        The caller is responsible for ensuring the function is importable
-        at execution time.
+        For functions defined in __main__, attempts to resolve the actual
+        module path so the function can be imported by workers.
     """
     module = getattr(func, "__module__", "__main__")
+
+    # Resolve __main__ to actual module path
+    if module == "__main__":
+        module = _resolve_main_module(func)
+
     name = getattr(func, "__qualname__", func.__name__)
     return f"{module}.{name}"
 
