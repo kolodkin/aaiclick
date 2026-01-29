@@ -19,7 +19,7 @@ echo
 
 # Step 2: Start worker in background
 echo "Starting worker in background..."
-uv run aaiclick worker start &
+uv run python -m aaiclick worker start &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
