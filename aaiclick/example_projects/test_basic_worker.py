@@ -22,14 +22,19 @@ def test_basic_worker_script():
     # Script should exit cleanly
     assert result.returncode == 0, f"Script failed with code {result.returncode}. Output:\n{output}"
 
-    # Check script structure messages
-    assert "=== Basic Worker Example ===" in output, f"Missing header. Output:\n{output}"
-    assert "Registering job..." in output, f"Missing registration. Output:\n{output}"
-    assert "Starting worker in background..." in output, f"Missing worker start. Output:\n{output}"
-
-    # Check all 6 tick messages from the periodic_print task
-    for i in range(1, 7):
-        assert f"Tick {i}/6" in output, f"Missing Tick {i}/6. Output:\n{output}"
-
-    assert "Done!" in output, f"Missing Done message. Output:\n{output}"
-    assert "=== Example completed ===" in output, f"Missing completion. Output:\n{output}"
+    # Check all expected output in one step
+    expected = [
+        "=== Basic Worker Example ===",
+        "Registering job...",
+        "Starting worker in background...",
+        "Tick 1/6",
+        "Tick 2/6",
+        "Tick 3/6",
+        "Tick 4/6",
+        "Tick 5/6",
+        "Tick 6/6",
+        "Done!",
+        "=== Example completed ===",
+    ]
+    missing = [s for s in expected if s not in output]
+    assert not missing, f"Missing: {missing}. Output:\n{output}"
