@@ -1,6 +1,8 @@
 """Tests for the basic worker example project."""
 
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -8,13 +10,18 @@ def test_basic_worker_script():
     """Test that basic_worker.sh runs successfully and produces expected output."""
     script_path = Path(__file__).parent / "basic_worker.sh"
 
-    result = subprocess.run(
-        [str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        cwd=script_path.parent,
-    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = os.environ.copy()
+        env["AAICLICK_LOG_DIR"] = tmpdir
+
+        result = subprocess.run(
+            [str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=script_path.parent,
+            env=env,
+        )
 
     # Combine stdout and stderr for checking (worker output may go to either)
     output = result.stdout + result.stderr

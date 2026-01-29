@@ -9,10 +9,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Use temp directory for logs (avoid permission issues in CI)
-export AAICLICK_LOG_DIR="${TMPDIR:-/tmp}/aaiclick_logs"
-mkdir -p "$AAICLICK_LOG_DIR"
-
 echo "=== Basic Worker Example ==="
 echo
 
