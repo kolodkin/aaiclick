@@ -17,13 +17,22 @@ def _resolve_main_module(func: Callable) -> str:
     When a script is run directly, its __module__ is '__main__', but we need
     the actual importable module path for the worker to import it.
 
+    Uses two strategies:
+    1. Check __spec__ (works when run with `python -m module`)
+    2. Fall back to file-based resolution from sys.path
+
     Args:
         func: A callable function
 
     Returns:
         The resolved module path (e.g., 'aaiclick.example_projects.basic_worker_register')
     """
-    # Get the file where the function is defined
+    # Strategy 1: Try __spec__ (cleanest when available, e.g., python -m)
+    main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if main_spec and main_spec.name:
+        return main_spec.name
+
+    # Strategy 2: Resolve from file path and sys.path
     code = getattr(func, "__code__", None)
     if code is None:
         return "__main__"
