@@ -95,13 +95,20 @@ The `_apply_operator` method:
 
 ### Self Operators
 
-Self operators work on a single Object (similar to aggregation functions like min, max, std).
+Self operators work on a single Object and return a new Object with the result. All computation happens within ClickHouse.
 
 | Function | Description | ClickHouse | Returns |
 |----------|-------------|------------|---------|
+| `min_agg(info, ch_client)` | Minimum value | `min()` | Scalar Object |
+| `max_agg(info, ch_client)` | Maximum value | `max()` | Scalar Object |
+| `sum_agg(info, ch_client)` | Sum of values | `sum()` | Scalar Object |
+| `mean_agg(info, ch_client)` | Average value | `avg()` | Scalar Object |
+| `std_agg(info, ch_client)` | Standard deviation | `stddevPop()` | Scalar Object |
 | `unique_agg(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
 
-**Note:** Uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
+**Notes:**
+- Aggregation functions (min, max, sum, mean, std) use streaming aggregation with O(1) memory.
+- `unique_agg` uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
 
 ## Benefits of This Architecture
 

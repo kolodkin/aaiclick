@@ -185,27 +185,22 @@ All operators work element-wise on both scalar and array data types.
 | `\|` | Bitwise OR | `bitOr()` | `__or__` | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b) |
 | `^` | Bitwise XOR | `bitXor()` | `__xor__` | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b) |
 
-### Aggregate Functions
+### Self Operators
 
-| Python Method | Description | ClickHouse Function | Memory Behavior | ClickHouse Reference |
-|--------------|-------------|--------------------|-----------------|--------------------|
+Self operators work on a single Object and return a new Object with the result. All computation happens within ClickHouse - no data round-trips to Python.
+
+| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
+|--------------|-------------|--------------------------|-----------------|---------------------|
 | `.min()` | Minimum value | `min()` | Streaming (O(1)) | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min) |
 | `.max()` | Maximum value | `max()` | Streaming (O(1)) | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max) |
 | `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
 | `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
 | `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
-
-**Note:** All aggregate functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. This makes them memory-efficient for large datasets.
-
-### Self Operators
-
-Self operators work on a single Object (similar to aggregation functions like min, max, std).
-
-| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
-|--------------|-------------|--------------------------|-----------------|---------------------|
 | `.unique()` | Unique values | `GROUP BY` | Hash table | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by) |
 
-**Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. `GROUP BY` is optimized for aggregation and enables better distributed processing in ClickHouse. The order of returned unique values is not guaranteed.
+**Notes:**
+- Aggregation functions (min, max, sum, mean, std) use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory.
+- The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
 
 ### Window Functions (Internal)
 
