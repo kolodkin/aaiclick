@@ -6,6 +6,9 @@ type coercion and result accuracy.
 """
 
 import numpy as np
+import pytest
+
+from clickhouse_connect.driver.exceptions import DatabaseError
 
 from aaiclick import create_object_from_value, create_object
 
@@ -352,37 +355,28 @@ async def test_mixed_symmetry(ctx):
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_succeeds(ctx):
-    """Test that concatenating int array with float array succeeds (ClickHouse casts to common type)."""
+async def test_mixed_int_float_concat_fails(ctx):
+    """Test that concatenating int array with float array fails with type error."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
-    # ClickHouse 25+ allows int/float concat by casting to common type
-    result = await a.concat(b)
-    data = await result.data()
-
-    # Result should contain all values (int values cast to float)
-    assert len(data) == 6
+    # ClickHouse does not allow int/float concat - no common supertype
+    with pytest.raises(DatabaseError):
+        await a.concat(b)
 
 
-async def test_mixed_float_int_concat_succeeds(ctx):
-    """Test that concatenating float array with int array succeeds (ClickHouse casts to common type)."""
+async def test_mixed_float_int_concat_fails(ctx):
+    """Test that concatenating float array with int array fails with type error."""
     a = await create_object_from_value([1.5, 2.5, 3.5])
     b = await create_object_from_value([4, 5, 6])
 
-    # ClickHouse 25+ allows float/int concat by casting to common type
-    result = await a.concat(b)
-    data = await result.data()
-
-    # Result should contain all values
-    assert len(data) == 6
+    # ClickHouse does not allow float/int concat - no common supertype
+    with pytest.raises(DatabaseError):
+        await a.concat(b)
 
 
 async def test_mixed_int_string_concat_fails(ctx):
     """Test that concatenating int array with string array fails with type error."""
-    import pytest
-    from clickhouse_connect.driver.exceptions import DatabaseError
-
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value(["a", "b", "c"])
 
@@ -421,8 +415,6 @@ async def test_mixed_float_int_insert_succeeds(ctx):
 
 async def test_mixed_int_string_insert_fails(ctx):
     """Test that inserting string array into int array fails with type error."""
-    import pytest
-
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value(["a", "b", "c"])
 
