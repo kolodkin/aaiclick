@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
+from typing_extensions import Self
 
 from . import operators
 from ..snowflake_id import get_snowflake_id
@@ -634,7 +635,7 @@ class Object:
 
         return result
 
-    async def insert(self, *args: Union["Object", "ValueType"]) -> None:
+    async def insert(self, *args: Union[Self, "ValueType"]) -> None:
         """
         Insert multiple objects or values into this object in place.
 
@@ -697,7 +698,7 @@ class Object:
         for temp in temp_objects:
             await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
-    async def min(self) -> "Object":
+    async def min(self) -> Self:
         """
         Calculate the minimum value from the object's table.
 
@@ -705,7 +706,7 @@ class Object:
         All computation happens within ClickHouse - no data round-trips to Python.
 
         Returns:
-            Object: New scalar Object containing the minimum value
+            Self: New scalar Object containing the minimum value
 
         Examples:
             >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
@@ -716,7 +717,7 @@ class Object:
         info = self._get_query_info()
         return await operators.min_agg(info, self.ch_client)
 
-    async def max(self) -> "Object":
+    async def max(self) -> Self:
         """
         Calculate the maximum value from the object's table.
 
@@ -724,7 +725,7 @@ class Object:
         All computation happens within ClickHouse - no data round-trips to Python.
 
         Returns:
-            Object: New scalar Object containing the maximum value
+            Self: New scalar Object containing the maximum value
 
         Examples:
             >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
@@ -735,7 +736,7 @@ class Object:
         info = self._get_query_info()
         return await operators.max_agg(info, self.ch_client)
 
-    async def sum(self) -> "Object":
+    async def sum(self) -> Self:
         """
         Calculate the sum of values from the object's table.
 
@@ -743,7 +744,7 @@ class Object:
         All computation happens within ClickHouse - no data round-trips to Python.
 
         Returns:
-            Object: New scalar Object containing the sum value
+            Self: New scalar Object containing the sum value
 
         Examples:
             >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
@@ -754,7 +755,7 @@ class Object:
         info = self._get_query_info()
         return await operators.sum_agg(info, self.ch_client)
 
-    async def mean(self) -> "Object":
+    async def mean(self) -> Self:
         """
         Calculate the mean (average) value from the object's table.
 
@@ -762,7 +763,7 @@ class Object:
         All computation happens within ClickHouse - no data round-trips to Python.
 
         Returns:
-            Object: New scalar Object containing the mean value
+            Self: New scalar Object containing the mean value
 
         Examples:
             >>> obj = await create_object_from_value([10, 20, 30, 40])
@@ -773,7 +774,7 @@ class Object:
         info = self._get_query_info()
         return await operators.mean_agg(info, self.ch_client)
 
-    async def std(self) -> "Object":
+    async def std(self) -> Self:
         """
         Calculate the standard deviation of values from the object's table.
 
@@ -781,7 +782,7 @@ class Object:
         All computation happens within ClickHouse - no data round-trips to Python.
 
         Returns:
-            Object: New scalar Object containing the standard deviation value
+            Self: New scalar Object containing the standard deviation value
 
         Examples:
             >>> obj = await create_object_from_value([2, 4, 6, 8])
