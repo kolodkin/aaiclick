@@ -93,6 +93,14 @@ The `_apply_operator` method:
 4. Executes SQL with the operator string
 5. Returns the new Object
 
+### Set Operations
+
+| Function | Description | ClickHouse | Returns |
+|----------|-------------|------------|---------|
+| `unique_agg(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
+
+**Note:** Uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
+
 ## Benefits of This Architecture
 
 **Modularity**: Operator implementations are separate from the Object class
