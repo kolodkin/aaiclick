@@ -3,6 +3,40 @@ aaiclick.data.operators - Operator implementations for Object class.
 
 This module contains database-level functions that implement all operators.
 Each operator function takes table names and ch_client instead of Object instances.
+
+ClickHouse Reference Documentation
+==================================
+
+Operator to ClickHouse function/operator mapping with official documentation links:
+
++----------+------------------------+---------------------------------------------------------------+
+| Python   | ClickHouse             | Reference                                                     |
++----------+------------------------+---------------------------------------------------------------+
+| +        | +                      | https://clickhouse.com/docs/sql-reference/operators#plus     |
+| -        | -                      | https://clickhouse.com/docs/sql-reference/operators#minus    |
+| *        | *                      | https://clickhouse.com/docs/sql-reference/operators#multiply |
+| /        | /                      | https://clickhouse.com/docs/sql-reference/operators#divide   |
+| //       | intDiv(a, b)           | https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b |
+| %        | %                      | https://clickhouse.com/docs/sql-reference/operators#modulo   |
+| **       | power(a, b)            | https://clickhouse.com/docs/sql-reference/functions/math-functions#pow |
+| ==       | =                      | https://clickhouse.com/docs/sql-reference/operators#equals   |
+| !=       | !=                     | https://clickhouse.com/docs/sql-reference/operators#not-equals |
+| <        | <                      | https://clickhouse.com/docs/sql-reference/operators#less     |
+| <=       | <=                     | https://clickhouse.com/docs/sql-reference/operators#less-or-equals |
+| >        | >                      | https://clickhouse.com/docs/sql-reference/operators#greater  |
+| >=       | >=                     | https://clickhouse.com/docs/sql-reference/operators#greater-or-equals |
+| &        | bitAnd(a, b)           | https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitanda-b |
+| |        | bitOr(a, b)            | https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b |
+| ^        | bitXor(a, b)           | https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b |
++----------+------------------------+---------------------------------------------------------------+
+
+Window Functions (used for element-wise array operations):
+- row_number(): https://clickhouse.com/docs/sql-reference/window-functions#row_number
+
+Memory/Disk Management (for large datasets):
+- max_bytes_before_external_sort: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort
+- max_bytes_in_join: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join
+- join_algorithm: https://clickhouse.com/docs/operations/settings/settings#join_algorithm
 """
 
 from __future__ import annotations
@@ -13,22 +47,27 @@ from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_A
 
 # Operator to SQL expression mapping
 OPERATOR_EXPRESSIONS = {
-    # Arithmetic
+    # Arithmetic operators
+    # Docs: https://clickhouse.com/docs/sql-reference/operators#arithmetic
     "+": "a.value + b.value",
     "-": "a.value - b.value",
     "*": "a.value * b.value",
     "/": "a.value / b.value",
+    # intDiv: https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b
     "//": "intDiv(a.value, b.value)",
     "%": "a.value % b.value",
+    # power: https://clickhouse.com/docs/sql-reference/functions/math-functions#pow
     "**": "power(a.value, b.value)",
-    # Comparison
+    # Comparison operators
+    # Docs: https://clickhouse.com/docs/sql-reference/operators#comparison
     "==": "a.value = b.value",
     "!=": "a.value != b.value",
     "<": "a.value < b.value",
     "<=": "a.value <= b.value",
     ">": "a.value > b.value",
     ">=": "a.value >= b.value",
-    # Bitwise
+    # Bitwise functions
+    # Docs: https://clickhouse.com/docs/sql-reference/functions/bit-functions
     "&": "bitAnd(a.value, b.value)",
     "|": "bitOr(a.value, b.value)",
     "^": "bitXor(a.value, b.value)",
