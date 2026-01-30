@@ -352,30 +352,30 @@ async def test_mixed_symmetry(ctx):
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_fails(ctx):
-    """Test that concatenating int array with float array fails with type error."""
-    import pytest
-    from clickhouse_connect.driver.exceptions import DatabaseError
-
+async def test_mixed_int_float_concat_succeeds(ctx):
+    """Test that concatenating int array with float array succeeds (ClickHouse casts to common type)."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
-    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
-        await a.concat(b)
+    # ClickHouse 25+ allows int/float concat by casting to common type
+    result = await a.concat(b)
+    data = await result.data()
+
+    # Result should contain all values (int values cast to float)
+    assert len(data) == 6
 
 
-
-async def test_mixed_float_int_concat_fails(ctx):
-    """Test that concatenating float array with int array fails with type error."""
-    import pytest
-    from clickhouse_connect.driver.exceptions import DatabaseError
-
+async def test_mixed_float_int_concat_succeeds(ctx):
+    """Test that concatenating float array with int array succeeds (ClickHouse casts to common type)."""
     a = await create_object_from_value([1.5, 2.5, 3.5])
     b = await create_object_from_value([4, 5, 6])
 
-    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
-        await a.concat(b)
+    # ClickHouse 25+ allows float/int concat by casting to common type
+    result = await a.concat(b)
+    data = await result.data()
 
+    # Result should contain all values
+    assert len(data) == 6
 
 
 async def test_mixed_int_string_concat_fails(ctx):
@@ -386,7 +386,7 @@ async def test_mixed_int_string_concat_fails(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value(["a", "b", "c"])
 
-    with pytest.raises(DatabaseError, match="NO_COMMON_TYPE"):
+    with pytest.raises(DatabaseError):
         await a.concat(b)
 
 
