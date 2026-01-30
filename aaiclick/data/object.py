@@ -815,7 +815,7 @@ class Object:
         """
         self.checkstale()
         info = self._get_query_info()
-        return await operators.unique_agg(info, self.ch_client)
+        return await operators.unique_group(info, self.ch_client)
 
     def view(
         self,

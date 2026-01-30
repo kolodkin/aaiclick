@@ -104,7 +104,7 @@ Self operators work on a single Object and return a new Object with the result. 
 | `sum_agg(info, ch_client)` | Sum of values | `sum()` | Scalar Object |
 | `mean_agg(info, ch_client)` | Average value | `avg()` | Scalar Object |
 | `std_agg(info, ch_client)` | Standard deviation | `stddevPop()` | Scalar Object |
-| `unique_agg(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
+| `unique_group(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
 
 **Notes:**
 - Aggregation functions (min, max, sum, mean, std) use streaming aggregation with O(1) memory.

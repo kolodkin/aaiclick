@@ -555,7 +555,7 @@ async def std_agg(info: QueryInfo, ch_client):
     return await _apply_agg_db(info, "std", ch_client)
 
 
-async def unique_agg(info: QueryInfo, ch_client):
+async def unique_group(info: QueryInfo, ch_client):
     """
     Get unique values at database level using GROUP BY.
 
