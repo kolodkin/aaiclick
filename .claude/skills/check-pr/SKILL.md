@@ -33,22 +33,36 @@ Then commit, push, and run the script again until workflow passes.
 
 ## Address PR Review Comments
 
-The script displays unresolved comments with their IDs. For each comment:
+The script displays unresolved comments with their IDs. Address ONLY unresolved comments.
 
 **Option A: Fix the issue**
 1. Fix and commit
 2. Push changes
-3. Reply: `✅ Agent Addressed: <what was fixed>`
+3. Reply within the comment thread: `[Agent] Fixed - <what was fixed>`
 
 **Option B: Ask for clarification**
-- Reply: `❓ Agent Question: <your question>`
+- Reply within the comment thread: `[Agent] Question: <your question>`
 
-**Reply command:**
+**Reply within comment thread (REQUIRED):**
+
+Use the `/replies` endpoint to respond within the same comment thread (not as a separate comment):
+
 ```bash
-gh api -X POST repos/OWNER/REPO/pulls/PR_NUMBER/comments \
-  -f body="✅ Agent Addressed: <description>" -F in_reply_to=COMMENT_ID
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
+  -f body="[Agent] Fixed - <description of what was fixed>"
 ```
 
-**IMPORTANT:** Always prefix replies with "Agent" (✅ Agent Addressed / ❓ Agent Question) to identify agent comments.
+Example:
+```bash
+# Reply to comment ID 2744833797 on PR #52
+gh api repos/kolodkin/aaiclick/pulls/52/comments/2744833797/replies \
+  -f body="[Agent] Fixed - changed return type to Self"
+```
+
+**IMPORTANT:**
+- Always prefix responses with `[Agent]` to identify agent-generated replies
+- Use the `/replies` endpoint to keep responses in the comment thread
+- Only respond to unresolved comments
+- Be concise in responses
 
 Be PROACTIVE: Check and poll workflows after every push!
