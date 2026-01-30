@@ -197,7 +197,9 @@ All operators work element-wise on both scalar and array data types.
 
 **Note:** All aggregate functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. This makes them memory-efficient for large datasets.
 
-### Set Operations
+### Self Operators
+
+Self operators work on a single Object (similar to aggregation functions like min, max, std).
 
 | Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
 |--------------|-------------|--------------------------|-----------------|---------------------|
@@ -247,7 +249,7 @@ m = await aaiclick.create_object_from_value([12, 10, 8])
 n = await aaiclick.create_object_from_value([10, 12, 4])
 result = await (m & n)      # [8, 8, 0]
 
-# Set operations - unique values
+# Self operators - unique values
 data = await aaiclick.create_object_from_value([1, 2, 2, 3, 3, 3, 4])
 unique = await data.unique()
 values = await unique.data()  # [1, 2, 3, 4] (order not guaranteed)

@@ -93,7 +93,9 @@ The `_apply_operator` method:
 4. Executes SQL with the operator string
 5. Returns the new Object
 
-### Set Operations
+### Self Operators
+
+Self operators work on a single Object (similar to aggregation functions like min, max, std).
 
 | Function | Description | ClickHouse | Returns |
 |----------|-------------|------------|---------|
