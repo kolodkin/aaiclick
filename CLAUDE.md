@@ -229,6 +229,63 @@ aaiclick/
   - All clients share the same connection pool for efficiency
   - `get_ch_client()` creates clients using the shared pool
 
+## Object API - All Operations Return Objects
+
+**All operations and results are handled inside ClickHouse itself.**
+
+The Object class follows a consistent pattern where **all operators return new Object instances**. This ensures:
+- No data round-trips between Python and ClickHouse
+- All computation happens within the database
+- Results can be chained with further operations
+
+### Supported Operators (All Return Objects)
+
+**Binary Operators** (element-wise operations on two Objects):
+- Arithmetic: `+`, `-`, `*`, `/`, `//`, `%`, `**`
+- Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Bitwise: `&`, `|`, `^`
+
+**Aggregation Operators** (reduce to scalar Object):
+- `min()` - minimum value
+- `max()` - maximum value
+- `sum()` - sum of values
+- `mean()` - average value
+- `std()` - standard deviation (population)
+
+### Usage Pattern
+
+```python
+async with DataContext():
+    # Create Objects
+    obj_a = await create_object_from_value([1, 2, 3, 4, 5])
+    obj_b = await create_object_from_value([10, 20, 30, 40, 50])
+
+    # Binary operations return Objects
+    result = await (obj_a + obj_b)  # Returns Object
+    await result.data()  # [11, 22, 33, 44, 55]
+
+    # Aggregation operations return scalar Objects
+    total = await obj_a.sum()  # Returns Object (scalar)
+    await total.data()  # 15
+
+    # Chain operations - all computation in ClickHouse
+    mean_diff = await (await (obj_b - obj_a).mean())
+    await mean_diff.data()  # 27.0
+
+    # Aggregation results can be used in further operations
+    normalized = await (obj_a / total)  # Divide array by scalar
+    await normalized.data()  # [0.066..., 0.133..., 0.2, 0.266..., 0.333...]
+```
+
+### Implementation Pattern
+
+The flow for all operators:
+1. Create new Object table via `create_object(schema)`
+2. Execute `INSERT INTO {new_table} SELECT ... FROM {source}` with operation
+3. Return new Object pointing to result table
+
+This pattern ensures all data stays within ClickHouse - Python only orchestrates the SQL operations.
+
 ## Distributed Computing & Order Preservation
 
 aaiclick is a **distributed computing framework** where order is automatically preserved via **Snowflake IDs**:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
+from typing_extensions import Self
 
 from . import operators
 from ..snowflake_id import get_snowflake_id
@@ -634,7 +635,7 @@ class Object:
 
         return result
 
-    async def insert(self, *args: Union["Object", "ValueType"]) -> None:
+    async def insert(self, *args: Union[Self, "ValueType"]) -> None:
         """
         Insert multiple objects or values into this object in place.
 
@@ -697,60 +698,100 @@ class Object:
         for temp in temp_objects:
             await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
-    async def min(self) -> float:
+    async def min(self) -> Self:
         """
         Calculate the minimum value from the object's table.
 
+        Creates a new Object with a scalar result containing the minimum value.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
         Returns:
-            float: Minimum value from the 'value' column
+            Self: New scalar Object containing the minimum value
+
+        Examples:
+            >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
+            >>> result = await obj.min()
+            >>> await result.data()  # Returns 1
         """
         self.checkstale()
-        result = await self.ch_client.query(f"SELECT min(value) FROM {self.table}")
-        return result.result_rows[0][0]
+        info = self._get_query_info()
+        return await operators.min_agg(info, self.ch_client)
 
-    async def max(self) -> float:
+    async def max(self) -> Self:
         """
         Calculate the maximum value from the object's table.
 
+        Creates a new Object with a scalar result containing the maximum value.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
         Returns:
-            float: Maximum value from the 'value' column
+            Self: New scalar Object containing the maximum value
+
+        Examples:
+            >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
+            >>> result = await obj.max()
+            >>> await result.data()  # Returns 9
         """
         self.checkstale()
-        result = await self.ch_client.query(f"SELECT max(value) FROM {self.table}")
-        return result.result_rows[0][0]
+        info = self._get_query_info()
+        return await operators.max_agg(info, self.ch_client)
 
-    async def sum(self) -> float:
+    async def sum(self) -> Self:
         """
         Calculate the sum of values from the object's table.
 
+        Creates a new Object with a scalar result containing the sum.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
         Returns:
-            float: Sum of values from the 'value' column
+            Self: New scalar Object containing the sum value
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
+            >>> result = await obj.sum()
+            >>> await result.data()  # Returns 15
         """
         self.checkstale()
-        result = await self.ch_client.query(f"SELECT sum(value) FROM {self.table}")
-        return result.result_rows[0][0]
+        info = self._get_query_info()
+        return await operators.sum_agg(info, self.ch_client)
 
-    async def mean(self) -> float:
+    async def mean(self) -> Self:
         """
         Calculate the mean (average) value from the object's table.
 
+        Creates a new Object with a scalar result containing the mean.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
         Returns:
-            float: Mean value from the 'value' column
+            Self: New scalar Object containing the mean value
+
+        Examples:
+            >>> obj = await create_object_from_value([10, 20, 30, 40])
+            >>> result = await obj.mean()
+            >>> await result.data()  # Returns 25.0
         """
         self.checkstale()
-        result = await self.ch_client.query(f"SELECT avg(value) FROM {self.table}")
-        return result.result_rows[0][0]
+        info = self._get_query_info()
+        return await operators.mean_agg(info, self.ch_client)
 
-    async def std(self) -> float:
+    async def std(self) -> Self:
         """
         Calculate the standard deviation of values from the object's table.
 
+        Creates a new Object with a scalar result containing the standard deviation (population).
+        All computation happens within ClickHouse - no data round-trips to Python.
+
         Returns:
-            float: Standard deviation from the 'value' column
+            Self: New scalar Object containing the standard deviation value
+
+        Examples:
+            >>> obj = await create_object_from_value([2, 4, 6, 8])
+            >>> result = await obj.std()
+            >>> await result.data()  # Returns 2.2360679774997898
         """
         self.checkstale()
-        result = await self.ch_client.query(f"SELECT stddevPop(value) FROM {self.table}")
-        return result.result_rows[0][0]
+        info = self._get_query_info()
+        return await operators.std_agg(info, self.ch_client)
 
     def view(
         self,

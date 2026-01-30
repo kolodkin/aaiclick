@@ -67,8 +67,9 @@ async def test_min_int(ctx):
     # Create object
     obj = await create_object_from_value(int_array)
 
-    # Get minimum
-    min_val = await obj.min()
+    # Get minimum (returns Object, use .data() to extract value)
+    min_obj = await obj.min()
+    min_val = await min_obj.data()
 
     # Verify
     assert min_val == 100
@@ -84,8 +85,9 @@ async def test_max_float(ctx):
     # Create object
     obj = await create_object_from_value(float_array)
 
-    # Get maximum
-    max_val = await obj.max()
+    # Get maximum (returns Object, use .data() to extract value)
+    max_obj = await obj.max()
+    max_val = await max_obj.data()
 
     # Verify (allowing for floating point precision)
     assert abs(max_val - 999.9) < 0.001
@@ -101,8 +103,9 @@ async def test_sum_float(ctx):
     # Create object
     obj = await create_object_from_value(float_array)
 
-    # Get sum
-    sum_val = await obj.sum()
+    # Get sum (returns Object, use .data() to extract value)
+    sum_obj = await obj.sum()
+    sum_val = await sum_obj.data()
 
     # Verify
     expected_sum = 1.5 * NUM_ITEMS  # 15000.0
@@ -119,8 +122,9 @@ async def test_mean_int(ctx):
     # Create object
     obj = await create_object_from_value(int_array)
 
-    # Get mean
-    mean_val = await obj.mean()
+    # Get mean (returns Object, use .data() to extract value)
+    mean_obj = await obj.mean()
+    mean_val = await mean_obj.data()
 
     # Verify: mean of 0..9999 is 4999.5
     expected_mean = (NUM_ITEMS - 1) / 2.0
@@ -137,8 +141,9 @@ async def test_std_float(ctx):
     # Create object
     obj = await create_object_from_value(float_array)
 
-    # Get standard deviation
-    std_val = await obj.std()
+    # Get standard deviation (returns Object, use .data() to extract value)
+    std_obj = await obj.std()
+    std_val = await std_obj.data()
 
     # Verify: std of 0..9999 should be approximately 2886.75
     # For a uniform distribution from 0 to N-1, std = sqrt((N^2 - 1) / 12)
