@@ -156,34 +156,64 @@ All operators work element-wise on both scalar and array data types.
 
 ### Arithmetic Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method |
-|----------------|-------------|----------------------|---------------|
-| `+` | Addition | `+` | `__add__` |
-| `-` | Subtraction | `-` | `__sub__` |
-| `*` | Multiplication | `*` | `__mul__` |
-| `/` | Division | `/` | `__truediv__` |
-| `//` | Floor Division | `DIV` | `__floordiv__` |
-| `%` | Modulo | `%` | `__mod__` |
-| `**` | Power | `power()` | `__pow__` |
+| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
+|----------------|-------------|----------------------|---------------|---------------------|
+| `+` | Addition | `+` | `__add__` | [operators#plus](https://clickhouse.com/docs/sql-reference/operators#plus) |
+| `-` | Subtraction | `-` | `__sub__` | [operators#minus](https://clickhouse.com/docs/sql-reference/operators#minus) |
+| `*` | Multiplication | `*` | `__mul__` | [operators#multiply](https://clickhouse.com/docs/sql-reference/operators#multiply) |
+| `/` | Division | `/` | `__truediv__` | [operators#divide](https://clickhouse.com/docs/sql-reference/operators#divide) |
+| `//` | Floor Division | `intDiv()` | `__floordiv__` | [intDiv](https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b) |
+| `%` | Modulo | `%` | `__mod__` | [operators#modulo](https://clickhouse.com/docs/sql-reference/operators#modulo) |
+| `**` | Power | `power()` | `__pow__` | [pow](https://clickhouse.com/docs/sql-reference/functions/math-functions#pow) |
 
 ### Comparison Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method |
-|----------------|-------------|----------------------|---------------|
-| `==` | Equal | `=` | `__eq__` |
-| `!=` | Not Equal | `!=` | `__ne__` |
-| `<` | Less Than | `<` | `__lt__` |
-| `<=` | Less Than or Equal | `<=` | `__le__` |
-| `>` | Greater Than | `>` | `__gt__` |
-| `>=` | Greater Than or Equal | `>=` | `__ge__` |
+| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
+|----------------|-------------|----------------------|---------------|---------------------|
+| `==` | Equal | `=` | `__eq__` | [operators#equals](https://clickhouse.com/docs/sql-reference/operators#equals) |
+| `!=` | Not Equal | `!=` | `__ne__` | [operators#not-equals](https://clickhouse.com/docs/sql-reference/operators#not-equals) |
+| `<` | Less Than | `<` | `__lt__` | [operators#less](https://clickhouse.com/docs/sql-reference/operators#less) |
+| `<=` | Less Than or Equal | `<=` | `__le__` | [operators#less-or-equals](https://clickhouse.com/docs/sql-reference/operators#less-or-equals) |
+| `>` | Greater Than | `>` | `__gt__` | [operators#greater](https://clickhouse.com/docs/sql-reference/operators#greater) |
+| `>=` | Greater Than or Equal | `>=` | `__ge__` | [operators#greater-or-equals](https://clickhouse.com/docs/sql-reference/operators#greater-or-equals) |
 
 ### Bitwise Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method |
-|----------------|-------------|----------------------|---------------|
-| `&` | Bitwise AND | `bitAnd()` | `__and__` |
-| `\|` | Bitwise OR | `bitOr()` | `__or__` |
-| `^` | Bitwise XOR | `bitXor()` | `__xor__` |
+| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
+|----------------|-------------|----------------------|---------------|---------------------|
+| `&` | Bitwise AND | `bitAnd()` | `__and__` | [bitAnd](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitanda-b) |
+| `\|` | Bitwise OR | `bitOr()` | `__or__` | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b) |
+| `^` | Bitwise XOR | `bitXor()` | `__xor__` | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b) |
+
+### Aggregate Functions
+
+| Python Method | Description | ClickHouse Function | Memory Behavior | ClickHouse Reference |
+|--------------|-------------|--------------------|-----------------|--------------------|
+| `.min()` | Minimum value | `min()` | Streaming (O(1)) | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min) |
+| `.max()` | Maximum value | `max()` | Streaming (O(1)) | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max) |
+| `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
+| `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
+| `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
+
+**Note:** All aggregate functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. This makes them memory-efficient for large datasets.
+
+### Window Functions (Internal)
+
+Element-wise array operations use window functions internally:
+
+| Function | Purpose | ClickHouse Reference |
+|----------|---------|---------------------|
+| `row_number()` | Position-based element pairing | [row_number](https://clickhouse.com/docs/sql-reference/window-functions#row_number) |
+
+### Memory/Disk Settings (for large datasets)
+
+For very large datasets, ClickHouse can spill intermediate results to disk:
+
+| Setting | Purpose | ClickHouse Reference |
+|---------|---------|---------------------|
+| `max_bytes_before_external_sort` | Spill sorts to disk | [max_bytes_before_external_sort](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort) |
+| `max_bytes_in_join` | Limit join memory | [max_bytes_in_join](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join) |
+| `join_algorithm` | Join implementation strategy | [join_algorithm](https://clickhouse.com/docs/operations/settings/settings#join_algorithm) |
 
 ## Usage Examples
 
