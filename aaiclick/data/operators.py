@@ -419,7 +419,7 @@ AGGREGATION_FUNCTIONS = {
 }
 
 
-async def _apply_agg_db(info: QueryInfo, agg_func: str, ch_client):
+async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     Apply an aggregation function on a table at the database level.
 
@@ -496,7 +496,7 @@ async def min_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar minimum value
     """
-    return await _apply_agg_db(info, "min", ch_client)
+    return await _apply_aggregation(info, "min", ch_client)
 
 
 async def max_agg(info: QueryInfo, ch_client):
@@ -510,7 +510,7 @@ async def max_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar maximum value
     """
-    return await _apply_agg_db(info, "max", ch_client)
+    return await _apply_aggregation(info, "max", ch_client)
 
 
 async def sum_agg(info: QueryInfo, ch_client):
@@ -524,7 +524,7 @@ async def sum_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar sum value
     """
-    return await _apply_agg_db(info, "sum", ch_client)
+    return await _apply_aggregation(info, "sum", ch_client)
 
 
 async def mean_agg(info: QueryInfo, ch_client):
@@ -538,7 +538,7 @@ async def mean_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar mean value
     """
-    return await _apply_agg_db(info, "mean", ch_client)
+    return await _apply_aggregation(info, "mean", ch_client)
 
 
 async def std_agg(info: QueryInfo, ch_client):
@@ -552,7 +552,7 @@ async def std_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar standard deviation value
     """
-    return await _apply_agg_db(info, "std", ch_client)
+    return await _apply_aggregation(info, "std", ch_client)
 
 
 async def unique_group(info: QueryInfo, ch_client):
