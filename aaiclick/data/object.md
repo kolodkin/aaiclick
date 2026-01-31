@@ -185,9 +185,9 @@ All operators work element-wise on both scalar and array data types.
 | `\|` | Bitwise OR | `bitOr()` | `__or__` | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b) |
 | `^` | Bitwise XOR | `bitXor()` | `__xor__` | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b) |
 
-### Self Operators
+### Aggregation Operators
 
-Self operators work on a single Object and return a new Object with the result. All computation happens within ClickHouse - no data round-trips to Python.
+Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse - no data round-trips to Python.
 
 | Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
 |--------------|-------------|--------------------------|-----------------|---------------------|
@@ -196,11 +196,18 @@ Self operators work on a single Object and return a new Object with the result. 
 | `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
 | `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
 | `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
+
+**Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory.
+
+### Set Operators
+
+Set operators transform an array and return a new array. All computation happens within ClickHouse - no data round-trips to Python.
+
+| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
+|--------------|-------------|--------------------------|-----------------|---------------------|
 | `.unique()` | Unique values | `GROUP BY` | Hash table | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by) |
 
-**Notes:**
-- Aggregation functions (min, max, sum, mean, std) use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory.
-- The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
+**Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
 
 ### Window Functions (Internal)
 
@@ -244,7 +251,7 @@ m = await aaiclick.create_object_from_value([12, 10, 8])
 n = await aaiclick.create_object_from_value([10, 12, 4])
 result = await (m & n)      # [8, 8, 0]
 
-# Self operators - unique values
+# Set operators - unique values
 data = await aaiclick.create_object_from_value([1, 2, 2, 3, 3, 3, 4])
 unique = await data.unique()
 values = await unique.data()  # [1, 2, 3, 4] (order not guaranteed)
