@@ -108,7 +108,7 @@ Self operators work on a single Object and return a new Object with the result. 
 
 **Notes:**
 - Aggregation functions (min, max, sum, mean, std) use streaming aggregation with O(1) memory.
-- `unique_agg` uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
+- `unique_group` uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
 
 ## Benefits of This Architecture
 
