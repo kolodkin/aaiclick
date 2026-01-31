@@ -93,6 +93,30 @@ The `_apply_operator` method:
 4. Executes SQL with the operator string
 5. Returns the new Object
 
+### Aggregation Operators
+
+Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse.
+
+| Function | Description | ClickHouse | Returns |
+|----------|-------------|------------|---------|
+| `min_agg(info, ch_client)` | Minimum value | `min()` | Scalar Object |
+| `max_agg(info, ch_client)` | Maximum value | `max()` | Scalar Object |
+| `sum_agg(info, ch_client)` | Sum of values | `sum()` | Scalar Object |
+| `mean_agg(info, ch_client)` | Average value | `avg()` | Scalar Object |
+| `std_agg(info, ch_client)` | Standard deviation | `stddevPop()` | Scalar Object |
+
+**Note:** Aggregation functions use streaming aggregation with O(1) memory.
+
+### Set Operators
+
+Set operators transform an array and return a new array. All computation happens within ClickHouse.
+
+| Function | Description | ClickHouse | Returns |
+|----------|-------------|------------|---------|
+| `unique_group(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
+
+**Note:** `unique_group` uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
+
 ## Benefits of This Architecture
 
 **Modularity**: Operator implementations are separate from the Object class

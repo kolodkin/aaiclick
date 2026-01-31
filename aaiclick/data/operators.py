@@ -33,6 +33,9 @@ Operator to ClickHouse function/operator mapping with official documentation lin
 Window Functions (used for element-wise array operations):
 - row_number(): https://clickhouse.com/docs/sql-reference/window-functions#row_number
 
+Set Operations (for unique values):
+- GROUP BY: https://clickhouse.com/docs/sql-reference/statements/select/group-by
+
 Memory/Disk Management (for large datasets):
 - max_bytes_before_external_sort: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort
 - max_bytes_in_join: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join
@@ -416,7 +419,7 @@ AGGREGATION_FUNCTIONS = {
 }
 
 
-async def _apply_agg_db(info: QueryInfo, agg_func: str, ch_client):
+async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     Apply an aggregation function on a table at the database level.
 
@@ -493,7 +496,7 @@ async def min_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar minimum value
     """
-    return await _apply_agg_db(info, "min", ch_client)
+    return await _apply_aggregation(info, "min", ch_client)
 
 
 async def max_agg(info: QueryInfo, ch_client):
@@ -507,7 +510,7 @@ async def max_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar maximum value
     """
-    return await _apply_agg_db(info, "max", ch_client)
+    return await _apply_aggregation(info, "max", ch_client)
 
 
 async def sum_agg(info: QueryInfo, ch_client):
@@ -521,7 +524,7 @@ async def sum_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar sum value
     """
-    return await _apply_agg_db(info, "sum", ch_client)
+    return await _apply_aggregation(info, "sum", ch_client)
 
 
 async def mean_agg(info: QueryInfo, ch_client):
@@ -535,7 +538,7 @@ async def mean_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar mean value
     """
-    return await _apply_agg_db(info, "mean", ch_client)
+    return await _apply_aggregation(info, "mean", ch_client)
 
 
 async def std_agg(info: QueryInfo, ch_client):
@@ -549,4 +552,58 @@ async def std_agg(info: QueryInfo, ch_client):
     Returns:
         New Object with scalar standard deviation value
     """
-    return await _apply_agg_db(info, "std", ch_client)
+    return await _apply_aggregation(info, "std", ch_client)
+
+
+async def unique_group(info: QueryInfo, ch_client):
+    """
+    Get unique values at database level using GROUP BY.
+
+    Uses GROUP BY instead of DISTINCT for better performance on large datasets.
+    ClickHouse's GROUP BY is optimized for aggregation and can leverage
+    distributed processing more effectively.
+
+    Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
+
+    Args:
+        info: QueryInfo for source
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with array of unique values
+    """
+    from ..snowflake_id import get_snowflake_ids
+
+    # Get value column type from source table (use base table for metadata)
+    type_query = f"""
+    SELECT type FROM system.columns
+    WHERE table = '{info.base_table}' AND name = 'value'
+    """
+    type_result = await ch_client.query(type_query)
+    source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+
+    # Build schema for result table (array type - multiple unique values)
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"aai_id": "UInt64", "value": source_type}
+    )
+
+    # Create result object with schema
+    result = await create_object(schema)
+
+    # Query unique values using GROUP BY (not DISTINCT)
+    # GROUP BY is preferred over DISTINCT as it's more efficient in ClickHouse
+    # for large datasets and enables better distributed processing
+    unique_query = f"""
+    SELECT value FROM {info.source} GROUP BY value
+    """
+    unique_result = await ch_client.query(unique_query)
+
+    # Generate snowflake IDs for each unique value
+    unique_values = [row[0] for row in unique_result.result_rows]
+    if unique_values:
+        aai_ids = get_snowflake_ids(len(unique_values))
+        data = [[aai_id, value] for aai_id, value in zip(aai_ids, unique_values)]
+        await ch_client.insert(result.table, data)
+
+    return result

@@ -793,6 +793,30 @@ class Object:
         info = self._get_query_info()
         return await operators.std_agg(info, self.ch_client)
 
+    async def unique(self) -> Self:
+        """
+        Get unique values from the object's table.
+
+        Creates a new Object with an array containing only unique values.
+        Uses GROUP BY instead of DISTINCT for better performance on large datasets.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
+        Note: The order of unique values is not guaranteed. Use GROUP BY internally
+        as it's more efficient than DISTINCT in ClickHouse for large datasets.
+        Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
+
+        Returns:
+            Self: New array Object containing unique values
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+            >>> result = await obj.unique()
+            >>> sorted(await result.data())  # Returns [1, 2, 3, 4]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.unique_group(info, self.ch_client)
+
     def view(
         self,
         where: Optional[str] = None,

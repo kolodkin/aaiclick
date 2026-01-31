@@ -185,17 +185,29 @@ All operators work element-wise on both scalar and array data types.
 | `\|` | Bitwise OR | `bitOr()` | `__or__` | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b) |
 | `^` | Bitwise XOR | `bitXor()` | `__xor__` | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b) |
 
-### Aggregate Functions
+### Aggregation Operators
 
-| Python Method | Description | ClickHouse Function | Memory Behavior | ClickHouse Reference |
-|--------------|-------------|--------------------|-----------------|--------------------|
+Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse - no data round-trips to Python.
+
+| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
+|--------------|-------------|--------------------------|-----------------|---------------------|
 | `.min()` | Minimum value | `min()` | Streaming (O(1)) | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min) |
 | `.max()` | Maximum value | `max()` | Streaming (O(1)) | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max) |
 | `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
 | `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
 | `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
 
-**Note:** All aggregate functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. This makes them memory-efficient for large datasets.
+**Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory.
+
+### Set Operators
+
+Set operators transform an array and return a new array. All computation happens within ClickHouse - no data round-trips to Python.
+
+| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
+|--------------|-------------|--------------------------|-----------------|---------------------|
+| `.unique()` | Unique values | `GROUP BY` | Hash table | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by) |
+
+**Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
 
 ### Window Functions (Internal)
 
@@ -238,6 +250,11 @@ result = await (x < y)      # [True, False, False]
 m = await aaiclick.create_object_from_value([12, 10, 8])
 n = await aaiclick.create_object_from_value([10, 12, 4])
 result = await (m & n)      # [8, 8, 0]
+
+# Set operators - unique values
+data = await aaiclick.create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+unique = await data.unique()
+values = await unique.data()  # [1, 2, 3, 4] (order not guaranteed)
 ```
 
 For complete runnable examples of all operators, see:
