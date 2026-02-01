@@ -1,22 +1,6 @@
 """Tests for operator benchmarks."""
 
-from aaiclick.benchmarks.operators import (
-    BenchmarkResult,
-    run_add_benchmark,
-    run_operator_benchmarks,
-)
-
-
-async def test_run_add_benchmark():
-    """Test single add benchmark with small size."""
-    result = await run_add_benchmark(size=10, reps=2, runs=2)
-
-    assert isinstance(result, BenchmarkResult)
-    assert result.operator == "add"
-    assert result.size == 10
-    assert result.aaiclick_time_ms > 0
-    assert result.numpy_time_ms > 0
-    assert result.speedup > 0
+from aaiclick.benchmarks.operators import BenchmarkResult, run_operator_benchmarks
 
 
 async def test_run_operator_benchmarks():
