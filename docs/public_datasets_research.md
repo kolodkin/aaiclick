@@ -376,7 +376,7 @@ The current `Object` class provides these operators that work on single-column (
 | Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` | Returns boolean Object |
 | Bitwise | `&`, `\|`, `^` | Integer types only |
 
-#### Aggregation Operators (6)
+#### Aggregation Operators (9)
 
 | Method | ClickHouse Function | Distributed Strategy |
 |--------|--------------------|--------------------|
@@ -385,6 +385,9 @@ The current `Object` class provides these operators that work on single-column (
 | `sum()` | `sum(value)` | Sum of partition sums |
 | `mean()` | `avg(value)` | Weighted: `Σsum / Σcount` |
 | `std()` | `stddevPop(value)` | Requires `Σx`, `Σx²`, `n` |
+| `var()` | `varPop(value)` | Requires `Σx`, `Σx²`, `n` |
+| `count()` | `count()` | Sum of partition counts |
+| `quantile(q)` | `quantile(q)(value)` | Approximate (t-digest) |
 | `unique()` | `GROUP BY value` | Union of partition uniques |
 
 #### Data Operations
@@ -408,82 +411,96 @@ The current `Object` class provides these operators that work on single-column (
 
 | Statistic | Current Support | How |
 |-----------|-----------------|-----|
-| Trip count | Via `sum()` on count column | Need to create count Object first |
+| Trip count | `count()` | Direct count of rows |
 | Total revenue | `sum()` | Load `total_amount` as Object |
 | Avg distance | `mean()` | Load `trip_distance` as Object |
 | Min/max fare | `min()` / `max()` | Load `fare_amount` as Object |
 | Std deviation | `std()` | Load column as Object |
+| Variance | `var()` | Load column as Object |
+| Median fare | `quantile(0.5)` | Approximate median |
 | Unique zones | `unique()` | Load zone column as Object |
+| Stats per zone | `view(where=...)` | Filter then aggregate (low cardinality) |
 
 ### Current Limitations
 
 | Gap | Impact | Potential Solution |
 |-----|--------|-------------------|
 | Single `value` column only | Can't do multi-column stats | Support dict Objects in aggregations |
-| No `count()` aggregation | Must create intermediary | Add `count()` method |
-| No `variance()` | Can derive from `std()` | Add `var()` method |
-| No grouped aggregation | Can't do "avg by zone" | Add `group_by()` support |
-| No percentile/median | Need approximate or exact | Add `quantile()` method |
 | No correlation | Need pairs of columns | Add `corr()` for dict Objects |
+| No data loader from URL | Must load data manually | Add `create_object_from_url()` |
+
+### Per-Zone Statistics with View
+
+For low-cardinality grouping (e.g., payment types, boroughs), use View filtering:
+
+```python
+# Stats per payment type (4 types)
+cash_view = fares.view(where="payment_type = 1")
+card_view = fares.view(where="payment_type = 2")
+
+cash_avg = await cash_view.mean()
+card_avg = await card_view.mean()
+```
+
+For high-cardinality grouping (260 taxi zones), this requires many queries.
+See Future section for `group_by()` optimization.
 
 ---
 
-## Low-Hanging Fruit Improvements
-
-### 1. Add `count()` Method (Easy)
+## Example: NYC Taxi with Current API
 
 ```python
-async def count(self) -> int:
-    """Return count of rows."""
-    query = f"SELECT count() FROM {self._build_select()}"
-    result = await self.ch_client.query(query)
-    return result.result_rows[0][0]
+async with DataContext() as ctx:
+    # Load columns as separate Objects
+    distances = await create_object_from_value([...])  # trip_distance values
+    fares = await create_object_from_value([...])      # fare_amount values
+
+    # Full statistical suite
+    trip_count = await distances.count()
+    avg_distance = await distances.mean()
+    std_distance = await distances.std()
+    var_distance = await distances.var()
+    median_fare = await fares.quantile(0.5)
+    q95_fare = await fares.quantile(0.95)
+    max_fare = await fares.max()
+
+    # Per-category stats via View
+    long_trips = distances.view(where="value > 10")
+    long_trip_avg = await long_trips.mean()
+
+    # Get results
+    print(await trip_count.data())      # e.g., 1000000
+    print(await median_fare.data())     # e.g., 12.50
+    print(await q95_fare.data())        # e.g., 45.00
 ```
 
-**Why**: Essential for weighted averages in distributed aggregation.
+### What's Missing for Full Taxi Analysis
 
-### 2. Add `var()` Method (Easy)
+1. **Data Loading**: No `create_object_from_url()` or S3 loader
+2. **Multi-column**: Can't load full taxi schema as dict Object and aggregate
 
-```python
-# In AGGREGATION_FUNCTIONS
-"var": "varPop",
-```
+---
 
-**Why**: Common statistical operation, trivial to add alongside `std()`.
+## Future Enhancements
 
-### 3. Add `quantile()` Method (Medium)
+### Dict Object Aggregations
 
-```python
-async def quantile(self, q: float = 0.5) -> Self:
-    """Calculate quantile (default median)."""
-    # Uses ClickHouse's quantile() function
-```
-
-**Why**: Median/percentiles are common statistics. ClickHouse has efficient approximate quantiles.
-
-### 4. Dict Object Aggregations (Medium)
-
-Currently aggregations only work on `value` column. Extend to support:
+Extend aggregations to work on specific columns of dict Objects:
 
 ```python
-# Current: only works on single 'value' column
-obj = await create_object_from_value([1, 2, 3, 4, 5])
-result = await obj.sum()  # Works
-
-# Desired: work on dict objects with column selection
 obj = await create_object_from_value({
     "distance": [1.5, 2.3, 3.1],
     "fare": [10, 15, 20]
 })
-result = await obj.sum(column="fare")  # Return sum of fares
+result = await obj.sum(column="fare")  # Sum of fares only
 ```
 
-### 5. Grouped Aggregations (Larger)
+### Grouped Aggregations (`group_by()`)
 
-For "average fare by zone" type queries:
+For high-cardinality grouping (260 taxi zones), a single `GROUP BY` query is more efficient than 260 View queries:
 
 ```python
-# Desired API
+# Future API - single query for all zones
 result = await obj.group_by("zone").mean("fare")
 ```
 
@@ -492,47 +509,13 @@ This would require:
 - SQL generation for `GROUP BY` clause
 - Result as dict Object with group keys + aggregated values
 
----
+### Correlation
 
-## Example: NYC Taxi with Current API
-
-Given current limitations, here's how to compute basic stats:
+For analyzing relationships between columns:
 
 ```python
-async with DataContext() as ctx:
-    # Load a single column from parquet
-    # (would need new function to load from URL)
-    distances = await create_object_from_value([...])  # trip_distance values
-    fares = await create_object_from_value([...])      # fare_amount values
-
-    # Compute statistics
-    avg_distance = await distances.mean()
-    total_fare = await fares.sum()
-    max_fare = await fares.max()
-    std_fare = await fares.std()
-
-    # Get results
-    print(await avg_distance.data())  # Single value
-    print(await total_fare.data())
+result = await obj.corr("distance", "fare")  # Pearson correlation
 ```
-
-### What's Missing for Full Taxi Analysis
-
-1. **Data Loading**: No `create_object_from_url()` or S3 loader
-2. **Multi-column**: Can't load full taxi schema as dict Object and aggregate
-3. **Grouping**: Can't do "by hour" or "by zone" aggregations
-4. **Count**: Need explicit count for weighted averages
-
----
-
-## Recommended Implementation Order
-
-1. **`count()` method** - Trivial, immediately useful
-2. **`var()` method** - Trivial, completes statistical suite
-3. **Dict column aggregation** - Medium, unlocks multi-column data
-4. **`quantile()` method** - Medium, adds percentile support
-5. **Data loader from URL** - Medium, enables external data
-6. **`group_by()` support** - Larger, enables dimensional analysis
 
 ---
 
