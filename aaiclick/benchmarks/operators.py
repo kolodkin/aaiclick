@@ -3,12 +3,71 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 import timeit
 from dataclasses import dataclass
 
 import numpy as np
 
 from aaiclick import DataContext, create_object_from_value
+
+
+def format_bytes(bytes_val: int) -> str:
+    """Format bytes to human-readable string."""
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if bytes_val < 1024:
+            return f"{bytes_val:.2f} {unit}"
+        bytes_val /= 1024
+    return f"{bytes_val:.2f} PB"
+
+
+def get_machine_specs() -> dict[str, str]:
+    """Get machine specifications."""
+    specs = {
+        "platform": platform.platform(),
+        "processor": platform.processor() or "Unknown",
+        "cpu_count": str(os.cpu_count() or "Unknown"),
+    }
+
+    # RAM (Linux)
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    specs["ram"] = format_bytes(kb * 1024)
+                    break
+    except (FileNotFoundError, PermissionError):
+        specs["ram"] = "Unknown"
+
+    # Disk (current directory)
+    try:
+        stat = os.statvfs(".")
+        total = stat.f_blocks * stat.f_frsize
+        free = stat.f_bavail * stat.f_frsize
+        specs["disk_total"] = format_bytes(total)
+        specs["disk_free"] = format_bytes(free)
+    except (OSError, AttributeError):
+        specs["disk_total"] = "Unknown"
+        specs["disk_free"] = "Unknown"
+
+    return specs
+
+
+def print_machine_specs() -> None:
+    """Print machine specifications."""
+    specs = get_machine_specs()
+    print("=" * 70)
+    print("Machine Specifications")
+    print("=" * 70)
+    print(f"Platform:    {specs['platform']}")
+    print(f"Processor:   {specs['processor']}")
+    print(f"CPU Count:   {specs['cpu_count']}")
+    print(f"RAM:         {specs['ram']}")
+    print(f"Disk Total:  {specs['disk_total']}")
+    print(f"Disk Free:   {specs['disk_free']}")
+    print("=" * 70)
 
 
 @dataclass
@@ -143,6 +202,7 @@ def print_benchmark_results(results: list[BenchmarkResult]) -> None:
 
 async def main() -> None:
     """Run benchmarks with default parameters."""
+    print_machine_specs()
     results = await run_operator_benchmarks()
     print_benchmark_results(results)
 
