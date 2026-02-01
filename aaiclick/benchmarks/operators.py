@@ -17,9 +17,31 @@ class BenchmarkResult:
 
     operator: str
     size: int
-    aaiclick_time_ms: float
-    numpy_time_ms: float
+    aaiclick_time: float  # seconds
+    numpy_time: float  # seconds
     speedup: float  # numpy_time / aaiclick_time (>1 means aaiclick is faster)
+
+
+def format_time(seconds: float) -> str:
+    """Format time in seconds to human-readable string with 2 decimal precision.
+
+    Examples:
+        0.0000567 -> "56.70 us"
+        0.00234 -> "2.34 ms"
+        0.5 -> "500.00 ms"
+        1.5 -> "1.50 s"
+        100.3 -> "1 min 40.30 s"
+    """
+    if seconds >= 60:
+        minutes = int(seconds // 60)
+        remaining_seconds = seconds % 60
+        return f"{minutes} min {remaining_seconds:.2f} s"
+    elif seconds >= 1:
+        return f"{seconds:.2f} s"
+    elif seconds >= 0.001:
+        return f"{seconds * 1000:.2f} ms"
+    else:
+        return f"{seconds * 1_000_000:.2f} us"
 
 
 async def run_add_benchmark(
@@ -43,7 +65,7 @@ async def run_add_benchmark(
 
     # Run numpy benchmark using timeit
     numpy_times = timeit.repeat(lambda: np_a + np_b, number=reps, repeat=runs)
-    numpy_avg_ms = (sum(numpy_times) / len(numpy_times) / reps) * 1000
+    numpy_avg = sum(numpy_times) / len(numpy_times) / reps
 
     # Run aaiclick benchmark (timeit doesn't support async natively)
     aaiclick_times = []
@@ -56,17 +78,17 @@ async def run_add_benchmark(
             for _ in range(reps):
                 await (obj_a + obj_b)
             elapsed = timeit.default_timer() - start
-            aaiclick_times.append(elapsed / reps * 1000)
+            aaiclick_times.append(elapsed / reps)
 
-    aaiclick_avg_ms = sum(aaiclick_times) / len(aaiclick_times)
+    aaiclick_avg = sum(aaiclick_times) / len(aaiclick_times)
 
-    speedup = numpy_avg_ms / aaiclick_avg_ms if aaiclick_avg_ms > 0 else 0
+    speedup = numpy_avg / aaiclick_avg if aaiclick_avg > 0 else 0
 
     return BenchmarkResult(
         operator="add",
         size=size,
-        aaiclick_time_ms=aaiclick_avg_ms,
-        numpy_time_ms=numpy_avg_ms,
+        aaiclick_time=aaiclick_avg,
+        numpy_time=numpy_avg,
         speedup=speedup,
     )
 
@@ -103,16 +125,15 @@ def print_benchmark_results(results: list[BenchmarkResult]) -> None:
     print("Operator Benchmark Results: aaiclick vs numpy")
     print("=" * 70)
     print(
-        f"{'Operator':<10} {'Size':>10} {'aaiclick (ms)':>15} "
-        f"{'numpy (ms)':>15} {'Speedup':>10}"
+        f"{'Operator':<10} {'Size':>10} {'aaiclick':>15} "
+        f"{'numpy':>15} {'Speedup':>10}"
     )
     print("-" * 70)
 
     for r in results:
-        speedup_str = f"{r.speedup:.2f}x"
         print(
-            f"{r.operator:<10} {r.size:>10} {r.aaiclick_time_ms:>15.3f} "
-            f"{r.numpy_time_ms:>15.3f} {speedup_str:>10}"
+            f"{r.operator:<10} {r.size:>10} {format_time(r.aaiclick_time):>15} "
+            f"{format_time(r.numpy_time):>15} {r.speedup:>9.2f}x"
         )
 
     print("=" * 70)
