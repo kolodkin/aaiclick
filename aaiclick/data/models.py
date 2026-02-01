@@ -27,6 +27,13 @@ FIELDTYPE_SCALAR = "s"
 FIELDTYPE_ARRAY = "a"
 FIELDTYPE_DICT = "d"
 
+# ClickHouse engine constants
+ENGINE_MERGE_TREE = "MergeTree"
+ENGINE_MEMORY = "Memory"
+ENGINES = [ENGINE_MERGE_TREE, ENGINE_MEMORY]
+EngineType = Literal["MergeTree", "Memory"]
+ENGINE_DEFAULT = ENGINE_MERGE_TREE
+
 # Orient constants for data() method
 ORIENT_DICT = "dict"
 ORIENT_RECORDS = "records"

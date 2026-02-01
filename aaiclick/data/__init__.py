@@ -14,6 +14,11 @@ from .data_context import (
     get_pool,
 )
 from .models import (
+    ENGINE_DEFAULT,
+    ENGINE_MEMORY,
+    ENGINE_MERGE_TREE,
+    ENGINES,
+    EngineType,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,

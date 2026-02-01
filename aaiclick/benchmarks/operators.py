@@ -1,4 +1,4 @@
-"""Operator benchmarks comparing aaiclick Objects vs numpy arrays."""
+"""Operator benchmarks measuring aaiclick latency and overhead."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ import subprocess
 import timeit
 from dataclasses import dataclass
 
-import numpy as np
-
 from aaiclick import DataContext, create_object_from_value
+from aaiclick.data.models import ENGINE_MEMORY
 
 
 def detect_os() -> str:
@@ -101,9 +100,8 @@ class BenchmarkResult:
 
     operator: str
     size: int
-    aaiclick_time: float  # seconds
-    numpy_time: float  # seconds
-    speedup: float  # numpy_time / aaiclick_time (>1 means aaiclick is faster)
+    total_time: float  # seconds - total time including Python overhead
+    server_time: float  # seconds - ClickHouse server-side time
 
 
 def format_time(seconds: float) -> str:
@@ -143,37 +141,46 @@ async def run_add_benchmark(
     Returns:
         BenchmarkResult with timing data
     """
-    # Create numpy arrays (outside timing)
-    np_a = np.arange(size, dtype=np.float64)
-    np_b = np.arange(size, dtype=np.float64) * 2
+    total_times = []
+    server_times = []
 
-    # Run numpy benchmark using timeit
-    numpy_times = timeit.repeat(lambda: np_a + np_b, number=reps, repeat=runs)
-    numpy_avg = sum(numpy_times) / len(numpy_times) / reps
-
-    # Run aaiclick benchmark (timeit doesn't support async natively)
-    aaiclick_times = []
     for _ in range(runs):
-        async with DataContext():
-            obj_a = await create_object_from_value(np_a.tolist())
-            obj_b = await create_object_from_value(np_b.tolist())
+        async with DataContext(engine=ENGINE_MEMORY) as ctx:
+            client = ctx._ch_client
+            obj_a = await create_object_from_value(list(range(size)))
+            obj_b = await create_object_from_value(list(range(size)))
 
+            # Collect result table names during timing
+            result_tables = []
+
+            # Time only the operators
             start = timeit.default_timer()
             for _ in range(reps):
-                await (obj_a + obj_b)
-            elapsed = timeit.default_timer() - start
-            aaiclick_times.append(elapsed / reps)
+                result = await (obj_a + obj_b)
+                result_tables.append(result._table_name)
+            run_total = timeit.default_timer() - start
 
-    aaiclick_avg = sum(aaiclick_times) / len(aaiclick_times)
+            # Query server times AFTER timing is complete
+            await client.command("SYSTEM FLUSH LOGS")
+            conditions = " OR ".join(f"query LIKE '%{t}%SELECT%'" for t in result_tables)
+            rows = await client.query(f"""
+                SELECT sum(query_duration_ms) / 1000.0
+                FROM system.query_log
+                WHERE type = 2 AND ({conditions})
+            """)
+            run_server = rows.result_rows[0][0] if rows.result_rows else 0.0
 
-    speedup = numpy_avg / aaiclick_avg if aaiclick_avg > 0 else 0
+            total_times.append(run_total / reps)
+            server_times.append(run_server / reps)
+
+    total_avg = sum(total_times) / len(total_times)
+    server_avg = sum(server_times) / len(server_times)
 
     return BenchmarkResult(
         operator="add",
         size=size,
-        aaiclick_time=aaiclick_avg,
-        numpy_time=numpy_avg,
-        speedup=speedup,
+        total_time=total_avg,
+        server_time=server_avg,
     )
 
 
@@ -206,22 +213,23 @@ async def run_operator_benchmarks(
 def print_benchmark_results(results: list[BenchmarkResult]) -> None:
     """Print benchmark results in a formatted table."""
     print("\n" + "=" * 70)
-    print("Operator Benchmark Results: aaiclick vs numpy")
+    print("Operator Latency Benchmarks")
     print("=" * 70)
     print(
-        f"{'Operator':<10} {'Size':>10} {'aaiclick':>15} "
-        f"{'numpy':>15} {'Speedup':>10}"
+        f"{'Op':<5} {'Size':>10} {'Total':>12} "
+        f"{'CH Server':>12} {'Overhead':>12}"
     )
     print("-" * 70)
 
     for r in results:
+        overhead = r.total_time - r.server_time
         print(
-            f"{r.operator:<10} {r.size:>10} {format_time(r.aaiclick_time):>15} "
-            f"{format_time(r.numpy_time):>15} {r.speedup:>9.2f}x"
+            f"{r.operator:<5} {r.size:>10,} {format_time(r.total_time):>12} "
+            f"{format_time(r.server_time):>12} {format_time(overhead):>12}"
         )
 
     print("=" * 70)
-    print("Note: Speedup > 1 means aaiclick is faster")
+    print("Total = CH Server + Overhead (network, table creation, Python async)")
     print()
 
 

@@ -14,5 +14,5 @@ async def test_run_operator_benchmarks():
     for result in results:
         assert isinstance(result, BenchmarkResult)
         assert result.operator == "add"
-        assert result.aaiclick_time > 0
-        assert result.numpy_time > 0
+        assert result.total_time > 0
+        assert result.server_time >= 0
