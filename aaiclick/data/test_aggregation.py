@@ -1,8 +1,9 @@
 """
-Parametrized tests for statistics operations across numeric data types.
+Parametrized tests for aggregation operations across numeric data types.
 
-Tests min, max, sum, mean, std, var, count, and quantile operations for int, float, and bool types.
-String type does not support statistics.
+Tests min, max, sum, mean, std, var, count, and quantile aggregation operators.
+These operators reduce arrays to scalar values.
+String type does not support aggregation.
 """
 
 import numpy as np
