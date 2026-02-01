@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import time
+import timeit
 from dataclasses import dataclass
 
 import numpy as np
@@ -20,34 +20,6 @@ class BenchmarkResult:
     aaiclick_time_ms: float
     numpy_time_ms: float
     speedup: float  # numpy_time / aaiclick_time (>1 means aaiclick is faster)
-
-
-async def benchmark_add_aaiclick(obj_a, obj_b, reps: int) -> float:
-    """Benchmark addition operator for aaiclick Objects.
-
-    Returns average time in milliseconds.
-    """
-    times = []
-    for _ in range(reps):
-        start = time.perf_counter()
-        _ = await (obj_a + obj_b)
-        end = time.perf_counter()
-        times.append((end - start) * 1000)
-    return sum(times) / len(times)
-
-
-def benchmark_add_numpy(arr_a: np.ndarray, arr_b: np.ndarray, reps: int) -> float:
-    """Benchmark addition operator for numpy arrays.
-
-    Returns average time in milliseconds.
-    """
-    times = []
-    for _ in range(reps):
-        start = time.perf_counter()
-        _ = arr_a + arr_b
-        end = time.perf_counter()
-        times.append((end - start) * 1000)
-    return sum(times) / len(times)
 
 
 async def run_add_benchmark(
@@ -69,33 +41,32 @@ async def run_add_benchmark(
     np_a = np.arange(size, dtype=np.float64)
     np_b = np.arange(size, dtype=np.float64) * 2
 
-    # Run numpy benchmark (multiple runs, average)
-    numpy_times = []
-    for _ in range(runs):
-        numpy_times.append(benchmark_add_numpy(np_a, np_b, reps))
-    numpy_avg = sum(numpy_times) / len(numpy_times)
+    # Run numpy benchmark using timeit
+    numpy_times = timeit.repeat(lambda: np_a + np_b, number=reps, repeat=runs)
+    numpy_avg_ms = (sum(numpy_times) / len(numpy_times) / reps) * 1000
 
-    # Run aaiclick benchmark (multiple runs, average)
+    # Run aaiclick benchmark (timeit doesn't support async natively)
     aaiclick_times = []
     for _ in range(runs):
         async with DataContext():
-            # Create objects (outside timing)
             obj_a = await create_object_from_value(np_a.tolist())
             obj_b = await create_object_from_value(np_b.tolist())
 
-            # Benchmark the operator
-            aaiclick_times.append(await benchmark_add_aaiclick(obj_a, obj_b, reps))
+            start = timeit.default_timer()
+            for _ in range(reps):
+                await (obj_a + obj_b)
+            elapsed = timeit.default_timer() - start
+            aaiclick_times.append(elapsed / reps * 1000)
 
-    aaiclick_avg = sum(aaiclick_times) / len(aaiclick_times)
+    aaiclick_avg_ms = sum(aaiclick_times) / len(aaiclick_times)
 
-    # Calculate speedup (>1 means aaiclick is faster)
-    speedup = numpy_avg / aaiclick_avg if aaiclick_avg > 0 else 0
+    speedup = numpy_avg_ms / aaiclick_avg_ms if aaiclick_avg_ms > 0 else 0
 
     return BenchmarkResult(
         operator="add",
         size=size,
-        aaiclick_time_ms=aaiclick_avg,
-        numpy_time_ms=numpy_avg,
+        aaiclick_time_ms=aaiclick_avg_ms,
+        numpy_time_ms=numpy_avg_ms,
         speedup=speedup,
     )
 
