@@ -442,3 +442,13 @@ All operators use the common `_apply_operator` method that:
 
 **Type Preservation:**
 The result preserves the fieldtype metadata from the source objects, ensuring proper data type handling throughout operation chains.
+
+## Test Files
+
+Tests are organized by operator group:
+
+| Operator Group | Test File |
+|----------------|-----------|
+| Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
+| Aggregation Operators | `test_aggregation.py` |
+| Set Operators | `test_unique_parametrized.py` |
