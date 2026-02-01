@@ -30,6 +30,20 @@ Operator to ClickHouse function/operator mapping with official documentation lin
 | ^        | bitXor(a, b)           | https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b |
 +----------+------------------------+---------------------------------------------------------------+
 
+Aggregation Functions (reduce to scalar):
++------------+------------------------+---------------------------------------------------------------+
+| Python     | ClickHouse             | Reference                                                     |
++------------+------------------------+---------------------------------------------------------------+
+| min()      | min()                  | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min |
+| max()      | max()                  | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max |
+| sum()      | sum()                  | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum |
+| mean()     | avg()                  | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg |
+| std()      | stddevPop()            | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop |
+| var()      | varPop()               | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop |
+| count()    | count()                | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count |
+| quantile(q)| quantile(q)()          | https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile |
++------------+------------------------+---------------------------------------------------------------+
+
 Window Functions (used for element-wise array operations):
 - row_number(): https://clickhouse.com/docs/sql-reference/window-functions#row_number
 
@@ -410,12 +424,15 @@ async def xor(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
 
 # Aggregation functions mapping
+# Docs: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference
 AGGREGATION_FUNCTIONS = {
     "min": "min",
     "max": "max",
     "sum": "sum",
     "mean": "avg",
     "std": "stddevPop",
+    "var": "varPop",
+    "count": "count",
 }
 
 
@@ -450,14 +467,17 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Determine result type based on aggregation function
     # - min/max preserve the source type
     # - sum preserves integer types, promotes to Float64 for float types
-    # - mean/std always return Float64
+    # - count always returns UInt64
+    # - mean/std/var always return Float64
     if agg_func in ("min", "max"):
         value_type = source_type
     elif agg_func == "sum":
         int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
         value_type = source_type if source_type in int_types else "Float64"
+    elif agg_func == "count":
+        value_type = "UInt64"
     else:
-        # mean and std always return Float64
+        # mean, std, and var always return Float64
         value_type = "Float64"
 
     # Build schema for result table (scalar type)
@@ -473,9 +493,14 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     aai_id = get_snowflake_id()
 
     # Insert aggregated data
+    # count() uses count() without column, others use func(value)
+    if agg_func == "count":
+        agg_expr = f"{sql_func}()"
+    else:
+        agg_expr = f"{sql_func}(value)"
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT {aai_id} AS aai_id, {sql_func}(value) AS value
+    SELECT {aai_id} AS aai_id, {agg_expr} AS value
     FROM {info.source}
     """
     await ch_client.command(insert_query)
@@ -553,6 +578,83 @@ async def std_agg(info: QueryInfo, ch_client):
         New Object with scalar standard deviation value
     """
     return await _apply_aggregation(info, "std", ch_client)
+
+
+async def var_agg(info: QueryInfo, ch_client):
+    """
+    Calculate variance (population) at database level.
+
+    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop
+
+    Args:
+        info: QueryInfo for source
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with scalar variance value
+    """
+    return await _apply_aggregation(info, "var", ch_client)
+
+
+async def count_agg(info: QueryInfo, ch_client):
+    """
+    Count the number of rows at database level.
+
+    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count
+
+    Args:
+        info: QueryInfo for source
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with scalar count value (UInt64)
+    """
+    return await _apply_aggregation(info, "count", ch_client)
+
+
+async def quantile_agg(info: QueryInfo, q: float, ch_client):
+    """
+    Calculate quantile at database level.
+
+    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile
+
+    Args:
+        info: QueryInfo for source (contains source and base_table)
+        q: Quantile level between 0 and 1 (e.g., 0.5 for median)
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object instance with scalar quantile value
+    """
+    from ..snowflake_id import get_snowflake_id
+
+    if not 0 <= q <= 1:
+        raise ValueError(f"Quantile level must be between 0 and 1, got {q}")
+
+    # Quantile always returns Float64
+    value_type = "Float64"
+
+    # Build schema for result table (scalar type)
+    schema = Schema(
+        fieldtype=FIELDTYPE_SCALAR,
+        columns={"aai_id": "UInt64", "value": value_type}
+    )
+
+    # Create result object with schema
+    result = await create_object(schema)
+
+    # Generate a snowflake ID for the scalar result
+    aai_id = get_snowflake_id()
+
+    # Insert quantile result
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT {aai_id} AS aai_id, quantile({q})(value) AS value
+    FROM {info.source}
+    """
+    await ch_client.command(insert_query)
+
+    return result
 
 
 async def unique_group(info: QueryInfo, ch_client):
