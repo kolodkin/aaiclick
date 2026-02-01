@@ -362,13 +362,177 @@ SELECT * FROM s3Cluster(
 
 ---
 
-## Next Steps
+## Current Object/View Capabilities
 
-1. **Prototype**: Build simple single-partition reader
-2. **Validate**: Compare results with known benchmarks
-3. **Scale**: Add orchestration for multi-partition processing
-4. **Optimize**: Tune ClickHouse settings for S3 reads
-5. **Document**: Create example showing full distributed workflow
+### Available Operators
+
+The current `Object` class provides these operators that work on single-column (`value`) data:
+
+#### Element-wise Binary Operators (14)
+
+| Category | Operators | Notes |
+|----------|-----------|-------|
+| Arithmetic | `+`, `-`, `*`, `/`, `//`, `%`, `**` | Element-wise on arrays |
+| Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` | Returns boolean Object |
+| Bitwise | `&`, `\|`, `^` | Integer types only |
+
+#### Aggregation Operators (6)
+
+| Method | ClickHouse Function | Distributed Strategy |
+|--------|--------------------|--------------------|
+| `min()` | `min(value)` | Min of partition mins |
+| `max()` | `max(value)` | Max of partition maxes |
+| `sum()` | `sum(value)` | Sum of partition sums |
+| `mean()` | `avg(value)` | Weighted: `Σsum / Σcount` |
+| `std()` | `stddevPop(value)` | Requires `Σx`, `Σx²`, `n` |
+| `unique()` | `GROUP BY value` | Union of partition uniques |
+
+#### Data Operations
+
+| Method | Description |
+|--------|-------------|
+| `copy()` | Create copy of Object |
+| `concat(*args)` | Concatenate multiple Objects (new Object) |
+| `insert(*args)` | Append to existing Object (in-place) |
+
+#### View Constraints
+
+| Constraint | SQL Clause | Example |
+|------------|-----------|---------|
+| `where` | `WHERE` | `view(where="value > 10")` |
+| `limit` | `LIMIT` | `view(limit=100)` |
+| `offset` | `OFFSET` | `view(offset=50)` |
+| `order_by` | `ORDER BY` | `view(order_by="value DESC")` |
+
+### Mapping to NYC Taxi Statistics
+
+| Statistic | Current Support | How |
+|-----------|-----------------|-----|
+| Trip count | Via `sum()` on count column | Need to create count Object first |
+| Total revenue | `sum()` | Load `total_amount` as Object |
+| Avg distance | `mean()` | Load `trip_distance` as Object |
+| Min/max fare | `min()` / `max()` | Load `fare_amount` as Object |
+| Std deviation | `std()` | Load column as Object |
+| Unique zones | `unique()` | Load zone column as Object |
+
+### Current Limitations
+
+| Gap | Impact | Potential Solution |
+|-----|--------|-------------------|
+| Single `value` column only | Can't do multi-column stats | Support dict Objects in aggregations |
+| No `count()` aggregation | Must create intermediary | Add `count()` method |
+| No `variance()` | Can derive from `std()` | Add `var()` method |
+| No grouped aggregation | Can't do "avg by zone" | Add `group_by()` support |
+| No percentile/median | Need approximate or exact | Add `quantile()` method |
+| No correlation | Need pairs of columns | Add `corr()` for dict Objects |
+
+---
+
+## Low-Hanging Fruit Improvements
+
+### 1. Add `count()` Method (Easy)
+
+```python
+async def count(self) -> int:
+    """Return count of rows."""
+    query = f"SELECT count() FROM {self._build_select()}"
+    result = await self.ch_client.query(query)
+    return result.result_rows[0][0]
+```
+
+**Why**: Essential for weighted averages in distributed aggregation.
+
+### 2. Add `var()` Method (Easy)
+
+```python
+# In AGGREGATION_FUNCTIONS
+"var": "varPop",
+```
+
+**Why**: Common statistical operation, trivial to add alongside `std()`.
+
+### 3. Add `quantile()` Method (Medium)
+
+```python
+async def quantile(self, q: float = 0.5) -> Self:
+    """Calculate quantile (default median)."""
+    # Uses ClickHouse's quantile() function
+```
+
+**Why**: Median/percentiles are common statistics. ClickHouse has efficient approximate quantiles.
+
+### 4. Dict Object Aggregations (Medium)
+
+Currently aggregations only work on `value` column. Extend to support:
+
+```python
+# Current: only works on single 'value' column
+obj = await create_object_from_value([1, 2, 3, 4, 5])
+result = await obj.sum()  # Works
+
+# Desired: work on dict objects with column selection
+obj = await create_object_from_value({
+    "distance": [1.5, 2.3, 3.1],
+    "fare": [10, 15, 20]
+})
+result = await obj.sum(column="fare")  # Return sum of fares
+```
+
+### 5. Grouped Aggregations (Larger)
+
+For "average fare by zone" type queries:
+
+```python
+# Desired API
+result = await obj.group_by("zone").mean("fare")
+```
+
+This would require:
+- New `GroupBy` class or method
+- SQL generation for `GROUP BY` clause
+- Result as dict Object with group keys + aggregated values
+
+---
+
+## Example: NYC Taxi with Current API
+
+Given current limitations, here's how to compute basic stats:
+
+```python
+async with DataContext() as ctx:
+    # Load a single column from parquet
+    # (would need new function to load from URL)
+    distances = await create_object_from_value([...])  # trip_distance values
+    fares = await create_object_from_value([...])      # fare_amount values
+
+    # Compute statistics
+    avg_distance = await distances.mean()
+    total_fare = await fares.sum()
+    max_fare = await fares.max()
+    std_fare = await fares.std()
+
+    # Get results
+    print(await avg_distance.data())  # Single value
+    print(await total_fare.data())
+```
+
+### What's Missing for Full Taxi Analysis
+
+1. **Data Loading**: No `create_object_from_url()` or S3 loader
+2. **Multi-column**: Can't load full taxi schema as dict Object and aggregate
+3. **Grouping**: Can't do "by hour" or "by zone" aggregations
+4. **Count**: Need explicit count for weighted averages
+
+---
+
+## Recommended Implementation Order
+
+1. **`count()` method** - Trivial, immediately useful
+2. **`var()` method** - Trivial, completes statistical suite
+3. **Dict column aggregation** - Medium, unlocks multi-column data
+4. **`quantile()` method** - Medium, adds percentile support
+5. **Data loader from URL** - Medium, enables external data
+6. **`group_by()` support** - Larger, enables dimensional analysis
 
 ---
 
