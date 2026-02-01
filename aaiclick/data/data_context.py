@@ -31,6 +31,8 @@ from .models import (
     ColumnMeta,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
+    EngineType,
+    ENGINE_DEFAULT,
 )
 from ..snowflake_id import get_snowflake_ids
 
@@ -111,11 +113,22 @@ class DataContext:
         ... # Tables are automatically deleted here
     """
 
-    def __init__(self):
-        """Initialize a DataContext."""
+    def __init__(self, engine: EngineType | None = None):
+        """Initialize a DataContext.
+
+        Args:
+            engine: ClickHouse table engine to use. Defaults to ENGINE_DEFAULT (MergeTree).
+                   Use ENGINE_MEMORY for in-memory tables (faster, no disk I/O).
+        """
         self._ch_client: Optional[AsyncClient] = None
         self._objects: Dict[int, weakref.ref] = {}
         self._token = None
+        self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
+
+    @property
+    def engine(self) -> EngineType:
+        """Get the default engine for this context."""
+        return self._engine
 
     @property
     def ch_client(self) -> AsyncClient:
@@ -205,7 +218,21 @@ class DataContext:
             del self._objects[obj_id]
 
 
-async def create_object(schema: Schema):
+def get_engine_clause(engine: EngineType) -> str:
+    """Get the ENGINE clause for table creation.
+
+    Args:
+        engine: ClickHouse engine type
+
+    Returns:
+        ENGINE clause string (e.g., "ENGINE = MergeTree ORDER BY tuple()")
+    """
+    if engine == "Memory":
+        return "ENGINE = Memory"
+    return "ENGINE = MergeTree ORDER BY tuple()"
+
+
+async def create_object(schema: Schema, engine: EngineType | None = None):
     """
     Create a new Object with a ClickHouse table using the specified schema.
 
@@ -218,6 +245,7 @@ async def create_object(schema: Schema):
                    fieldtype='a',
                    columns={"aai_id": "UInt64", "value": "Float64"}
                )
+        engine: ClickHouse table engine. If None, uses context's engine setting.
 
     Returns:
         Object: New Object instance with created table
@@ -239,6 +267,9 @@ async def create_object(schema: Schema):
     ctx = get_data_context()
     obj = Object()
 
+    # Use provided engine or fall back to context's engine
+    effective_engine = engine if engine is not None else ctx.engine
+
     # Build column definitions with comments derived from fieldtype
     columns = []
     for name, col_type in schema.columns.items():
@@ -254,10 +285,11 @@ async def create_object(schema: Schema):
         columns.append(col_def)
 
     # Create table with all columns and comments in single query
+    engine_clause = get_engine_clause(effective_engine)
     create_query = f"""
     CREATE TABLE {obj.table} (
         {', '.join(columns)}
-    ) ENGINE = MergeTree ORDER BY tuple()
+    ) {engine_clause}
     """
     await ctx.ch_client.command(create_query)
 

@@ -13,7 +13,6 @@ from typing_extensions import Self
 
 from . import operators
 from ..snowflake_id import get_snowflake_id
-from .sql_template_loader import load_sql_template
 from .models import (
     Schema,
     ColumnMeta,

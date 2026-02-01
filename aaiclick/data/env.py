@@ -6,6 +6,10 @@ This module centralizes all environment variable reading with sensible defaults.
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ClickHouse connection parameters
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
