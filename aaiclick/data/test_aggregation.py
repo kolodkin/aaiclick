@@ -1,8 +1,9 @@
 """
-Parametrized tests for statistics operations across numeric data types.
+Parametrized tests for aggregation operations across numeric data types.
 
-Tests min, max, sum, mean, and std operations for int, float, and bool types.
-String type does not support statistics.
+Tests min, max, sum, mean, std, var, count, and quantile aggregation operators.
+These operators reduce arrays to scalar values.
+String type does not support aggregation.
 """
 
 import numpy as np
@@ -330,3 +331,125 @@ async def test_negative_numbers_statistics(ctx, data_type, values):
     assert abs(await (await obj.sum()).data() - expected_sum) < THRESHOLD
     assert abs(await (await obj.mean()).data() - expected_mean) < THRESHOLD
     assert abs(await (await obj.std()).data() - expected_std) < THRESHOLD
+
+
+# =============================================================================
+# Count Tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "data_type,values,expected_count",
+    [
+        # Integer arrays
+        pytest.param("int", [1, 2, 3, 4, 5], 5, id="int-five"),
+        pytest.param("int", [42], 1, id="int-single"),
+        pytest.param("int", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 10, id="int-ten-zeros"),
+        # Float arrays
+        pytest.param("float", [1.1, 2.2, 3.3], 3, id="float-three"),
+        pytest.param("float", [3.14], 1, id="float-single"),
+        pytest.param("float", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], 7, id="float-seven"),
+        # Boolean arrays
+        pytest.param("bool", [True, False, True], 3, id="bool-three"),
+        pytest.param("bool", [True], 1, id="bool-single"),
+        pytest.param("bool", [False, False, False, False], 4, id="bool-four-false"),
+    ],
+)
+async def test_array_count(ctx, data_type, values, expected_count):
+    """Test count() on arrays across numeric types. Returns Object, use .data() to extract value."""
+    obj = await create_object_from_value(values)
+
+    result_obj = await obj.count()
+    result = await result_obj.data()
+
+    assert result == expected_count
+
+
+# =============================================================================
+# Var Tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "data_type,values",
+    [
+        # Integer arrays
+        pytest.param("int", [2, 4, 6, 8], id="int-even"),
+        pytest.param("int", [10, 20, 30, 40], id="int-multiples"),
+        pytest.param("int", [1, 2, 3, 4, 5], id="int-sequential"),
+        pytest.param("int", [0, 0, 0], id="int-zeros"),
+        # Float arrays
+        pytest.param("float", [2.5, 4.5, 6.5, 8.5], id="float-even"),
+        pytest.param("float", [1.0, 2.0, 3.0], id="float-sequential"),
+        pytest.param("float", [5.5, 5.5, 5.5], id="float-same"),
+        # Boolean arrays
+        pytest.param("bool", [True, False, True, False], id="bool-mixed"),
+        pytest.param("bool", [True, True, True], id="bool-all-true"),
+        pytest.param("bool", [False, False, False], id="bool-all-false"),
+    ],
+)
+async def test_array_var(ctx, data_type, values):
+    """Test var() on arrays across numeric types. Returns Object, use .data() to extract value."""
+    obj = await create_object_from_value(values)
+
+    result_obj = await obj.var()
+    result = await result_obj.data()
+    expected = np.var(values, ddof=0)
+
+    assert abs(result - expected) < THRESHOLD
+
+
+async def test_var_equals_std_squared(ctx):
+    """Test that var() equals std()^2."""
+    values = [2, 4, 6, 8, 10]
+    obj = await create_object_from_value(values)
+
+    std_result = await (await obj.std()).data()
+    var_result = await (await obj.var()).data()
+
+    assert abs(var_result - std_result**2) < THRESHOLD
+
+
+# =============================================================================
+# Quantile Tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "data_type,values,quantile_level,expected_approx",
+    [
+        # Median tests (q=0.5)
+        pytest.param("int", [1, 2, 3, 4, 5], 0.5, 3.0, id="int-median-odd"),
+        pytest.param("int", [1, 2, 3, 4, 5, 6], 0.5, 3.5, id="int-median-even"),
+        pytest.param("float", [1.0, 2.0, 3.0, 4.0, 5.0], 0.5, 3.0, id="float-median"),
+        # Min/Max quantiles
+        pytest.param("int", [1, 2, 3, 4, 5], 0.0, 1.0, id="int-q0"),
+        pytest.param("int", [1, 2, 3, 4, 5], 1.0, 5.0, id="int-q1"),
+        # Quartiles
+        pytest.param("int", [1, 2, 3, 4, 5, 6, 7, 8], 0.25, 2.5, id="int-q25"),
+        pytest.param("int", [1, 2, 3, 4, 5, 6, 7, 8], 0.75, 6.5, id="int-q75"),
+        # Single element
+        pytest.param("int", [42], 0.5, 42.0, id="int-single-median"),
+        pytest.param("float", [3.14], 0.5, 3.14, id="float-single-median"),
+    ],
+)
+async def test_array_quantile(ctx, data_type, values, quantile_level, expected_approx):
+    """Test quantile() on arrays. Note: ClickHouse quantile uses approximate algorithm."""
+    obj = await create_object_from_value(values)
+
+    result_obj = await obj.quantile(quantile_level)
+    result = await result_obj.data()
+
+    # ClickHouse quantile uses approximate algorithm, allow larger threshold
+    assert abs(result - expected_approx) < 1.0
+
+
+async def test_quantile_invalid_level(ctx):
+    """Test that quantile() raises ValueError for invalid quantile levels."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+
+    with pytest.raises(ValueError):
+        await obj.quantile(-0.1)
+
+    with pytest.raises(ValueError):
+        await obj.quantile(1.1)

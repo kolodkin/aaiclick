@@ -793,6 +793,77 @@ class Object:
         info = self._get_query_info()
         return await operators.std_agg(info, self.ch_client)
 
+    async def var(self) -> Self:
+        """
+        Calculate the variance of values from the object's table.
+
+        Creates a new Object with a scalar result containing the variance (population).
+        All computation happens within ClickHouse - no data round-trips to Python.
+
+        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop
+
+        Returns:
+            Self: New scalar Object containing the variance value
+
+        Examples:
+            >>> obj = await create_object_from_value([2, 4, 6, 8])
+            >>> result = await obj.var()
+            >>> await result.data()  # Returns 5.0 (std^2 = 2.236^2)
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.var_agg(info, self.ch_client)
+
+    async def count(self) -> Self:
+        """
+        Count the number of values in the object's table.
+
+        Creates a new Object with a scalar result containing the count.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
+        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count
+
+        Returns:
+            Self: New scalar Object containing the count value (UInt64)
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
+            >>> result = await obj.count()
+            >>> await result.data()  # Returns 5
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.count_agg(info, self.ch_client)
+
+    async def quantile(self, q: float) -> Self:
+        """
+        Calculate the quantile of values from the object's table.
+
+        Creates a new Object with a scalar result containing the quantile value.
+        All computation happens within ClickHouse - no data round-trips to Python.
+
+        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile
+
+        Args:
+            q: Quantile level between 0 and 1 (e.g., 0.5 for median, 0.25 for Q1)
+
+        Returns:
+            Self: New scalar Object containing the quantile value
+
+        Raises:
+            ValueError: If q is not between 0 and 1
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            >>> median = await obj.quantile(0.5)
+            >>> await median.data()  # Returns 5.5 (median)
+            >>> q1 = await obj.quantile(0.25)
+            >>> await q1.data()  # Returns first quartile
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.quantile_agg(info, q, self.ch_client)
+
     async def unique(self) -> Self:
         """
         Get unique values from the object's table.
