@@ -196,8 +196,11 @@ Aggregation operators reduce an array to a scalar value. All computation happens
 | `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
 | `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
 | `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
+| `.var()` | Variance | `varPop()` | Streaming (O(1)) | [varPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop) |
+| `.count()` | Count of values | `count()` | Streaming (O(1)) | [count](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count) |
+| `.quantile(q)` | Quantile at level q | `quantile(q)()` | Approximate | [quantile](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile) |
 
-**Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory.
+**Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. The `quantile()` function uses an approximate algorithm for efficiency on large datasets.
 
 ### Set Operators
 
@@ -439,3 +442,13 @@ All operators use the common `_apply_operator` method that:
 
 **Type Preservation:**
 The result preserves the fieldtype metadata from the source objects, ensuring proper data type handling throughout operation chains.
+
+## Test Files
+
+Tests are organized by operator group:
+
+| Operator Group | Test File |
+|----------------|-----------|
+| Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
+| Aggregation Operators | `test_aggregation.py` |
+| Set Operators | `test_unique_parametrized.py` |
