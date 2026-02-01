@@ -5,12 +5,25 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import subprocess
 import timeit
 from dataclasses import dataclass
 
 import numpy as np
 
 from aaiclick import DataContext, create_object_from_value
+
+
+def detect_os() -> str:
+    """Detect the operating system. Returns 'linux', 'macos', or 'unknown'."""
+    system = platform.system().lower()
+    match system:
+        case "linux":
+            return "linux"
+        case "darwin":
+            return "macos"
+        case _:
+            return "unknown"
 
 
 def format_bytes(bytes_val: int) -> str:
@@ -22,6 +35,25 @@ def format_bytes(bytes_val: int) -> str:
     return f"{bytes_val:.2f} PB"
 
 
+def get_ram_bytes() -> int | None:
+    """Get total RAM in bytes. Returns None if unable to detect."""
+    match detect_os():
+        case "linux":
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        return int(line.split()[1]) * 1024
+        case "macos":
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+    return None
+
+
 def get_machine_specs() -> dict[str, str]:
     """Get machine specifications."""
     specs = {
@@ -30,16 +62,9 @@ def get_machine_specs() -> dict[str, str]:
         "cpu_count": str(os.cpu_count() or "Unknown"),
     }
 
-    # RAM (Linux)
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if line.startswith("MemTotal:"):
-                    kb = int(line.split()[1])
-                    specs["ram"] = format_bytes(kb * 1024)
-                    break
-    except (FileNotFoundError, PermissionError):
-        specs["ram"] = "Unknown"
+    # RAM
+    ram_bytes = get_ram_bytes()
+    specs["ram"] = format_bytes(ram_bytes) if ram_bytes else "Unknown"
 
     # Disk (current directory)
     try:
