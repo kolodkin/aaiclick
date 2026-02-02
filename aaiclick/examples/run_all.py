@@ -12,6 +12,7 @@ from aaiclick import DataContext
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .orchestration_basic import async_main as orchestration_basic_example
+from .selectors import example as selectors_example
 from .statistics import example as statistics_example
 from .views import example as views_example
 
@@ -41,6 +42,12 @@ async def main():
         print("RUNNING: Views Example")
         print("=" * 60)
         await views_example(context)
+
+        print("\n" * 2)
+        print("=" * 60)
+        print("RUNNING: Dict Selectors Example")
+        print("=" * 60)
+        await selectors_example(context)
 
     # Orchestration example manages its own contexts (OrchContext + DataContext)
     print("\n" * 2)

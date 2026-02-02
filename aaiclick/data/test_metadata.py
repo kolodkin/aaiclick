@@ -8,6 +8,7 @@ including table name, fieldtype, and column details.
 from aaiclick import (
     create_object_from_value,
     ObjectMetadata,
+    ViewMetadata,
     ColumnInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
@@ -106,18 +107,90 @@ async def test_column_info_aai_id(ctx):
 # View Metadata Tests
 # =============================================================================
 
-async def test_view_metadata(ctx):
-    """Test that view metadata returns source table metadata."""
+async def test_view_metadata_returns_view_metadata(ctx):
+    """Test that view.metadata() returns ViewMetadata type."""
     obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6]})
 
     view = obj['x']
     meta = await view.metadata()
 
-    # View metadata should be same as source (references same table)
+    assert isinstance(meta, ViewMetadata)
     assert meta.table == obj.table
     assert meta.fieldtype == FIELDTYPE_DICT
     assert "x" in meta.columns
     assert "y" in meta.columns
+
+
+async def test_view_metadata_selected_field(ctx):
+    """Test that selected_field is included in ViewMetadata."""
+    obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+
+    view = obj['param1']
+    meta = await view.metadata()
+
+    assert meta.selected_field == 'param1'
+    assert meta.where is None
+    assert meta.limit is None
+    assert meta.offset is None
+    assert meta.order_by is None
+
+
+async def test_view_metadata_where_clause(ctx):
+    """Test that where clause is included in ViewMetadata."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+
+    view = obj.view(where="value > 2")
+    meta = await view.metadata()
+
+    assert isinstance(meta, ViewMetadata)
+    assert meta.where == "value > 2"
+    assert meta.limit is None
+
+
+async def test_view_metadata_limit_offset(ctx):
+    """Test that limit and offset are included in ViewMetadata."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+
+    view = obj.view(limit=3, offset=1)
+    meta = await view.metadata()
+
+    assert meta.limit == 3
+    assert meta.offset == 1
+    assert meta.where is None
+
+
+async def test_view_metadata_order_by(ctx):
+    """Test that order_by is included in ViewMetadata."""
+    obj = await create_object_from_value([5, 3, 1, 4, 2])
+
+    view = obj.view(order_by="value DESC")
+    meta = await view.metadata()
+
+    assert meta.order_by == "value DESC"
+
+
+async def test_view_metadata_all_constraints(ctx):
+    """Test ViewMetadata with all constraints."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+
+    view = obj.view(where="value > 2", limit=5, offset=1, order_by="value DESC")
+    meta = await view.metadata()
+
+    assert meta.where == "value > 2"
+    assert meta.limit == 5
+    assert meta.offset == 1
+    assert meta.order_by == "value DESC"
+    assert meta.selected_field is None
+
+
+async def test_object_returns_object_metadata(ctx):
+    """Test that Object.metadata() returns ObjectMetadata (not ViewMetadata)."""
+    obj = await create_object_from_value([1, 2, 3])
+
+    meta = await obj.metadata()
+
+    assert isinstance(meta, ObjectMetadata)
+    assert not isinstance(meta, ViewMetadata)
 
 
 async def test_cloned_view_metadata(ctx):
@@ -128,7 +201,8 @@ async def test_cloned_view_metadata(ctx):
     cloned = await view.clone()
     meta = await cloned.metadata()
 
-    # Cloned object should be an array type
+    # Cloned object should be an array type (ObjectMetadata, not ViewMetadata)
+    assert isinstance(meta, ObjectMetadata)
     assert meta.fieldtype == FIELDTYPE_ARRAY
     assert "value" in meta.columns
     assert meta.columns["value"].type == "Int64"

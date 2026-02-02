@@ -28,6 +28,7 @@ from .models import (
     ColumnMeta,
     ColumnType,
     ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     Schema,
     ValueListType,

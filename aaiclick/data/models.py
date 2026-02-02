@@ -107,6 +107,32 @@ class ObjectMetadata:
 
 
 @dataclass
+class ViewMetadata:
+    """
+    Metadata for a View including table info and view constraints.
+
+    Attributes:
+        table: ClickHouse table name (from source Object)
+        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Dict mapping column name to ColumnInfo
+        where: WHERE clause constraint (or None)
+        limit: LIMIT constraint (or None)
+        offset: OFFSET constraint (or None)
+        order_by: ORDER BY clause (or None)
+        selected_field: Selected column name for dict field selection (or None)
+    """
+
+    table: str
+    fieldtype: str
+    columns: Dict[str, ColumnInfo]
+    where: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    order_by: Optional[str] = None
+    selected_field: Optional[str] = None
+
+
+@dataclass
 class ColumnMeta:
     """
     Metadata for a column parsed from YAML comment.

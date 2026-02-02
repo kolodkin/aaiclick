@@ -23,6 +23,7 @@ from .data import (
     ColumnMeta,
     ColumnType,
     ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,

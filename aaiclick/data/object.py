@@ -19,6 +19,7 @@ from .models import (
     ColumnInfo,
     ColumnType,
     ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
@@ -1171,6 +1172,42 @@ class View(Object):
 
         # Delegate to parent for normal views
         return await super().data(orient=orient)
+
+    async def metadata(self) -> ViewMetadata:
+        """
+        Get metadata for this view including table info and view constraints.
+
+        Returns ViewMetadata which includes all ObjectMetadata fields plus
+        view-specific constraints (where, limit, offset, order_by, selected_field).
+
+        Returns:
+            ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> view = obj['param1']
+            >>> meta = await view.metadata()
+            >>> print(meta.selected_field)  # 'param1'
+            >>> print(meta.fieldtype)  # 'd' (source table is dict type)
+            >>>
+            >>> filtered = obj.view(where="param1 > 1", limit=10)
+            >>> meta2 = await filtered.metadata()
+            >>> print(meta2.where)  # 'param1 > 1'
+            >>> print(meta2.limit)  # 10
+        """
+        # Get base metadata from parent
+        base_meta = await super().metadata()
+
+        return ViewMetadata(
+            table=base_meta.table,
+            fieldtype=base_meta.fieldtype,
+            columns=base_meta.columns,
+            where=self._where,
+            limit=self._limit,
+            offset=self._offset,
+            order_by=self._order_by,
+            selected_field=self._selected_field,
+        )
 
     async def clone(self) -> "Object":
         """
