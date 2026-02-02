@@ -913,6 +913,28 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
+    def __getitem__(self, key: str) -> "View":
+        """
+        Select a field from a dict Object, returning a View.
+
+        Creates a View that selects only the specified column from the dict Object.
+        The View can be used in operations or materialized with clone().
+
+        Args:
+            key: Column name to select from the dict Object
+
+        Returns:
+            View: A new View instance selecting the specified field
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> view = obj['param1']  # Returns View selecting param1
+            >>> await view.data()  # Returns [1, 2, 3]
+            >>> arr = await view.clone()  # Returns new array Object
+        """
+        self.checkstale()
+        return View(self, selected_field=key)
+
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
@@ -924,6 +946,8 @@ class View(Object):
 
     Views are read-only and reference the same underlying table as their source Object.
     They cannot be modified with operations like insert().
+
+    Views can also select a specific field from a dict Object using selected_field.
     """
 
     def __init__(
@@ -933,6 +957,7 @@ class View(Object):
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         order_by: Optional[str] = None,
+        selected_field: Optional[str] = None,
     ):
         """
         Initialize a View.
@@ -943,12 +968,14 @@ class View(Object):
             limit: Optional LIMIT
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
+            selected_field: Optional field name to select from dict Object
         """
         self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
+        self._selected_field = selected_field
 
     @property
     def ctx(self) -> Context:
@@ -981,13 +1008,119 @@ class View(Object):
         return self._order_by
 
     @property
+    def selected_field(self) -> Optional[str]:
+        """Get the selected field name (for dict column selection)."""
+        return self._selected_field
+
+    @property
     def stale(self) -> bool:
         """Check if source object's context has been cleaned up."""
         return self._source.stale
 
+    @property
+    def has_constraints(self) -> bool:
+        """Check if this view has any constraints including selected_field."""
+        return bool(
+            self.where
+            or self.limit is not None
+            or self.offset is not None
+            or self.order_by
+            or self.selected_field
+        )
+
     def checkstale(self):
         """Check if source object is stale and raise error if so."""
         self._source.checkstale()
+
+    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+        """
+        Build a SELECT query with view constraints applied.
+
+        When selected_field is set, selects aai_id and the field as 'value'.
+
+        Args:
+            columns: Column specification (default "*", ignored if selected_field is set)
+            default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+
+        Returns:
+            str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
+        """
+        # When selected_field is set, select aai_id and the field renamed as 'value'
+        if self._selected_field:
+            select_cols = f"aai_id, {self._selected_field} AS value"
+        else:
+            select_cols = columns
+
+        query = f"SELECT {select_cols} FROM {self.table}"
+        if self.where:
+            query += f" WHERE {self.where}"
+        # Use custom order_by if set, otherwise use default
+        order_clause = self.order_by or default_order_by
+        if order_clause:
+            query += f" ORDER BY {order_clause}"
+        if self.limit is not None:
+            query += f" LIMIT {self.limit}"
+        if self.offset is not None:
+            query += f" OFFSET {self.offset}"
+        return query
+
+    def _get_query_info(self) -> QueryInfo:
+        """
+        Get query information for database operations.
+
+        For Views with selected_field, the source is always a subquery
+        that renames the selected column to 'value'.
+
+        Returns:
+            QueryInfo: NamedTuple with source and base_table fields
+        """
+        # Always use subquery for selected_field views or when has_constraints
+        if self.has_constraints:
+            return QueryInfo(source=f"({self._build_select()})", base_table=self.table)
+        return QueryInfo(source=self.table, base_table=self.table)
+
+    async def data(self, orient: str = ORIENT_DICT):
+        """
+        Get the data from the view.
+
+        For views with selected_field, returns array data (the selected column).
+
+        Args:
+            orient: Output format for dict data (ignored for selected_field views)
+
+        Returns:
+            - For selected_field views: returns list of values (array)
+            - Otherwise: delegates to parent Object.data()
+        """
+        self.checkstale()
+
+        if self._selected_field:
+            # For selected_field views, return as array
+            from . import data_extraction
+            return await data_extraction.extract_array_data(self)
+
+        # Delegate to parent for normal views
+        return await super().data(orient=orient)
+
+    async def clone(self) -> "Object":
+        """
+        Materialize this view as a new array Object.
+
+        Creates a new Object with a copy of the view's data.
+        For views with selected_field, this creates an array Object.
+
+        Returns:
+            Object: New Object instance with the view's data materialized
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> view = obj['param1']  # View selecting param1
+            >>> arr = await view.clone()  # New array Object
+            >>> await arr.data()  # Returns [1, 2, 3]
+        """
+        self.checkstale()
+        from . import ingest
+        return await ingest.clone_view_db(self)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
@@ -996,6 +1129,8 @@ class View(Object):
     def __repr__(self) -> str:
         """String representation of the View."""
         constraints = []
+        if self.selected_field:
+            constraints.append(f"selected_field='{self.selected_field}'")
         if self.where:
             constraints.append(f"where='{self.where}'")
         if self.limit:

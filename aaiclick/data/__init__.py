@@ -32,4 +32,4 @@ from .models import (
     ValueScalarType,
     ValueType,
 )
-from .object import DataResult, Object
+from .object import DataResult, Object, View

@@ -248,3 +248,58 @@ async def insert_objects_db(
     {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)
+
+
+async def clone_view_db(view):
+    """
+    Materialize a View as a new array Object at database level.
+
+    Creates a new Object with array fieldtype containing the view's data.
+    For views with selected_field, the selected column is renamed to 'value'.
+
+    Args:
+        view: View instance to clone
+
+    Returns:
+        Object: New Object instance with the view's data materialized
+    """
+    ch_client = view.ch_client
+
+    # Get the value type from the view's select query
+    # For selected_field views, get the type of the selected column
+    if view.selected_field:
+        type_query = f"""
+        SELECT type FROM system.columns
+        WHERE table = '{view.table}' AND name = '{view.selected_field}'
+        """
+    else:
+        type_query = f"""
+        SELECT type FROM system.columns
+        WHERE table = '{view.table}' AND name = 'value'
+        """
+    type_result = await ch_client.query(type_query)
+    value_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+
+    # Create new array Object
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"aai_id": "UInt64", "value": value_type}
+    )
+    result = await create_object(schema)
+
+    # Insert from view's select query
+    query_info = view._get_query_info()
+    if query_info.source.startswith('('):
+        # Subquery needs alias
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, value FROM {query_info.source} AS v
+        """
+    else:
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, value FROM {query_info.source}
+        """
+    await ch_client.command(insert_query)
+
+    return result
