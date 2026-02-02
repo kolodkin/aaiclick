@@ -19,8 +19,10 @@ from .data import (
 from .data import Object, View, DataResult
 from .data import (
     Schema,
+    ColumnInfo,
     ColumnMeta,
     ColumnType,
+    ObjectMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,

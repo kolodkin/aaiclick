@@ -75,6 +75,38 @@ class Schema:
 
 
 @dataclass
+class ColumnInfo:
+    """
+    Information about a single column including type and metadata.
+
+    Attributes:
+        name: Column name
+        type: ClickHouse data type (e.g., 'Int64', 'Float64', 'String')
+        fieldtype: 's' for scalar, 'a' for array, or None if not set
+    """
+
+    name: str
+    type: str
+    fieldtype: Optional[str] = None
+
+
+@dataclass
+class ObjectMetadata:
+    """
+    Metadata for an Object including table name, fieldtype, and column information.
+
+    Attributes:
+        table: ClickHouse table name
+        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Dict mapping column name to ColumnInfo
+    """
+
+    table: str
+    fieldtype: str
+    columns: Dict[str, ColumnInfo]
+
+
+@dataclass
 class ColumnMeta:
     """
     Metadata for a column parsed from YAML comment.

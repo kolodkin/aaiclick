@@ -16,7 +16,9 @@ from ..snowflake_id import get_snowflake_id
 from .models import (
     Schema,
     ColumnMeta,
+    ColumnInfo,
     ColumnType,
+    ObjectMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
@@ -235,6 +237,68 @@ class Object:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
         return None
+
+    async def metadata(self) -> ObjectMetadata:
+        """
+        Get metadata for this object including table name, fieldtype, and column info.
+
+        Queries the ClickHouse system.columns table to retrieve column names, types,
+        and parsed fieldtype metadata from column comments.
+
+        Returns:
+            ObjectMetadata: Dataclass with table, fieldtype, and columns info
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> meta = await obj.metadata()
+            >>> print(meta)
+            ObjectMetadata(table='t...', fieldtype='a', columns={
+                'aai_id': ColumnInfo(name='aai_id', type='UInt64', fieldtype='s'),
+                'param1': ColumnInfo(name='param1', type='Int64', fieldtype='a'),
+                'param2': ColumnInfo(name='param2', type='Int64', fieldtype='a')
+            })
+            >>> view = obj['param1']
+            >>> view_meta = await view.metadata()  # Same metadata (references same table)
+        """
+        self.checkstale()
+
+        # Query column names, types, and comments
+        columns_query = f"""
+        SELECT name, type, comment
+        FROM system.columns
+        WHERE table = '{self.table}'
+        ORDER BY position
+        """
+        columns_result = await self.ch_client.query(columns_query)
+
+        # Parse columns and determine overall fieldtype
+        columns: Dict[str, ColumnInfo] = {}
+        overall_fieldtype = FIELDTYPE_SCALAR
+        column_names = []
+
+        for name, col_type, comment in columns_result.result_rows:
+            meta = ColumnMeta.from_yaml(comment)
+            columns[name] = ColumnInfo(
+                name=name,
+                type=col_type,
+                fieldtype=meta.fieldtype
+            )
+            column_names.append(name)
+
+            # Determine overall fieldtype from value column or detect dict type
+            if name == "value" and meta.fieldtype:
+                overall_fieldtype = meta.fieldtype
+
+        # If we have columns beyond aai_id and value, it's a dict type
+        is_dict_type = not (set(column_names) <= {"aai_id", "value"})
+        if is_dict_type:
+            overall_fieldtype = FIELDTYPE_DICT
+
+        return ObjectMetadata(
+            table=self.table,
+            fieldtype=overall_fieldtype,
+            columns=columns
+        )
 
     async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
@@ -927,10 +991,16 @@ class Object:
             View: A new View instance selecting the specified field
 
         Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> obj = await create_object_from_value({'param1': [123, 234], 'param2': [456, 342]})
+            >>> meta = await obj.metadata()
+            >>> print(meta.fieldtype)  # 'd' (dict type)
+            >>> print(meta.columns['param1'].type)  # 'Int64'
+            >>>
             >>> view = obj['param1']  # Returns View selecting param1
-            >>> await view.data()  # Returns [1, 2, 3]
+            >>> await view.data()  # Returns [123, 234]
             >>> arr = await view.clone()  # Returns new array Object
+            >>> arr_meta = await arr.metadata()
+            >>> print(arr_meta.fieldtype)  # 'a' (array type)
         """
         self.checkstale()
         return View(self, selected_field=key)
