@@ -100,7 +100,13 @@ detect_repo() {
         exit 1
     fi
 
-    echo -e "${GREEN}✓ Repository: ${NC}$REPO"
+    # Parse owner and repo name
+    REPO_OWNER=$(echo "$REPO" | cut -d'/' -f1)
+    REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
+
+    echo -e "${GREEN}✓ REPO: ${NC}$REPO"
+    echo -e "${GREEN}✓ REPO_OWNER: ${NC}$REPO_OWNER"
+    echo -e "${GREEN}✓ REPO_NAME: ${NC}$REPO_NAME"
 }
 
 # Step 4: Get current branch
@@ -235,6 +241,25 @@ check_review_comments() {
     fi
 }
 
+# Helper: Print artifacts link
+print_artifacts_link() {
+    local run_id="$1"
+    if [ -z "$run_id" ]; then
+        return
+    fi
+
+    # Get run number from run ID
+    local run_number=$(gh run view "$run_id" --repo "$REPO" --json number --jq '.number' 2>/dev/null)
+    if [ -z "$run_number" ] || [ "$run_number" = "null" ]; then
+        return
+    fi
+
+    local artifacts_url="https://${REPO_OWNER}.github.io/artifact-view/${REPO_NAME}/playwright-report/${run_number}"
+
+    echo ""
+    echo -e "${BLUE}📸 View artifacts: ${NC}$artifacts_url"
+}
+
 # Step 6: Poll PR checks using gh pr checks --watch
 poll_checks() {
     echo ""
@@ -254,6 +279,10 @@ poll_checks() {
         echo -e "${GREEN}STATUS: SUCCESS${NC}"
         echo -e "${GREEN}PR: #$PR_NUMBER${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # # Print artifacts link
+        # RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+        # print_artifacts_link "$RUN_ID"
 
         # Check for PR review comments after CI passes
         check_review_comments
@@ -282,6 +311,7 @@ poll_checks() {
     echo "$LOGS"
     echo ""
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    print_artifacts_link "$RUN_ID"
     echo -e "${YELLOW}💡 Agent should analyze and fix these errors${NC}"
     exit 1
 }
