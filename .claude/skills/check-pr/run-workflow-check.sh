@@ -235,85 +235,54 @@ check_review_comments() {
     fi
 }
 
-# Step 6: Poll latest workflow until complete
-poll_workflow() {
+# Step 6: Poll PR checks using gh pr checks --watch
+poll_checks() {
     echo ""
     echo -e "${BLUE}⏳ Waiting for GitHub to process push...${NC}"
     sleep 3
 
-    echo -e "${BLUE}🔄 Polling workflow status...${NC}"
+    # Show initial status
+    echo -e "${BLUE}Current check status:${NC}"
+    gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
     echo ""
 
-    local max_polls=120  # Max 20 minutes (120 * 10 seconds)
-    local poll_count=0
-
-    while [ $poll_count -lt $max_polls ]; do
-        # Get latest run for this branch (using --repo flag)
-        LATEST=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId,status,conclusion,name,displayTitle,createdAt 2>/dev/null)
-
-        if [ -z "$LATEST" ] || [ "$LATEST" = "[]" ]; then
-            echo -e "${YELLOW}⚠️  No workflow runs found for branch $BRANCH${NC}"
-            exit 0
-        fi
-
-        RUN_ID=$(echo "$LATEST" | jq -r '.[0].databaseId')
-        RUN_STATUS=$(echo "$LATEST" | jq -r '.[0].status')
-        RUN_CONCLUSION=$(echo "$LATEST" | jq -r '.[0].conclusion')
-        RUN_NAME=$(echo "$LATEST" | jq -r '.[0].name')
-        RUN_TITLE=$(echo "$LATEST" | jq -r '.[0].displayTitle')
-
-        echo -e "${BLUE}Run #$RUN_ID:${NC} $RUN_NAME - $RUN_TITLE"
-        echo -e "${BLUE}Status:${NC} $RUN_STATUS"
-
-        # Check if completed
-        if [ "$RUN_STATUS" = "completed" ]; then
-            echo ""
-            if [ "$RUN_CONCLUSION" = "success" ]; then
-                echo -e "${GREEN}✅ Workflow PASSED!${NC}"
-                echo ""
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${GREEN}STATUS: SUCCESS${NC}"
-                echo -e "${GREEN}RUN_ID: $RUN_ID${NC}"
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-                # Check for PR review comments after CI passes
-                check_review_comments
-                exit 0
-
-            else
-                echo -e "${RED}❌ Workflow FAILED!${NC}"
-                echo -e "${RED}Conclusion: $RUN_CONCLUSION${NC}"
-                echo ""
-                echo -e "${YELLOW}📋 Fetching error logs...${NC}"
-                echo ""
-
-                # Get failed logs (using --repo flag for non-standard remotes)
-                LOGS=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
-
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${RED}STATUS: FAILURE${NC}"
-                echo -e "${RED}RUN_ID: $RUN_ID${NC}"
-                echo -e "${RED}CONCLUSION: $RUN_CONCLUSION${NC}"
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo -e "${YELLOW}ERROR LOGS:${NC}"
-                echo "$LOGS"
-                echo ""
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo -e "${YELLOW}💡 Agent should analyze and fix these errors${NC}"
-                exit 1
-            fi
-        fi
-
-        # Still running
-        echo -e "${YELLOW}⏳ Workflow still running... (poll $((poll_count + 1))/$max_polls)${NC}"
+    # Watch until all checks complete
+    echo -e "${BLUE}⏳ Watching checks until completion...${NC}"
+    if timeout 1200 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch 2>/dev/null; then
         echo ""
-        sleep 10
-        poll_count=$((poll_count + 1))
-    done
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}STATUS: SUCCESS${NC}"
+        echo -e "${GREEN}PR: #$PR_NUMBER${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    echo -e "${RED}❌ Timeout: Workflow did not complete within 20 minutes${NC}"
+        # Check for PR review comments after CI passes
+        check_review_comments
+        exit 0
+    fi
+
+    # Failed - show status and fetch error logs
+    echo ""
+    echo -e "${RED}❌ Some checks FAILED!${NC}"
+    echo ""
+    gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
+    echo ""
+
+    # Get failed logs
+    RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+    echo -e "${YELLOW}📋 Fetching error logs (run $RUN_ID)...${NC}"
+    echo ""
+
+    LOGS=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1)
+
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}STATUS: FAILURE${NC}"
+    echo -e "${RED}PR: #$PR_NUMBER | RUN: $RUN_ID${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "$LOGS"
+    echo ""
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}💡 Agent should analyze and fix these errors${NC}"
     exit 1
 }
 
@@ -324,7 +293,7 @@ main() {
     detect_repo
     get_branch
     check_pr_exists
-    poll_workflow
+    poll_checks
 }
 
 main
