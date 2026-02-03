@@ -46,7 +46,24 @@ Currently, all tables are dropped when DataContext exits. This is wasteful for l
 
 ### Components
 
-#### 1. TableMessage
+#### 1. ClickHouseCreds
+
+Dataclass bundling ClickHouse connection parameters.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class ClickHouseCreds:
+    """ClickHouse connection credentials."""
+    host: str = "localhost"
+    port: int = 8123
+    user: str = "default"
+    password: str = ""
+    database: str = "default"
+```
+
+#### 2. TableMessage
 
 Message passed to worker via queue.
 
@@ -65,7 +82,7 @@ class TableMessage:
     table_name: str = ""
 ```
 
-#### 2. TableWorker
+#### 3. TableWorker
 
 Background thread managing table lifecycle.
 
@@ -77,16 +94,9 @@ from clickhouse_connect import get_client
 class TableWorker:
     """Background worker that manages table lifecycle via refcounting."""
 
-    def __init__(self, ch_host: str, ch_port: int, ch_user: str,
-                 ch_password: str, ch_database: str):
-        """Initialize worker with ClickHouse connection params."""
-        self._ch_params = {
-            "host": ch_host,
-            "port": ch_port,
-            "username": ch_user,
-            "password": ch_password,
-            "database": ch_database,
-        }
+    def __init__(self, creds: ClickHouseCreds):
+        """Initialize worker with ClickHouse credentials."""
+        self._creds = creds
         self._ch_client = None  # Created in thread
         self._queue: queue.Queue[TableMessage] = queue.Queue()
         self._refcounts: dict[str, int] = {}
@@ -112,7 +122,13 @@ class TableWorker:
     def _run(self) -> None:
         """Worker loop - runs in background thread."""
         # Create sync client in worker thread
-        self._ch_client = get_client(**self._ch_params)
+        self._ch_client = get_client(
+            host=self._creds.host,
+            port=self._creds.port,
+            username=self._creds.user,
+            password=self._creds.password,
+            database=self._creds.database,
+        )
 
         try:
             while True:
@@ -151,11 +167,12 @@ class TableWorker:
         self._refcounts.clear()
 ```
 
-#### 3. DataContext Integration
+#### 4. DataContext Integration
 
 ```python
 class DataContext:
-    def __init__(self, engine: EngineType | None = None):
+    def __init__(self, creds: ClickHouseCreds | None = None, engine: EngineType | None = None):
+        self._creds = creds or ClickHouseCreds()
         self._ch_client: AsyncClient | None = None
         self._worker: TableWorker | None = None
         self._token = None
@@ -174,16 +191,10 @@ class DataContext:
     async def __aenter__(self):
         """Enter context: start client and worker."""
         if self._ch_client is None:
-            self._ch_client = await get_ch_client()
+            self._ch_client = await get_ch_client(self._creds)
 
         # Start background worker
-        self._worker = TableWorker(
-            ch_host=CLICKHOUSE_HOST,
-            ch_port=CLICKHOUSE_PORT,
-            ch_user=CLICKHOUSE_USER,
-            ch_password=CLICKHOUSE_PASSWORD,
-            ch_database=CLICKHOUSE_DB,
-        )
+        self._worker = TableWorker(self._creds)
         self._worker.start()
 
         self._token = _current_context.set(self)
@@ -202,7 +213,7 @@ class DataContext:
         return False
 ```
 
-#### 4. Object Integration
+#### 5. Object Integration
 
 ```python
 import sys
@@ -238,7 +249,7 @@ class Object:
         context.decref(self._table_name)
 ```
 
-#### 5. View Integration
+#### 6. View Integration
 
 Views reference the same table as their source, so they also incref/decref.
 
@@ -393,7 +404,24 @@ Timeline
 3. **Batch drops**: Could batch multiple drops, but single drops are fast enough
 4. **Sync client**: Worker uses sync client (simpler, runs in own thread)
 
+## Refactor Note
+
+This implementation requires refactoring existing code:
+
+1. **Extract ClickHouseCreds**: Currently connection params are scattered (env vars read in multiple places). Consolidate into `ClickHouseCreds` dataclass.
+
+2. **Update get_ch_client()**: Accept `ClickHouseCreds` parameter instead of reading env vars directly.
+
+3. **DataContext signature change**: Add optional `creds` parameter to `__init__`.
+
 ## Implementation Plan
+
+### Phase 0: Refactor Prerequisites
+
+- [ ] Create `ClickHouseCreds` dataclass in `aaiclick/data/models.py`
+- [ ] Add `get_creds_from_env()` helper function
+- [ ] Update `get_ch_client()` to accept `ClickHouseCreds`
+- [ ] Update `DataContext.__init__` to accept optional `creds` parameter
 
 ### Phase 1: Core Infrastructure
 
@@ -405,7 +433,7 @@ Timeline
 
 - [ ] Remove `_objects` weakref dict from `DataContext`
 - [ ] Remove `_register_object()` method
-- [ ] Add `_worker` attribute and `worker` property
+- [ ] Add `_worker` attribute
 - [ ] Update `__aenter__` to start worker
 - [ ] Update `__aexit__` to stop worker
 - [ ] Remove `_delete_object()` and `delete()` methods (no longer needed)
