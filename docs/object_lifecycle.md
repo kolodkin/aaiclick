@@ -404,61 +404,9 @@ Timeline
 3. **Batch drops**: Could batch multiple drops, but single drops are fast enough
 4. **Sync client**: Worker uses sync client (simpler, runs in own thread)
 
-## Refactor Note
+## Implementation
 
-This implementation requires refactoring existing code:
-
-1. **Extract ClickHouseCreds**: Currently connection params are scattered (env vars read in multiple places). Consolidate into `ClickHouseCreds` dataclass.
-
-2. **Update get_ch_client()**: Accept `ClickHouseCreds` parameter instead of reading env vars directly.
-
-3. **DataContext signature change**: Add optional `creds` parameter to `__init__`.
-
-## Implementation Plan
-
-### Phase 0: Refactor Prerequisites
-
-- [ ] Create `ClickHouseCreds` dataclass in `aaiclick/data/models.py`
-- [ ] Add `get_creds_from_env()` helper function
-- [ ] Update `get_ch_client()` to accept `ClickHouseCreds`
-- [ ] Update `DataContext.__init__` to accept optional `creds` parameter
-
-### Phase 1: Core Infrastructure
-
-- [ ] Create `TableMessage` and `TableOp` in new file `aaiclick/data/table_worker.py`
-- [ ] Implement `TableWorker` class
-- [ ] Add unit tests for worker (mock ClickHouse client)
-
-### Phase 2: DataContext Integration
-
-- [ ] Remove `_objects` weakref dict from `DataContext`
-- [ ] Remove `_register_object()` method
-- [ ] Add `_worker` attribute
-- [ ] Update `__aenter__` to start worker
-- [ ] Update `__aexit__` to stop worker
-- [ ] Remove `_delete_object()` and `delete()` methods (no longer needed)
-
-### Phase 3: Object Integration
-
-- [ ] Add `_context_ref` attribute to `Object`
-- [ ] Add `_register()` method to `Object`
-- [ ] Implement `Object.__del__()` with guards
-- [ ] Update `create_object()` to call `obj._register(ctx)`
-
-### Phase 4: View Integration
-
-- [ ] Update `View.__init__()` to incref source's table
-- [ ] Implement `View.__del__()` with guards
-- [ ] Handle View-of-View case (use ultimate source table)
-
-### Phase 5: Testing
-
-- [ ] Test basic incref/decref flow
-- [ ] Test multiple objects same table
-- [ ] Test View lifecycle
-- [ ] Test context exit with pending objects
-- [ ] Test `__del__` after context exit
-- [ ] Test concurrent object deletion
+See [object_lifecycle_implementation_plan.md](object_lifecycle_implementation_plan.md) for phased implementation plan.
 
 ## Future: PostgreSQL-Based Registry
 
