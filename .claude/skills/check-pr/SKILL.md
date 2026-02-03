@@ -23,13 +23,12 @@ This script will automatically:
 
 ## On Failure
 
-Analyze the error logs and fix:
+1. **Get logs from failed runs:**
+   ```bash
+   gh run view RUN_ID --repo OWNER/REPO --log-failed
+   ```
 
-- **Test Failures:** Fix code, imports, or test logic
-- **Dependency Issues:** Add to pyproject.toml
-- **Linting:** Run `ruff check --fix .`
-
-Then commit, push, and run the script again until workflow passes.
+2. **Analyze, fix, commit, push, and re-run the script until workflow passes.**
 
 ## Address PR Review Comments
 

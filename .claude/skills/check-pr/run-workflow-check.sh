@@ -204,10 +204,7 @@ check_review_comments() {
         echo ""
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo -e "${YELLOW}💡 Reply to comments using:${NC}"
-        echo "  gh api -X POST repos/${REPO}/pulls/${PR_NUMBER}/comments \\"
-        echo "    -f body=\"✅ Agent Addressed: <description>\" \\"
-        echo "    -F in_reply_to=COMMENT_ID"
+        echo -e "${YELLOW}💡 See SKILL.md 'Address PR Review Comments' section for reply guidelines${NC}"
         echo ""
     else
         echo -e "${GREEN}✅ No unresolved review comments${NC}"
