@@ -262,33 +262,56 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
         ...     )
         ...     obj = await create_object(schema)
     """
-    from .object import Object
+    from .object import Object, ObjectMetadata, ColumnInfo
 
     ctx = get_data_context()
+
+    # Build column definitions and metadata simultaneously
+    column_defs = []
+    column_infos: dict[str, ColumnInfo] = {}
+
+    for name, col_type in schema.columns.items():
+        col_def = f"{name} {col_type}"
+        # Determine fieldtype based on column name and schema
+        if name == "aai_id":
+            col_fieldtype = FIELDTYPE_SCALAR
+        else:
+            col_fieldtype = schema.fieldtype
+
+        comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
+        if comment:
+            col_def += f" COMMENT '{comment}'"
+        column_defs.append(col_def)
+
+        # Build ColumnInfo for metadata
+        column_infos[name] = ColumnInfo(
+            name=name,
+            type=str(col_type),
+            fieldtype=col_fieldtype,
+        )
+
+    # Determine overall fieldtype
+    column_names = set(schema.columns.keys())
+    is_dict_type = not (column_names <= {"aai_id", "value"})
+    overall_fieldtype = FIELDTYPE_DICT if is_dict_type else schema.fieldtype
+
+    # Create Object with pre-built metadata
     obj = Object()
+    metadata = ObjectMetadata(
+        table=obj.table,
+        fieldtype=overall_fieldtype,
+        columns=column_infos,
+    )
+    obj._metadata = metadata
 
     # Use provided engine or fall back to context's engine
     effective_engine = engine if engine is not None else ctx.engine
-
-    # Build column definitions with comments derived from fieldtype
-    columns = []
-    for name, col_type in schema.columns.items():
-        col_def = f"{name} {col_type}"
-        # Determine comment based on column name and schema fieldtype
-        if name == "aai_id":
-            comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-        else:
-            comment = ColumnMeta(fieldtype=schema.fieldtype).to_yaml()
-
-        if comment:
-            col_def += f" COMMENT '{comment}'"
-        columns.append(col_def)
 
     # Create table with all columns and comments in single query
     engine_clause = get_engine_clause(effective_engine)
     create_query = f"""
     CREATE TABLE {obj.table} (
-        {', '.join(columns)}
+        {', '.join(column_defs)}
     ) {engine_clause}
     """
     await ctx.ch_client.command(create_query)

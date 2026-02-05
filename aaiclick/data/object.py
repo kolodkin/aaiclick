@@ -60,16 +60,22 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(self, table: Optional[str] = None):
+    def __init__(
+        self,
+        table: Optional[str] = None,
+        metadata: Optional[ObjectMetadata] = None,
+    ):
         """
         Initialize an Object.
 
         Args:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
+            metadata: Optional ObjectMetadata to cache (set at creation time)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
+        self._metadata = metadata
 
     @property
     def table(self) -> str:
@@ -243,8 +249,8 @@ class Object:
         """
         Get metadata for this object including table name, fieldtype, and column info.
 
-        Queries the ClickHouse system.columns table to retrieve column names, types,
-        and parsed fieldtype metadata from column comments.
+        Returns cached metadata if available (set at creation time), otherwise
+        queries the ClickHouse system.columns table.
 
         Returns:
             ObjectMetadata: Dataclass with table, fieldtype, and columns info
@@ -253,17 +259,21 @@ class Object:
             >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
             >>> meta = await obj.metadata()
             >>> print(meta)
-            ObjectMetadata(table='t...', fieldtype='a', columns={
+            ObjectMetadata(table='t...', fieldtype='d', columns={
                 'aai_id': ColumnInfo(name='aai_id', type='UInt64', fieldtype='s'),
                 'param1': ColumnInfo(name='param1', type='Int64', fieldtype='a'),
                 'param2': ColumnInfo(name='param2', type='Int64', fieldtype='a')
             })
             >>> view = obj['param1']
-            >>> view_meta = await view.metadata()  # Same metadata (references same table)
+            >>> view_meta = await view.metadata()  # Returns ViewMetadata
         """
         self.checkstale()
 
-        # Query column names, types, and comments
+        # Return cached metadata if available
+        if self._metadata is not None:
+            return self._metadata
+
+        # Fallback: query database for metadata (for objects not created via create_object)
         columns_query = f"""
         SELECT name, type, comment
         FROM system.columns
@@ -295,11 +305,13 @@ class Object:
         if is_dict_type:
             overall_fieldtype = FIELDTYPE_DICT
 
-        return ObjectMetadata(
+        # Cache for future calls
+        self._metadata = ObjectMetadata(
             table=self.table,
             fieldtype=overall_fieldtype,
             columns=columns
         )
+        return self._metadata
 
     async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
