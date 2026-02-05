@@ -8,22 +8,17 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Optional, Dict, Union, List
-import weakref
+from typing import Optional, Union, List
 
 import numpy as np
 from clickhouse_connect import get_async_client
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from urllib3 import PoolManager
 
-from .env import (
-    CLICKHOUSE_HOST,
-    CLICKHOUSE_PORT,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_DB,
-)
+from .env import get_creds_from_env
+from .table_worker import TableWorker
 from .models import (
+    ClickHouseCreds,
     ValueScalarType,
     ValueListType,
     ValueType,
@@ -73,26 +68,25 @@ def get_pool() -> PoolManager:
     return _pool[0]
 
 
-async def get_ch_client() -> AsyncClient:
+async def get_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
     """
     Create a ClickHouse client using the shared connection pool.
 
-    Connection parameters are read from environment variables:
-    - CLICKHOUSE_HOST (default: "localhost")
-    - CLICKHOUSE_PORT (default: 8123)
-    - CLICKHOUSE_USER (default: "default")
-    - CLICKHOUSE_PASSWORD (default: "")
-    - CLICKHOUSE_DB (default: "default")
+    Args:
+        creds: ClickHouse credentials. If None, reads from environment variables.
 
     Returns:
         AsyncClient: ClickHouse client instance
     """
+    if creds is None:
+        creds = get_creds_from_env()
+
     return await get_async_client(
-        host=CLICKHOUSE_HOST,
-        port=CLICKHOUSE_PORT,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        database=CLICKHOUSE_DB,
+        host=creds.host,
+        port=creds.port,
+        username=creds.user,
+        password=creds.password,
+        database=creds.database,
         pool_mgr=get_pool(),
     )
 
@@ -113,15 +107,21 @@ class DataContext:
         ... # Tables are automatically deleted here
     """
 
-    def __init__(self, engine: EngineType | None = None):
+    def __init__(
+        self,
+        creds: ClickHouseCreds | None = None,
+        engine: EngineType | None = None,
+    ):
         """Initialize a DataContext.
 
         Args:
+            creds: ClickHouse credentials. If None, reads from environment variables.
             engine: ClickHouse table engine to use. Defaults to ENGINE_DEFAULT (MergeTree).
                    Use ENGINE_MEMORY for in-memory tables (faster, no disk I/O).
         """
+        self._creds = creds or get_creds_from_env()
         self._ch_client: Optional[AsyncClient] = None
-        self._objects: Dict[int, weakref.ref] = {}
+        self._worker: Optional[TableWorker] = None
         self._token = None
         self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
 
@@ -147,75 +147,43 @@ class DataContext:
             )
         return self._ch_client
 
-    def _register_object(self, obj: Object) -> None:
-        """
-        Register an Object to be tracked by this context.
+    def incref(self, table_name: str) -> None:
+        """Increment reference count for table. Thread-safe, non-blocking."""
+        if self._worker is not None:
+            self._worker.incref(table_name)
 
-        Args:
-            obj: Object instance to register
-        """
-        # Use id(obj) as key and weakref as value
-        self._objects[id(obj)] = weakref.ref(obj)
+    def decref(self, table_name: str) -> None:
+        """Decrement reference count for table. Thread-safe, non-blocking."""
+        if self._worker is not None:
+            self._worker.decref(table_name)
 
     async def __aenter__(self):
-        """Enter the context, initializing the client and setting ContextVar."""
+        """Enter the context, initializing the client and starting the worker."""
         if self._ch_client is None:
-            self._ch_client = await get_ch_client()
+            self._ch_client = await get_ch_client(self._creds)
+
+        # Start background worker for table lifecycle
+        self._worker = TableWorker(self._creds)
+        self._worker.start()
+
         self._token = _current_context.set(self)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """
-        Exit the context, cleaning up all tracked Objects and resetting ContextVar.
+        Exit the context, stopping the worker and resetting ContextVar.
 
-        Deletes all tables and marks Objects as stale.
+        The worker will drop all remaining tables on shutdown.
         """
-        # Clean up all tracked objects
-        for obj_ref in self._objects.values():
-            obj = obj_ref()
-            if obj is not None and not obj.stale:
-                await self._delete_object(obj)
-
-        # Clear the tracking dict
-        self._objects.clear()
+        # Stop worker (blocks until all tables dropped)
+        if self._worker:
+            self._worker.stop()
+            self._worker = None
 
         # Reset the ContextVar
         _current_context.reset(self._token)
 
         return False
-
-    async def _delete_object(self, obj: Object) -> None:
-        """
-        Internal method to delete an object's table and mark it as stale.
-
-        Args:
-            obj: Object to delete
-        """
-        await self.ch_client.command(f"DROP TABLE IF EXISTS {obj.table}")
-        obj._stale = True
-
-    async def delete(self, obj: Object) -> None:
-        """
-        Delete an Object's table and mark it as stale.
-
-        This removes the Object from tracking and cleans up its ClickHouse table.
-
-        Args:
-            obj: Object to delete
-
-        Example:
-            >>> async with DataContext() as ctx:
-            ...     obj = await ctx.create_object_from_value([1, 2, 3])
-            ...     result = await (obj + obj)
-            ...     await ctx.delete(result)  # Clean up intermediate result
-        """
-        # Delete the table and mark as stale
-        await self._delete_object(obj)
-
-        # Remove from tracking if present
-        obj_id = id(obj)
-        if obj_id in self._objects:
-            del self._objects[obj_id]
 
 
 def get_engine_clause(engine: EngineType) -> str:
@@ -295,7 +263,7 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
     """
     await ctx.ch_client.command(create_query)
 
-    ctx._register_object(obj)
+    obj._register(ctx)
     return obj
 
 

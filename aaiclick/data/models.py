@@ -10,6 +10,17 @@ from dataclasses import dataclass
 import yaml
 
 
+@dataclass(frozen=True)
+class ClickHouseCreds:
+    """ClickHouse connection credentials."""
+
+    host: str = "localhost"
+    port: int = 8123
+    user: str = "default"
+    password: str = ""
+    database: str = "default"
+
+
 # ClickHouse column type literals
 ColumnType = Literal[
     "UInt8", "UInt16", "UInt32", "UInt64",
