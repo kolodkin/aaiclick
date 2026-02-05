@@ -1135,17 +1135,23 @@ class View(Object):
         Build a SELECT query with view constraints applied.
 
         When selected_field is set, selects aai_id and the field as 'value'.
+        If columns="value" is requested, only the value column is selected.
 
         Args:
-            columns: Column specification (default "*", ignored if selected_field is set)
+            columns: Column specification (default "*", respected for selected_field views)
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
-        # When selected_field is set, select aai_id and the field renamed as 'value'
+        # When selected_field is set, rename the field as 'value'
         if self._selected_field:
-            select_cols = f"aai_id, {self._selected_field} AS value"
+            if columns == "value":
+                # Only select the value column (renamed from selected field)
+                select_cols = f"{self._selected_field} AS value"
+            else:
+                # Select both aai_id and value
+                select_cols = f"aai_id, {self._selected_field} AS value"
         else:
             select_cols = columns
 
