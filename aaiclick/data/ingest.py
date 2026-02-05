@@ -265,19 +265,20 @@ async def clone_view_db(view):
     """
     ch_client = view.ch_client
 
-    # Get the value type from cached metadata
+    # Get the value type from source's cached schema
     # For selected_field views, get the type of the selected column
+    source_schema = view._source._schema
     if view.selected_field:
-        value_type = view._metadata.columns[view.selected_field].type
+        value_type = source_schema.columns[view.selected_field]
     else:
-        value_type = view._metadata.columns["value"].type
+        value_type = source_schema.columns["value"]
 
     # Create new array Object
-    schema = Schema(
+    new_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={"aai_id": "UInt64", "value": value_type}
     )
-    result = await create_object(schema)
+    result = await create_object(new_schema)
 
     # Insert from view's select query
     query_info = view._get_query_info()

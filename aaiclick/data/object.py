@@ -71,38 +71,11 @@ class Object:
         Args:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
-            schema: Optional Schema to build metadata from (set at creation time)
+            schema: Optional Schema with column types (cached for internal use)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
-        self._metadata = self._build_metadata(schema) if schema else None
-
-    def _build_metadata(self, schema: Schema) -> ObjectMetadata:
-        """Build ObjectMetadata from Schema."""
-        column_infos: Dict[str, ColumnInfo] = {}
-
-        for name, col_type in schema.columns.items():
-            if name == "aai_id":
-                col_fieldtype = FIELDTYPE_SCALAR
-            else:
-                col_fieldtype = schema.fieldtype
-
-            column_infos[name] = ColumnInfo(
-                name=name,
-                type=str(col_type),
-                fieldtype=col_fieldtype,
-            )
-
-        # Determine overall fieldtype
-        column_names = set(schema.columns.keys())
-        is_dict_type = not (column_names <= {"aai_id", "value"})
-        overall_fieldtype = FIELDTYPE_DICT if is_dict_type else schema.fieldtype
-
-        return ObjectMetadata(
-            table=self._table_name,
-            fieldtype=overall_fieldtype,
-            columns=column_infos,
-        )
+        self._schema = schema  # Cache schema for internal use (e.g., clone_view_db)
 
     @property
     def table(self) -> str:
@@ -276,7 +249,7 @@ class Object:
         """
         Get metadata for this object including table name, fieldtype, and column info.
 
-        Returns cached metadata if available (set at creation time), otherwise
+        Builds metadata from cached schema if available, otherwise
         queries the ClickHouse system.columns table.
 
         Returns:
@@ -296,9 +269,26 @@ class Object:
         """
         self.checkstale()
 
-        # Return cached metadata if available
-        if self._metadata is not None:
-            return self._metadata
+        # Build from cached schema if available
+        if self._schema is not None:
+            column_infos: Dict[str, ColumnInfo] = {}
+            for name, col_type in self._schema.columns.items():
+                col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
+                column_infos[name] = ColumnInfo(
+                    name=name,
+                    type=str(col_type),
+                    fieldtype=col_fieldtype,
+                )
+
+            column_names = set(self._schema.columns.keys())
+            is_dict_type = not (column_names <= {"aai_id", "value"})
+            overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
+
+            return ObjectMetadata(
+                table=self.table,
+                fieldtype=overall_fieldtype,
+                columns=column_infos,
+            )
 
         # Fallback: query database for metadata (for objects not created via create_object)
         columns_query = f"""
@@ -332,13 +322,11 @@ class Object:
         if is_dict_type:
             overall_fieldtype = FIELDTYPE_DICT
 
-        # Cache for future calls
-        self._metadata = ObjectMetadata(
+        return ObjectMetadata(
             table=self.table,
             fieldtype=overall_fieldtype,
             columns=columns
         )
-        return self._metadata
 
     async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
@@ -1086,22 +1074,6 @@ class View(Object):
         self._offset = offset
         self._order_by = order_by
         self._selected_field = selected_field
-        # Build ViewMetadata from source's cached metadata if available
-        self._metadata = self._build_view_metadata() if source._metadata else None
-
-    def _build_view_metadata(self) -> ViewMetadata:
-        """Build ViewMetadata from source's cached metadata."""
-        source_meta = self._source._metadata
-        return ViewMetadata(
-            table=source_meta.table,
-            fieldtype=source_meta.fieldtype,
-            columns=source_meta.columns,
-            where=self._where,
-            limit=self._limit,
-            offset=self._offset,
-            order_by=self._order_by,
-            selected_field=self._selected_field,
-        )
 
     @property
     def ctx(self) -> Context:
@@ -1232,8 +1204,7 @@ class View(Object):
         """
         Get metadata for this view including table info and view constraints.
 
-        Returns cached ViewMetadata if available (built at init from source's metadata),
-        otherwise builds ViewMetadata from source's metadata (querying DB if needed).
+        Builds ViewMetadata from source's metadata on demand.
 
         Returns:
             ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
@@ -1250,15 +1221,10 @@ class View(Object):
             >>> print(meta2.where)  # 'param1 > 1'
             >>> print(meta2.limit)  # 10
         """
-        # Return cached metadata if available
-        if self._metadata is not None:
-            return self._metadata
-
-        # Fallback: get base metadata from source (may query DB)
+        # Get base metadata from source (may query DB if no cached schema)
         base_meta = await self._source.metadata()
 
-        # Cache and return ViewMetadata
-        self._metadata = ViewMetadata(
+        return ViewMetadata(
             table=base_meta.table,
             fieldtype=base_meta.fieldtype,
             columns=base_meta.columns,
@@ -1268,7 +1234,6 @@ class View(Object):
             order_by=self._order_by,
             selected_field=self._selected_field,
         )
-        return self._metadata
 
     async def clone(self) -> "Object":
         """
