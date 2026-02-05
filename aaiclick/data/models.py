@@ -55,9 +55,11 @@ class QueryInfo(NamedTuple):
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
         base_table: Base table name for metadata queries (always a simple table name)
+        value_column: Column name containing the value (default "value", can be a dict field name)
     """
     source: str
     base_table: str
+    value_column: str = "value"
 
 
 @dataclass

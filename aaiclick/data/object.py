@@ -1176,12 +1176,20 @@ class View(Object):
         that renames the selected column to 'value'.
 
         Returns:
-            QueryInfo: NamedTuple with source and base_table fields
+            QueryInfo: NamedTuple with source, base_table, and value_column fields
         """
+        # For selected_field views, use the selected field name as value_column
+        # This tells operators which column to query for metadata
+        value_column = self._selected_field if self._selected_field else "value"
+
         # Always use subquery for selected_field views or when has_constraints
         if self.has_constraints:
-            return QueryInfo(source=f"({self._build_select()})", base_table=self.table)
-        return QueryInfo(source=self.table, base_table=self.table)
+            return QueryInfo(
+                source=f"({self._build_select()})",
+                base_table=self.table,
+                value_column=value_column,
+            )
+        return QueryInfo(source=self.table, base_table=self.table, value_column=value_column)
 
     async def data(self, orient: str = ORIENT_DICT):
         """
