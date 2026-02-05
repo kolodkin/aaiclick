@@ -265,28 +265,12 @@ async def clone_view_db(view):
     """
     ch_client = view.ch_client
 
-    # Get the value type from cached metadata if available
+    # Get the value type from cached metadata
     # For selected_field views, get the type of the selected column
-    if view._metadata is not None:
-        # Use cached metadata - no database query needed
-        if view.selected_field:
-            value_type = view._metadata.columns[view.selected_field].type
-        else:
-            value_type = view._metadata.columns["value"].type
+    if view.selected_field:
+        value_type = view._metadata.columns[view.selected_field].type
     else:
-        # Fallback: query database for type info
-        if view.selected_field:
-            type_query = f"""
-            SELECT type FROM system.columns
-            WHERE table = '{view.table}' AND name = '{view.selected_field}'
-            """
-        else:
-            type_query = f"""
-            SELECT type FROM system.columns
-            WHERE table = '{view.table}' AND name = 'value'
-            """
-        type_result = await ch_client.query(type_query)
-        value_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+        value_type = view._metadata.columns["value"].type
 
     # Create new array Object
     schema = Schema(
