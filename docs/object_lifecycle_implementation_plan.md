@@ -14,40 +14,40 @@ This implementation requires refactoring existing code:
 
 ## Phases
 
-### Phase 0: Refactor Prerequisites
+### Phase 0: Refactor Prerequisites ✅
 
-- [ ] Create `ClickHouseCreds` dataclass in `aaiclick/data/models.py`
-- [ ] Add `get_creds_from_env()` helper function
-- [ ] Update `get_ch_client()` to accept `ClickHouseCreds`
-- [ ] Update `DataContext.__init__` to accept optional `creds` parameter
+- [x] Create `ClickHouseCreds` dataclass in `aaiclick/data/models.py`
+- [x] Add `get_creds_from_env()` helper function in `aaiclick/data/env.py`
+- [x] Update `get_ch_client()` to accept `ClickHouseCreds`
+- [x] Update `DataContext.__init__` to accept optional `creds` parameter
 
-### Phase 1: Core Infrastructure
+### Phase 1: Core Infrastructure ✅
 
-- [ ] Create `TableMessage` and `TableOp` in new file `aaiclick/data/table_worker.py`
-- [ ] Implement `TableWorker` class
+- [x] Create `TableMessage` and `TableOp` in `aaiclick/data/table_worker.py`
+- [x] Implement `TableWorker` class
 - [ ] Add unit tests for worker (mock ClickHouse client)
 
-### Phase 2: DataContext Integration
+### Phase 2: DataContext Integration ✅
 
-- [ ] Remove `_objects` weakref dict from `DataContext`
-- [ ] Remove `_register_object()` method
-- [ ] Add `_worker` attribute
-- [ ] Update `__aenter__` to start worker
-- [ ] Update `__aexit__` to stop worker
-- [ ] Remove `_delete_object()` and `delete()` methods (no longer needed)
+- [x] Remove `_objects` weakref dict from `DataContext`
+- [x] Remove `_register_object()` method
+- [x] Add `_worker` attribute and `incref()`/`decref()` methods
+- [x] Update `__aenter__` to start worker
+- [x] Update `__aexit__` to stop worker
+- [x] Remove `_delete_object()` and `delete()` methods
 
-### Phase 3: Object Integration
+### Phase 3: Object Integration ✅
 
-- [ ] Add `_context_ref` attribute to `Object`
-- [ ] Add `_register()` method to `Object`
-- [ ] Implement `Object.__del__()` with guards
-- [ ] Update `create_object()` to call `obj._register(ctx)`
+- [x] Add `_context_ref` attribute to `Object`
+- [x] Add `_register()` method to `Object`
+- [x] Implement `Object.__del__()` with guards
+- [x] Update `create_object()` to call `obj._register(ctx)`
 
-### Phase 4: View Integration
+### Phase 4: View Integration ✅
 
-- [ ] Update `View.__init__()` to incref source's table
-- [ ] Implement `View.__del__()` with guards
-- [ ] Handle View-of-View case (use ultimate source table)
+- [x] Update `View.__init__()` to incref source's table
+- [x] Implement `View.__del__()` with guards
+- [x] Handle View-of-View case (uses source's table via `self._source.table`)
 
 ### Phase 5: Testing
 
@@ -57,6 +57,17 @@ This implementation requires refactoring existing code:
 - [ ] Test context exit with pending objects
 - [ ] Test `__del__` after context exit
 - [ ] Test concurrent object deletion
+
+## Implementation Files
+
+| Component | File |
+|-----------|------|
+| `ClickHouseCreds` | `aaiclick/data/models.py` |
+| `get_creds_from_env()` | `aaiclick/data/env.py` |
+| `TableWorker`, `TableOp`, `TableMessage` | `aaiclick/data/table_worker.py` |
+| `DataContext.incref()`, `decref()` | `aaiclick/data/data_context.py` |
+| `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
+| `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |
 
 ## Future: PostgreSQL-Based Registry
 

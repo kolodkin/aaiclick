@@ -7,12 +7,17 @@ and supports operations through operator overloading.
 
 from __future__ import annotations
 
-from typing import Optional, Dict, List, Tuple, Any, Union
+import sys
+import weakref
+from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
 from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators
 from ..snowflake_id import get_snowflake_id
+
+if TYPE_CHECKING:
+    from .data_context import DataContext
 from .models import (
     Schema,
     ColumnMeta,
@@ -67,6 +72,30 @@ class Object:
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
+        self._context_ref: Optional[weakref.ref[DataContext]] = None
+
+    def _register(self, context: DataContext) -> None:
+        """Register this object with context for lifecycle tracking."""
+        self._context_ref = weakref.ref(context)
+        context.incref(self._table_name)
+
+    def __del__(self):
+        """Decrement refcount on deletion."""
+        # Guard 1: Interpreter shutdown
+        if sys.is_finalizing():
+            return
+
+        # Guard 2: Never registered
+        if self._context_ref is None:
+            return
+
+        # Guard 3: Context gone
+        context = self._context_ref()
+        if context is None:
+            return
+
+        # Decref (handles worker=None internally)
+        context.decref(self._table_name)
 
     @property
     def table(self) -> str:
@@ -944,11 +973,35 @@ class View(Object):
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
         """
+        # Don't call super().__init__ - we share source's table
         self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
+        self._context_ref: Optional[weakref.ref[DataContext]] = None
+
+        # Incref same table as source
+        if source._context_ref is not None:
+            context = source._context_ref()
+            if context is not None:
+                self._context_ref = weakref.ref(context)
+                context.incref(source.table)
+
+    def __del__(self):
+        """Decrement refcount on deletion."""
+        if sys.is_finalizing():
+            return
+
+        if self._context_ref is None:
+            return
+
+        context = self._context_ref()
+        if context is None:
+            return
+
+        # Decref the source's table
+        context.decref(self._source.table)
 
     @property
     def ctx(self) -> Context:
