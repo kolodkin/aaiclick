@@ -63,7 +63,7 @@ class Object:
     def __init__(
         self,
         table: Optional[str] = None,
-        metadata: Optional[ObjectMetadata] = None,
+        schema: Optional[Schema] = None,
     ):
         """
         Initialize an Object.
@@ -71,11 +71,38 @@ class Object:
         Args:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
-            metadata: Optional ObjectMetadata to cache (set at creation time)
+            schema: Optional Schema to build metadata from (set at creation time)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
-        self._metadata = metadata
+        self._metadata = self._build_metadata(schema) if schema else None
+
+    def _build_metadata(self, schema: Schema) -> ObjectMetadata:
+        """Build ObjectMetadata from Schema."""
+        column_infos: Dict[str, ColumnInfo] = {}
+
+        for name, col_type in schema.columns.items():
+            if name == "aai_id":
+                col_fieldtype = FIELDTYPE_SCALAR
+            else:
+                col_fieldtype = schema.fieldtype
+
+            column_infos[name] = ColumnInfo(
+                name=name,
+                type=str(col_type),
+                fieldtype=col_fieldtype,
+            )
+
+        # Determine overall fieldtype
+        column_names = set(schema.columns.keys())
+        is_dict_type = not (column_names <= {"aai_id", "value"})
+        overall_fieldtype = FIELDTYPE_DICT if is_dict_type else schema.fieldtype
+
+        return ObjectMetadata(
+            table=self._table_name,
+            fieldtype=overall_fieldtype,
+            columns=column_infos,
+        )
 
     @property
     def table(self) -> str:
@@ -1059,6 +1086,22 @@ class View(Object):
         self._offset = offset
         self._order_by = order_by
         self._selected_field = selected_field
+        # Build ViewMetadata from source's cached metadata if available
+        self._metadata = self._build_view_metadata() if source._metadata else None
+
+    def _build_view_metadata(self) -> ViewMetadata:
+        """Build ViewMetadata from source's cached metadata."""
+        source_meta = self._source._metadata
+        return ViewMetadata(
+            table=source_meta.table,
+            fieldtype=source_meta.fieldtype,
+            columns=source_meta.columns,
+            where=self._where,
+            limit=self._limit,
+            offset=self._offset,
+            order_by=self._order_by,
+            selected_field=self._selected_field,
+        )
 
     @property
     def ctx(self) -> Context:
@@ -1189,8 +1232,8 @@ class View(Object):
         """
         Get metadata for this view including table info and view constraints.
 
-        Returns ViewMetadata which includes all ObjectMetadata fields plus
-        view-specific constraints (where, limit, offset, order_by, selected_field).
+        Returns cached ViewMetadata if available (built at init from source's metadata),
+        otherwise builds ViewMetadata from source's metadata (querying DB if needed).
 
         Returns:
             ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
@@ -1207,10 +1250,15 @@ class View(Object):
             >>> print(meta2.where)  # 'param1 > 1'
             >>> print(meta2.limit)  # 10
         """
-        # Get base metadata from parent
-        base_meta = await super().metadata()
+        # Return cached metadata if available
+        if self._metadata is not None:
+            return self._metadata
 
-        return ViewMetadata(
+        # Fallback: get base metadata from source (may query DB)
+        base_meta = await self._source.metadata()
+
+        # Cache and return ViewMetadata
+        self._metadata = ViewMetadata(
             table=base_meta.table,
             fieldtype=base_meta.fieldtype,
             columns=base_meta.columns,
@@ -1220,6 +1268,7 @@ class View(Object):
             order_by=self._order_by,
             selected_field=self._selected_field,
         )
+        return self._metadata
 
     async def clone(self) -> "Object":
         """
