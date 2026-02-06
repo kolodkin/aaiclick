@@ -8,6 +8,8 @@ import os
 
 from dotenv import load_dotenv
 
+from .models import ClickHouseCreds
+
 load_dotenv()
 
 # ClickHouse connection parameters
@@ -16,6 +18,22 @@ CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "default")
+
+
+def get_creds_from_env() -> ClickHouseCreds:
+    """
+    Create ClickHouseCreds from environment variables.
+
+    Returns:
+        ClickHouseCreds with values from environment or defaults
+    """
+    return ClickHouseCreds(
+        host=CLICKHOUSE_HOST,
+        port=CLICKHOUSE_PORT,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        database=CLICKHOUSE_DB,
+    )
 
 # Snowflake ID parameters
 # Machine ID for distributed ID generation (0-1023, 10 bits)
