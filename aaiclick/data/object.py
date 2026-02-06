@@ -1005,32 +1005,35 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
-    def __getitem__(self, key: str) -> "View":
+    def __getitem__(self, key: Union[str, List[str]]) -> "View":
         """
-        Select a field from a dict Object, returning a View.
+        Select field(s) from a dict Object, returning a View.
 
-        Creates a View that selects only the specified column from the dict Object.
+        Creates a View that selects only the specified column(s) from the dict Object.
         The View can be used in operations or materialized with clone().
 
         Args:
-            key: Column name to select from the dict Object
+            key: Column name (str) or list of column names (list) to select
 
         Returns:
-            View: A new View instance selecting the specified field
+            View: A new View instance selecting the specified field(s)
 
         Examples:
             >>> obj = await create_object_from_value({'param1': [123, 234], 'param2': [456, 342]})
-            >>> meta = await obj.metadata()
-            >>> print(meta.fieldtype)  # 'd' (dict type)
-            >>> print(meta.columns['param1'].type)  # 'Int64'
             >>>
-            >>> view = obj['param1']  # Returns View selecting param1
+            >>> # Single field selector - returns array-like view
+            >>> view = obj['param1']
             >>> await view.data()  # Returns [123, 234]
             >>> arr = await view.clone()  # Returns new array Object
-            >>> arr_meta = await arr.metadata()
-            >>> print(arr_meta.fieldtype)  # 'a' (array type)
+            >>>
+            >>> # Multi-field selector - returns dict-like view
+            >>> view = obj[['param1', 'param2']]
+            >>> await view.data()  # Returns {'param1': [123, 234], 'param2': [456, 342]}
+            >>> dict_obj = await view.clone()  # Returns new dict Object
         """
         self.checkstale()
+        if isinstance(key, list):
+            return View(self, selected_fields=key)
         return View(self, selected_field=key)
 
     def __repr__(self) -> str:
@@ -1056,6 +1059,7 @@ class View(Object):
         offset: Optional[int] = None,
         order_by: Optional[str] = None,
         selected_field: Optional[str] = None,
+        selected_fields: Optional[List[str]] = None,
     ):
         """
         Initialize a View.
@@ -1066,7 +1070,8 @@ class View(Object):
             limit: Optional LIMIT
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
-            selected_field: Optional field name to select from dict Object
+            selected_field: Optional single field name to select (returns array-like view)
+            selected_fields: Optional list of field names to select (returns dict-like view)
         """
         self._source = source
         self._where = where
@@ -1074,6 +1079,7 @@ class View(Object):
         self._offset = offset
         self._order_by = order_by
         self._selected_field = selected_field
+        self._selected_fields = selected_fields
 
     @property
     def ctx(self) -> Context:
@@ -1107,8 +1113,13 @@ class View(Object):
 
     @property
     def selected_field(self) -> Optional[str]:
-        """Get the selected field name (for dict column selection)."""
+        """Get the selected field name (for single-field dict column selection)."""
         return self._selected_field
+
+    @property
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get the selected field names (for multi-field dict column selection)."""
+        return self._selected_fields
 
     @property
     def stale(self) -> bool:
@@ -1117,13 +1128,14 @@ class View(Object):
 
     @property
     def has_constraints(self) -> bool:
-        """Check if this view has any constraints including selected_field."""
+        """Check if this view has any constraints including selected_field/fields."""
         return bool(
             self.where
             or self.limit is not None
             or self.offset is not None
             or self.order_by
             or self.selected_field
+            or self.selected_fields
         )
 
     def checkstale(self):
@@ -1135,6 +1147,7 @@ class View(Object):
         Build a SELECT query with view constraints applied.
 
         When selected_field is set, selects aai_id and the field as 'value'.
+        When selected_fields is set, selects aai_id and all specified fields.
         If columns="value" is requested, only the value column is selected.
 
         Args:
@@ -1144,7 +1157,7 @@ class View(Object):
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
-        # When selected_field is set, rename the field as 'value'
+        # When selected_field is set (single field), rename the field as 'value'
         if self._selected_field:
             if columns == "value":
                 # Only select the value column (renamed from selected field)
@@ -1152,6 +1165,10 @@ class View(Object):
             else:
                 # Select both aai_id and value
                 select_cols = f"aai_id, {self._selected_field} AS value"
+        # When selected_fields is set (multiple fields), select all specified fields
+        elif self._selected_fields:
+            fields_str = ", ".join(self._selected_fields)
+            select_cols = f"aai_id, {fields_str}"
         else:
             select_cols = columns
 
@@ -1196,20 +1213,35 @@ class View(Object):
         Get the data from the view.
 
         For views with selected_field, returns array data (the selected column).
+        For views with selected_fields, returns dict data (subset of columns).
 
         Args:
-            orient: Output format for dict data (ignored for selected_field views)
+            orient: Output format for dict data
 
         Returns:
             - For selected_field views: returns list of values (array)
+            - For selected_fields views: returns dict with selected columns
             - Otherwise: delegates to parent Object.data()
         """
         self.checkstale()
 
         if self._selected_field:
-            # For selected_field views, return as array
+            # For single selected_field views, return as array
             from . import data_extraction
             return await data_extraction.extract_array_data(self)
+
+        if self._selected_fields:
+            # For multi-field views, return as dict with only selected fields
+            from . import data_extraction
+
+            # Build column metadata for selected fields only
+            columns: Dict[str, ColumnMeta] = {}
+            for field in self._selected_fields:
+                columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+
+            # Query with aai_id + selected fields
+            column_names = ["aai_id"] + list(self._selected_fields)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         # Delegate to parent for normal views
         return await super().data(orient=orient)
@@ -1247,6 +1279,7 @@ class View(Object):
             offset=self._offset,
             order_by=self._order_by,
             selected_field=self._selected_field,
+            selected_fields=self._selected_fields,
         )
 
     async def clone(self) -> "Object":
@@ -1278,6 +1311,8 @@ class View(Object):
         constraints = []
         if self.selected_field:
             constraints.append(f"selected_field='{self.selected_field}'")
+        if self.selected_fields:
+            constraints.append(f"selected_fields={self.selected_fields}")
         if self.where:
             constraints.append(f"where='{self.where}'")
         if self.limit:

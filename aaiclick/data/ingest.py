@@ -252,10 +252,10 @@ async def insert_objects_db(
 
 async def clone_view_db(view):
     """
-    Materialize a View as a new array Object at database level.
+    Materialize a View as a new Object at database level.
 
-    Creates a new Object with array fieldtype containing the view's data.
-    For views with selected_field, the selected column is renamed to 'value'.
+    For views with selected_field (single), creates an array Object.
+    For views with selected_fields (multiple), creates a dict Object.
 
     Args:
         view: View instance to clone
@@ -264,10 +264,38 @@ async def clone_view_db(view):
         Object: New Object instance with the view's data materialized
     """
     ch_client = view.ch_client
-
-    # Get the value type from source's cached schema
-    # For selected_field views, get the type of the selected column
     source_schema = view._source._schema
+
+    # Handle multi-field selection (dict output)
+    if view.selected_fields:
+        # Build schema with selected columns
+        columns = {"aai_id": "UInt64"}
+        for field in view.selected_fields:
+            columns[field] = source_schema.columns[field]
+
+        new_schema = Schema(
+            fieldtype=FIELDTYPE_ARRAY,  # Each column is an array
+            columns=columns
+        )
+        result = await create_object(new_schema)
+
+        # Build column list for INSERT
+        fields_str = ", ".join(view.selected_fields)
+        query_info = view._get_query_info()
+        if query_info.source.startswith('('):
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, {fields_str} FROM {query_info.source} AS v
+            """
+        else:
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, {fields_str} FROM {query_info.source}
+            """
+        await ch_client.command(insert_query)
+        return result
+
+    # Handle single-field selection (array output)
     if view.selected_field:
         value_type = source_schema.columns[view.selected_field]
     else:
@@ -283,7 +311,6 @@ async def clone_view_db(view):
     # Insert from view's select query
     query_info = view._get_query_info()
     if query_info.source.startswith('('):
-        # Subquery needs alias
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT aai_id, value FROM {query_info.source} AS v
