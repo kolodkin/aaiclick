@@ -311,8 +311,8 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
     """
     await ctx.ch_client.command(create_query)
 
-    obj._register(ctx)
-    ctx._register_object(obj)  # Track for stale marking on context exit
+    obj._register(ctx)  # Table lifecycle: incref for refcount-based DROP
+    ctx._register_object(obj)  # Object lifecycle: track for stale marking on exit
     return obj
 
 
