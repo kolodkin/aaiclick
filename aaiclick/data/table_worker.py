@@ -30,7 +30,7 @@ class TableMessage:
     """Message passed to worker via queue."""
 
     op: TableOp
-    table_name: str = ""
+    table_name: str
 
 
 class TableWorker:
@@ -50,7 +50,7 @@ class TableWorker:
 
     def stop(self) -> None:
         """Stop worker and wait for completion. Blocks until done."""
-        self._queue.put(TableMessage(TableOp.SHUTDOWN))
+        self._queue.put(TableMessage(TableOp.SHUTDOWN, ""))
         self._thread.join()
 
     def incref(self, table_name: str) -> None:

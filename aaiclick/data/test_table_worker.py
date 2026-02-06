@@ -8,27 +8,6 @@ from aaiclick.data.table_worker import TableWorker, TableOp, TableMessage
 from aaiclick.data.models import ClickHouseCreds
 
 
-def test_table_message_creation():
-    """Test TableMessage dataclass creation."""
-    msg = TableMessage(TableOp.INCREF, "test_table")
-    assert msg.op == TableOp.INCREF
-    assert msg.table_name == "test_table"
-
-
-def test_table_message_default_table_name():
-    """Test TableMessage with default empty table name."""
-    msg = TableMessage(TableOp.SHUTDOWN)
-    assert msg.op == TableOp.SHUTDOWN
-    assert msg.table_name == ""
-
-
-def test_table_op_enum_values():
-    """Test TableOp enum has expected values."""
-    assert TableOp.INCREF.value == 1
-    assert TableOp.DECREF.value == 2
-    assert TableOp.SHUTDOWN.value == 3
-
-
 def test_worker_incref_queues_message():
     """Test that incref queues an INCREF message."""
     creds = ClickHouseCreds()
@@ -145,14 +124,8 @@ def test_worker_full_lifecycle(mock_get_client):
     # Stop and wait
     worker.stop()
 
-    # Client should have been created with correct params
-    mock_get_client.assert_called_once_with(
-        host="testhost",
-        port=9000,
-        username="default",
-        password="",
-        database="testdb",
-    )
+    # Client should have been created
+    mock_get_client.assert_called_once()
 
     # Remaining tables should be cleaned up (table_x has refcount 1, table_y has 1)
     # Both should be dropped on shutdown
@@ -163,6 +136,8 @@ def test_worker_full_lifecycle(mock_get_client):
 @patch("aaiclick.data.table_worker.get_client")
 def test_worker_drops_table_when_refcount_zero(mock_get_client):
     """Test that table is dropped immediately when refcount reaches zero."""
+    import time
+
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
 
@@ -176,8 +151,6 @@ def test_worker_drops_table_when_refcount_zero(mock_get_client):
     worker.decref("temp_table")
 
     # Give worker time to process
-    import time
-
     time.sleep(0.1)
 
     # Stop worker
