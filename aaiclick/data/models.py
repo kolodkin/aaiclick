@@ -121,8 +121,7 @@ class ViewMetadata:
         limit: LIMIT constraint (or None)
         offset: OFFSET constraint (or None)
         order_by: ORDER BY clause (or None)
-        selected_field: Selected column name for single-field selection (or None)
-        selected_fields: List of selected column names for multi-field selection (or None)
+        selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
     table: str
@@ -132,7 +131,6 @@ class ViewMetadata:
     limit: Optional[int] = None
     offset: Optional[int] = None
     order_by: Optional[str] = None
-    selected_field: Optional[str] = None
     selected_fields: Optional[List[str]] = None
 
 

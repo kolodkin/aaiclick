@@ -109,6 +109,16 @@ class Object:
         return None
 
     @property
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get selected field names (None for base Object)."""
+        return None
+
+    @property
+    def is_single_field(self) -> bool:
+        """Check if this is a single-field selection (False for base Object)."""
+        return False
+
+    @property
     def ch_client(self):
         """Get the ClickHouse client from the context."""
         self.checkstale()
@@ -1038,9 +1048,9 @@ class Object:
             >>> dict_obj = await view.copy()  # Returns new dict Object
         """
         self.checkstale()
-        if isinstance(key, list):
-            return View(self, selected_fields=key)
-        return View(self, selected_field=key)
+        # Always store as list - single field is just a list of one
+        fields = key if isinstance(key, list) else [key]
+        return View(self, selected_fields=fields)
 
     def __repr__(self) -> str:
         """String representation of the Object."""
@@ -1054,7 +1064,8 @@ class View(Object):
     Views are read-only and reference the same underlying table as their source Object.
     They cannot be modified with operations like insert().
 
-    Views can also select a specific field from a dict Object using selected_field.
+    Views can also select fields from a dict Object using selected_fields.
+    Single-field selection (len=1) returns array-like data, multi-field returns dict-like.
     """
 
     def __init__(
@@ -1064,7 +1075,6 @@ class View(Object):
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         order_by: Optional[str] = None,
-        selected_field: Optional[str] = None,
         selected_fields: Optional[List[str]] = None,
     ):
         """
@@ -1076,15 +1086,15 @@ class View(Object):
             limit: Optional LIMIT
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
-            selected_field: Optional single field name to select (returns array-like view)
-            selected_fields: Optional list of field names to select (returns dict-like view)
+            selected_fields: Optional list of field names to select
+                             Single field [name] returns array-like view
+                             Multiple fields returns dict-like view
         """
         self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
-        self._selected_field = selected_field
         self._selected_fields = selected_fields
 
     @property
@@ -1118,14 +1128,14 @@ class View(Object):
         return self._order_by
 
     @property
-    def selected_field(self) -> Optional[str]:
-        """Get the selected field name (for single-field dict column selection)."""
-        return self._selected_field
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get the selected field names for dict column selection."""
+        return self._selected_fields
 
     @property
-    def selected_fields(self) -> Optional[List[str]]:
-        """Get the selected field names (for multi-field dict column selection)."""
-        return self._selected_fields
+    def is_single_field(self) -> bool:
+        """Check if this is a single-field selection (array-like output)."""
+        return self._selected_fields is not None and len(self._selected_fields) == 1
 
     @property
     def stale(self) -> bool:
@@ -1134,13 +1144,12 @@ class View(Object):
 
     @property
     def has_constraints(self) -> bool:
-        """Check if this view has any constraints including selected_field/fields."""
+        """Check if this view has any constraints including selected_fields."""
         return bool(
             self.where
             or self.limit is not None
             or self.offset is not None
             or self.order_by
-            or self.selected_field
             or self.selected_fields
         )
 
@@ -1152,29 +1161,29 @@ class View(Object):
         """
         Build a SELECT query with view constraints applied.
 
-        When selected_field is set, selects aai_id and the field as 'value'.
-        When selected_fields is set, selects aai_id and all specified fields.
+        For single-field selection, renames the field as 'value' for array compatibility.
+        For multi-field selection, selects all specified fields.
         If columns="value" is requested, only the value column is selected.
 
         Args:
-            columns: Column specification (default "*", respected for selected_field views)
+            columns: Column specification (default "*", respected for field selection views)
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
-        # When selected_field is set (single field), rename the field as 'value'
-        if self._selected_field:
-            if columns == "value":
-                # Only select the value column (renamed from selected field)
-                select_cols = f"{self._selected_field} AS value"
+        if self._selected_fields:
+            if self.is_single_field:
+                # Single field: rename as 'value' for array compatibility
+                field = self._selected_fields[0]
+                if columns == "value":
+                    select_cols = f"{field} AS value"
+                else:
+                    select_cols = f"aai_id, {field} AS value"
             else:
-                # Select both aai_id and value
-                select_cols = f"aai_id, {self._selected_field} AS value"
-        # When selected_fields is set (multiple fields), select all specified fields
-        elif self._selected_fields:
-            fields_str = ", ".join(self._selected_fields)
-            select_cols = f"aai_id, {fields_str}"
+                # Multiple fields: select all specified fields
+                fields_str = ", ".join(self._selected_fields)
+                select_cols = f"aai_id, {fields_str}"
         else:
             select_cols = columns
 
@@ -1195,17 +1204,16 @@ class View(Object):
         """
         Get query information for database operations.
 
-        For Views with selected_field, the source is always a subquery
+        For Views with single-field selection, the source is always a subquery
         that renames the selected column to 'value'.
 
         Returns:
             QueryInfo: NamedTuple with source, base_table, and value_column fields
         """
-        # For selected_field views, use the selected field name as value_column
-        # This tells operators which column to query for metadata
-        value_column = self._selected_field if self._selected_field else "value"
+        # For single-field views, use the field name as value_column for metadata queries
+        value_column = self._selected_fields[0] if self.is_single_field else "value"
 
-        # Always use subquery for selected_field views or when has_constraints
+        # Always use subquery when has_constraints (includes selected_fields)
         if self.has_constraints:
             return QueryInfo(
                 source=f"({self._build_select()})",
@@ -1218,36 +1226,33 @@ class View(Object):
         """
         Get the data from the view.
 
-        For views with selected_field, returns array data (the selected column).
-        For views with selected_fields, returns dict data (subset of columns).
+        For single-field selection, returns array data (the selected column).
+        For multi-field selection, returns dict data (subset of columns).
 
         Args:
             orient: Output format for dict data
 
         Returns:
-            - For selected_field views: returns list of values (array)
-            - For selected_fields views: returns dict with selected columns
+            - For single-field views: returns list of values (array)
+            - For multi-field views: returns dict with selected columns
             - Otherwise: delegates to parent Object.data()
         """
         self.checkstale()
 
-        if self._selected_field:
-            # For single selected_field views, return as array
-            from . import data_extraction
-            return await data_extraction.extract_array_data(self)
-
         if self._selected_fields:
-            # For multi-field views, return as dict with only selected fields
             from . import data_extraction
 
-            # Build column metadata for selected fields only
-            columns: Dict[str, ColumnMeta] = {}
-            for field in self._selected_fields:
-                columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+            if self.is_single_field:
+                # Single field: return as array
+                return await data_extraction.extract_array_data(self)
+            else:
+                # Multiple fields: return as dict with only selected fields
+                columns: Dict[str, ColumnMeta] = {}
+                for field in self._selected_fields:
+                    columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
 
-            # Query with aai_id + selected fields
-            column_names = ["aai_id"] + list(self._selected_fields)
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+                column_names = ["aai_id"] + list(self._selected_fields)
+                return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         # Delegate to parent for normal views
         return await super().data(orient=orient)
@@ -1265,7 +1270,7 @@ class View(Object):
             >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
             >>> view = obj['param1']
             >>> meta = await view.metadata()
-            >>> print(meta.selected_field)  # 'param1'
+            >>> print(meta.selected_fields)  # ['param1']
             >>> print(meta.fieldtype)  # 'd' (source table is dict type)
             >>>
             >>> filtered = obj.view(where="param1 > 1", limit=10)
@@ -1284,7 +1289,6 @@ class View(Object):
             limit=self._limit,
             offset=self._offset,
             order_by=self._order_by,
-            selected_field=self._selected_field,
             selected_fields=self._selected_fields,
         )
 
@@ -1295,8 +1299,6 @@ class View(Object):
     def __repr__(self) -> str:
         """String representation of the View."""
         constraints = []
-        if self.selected_field:
-            constraints.append(f"selected_field='{self.selected_field}'")
         if self.selected_fields:
             constraints.append(f"selected_fields={self.selected_fields}")
         if self.where:

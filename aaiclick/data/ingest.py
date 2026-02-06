@@ -124,8 +124,8 @@ async def copy_db(obj):
     Copy an Object or View to a new Object at database level.
 
     For base Objects: Creates a new Object with a copy of all data.
-    For Views with selected_field (single): Creates an array Object.
-    For Views with selected_fields (multiple): Creates a dict Object.
+    For Views with single-field selection: Creates an array Object.
+    For Views with multi-field selection: Creates a dict Object.
 
     Args:
         obj: Object or View instance to copy
@@ -134,64 +134,40 @@ async def copy_db(obj):
         Object: New Object instance with copied data
     """
     ch_client = obj.ch_client
-
-    # Check if this is a View with field selection
-    selected_field = getattr(obj, 'selected_field', None)
-    selected_fields = getattr(obj, 'selected_fields', None)
     source = getattr(obj, '_source', None)
 
-    # Handle multi-field selection (dict output)
-    if selected_fields and source:
+    # Handle field selection (single or multi)
+    if obj.selected_fields and source:
         source_schema = source._schema
-        # Build schema with selected columns
-        columns = {"aai_id": "UInt64"}
-        for field in selected_fields:
-            columns[field] = source_schema.columns[field]
-
-        new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,  # Each column is an array
-            columns=columns
-        )
-        result = await create_object(new_schema)
-
-        # Build column list for INSERT
-        fields_str = ", ".join(selected_fields)
         query_info = obj._get_query_info()
-        if query_info.source.startswith('('):
+        alias = " AS v" if query_info.source.startswith('(') else ""
+
+        if obj.is_single_field:
+            # Single field: create array Object with value column
+            field = obj.selected_fields[0]
+            new_schema = Schema(
+                fieldtype=FIELDTYPE_ARRAY,
+                columns={"aai_id": "UInt64", "value": source_schema.columns[field]}
+            )
+            result = await create_object(new_schema)
             insert_query = f"""
             INSERT INTO {result.table}
-            SELECT aai_id, {fields_str} FROM {query_info.source} AS v
+            SELECT aai_id, value FROM {query_info.source}{alias}
             """
         else:
+            # Multiple fields: create dict Object with selected columns
+            columns = {"aai_id": "UInt64"}
+            for field in obj.selected_fields:
+                columns[field] = source_schema.columns[field]
+
+            new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+            result = await create_object(new_schema)
+            fields_str = ", ".join(obj.selected_fields)
             insert_query = f"""
             INSERT INTO {result.table}
-            SELECT aai_id, {fields_str} FROM {query_info.source}
+            SELECT aai_id, {fields_str} FROM {query_info.source}{alias}
             """
-        await ch_client.command(insert_query)
-        return result
 
-    # Handle single-field selection (array output)
-    if selected_field and source:
-        source_schema = source._schema
-        value_type = source_schema.columns[selected_field]
-
-        new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": "UInt64", "value": value_type}
-        )
-        result = await create_object(new_schema)
-
-        query_info = obj._get_query_info()
-        if query_info.source.startswith('('):
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT aai_id, value FROM {query_info.source} AS v
-            """
-        else:
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT aai_id, value FROM {query_info.source}
-            """
         await ch_client.command(insert_query)
         return result
 

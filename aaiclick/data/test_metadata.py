@@ -121,14 +121,14 @@ async def test_view_metadata_returns_view_metadata(ctx):
     assert "y" in meta.columns
 
 
-async def test_view_metadata_selected_field(ctx):
-    """Test that selected_field is included in ViewMetadata."""
+async def test_view_metadata_selected_fields(ctx):
+    """Test that selected_fields is included in ViewMetadata."""
     obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
 
     view = obj['param1']
     meta = await view.metadata()
 
-    assert meta.selected_field == 'param1'
+    assert meta.selected_fields == ['param1']
     assert meta.where is None
     assert meta.limit is None
     assert meta.offset is None
@@ -180,7 +180,7 @@ async def test_view_metadata_all_constraints(ctx):
     assert meta.limit == 5
     assert meta.offset == 1
     assert meta.order_by == "value DESC"
-    assert meta.selected_field is None
+    assert meta.selected_fields is None
 
 
 async def test_object_returns_object_metadata(ctx):

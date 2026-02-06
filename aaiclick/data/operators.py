@@ -108,9 +108,9 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     expression = OPERATOR_EXPRESSIONS[operator]
 
     # Get fieldtype from first table's value column (use base table for metadata)
-    # For selected_field views (value_column != "value"), treat as array
+    # For single-field selection (value_column != "value"), treat as array
     if info_a.value_column != "value":
-        # Selected field from dict is always array type
+        # Single-field selection from dict is always array type
         fieldtype = FIELDTYPE_ARRAY
     else:
         fieldtype_query = f"""
@@ -125,7 +125,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                 fieldtype = meta.fieldtype
 
     # Get value column types from both tables (use base tables for metadata)
-    # Use value_column to query the correct column for selected_field views
+    # Use value_column to query the correct column for single-field selection
     type_query_a = f"""
     SELECT type FROM system.columns
     WHERE table = '{info_a.base_table}' AND name = '{info_a.value_column}'
@@ -463,7 +463,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     sql_func = AGGREGATION_FUNCTIONS[agg_func]
 
     # Get value column type from source table (use base table for metadata)
-    # Use value_column to query the correct column for selected_field views
+    # Use value_column to query the correct column for single-field selection
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{info.base_table}' AND name = '{info.value_column}'
@@ -684,7 +684,7 @@ async def unique_group(info: QueryInfo, ch_client):
     from ..snowflake_id import get_snowflake_ids
 
     # Get value column type from source table (use base table for metadata)
-    # Use value_column to query the correct column for selected_field views
+    # Use value_column to query the correct column for single-field selection
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{info.base_table}' AND name = '{info.value_column}'

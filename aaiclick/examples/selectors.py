@@ -48,9 +48,9 @@ async def example(context):
     for name, col in meta.columns.items():
         print(f"    {name}: type={col.type}, fieldtype={col.fieldtype}")
 
-    # Example 3: View metadata with selected_field
+    # Example 3: View metadata with selected_fields
     print("\n" + "=" * 50)
-    print("Example 3: View metadata with selected_field")
+    print("Example 3: View metadata with selected_fields")
     print("-" * 50)
 
     view = obj['param1']
@@ -58,7 +58,7 @@ async def example(context):
     print(f"ViewMetadata for obj['param1']:")
     print(f"  table: {view_meta.table}")
     print(f"  fieldtype: '{view_meta.fieldtype}' (source table type)")
-    print(f"  selected_field: '{view_meta.selected_field}'")
+    print(f"  selected_fields: {view_meta.selected_fields}")
     print(f"  where: {view_meta.where}")
     print(f"  limit: {view_meta.limit}")
     print(f"  offset: {view_meta.offset}")
@@ -161,7 +161,7 @@ async def example(context):
     print(f"  order_by: '{view_meta.order_by}'")
     print(f"  limit: {view_meta.limit}")
     print(f"  offset: {view_meta.offset}")
-    print(f"  selected_field: {view_meta.selected_field}")
+    print(f"  selected_fields: {view_meta.selected_fields}")
 
     # Example 8: Array metadata
     print("\n" + "=" * 50)

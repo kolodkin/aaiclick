@@ -19,7 +19,8 @@ async def test_dict_selector_basic(ctx):
     view = obj['param1']
 
     assert isinstance(view, View)
-    assert view.selected_field == 'param1'
+    assert view.selected_fields == ['param1']
+    assert view.is_single_field
 
 
 async def test_dict_selector_data(ctx):
@@ -190,13 +191,13 @@ async def test_dict_selector_min_max(ctx):
 # =============================================================================
 
 async def test_dict_selector_repr(ctx):
-    """Test that View repr includes selected_field."""
+    """Test that View repr includes selected_fields."""
     obj = await create_object_from_value({'param1': [1, 2, 3]})
 
     view = obj['param1']
 
     repr_str = repr(view)
-    assert "selected_field='param1'" in repr_str
+    assert "selected_fields=['param1']" in repr_str
 
 
 # =============================================================================
@@ -239,7 +240,7 @@ async def test_multi_field_selector_basic(ctx):
 
     assert isinstance(view, View)
     assert view.selected_fields == ['x', 'y']
-    assert view.selected_field is None
+    assert not view.is_single_field
 
 
 async def test_multi_field_selector_data(ctx):
@@ -299,4 +300,3 @@ async def test_multi_field_selector_metadata(ctx):
     meta = await view.metadata()
 
     assert meta.selected_fields == ['x', 'z']
-    assert meta.selected_field is None
