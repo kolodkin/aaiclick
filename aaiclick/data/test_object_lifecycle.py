@@ -8,16 +8,16 @@ from unittest.mock import MagicMock, patch
 from aaiclick.data.object import Object, View
 
 
-def test_del_unregistered_object():
-    """Object created but never registered should not error on __del__."""
+def test_del_guard_unregistered_object():
+    """Guard 2: Object created but never registered should not error."""
     obj = Object()
     assert obj._context_ref is None
     # Should not raise
     obj.__del__()
 
 
-def test_del_after_context_gc():
-    """Object survives context being garbage collected."""
+def test_del_guard_context_gc():
+    """Guard 3: Object survives context being garbage collected."""
     obj = Object()
     ctx = MagicMock()
     obj._context_ref = weakref.ref(ctx)
@@ -30,8 +30,8 @@ def test_del_after_context_gc():
 
 
 @patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
-def test_del_during_interpreter_shutdown(mock_finalizing):
-    """Object.__del__ returns early during interpreter shutdown."""
+def test_del_guard_interpreter_shutdown(mock_finalizing):
+    """Guard 1: Object.__del__ returns early during interpreter shutdown."""
     obj = Object()
     ctx = MagicMock()
     obj._context_ref = weakref.ref(ctx)
@@ -43,8 +43,8 @@ def test_del_during_interpreter_shutdown(mock_finalizing):
     ctx.decref.assert_not_called()
 
 
-def test_del_calls_decref_when_context_exists():
-    """Object.__del__ calls decref when context is valid."""
+def test_del_guard_passes_calls_decref():
+    """All guards pass: Object.__del__ calls decref when context is valid."""
     obj = Object()
     ctx = MagicMock()
     # Need to keep a reference to ctx so weakref doesn't return None
@@ -56,8 +56,8 @@ def test_del_calls_decref_when_context_exists():
     ctx.decref.assert_called_once_with(obj._table_name)
 
 
-def test_del_worker_none_is_noop():
-    """decref is no-op when worker is None (context exited)."""
+def test_del_guard_worker_none_is_noop():
+    """Guard 4: decref is no-op when worker is None (context exited)."""
     obj = Object()
     ctx = MagicMock()
     ctx._worker = None  # Simulate context exit
@@ -74,8 +74,8 @@ def test_del_worker_none_is_noop():
 # View tests
 
 
-def test_view_del_unregistered():
-    """View created without registration should not error on __del__."""
+def test_view_del_guard_unregistered():
+    """Guard 2: View created without registration should not error."""
     source = Object()
     source._context_ref = None
     view = View(source)
@@ -85,8 +85,8 @@ def test_view_del_unregistered():
     view.__del__()
 
 
-def test_view_del_after_context_gc():
-    """View survives context being garbage collected."""
+def test_view_del_guard_context_gc():
+    """Guard 3: View survives context being garbage collected."""
     source = Object()
     ctx = MagicMock()
     source._context_ref = weakref.ref(ctx)
@@ -103,8 +103,8 @@ def test_view_del_after_context_gc():
 
 
 @patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
-def test_view_del_during_interpreter_shutdown(mock_finalizing):
-    """View.__del__ returns early during interpreter shutdown."""
+def test_view_del_guard_interpreter_shutdown(mock_finalizing):
+    """Guard 1: View.__del__ returns early during interpreter shutdown."""
     source = Object()
     ctx = MagicMock()
     source._context_ref = weakref.ref(ctx)
@@ -122,8 +122,8 @@ def test_view_del_during_interpreter_shutdown(mock_finalizing):
     ctx.decref.assert_not_called()
 
 
-def test_view_del_calls_decref_on_source_table():
-    """View.__del__ decrefs the source's table."""
+def test_view_del_guard_passes_calls_decref():
+    """All guards pass: View.__del__ decrefs the source's table."""
     source = Object()
     ctx = MagicMock()
     source._context_ref = weakref.ref(ctx)
