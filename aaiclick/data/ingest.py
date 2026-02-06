@@ -119,26 +119,93 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client):
+async def copy_db(obj):
     """
-    Copy a table to a new object at database level.
+    Copy an Object or View to a new Object at database level.
 
-    Creates a new Object with a copy of all data from the source table.
-    Preserves all column metadata including fieldtype.
+    For base Objects: Creates a new Object with a copy of all data.
+    For Views with selected_field (single): Creates an array Object.
+    For Views with selected_fields (multiple): Creates a dict Object.
 
     Args:
-        table: Source table name
-        ch_client: ClickHouse client instance
+        obj: Object or View instance to copy
 
     Returns:
         Object: New Object instance with copied data
     """
-    fieldtype, columns = await _get_table_schema(table, ch_client)
+    ch_client = obj.ch_client
+
+    # Check if this is a View with field selection
+    selected_field = getattr(obj, 'selected_field', None)
+    selected_fields = getattr(obj, 'selected_fields', None)
+    source = getattr(obj, '_source', None)
+
+    # Handle multi-field selection (dict output)
+    if selected_fields and source:
+        source_schema = source._schema
+        # Build schema with selected columns
+        columns = {"aai_id": "UInt64"}
+        for field in selected_fields:
+            columns[field] = source_schema.columns[field]
+
+        new_schema = Schema(
+            fieldtype=FIELDTYPE_ARRAY,  # Each column is an array
+            columns=columns
+        )
+        result = await create_object(new_schema)
+
+        # Build column list for INSERT
+        fields_str = ", ".join(selected_fields)
+        query_info = obj._get_query_info()
+        if query_info.source.startswith('('):
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, {fields_str} FROM {query_info.source} AS v
+            """
+        else:
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, {fields_str} FROM {query_info.source}
+            """
+        await ch_client.command(insert_query)
+        return result
+
+    # Handle single-field selection (array output)
+    if selected_field and source:
+        source_schema = source._schema
+        value_type = source_schema.columns[selected_field]
+
+        new_schema = Schema(
+            fieldtype=FIELDTYPE_ARRAY,
+            columns={"aai_id": "UInt64", "value": value_type}
+        )
+        result = await create_object(new_schema)
+
+        query_info = obj._get_query_info()
+        if query_info.source.startswith('('):
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, value FROM {query_info.source} AS v
+            """
+        else:
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, value FROM {query_info.source}
+            """
+        await ch_client.command(insert_query)
+        return result
+
+    # Handle base Object or View without field selection
+    fieldtype, columns = await _get_table_schema(obj.table, ch_client)
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
     result = await create_object(schema)
 
-    insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
+    # Use _build_select to handle any view constraints (where, limit, etc.)
+    if obj.has_constraints:
+        insert_query = f"INSERT INTO {result.table} SELECT * FROM ({obj._build_select()}) AS s"
+    else:
+        insert_query = f"INSERT INTO {result.table} SELECT * FROM {obj.table}"
     await ch_client.command(insert_query)
 
     return result
@@ -250,76 +317,3 @@ async def insert_objects_db(
     await ch_client.command(insert_query)
 
 
-async def clone_view_db(view):
-    """
-    Materialize a View as a new Object at database level.
-
-    For views with selected_field (single), creates an array Object.
-    For views with selected_fields (multiple), creates a dict Object.
-
-    Args:
-        view: View instance to clone
-
-    Returns:
-        Object: New Object instance with the view's data materialized
-    """
-    ch_client = view.ch_client
-    source_schema = view._source._schema
-
-    # Handle multi-field selection (dict output)
-    if view.selected_fields:
-        # Build schema with selected columns
-        columns = {"aai_id": "UInt64"}
-        for field in view.selected_fields:
-            columns[field] = source_schema.columns[field]
-
-        new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,  # Each column is an array
-            columns=columns
-        )
-        result = await create_object(new_schema)
-
-        # Build column list for INSERT
-        fields_str = ", ".join(view.selected_fields)
-        query_info = view._get_query_info()
-        if query_info.source.startswith('('):
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT aai_id, {fields_str} FROM {query_info.source} AS v
-            """
-        else:
-            insert_query = f"""
-            INSERT INTO {result.table}
-            SELECT aai_id, {fields_str} FROM {query_info.source}
-            """
-        await ch_client.command(insert_query)
-        return result
-
-    # Handle single-field selection (array output)
-    if view.selected_field:
-        value_type = source_schema.columns[view.selected_field]
-    else:
-        value_type = source_schema.columns["value"]
-
-    # Create new array Object
-    new_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": "UInt64", "value": value_type}
-    )
-    result = await create_object(new_schema)
-
-    # Insert from view's select query
-    query_info = view._get_query_info()
-    if query_info.source.startswith('('):
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, value FROM {query_info.source} AS v
-        """
-    else:
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, value FROM {query_info.source}
-        """
-    await ch_client.command(insert_query)
-
-    return result

@@ -193,12 +193,12 @@ async def test_object_returns_object_metadata(ctx):
     assert not isinstance(meta, ViewMetadata)
 
 
-async def test_cloned_view_metadata(ctx):
-    """Test metadata after cloning a view."""
+async def test_copied_view_metadata(ctx):
+    """Test metadata after copying a view."""
     obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6]})
 
     view = obj['x']
-    cloned = await view.clone()
+    cloned = await view.copy()
     meta = await cloned.metadata()
 
     # Cloned object should be an array type (ObjectMetadata, not ViewMetadata)

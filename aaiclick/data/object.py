@@ -75,7 +75,7 @@ class Object:
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
-        self._schema = schema  # Cache schema for internal use (e.g., clone_view_db)
+        self._schema = schema  # Cache schema for internal use (e.g., copy_db)
 
     @property
     def table(self) -> str:
@@ -641,6 +641,7 @@ class Object:
 
         Creates a new Object with a copy of all data from this object.
         Preserves all column metadata including fieldtype.
+        Also works for Views, handling field selection and constraints.
 
         Returns:
             Object: New Object instance with copied data
@@ -649,10 +650,15 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_copy = await obj_a.copy()
             >>> await obj_copy.data()  # Returns [1, 2, 3]
+            >>>
+            >>> # Also works for views with field selection
+            >>> obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4]})
+            >>> arr = await obj['x'].copy()  # Creates new array Object
+            >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
         from . import ingest
-        return await ingest.copy_db(self.table, self.ch_client)
+        return await ingest.copy_db(self)
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
@@ -1010,7 +1016,7 @@ class Object:
         Select field(s) from a dict Object, returning a View.
 
         Creates a View that selects only the specified column(s) from the dict Object.
-        The View can be used in operations or materialized with clone().
+        The View can be used in operations or materialized with copy().
 
         Args:
             key: Column name (str) or list of column names (list) to select
@@ -1024,12 +1030,12 @@ class Object:
             >>> # Single field selector - returns array-like view
             >>> view = obj['param1']
             >>> await view.data()  # Returns [123, 234]
-            >>> arr = await view.clone()  # Returns new array Object
+            >>> arr = await view.copy()  # Returns new array Object
             >>>
             >>> # Multi-field selector - returns dict-like view
             >>> view = obj[['param1', 'param2']]
             >>> await view.data()  # Returns {'param1': [123, 234], 'param2': [456, 342]}
-            >>> dict_obj = await view.clone()  # Returns new dict Object
+            >>> dict_obj = await view.copy()  # Returns new dict Object
         """
         self.checkstale()
         if isinstance(key, list):
@@ -1281,26 +1287,6 @@ class View(Object):
             selected_field=self._selected_field,
             selected_fields=self._selected_fields,
         )
-
-    async def clone(self) -> "Object":
-        """
-        Materialize this view as a new array Object.
-
-        Creates a new Object with a copy of the view's data.
-        For views with selected_field, this creates an array Object.
-
-        Returns:
-            Object: New Object instance with the view's data materialized
-
-        Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
-            >>> view = obj['param1']  # View selecting param1
-            >>> arr = await view.clone()  # New array Object
-            >>> await arr.data()  # Returns [1, 2, 3]
-        """
-        self.checkstale()
-        from . import ingest
-        return await ingest.clone_view_db(self)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""

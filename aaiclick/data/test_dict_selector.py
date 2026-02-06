@@ -2,7 +2,7 @@
 Tests for dict selector feature - selecting fields from dict Objects.
 
 This module tests the __getitem__ syntax for selecting columns from dict Objects
-and the clone() method for materializing Views as array Objects.
+and the copy() method for materializing Views as array Objects.
 """
 
 from aaiclick import create_object_from_value, View
@@ -60,47 +60,47 @@ async def test_dict_selector_multiple_fields(ctx):
 
 
 # =============================================================================
-# Clone Tests
+# Copy Tests
 # =============================================================================
 
-async def test_dict_selector_clone(ctx):
-    """Test that clone() materializes a view as a new array Object."""
+async def test_dict_selector_copy(ctx):
+    """Test that copy() materializes a view as a new array Object."""
     obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
 
     view = obj['param1']
-    arr = await view.clone()
+    arr = await view.copy()
 
     # Should be a new Object, not a View
     assert not isinstance(arr, View)
     assert await arr.data() == [1, 2, 3]
 
 
-async def test_dict_selector_clone_second_field(ctx):
-    """Test cloning the second field."""
+async def test_dict_selector_copy_second_field(ctx):
+    """Test copying the second field."""
     obj = await create_object_from_value({'param1': [10, 20], 'param2': [30, 40]})
 
     view = obj['param2']
-    arr = await view.clone()
+    arr = await view.copy()
 
     assert await arr.data() == [30, 40]
 
 
-async def test_dict_selector_clone_float(ctx):
-    """Test cloning a float field."""
+async def test_dict_selector_copy_float(ctx):
+    """Test copying a float field."""
     obj = await create_object_from_value({'floats': [1.5, 2.5, 3.5], 'ints': [1, 2, 3]})
 
     view = obj['floats']
-    arr = await view.clone()
+    arr = await view.copy()
 
     assert await arr.data() == [1.5, 2.5, 3.5]
 
 
-async def test_dict_selector_clone_string(ctx):
-    """Test cloning a string field."""
+async def test_dict_selector_copy_string(ctx):
+    """Test copying a string field."""
     obj = await create_object_from_value({'names': ['Alice', 'Bob'], 'ages': [30, 25]})
 
     view = obj['names']
-    arr = await view.clone()
+    arr = await view.copy()
 
     assert await arr.data() == ['Alice', 'Bob']
 
@@ -262,12 +262,12 @@ async def test_multi_field_selector_all_fields(ctx):
     assert data == {'a': [10, 20], 'b': [30, 40]}
 
 
-async def test_multi_field_selector_clone(ctx):
-    """Test cloning a multi-field view creates dict Object."""
+async def test_multi_field_selector_copy(ctx):
+    """Test copying a multi-field view creates dict Object."""
     obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6], 'z': [7, 8, 9]})
 
     view = obj[['x', 'y']]
-    cloned = await view.clone()
+    cloned = await view.copy()
 
     data = await cloned.data()
     assert data == {'x': [1, 2, 3], 'y': [4, 5, 6]}

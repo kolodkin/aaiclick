@@ -4,7 +4,7 @@ Dict selector examples for aaiclick.
 This example demonstrates how to use dict selectors and metadata:
 - Selecting fields from dict Objects using __getitem__ syntax
 - Getting metadata from Objects and Views
-- Cloning Views to create new array Objects
+- Copying Views to create new array Objects
 - Using selected fields in operations
 """
 
@@ -64,22 +64,22 @@ async def example(context):
     print(f"  offset: {view_meta.offset}")
     print(f"  order_by: {view_meta.order_by}")
 
-    # Example 4: Clone view to array Object
+    # Example 4: Copy view to array Object
     print("\n" + "=" * 50)
-    print("Example 4: Clone view to array Object")
+    print("Example 4: Copy view to array Object")
     print("-" * 50)
 
     view = obj['param1']
     print(f"View data: {await view.data()}")
 
-    # Clone materializes the view as a new array Object
-    arr = await view.clone()
-    print(f"Cloned to new Object: {arr}")
-    print(f"Cloned data: {await arr.data()}")
+    # copy() materializes the view as a new array Object
+    arr = await view.copy()
+    print(f"Copied to new Object: {arr}")
+    print(f"Copied data: {await arr.data()}")
 
-    # Check cloned object's metadata
+    # Check copied object's metadata
     arr_meta = await arr.metadata()
-    print(f"\nCloned ObjectMetadata:")
+    print(f"\nCopied ObjectMetadata:")
     print(f"  table: {arr_meta.table} (new table)")
     print(f"  fieldtype: '{arr_meta.fieldtype}' (a = array)")
     print(f"  columns:")
