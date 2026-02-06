@@ -8,7 +8,8 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
+import weakref
 
 import numpy as np
 from clickhouse_connect import get_async_client
@@ -122,6 +123,7 @@ class DataContext:
         self._creds = creds or get_creds_from_env()
         self._ch_client: Optional[AsyncClient] = None
         self._worker: Optional[TableWorker] = None
+        self._objects: Dict[int, weakref.ref] = {}  # Track objects for stale marking
         self._token = None
         self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
 
@@ -157,6 +159,15 @@ class DataContext:
         if self._worker is not None:
             self._worker.decref(table_name)
 
+    def _register_object(self, obj: Object) -> None:
+        """
+        Register an Object to be tracked by this context for stale marking.
+
+        Args:
+            obj: Object instance to register
+        """
+        self._objects[id(obj)] = weakref.ref(obj)
+
     async def __aenter__(self):
         """Enter the context, initializing the client and starting the worker."""
         if self._ch_client is None:
@@ -175,6 +186,15 @@ class DataContext:
 
         The worker will drop all remaining tables on shutdown.
         """
+        # Mark all tracked objects as stale
+        for obj_ref in self._objects.values():
+            obj = obj_ref()
+            if obj is not None:
+                obj._stale = True
+
+        # Clear the tracking dict
+        self._objects.clear()
+
         # Stop worker (blocks until all tables dropped)
         if self._worker:
             self._worker.stop()
@@ -184,6 +204,34 @@ class DataContext:
         _current_context.reset(self._token)
 
         return False
+
+    async def delete(self, obj: Object) -> None:
+        """
+        Delete an Object's table and mark it as stale.
+
+        This removes the Object from tracking and cleans up its ClickHouse table.
+
+        Args:
+            obj: Object to delete
+
+        Example:
+            >>> async with DataContext() as ctx:
+            ...     obj = await ctx.create_object_from_value([1, 2, 3])
+            ...     result = await (obj + obj)
+            ...     await ctx.delete(result)  # Clean up intermediate result
+        """
+        # Mark as stale
+        obj._stale = True
+
+        # Remove from tracking if present
+        obj_id = id(obj)
+        if obj_id in self._objects:
+            del self._objects[obj_id]
+
+        # The table will be dropped when refcount reaches 0 via worker
+        # Force decref to trigger drop
+        if self._worker is not None:
+            self._worker.decref(obj.table)
 
 
 def get_engine_clause(engine: EngineType) -> str:
@@ -264,6 +312,7 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
     await ctx.ch_client.command(create_query)
 
     obj._register(ctx)
+    ctx._register_object(obj)  # Track for stale marking on context exit
     return obj
 
 
