@@ -119,26 +119,69 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client):
+async def copy_db(obj):
     """
-    Copy a table to a new object at database level.
+    Copy an Object or View to a new Object at database level.
 
-    Creates a new Object with a copy of all data from the source table.
-    Preserves all column metadata including fieldtype.
+    For base Objects: Creates a new Object with a copy of all data.
+    For Views with single-field selection: Creates an array Object.
+    For Views with multi-field selection: Creates a dict Object.
 
     Args:
-        table: Source table name
-        ch_client: ClickHouse client instance
+        obj: Object or View instance to copy
 
     Returns:
         Object: New Object instance with copied data
     """
-    fieldtype, columns = await _get_table_schema(table, ch_client)
+    ch_client = obj.ch_client
+    source = getattr(obj, '_source', None)
+
+    # Handle field selection (single or multi)
+    if obj.selected_fields and source:
+        source_schema = source._schema
+        query_info = obj._get_query_info()
+        alias = " AS v" if query_info.source.startswith('(') else ""
+
+        if obj.is_single_field:
+            # Single field: create array Object with value column
+            field = obj.selected_fields[0]
+            new_schema = Schema(
+                fieldtype=FIELDTYPE_ARRAY,
+                columns={"aai_id": "UInt64", "value": source_schema.columns[field]}
+            )
+            result = await create_object(new_schema)
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, value FROM {query_info.source}{alias}
+            """
+        else:
+            # Multiple fields: create dict Object with selected columns
+            columns = {"aai_id": "UInt64"}
+            for field in obj.selected_fields:
+                columns[field] = source_schema.columns[field]
+
+            new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+            result = await create_object(new_schema)
+            fields_str = ", ".join(obj.selected_fields)
+            insert_query = f"""
+            INSERT INTO {result.table}
+            SELECT aai_id, {fields_str} FROM {query_info.source}{alias}
+            """
+
+        await ch_client.command(insert_query)
+        return result
+
+    # Handle base Object or View without field selection
+    fieldtype, columns = await _get_table_schema(obj.table, ch_client)
     schema = Schema(fieldtype=fieldtype, columns=columns)
 
     result = await create_object(schema)
 
-    insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
+    # Use _build_select to handle any view constraints (where, limit, etc.)
+    if obj.has_constraints:
+        insert_query = f"INSERT INTO {result.table} SELECT * FROM ({obj._build_select()}) AS s"
+    else:
+        insert_query = f"INSERT INTO {result.table} SELECT * FROM {obj.table}"
     await ch_client.command(insert_query)
 
     return result
@@ -248,3 +291,5 @@ async def insert_objects_db(
     {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)
+
+
