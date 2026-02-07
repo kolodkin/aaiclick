@@ -73,6 +73,8 @@ async def test_dict_selector_copy(ctx):
 
     # Should be a new Object, not a View
     assert not isinstance(arr, View)
+    # Should have a different table (copy creates new table)
+    assert arr.table != obj.table
     assert await arr.data() == [1, 2, 3]
 
 

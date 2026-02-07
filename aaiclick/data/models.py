@@ -49,17 +49,21 @@ class QueryInfo(NamedTuple):
     Query information for database operations.
 
     Couples the data source (which may be a subquery) with the base table name
-    (used for metadata queries). This makes it easier to pass both values together
-    in operator and concat operations.
+    and schema metadata. This makes it easier to pass all required values together
+    in operator and concat operations without querying system tables.
 
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
-        base_table: Base table name for metadata queries (always a simple table name)
+        base_table: Base table name (always a simple table name)
         value_column: Column name containing the value (default "value", can be a dict field name)
+        fieldtype: Fieldtype of the value column ('s' for scalar, 'a' for array)
+        value_type: ClickHouse type of the value column (e.g., 'Int64', 'Float64')
     """
     source: str
     base_table: str
     value_column: str = "value"
+    fieldtype: str = "a"
+    value_type: str = "Float64"
 
 
 @dataclass

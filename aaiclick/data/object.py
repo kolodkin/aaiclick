@@ -174,14 +174,24 @@ class Object:
         """
         Get query information for database operations.
 
-        Encapsulates both the data source (which may be a subquery for Views)
-        and the base table name (for metadata queries).
+        Encapsulates the data source, base table name, and schema metadata
+        to avoid needing to query system tables in operators.
 
         Returns:
-            QueryInfo: NamedTuple with source and base_table fields
+            QueryInfo: NamedTuple with source, base_table, fieldtype, and value_type
         """
         source = f"({self._build_select()})" if self.has_constraints else self.table
-        return QueryInfo(source=source, base_table=self.table)
+        # Get fieldtype and value_type from cached schema
+        fieldtype = self._schema.fieldtype if self._schema else FIELDTYPE_ARRAY
+        value_type = "Float64"
+        if self._schema and "value" in self._schema.columns:
+            value_type = str(self._schema.columns["value"])
+        return QueryInfo(
+            source=source,
+            base_table=self.table,
+            fieldtype=fieldtype,
+            value_type=value_type,
+        )
 
     async def result(self):
         """
@@ -1208,10 +1218,23 @@ class View(Object):
         that renames the selected column to 'value'.
 
         Returns:
-            QueryInfo: NamedTuple with source, base_table, and value_column fields
+            QueryInfo: NamedTuple with source, base_table, fieldtype, and value_type
         """
         # For single-field views, use the field name as value_column for metadata queries
         value_column = self._selected_fields[0] if self.is_single_field else "value"
+
+        # Get fieldtype and value_type from source schema
+        source_schema = self._source._schema
+        if self.is_single_field and source_schema:
+            # Single-field selection yields array type
+            fieldtype = FIELDTYPE_ARRAY
+            value_type = str(source_schema.columns.get(value_column, "Float64"))
+        elif source_schema:
+            fieldtype = source_schema.fieldtype
+            value_type = str(source_schema.columns.get("value", "Float64"))
+        else:
+            fieldtype = FIELDTYPE_ARRAY
+            value_type = "Float64"
 
         # Always use subquery when has_constraints (includes selected_fields)
         if self.has_constraints:
@@ -1219,8 +1242,16 @@ class View(Object):
                 source=f"({self._build_select()})",
                 base_table=self.table,
                 value_column=value_column,
+                fieldtype=fieldtype,
+                value_type=value_type,
             )
-        return QueryInfo(source=self.table, base_table=self.table, value_column=value_column)
+        return QueryInfo(
+            source=self.table,
+            base_table=self.table,
+            value_column=value_column,
+            fieldtype=fieldtype,
+            value_type=value_type,
+        )
 
     async def data(self, orient: str = ORIENT_DICT):
         """

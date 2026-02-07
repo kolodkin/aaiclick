@@ -59,7 +59,7 @@ Memory/Disk Management (for large datasets):
 from __future__ import annotations
 
 from .data_context import create_object
-from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .models import Schema, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
 # Operator to SQL expression mapping
@@ -96,8 +96,8 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     Apply an operator on two tables at the database level.
 
     Args:
-        info_a: QueryInfo for first operand (contains source, base_table, value_column)
-        info_b: QueryInfo for second operand (contains source, base_table, value_column)
+        info_a: QueryInfo for first operand (contains source, fieldtype, value_type)
+        info_b: QueryInfo for second operand (contains source, fieldtype, value_type)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
 
@@ -107,40 +107,13 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
-    # Get fieldtype from first table's value column (use base table for metadata)
-    # For single-field selection (value_column != "value"), treat as array
-    if info_a.value_column != "value":
-        # Single-field selection from dict is always array type
-        fieldtype = FIELDTYPE_ARRAY
-    else:
-        fieldtype_query = f"""
-        SELECT comment FROM system.columns
-        WHERE table = '{info_a.base_table}' AND name = 'value'
-        """
-        result = await ch_client.query(fieldtype_query)
-        fieldtype = FIELDTYPE_SCALAR
-        if result.result_rows:
-            meta = ColumnMeta.from_yaml(result.result_rows[0][0])
-            if meta.fieldtype:
-                fieldtype = meta.fieldtype
+    # Use fieldtype from QueryInfo (already computed in _get_query_info)
+    fieldtype = info_a.fieldtype
 
-    # Get value column types from both tables (use base tables for metadata)
-    # Use value_column to query the correct column for single-field selection
-    type_query_a = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info_a.base_table}' AND name = '{info_a.value_column}'
-    """
-    type_result_a = await ch_client.query(type_query_a)
-    type_a = type_result_a.result_rows[0][0] if type_result_a.result_rows else "Float64"
+    # Determine result type from QueryInfo value_types
+    type_a = info_a.value_type
+    type_b = info_b.value_type
 
-    type_query_b = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info_b.base_table}' AND name = '{info_b.value_column}'
-    """
-    type_result_b = await ch_client.query(type_query_b)
-    type_b = type_result_b.result_rows[0][0] if type_result_b.result_rows else "Float64"
-
-    # Determine result type: promote to Float64 if mixing integer and float types
     int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
     float_types = {"Float32", "Float64"}
 
