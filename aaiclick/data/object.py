@@ -178,7 +178,7 @@ class Object:
         to avoid needing to query system tables in operators.
 
         Returns:
-            QueryInfo: NamedTuple with source, base_table, fieldtype, and value_type
+            QueryInfo: Dataclass with source, base_table, value_column, fieldtype, and value_type
         """
         source = f"({self._build_select()})" if self.has_constraints else self.table
         # Get fieldtype and value_type from cached schema
@@ -189,6 +189,7 @@ class Object:
         return QueryInfo(
             source=source,
             base_table=self.table,
+            value_column="value",
             fieldtype=fieldtype,
             value_type=value_type,
         )
@@ -1218,7 +1219,7 @@ class View(Object):
         that renames the selected column to 'value'.
 
         Returns:
-            QueryInfo: NamedTuple with source, base_table, fieldtype, and value_type
+            QueryInfo: Dataclass with source, base_table, value_column, fieldtype, and value_type
         """
         # For single-field views, use the field name as value_column for metadata queries
         value_column = self._selected_fields[0] if self.is_single_field else "value"

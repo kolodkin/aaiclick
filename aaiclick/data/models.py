@@ -4,7 +4,7 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from typing import Optional, Dict, Union, Literal, List, NamedTuple
+from typing import Optional, Dict, Union, Literal, List
 from dataclasses import dataclass
 
 import yaml
@@ -44,7 +44,8 @@ ValueListType = Union[List[int], List[float], List[bool], List[str]]
 ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
 
 
-class QueryInfo(NamedTuple):
+@dataclass
+class QueryInfo:
     """
     Query information for database operations.
 
@@ -55,15 +56,15 @@ class QueryInfo(NamedTuple):
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
         base_table: Base table name (always a simple table name)
-        value_column: Column name containing the value (default "value", can be a dict field name)
+        value_column: Column name containing the value ("value" or a dict field name)
         fieldtype: Fieldtype of the value column ('s' for scalar, 'a' for array)
         value_type: ClickHouse type of the value column (e.g., 'Int64', 'Float64')
     """
     source: str
     base_table: str
-    value_column: str = "value"
-    fieldtype: str = "a"
-    value_type: str = "Float64"
+    value_column: str
+    fieldtype: str
+    value_type: str
 
 
 @dataclass
@@ -77,7 +78,7 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, Union[ColumnType, str]]
+    columns: Dict[str, ColumnType]
 
 
 @dataclass

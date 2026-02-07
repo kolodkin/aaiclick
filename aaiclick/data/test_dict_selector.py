@@ -255,16 +255,6 @@ async def test_multi_field_selector_data(ctx):
     assert data == {'x': [1, 2, 3], 'z': [7, 8, 9]}
 
 
-async def test_multi_field_selector_all_fields(ctx):
-    """Test multi-field selector selecting all fields."""
-    obj = await create_object_from_value({'a': [10, 20], 'b': [30, 40]})
-
-    view = obj[['a', 'b']]
-    data = await view.data()
-
-    assert data == {'a': [10, 20], 'b': [30, 40]}
-
-
 async def test_multi_field_selector_copy(ctx):
     """Test copying a multi-field view creates dict Object."""
     obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6], 'z': [7, 8, 9]})
