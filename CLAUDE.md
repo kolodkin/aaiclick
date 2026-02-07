@@ -1,17 +1,61 @@
-# Agent Guidelines for aaiclick
+# Git Workflow
 
-This document contains guidelines for AI agents (like Claude Code) working on the aaiclick project.
+After completing each task, use the `check-pr` skill to verify GitHub Actions workflows are successful.
 
-## Test Execution Strategy
+If any workflows fail, analyze the error logs and fix issues automatically.
+
+## Commit Guidelines
+
+This project uses pre-commit hooks that may modify files during commit (formatting, linting, etc.).
+
+**Commit message format** (conventional commits):
+
+- `feature:` for new features
+- `bugfix:` for bug fixes
+- `refactor:` for code refactoring
+- `cleanup:` for code cleanup
+- Multiple types can be combined: `[feature, cleanup]: description`
+
+**Creating commits**:
+
+1. Check staged changes with `git status` and `git diff --staged --stat`
+2. Suggest commit message following the format above
+3. Get user approval before committing
+4. Use HEREDOC for commit messages:
+
+   ```bash
+   git commit -m "$(cat <<'EOF'
+   <type>: <short description>
+
+   <optional longer description>
+   EOF
+   )"
+   ```
+
+**Handling pre-commit hook failures**:
+
+- Hooks run BEFORE commit is created, so no commit exists yet
+- Only re-stage the originally staged files (NOT all modified files)
+- Do NOT use `git add -u` (stages unrelated changes)
+- Do NOT use `--amend` (no commit exists to amend)
+- Re-run commit with same message
+
+**Important**:
+
+- NEVER amend commits authored by others or already pushed
+- Always use HEREDOC for multi-line messages
+- Always get user approval before committing
+- Do NOT include "Generated with ..." in commit messages
+
+# Test Execution Strategy
 
 **IMPORTANT: Do NOT run tests in the Claude cloud environment.**
 
 - All tests run automatically in GitHub Actions when code is pushed
-- After pushing changes, check pull request status using the `pr-check` skill
 - Local test execution is unnecessary and should be avoided
 - CI/CD pipeline handles all testing and validation
 
-## Testing Guidelines
+# Testing Guidelines
 
 - **Test file location**: Place test files alongside the modules they test
   - `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
@@ -28,14 +72,14 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   - Simply define async test functions with `async def test_*():`
 
 
-## Code Quality
+# Code Quality
 
 - **Fail on warnings**: pytest is configured with `-W error` flag
 - All warnings are treated as errors in tests
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
-## Coding Guidelines
+# Coding Guidelines
 
 - **No history comments**: Do NOT add comments about removed code (e.g., `# Removed: ...`)
   - Keep code clean - version control tracks history
@@ -94,7 +138,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
     __all__ = ["Job", "Task", "Worker"]
     ```
 
-### ClickHouse Client Guidelines
+## ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
 
@@ -122,7 +166,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
   await ch_client.insert(dest, data)
   ```
 
-### Alembic Migration Guidelines
+## Alembic Migration Guidelines
 
 **Always use Alembic built-in commands for creating migrations:**
 
@@ -168,7 +212,7 @@ This document contains guidelines for AI agents (like Claude Code) working on th
 - Fill in `upgrade()` and `downgrade()` functions with actual migration code
 - Test both upgrade and downgrade paths
 
-## Environment Variables
+# Environment Variables
 
 ClickHouse connection (all optional with sensible defaults):
 - `CLICKHOUSE_HOST` (default: "localhost")
@@ -189,7 +233,7 @@ Orchestration logging (optional):
   - macOS default: `~/.aaiclick/logs`
   - Linux default: `/var/log/aaiclick`
 
-## Project Structure
+# Project Structure
 
 ```
 aaiclick/
@@ -213,7 +257,7 @@ aaiclick/
 └── CLAUDE.md                # This file
 ```
 
-## Architecture
+# Architecture
 
 - **DataContext**: Primary API for managing Object lifecycle
   - Manages ClickHouse client lifecycle
@@ -229,7 +273,7 @@ aaiclick/
   - All clients share the same connection pool for efficiency
   - `get_ch_client()` creates clients using the shared pool
 
-## Object API - All Operations Return Objects
+# Object API - All Operations Return Objects
 
 **All operations and results are handled inside ClickHouse itself.**
 
@@ -238,7 +282,7 @@ The Object class follows a consistent pattern where **all operators return new O
 - All computation happens within the database
 - Results can be chained with further operations
 
-### Supported Operators (All Return Objects)
+## Supported Operators (All Return Objects)
 
 **Binary Operators** (element-wise operations on two Objects):
 - Arithmetic: `+`, `-`, `*`, `/`, `//`, `%`, `**`
@@ -252,7 +296,7 @@ The Object class follows a consistent pattern where **all operators return new O
 - `mean()` - average value
 - `std()` - standard deviation (population)
 
-### Usage Pattern
+## Usage Pattern
 
 ```python
 async with DataContext():
@@ -277,7 +321,7 @@ async with DataContext():
     await normalized.data()  # [0.066..., 0.133..., 0.2, 0.266..., 0.333...]
 ```
 
-### Implementation Pattern
+## Implementation Pattern
 
 The flow for all operators:
 1. Create new Object table via `create_object(schema)`
@@ -286,7 +330,7 @@ The flow for all operators:
 
 This pattern ensures all data stays within ClickHouse - Python only orchestrates the SQL operations.
 
-## Distributed Computing & Order Preservation
+# Distributed Computing & Order Preservation
 
 aaiclick is a **distributed computing framework** where order is automatically preserved via **Snowflake IDs**:
 
@@ -318,11 +362,11 @@ result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 
 The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
 
-## Specification-Driven Development
+# Specification-Driven Development
 
 **Write detailed specifications BEFORE implementing complex features.**
 
-### Workflow
+## Workflow
 
 1. **Create Specification Document** (`docs/<feature>.md`):
    - Describe architecture, data models, and APIs
@@ -351,7 +395,7 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
    - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
-### Documentation Guidelines
+## Documentation Guidelines
 
 **Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
 
@@ -363,11 +407,11 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 ```
 
-### Documentation Patterns
+## Documentation Patterns
 
 **For Implemented Features**:
 ```markdown
-### Feature Name ✅ IMPLEMENTED
+## Feature Name ✅ IMPLEMENTED
 
 **Implementation**: `path/to/file.py` - see `ClassName.method()` or `function_name()`
 
@@ -377,7 +421,7 @@ See actual code for complete implementation.
 
 **For Unimplemented Features**:
 ```markdown
-### Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
+## Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
 
 Detailed specification with code examples, data models, and API design.
 This serves as the design document for future implementation.
@@ -385,7 +429,7 @@ This serves as the design document for future implementation.
 
 **For Data Models**:
 ```markdown
-### ModelName
+## ModelName
 
 **Implementation**: `aaiclick/module/models.py` - see `ModelName` class
 
@@ -398,7 +442,7 @@ class ModelName:
 ```
 ```
 
-### Example: Orchestration Backend
+## Example: Orchestration Backend
 
 See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for reference:
 
@@ -408,11 +452,12 @@ See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for 
 - **Documentation Updated**: orchestration.md references actual code, marks implementation status
 - **No Duplication**: Implemented features point to code instead of duplicating
 
-## Making Changes
+# Making Changes
 
 1. Read relevant files before editing
 2. Make focused, minimal changes
 3. Update tests if needed
 4. Commit with descriptive messages
 5. Push to feature branch
-6. Check PR status via `pr-check` skill (do NOT run tests locally)
+6. Check PR status via `check-pr` skill (do NOT run tests locally)
+
