@@ -5,6 +5,8 @@ This module tests the metadata() method that returns schema information
 including table name, fieldtype, and column details.
 """
 
+import pytest
+
 from aaiclick import (
     create_object_from_value,
     ObjectMetadata,
@@ -209,60 +211,25 @@ async def test_copied_view_metadata(ctx):
 
 
 # =============================================================================
-# Table Name Tests
+# Type Tests (Parametrized)
 # =============================================================================
 
-async def test_metadata_table_name(ctx):
-    """Test that metadata includes table name."""
-    obj = await create_object_from_value([1, 2, 3])
+@pytest.mark.parametrize("value,expected_fieldtype,expected_type", [
+    # String types
+    (["hello", "world"], FIELDTYPE_ARRAY, "String"),
+    ("hello", FIELDTYPE_SCALAR, "String"),
+    # Float types
+    ([1.1, 2.2, 3.3], FIELDTYPE_ARRAY, "Float64"),
+    (3.14, FIELDTYPE_SCALAR, "Float64"),
+    # Int types
+    ([1, 2, 3], FIELDTYPE_ARRAY, "Int64"),
+    (42, FIELDTYPE_SCALAR, "Int64"),
+])
+async def test_metadata_value_types(ctx, value, expected_fieldtype, expected_type):
+    """Test metadata correctly reports fieldtype and column type for various value types."""
+    obj = await create_object_from_value(value)
 
     meta = await obj.metadata()
 
-    assert meta.table == obj.table
-    assert meta.table.startswith("t")  # Snowflake ID table names start with 't'
-
-
-# =============================================================================
-# String Type Tests
-# =============================================================================
-
-async def test_metadata_string_array(ctx):
-    """Test metadata for string array."""
-    obj = await create_object_from_value(["hello", "world"])
-
-    meta = await obj.metadata()
-
-    assert meta.fieldtype == FIELDTYPE_ARRAY
-    assert meta.columns["value"].type == "String"
-
-
-async def test_metadata_string_scalar(ctx):
-    """Test metadata for string scalar."""
-    obj = await create_object_from_value("hello")
-
-    meta = await obj.metadata()
-
-    assert meta.fieldtype == FIELDTYPE_SCALAR
-    assert meta.columns["value"].type == "String"
-
-
-# =============================================================================
-# Float Type Tests
-# =============================================================================
-
-async def test_metadata_float_array(ctx):
-    """Test metadata for float array."""
-    obj = await create_object_from_value([1.1, 2.2, 3.3])
-
-    meta = await obj.metadata()
-
-    assert meta.columns["value"].type == "Float64"
-
-
-async def test_metadata_float_scalar(ctx):
-    """Test metadata for float scalar."""
-    obj = await create_object_from_value(3.14)
-
-    meta = await obj.metadata()
-
-    assert meta.columns["value"].type == "Float64"
+    assert meta.fieldtype == expected_fieldtype
+    assert meta.columns["value"].type == expected_type

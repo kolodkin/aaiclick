@@ -137,49 +137,6 @@ async def example(context):
     print(f"  mean: {await mean_val.data()}")
     print(f"  count: {await count_val.data()}")
 
-    # Example 7: View metadata with constraints
-    print("\n" + "=" * 50)
-    print("Example 7: View metadata with constraints")
-    print("-" * 50)
-
-    arr_obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    print(f"Array data: {await arr_obj.data()}\n")
-
-    # Create view with multiple constraints
-    filtered_view = arr_obj.view(
-        where="value > 3",
-        order_by="value DESC",
-        limit=5,
-        offset=1
-    )
-    print(f"View with constraints:")
-    print(f"  data: {await filtered_view.data()}")
-
-    view_meta = await filtered_view.metadata()
-    print(f"\nViewMetadata:")
-    print(f"  where: '{view_meta.where}'")
-    print(f"  order_by: '{view_meta.order_by}'")
-    print(f"  limit: {view_meta.limit}")
-    print(f"  offset: {view_meta.offset}")
-    print(f"  selected_fields: {view_meta.selected_fields}")
-
-    # Example 8: Array metadata
-    print("\n" + "=" * 50)
-    print("Example 8: Array and scalar metadata")
-    print("-" * 50)
-
-    arr = await create_object_from_value([1.5, 2.5, 3.5])
-    arr_meta = await arr.metadata()
-    print(f"Array [1.5, 2.5, 3.5]:")
-    print(f"  fieldtype: '{arr_meta.fieldtype}' (a = array)")
-    print(f"  value column type: {arr_meta.columns['value'].type}")
-
-    scalar = await create_object_from_value(42)
-    scalar_meta = await scalar.metadata()
-    print(f"\nScalar 42:")
-    print(f"  fieldtype: '{scalar_meta.fieldtype}' (s = scalar)")
-    print(f"  value column type: {scalar_meta.columns['value'].type}")
-
     print("\n" + "=" * 50)
     print("Cleanup: All context-created objects will be cleaned up automatically")
     print("-" * 50)
