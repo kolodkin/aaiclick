@@ -68,6 +68,26 @@ class QueryInfo:
 
 
 @dataclass
+class CopyInfo:
+    """
+    Info for copy operations at database level.
+
+    Attributes:
+        source_query: Data source - table name or subquery "(SELECT ...)"
+        fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Column name to ClickHouse type mapping (from cached schema)
+        selected_fields: Fields to select from dict (None for base copy)
+        is_single_field: True if single field selection
+    """
+
+    source_query: str
+    fieldtype: str
+    columns: Dict[str, ColumnType]
+    selected_fields: Optional[List[str]] = None
+    is_single_field: bool = False
+
+
+@dataclass
 class Schema:
     """
     Schema definition for creating Object tables.

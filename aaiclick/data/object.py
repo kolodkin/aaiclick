@@ -11,10 +11,11 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
 
-from . import operators
+from . import operators, ingest
 from ..snowflake_id import get_snowflake_id
 from .models import (
     Schema,
+    CopyInfo,
     ColumnMeta,
     ColumnInfo,
     ColumnType,
@@ -64,6 +65,7 @@ class Object:
         self,
         table: Optional[str] = None,
         schema: Optional[Schema] = None,
+        source: Optional[Object] = None,
     ):
         """
         Initialize an Object.
@@ -72,15 +74,22 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
+            source: Optional source Object (set for Views, None for base Objects)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
-        self._schema = schema  # Cache schema for internal use (e.g., copy_db)
+        self._schema = schema
+        self._source = source
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
+
+    @property
+    def source(self) -> Optional[Object]:
+        """Get the source Object (None for base Objects, set for Views)."""
+        return self._source
 
     @property
     def ctx(self) -> Context:
@@ -192,6 +201,20 @@ class Object:
             value_column="value",
             fieldtype=fieldtype,
             value_type=value_type,
+        )
+
+    def _get_copy_info(self) -> CopyInfo:
+        """
+        Get copy info for database-level copy operations.
+
+        Returns:
+            CopyInfo with source query and schema metadata from cached _schema
+        """
+        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        return CopyInfo(
+            source_query=source_query,
+            fieldtype=self._schema.fieldtype,
+            columns=self._schema.columns,
         )
 
     async def result(self):
@@ -678,8 +701,10 @@ class Object:
             >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
-        from . import ingest
-        return await ingest.copy_db(self)
+        copy_info = self._get_copy_info()
+        if copy_info.selected_fields:
+            return await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+        return await ingest.copy_db(copy_info, self.ch_client)
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
@@ -1252,6 +1277,25 @@ class View(Object):
             value_column=value_column,
             fieldtype=fieldtype,
             value_type=value_type,
+        )
+
+    def _get_copy_info(self) -> CopyInfo:
+        """
+        Get copy info for database-level copy operations.
+
+        For Views, includes source schema columns and selected fields info.
+
+        Returns:
+            CopyInfo with source query, schema metadata, and field selection info
+        """
+        source_schema = self._source._schema
+        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        return CopyInfo(
+            source_query=source_query,
+            fieldtype=source_schema.fieldtype,
+            columns=source_schema.columns,
+            selected_fields=self._selected_fields,
+            is_single_field=self.is_single_field,
         )
 
     async def data(self, orient: str = ORIENT_DICT):
