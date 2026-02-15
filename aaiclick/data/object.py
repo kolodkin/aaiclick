@@ -7,12 +7,15 @@ and supports operations through operator overloading.
 
 from __future__ import annotations
 
+import sys
+import weakref
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators, ingest
 from ..snowflake_id import get_snowflake_id
+
 from .models import (
     Schema,
     CopyInfo,
@@ -80,6 +83,30 @@ class Object:
         self._stale = False
         self._schema = schema
         self._source = source
+        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
+
+    def _register(self, context: DataContext) -> None:
+        """Register this object with context for lifecycle tracking."""
+        self._data_ctx_ref = weakref.ref(context)
+        context.incref(self._table_name)
+
+    def __del__(self):
+        """Decrement refcount on deletion."""
+        # Guard 1: Interpreter shutdown
+        if sys.is_finalizing():
+            return
+
+        # Guard 2: Never registered
+        if self._data_ctx_ref is None:
+            return
+
+        # Guard 3: Context gone
+        context = self._data_ctx_ref()
+        if context is None:
+            return
+
+        # Decref (handles worker=None internally)
+        context.decref(self._table_name)
 
     @property
     def table(self) -> str:
@@ -1126,12 +1153,36 @@ class View(Object):
                              Single field [name] returns array-like view
                              Multiple fields returns dict-like view
         """
+        # Don't call super().__init__ - we share source's table
         self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
         self._selected_fields = selected_fields
+        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
+
+        # Incref same table as source
+        if source._data_ctx_ref is not None:
+            context = source._data_ctx_ref()
+            if context is not None:
+                self._data_ctx_ref = weakref.ref(context)
+                context.incref(source.table)
+
+    def __del__(self):
+        """Decrement refcount on deletion."""
+        if sys.is_finalizing():
+            return
+
+        if self._data_ctx_ref is None:
+            return
+
+        context = self._data_ctx_ref()
+        if context is None:
+            return
+
+        # Decref the source's table
+        context.decref(self._source.table)
 
     @property
     def ctx(self) -> Context:
