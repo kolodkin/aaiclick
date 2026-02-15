@@ -196,7 +196,7 @@ async def example(context):
     print("-" * 50)
 
 
-async def main():
+async def amain():
     """Main entry point that creates context and calls example."""
     async with DataContext() as context:
         await example(context)
