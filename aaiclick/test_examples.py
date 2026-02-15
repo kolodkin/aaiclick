@@ -40,3 +40,19 @@ async def test_views_example(ctx):
 
     # Run the example - should complete without errors
     await main()
+
+
+async def test_selectors_example(ctx):
+    """Test that the selectors example runs successfully."""
+    from aaiclick.examples.selectors import main
+
+    # Run the example - should complete without errors
+    await main()
+
+
+async def test_data_manipulation_example(ctx):
+    """Test that the data_manipulation example runs successfully."""
+    from aaiclick.examples.data_manipulation import main
+
+    # Run the example - should complete without errors
+    await main()
