@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnMeta, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .models import ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -119,28 +119,68 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return FIELDTYPE_SCALAR
 
 
-async def copy_db(table: str, ch_client):
+async def copy_db(copy_info: CopyInfo, ch_client):
     """
-    Copy a table to a new object at database level.
-
-    Creates a new Object with a copy of all data from the source table.
-    Preserves all column metadata including fieldtype.
+    Copy data to a new Object at database level.
 
     Args:
-        table: Source table name
+        copy_info: CopyInfo with source query and schema metadata
         ch_client: ClickHouse client instance
 
     Returns:
         Object: New Object instance with copied data
     """
-    fieldtype, columns = await _get_table_schema(table, ch_client)
-    schema = Schema(fieldtype=fieldtype, columns=columns)
-
+    schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
     result = await create_object(schema)
 
-    insert_query = f"INSERT INTO {result.table} SELECT * FROM {table}"
+    alias = " AS s" if copy_info.source_query.startswith('(') else ""
+    insert_query = f"INSERT INTO {result.table} SELECT * FROM {copy_info.source_query}{alias}"
     await ch_client.command(insert_query)
 
+    return result
+
+
+async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
+    """
+    Copy selected fields from a dict Object to a new Object at database level.
+
+    For single-field selection: Creates an array Object with the selected column as 'value'.
+    For multi-field selection: Creates a dict Object with the selected columns.
+
+    Args:
+        copy_info: CopyInfo with source query, columns, and selected fields info
+        ch_client: ClickHouse client instance
+
+    Returns:
+        Object: New Object instance with copied data
+    """
+    alias = " AS v" if copy_info.source_query.startswith('(') else ""
+
+    if copy_info.is_single_field:
+        field = copy_info.selected_fields[0]
+        new_schema = Schema(
+            fieldtype=FIELDTYPE_ARRAY,
+            columns={"aai_id": "UInt64", "value": copy_info.columns[field]}
+        )
+        result = await create_object(new_schema)
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, value FROM {copy_info.source_query}{alias}
+        """
+    else:
+        columns = {"aai_id": "UInt64"}
+        for field in copy_info.selected_fields:
+            columns[field] = copy_info.columns[field]
+
+        new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+        result = await create_object(new_schema)
+        fields_str = ", ".join(copy_info.selected_fields)
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, {fields_str} FROM {copy_info.source_query}{alias}
+        """
+
+    await ch_client.command(insert_query)
     return result
 
 
@@ -248,3 +288,5 @@ async def insert_objects_db(
     {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)
+
+

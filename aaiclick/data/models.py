@@ -4,7 +4,7 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from typing import Optional, Dict, Union, Literal, List, NamedTuple
+from typing import Optional, Dict, Union, Literal, List
 from dataclasses import dataclass
 
 import yaml
@@ -44,20 +44,47 @@ ValueListType = Union[List[int], List[float], List[bool], List[str]]
 ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
 
 
-class QueryInfo(NamedTuple):
+@dataclass
+class QueryInfo:
     """
     Query information for database operations.
 
     Couples the data source (which may be a subquery) with the base table name
-    (used for metadata queries). This makes it easier to pass both values together
-    in operator and concat operations.
+    and schema metadata. This makes it easier to pass all required values together
+    in operator and concat operations without querying system tables.
 
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
-        base_table: Base table name for metadata queries (always a simple table name)
+        base_table: Base table name (always a simple table name)
+        value_column: Column name containing the value ("value" or a dict field name)
+        fieldtype: Fieldtype of the value column ('s' for scalar, 'a' for array)
+        value_type: ClickHouse type of the value column (e.g., 'Int64', 'Float64')
     """
     source: str
     base_table: str
+    value_column: str
+    fieldtype: str
+    value_type: str
+
+
+@dataclass
+class CopyInfo:
+    """
+    Info for copy operations at database level.
+
+    Attributes:
+        source_query: Data source - table name or subquery "(SELECT ...)"
+        fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Column name to ClickHouse type mapping (from cached schema)
+        selected_fields: Fields to select from dict (None for base copy)
+        is_single_field: True if single field selection
+    """
+
+    source_query: str
+    fieldtype: str
+    columns: Dict[str, ColumnType]
+    selected_fields: Optional[List[str]] = None
+    is_single_field: bool = False
 
 
 @dataclass
@@ -71,7 +98,65 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, Union[ColumnType, str]]
+    columns: Dict[str, ColumnType]
+
+
+@dataclass
+class ColumnInfo:
+    """
+    Information about a single column including type and metadata.
+
+    Attributes:
+        name: Column name
+        type: ClickHouse data type (e.g., 'Int64', 'Float64', 'String')
+        fieldtype: 's' for scalar, 'a' for array, or None if not set
+    """
+
+    name: str
+    type: str
+    fieldtype: Optional[str] = None
+
+
+@dataclass
+class ObjectMetadata:
+    """
+    Metadata for an Object including table name, fieldtype, and column information.
+
+    Attributes:
+        table: ClickHouse table name
+        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Dict mapping column name to ColumnInfo
+    """
+
+    table: str
+    fieldtype: str
+    columns: Dict[str, ColumnInfo]
+
+
+@dataclass
+class ViewMetadata:
+    """
+    Metadata for a View including table info and view constraints.
+
+    Attributes:
+        table: ClickHouse table name (from source Object)
+        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
+        columns: Dict mapping column name to ColumnInfo
+        where: WHERE clause constraint (or None)
+        limit: LIMIT constraint (or None)
+        offset: OFFSET constraint (or None)
+        order_by: ORDER BY clause (or None)
+        selected_fields: List of selected column names (single-field=[name], multi-field=[...])
+    """
+
+    table: str
+    fieldtype: str
+    columns: Dict[str, ColumnInfo]
+    where: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    order_by: Optional[str] = None
+    selected_fields: Optional[List[str]] = None
 
 
 @dataclass

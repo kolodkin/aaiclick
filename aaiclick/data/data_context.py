@@ -265,30 +265,32 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
     from .object import Object
 
     ctx = get_data_context()
-    obj = Object()
+
+    # Create Object with schema (metadata built internally)
+    obj = Object(schema=schema)
+
+    # Build column definitions for CREATE TABLE
+    column_defs = []
+    for name, col_type in schema.columns.items():
+        col_def = f"{name} {col_type}"
+        if name == "aai_id":
+            col_fieldtype = FIELDTYPE_SCALAR
+        else:
+            col_fieldtype = schema.fieldtype
+
+        comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
+        if comment:
+            col_def += f" COMMENT '{comment}'"
+        column_defs.append(col_def)
 
     # Use provided engine or fall back to context's engine
     effective_engine = engine if engine is not None else ctx.engine
-
-    # Build column definitions with comments derived from fieldtype
-    columns = []
-    for name, col_type in schema.columns.items():
-        col_def = f"{name} {col_type}"
-        # Determine comment based on column name and schema fieldtype
-        if name == "aai_id":
-            comment = ColumnMeta(fieldtype=FIELDTYPE_SCALAR).to_yaml()
-        else:
-            comment = ColumnMeta(fieldtype=schema.fieldtype).to_yaml()
-
-        if comment:
-            col_def += f" COMMENT '{comment}'"
-        columns.append(col_def)
 
     # Create table with all columns and comments in single query
     engine_clause = get_engine_clause(effective_engine)
     create_query = f"""
     CREATE TABLE {obj.table} (
-        {', '.join(columns)}
+        {', '.join(column_defs)}
     ) {engine_clause}
     """
     await ctx.ch_client.command(create_query)

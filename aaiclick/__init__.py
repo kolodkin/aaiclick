@@ -16,11 +16,14 @@ from .data import (
 )
 
 # Import core objects
-from .data import Object, DataResult
+from .data import Object, View, DataResult
 from .data import (
     Schema,
+    ColumnInfo,
     ColumnMeta,
     ColumnType,
+    ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,

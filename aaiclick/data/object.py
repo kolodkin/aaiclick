@@ -11,12 +11,16 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
 
-from . import operators
+from . import operators, ingest
 from ..snowflake_id import get_snowflake_id
 from .models import (
     Schema,
+    CopyInfo,
     ColumnMeta,
+    ColumnInfo,
     ColumnType,
+    ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
@@ -57,21 +61,35 @@ class Object:
     operator mapping, see object.md in this directory.
     """
 
-    def __init__(self, table: Optional[str] = None):
+    def __init__(
+        self,
+        table: Optional[str] = None,
+        schema: Optional[Schema] = None,
+        source: Optional[Object] = None,
+    ):
         """
         Initialize an Object.
 
         Args:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
+            schema: Optional Schema with column types (cached for internal use)
+            source: Optional source Object (set for Views, None for base Objects)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
+        self._schema = schema
+        self._source = source
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
+
+    @property
+    def source(self) -> Optional[Object]:
+        """Get the source Object (None for base Objects, set for Views)."""
+        return self._source
 
     @property
     def ctx(self) -> Context:
@@ -98,6 +116,16 @@ class Object:
     def order_by(self) -> Optional[str]:
         """Get ORDER BY clause (None for base Object)."""
         return None
+
+    @property
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get selected field names (None for base Object)."""
+        return None
+
+    @property
+    def is_single_field(self) -> bool:
+        """Check if this is a single-field selection (False for base Object)."""
+        return False
 
     @property
     def ch_client(self):
@@ -155,14 +183,39 @@ class Object:
         """
         Get query information for database operations.
 
-        Encapsulates both the data source (which may be a subquery for Views)
-        and the base table name (for metadata queries).
+        Encapsulates the data source, base table name, and schema metadata
+        to avoid needing to query system tables in operators.
 
         Returns:
-            QueryInfo: NamedTuple with source and base_table fields
+            QueryInfo: Dataclass with source, base_table, value_column, fieldtype, and value_type
         """
         source = f"({self._build_select()})" if self.has_constraints else self.table
-        return QueryInfo(source=source, base_table=self.table)
+        # Get fieldtype and value_type from cached schema
+        fieldtype = self._schema.fieldtype if self._schema else FIELDTYPE_ARRAY
+        value_type = "Float64"
+        if self._schema and "value" in self._schema.columns:
+            value_type = str(self._schema.columns["value"])
+        return QueryInfo(
+            source=source,
+            base_table=self.table,
+            value_column="value",
+            fieldtype=fieldtype,
+            value_type=value_type,
+        )
+
+    def _get_copy_info(self) -> CopyInfo:
+        """
+        Get copy info for database-level copy operations.
+
+        Returns:
+            CopyInfo with source query and schema metadata from cached _schema
+        """
+        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        return CopyInfo(
+            source_query=source_query,
+            fieldtype=self._schema.fieldtype,
+            columns=self._schema.columns,
+        )
 
     async def result(self):
         """
@@ -235,6 +288,89 @@ class Object:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
         return None
+
+    async def metadata(self) -> ObjectMetadata:
+        """
+        Get metadata for this object including table name, fieldtype, and column info.
+
+        Builds metadata from cached schema if available, otherwise
+        queries the ClickHouse system.columns table.
+
+        Returns:
+            ObjectMetadata: Dataclass with table, fieldtype, and columns info
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> meta = await obj.metadata()
+            >>> print(meta)
+            ObjectMetadata(table='t...', fieldtype='d', columns={
+                'aai_id': ColumnInfo(name='aai_id', type='UInt64', fieldtype='s'),
+                'param1': ColumnInfo(name='param1', type='Int64', fieldtype='a'),
+                'param2': ColumnInfo(name='param2', type='Int64', fieldtype='a')
+            })
+            >>> view = obj['param1']
+            >>> view_meta = await view.metadata()  # Returns ViewMetadata
+        """
+        self.checkstale()
+
+        # Build from cached schema if available
+        if self._schema is not None:
+            column_infos: Dict[str, ColumnInfo] = {}
+            for name, col_type in self._schema.columns.items():
+                col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
+                column_infos[name] = ColumnInfo(
+                    name=name,
+                    type=str(col_type),
+                    fieldtype=col_fieldtype,
+                )
+
+            column_names = set(self._schema.columns.keys())
+            is_dict_type = not (column_names <= {"aai_id", "value"})
+            overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
+
+            return ObjectMetadata(
+                table=self.table,
+                fieldtype=overall_fieldtype,
+                columns=column_infos,
+            )
+
+        # Fallback: query database for metadata (for objects not created via create_object)
+        columns_query = f"""
+        SELECT name, type, comment
+        FROM system.columns
+        WHERE table = '{self.table}'
+        ORDER BY position
+        """
+        columns_result = await self.ch_client.query(columns_query)
+
+        # Parse columns and determine overall fieldtype
+        columns: Dict[str, ColumnInfo] = {}
+        overall_fieldtype = FIELDTYPE_SCALAR
+        column_names = []
+
+        for name, col_type, comment in columns_result.result_rows:
+            meta = ColumnMeta.from_yaml(comment)
+            columns[name] = ColumnInfo(
+                name=name,
+                type=col_type,
+                fieldtype=meta.fieldtype
+            )
+            column_names.append(name)
+
+            # Determine overall fieldtype from value column or detect dict type
+            if name == "value" and meta.fieldtype:
+                overall_fieldtype = meta.fieldtype
+
+        # If we have columns beyond aai_id and value, it's a dict type
+        is_dict_type = not (set(column_names) <= {"aai_id", "value"})
+        if is_dict_type:
+            overall_fieldtype = FIELDTYPE_DICT
+
+        return ObjectMetadata(
+            table=self.table,
+            fieldtype=overall_fieldtype,
+            columns=columns
+        )
 
     async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
         """
@@ -549,6 +685,7 @@ class Object:
 
         Creates a new Object with a copy of all data from this object.
         Preserves all column metadata including fieldtype.
+        Also works for Views, handling field selection and constraints.
 
         Returns:
             Object: New Object instance with copied data
@@ -557,10 +694,17 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_copy = await obj_a.copy()
             >>> await obj_copy.data()  # Returns [1, 2, 3]
+            >>>
+            >>> # Also works for views with field selection
+            >>> obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4]})
+            >>> arr = await obj['x'].copy()  # Creates new array Object
+            >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
-        from . import ingest
-        return await ingest.copy_db(self.table, self.ch_client)
+        copy_info = self._get_copy_info()
+        if copy_info.selected_fields:
+            return await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+        return await ingest.copy_db(copy_info, self.ch_client)
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
@@ -913,6 +1057,37 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
+    def __getitem__(self, key: Union[str, List[str]]) -> "View":
+        """
+        Select field(s) from a dict Object, returning a View.
+
+        Creates a View that selects only the specified column(s) from the dict Object.
+        The View can be used in operations or materialized with copy().
+
+        Args:
+            key: Column name (str) or list of column names (list) to select
+
+        Returns:
+            View: A new View instance selecting the specified field(s)
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [123, 234], 'param2': [456, 342]})
+            >>>
+            >>> # Single field selector - returns array-like view
+            >>> view = obj['param1']
+            >>> await view.data()  # Returns [123, 234]
+            >>> arr = await view.copy()  # Returns new array Object
+            >>>
+            >>> # Multi-field selector - returns dict-like view
+            >>> view = obj[['param1', 'param2']]
+            >>> await view.data()  # Returns {'param1': [123, 234], 'param2': [456, 342]}
+            >>> dict_obj = await view.copy()  # Returns new dict Object
+        """
+        self.checkstale()
+        # Always store as list - single field is just a list of one
+        fields = key if isinstance(key, list) else [key]
+        return View(self, selected_fields=fields)
+
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
@@ -924,6 +1099,9 @@ class View(Object):
 
     Views are read-only and reference the same underlying table as their source Object.
     They cannot be modified with operations like insert().
+
+    Views can also select fields from a dict Object using selected_fields.
+    Single-field selection (len=1) returns array-like data, multi-field returns dict-like.
     """
 
     def __init__(
@@ -933,6 +1111,7 @@ class View(Object):
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         order_by: Optional[str] = None,
+        selected_fields: Optional[List[str]] = None,
     ):
         """
         Initialize a View.
@@ -943,12 +1122,16 @@ class View(Object):
             limit: Optional LIMIT
             offset: Optional OFFSET
             order_by: Optional ORDER BY clause
+            selected_fields: Optional list of field names to select
+                             Single field [name] returns array-like view
+                             Multiple fields returns dict-like view
         """
         self._source = source
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
+        self._selected_fields = selected_fields
 
     @property
     def ctx(self) -> Context:
@@ -981,13 +1164,209 @@ class View(Object):
         return self._order_by
 
     @property
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get the selected field names for dict column selection."""
+        return self._selected_fields
+
+    @property
+    def is_single_field(self) -> bool:
+        """Check if this is a single-field selection (array-like output)."""
+        return self._selected_fields is not None and len(self._selected_fields) == 1
+
+    @property
     def stale(self) -> bool:
         """Check if source object's context has been cleaned up."""
         return self._source.stale
 
+    @property
+    def has_constraints(self) -> bool:
+        """Check if this view has any constraints including selected_fields."""
+        return bool(
+            self.where
+            or self.limit is not None
+            or self.offset is not None
+            or self.order_by
+            or self.selected_fields
+        )
+
     def checkstale(self):
         """Check if source object is stale and raise error if so."""
         self._source.checkstale()
+
+    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+        """
+        Build a SELECT query with view constraints applied.
+
+        For single-field selection, renames the field as 'value' for array compatibility.
+        For multi-field selection, selects all specified fields.
+        If columns="value" is requested, only the value column is selected.
+
+        Args:
+            columns: Column specification (default "*", respected for field selection views)
+            default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+
+        Returns:
+            str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
+        """
+        if self._selected_fields:
+            if self.is_single_field:
+                # Single field: rename as 'value' for array compatibility
+                field = self._selected_fields[0]
+                if columns == "value":
+                    select_cols = f"{field} AS value"
+                else:
+                    select_cols = f"aai_id, {field} AS value"
+            else:
+                # Multiple fields: select all specified fields
+                fields_str = ", ".join(self._selected_fields)
+                select_cols = f"aai_id, {fields_str}"
+        else:
+            select_cols = columns
+
+        query = f"SELECT {select_cols} FROM {self.table}"
+        if self.where:
+            query += f" WHERE {self.where}"
+        # Use custom order_by if set, otherwise use default
+        order_clause = self.order_by or default_order_by
+        if order_clause:
+            query += f" ORDER BY {order_clause}"
+        if self.limit is not None:
+            query += f" LIMIT {self.limit}"
+        if self.offset is not None:
+            query += f" OFFSET {self.offset}"
+        return query
+
+    def _get_query_info(self) -> QueryInfo:
+        """
+        Get query information for database operations.
+
+        For Views with single-field selection, the source is always a subquery
+        that renames the selected column to 'value'.
+
+        Returns:
+            QueryInfo: Dataclass with source, base_table, value_column, fieldtype, and value_type
+        """
+        # For single-field views, use the field name as value_column for metadata queries
+        value_column = self._selected_fields[0] if self.is_single_field else "value"
+
+        # Get fieldtype and value_type from source schema
+        source_schema = self._source._schema
+        if self.is_single_field and source_schema:
+            # Single-field selection yields array type
+            fieldtype = FIELDTYPE_ARRAY
+            value_type = str(source_schema.columns.get(value_column, "Float64"))
+        elif source_schema:
+            fieldtype = source_schema.fieldtype
+            value_type = str(source_schema.columns.get("value", "Float64"))
+        else:
+            fieldtype = FIELDTYPE_ARRAY
+            value_type = "Float64"
+
+        # Always use subquery when has_constraints (includes selected_fields)
+        if self.has_constraints:
+            return QueryInfo(
+                source=f"({self._build_select()})",
+                base_table=self.table,
+                value_column=value_column,
+                fieldtype=fieldtype,
+                value_type=value_type,
+            )
+        return QueryInfo(
+            source=self.table,
+            base_table=self.table,
+            value_column=value_column,
+            fieldtype=fieldtype,
+            value_type=value_type,
+        )
+
+    def _get_copy_info(self) -> CopyInfo:
+        """
+        Get copy info for database-level copy operations.
+
+        For Views, includes source schema columns and selected fields info.
+
+        Returns:
+            CopyInfo with source query, schema metadata, and field selection info
+        """
+        source_schema = self._source._schema
+        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        return CopyInfo(
+            source_query=source_query,
+            fieldtype=source_schema.fieldtype,
+            columns=source_schema.columns,
+            selected_fields=self._selected_fields,
+            is_single_field=self.is_single_field,
+        )
+
+    async def data(self, orient: str = ORIENT_DICT):
+        """
+        Get the data from the view.
+
+        For single-field selection, returns array data (the selected column).
+        For multi-field selection, returns dict data (subset of columns).
+
+        Args:
+            orient: Output format for dict data
+
+        Returns:
+            - For single-field views: returns list of values (array)
+            - For multi-field views: returns dict with selected columns
+            - Otherwise: delegates to parent Object.data()
+        """
+        self.checkstale()
+
+        if self._selected_fields:
+            from . import data_extraction
+
+            if self.is_single_field:
+                # Single field: return as array
+                return await data_extraction.extract_array_data(self)
+            else:
+                # Multiple fields: return as dict with only selected fields
+                columns: Dict[str, ColumnMeta] = {}
+                for field in self._selected_fields:
+                    columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+
+                column_names = ["aai_id"] + list(self._selected_fields)
+                return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+
+        # Delegate to parent for normal views
+        return await super().data(orient=orient)
+
+    async def metadata(self) -> ViewMetadata:
+        """
+        Get metadata for this view including table info and view constraints.
+
+        Builds ViewMetadata from source's metadata on demand.
+
+        Returns:
+            ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
+
+        Examples:
+            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+            >>> view = obj['param1']
+            >>> meta = await view.metadata()
+            >>> print(meta.selected_fields)  # ['param1']
+            >>> print(meta.fieldtype)  # 'd' (source table is dict type)
+            >>>
+            >>> filtered = obj.view(where="param1 > 1", limit=10)
+            >>> meta2 = await filtered.metadata()
+            >>> print(meta2.where)  # 'param1 > 1'
+            >>> print(meta2.limit)  # 10
+        """
+        # Get base metadata from source (may query DB if no cached schema)
+        base_meta = await self._source.metadata()
+
+        return ViewMetadata(
+            table=base_meta.table,
+            fieldtype=base_meta.fieldtype,
+            columns=base_meta.columns,
+            where=self._where,
+            limit=self._limit,
+            offset=self._offset,
+            order_by=self._order_by,
+            selected_fields=self._selected_fields,
+        )
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
@@ -996,6 +1375,8 @@ class View(Object):
     def __repr__(self) -> str:
         """String representation of the View."""
         constraints = []
+        if self.selected_fields:
+            constraints.append(f"selected_fields={self.selected_fields}")
         if self.where:
             constraints.append(f"where='{self.where}'")
         if self.limit:

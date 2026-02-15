@@ -24,12 +24,15 @@ from .models import (
     FIELDTYPE_SCALAR,
     ORIENT_DICT,
     ORIENT_RECORDS,
+    ColumnInfo,
     ColumnMeta,
     ColumnType,
+    ObjectMetadata,
+    ViewMetadata,
     QueryInfo,
     Schema,
     ValueListType,
     ValueScalarType,
     ValueType,
 )
-from .object import DataResult, Object
+from .object import DataResult, Object, View

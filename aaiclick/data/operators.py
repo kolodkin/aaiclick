@@ -59,7 +59,7 @@ Memory/Disk Management (for large datasets):
 from __future__ import annotations
 
 from .data_context import create_object
-from .models import Schema, ColumnMeta, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .models import Schema, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 
 
 # Operator to SQL expression mapping
@@ -96,8 +96,8 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     Apply an operator on two tables at the database level.
 
     Args:
-        info_a: QueryInfo for first operand (contains source and base_table)
-        info_b: QueryInfo for second operand (contains source and base_table)
+        info_a: QueryInfo for first operand (contains source, fieldtype, value_type)
+        info_b: QueryInfo for second operand (contains source, fieldtype, value_type)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
 
@@ -107,34 +107,13 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
-    # Get fieldtype from first table's value column (use base table for metadata)
-    fieldtype_query = f"""
-    SELECT comment FROM system.columns
-    WHERE table = '{info_a.base_table}' AND name = 'value'
-    """
-    result = await ch_client.query(fieldtype_query)
-    fieldtype = FIELDTYPE_SCALAR
-    if result.result_rows:
-        meta = ColumnMeta.from_yaml(result.result_rows[0][0])
-        if meta.fieldtype:
-            fieldtype = meta.fieldtype
+    # Use fieldtype from QueryInfo (already computed in _get_query_info)
+    fieldtype = info_a.fieldtype
 
-    # Get value column types from both tables (use base tables for metadata)
-    type_query_a = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info_a.base_table}' AND name = 'value'
-    """
-    type_result_a = await ch_client.query(type_query_a)
-    type_a = type_result_a.result_rows[0][0] if type_result_a.result_rows else "Float64"
+    # Determine result type from QueryInfo value_types
+    type_a = info_a.value_type
+    type_b = info_b.value_type
 
-    type_query_b = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info_b.base_table}' AND name = 'value'
-    """
-    type_result_b = await ch_client.query(type_query_b)
-    type_b = type_result_b.result_rows[0][0] if type_result_b.result_rows else "Float64"
-
-    # Determine result type: promote to Float64 if mixing integer and float types
     int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
     float_types = {"Float32", "Float64"}
 
@@ -444,7 +423,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     All computation happens within ClickHouse - no data round-trips to Python.
 
     Args:
-        info: QueryInfo for the source (contains source and base_table)
+        info: QueryInfo for the source (contains source, base_table, value_column)
         agg_func: Aggregation function key (e.g., 'min', 'max', 'sum', 'mean', 'std')
         ch_client: ClickHouse client instance
 
@@ -457,9 +436,10 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     sql_func = AGGREGATION_FUNCTIONS[agg_func]
 
     # Get value column type from source table (use base table for metadata)
+    # Use value_column to query the correct column for single-field selection
     type_query = f"""
     SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = 'value'
+    WHERE table = '{info.base_table}' AND name = '{info.value_column}'
     """
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
@@ -668,7 +648,7 @@ async def unique_group(info: QueryInfo, ch_client):
     Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
 
     Args:
-        info: QueryInfo for source
+        info: QueryInfo for source (contains source, base_table, value_column)
         ch_client: ClickHouse client instance
 
     Returns:
@@ -677,9 +657,10 @@ async def unique_group(info: QueryInfo, ch_client):
     from ..snowflake_id import get_snowflake_ids
 
     # Get value column type from source table (use base table for metadata)
+    # Use value_column to query the correct column for single-field selection
     type_query = f"""
     SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = 'value'
+    WHERE table = '{info.base_table}' AND name = '{info.value_column}'
     """
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
