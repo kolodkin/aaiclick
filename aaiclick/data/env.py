@@ -20,7 +20,7 @@ CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "default")
 
 
-def get_creds_from_env() -> ClickHouseCreds:
+def get_ch_creds() -> ClickHouseCreds:
     """
     Create ClickHouseCreds from environment variables.
 

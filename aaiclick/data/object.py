@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import sys
 import weakref
-from typing import Optional, Dict, List, Tuple, Any, Union, TYPE_CHECKING
+from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators, ingest
 from ..snowflake_id import get_snowflake_id
 
-if TYPE_CHECKING:
-    from .data_context import DataContext
 from .models import (
     Schema,
     CopyInfo,
@@ -85,11 +83,11 @@ class Object:
         self._stale = False
         self._schema = schema
         self._source = source
-        self._context_ref: Optional[weakref.ref[DataContext]] = None
+        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
 
     def _register(self, context: DataContext) -> None:
         """Register this object with context for lifecycle tracking."""
-        self._context_ref = weakref.ref(context)
+        self._data_ctx_ref = weakref.ref(context)
         context.incref(self._table_name)
 
     def __del__(self):
@@ -99,11 +97,11 @@ class Object:
             return
 
         # Guard 2: Never registered
-        if self._context_ref is None:
+        if self._data_ctx_ref is None:
             return
 
         # Guard 3: Context gone
-        context = self._context_ref()
+        context = self._data_ctx_ref()
         if context is None:
             return
 
@@ -1162,13 +1160,13 @@ class View(Object):
         self._offset = offset
         self._order_by = order_by
         self._selected_fields = selected_fields
-        self._context_ref: Optional[weakref.ref[DataContext]] = None
+        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
 
         # Incref same table as source
-        if source._context_ref is not None:
-            context = source._context_ref()
+        if source._data_ctx_ref is not None:
+            context = source._data_ctx_ref()
             if context is not None:
-                self._context_ref = weakref.ref(context)
+                self._data_ctx_ref = weakref.ref(context)
                 context.incref(source.table)
 
     def __del__(self):
@@ -1176,10 +1174,10 @@ class View(Object):
         if sys.is_finalizing():
             return
 
-        if self._context_ref is None:
+        if self._data_ctx_ref is None:
             return
 
-        context = self._context_ref()
+        context = self._data_ctx_ref()
         if context is None:
             return
 

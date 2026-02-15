@@ -79,7 +79,7 @@ class TableOp(Enum):
 @dataclass
 class TableMessage:
     op: TableOp
-    table_name: str = ""
+    table_name: str
 ```
 
 #### 3. TableWorker
@@ -223,11 +223,11 @@ class Object:
     def __init__(self, table: str | None = None):
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
-        self._context_ref: weakref.ref[DataContext] | None = None
+        self._data_ctx_ref: weakref.ref[DataContext] | None = None
 
     def _register(self, context: DataContext) -> None:
         """Register this object with context."""
-        self._context_ref = weakref.ref(context)
+        self._data_ctx_ref = weakref.ref(context)
         context.incref(self._table_name)
 
     def __del__(self):
@@ -237,11 +237,11 @@ class Object:
             return
 
         # Guard 2: Never registered
-        if self._context_ref is None:
+        if self._data_ctx_ref is None:
             return
 
         # Guard 3: Context gone
-        context = self._context_ref()
+        context = self._data_ctx_ref()
         if context is None:
             return
 
@@ -269,13 +269,13 @@ class View(Object):
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
-        self._context_ref: weakref.ref[DataContext] | None = None
+        self._data_ctx_ref: weakref.ref[DataContext] | None = None
 
         # Incref same table as source
-        if source._context_ref is not None:
-            context = source._context_ref()
+        if source._data_ctx_ref is not None:
+            context = source._data_ctx_ref()
             if context is not None:
-                self._context_ref = weakref.ref(context)
+                self._data_ctx_ref = weakref.ref(context)
                 context.incref(source.table)
 
     def __del__(self):
@@ -283,10 +283,10 @@ class View(Object):
         if sys.is_finalizing():
             return
 
-        if self._context_ref is None:
+        if self._data_ctx_ref is None:
             return
 
-        context = self._context_ref()
+        context = self._data_ctx_ref()
         if context is None:
             return
 
@@ -394,7 +394,7 @@ Timeline
 |-----------|---------------|
 | `queue.put()` | Thread-safe (Python queue) |
 | `refcounts` dict | Single-threaded (only worker accesses) |
-| `_context_ref` read | Atomic (Python GIL) |
+| `_data_ctx_ref` read | Atomic (Python GIL) |
 | `DROP TABLE` | ClickHouse handles concurrency |
 
 ### Performance Considerations

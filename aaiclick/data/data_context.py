@@ -16,7 +16,7 @@ from clickhouse_connect import get_async_client
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from urllib3 import PoolManager
 
-from .env import get_creds_from_env
+from .env import get_ch_creds
 from .table_worker import TableWorker
 from .models import (
     ClickHouseCreds,
@@ -80,7 +80,7 @@ async def get_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
         AsyncClient: ClickHouse client instance
     """
     if creds is None:
-        creds = get_creds_from_env()
+        creds = get_ch_creds()
 
     return await get_async_client(
         host=creds.host,
@@ -120,7 +120,7 @@ class DataContext:
             engine: ClickHouse table engine to use. Defaults to ENGINE_DEFAULT (MergeTree).
                    Use ENGINE_MEMORY for in-memory tables (faster, no disk I/O).
         """
-        self._creds = creds or get_creds_from_env()
+        self._creds = creds or get_ch_creds()
         self._ch_client: Optional[AsyncClient] = None
         self._worker: Optional[TableWorker] = None
         self._objects: Dict[int, weakref.ref] = {}  # Track objects for stale marking

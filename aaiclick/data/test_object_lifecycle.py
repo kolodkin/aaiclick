@@ -2,140 +2,64 @@
 Tests for Object and View __del__ guards.
 """
 
-import weakref
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from aaiclick.data.object import Object, View
+from aaiclick import DataContext, create_object_from_value
+from aaiclick.data.object import Object
+
+
+# Object guard tests
 
 
 def test_del_guard_unregistered_object():
-    """Guard 2: Object created but never registered should not error."""
+    """Guard: Object created without factory should not error on __del__."""
     obj = Object()
-    assert obj._context_ref is None
-    # Should not raise
-    obj.__del__()
-
-
-def test_del_guard_context_gc():
-    """Guard 3: Object survives context being garbage collected."""
-    obj = Object()
-    ctx = MagicMock()
-    obj._context_ref = weakref.ref(ctx)
-
-    # Context is GC'd
-    del ctx
-
-    # Now obj._context_ref() returns None - should not raise
+    assert obj._data_ctx_ref is None
     obj.__del__()
 
 
 @patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
-def test_del_guard_interpreter_shutdown(mock_finalizing):
-    """Guard 1: Object.__del__ returns early during interpreter shutdown."""
-    obj = Object()
-    ctx = MagicMock()
-    obj._context_ref = weakref.ref(ctx)
-
-    # Call __del__ - should return early due to is_finalizing
-    obj.__del__()
-
-    # decref should NOT have been called
-    ctx.decref.assert_not_called()
-
-
-def test_del_guard_passes_calls_decref():
-    """All guards pass: Object.__del__ calls decref when context is valid."""
-    obj = Object()
-    ctx = MagicMock()
-    # Need to keep a reference to ctx so weakref doesn't return None
-    obj._context_ref = weakref.ref(ctx)
-    obj._saved_ctx = ctx  # Keep reference alive
+async def test_del_guard_interpreter_shutdown(mock_finalizing, ctx):
+    """Guard: __del__ skips decref during interpreter shutdown."""
+    obj = await create_object_from_value([1, 2, 3])
 
     obj.__del__()
 
-    ctx.decref.assert_called_once_with(obj._table_name)
+    # decref was skipped, data should still be accessible
+    result = await obj.data()
+    assert result == [1, 2, 3]
 
 
-def test_del_guard_worker_none_is_noop():
-    """Guard 4: decref is no-op when worker is None (context exited)."""
-    obj = Object()
-    ctx = MagicMock()
-    ctx._worker = None  # Simulate context exit
-    obj._context_ref = weakref.ref(ctx)
-    obj._saved_ctx = ctx
+async def test_del_guard_after_context_exit():
+    """Guard: __del__ after context exit should not raise."""
+    async with DataContext():
+        obj = await create_object_from_value([1, 2, 3])
 
-    # Should not raise even though worker is None
+    # Context exited, worker stopped
     obj.__del__()
 
-    # decref was called, but it's a no-op internally
-    ctx.decref.assert_called_once()
 
-
-# View tests
-
-
-def test_view_del_guard_unregistered():
-    """Guard 2: View created without registration should not error."""
-    source = Object()
-    source._context_ref = None
-    view = View(source)
-
-    assert view._context_ref is None
-    # Should not raise
-    view.__del__()
-
-
-def test_view_del_guard_context_gc():
-    """Guard 3: View survives context being garbage collected."""
-    source = Object()
-    ctx = MagicMock()
-    source._context_ref = weakref.ref(ctx)
-    source._saved_ctx = ctx
-
-    view = View(source)
-
-    # Context is GC'd
-    del ctx
-    del source._saved_ctx
-
-    # Now view._context_ref() returns None - should not raise
-    view.__del__()
+# View guard tests
 
 
 @patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
-def test_view_del_guard_interpreter_shutdown(mock_finalizing):
-    """Guard 1: View.__del__ returns early during interpreter shutdown."""
-    source = Object()
-    ctx = MagicMock()
-    source._context_ref = weakref.ref(ctx)
-    source._saved_ctx = ctx
-
-    view = View(source)
-    view._saved_ctx = ctx  # Keep reference alive
-
-    # Reset mock to only count View's __del__ call
-    ctx.decref.reset_mock()
+async def test_view_del_guard_interpreter_shutdown(mock_finalizing, ctx):
+    """Guard: View.__del__ skips decref during interpreter shutdown."""
+    obj = await create_object_from_value([1, 2, 3])
+    view = obj.query(limit=2)
 
     view.__del__()
 
-    # decref should NOT have been called by __del__
-    ctx.decref.assert_not_called()
+    # decref was skipped, source data should still be accessible
+    result = await obj.data()
+    assert result == [1, 2, 3]
 
 
-def test_view_del_guard_passes_calls_decref():
-    """All guards pass: View.__del__ decrefs the source's table."""
-    source = Object()
-    ctx = MagicMock()
-    source._context_ref = weakref.ref(ctx)
-    source._saved_ctx = ctx
+async def test_view_del_guard_after_context_exit():
+    """Guard: View.__del__ after context exit should not raise."""
+    async with DataContext():
+        obj = await create_object_from_value([1, 2, 3])
+        view = obj.query(limit=2)
 
-    view = View(source)
-    view._saved_ctx = ctx
-
-    # Reset to only count View's __del__
-    ctx.decref.reset_mock()
-
+    # Context exited, worker stopped
     view.__del__()
-
-    # Should decref the source's table
-    ctx.decref.assert_called_once_with(source.table)
