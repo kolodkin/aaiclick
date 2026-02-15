@@ -46,7 +46,7 @@ async def test_del_guard_after_context_exit():
 async def test_view_del_guard_interpreter_shutdown(mock_finalizing, ctx):
     """Guard: View.__del__ skips decref during interpreter shutdown."""
     obj = await create_object_from_value([1, 2, 3])
-    view = obj.query(limit=2)
+    view = obj.view(limit=2)
 
     view.__del__()
 
@@ -59,7 +59,7 @@ async def test_view_del_guard_after_context_exit():
     """Guard: View.__del__ after context exit should not raise."""
     async with DataContext():
         obj = await create_object_from_value([1, 2, 3])
-        view = obj.query(limit=2)
+        view = obj.view(limit=2)
 
     # Context exited, worker stopped
     view.__del__()
