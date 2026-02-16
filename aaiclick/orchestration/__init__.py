@@ -8,9 +8,12 @@ job creation, task execution, and workflow management.
 from .claiming import claim_next_task, update_job_status, update_task_status
 from .context import OrchContext, get_orch_context
 from .debug_execution import ajob_test, job_test
+from .env import get_pg_url
 from .execution import execute_task, run_job_tasks
 from .factories import create_job, create_task
 from .logging import capture_task_output, get_logs_dir
+from .pg_cleanup import PgCleanupWorker
+from .pg_lifecycle import PgLifecycleHandler, TableRefcount
 from .models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,

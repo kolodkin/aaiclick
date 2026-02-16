@@ -1,5 +1,7 @@
 """Worker management for orchestration backend."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import signal
@@ -10,6 +12,7 @@ from typing import Optional
 from sqlmodel import select
 
 from aaiclick import DataContext, create_object_from_value
+from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import claim_next_task, update_task_status
@@ -162,6 +165,7 @@ async def worker_main_loop(
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
+    lifecycle: LifecycleHandler | None = None,
 ) -> int:
     """
     Main worker execution loop.
@@ -174,6 +178,8 @@ async def worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
+        lifecycle: Optional LifecycleHandler to inject into each task's DataContext.
+                  When provided, tasks use distributed refcounting instead of local.
 
     Returns:
         int: Number of tasks executed
@@ -232,7 +238,7 @@ async def worker_main_loop(
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
             try:
-                result = await execute_task(task)
+                result = await execute_task(task, lifecycle=lifecycle)
 
                 # Convert result to Object reference if present
                 result_ref = None

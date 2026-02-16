@@ -1,5 +1,7 @@
 """Task execution utilities for orchestration backend."""
 
+from __future__ import annotations
+
 import asyncio
 import importlib
 from datetime import datetime
@@ -8,6 +10,7 @@ from typing import Any, Callable, Optional
 from sqlmodel import select
 
 from aaiclick.data import DataContext
+from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
@@ -83,7 +86,10 @@ def deserialize_task_params(kwargs: dict) -> dict:
     return result
 
 
-async def execute_task(task: Task) -> Any:
+async def execute_task(
+    task: Task,
+    lifecycle: LifecycleHandler | None = None,
+) -> Any:
     """
     Execute a single task with both DataContext and OrchContext available.
 
@@ -94,6 +100,9 @@ async def execute_task(task: Task) -> Any:
 
     Args:
         task: Task to execute
+        lifecycle: Optional LifecycleHandler to inject into DataContext.
+                  When provided, DataContext uses it for incref/decref instead
+                  of creating a local TableWorker.
 
     Returns:
         Any: Result of the task function
@@ -107,7 +116,7 @@ async def execute_task(task: Task) -> Any:
     with capture_task_output(task.id):
         # Wrap execution with DataContext so tasks can use ClickHouse operations
         # OrchContext is already available from the outer context (run_job_tasks)
-        async with DataContext():
+        async with DataContext(lifecycle=lifecycle):
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:

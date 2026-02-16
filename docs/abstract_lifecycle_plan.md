@@ -10,9 +10,14 @@ Currently, `DataContext` handles object lifecycle (table creation tracking, refe
 
 ## Design
 
+### Two Independent Concerns
+
+1. **Refcount tracking** (incref/decref) — happens inline via `LifecycleHandler`, used by DataContext
+2. **Table cleanup** (DROP TABLE) — separate background worker that polls PG, completely independent
+
 ### Abstract Base Class: `LifecycleHandler`
 
-Extract the lifecycle interface from `DataContext` into an abstract base class with two concrete implementations:
+Extract the lifecycle interface from `DataContext` into an abstract base class:
 
 ```python
 class LifecycleHandler(ABC):
@@ -63,42 +68,40 @@ class LocalLifecycleHandler(LifecycleHandler):
 
 ### Implementation 2: `PgLifecycleHandler` (distributed)
 
-**Owned by**: `OrchContext` (global, shared across all DataContexts in the worker process)
+**Focused on incref/decref only.** Writes refcount changes to PostgreSQL. Does NOT drop tables — that's the background cleanup worker's job.
 
-Runs as an `asyncio.Task` in OrchContext's event loop. Uses OrchContext's PG session directly — no separate thread, no separate engine. This is the first "background worker" in OrchContext, establishing a pattern for future cleanup tasks.
-
-Why an asyncio task (not a separate thread):
-- OrchContext already has a running event loop
-- The handler can use `get_orch_context_session()` directly (same loop)
-- No cross-loop engine issues, no thread management overhead
+**Owned by**: Whoever starts it (background services, worker startup). Passed into DataContext via injection.
 
 How sync `incref`/`decref` bridge to async:
 - `queue.Queue` (thread-safe) receives sync calls from `Object.__del__` / `Object._register`
 - `asyncio.Task` uses `loop.run_in_executor(None, queue.get)` to drain without blocking the event loop
-
-Tables are NOT dropped — refcounts are tracked in PostgreSQL. Cleanup is deferred to a coordinated job-level process.
+- Own PG engine — fully decoupled from OrchContext
 
 ```python
 class PgLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle via PostgreSQL reference tracking.
 
-    Runs as an asyncio.Task in OrchContext's event loop.
-    Uses thread-safe queue.Queue for sync incref/decref calls.
+    Only handles incref/decref. Table cleanup is a separate background worker.
+    Owns its own PG engine — independent of OrchContext.
     """
 
     def __init__(self):
         self._queue: queue.Queue[PgLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
+        self._engine: AsyncEngine | None = None
 
     async def start(self) -> None:
+        self._engine = create_async_engine(get_pg_url())
         self._task = asyncio.create_task(self._process_loop())
 
     async def stop(self) -> None:
         self._queue.put(PgLifecycleMessage(PgLifecycleOp.SHUTDOWN, ""))
-        await self._task  # wait for drain + cleanup
+        await self._task  # wait for drain
+        if self._engine:
+            await self._engine.dispose()
+            self._engine = None
 
     def incref(self, table_name: str) -> None:
-        # Thread-safe, non-blocking
         self._queue.put(PgLifecycleMessage(PgLifecycleOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
@@ -107,12 +110,11 @@ class PgLifecycleHandler(LifecycleHandler):
     async def _process_loop(self) -> None:
         loop = asyncio.get_running_loop()
         while True:
-            # Bridge sync queue to async — blocks in executor, not event loop
             msg = await loop.run_in_executor(None, self._queue.get)
             if msg.op == PgLifecycleOp.SHUTDOWN:
                 break
-            # Uses OrchContext's engine directly (same event loop)
-            async with get_orch_context_session() as session:
+            # Own engine, own sessions — no OrchContext dependency
+            async with AsyncSession(self._engine) as session:
                 if msg.op == PgLifecycleOp.INCREF:
                     # UPSERT refcount row
                     ...
@@ -121,49 +123,72 @@ class PgLifecycleHandler(LifecycleHandler):
                     ...
 ```
 
-### Ownership Model
+### Background Cleanup Worker (completely separate)
 
-```
-OrchContext (long-lived, per worker process)
-├── AsyncEngine (PostgreSQL)
-├── PgLifecycleHandler (asyncio.Task)     ← owns, starts, stops
-│   └── queue.Queue (thread-safe for sync incref/decref)
-└── [future background workers: heartbeat, metrics, ...]
+A separate background service that polls the PG refcount table every N seconds and drops CH tables where refcount <= 0. Totally independent of DataContext and OrchContext.
 
-DataContext (short-lived, per task)
-├── ClickHouse AsyncClient
-└── self._lifecycle → injected reference to either:
-    ├── orch_ctx.lifecycle (PgLifecycleHandler)  ← shared, NOT owned
-    └── LocalLifecycleHandler                    ← owned, created locally
-```
-
-### OrchContext Changes
-
-OrchContext creates and owns `PgLifecycleHandler`, exposing it via a `lifecycle` property:
+Started/stopped via `aaiclick background start/stop` CLI.
 
 ```python
-class OrchContext:
-    def __init__(self):
-        self._token = None
+class PgCleanupWorker:
+    """Background worker that drops CH tables with refcount <= 0.
+
+    Polls PostgreSQL every N seconds. Completely independent of
+    DataContext and OrchContext. Has own PG engine and CH client.
+    """
+
+    def __init__(self, poll_interval: float = 10.0):
+        self._poll_interval = poll_interval
+        self._task: asyncio.Task | None = None
         self._engine: AsyncEngine | None = None
-        self._lifecycle: PgLifecycleHandler | None = None
+        self._shutdown: asyncio.Event | None = None
 
-    @property
-    def lifecycle(self) -> PgLifecycleHandler:
-        return self._lifecycle
+    async def start(self) -> None:
+        self._engine = create_async_engine(get_pg_url())
+        self._shutdown = asyncio.Event()
+        self._task = asyncio.create_task(self._cleanup_loop())
 
-    async def __aenter__(self):
-        # ... existing engine setup ...
-        self._lifecycle = PgLifecycleHandler()
-        await self._lifecycle.start()
-        # ... set ContextVar ...
-        return self
+    async def stop(self) -> None:
+        self._shutdown.set()
+        await self._task
+        if self._engine:
+            await self._engine.dispose()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Stop background workers first (flush pending writes)
-        if self._lifecycle:
-            await self._lifecycle.stop()
-        # ... existing engine dispose, ContextVar reset ...
+    async def _cleanup_loop(self) -> None:
+        while not self._shutdown.is_set():
+            # SELECT table_name FROM refcounts WHERE refcount <= 0
+            # For each: DROP TABLE IF EXISTS in ClickHouse
+            # Then: DELETE FROM refcounts WHERE table_name = ...
+            await self._do_cleanup()
+
+            # Wait for poll_interval or shutdown signal
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(),
+                    timeout=self._poll_interval,
+                )
+            except asyncio.TimeoutError:
+                pass  # Normal: timeout means keep polling
+```
+
+### Architecture
+
+```
+DataContext (per task, short-lived)
+├── ClickHouse AsyncClient
+└── self._lifecycle: LifecycleHandler (incref/decref only)
+    ├── LocalLifecycleHandler   (local mode: incref/decref + DROP TABLE)
+    └── PgLifecycleHandler      (distributed: incref/decref → PG writes only)
+
+PgCleanupWorker (completely independent, long-lived)
+├── Own AsyncEngine (PostgreSQL)
+├── Own ClickHouse client
+└── Polls every N seconds:
+    SELECT tables WHERE refcount <= 0 → DROP TABLE → DELETE row
+
+OrchContext (unchanged — no lifecycle concerns)
+├── AsyncEngine (PostgreSQL)
+└── Task/Job/Worker management only
 ```
 
 ### DataContext Changes — Explicit Injection
@@ -176,23 +201,20 @@ class DataContext:
         self,
         creds: ClickHouseCreds | None = None,
         engine: EngineType | None = None,
-        lifecycle: LifecycleHandler | None = None,  # NEW: injected from OrchContext
+        lifecycle: LifecycleHandler | None = None,  # NEW
     ):
         self._creds = creds or get_ch_creds()
         self._injected_lifecycle = lifecycle
         self._lifecycle: LifecycleHandler | None = None
         self._owns_lifecycle: bool = False
-        # ... existing init ...
 
     async def __aenter__(self):
         # ... existing client init ...
 
         if self._injected_lifecycle is not None:
-            # Use injected handler (from OrchContext) — shared, not owned
             self._lifecycle = self._injected_lifecycle
             self._owns_lifecycle = False
         else:
-            # Create local handler — owned by this DataContext
             self._lifecycle = LocalLifecycleHandler(self._creds)
             await self._lifecycle.start()
             self._owns_lifecycle = True
@@ -203,7 +225,6 @@ class DataContext:
     async def __aexit__(self, ...):
         # ... mark objects stale ...
 
-        # Only stop lifecycle if we own it (local mode)
         if self._owns_lifecycle and self._lifecycle:
             await self._lifecycle.stop()
         self._lifecycle = None
@@ -211,26 +232,65 @@ class DataContext:
         # ... reset ContextVar ...
 ```
 
-### Integration with Orchestration
+### Worker Startup Integration
 
-In `execute_task()`, pass `orch_ctx.lifecycle` into `DataContext`:
+Worker startup creates PgLifecycleHandler and PgCleanupWorker, passes lifecycle into execute_task:
 
 ```python
-async def execute_task(task: Task) -> Any:
+# In __main__.py — worker start
+async def start_worker():
+    pg_lifecycle = PgLifecycleHandler()
+    pg_cleanup = PgCleanupWorker()
+    await pg_lifecycle.start()
+    await pg_cleanup.start()
+    try:
+        async with OrchContext():
+            await worker_main_loop(
+                max_tasks=args.max_tasks,
+                lifecycle=pg_lifecycle,
+            )
+    finally:
+        await pg_lifecycle.stop()
+        await pg_cleanup.stop()
+```
+
+In `execute_task()`:
+
+```python
+async def execute_task(task: Task, lifecycle: LifecycleHandler | None = None) -> Any:
     func = import_callback(task.entrypoint)
     kwargs = deserialize_task_params(task.kwargs)
 
-    orch_ctx = get_orch_context()
-
     with capture_task_output(task.id):
-        # Inject PG lifecycle handler from OrchContext
-        async with DataContext(lifecycle=orch_ctx.lifecycle):
+        async with DataContext(lifecycle=lifecycle):
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
                 result = func(**kwargs)
 
     return result
+```
+
+### Standalone Background CLI
+
+For running cleanup independently (e.g., dedicated cleanup process):
+
+```bash
+aaiclick background start   # runs PgCleanupWorker standalone
+```
+
+```python
+# In __main__.py
+async def start_background():
+    cleanup = PgCleanupWorker()
+    await cleanup.start()
+    # Wait for SIGTERM/SIGINT
+    shutdown = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, shutdown.set)
+    await shutdown.wait()
+    await cleanup.stop()
 ```
 
 ## Files to Change
@@ -240,9 +300,11 @@ async def execute_task(task: Task) -> Any:
 | `aaiclick/data/lifecycle.py` | **NEW** — `LifecycleHandler` ABC, `LocalLifecycleHandler` |
 | `aaiclick/data/data_context.py` | Add `lifecycle` param, use `self._lifecycle` instead of `self._worker` directly |
 | `aaiclick/data/__init__.py` | Export `LifecycleHandler`, `LocalLifecycleHandler` |
-| `aaiclick/orchestration/pg_lifecycle.py` | **NEW** — `PgLifecycleHandler` (lives in orchestration, not data) |
-| `aaiclick/orchestration/context.py` | Create and manage `PgLifecycleHandler` as background worker |
-| `aaiclick/orchestration/execution.py` | Pass `orch_ctx.lifecycle` into `DataContext(lifecycle=...)` |
+| `aaiclick/orchestration/pg_lifecycle.py` | **NEW** — `PgLifecycleHandler` (incref/decref to PG only) |
+| `aaiclick/orchestration/pg_cleanup.py` | **NEW** — `PgCleanupWorker` (polls PG, drops CH tables) |
+| `aaiclick/orchestration/execution.py` | Pass `lifecycle` into `DataContext(lifecycle=...)` |
+| `aaiclick/orchestration/worker.py` | Accept and forward `lifecycle` param |
+| `aaiclick/__main__.py` | Wire up PgLifecycleHandler + PgCleanupWorker in worker start; add `background start` CLI |
 | `aaiclick/data/test_lifecycle.py` | **NEW** — Tests for `LocalLifecycleHandler` |
 
 ## Implementation Phases
@@ -255,27 +317,33 @@ async def execute_task(task: Task) -> Any:
 5. When `lifecycle` is provided, use it as shared reference (`_owns_lifecycle = False`)
 6. Update `DataContext.incref()`, `DataContext.decref()`, `__aenter__`, `__aexit__` to delegate to `self._lifecycle`
 
-### Phase 2: PgLifecycleHandler as OrchContext Background Worker
+### Phase 2: PgLifecycleHandler (incref/decref only)
 1. Create `aaiclick/orchestration/pg_lifecycle.py` with `PgLifecycleHandler`
-2. `PgLifecycleHandler` runs as `asyncio.Task` in OrchContext's event loop
+2. Own PG engine — independent of OrchContext
 3. Uses `queue.Queue` + `run_in_executor` to bridge sync callers to async processing
-4. Uses `get_orch_context_session()` for PG writes (same event loop, shared engine)
-5. Design the PostgreSQL table for tracking CH table refcounts
-6. Update `OrchContext.__aenter__` to create and start `PgLifecycleHandler`
-7. Update `OrchContext.__aexit__` to stop it (flush pending writes)
-8. Expose via `OrchContext.lifecycle` property
+4. Design the PostgreSQL table for tracking CH table refcounts
+5. UPSERT for incref, decrement for decref. No cleanup.
 
-### Phase 3: Orchestration Integration
-1. Update `execute_task()` to pass `orch_ctx.lifecycle` into `DataContext(lifecycle=...)`
-2. Add job-level cleanup: when a job completes, drop all CH tables with refcount 0
+### Phase 3: PgCleanupWorker (background table dropper)
+1. Create `aaiclick/orchestration/pg_cleanup.py` with `PgCleanupWorker`
+2. Own PG engine + own CH client
+3. Polls every N seconds: SELECT WHERE refcount <= 0 → DROP TABLE → DELETE row
+4. Clean shutdown via asyncio.Event
+
+### Phase 4: Integration
+1. Update `execute_task()` to accept and pass `lifecycle` param
+2. Update `worker_main_loop()` to accept and forward `lifecycle` param
+3. Wire up in `__main__.py` worker start: create PgLifecycleHandler + PgCleanupWorker
+4. Add `aaiclick background start` CLI command for standalone cleanup process
 
 ## Design Decisions
 
-- **Why inject `lifecycle` handler, not `orch_engine` or auto-detect?** Explicit dependency injection. DataContext doesn't need to know about OrchContext at all. The caller decides which lifecycle strategy to use. No hidden ContextVar lookups.
-- **Why OrchContext-owned, not DataContext-owned?** PgLifecycleHandler tracks tables across multiple task executions. DataContext is per-task (short-lived), but table references span tasks within a job. OrchContext lives for the entire worker process — correct ownership boundary.
-- **Why asyncio.Task, not a separate thread?** OrchContext already has an event loop. The handler can use `get_orch_context_session()` directly. No cross-loop engine issues, no thread management overhead.
+- **Why two separate components (PgLifecycleHandler vs PgCleanupWorker)?** Separation of concerns. Refcount tracking must be fast and inline (called from Object.__del__). Cleanup is slow, periodic, and independent. They don't need to know about each other.
+- **Why PgLifecycleHandler has own PG engine?** Fully decoupled from OrchContext. Can be started/stopped independently. No dependency on OrchContext lifecycle.
+- **Why PgCleanupWorker has own CH client?** It needs to DROP tables in ClickHouse. Completely independent — can even run in a separate process.
+- **Why inject `lifecycle` handler into DataContext?** Explicit dependency injection. DataContext doesn't know about OrchContext, PG, or background services. The caller decides which lifecycle strategy to use.
+- **Why `_owns_lifecycle` flag?** DataContext must know whether to call `stop()` on exit. Shared handlers (PgLifecycleHandler) are stopped by whoever started them. Local handlers are stopped by the DataContext that created them.
 - **Why `queue.Queue` (not `asyncio.Queue`)?** `incref`/`decref` are called from sync code (`Object.__del__`). `queue.Queue.put()` is thread-safe and non-blocking. The asyncio task uses `run_in_executor` to bridge the blocking `get()`.
-- **Why `PgLifecycleHandler` lives in `orchestration/`, not `data/`?** It depends on OrchContext sessions and PG models. `LocalLifecycleHandler` lives in `data/` because it only depends on ClickHouse. Each handler lives with its dependencies.
-- **Why `_owns_lifecycle` flag?** DataContext must know whether to call `stop()` on exit. Shared handlers (from OrchContext) are stopped by OrchContext. Local handlers are stopped by the DataContext that created them.
-- **PG handler does NOT drop ClickHouse tables** — it only tracks refcounts in PostgreSQL. Table cleanup is a separate coordinated process at job completion, ensuring no worker drops a table another worker still needs.
-- **Background worker pattern** — PgLifecycleHandler is the first OrchContext background worker. Future workers (heartbeat, metrics) follow the same protocol: `start()` creates `asyncio.Task`, `stop()` signals shutdown and awaits completion.
+- **Why `PgLifecycleHandler` lives in `orchestration/`, not `data/`?** It depends on PG models and SQLAlchemy. `LocalLifecycleHandler` lives in `data/` because it only depends on ClickHouse. Each handler lives with its dependencies.
+- **PgLifecycleHandler does NOT drop ClickHouse tables** — it only tracks refcounts in PostgreSQL. PgCleanupWorker handles the actual cleanup, ensuring no worker drops a table another worker still needs.
+- **OrchContext is unchanged** — it manages orchestration DB (tasks, jobs, workers). Lifecycle is not its concern.
