@@ -1168,6 +1168,35 @@ aaiclick background start --poll-interval 5  # Custom interval
 
 This is useful for running cleanup separately from workers, or for dedicated cleanup processes in production.
 
+### Write-Ahead Incref
+
+`create_object()` registers the table with the lifecycle handler **before** creating the ClickHouse table:
+
+```python
+obj = Object(schema=schema)           # 1. Generate table name (Snowflake ID)
+obj._register(ctx)                     # 2. incref BEFORE table creation
+await ctx.ch_client.command(create_q)  # 3. CREATE TABLE in ClickHouse
+```
+
+This prevents the most common orphan scenario: crash after `CREATE TABLE` but before incref reaches PostgreSQL. If a crash occurs after incref but before `CREATE TABLE`, the cleanup worker tries `DROP TABLE IF EXISTS` on a non-existent table (harmless no-op) and deletes the PG row.
+
+**Implementation**: `aaiclick/data/data_context.py` — see `create_object()` function
+
+### TableSweeper — Orphan Detection ⚠️ NOT YET IMPLEMENTED
+
+A periodic sweeper that catches orphaned tables regardless of cause. All aaiclick tables follow the naming convention `t{snowflake_id}`. The sweeper:
+
+1. Lists all `t*` tables in ClickHouse
+2. Extracts creation timestamp from each table's snowflake ID
+3. For tables older than a threshold (default 1 hour): checks if a `table_refcounts` row exists in PG
+4. If no row exists → table is orphaned → DROP it
+
+The sweeper is complementary to PgCleanupWorker:
+- **PgCleanupWorker**: Drops tables the refcount system knows about (refcount <= 0)
+- **TableSweeper**: Catches tables the refcount system missed (no PG row at all)
+
+See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) — "Failure Handling & Dangling Tables" section for detailed design.
+
 ### Relationship to Local Mode
 
 When no lifecycle handler is injected (e.g., during local development or testing), DataContext creates a `LocalLifecycleHandler` that wraps `TableWorker` — a background thread that drops tables immediately when refcount reaches 0. No PostgreSQL required.
