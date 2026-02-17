@@ -12,6 +12,7 @@ from typing import Callable, Optional
 from sqlmodel import select
 
 from aaiclick.data.lifecycle import LifecycleHandler
+from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import claim_next_task, update_task_status
 from .context import OrchContext, get_orch_context_session
