@@ -540,5 +540,3 @@ DataContext accepts an optional `lifecycle` parameter:
 | `PgCleanupWorker` | `aaiclick/orchestration/pg_cleanup.py` |
 | `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
 | `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |
-
-See [Object Lifecycle Implementation Plan](object_lifecycle_implementation_plan.md) for the original phased implementation history.

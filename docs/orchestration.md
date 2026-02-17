@@ -60,9 +60,7 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **DataContext** (`aaiclick.data_context`): Manages ClickHouse data operations
   - Handles Objects and Views
   - Uses global urllib3 connection pool
-  - Accepts optional `LifecycleHandler` for distributed refcount tracking
-  - See [Object documentation](object.md) for lifecycle details
-  - See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for distributed lifecycle design
+  - Accepts optional `LifecycleHandler` for distributed refcount tracking (see "Distributed Object Lifecycle" section)
   - Example: `async with DataContext() as data_ctx:`
 
 - **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
@@ -1082,6 +1080,101 @@ await deregister_worker(worker.id)
 workers = await list_workers(status=WorkerStatus.ACTIVE)
 ```
 
+## Distributed Object Lifecycle
+
+In distributed mode, Object table lifecycle (reference counting and cleanup) is managed through PostgreSQL, enabling coordination across multiple workers. Two independent components handle this:
+
+### Architecture
+
+```
+Worker Process
+├── PgLifecycleHandler (asyncio.Task, own PG engine)
+│   └── incref/decref → writes to table_refcounts in PG
+├── PgCleanupWorker (asyncio.Task, own PG engine + CH client)
+│   └── polls table_refcounts every N seconds → DROP TABLE where refcount <= 0
+├── OrchContext (PG engine for jobs/tasks/workers)
+└── DataContext (per task, ClickHouse)
+    └── lifecycle = PgLifecycleHandler (injected, not owned)
+```
+
+Each component owns its own PG engine — fully decoupled from OrchContext.
+
+### PgLifecycleHandler — Refcount Tracking
+
+**Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
+
+Tracks Object table reference counts in the `table_refcounts` PostgreSQL table. Only handles incref/decref — does NOT drop tables.
+
+**How sync incref/decref bridges to async**:
+- `Object.__del__` and `Object._register` call `incref`/`decref` synchronously
+- These put messages on a `queue.Queue` (thread-safe, non-blocking)
+- An asyncio.Task drains the queue via `run_in_executor` and writes to PG
+
+**PostgreSQL table**:
+
+```python
+class TableRefcount(SQLModel, table=True):
+    __tablename__ = "table_refcounts"
+    table_name: str  # Primary key — ClickHouse table name
+    refcount: int    # Current reference count
+```
+
+- **INCREF**: `INSERT ... ON CONFLICT DO UPDATE SET refcount = refcount + 1`
+- **DECREF**: `UPDATE SET refcount = refcount - 1`
+
+### PgCleanupWorker — Table Dropper
+
+**Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker` class
+
+Background worker that polls PostgreSQL every N seconds for tables with refcount <= 0, drops them in ClickHouse, and deletes the refcount rows. Completely independent of DataContext, OrchContext, and PgLifecycleHandler.
+
+**Cleanup loop**:
+1. `SELECT table_name FROM table_refcounts WHERE refcount <= 0`
+2. For each: `DROP TABLE IF EXISTS {table_name}` in ClickHouse
+3. `DELETE FROM table_refcounts WHERE table_name = :table_name`
+
+**Configuration**: `--poll-interval` flag (default 10 seconds)
+
+### Worker Startup Integration
+
+**Implementation**: `aaiclick/__main__.py` — see `worker start` command
+
+When a worker starts via `aaiclick worker start`, both services are created alongside OrchContext:
+
+```python
+async def start_worker():
+    pg_lifecycle = PgLifecycleHandler()
+    pg_cleanup = PgCleanupWorker()
+    await pg_lifecycle.start()
+    await pg_cleanup.start()
+    try:
+        async with OrchContext():
+            await worker_main_loop(lifecycle=pg_lifecycle)
+    finally:
+        await pg_lifecycle.stop()
+        await pg_cleanup.stop()
+```
+
+The `lifecycle` parameter flows through: `worker_main_loop` → `execute_task` → `DataContext(lifecycle=...)`.
+
+### Standalone Cleanup Process
+
+The cleanup worker can also run as a standalone process:
+
+```bash
+aaiclick background start                # Default 10s poll interval
+aaiclick background start --poll-interval 5  # Custom interval
+```
+
+This is useful for running cleanup separately from workers, or for dedicated cleanup processes in production.
+
+### Relationship to Local Mode
+
+When no lifecycle handler is injected (e.g., during local development or testing), DataContext creates a `LocalLifecycleHandler` that wraps `TableWorker` — a background thread that drops tables immediately when refcount reaches 0. No PostgreSQL required.
+
+See [Object documentation](object.md) — "Table Lifecycle Tracking" section for the full LifecycleHandler interface.
+See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for the detailed design document.
+
 ## Configuration
 
 ### Environment Variables
@@ -1166,18 +1259,8 @@ async with OrchContext():
 
 ## Implementation Plan
 
-**See**: `docs/orchestration_implementation_plan.md` for detailed phase-by-phase implementation plan
-
-**Current Status**:
-- ✅ Phase 1: Database Setup (complete)
-- ✅ Phase 2: Core Factories (complete)
-- ✅ Phase 3: job_test() Function (complete)
-- ✅ Phase 4: OrchContext Integration (complete)
-- ✅ Phase 5: Testing & Examples (complete)
-- ✅ Phase 6: Distributed Workers (complete)
-- ✅ Phase 7: Groups and Dependencies (complete)
+**Current Status**: Phases 1–7 complete.
 - ⚠️ Phase 8+: Dynamic Task Creation, Retry Logic
-- 🔧 [Abstract Lifecycle Plan](abstract_lifecycle_plan.md): Distributed table lifecycle via PostgreSQL
 
 ## Monitoring & Observability
 
