@@ -444,12 +444,9 @@ class ModelName:
 
 ## Example: Orchestration Backend
 
-See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for reference:
+See `docs/orchestration.md` for the full specification:
 
-- **Specification**: Comprehensive design document with all phases planned
-- **Implementation Plan**: Phase-by-phase breakdown with progress tracking
-- **Phase 2 Complete**: Implementation plan updated with ✅ and file references
-- **Documentation Updated**: orchestration.md references actual code, marks implementation status
+- **Specification**: Comprehensive design document referencing actual code
 - **No Duplication**: Implemented features point to code instead of duplicating
 
 # Making Changes

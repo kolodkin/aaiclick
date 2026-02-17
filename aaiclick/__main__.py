@@ -1,14 +1,16 @@
 """CLI entry point for aaiclick package.
 
 Usage:
-    python -m aaiclick migrate         # Run database migrations
-    python -m aaiclick migrate --help  # Show migration help
-    python -m aaiclick worker start    # Start a worker process
-    python -m aaiclick worker list     # List workers
+    python -m aaiclick migrate            # Run database migrations
+    python -m aaiclick migrate --help     # Show migration help
+    python -m aaiclick worker start       # Start a worker process
+    python -m aaiclick worker list        # List workers
+    python -m aaiclick background start   # Start background cleanup worker
 """
 
 import argparse
 import asyncio
+import signal
 
 
 def main():
@@ -58,6 +60,28 @@ def main():
         help="List workers",
     )
 
+    # Add background subcommand
+    background_parser = subparsers.add_parser(
+        "background",
+        help="Background service commands",
+    )
+    background_subparsers = background_parser.add_subparsers(
+        dest="background_command",
+        help="Background commands",
+    )
+
+    # background start
+    background_start_parser = background_subparsers.add_parser(
+        "start",
+        help="Start background cleanup worker",
+    )
+    background_start_parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=10.0,
+        help="Cleanup poll interval in seconds (default: 10)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "migrate":
@@ -69,10 +93,20 @@ def main():
     elif args.command == "worker":
         if args.worker_command == "start":
             from aaiclick.orchestration import OrchContext, worker_main_loop
+            from aaiclick.orchestration.pg_cleanup import PgCleanupWorker
+            from aaiclick.orchestration.pg_lifecycle import PgLifecycleHandler
 
             async def start_worker():
-                async with OrchContext():
-                    await worker_main_loop(max_tasks=args.max_tasks)
+                pg_cleanup = PgCleanupWorker()
+                await pg_cleanup.start()
+                try:
+                    async with OrchContext():
+                        await worker_main_loop(
+                            max_tasks=args.max_tasks,
+                            lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
+                        )
+                finally:
+                    await pg_cleanup.stop()
 
             asyncio.run(start_worker())
 
@@ -95,6 +129,27 @@ def main():
 
         else:
             worker_parser.print_help()
+
+    elif args.command == "background":
+        if args.background_command == "start":
+            from aaiclick.orchestration.pg_cleanup import PgCleanupWorker
+
+            async def start_background():
+                cleanup = PgCleanupWorker(poll_interval=args.poll_interval)
+                await cleanup.start()
+                shutdown = asyncio.Event()
+                loop = asyncio.get_running_loop()
+                for sig in (signal.SIGTERM, signal.SIGINT):
+                    loop.add_signal_handler(sig, shutdown.set)
+                print(f"Background cleanup worker started (poll_interval={args.poll_interval}s)")
+                await shutdown.wait()
+                print("Shutting down background cleanup worker...")
+                await cleanup.stop()
+
+            asyncio.run(start_background())
+
+        else:
+            background_parser.print_help()
 
     else:
         parser.print_help()

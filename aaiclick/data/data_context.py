@@ -17,7 +17,7 @@ from clickhouse_connect.driver.asyncclient import AsyncClient
 from urllib3 import PoolManager
 
 from .env import get_ch_creds
-from .table_worker import TableWorker
+from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ClickHouseCreds,
     ValueScalarType,
@@ -112,6 +112,7 @@ class DataContext:
         self,
         creds: ClickHouseCreds | None = None,
         engine: EngineType | None = None,
+        lifecycle: LifecycleHandler | None = None,
     ):
         """Initialize a DataContext.
 
@@ -119,10 +120,14 @@ class DataContext:
             creds: ClickHouse credentials. If None, reads from environment variables.
             engine: ClickHouse table engine to use. Defaults to ENGINE_DEFAULT (MergeTree).
                    Use ENGINE_MEMORY for in-memory tables (faster, no disk I/O).
+            lifecycle: LifecycleHandler for table refcounting. If None, creates a
+                      LocalLifecycleHandler (current default behavior).
         """
         self._creds = creds or get_ch_creds()
         self._ch_client: Optional[AsyncClient] = None
-        self._worker: Optional[TableWorker] = None
+        self._injected_lifecycle = lifecycle
+        self._lifecycle: Optional[LifecycleHandler] = None
+        self._owns_lifecycle: bool = False
         self._objects: Dict[int, weakref.ref] = {}  # Track objects for stale marking
         self._token = None
         self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
@@ -151,13 +156,13 @@ class DataContext:
 
     def incref(self, table_name: str) -> None:
         """Increment reference count for table. Thread-safe, non-blocking."""
-        if self._worker is not None:
-            self._worker.incref(table_name)
+        if self._lifecycle is not None:
+            self._lifecycle.incref(table_name)
 
     def decref(self, table_name: str) -> None:
         """Decrement reference count for table. Thread-safe, non-blocking."""
-        if self._worker is not None:
-            self._worker.decref(table_name)
+        if self._lifecycle is not None:
+            self._lifecycle.decref(table_name)
 
     def _register_object(self, obj: Object) -> None:
         """
@@ -169,22 +174,26 @@ class DataContext:
         self._objects[id(obj)] = weakref.ref(obj)
 
     async def __aenter__(self):
-        """Enter the context, initializing the client and starting the worker."""
+        """Enter the context, initializing the client and starting the lifecycle handler."""
         if self._ch_client is None:
             self._ch_client = await get_ch_client(self._creds)
 
-        # Start background worker for table lifecycle
-        self._worker = TableWorker(self._creds)
-        self._worker.start()
+        if self._injected_lifecycle is not None:
+            self._lifecycle = self._injected_lifecycle
+            self._owns_lifecycle = False
+        else:
+            self._lifecycle = LocalLifecycleHandler(self._creds)
+            await self._lifecycle.start()
+            self._owns_lifecycle = True
 
         self._token = _current_context.set(self)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """
-        Exit the context, stopping the worker and resetting ContextVar.
+        Exit the context, stopping the lifecycle handler and resetting ContextVar.
 
-        The worker will drop all remaining tables on shutdown.
+        Owned lifecycle handlers will clean up all remaining tables on shutdown.
         """
         # Mark all tracked objects as stale
         for obj_ref in self._objects.values():
@@ -195,10 +204,10 @@ class DataContext:
         # Clear the tracking dict
         self._objects.clear()
 
-        # Stop worker (blocks until all tables dropped)
-        if self._worker:
-            self._worker.stop()
-            self._worker = None
+        # Only stop lifecycle if we own it (local mode)
+        if self._owns_lifecycle and self._lifecycle:
+            await self._lifecycle.stop()
+        self._lifecycle = None
 
         # Reset the ContextVar
         _current_context.reset(self._token)
@@ -228,10 +237,9 @@ class DataContext:
         if obj_id in self._objects:
             del self._objects[obj_id]
 
-        # The table will be dropped when refcount reaches 0 via worker
-        # Force decref to trigger drop
-        if self._worker is not None:
-            self._worker.decref(obj.table)
+        # Force decref to trigger cleanup
+        if self._lifecycle is not None:
+            self._lifecycle.decref(obj.table)
 
 
 def get_engine_clause(engine: EngineType) -> str:
@@ -309,10 +317,9 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
         {', '.join(column_defs)}
     ) {engine_clause}
     """
-    await ctx.ch_client.command(create_query)
-
-    obj._register(ctx)  # Table lifecycle: incref for refcount-based DROP
+    obj._register(ctx)  # Write-ahead incref: register before CREATE TABLE
     ctx._register_object(obj)  # Object lifecycle: track for stale marking on exit
+    await ctx.ch_client.command(create_query)
     return obj
 
 

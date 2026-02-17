@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import AsyncIterator
@@ -10,6 +9,7 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from ..snowflake_id import get_snowflake_id
+from .env import get_pg_url
 from .models import Group, Task, TasksType
 
 
@@ -79,21 +79,10 @@ class OrchContext:
         """
         Enter the context, creating engine and setting ContextVar.
 
-        Creates a new SQLAlchemy AsyncEngine using environment variables:
-        - POSTGRES_HOST (default: "localhost")
-        - POSTGRES_PORT (default: 5432)
-        - POSTGRES_USER (default: "aaiclick")
-        - POSTGRES_PASSWORD (default: "secret")
-        - POSTGRES_DB (default: "aaiclick")
+        Creates a new SQLAlchemy AsyncEngine using environment variables
+        configured in orchestration.env.get_pg_url().
         """
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = os.getenv("POSTGRES_PORT", "5432")
-        user = os.getenv("POSTGRES_USER", "aaiclick")
-        password = os.getenv("POSTGRES_PASSWORD", "secret")
-        database = os.getenv("POSTGRES_DB", "aaiclick")
-
-        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-        self._engine = create_async_engine(database_url, echo=False)
+        self._engine = create_async_engine(get_pg_url(), echo=False)
 
         self._token = _current_orch_context.set(self)
         return self
