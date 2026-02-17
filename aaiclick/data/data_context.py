@@ -317,10 +317,9 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
         {', '.join(column_defs)}
     ) {engine_clause}
     """
-    await ctx.ch_client.command(create_query)
-
-    obj._register(ctx)  # Table lifecycle: incref for refcount-based DROP
+    obj._register(ctx)  # Write-ahead incref: register before CREATE TABLE
     ctx._register_object(obj)  # Object lifecycle: track for stale marking on exit
+    await ctx.ch_client.command(create_query)
     return obj
 
 
