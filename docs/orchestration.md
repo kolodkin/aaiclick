@@ -60,6 +60,9 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **DataContext** (`aaiclick.data_context`): Manages ClickHouse data operations
   - Handles Objects and Views
   - Uses global urllib3 connection pool
+  - Accepts optional `LifecycleHandler` for distributed refcount tracking
+  - See [Object documentation](object.md) for lifecycle details
+  - See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for distributed lifecycle design
   - Example: `async with DataContext() as data_ctx:`
 
 - **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
@@ -1174,6 +1177,7 @@ async with OrchContext():
 - ✅ Phase 6: Distributed Workers (complete)
 - ✅ Phase 7: Groups and Dependencies (complete)
 - ⚠️ Phase 8+: Dynamic Task Creation, Retry Logic
+- 🔧 [Abstract Lifecycle Plan](abstract_lifecycle_plan.md): Distributed table lifecycle via PostgreSQL
 
 ## Monitoring & Observability
 

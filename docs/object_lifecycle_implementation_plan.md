@@ -1,6 +1,6 @@
 # Object Lifecycle Tracking - Implementation Plan
 
-**Design Document**: [object_lifecycle.md](object_lifecycle.md)
+**Design Document**: [object.md](object.md) — see "Table Lifecycle Tracking" section
 
 ## Refactor Note
 

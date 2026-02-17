@@ -452,3 +452,93 @@ Tests are organized by operator group:
 | Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
 | Aggregation Operators | `test_aggregation.py` |
 | Set Operators | `test_unique_parametrized.py` |
+
+## Table Lifecycle Tracking
+
+Tables are tracked via reference counting and dropped when no Objects reference them.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      DataContext                             │
+│                                                              │
+│  __aenter__()  ──► Start LifecycleHandler                   │
+│  __aexit__()   ──► Stop LifecycleHandler, cleanup            │
+│                                                              │
+│  ┌──────────┐    incref()   ┌─────────────────────────────┐  │
+│  │  Object  │──────────────►│                             │  │
+│  │  __init__│               │    LifecycleHandler (ABC)   │  │
+│  └──────────┘               │                             │  │
+│                              │  Implementations:           │  │
+│  ┌──────────┐    decref()   │  - LocalLifecycleHandler    │  │
+│  │  Object  │──────────────►│    (TableWorker thread)     │  │
+│  │  __del__ │               │  - PgLifecycleHandler       │  │
+│  └──────────┘               │    (PostgreSQL refcounts)   │  │
+│                              └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### LifecycleHandler ABC
+
+**Implementation**: `aaiclick/data/lifecycle.py`
+
+The abstract interface for table lifecycle management:
+
+```python
+class LifecycleHandler(ABC):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    def incref(self, table_name: str) -> None: ...
+    def decref(self, table_name: str) -> None: ...
+```
+
+### Local Mode: LocalLifecycleHandler
+
+**Implementation**: `aaiclick/data/lifecycle.py` — see `LocalLifecycleHandler` class
+
+Default handler. Wraps `TableWorker` — a background thread with queue-based refcounting. When refcount reaches 0, immediately drops the ClickHouse table. DataContext creates this automatically when no handler is injected.
+
+### Distributed Mode: PgLifecycleHandler
+
+**Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
+
+For distributed orchestration. Writes incref/decref to PostgreSQL via a thread-safe queue bridged to an asyncio task. Does NOT drop tables — cleanup is handled by a separate `PgCleanupWorker` that polls PostgreSQL.
+
+See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for the full distributed lifecycle design.
+
+### DataContext Integration
+
+DataContext accepts an optional `lifecycle` parameter:
+- `lifecycle=None` (default): creates and owns a `LocalLifecycleHandler`
+- `lifecycle=handler`: uses the injected handler without owning it
+
+### Object Registration Flow
+
+1. `create_object()` creates a ClickHouse table
+2. Calls `obj._register(ctx)` → stores weakref to context, calls `ctx.incref(table_name)`
+3. When Object is garbage collected, `__del__` calls `ctx.decref(table_name)`
+4. Views incref/decref the source Object's table (no new tables created)
+
+### __del__ Guard Clauses
+
+`Object.__del__` and `View.__del__` include three guards:
+
+| Guard | Scenario |
+|-------|----------|
+| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
+| `_data_ctx_ref is None` | Object was never registered |
+| `context = _data_ctx_ref()` is None | Context already garbage collected |
+
+### Implementation Files
+
+| Component | File |
+|-----------|------|
+| `LifecycleHandler`, `LocalLifecycleHandler` | `aaiclick/data/lifecycle.py` |
+| `TableWorker`, `TableOp`, `TableMessage` | `aaiclick/data/table_worker.py` |
+| `PgLifecycleHandler`, `TableRefcount` | `aaiclick/orchestration/pg_lifecycle.py` |
+| `PgCleanupWorker` | `aaiclick/orchestration/pg_cleanup.py` |
+| `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
+| `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |
+
+See [Object Lifecycle Implementation Plan](object_lifecycle_implementation_plan.md) for the original phased implementation history.
