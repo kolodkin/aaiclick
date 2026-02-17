@@ -484,15 +484,42 @@ async def start_background():
     await cleanup.stop()
 ```
 
-#### Sweeper vs Other Approaches
+#### Write-Ahead Incref (Complementary Prevention)
+
+The most common orphan scenario (Scenario 1) can be **prevented** by reordering existing calls in `create_object()`:
+
+**Current order** (vulnerable):
+```python
+async def create_object(schema):
+    obj = Object(schema=schema)           # 1. Generate table name
+    await ctx.ch_client.command(create_q)  # 2. CREATE TABLE in ClickHouse
+    obj._register(ctx)                     # 3. incref (after table exists)
+```
+
+**Write-ahead order** (safe):
+```python
+async def create_object(schema):
+    obj = Object(schema=schema)           # 1. Generate table name
+    obj._register(ctx)                     # 2. incref BEFORE table creation
+    await ctx.ch_client.command(create_q)  # 3. CREATE TABLE in ClickHouse
+```
+
+This works because the table name is already known from `Object.__init__()` (generated via Snowflake ID). `_register()` calls `context.incref()` which is just a queue put. No new method needed — just a reorder.
+
+**Crash scenarios with write-ahead:**
+- **Crash after incref, before CREATE TABLE**: PG has a row for a table that doesn't exist in CH. PgCleanupWorker tries `DROP TABLE IF EXISTS` — harmless no-op, then deletes the PG row. Clean.
+- **Crash after CREATE TABLE**: Incref is already recorded. Normal cleanup path.
+
+**Views don't need write-ahead** — they share the source Object's table (no CREATE TABLE), so the incref in `View.__init__()` is always for an already-existing table.
+
+#### Sweeper vs Write-Ahead
 
 | Approach | Prevents orphans? | Adds latency? | Catches all cases? |
 |----------|-------------------|---------------|-------------------|
-| **Sweeper** (chosen) | No (detects after) | No | Yes — any orphan older than threshold |
-| Write-ahead incref | Yes (prevents) | Yes — sync PG write per table creation | No — doesn't catch external table drops |
-| Job-scoped registry | Partially | No | No — doesn't catch tables outside jobs |
+| **Sweeper** | No (detects after) | No | Yes — any orphan older than threshold |
+| **Write-ahead incref** | Yes (common case) | No — just reorders existing sync queue.put() | No — doesn't catch external drops or partial flush |
 
-The sweeper is the simplest, most resilient approach. It doesn't prevent orphans — it detects and cleans them up after the fact. Since the age threshold is configurable (default 1 hour), the worst case is temporary storage waste, never data loss from premature deletion.
+**Both are complementary.** Write-ahead prevents the most common orphan (Scenario 1). The sweeper catches everything else (Scenarios 2, 4, external issues). Together they provide defense in depth.
 
 #### Configuration
 
