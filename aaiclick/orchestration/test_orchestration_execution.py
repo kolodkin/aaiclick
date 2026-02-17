@@ -10,6 +10,8 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import select
 
+from aaiclick.data import DataContext
+from aaiclick.data.object import Object, View
 from aaiclick.orchestration import (
     JobStatus,
     Task,
@@ -22,7 +24,11 @@ from aaiclick.orchestration import (
     ajob_test,
 )
 from aaiclick.orchestration.context import get_orch_context_session
-from aaiclick.orchestration.execution import deserialize_task_params, import_callback
+from aaiclick.orchestration.execution import (
+    deserialize_task_params,
+    import_callback,
+    serialize_task_result,
+)
 from aaiclick.orchestration.logging import capture_task_output
 
 
@@ -119,7 +125,7 @@ async def test_import_callback_invalid_format(orch_ctx):
 
 async def test_deserialize_task_params_empty(orch_ctx):
     """Test deserializing empty parameters."""
-    result = deserialize_task_params({})
+    result = await deserialize_task_params({})
     assert result == {}
 
 
@@ -127,32 +133,76 @@ async def test_deserialize_task_params_rejects_native_python(orch_ctx):
     """Test that native Python values are rejected."""
     kwargs = {"x": 5, "y": 10}
 
-    with pytest.raises(ValueError, match="must be an Object or View"):
-        deserialize_task_params(kwargs)
+    async with DataContext():
+        with pytest.raises(ValueError, match="must be an Object or View"):
+            await deserialize_task_params(kwargs)
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
     """Test that unknown object_type is rejected."""
     kwargs = {"x": {"object_type": "unknown", "value": 5}}
 
-    with pytest.raises(ValueError, match="Unknown object_type"):
-        deserialize_task_params(kwargs)
+    async with DataContext():
+        with pytest.raises(ValueError, match="Unknown object_type"):
+            await deserialize_task_params(kwargs)
 
 
-async def test_deserialize_task_params_object_not_implemented(orch_ctx):
-    """Test that object type raises NotImplementedError (not yet implemented)."""
-    kwargs = {"data": {"object_type": "object", "table_id": "t123"}}
+async def test_deserialize_task_params_object(orch_ctx):
+    """Test deserializing an Object parameter."""
+    kwargs = {"data": {"object_type": "object", "table": "t123"}}
 
-    with pytest.raises(NotImplementedError):
-        deserialize_task_params(kwargs)
+    async with DataContext():
+        result = await deserialize_task_params(kwargs)
+        assert "data" in result
+        assert isinstance(result["data"], Object)
+        assert result["data"].table == "t123"
 
 
-async def test_deserialize_task_params_view_not_implemented(orch_ctx):
-    """Test that view type raises NotImplementedError (not yet implemented)."""
-    kwargs = {"data": {"object_type": "view", "table_id": "t123", "limit": 100}}
+async def test_deserialize_task_params_view(orch_ctx):
+    """Test deserializing a View parameter with constraints."""
+    kwargs = {
+        "data": {
+            "object_type": "view",
+            "table": "t456",
+            "where": "value > 10",
+            "limit": 100,
+            "offset": 50,
+            "order_by": "aai_id ASC",
+        }
+    }
 
-    with pytest.raises(NotImplementedError):
-        deserialize_task_params(kwargs)
+    async with DataContext():
+        result = await deserialize_task_params(kwargs)
+        assert "data" in result
+        assert isinstance(result["data"], View)
+        assert result["data"].table == "t456"
+        assert result["data"].where == "value > 10"
+        assert result["data"].limit == 100
+        assert result["data"].offset == 50
+        assert result["data"].order_by == "aai_id ASC"
+
+
+async def test_serialize_task_result_none(orch_ctx):
+    """Test serializing None result."""
+    assert serialize_task_result(None, 1, 2) is None
+
+
+async def test_serialize_task_result_object(orch_ctx):
+    """Test serializing an Object result."""
+    obj = Object(table="t789")
+    result = serialize_task_result(obj, task_id=100, job_id=200)
+    assert result == {
+        "object_type": "object",
+        "table": "t789",
+        "source_task_id": 100,
+        "source_job_id": 200,
+    }
+
+
+async def test_serialize_task_result_non_object(orch_ctx):
+    """Test serializing a non-Object/View result returns None."""
+    assert serialize_task_result(42, task_id=1, job_id=2) is None
+    assert serialize_task_result("hello", task_id=1, job_id=2) is None
 
 
 async def test_execute_task_sync_function(orch_ctx, monkeypatch):

@@ -1,15 +1,19 @@
 """
 aaiclick.orchestration.pg_cleanup - Background worker for dropping unreferenced CH tables.
 
-PgCleanupWorker polls PostgreSQL every N seconds for tables with refcount <= 0,
-drops them in ClickHouse, and removes the refcount rows. Completely independent
-of DataContext and OrchContext — has its own PG engine and CH client.
+PgCleanupWorker polls PostgreSQL for:
+1. Completed/failed jobs — deletes their job-scoped pin refs
+2. Tables with total refcount <= 0 — drops them in ClickHouse
+3. Dead workers — marks their running tasks as FAILED
+
+Completely independent of DataContext and OrchContext — has its own PG engine and CH client.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from clickhouse_connect import get_async_client
 from clickhouse_connect.driver.asyncclient import AsyncClient
@@ -23,17 +27,28 @@ from .env import get_pg_url
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 10.0
+DEFAULT_WORKER_TIMEOUT = 90.0
 
 
 class PgCleanupWorker:
-    """Background worker that drops CH tables with refcount <= 0.
+    """Background worker that cleans up unreferenced CH tables.
 
-    Polls PostgreSQL every N seconds. Completely independent of
-    DataContext and OrchContext. Has own PG engine and CH client.
+    Performs three cleanup operations on each poll:
+    1. Job cleanup: deletes pin refs for completed/failed jobs
+    2. Table cleanup: drops CH tables with total refcount <= 0
+    3. Dead worker detection: marks tasks from expired workers as FAILED
+
+    Completely independent of DataContext and OrchContext.
+    Has own PG engine and CH client.
     """
 
-    def __init__(self, poll_interval: float = DEFAULT_POLL_INTERVAL):
+    def __init__(
+        self,
+        poll_interval: float = DEFAULT_POLL_INTERVAL,
+        worker_timeout: float = DEFAULT_WORKER_TIMEOUT,
+    ):
         self._poll_interval = poll_interval
+        self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
         self._engine: AsyncEngine | None = None
         self._ch_client: AsyncClient | None = None
@@ -74,9 +89,43 @@ class PgCleanupWorker:
                 pass
 
     async def _do_cleanup(self) -> None:
+        await self._cleanup_completed_jobs()
+        await self._cleanup_unreferenced_tables()
+        await self._cleanup_dead_workers()
+
+    async def _cleanup_completed_jobs(self) -> None:
+        """Delete job-scoped pin refs for completed/failed jobs."""
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text("SELECT table_name FROM table_refcounts WHERE refcount <= 0")
+                text(
+                    "SELECT id FROM jobs "
+                    "WHERE status IN ('COMPLETED', 'FAILED') "
+                    "AND id IN (SELECT DISTINCT context_id FROM table_context_refs)"
+                )
+            )
+            job_ids = [row[0] for row in result.fetchall()]
+
+            if not job_ids:
+                return
+
+            await session.execute(
+                text(
+                    "DELETE FROM table_context_refs "
+                    "WHERE context_id = ANY(:job_ids)"
+                ),
+                {"job_ids": job_ids},
+            )
+            await session.commit()
+
+    async def _cleanup_unreferenced_tables(self) -> None:
+        """Drop CH tables with total refcount <= 0 across all contexts."""
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT table_name FROM table_context_refs "
+                    "GROUP BY table_name "
+                    "HAVING SUM(refcount) <= 0"
+                )
             )
             rows = result.fetchall()
 
@@ -90,8 +139,55 @@ class PgCleanupWorker:
                     continue
 
                 await session.execute(
-                    text("DELETE FROM table_refcounts WHERE table_name = :table_name"),
+                    text(
+                        "DELETE FROM table_context_refs "
+                        "WHERE table_name = :table_name"
+                    ),
                     {"table_name": table_name},
                 )
 
             await session.commit()
+
+    async def _cleanup_dead_workers(self) -> None:
+        """Detect dead workers and mark their running tasks as FAILED."""
+        cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
+
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT id FROM workers "
+                    "WHERE status = 'ACTIVE' "
+                    "AND last_heartbeat < :cutoff"
+                ),
+                {"cutoff": cutoff},
+            )
+            dead_worker_ids = [row[0] for row in result.fetchall()]
+
+            if not dead_worker_ids:
+                return
+
+            # Mark dead workers as STOPPED
+            await session.execute(
+                text(
+                    "UPDATE workers SET status = 'STOPPED' "
+                    "WHERE id = ANY(:worker_ids)"
+                ),
+                {"worker_ids": dead_worker_ids},
+            )
+
+            # Mark their running/claimed tasks as FAILED
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'FAILED', "
+                    "completed_at = :now, "
+                    "error = 'Worker died (heartbeat timeout)' "
+                    "WHERE worker_id = ANY(:worker_ids) "
+                    "AND status IN ('RUNNING', 'CLAIMED')"
+                ),
+                {"worker_ids": dead_worker_ids, "now": datetime.utcnow()},
+            )
+
+            await session.commit()
+
+            for wid in dead_worker_ids:
+                logger.warning("Worker %s marked as dead (heartbeat timeout)", wid)

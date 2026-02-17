@@ -367,7 +367,7 @@ Timeline:
 5. Asyncio task never writes incref to PG                  ✗
 ```
 
-**Result**: Table `t_abc` exists in ClickHouse. No `table_refcounts` row in PG. PgCleanupWorker doesn't know about it. **Permanently orphaned.**
+**Result**: Table `t_abc` exists in ClickHouse. No `table_context_refs` row in PG. PgCleanupWorker doesn't know about it. **Permanently orphaned.**
 
 This is the most dangerous scenario — the table is invisible to the cleanup system.
 
@@ -403,7 +403,7 @@ All aaiclick tables follow the naming convention `t{snowflake_id}`. The snowflak
 1. Lists all `t*` tables in ClickHouse
 2. Extracts the creation timestamp from each table's snowflake ID
 3. For tables older than a threshold (e.g., 1 hour):
-   - Checks if a `table_refcounts` row exists in PG
+   - Checks if a `table_context_refs` row exists in PG
    - If no row exists → table is orphaned → DROP it
 4. For tables with a refcount row where refcount <= 0:
    - Already handled by PgCleanupWorker (redundant but harmless)
@@ -451,7 +451,7 @@ class TableSweeper:
         # 3. Check which have refcount rows in PG
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text("SELECT table_name FROM table_refcounts "
+                text("SELECT table_name FROM table_context_refs "
                      "WHERE table_name = ANY(:names)"),
                 {"names": old_tables},
             )
@@ -553,9 +553,9 @@ class ContextHeartbeat(SQLModel, table=True):
     last_heartbeat: datetime = Field(default_factory=datetime.utcnow)
 
 
-class TableRefcount(SQLModel, table=True):
+class TableContextRef(SQLModel, table=True):
     """Per-context refcounts for ClickHouse tables."""
-    __tablename__ = "table_refcounts"
+    __tablename__ = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
@@ -569,8 +569,8 @@ class TableRefcount(SQLModel, table=True):
 **Normal operation**:
 1. DataContext generates `context_id` (snowflake) at init
 2. PgLifecycleHandler(context_id) stores the ID
-3. incref → `INSERT INTO table_refcounts (table_name, context_id, refcount) VALUES (:t, :ctx, 1) ON CONFLICT DO UPDATE SET refcount = refcount + 1`
-4. decref → `UPDATE table_refcounts SET refcount = refcount - 1 WHERE table_name = :t AND context_id = :ctx`
+3. incref → `INSERT INTO table_context_refs (table_name, context_id, refcount) VALUES (:t, :ctx, 1) ON CONFLICT DO UPDATE SET refcount = refcount + 1`
+4. decref → `UPDATE table_context_refs SET refcount = refcount - 1 WHERE table_name = :t AND context_id = :ctx`
 5. Heartbeat task: `UPDATE context_heartbeats SET last_heartbeat = NOW() WHERE context_id = :ctx` every N seconds
 
 **Normal exit**: DataContext.__aexit__ → objects go out of scope → decrefs fire → refcounts reach 0 → PgCleanupWorker drops tables. Heartbeat row deleted on unregister.
@@ -596,7 +596,7 @@ async def _do_cleanup(self):
         # 2. Remove all refcount rows for dead contexts
         if dead_ids:
             await session.execute(
-                text("DELETE FROM table_refcounts "
+                text("DELETE FROM table_context_refs "
                      "WHERE context_id = ANY(:ids)"),
                 {"ids": dead_ids},
             )
@@ -604,7 +604,7 @@ async def _do_cleanup(self):
         # 3. Find tables with no remaining refs (total refcount <= 0 or no rows)
         # Tables where all context rows sum to <= 0
         droppable = await session.execute(
-            text("SELECT table_name FROM table_refcounts "
+            text("SELECT table_name FROM table_context_refs "
                  "GROUP BY table_name "
                  "HAVING SUM(refcount) <= 0"),
         )
@@ -621,7 +621,7 @@ async def _do_cleanup(self):
         await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
         async with AsyncSession(self._engine) as session:
             await session.execute(
-                text("DELETE FROM table_refcounts WHERE table_name = :t"),
+                text("DELETE FROM table_context_refs WHERE table_name = :t"),
                 {"t": table_name},
             )
             await session.commit()
@@ -706,15 +706,15 @@ class PgLifecycleHandler(LifecycleHandler):
             async with AsyncSession(engine) as session:
                 if msg.op == PgLifecycleOp.INCREF:
                     await session.execute(
-                        text("INSERT INTO table_refcounts (table_name, context_id, refcount) "
+                        text("INSERT INTO table_context_refs (table_name, context_id, refcount) "
                              "VALUES (:t, :ctx, 1) "
                              "ON CONFLICT (table_name, context_id) "
-                             "DO UPDATE SET refcount = table_refcounts.refcount + 1"),
+                             "DO UPDATE SET refcount = table_context_refs.refcount + 1"),
                         {"t": msg.table_name, "ctx": self._context_id},
                     )
                 elif msg.op == PgLifecycleOp.DECREF:
                     await session.execute(
-                        text("UPDATE table_refcounts SET refcount = refcount - 1 "
+                        text("UPDATE table_context_refs SET refcount = refcount - 1 "
                              "WHERE table_name = :t AND context_id = :ctx"),
                         {"t": msg.table_name, "ctx": self._context_id},
                     )

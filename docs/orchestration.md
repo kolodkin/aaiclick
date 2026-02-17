@@ -459,11 +459,13 @@ Reference to a full aaiclick Object (entire ClickHouse table):
 ```json
 {
     "object_type": "object",
-    "table_id": "t123456789"
+    "table": "t123456789",
+    "source_task_id": 456,
+    "source_job_id": 789
 }
 ```
 
-Worker deserializes to an `Object` instance with the specified table.
+Worker deserializes to an `Object` instance. `source_task_id` and `source_job_id` are used for ownership tracking — `claim_table()` releases the job-scoped pin ref during deserialization.
 
 ### View Parameters
 
@@ -472,14 +474,18 @@ Reference to a subset/view of an Object with query constraints:
 ```json
 {
     "object_type": "view",
-    "table_id": "t123456789",
+    "table": "t123456789",
     "offset": 0,
     "limit": 10000,
-    "where": "value > 100"
+    "where": "value > 100",
+    "order_by": "aai_id ASC",
+    "selected_fields": null,
+    "source_task_id": 456,
+    "source_job_id": 789
 }
 ```
 
-Worker deserializes to a `View` instance. All constraint fields are optional except `table_id`. Default ordering is `aai_id ASC`.
+Worker deserializes to a `View` instance. All constraint fields are optional except `table`. Default ordering is `aai_id ASC`.
 
 ### Example Task Kwargs
 
@@ -488,13 +494,17 @@ Worker deserializes to a `View` instance. All constraint fields are optional exc
 task_kwargs = {
     "input_data": {
         "object_type": "view",
-        "table_id": "t987654321",
+        "table": "t987654321",
         "offset": 10000,
-        "limit": 10000
+        "limit": 10000,
+        "source_task_id": 100,
+        "source_job_id": 200,
     },
     "reference_table": {
         "object_type": "object",
-        "table_id": "t111222333"
+        "table": "t111222333",
+        "source_task_id": 100,
+        "source_job_id": 200,
     }
 }
 ```
@@ -506,13 +516,15 @@ Task functions can return any value. The execution flow automatically converts r
 - **`None`**: Task produces no output data (`task.result` is `null`)
 - **Any other value**: Automatically converted to Object via `create_object_from_value()`
 
-The return value is serialized to JSON in `Task.result`:
+The return value is serialized to JSON in `Task.result` via `serialize_task_result()`:
 
 ```json
-// Object return value (auto-converted from any Python value)
+// Object return value
 {
     "object_type": "object",
-    "table_id": "t123456789"
+    "table": "t123456789",
+    "source_task_id": 456,
+    "source_job_id": 789
 }
 
 // None return value
@@ -1082,16 +1094,20 @@ workers = await list_workers(status=WorkerStatus.ACTIVE)
 
 ## Distributed Object Lifecycle
 
-In distributed mode, Object table lifecycle (reference counting and cleanup) is managed through PostgreSQL, enabling coordination across multiple workers. Two independent components handle this:
+In distributed mode, Object table lifecycle is managed through PostgreSQL with **explicit ownership transfer** via pin/claim. Two independent components handle this:
 
 ### Architecture
 
 ```
 Worker Process
-├── PgLifecycleHandler (asyncio.Task, own PG engine)
-│   └── incref/decref → writes to table_refcounts in PG
+├── PgLifecycleHandler (per task, asyncio.Task, own PG engine)
+│   ├── incref/decref → writes to table_context_refs (context_id = auto snowflake)
+│   ├── pin → writes to table_context_refs (context_id = job_id)
+│   └── stop → DELETE WHERE context_id = handler's snowflake (destructive for intermediates)
 ├── PgCleanupWorker (asyncio.Task, own PG engine + CH client)
-│   └── polls table_refcounts every N seconds → DROP TABLE where refcount <= 0
+│   ├── polls completed/failed jobs → deletes job-scoped refs
+│   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
+│   └── detects dead workers → marks tasks FAILED
 ├── OrchContext (PG engine for jobs/tasks/workers)
 └── DataContext (per task, ClickHouse)
     └── lifecycle = PgLifecycleHandler (injected, not owned)
@@ -1099,11 +1115,42 @@ Worker Process
 
 Each component owns its own PG engine — fully decoupled from OrchContext.
 
-### PgLifecycleHandler — Refcount Tracking
+### Ownership Transfer Model (Pin/Claim)
+
+Task result tables are explicitly transferred between execution contexts:
+
+```
+Task A executes (handler context_id=auto_snowflake, job_id=job.id)
+  ├── incref intermediates → (table_name, auto_snowflake, N) rows in PG
+  ├── Returns result Object (table t_result)
+  │
+  ├── DataContext exits → Objects marked stale, handler still alive
+  │
+  ├── PIN: enqueue PIN op → inserts (t_result, job_id, 1)
+  │   └── job-scoped ref, NOT affected by stop()
+  │
+  └── stop() → drain queue, then DELETE WHERE context_id=auto_snowflake
+      ├── All handler refs deleted (intermediates cleaned immediately)
+      └── (t_result, job_id, 1) survives (different context_id)
+
+Task B starts (handler context_id=auto_snowflake_2, job_id=job.id)
+  ├── Deserializes task_a.result → obj_a = func()
+  │   ├── incref → inserts (t_result, auto_snowflake_2, 1)  ← consumer owns it
+  │   └── claim → deletes (t_result, job_id, 1)             ← release job ref
+  │
+  ├── obj_a is now owned by Task B's DataContext
+  └── (cycle repeats: pin Task B's result, stop, etc.)
+
+Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
+```
+
+### PgLifecycleHandler — Context-Scoped Refcount Tracking
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
-Tracks Object table reference counts in the `table_refcounts` PostgreSQL table. Only handles incref/decref — does NOT drop tables.
+Each handler instance gets a unique `context_id` (snowflake ID) for grouping its execution refs. Pin operations use `job_id` as the context_id, so pinned results survive `stop()`.
+
+**Constructor**: `PgLifecycleHandler(job_id)` — auto-generates internal context_id.
 
 **How sync incref/decref bridges to async**:
 - `Object.__del__` and `Object._register` call `incref`/`decref` synchronously
@@ -1113,49 +1160,52 @@ Tracks Object table reference counts in the `table_refcounts` PostgreSQL table. 
 **PostgreSQL table**:
 
 ```python
-class TableRefcount(SQLModel, table=True):
-    __tablename__ = "table_refcounts"
-    table_name: str  # Primary key — ClickHouse table name
-    refcount: int    # Current reference count
+class TableContextRef(SQLModel, table=True):
+    __tablename__ = "table_context_refs"
+    table_name: str  # Composite PK part 1 — ClickHouse table name
+    context_id: int  # Composite PK part 2 — handler snowflake or job_id
+    refcount: int    # Reference count within this context
 ```
 
-- **INCREF**: `INSERT ... ON CONFLICT DO UPDATE SET refcount = refcount + 1`
-- **DECREF**: `UPDATE SET refcount = refcount - 1`
+- **INCREF**: `INSERT ... ON CONFLICT (table_name, context_id) DO UPDATE SET refcount = refcount + 1`
+- **DECREF**: `UPDATE SET refcount = refcount - 1 WHERE table_name AND context_id`
+- **PIN**: Same as INCREF but uses `job_id` as context_id instead of handler's auto-generated ID
+- **stop()**: `DELETE FROM table_context_refs WHERE context_id = handler_snowflake` (unconditionally destructive)
 
-### PgCleanupWorker — Table Dropper
+**`claim_table(table_name, job_id)`** — standalone async function that releases a job-scoped pin ref during deserialization.
+
+### PgCleanupWorker — Table Dropper + Job Cleanup + Dead Worker Detection
 
 **Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker` class
 
-Background worker that polls PostgreSQL every N seconds for tables with refcount <= 0, drops them in ClickHouse, and deletes the refcount rows. Completely independent of DataContext, OrchContext, and PgLifecycleHandler.
+Background worker that performs three cleanup operations on each poll:
 
-**Cleanup loop**:
-1. `SELECT table_name FROM table_refcounts WHERE refcount <= 0`
-2. For each: `DROP TABLE IF EXISTS {table_name}` in ClickHouse
-3. `DELETE FROM table_refcounts WHERE table_name = :table_name`
+1. **Job cleanup**: Finds completed/failed jobs → deletes their job-scoped pin refs from `table_context_refs`
+2. **Table cleanup**: `SELECT table_name FROM table_context_refs GROUP BY table_name HAVING SUM(refcount) <= 0` → DROP in CH → DELETE from PG
+3. **Dead worker detection**: Workers with expired `last_heartbeat` → marks their running tasks as FAILED → marks workers as STOPPED
 
-**Configuration**: `--poll-interval` flag (default 10 seconds)
+**Configuration**: `poll_interval` (default 10s), `worker_timeout` (default 90s)
 
 ### Worker Startup Integration
 
 **Implementation**: `aaiclick/__main__.py` — see `worker start` command
 
-When a worker starts via `aaiclick worker start`, both services are created alongside OrchContext:
+When a worker starts, a `lifecycle_factory` creates per-task handlers (each with unique context_id):
 
 ```python
 async def start_worker():
-    pg_lifecycle = PgLifecycleHandler()
     pg_cleanup = PgCleanupWorker()
-    await pg_lifecycle.start()
     await pg_cleanup.start()
     try:
         async with OrchContext():
-            await worker_main_loop(lifecycle=pg_lifecycle)
+            await worker_main_loop(
+                lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
+            )
     finally:
-        await pg_lifecycle.stop()
         await pg_cleanup.stop()
 ```
 
-The `lifecycle` parameter flows through: `worker_main_loop` → `execute_task` → `DataContext(lifecycle=...)`.
+The `lifecycle_factory` flows through: `worker_main_loop` → `execute_task(task, lifecycle_factory)` → creates handler per task → `DataContext(lifecycle=handler)`.
 
 ### Standalone Cleanup Process
 
@@ -1188,7 +1238,7 @@ A periodic sweeper that catches orphaned tables regardless of cause. All aaiclic
 
 1. Lists all `t*` tables in ClickHouse
 2. Extracts creation timestamp from each table's snowflake ID
-3. For tables older than a threshold (default 1 hour): checks if a `table_refcounts` row exists in PG
+3. For tables older than a threshold (default 1 hour): checks if a `table_context_refs` row exists in PG
 4. If no row exists → table is orphaned → DROP it
 
 The sweeper is complementary to PgCleanupWorker:

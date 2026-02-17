@@ -33,6 +33,9 @@ class LifecycleHandler(ABC):
     def decref(self, table_name: str) -> None:
         """Decrement reference count for a table."""
 
+    def pin(self, table_name: str) -> None:
+        """Mark table as result that survives stop(). Default: no-op."""
+
 
 class LocalLifecycleHandler(LifecycleHandler):
     """Local lifecycle via background TableWorker thread.

@@ -97,18 +97,15 @@ def main():
             from aaiclick.orchestration.pg_lifecycle import PgLifecycleHandler
 
             async def start_worker():
-                pg_lifecycle = PgLifecycleHandler()
                 pg_cleanup = PgCleanupWorker()
-                await pg_lifecycle.start()
                 await pg_cleanup.start()
                 try:
                     async with OrchContext():
                         await worker_main_loop(
                             max_tasks=args.max_tasks,
-                            lifecycle=pg_lifecycle,
+                            lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
                         )
                 finally:
-                    await pg_lifecycle.stop()
                     await pg_cleanup.stop()
 
             asyncio.run(start_worker())

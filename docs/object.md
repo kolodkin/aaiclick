@@ -536,7 +536,7 @@ DataContext accepts an optional `lifecycle` parameter:
 |-----------|------|
 | `LifecycleHandler`, `LocalLifecycleHandler` | `aaiclick/data/lifecycle.py` |
 | `TableWorker`, `TableOp`, `TableMessage` | `aaiclick/data/table_worker.py` |
-| `PgLifecycleHandler`, `TableRefcount` | `aaiclick/orchestration/pg_lifecycle.py` |
+| `PgLifecycleHandler`, `TableContextRef`, `claim_table` | `aaiclick/orchestration/pg_lifecycle.py` |
 | `PgCleanupWorker` | `aaiclick/orchestration/pg_cleanup.py` |
 | `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
 | `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |
