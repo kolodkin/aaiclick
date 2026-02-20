@@ -53,9 +53,9 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
 
 Example:
 ```bash
-# Reply to comment ID 2744833797 on PR #52
-gh api repos/kolodkin/aaiclick/pulls/52/comments/2744833797/replies \
-  -f body="[Agent] Fixed - changed return type to Self"
+# Reply to comment ID COMMENT_ID on PR #PR_NUMBER
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
+  -f body="[Agent] Fixed - <description of what was fixed>"
 ```
 
 **IMPORTANT:**
