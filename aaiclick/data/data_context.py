@@ -125,9 +125,8 @@ class DataContext:
         """
         self._creds = creds or get_ch_creds()
         self._ch_client: Optional[AsyncClient] = None
-        self._injected_lifecycle = lifecycle
-        self._lifecycle: Optional[LifecycleHandler] = None
-        self._owns_lifecycle: bool = False
+        self._lifecycle: Optional[LifecycleHandler] = lifecycle
+        self._owns_lifecycle: bool = lifecycle is None
         self._objects: Dict[int, weakref.ref] = {}  # Track objects for stale marking
         self._token = None
         self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
@@ -178,13 +177,9 @@ class DataContext:
         if self._ch_client is None:
             self._ch_client = await get_ch_client(self._creds)
 
-        if self._injected_lifecycle is not None:
-            self._lifecycle = self._injected_lifecycle
-            self._owns_lifecycle = False
-        else:
+        if self._owns_lifecycle:
             self._lifecycle = LocalLifecycleHandler(self._creds)
             await self._lifecycle.start()
-            self._owns_lifecycle = True
 
         self._token = _current_context.set(self)
         return self

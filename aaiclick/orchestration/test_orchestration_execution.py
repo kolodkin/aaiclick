@@ -184,25 +184,24 @@ async def test_deserialize_task_params_view(orch_ctx):
 
 async def test_serialize_task_result_none(orch_ctx):
     """Test serializing None result."""
-    assert serialize_task_result(None, 1, 2) is None
+    assert serialize_task_result(None, job_id=2) is None
 
 
 async def test_serialize_task_result_object(orch_ctx):
     """Test serializing an Object result."""
     obj = Object(table="t789")
-    result = serialize_task_result(obj, task_id=100, job_id=200)
+    result = serialize_task_result(obj, job_id=200)
     assert result == {
         "object_type": "object",
         "table": "t789",
-        "source_task_id": 100,
         "source_job_id": 200,
     }
 
 
 async def test_serialize_task_result_non_object(orch_ctx):
     """Test serializing a non-Object/View result returns None."""
-    assert serialize_task_result(42, task_id=1, job_id=2) is None
-    assert serialize_task_result("hello", task_id=1, job_id=2) is None
+    assert serialize_task_result(42, job_id=2) is None
+    assert serialize_task_result("hello", job_id=2) is None
 
 
 async def test_execute_task_sync_function(orch_ctx, monkeypatch):

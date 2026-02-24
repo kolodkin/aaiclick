@@ -177,8 +177,8 @@ async def worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
-        lifecycle_factory: Optional factory that creates a LifecycleHandler
-                          from job_id. Passed to execute_task for distributed
+        lifecycle_factory: Optional factory ``(job_id) -> LifecycleHandler`` used
+                          to create a per-task lifecycle handler for distributed
                           refcounting with pin/claim ownership.
 
     Returns:
@@ -238,10 +238,14 @@ async def worker_main_loop(
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
             try:
-                result = await execute_task(task, lifecycle_factory=lifecycle_factory)
+                if lifecycle_factory is not None:
+                    async with lifecycle_factory(task.job_id) as lifecycle:
+                        result = await execute_task(task, lifecycle=lifecycle)
+                else:
+                    result = await execute_task(task)
 
                 # Serialize result (Object or View) to JSON-storable reference
-                result_ref = serialize_task_result(result, task.id, task.job_id)
+                result_ref = serialize_task_result(result, task.job_id)
 
                 # Update task status to COMPLETED
                 await update_task_status(

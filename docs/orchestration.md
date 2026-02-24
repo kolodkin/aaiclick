@@ -460,12 +460,11 @@ Reference to a full aaiclick Object (entire ClickHouse table):
 {
     "object_type": "object",
     "table": "t123456789",
-    "source_task_id": 456,
     "source_job_id": 789
 }
 ```
 
-Worker deserializes to an `Object` instance. `source_task_id` and `source_job_id` are used for ownership tracking — `claim_table()` releases the job-scoped pin ref during deserialization.
+Worker deserializes to an `Object` instance. `source_job_id` is used for ownership tracking — `claim_table()` releases the job-scoped pin ref during deserialization.
 
 ### View Parameters
 
@@ -480,7 +479,6 @@ Reference to a subset/view of an Object with query constraints:
     "where": "value > 100",
     "order_by": "aai_id ASC",
     "selected_fields": null,
-    "source_task_id": 456,
     "source_job_id": 789
 }
 ```
@@ -497,13 +495,11 @@ task_kwargs = {
         "table": "t987654321",
         "offset": 10000,
         "limit": 10000,
-        "source_task_id": 100,
         "source_job_id": 200,
     },
     "reference_table": {
         "object_type": "object",
         "table": "t111222333",
-        "source_task_id": 100,
         "source_job_id": 200,
     }
 }
@@ -523,7 +519,6 @@ The return value is serialized to JSON in `Task.result` via `serialize_task_resu
 {
     "object_type": "object",
     "table": "t123456789",
-    "source_task_id": 456,
     "source_job_id": 789
 }
 
@@ -1188,24 +1183,17 @@ Background worker that performs three cleanup operations on each poll:
 
 ### Worker Startup Integration
 
-**Implementation**: `aaiclick/__main__.py` — see `worker start` command
+**Implementation**: `aaiclick/orchestration/cli.py` — see `start_worker()` function
 
-When a worker starts, a `lifecycle_factory` creates per-task handlers (each with unique context_id):
+When a worker starts, a `lifecycle_factory` creates per-task handlers (each with unique context_id).
+The worker uses `async with` on each handler for automatic start/stop:
 
 ```python
-async def start_worker():
-    pg_cleanup = PgCleanupWorker()
-    await pg_cleanup.start()
-    try:
-        async with OrchContext():
-            await worker_main_loop(
-                lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
-            )
-    finally:
-        await pg_cleanup.stop()
+async with lifecycle_factory(task.job_id) as lifecycle:
+    result = await execute_task(task, lifecycle=lifecycle)
 ```
 
-The `lifecycle_factory` flows through: `worker_main_loop` → `execute_task(task, lifecycle_factory)` → creates handler per task → `DataContext(lifecycle=handler)`.
+The flow: `worker_main_loop` → creates handler per task via factory → `async with handler` → `execute_task(task, lifecycle=handler)` → `DataContext(lifecycle=handler)`.
 
 ### Standalone Cleanup Process
 
@@ -1245,14 +1233,11 @@ The sweeper is complementary to PgCleanupWorker:
 - **PgCleanupWorker**: Drops tables the refcount system knows about (refcount <= 0)
 - **TableSweeper**: Catches tables the refcount system missed (no PG row at all)
 
-See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) — "Failure Handling & Dangling Tables" section for detailed design.
-
 ### Relationship to Local Mode
 
 When no lifecycle handler is injected (e.g., during local development or testing), DataContext creates a `LocalLifecycleHandler` that wraps `TableWorker` — a background thread that drops tables immediately when refcount reaches 0. No PostgreSQL required.
 
 See [Object documentation](object.md) — "Table Lifecycle Tracking" section for the full LifecycleHandler interface.
-See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for the detailed design document.
 
 ## Configuration
 

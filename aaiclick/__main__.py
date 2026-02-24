@@ -10,7 +10,6 @@ Usage:
 
 import argparse
 import asyncio
-import signal
 
 
 def main():
@@ -92,23 +91,9 @@ def main():
 
     elif args.command == "worker":
         if args.worker_command == "start":
-            from aaiclick.orchestration import OrchContext, worker_main_loop
-            from aaiclick.orchestration.pg_cleanup import PgCleanupWorker
-            from aaiclick.orchestration.pg_lifecycle import PgLifecycleHandler
+            from aaiclick.orchestration.cli import start_worker
 
-            async def start_worker():
-                pg_cleanup = PgCleanupWorker()
-                await pg_cleanup.start()
-                try:
-                    async with OrchContext():
-                        await worker_main_loop(
-                            max_tasks=args.max_tasks,
-                            lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
-                        )
-                finally:
-                    await pg_cleanup.stop()
-
-            asyncio.run(start_worker())
+            asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
             from aaiclick.orchestration import OrchContext, list_workers
@@ -132,21 +117,9 @@ def main():
 
     elif args.command == "background":
         if args.background_command == "start":
-            from aaiclick.orchestration.pg_cleanup import PgCleanupWorker
+            from aaiclick.orchestration.cli import start_background
 
-            async def start_background():
-                cleanup = PgCleanupWorker(poll_interval=args.poll_interval)
-                await cleanup.start()
-                shutdown = asyncio.Event()
-                loop = asyncio.get_running_loop()
-                for sig in (signal.SIGTERM, signal.SIGINT):
-                    loop.add_signal_handler(sig, shutdown.set)
-                print(f"Background cleanup worker started (poll_interval={args.poll_interval}s)")
-                await shutdown.wait()
-                print("Shutting down background cleanup worker...")
-                await cleanup.stop()
-
-            asyncio.run(start_background())
+            asyncio.run(start_background(poll_interval=args.poll_interval))
 
         else:
             background_parser.print_help()

@@ -15,7 +15,13 @@ from .table_worker import TableWorker
 
 
 class LifecycleHandler(ABC):
-    """Abstract interface for Object table lifecycle management."""
+    """Abstract interface for Object table lifecycle management.
+
+    Supports async context manager usage::
+
+        async with handler:
+            ...  # handler.start() called on enter, handler.stop() on exit
+    """
 
     @abstractmethod
     async def start(self) -> None:
@@ -35,6 +41,14 @@ class LifecycleHandler(ABC):
 
     def pin(self, table_name: str) -> None:
         """Mark table as result that survives stop(). Default: no-op."""
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.stop()
+        return False
 
 
 class LocalLifecycleHandler(LifecycleHandler):

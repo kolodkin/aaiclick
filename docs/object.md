@@ -505,7 +505,7 @@ Default handler. Wraps `TableWorker` — a background thread with queue-based re
 
 For distributed orchestration. Writes incref/decref to PostgreSQL via a thread-safe queue bridged to an asyncio task. Does NOT drop tables — cleanup is handled by a separate `PgCleanupWorker` that polls PostgreSQL.
 
-See [Abstract Lifecycle Plan](abstract_lifecycle_plan.md) for the full distributed lifecycle design.
+See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" section for the full distributed lifecycle design.
 
 ### DataContext Integration
 

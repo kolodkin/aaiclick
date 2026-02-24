@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from sqlmodel import select
 
@@ -108,23 +108,23 @@ async def deserialize_task_params(kwargs: dict) -> dict:
 
 async def execute_task(
     task: Task,
-    lifecycle_factory: Callable[[int], LifecycleHandler] | None = None,
+    lifecycle: LifecycleHandler | None = None,
 ) -> Any:
     """
     Execute a single task with both DataContext and OrchContext available.
 
     Imports the callback function, deserializes kwargs inside a DataContext,
-    captures output, and executes the function. When a lifecycle_factory is
-    provided, creates a per-task PgLifecycleHandler that:
-    - Tracks execution refs via incref/decref
-    - Pins result tables under job_id (survives stop)
-    - Destructively cleans intermediates on stop
+    captures output, and executes the function. When a lifecycle handler is
+    provided, it is injected into DataContext for distributed refcounting.
+    The caller is responsible for starting/stopping the lifecycle handler.
+
+    After execution, if the result is an Object or View, it is pinned
+    under the job scope so it survives lifecycle stop().
 
     Args:
         task: Task to execute
-        lifecycle_factory: Optional factory that creates a LifecycleHandler
-                          from job_id. When provided, DataContext uses it for
-                          distributed refcounting with pin/claim ownership.
+        lifecycle: Optional pre-started LifecycleHandler for distributed
+                   refcounting with pin/claim ownership.
 
     Returns:
         Any: Result of the task function
@@ -134,43 +134,29 @@ async def execute_task(
     """
     func = import_callback(task.entrypoint)
 
-    lifecycle = None
-    if lifecycle_factory is not None:
-        lifecycle = lifecycle_factory(task.job_id)
-        await lifecycle.start()
+    with capture_task_output(task.id):
+        async with DataContext(lifecycle=lifecycle):
+            kwargs = await deserialize_task_params(task.kwargs)
+            if asyncio.iscoroutinefunction(func):
+                result = await func(**kwargs)
+            else:
+                result = func(**kwargs)
 
-    try:
-        with capture_task_output(task.id):
-            async with DataContext(lifecycle=lifecycle):
-                kwargs = await deserialize_task_params(task.kwargs)
-                if asyncio.iscoroutinefunction(func):
-                    result = await func(**kwargs)
-                else:
-                    result = func(**kwargs)
-
-        # PIN: transfer result ownership to job scope (after DataContext exit)
-        if lifecycle is not None and isinstance(result, (Object, View)):
-            lifecycle.pin(result.table)
-    finally:
-        if lifecycle is not None:
-            await lifecycle.stop()
+    if lifecycle is not None and isinstance(result, (Object, View)):
+        lifecycle.pin(result.table)
 
     return result
 
 
-def serialize_task_result(
-    result: Any, task_id: int, job_id: int
-) -> Optional[dict]:
+def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     """
     Serialize a task result to JSON-storable format.
 
     Handles Object and View types by creating reference dicts that include
-    source_task_id and source_job_id for ownership tracking during
-    deserialization (claim_table).
+    source_job_id for ownership tracking during deserialization (claim_table).
 
     Args:
         result: Task function return value
-        task_id: ID of the task that produced this result
         job_id: ID of the job this task belongs to
 
     Returns:
@@ -189,14 +175,12 @@ def serialize_task_result(
             "offset": result.offset,
             "order_by": result.order_by,
             "selected_fields": result.selected_fields,
-            "source_task_id": task_id,
             "source_job_id": job_id,
         }
     elif isinstance(result, Object):
         return {
             "object_type": "object",
             "table": result.table,
-            "source_task_id": task_id,
             "source_job_id": job_id,
         }
 
@@ -256,7 +240,7 @@ async def run_job_tasks(job: Job) -> None:
             result = await execute_task(task)
 
             # Serialize result (Object or View) to JSON-storable reference
-            result_ref = serialize_task_result(result, task_id, task_job_id)
+            result_ref = serialize_task_result(result, task_job_id)
 
             async with get_orch_context_session() as session:
                 # Reload and update task to COMPLETED
