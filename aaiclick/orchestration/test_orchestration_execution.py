@@ -194,7 +194,7 @@ async def test_serialize_task_result_object(orch_ctx):
     assert result == {
         "object_type": "object",
         "table": "t789",
-        "source_job_id": 200,
+        "job_id": 200,
     }
 
 

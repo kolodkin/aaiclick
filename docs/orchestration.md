@@ -460,11 +460,11 @@ Reference to a full aaiclick Object (entire ClickHouse table):
 {
     "object_type": "object",
     "table": "t123456789",
-    "source_job_id": 789
+    "job_id": 789
 }
 ```
 
-Worker deserializes to an `Object` instance. `source_job_id` is used for ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
+Worker deserializes to an `Object` instance. `job_id` is used for ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
 ### View Parameters
 
@@ -479,7 +479,7 @@ Reference to a subset/view of an Object with query constraints:
     "where": "value > 100",
     "order_by": "aai_id ASC",
     "selected_fields": null,
-    "source_job_id": 789
+    "job_id": 789
 }
 ```
 
@@ -495,12 +495,12 @@ task_kwargs = {
         "table": "t987654321",
         "offset": 10000,
         "limit": 10000,
-        "source_job_id": 200,
+        "job_id": 200,
     },
     "reference_table": {
         "object_type": "object",
         "table": "t111222333",
-        "source_job_id": 200,
+        "job_id": 200,
     }
 }
 ```
@@ -519,7 +519,7 @@ The return value is serialized to JSON in `Task.result` via `serialize_task_resu
 {
     "object_type": "object",
     "table": "t123456789",
-    "source_job_id": 789
+    "job_id": 789
 }
 
 // None return value

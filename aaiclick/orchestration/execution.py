@@ -42,7 +42,7 @@ def import_callback(entrypoint: str) -> Callable:
     return getattr(module, function_name)
 
 
-async def deserialize_task_params(kwargs: dict) -> dict:
+async def deserialize_task_params(serialized_params: dict) -> dict:
     """
     Deserialize task parameters from JSON format.
 
@@ -50,11 +50,11 @@ async def deserialize_task_params(kwargs: dict) -> dict:
     are not supported. Reconstructs Object/View instances from serialized
     references and registers them with the current DataContext.
 
-    For parameters with source_job_id, releases the job-scoped pin ref
+    For parameters with job_id, releases the job-scoped pin ref
     via lifecycle.claim() (ownership transfer from orchestration to consumer).
 
     Args:
-        kwargs: Task kwargs from database (JSON-deserialized)
+        serialized_params: Task kwargs from database (JSON-deserialized)
 
     Returns:
         dict: Deserialized kwargs ready for function call
@@ -62,13 +62,13 @@ async def deserialize_task_params(kwargs: dict) -> dict:
     Raises:
         ValueError: Unknown object_type or missing required fields
     """
-    if not kwargs:
+    if not serialized_params:
         return {}
 
     result = {}
     ctx = get_data_context()
 
-    for key, value in kwargs.items():
+    for key, value in serialized_params.items():
         if not isinstance(value, dict) or "object_type" not in value:
             raise ValueError(
                 f"Parameter '{key}' must be an Object or View reference with 'object_type' field. "
@@ -80,8 +80,8 @@ async def deserialize_task_params(kwargs: dict) -> dict:
             obj = Object(table=value["table"])
             obj._register(ctx)
             ctx._register_object(obj)
-            if "source_job_id" in value:
-                await ctx.lifecycle.claim(value["table"], value["source_job_id"])
+            if "job_id" in value:
+                await ctx.lifecycle.claim(value["table"], value["job_id"])
             result[key] = obj
         elif obj_type == "view":
             source = Object(table=value["table"])
@@ -96,8 +96,8 @@ async def deserialize_task_params(kwargs: dict) -> dict:
                 selected_fields=value.get("selected_fields"),
             )
             ctx._register_object(view)
-            if "source_job_id" in value:
-                await ctx.lifecycle.claim(value["table"], value["source_job_id"])
+            if "job_id" in value:
+                await ctx.lifecycle.claim(value["table"], value["job_id"])
             result[key] = view
         else:
             raise ValueError(f"Unknown object_type: {obj_type}. Must be 'object' or 'view'.")
@@ -152,7 +152,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     Serialize a task result to JSON-storable format.
 
     Handles Object and View types by creating reference dicts that include
-    source_job_id for ownership tracking during deserialization (lifecycle.claim).
+    job_id for ownership tracking during deserialization (lifecycle.claim).
 
     Args:
         result: Task function return value
@@ -174,13 +174,13 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
             "offset": result.offset,
             "order_by": result.order_by,
             "selected_fields": result.selected_fields,
-            "source_job_id": job_id,
+            "job_id": job_id,
         }
     elif isinstance(result, Object):
         return {
             "object_type": "object",
             "table": result.table,
-            "source_job_id": job_id,
+            "job_id": job_id,
         }
 
     return None
