@@ -11,6 +11,10 @@ Usage:
 import argparse
 import asyncio
 
+from aaiclick.orchestration import OrchContext, list_workers
+from aaiclick.orchestration.cli import start_background, start_worker
+from aaiclick.orchestration.migrate import run_migrations
+
 
 def main():
     """Main CLI entry point."""
@@ -84,19 +88,13 @@ def main():
     args = parser.parse_args()
 
     if args.command == "migrate":
-        from aaiclick.orchestration.migrate import run_migrations
-
-        # Pass remaining args to migration command
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":
         if args.worker_command == "start":
-            from aaiclick.orchestration.cli import start_worker
-
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
-            from aaiclick.orchestration import OrchContext, list_workers
 
             async def show_workers():
                 async with OrchContext():
@@ -117,8 +115,6 @@ def main():
 
     elif args.command == "background":
         if args.background_command == "start":
-            from aaiclick.orchestration.cli import start_background
-
             asyncio.run(start_background(poll_interval=args.poll_interval))
 
         else:

@@ -195,7 +195,8 @@ async def worker_main_loop(
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
-    # Register worker if not provided
+    # Default path: auto-register a new worker in the DB.
+    # Tests pass an explicit worker_id to reuse an existing record.
     if worker_id is None:
         worker = await register_worker()
         worker_id = worker.id
@@ -213,7 +214,8 @@ async def worker_main_loop(
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
 
-            # Check if we've exceeded max_empty_polls
+            # Testing-only exit: allow tests to stop the loop after N empty polls
+            # instead of polling forever. In production max_empty_polls is None.
             if max_empty_polls is not None and empty_polls >= max_empty_polls:
                 break
 

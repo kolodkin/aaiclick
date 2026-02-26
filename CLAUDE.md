@@ -407,6 +407,22 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 ```
 
+**Markdown table formatting** - align columns with padding for human readability:
+
+```markdown
+# GOOD - aligned columns, padded with spaces
+| Guard                                   | Scenario                                                  |
+|-----------------------------------------|-----------------------------------------------------------|
+| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues |
+| `_data_ctx_ref is None`                 | Object was never registered                               |
+
+# BAD - minimal separators, hard to read
+| Guard | Scenario |
+|-------|----------|
+| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
+| `_data_ctx_ref is None` | Object was never registered |
+```
+
 ## Documentation Patterns
 
 **For Implemented Features**:

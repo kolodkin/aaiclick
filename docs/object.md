@@ -156,49 +156,49 @@ All operators work element-wise on both scalar and array data types.
 
 ### Arithmetic Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
-|----------------|-------------|----------------------|---------------|---------------------|
-| `+` | Addition | `+` | `__add__` | [operators#plus](https://clickhouse.com/docs/sql-reference/operators#plus) |
-| `-` | Subtraction | `-` | `__sub__` | [operators#minus](https://clickhouse.com/docs/sql-reference/operators#minus) |
-| `*` | Multiplication | `*` | `__mul__` | [operators#multiply](https://clickhouse.com/docs/sql-reference/operators#multiply) |
-| `/` | Division | `/` | `__truediv__` | [operators#divide](https://clickhouse.com/docs/sql-reference/operators#divide) |
-| `//` | Floor Division | `intDiv()` | `__floordiv__` | [intDiv](https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b) |
-| `%` | Modulo | `%` | `__mod__` | [operators#modulo](https://clickhouse.com/docs/sql-reference/operators#modulo) |
-| `**` | Power | `power()` | `__pow__` | [pow](https://clickhouse.com/docs/sql-reference/functions/math-functions#pow) |
+| Python Operator | Description    | ClickHouse Equivalent | Python Method   | ClickHouse Reference                                                                            |
+|-----------------|----------------|-----------------------|-----------------|-------------------------------------------------------------------------------------------------|
+| `+`             | Addition       | `+`                   | `__add__`       | [operators#plus](https://clickhouse.com/docs/sql-reference/operators#plus)                      |
+| `-`             | Subtraction    | `-`                   | `__sub__`       | [operators#minus](https://clickhouse.com/docs/sql-reference/operators#minus)                    |
+| `*`             | Multiplication | `*`                   | `__mul__`       | [operators#multiply](https://clickhouse.com/docs/sql-reference/operators#multiply)              |
+| `/`             | Division       | `/`                   | `__truediv__`   | [operators#divide](https://clickhouse.com/docs/sql-reference/operators#divide)                  |
+| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | [intDiv](https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b)    |
+| `%`             | Modulo         | `%`                   | `__mod__`       | [operators#modulo](https://clickhouse.com/docs/sql-reference/operators#modulo)                  |
+| `**`            | Power          | `power()`             | `__pow__`       | [pow](https://clickhouse.com/docs/sql-reference/functions/math-functions#pow)                   |
 
 ### Comparison Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
-|----------------|-------------|----------------------|---------------|---------------------|
-| `==` | Equal | `=` | `__eq__` | [operators#equals](https://clickhouse.com/docs/sql-reference/operators#equals) |
-| `!=` | Not Equal | `!=` | `__ne__` | [operators#not-equals](https://clickhouse.com/docs/sql-reference/operators#not-equals) |
-| `<` | Less Than | `<` | `__lt__` | [operators#less](https://clickhouse.com/docs/sql-reference/operators#less) |
-| `<=` | Less Than or Equal | `<=` | `__le__` | [operators#less-or-equals](https://clickhouse.com/docs/sql-reference/operators#less-or-equals) |
-| `>` | Greater Than | `>` | `__gt__` | [operators#greater](https://clickhouse.com/docs/sql-reference/operators#greater) |
-| `>=` | Greater Than or Equal | `>=` | `__ge__` | [operators#greater-or-equals](https://clickhouse.com/docs/sql-reference/operators#greater-or-equals) |
+| Python Operator | Description          | ClickHouse Equivalent | Python Method | ClickHouse Reference                                                                                        |
+|-----------------|----------------------|-----------------------|---------------|-------------------------------------------------------------------------------------------------------------|
+| `==`            | Equal                | `=`                   | `__eq__`      | [operators#equals](https://clickhouse.com/docs/sql-reference/operators#equals)                              |
+| `!=`            | Not Equal            | `!=`                  | `__ne__`      | [operators#not-equals](https://clickhouse.com/docs/sql-reference/operators#not-equals)                      |
+| `<`             | Less Than            | `<`                   | `__lt__`      | [operators#less](https://clickhouse.com/docs/sql-reference/operators#less)                                  |
+| `<=`            | Less Than or Equal   | `<=`                  | `__le__`      | [operators#less-or-equals](https://clickhouse.com/docs/sql-reference/operators#less-or-equals)              |
+| `>`             | Greater Than         | `>`                   | `__gt__`      | [operators#greater](https://clickhouse.com/docs/sql-reference/operators#greater)                            |
+| `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      | [operators#greater-or-equals](https://clickhouse.com/docs/sql-reference/operators#greater-or-equals)        |
 
 ### Bitwise Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference |
-|----------------|-------------|----------------------|---------------|---------------------|
-| `&` | Bitwise AND | `bitAnd()` | `__and__` | [bitAnd](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitanda-b) |
-| `\|` | Bitwise OR | `bitOr()` | `__or__` | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b) |
-| `^` | Bitwise XOR | `bitXor()` | `__xor__` | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b) |
+| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference                                                                        |
+|-----------------|-------------|-----------------------|---------------|---------------------------------------------------------------------------------------------|
+| `&`             | Bitwise AND | `bitAnd()`            | `__and__`     | [bitAnd](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitanda-b)       |
+| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`      | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b)         |
+| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`     | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b)       |
 
 ### Aggregation Operators
 
 Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse - no data round-trips to Python.
 
-| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
-|--------------|-------------|--------------------------|-----------------|---------------------|
-| `.min()` | Minimum value | `min()` | Streaming (O(1)) | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min) |
-| `.max()` | Maximum value | `max()` | Streaming (O(1)) | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max) |
-| `.sum()` | Sum of values | `sum()` | Streaming (O(1)) | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum) |
-| `.mean()` | Average value | `avg()` | Streaming (O(1)) | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg) |
-| `.std()` | Standard deviation | `stddevPop()` | Streaming (O(1)) | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop) |
-| `.var()` | Variance | `varPop()` | Streaming (O(1)) | [varPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop) |
-| `.count()` | Count of values | `count()` | Streaming (O(1)) | [count](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count) |
-| `.quantile(q)` | Quantile at level q | `quantile(q)()` | Approximate | [quantile](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile) |
+| Python Method    | Description        | ClickHouse Implementation | Memory Behavior   | ClickHouse Reference                                                                                    |
+|------------------|--------------------|---------------------------|-------------------|---------------------------------------------------------------------------------------------------------|
+| `.min()`         | Minimum value      | `min()`                   | Streaming (O(1))  | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min)                      |
+| `.max()`         | Maximum value      | `max()`                   | Streaming (O(1))  | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max)                      |
+| `.sum()`         | Sum of values      | `sum()`                   | Streaming (O(1))  | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum)                      |
+| `.mean()`        | Average value      | `avg()`                   | Streaming (O(1))  | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg)                      |
+| `.std()`         | Standard deviation | `stddevPop()`             | Streaming (O(1))  | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop)          |
+| `.var()`         | Variance           | `varPop()`                | Streaming (O(1))  | [varPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop)                |
+| `.count()`       | Count of values    | `count()`                 | Streaming (O(1))  | [count](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count)                  |
+| `.quantile(q)`   | Quantile at level q | `quantile(q)()`           | Approximate       | [quantile](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile)            |
 
 **Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. The `quantile()` function uses an approximate algorithm for efficiency on large datasets.
 
@@ -206,9 +206,9 @@ Aggregation operators reduce an array to a scalar value. All computation happens
 
 Set operators transform an array and return a new array. All computation happens within ClickHouse - no data round-trips to Python.
 
-| Python Method | Description | ClickHouse Implementation | Memory Behavior | ClickHouse Reference |
-|--------------|-------------|--------------------------|-----------------|---------------------|
-| `.unique()` | Unique values | `GROUP BY` | Hash table | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by) |
+| Python Method | Description   | ClickHouse Implementation | Memory Behavior | ClickHouse Reference                                                                    |
+|---------------|---------------|---------------------------|-----------------|-----------------------------------------------------------------------------------------|
+| `.unique()`   | Unique values | `GROUP BY`                | Hash table      | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by)        |
 
 **Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
 
@@ -216,19 +216,19 @@ Set operators transform an array and return a new array. All computation happens
 
 Element-wise array operations use window functions internally:
 
-| Function | Purpose | ClickHouse Reference |
-|----------|---------|---------------------|
-| `row_number()` | Position-based element pairing | [row_number](https://clickhouse.com/docs/sql-reference/window-functions#row_number) |
+| Function       | Purpose                          | ClickHouse Reference                                                                           |
+|----------------|----------------------------------|------------------------------------------------------------------------------------------------|
+| `row_number()` | Position-based element pairing   | [row_number](https://clickhouse.com/docs/sql-reference/window-functions#row_number)            |
 
 ### Memory/Disk Settings (for large datasets)
 
 For very large datasets, ClickHouse can spill intermediate results to disk:
 
-| Setting | Purpose | ClickHouse Reference |
-|---------|---------|---------------------|
-| `max_bytes_before_external_sort` | Spill sorts to disk | [max_bytes_before_external_sort](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort) |
-| `max_bytes_in_join` | Limit join memory | [max_bytes_in_join](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join) |
-| `join_algorithm` | Join implementation strategy | [join_algorithm](https://clickhouse.com/docs/operations/settings/settings#join_algorithm) |
+| Setting                              | Purpose                      | ClickHouse Reference                                                                                                                  |
+|--------------------------------------|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `max_bytes_before_external_sort`     | Spill sorts to disk          | [max_bytes_before_external_sort](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort)      |
+| `max_bytes_in_join`                  | Limit join memory            | [max_bytes_in_join](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join)                                |
+| `join_algorithm`                     | Join implementation strategy | [join_algorithm](https://clickhouse.com/docs/operations/settings/settings#join_algorithm)                                              |
 
 ## Usage Examples
 
@@ -308,10 +308,10 @@ The `data()` method returns values directly based on the data type:
 
 ### Orient Parameter for Dicts
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `ORIENT_DICT` | `'dict'` | Returns dict with arrays as values (default) |
-| `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row) |
+| Constant         | Value       | Description                                      |
+|------------------|-------------|--------------------------------------------------|
+| `ORIENT_DICT`    | `'dict'`    | Returns dict with arrays as values (default)     |
+| `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row)              |
 
 ### Examples
 
@@ -356,11 +356,11 @@ When tables are created via factory functions, each column gets a YAML comment c
 
 ### Fieldtype Constants
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value |
-| `FIELDTYPE_ARRAY` | `'a'` | Array - list of values |
-| `FIELDTYPE_DICT` | `'d'` | Dict - structured record |
+| Constant           | Value | Meaning                  |
+|--------------------|-------|--------------------------|
+| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value    |
+| `FIELDTYPE_ARRAY`  | `'a'` | Array - list of values   |
+| `FIELDTYPE_DICT`   | `'d'` | Dict - structured record |
 
 ### Example Column Comment
 
@@ -386,12 +386,12 @@ await view.data()  # Returns [3, 4]
 
 ### View Constraints
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `where` | `Optional[str]` | WHERE clause condition for filtering rows (e.g., `"value > 2"`) |
-| `limit` | `Optional[int]` | Maximum number of rows to return from the query |
-| `offset` | `Optional[int]` | Number of rows to skip before returning results |
-| `order_by` | `Optional[str]` | ORDER BY clause for sorting results (e.g., `"value DESC"`) |
+| Attribute  | Type             | Description                                                        |
+|------------|------------------|--------------------------------------------------------------------|
+| `where`    | `Optional[str]`  | WHERE clause condition for filtering rows (e.g., `"value > 2"`)   |
+| `limit`    | `Optional[int]`  | Maximum number of rows to return from the query                    |
+| `offset`   | `Optional[int]`  | Number of rows to skip before returning results                    |
+| `order_by` | `Optional[str]`  | ORDER BY clause for sorting results (e.g., `"value DESC"`)        |
 
 ### Key Characteristics
 
@@ -447,11 +447,11 @@ The result preserves the fieldtype metadata from the source objects, ensuring pr
 
 Tests are organized by operator group:
 
-| Operator Group | Test File |
-|----------------|-----------|
-| Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
-| Aggregation Operators | `test_aggregation.py` |
-| Set Operators | `test_unique_parametrized.py` |
+| Operator Group                       | Test File                        |
+|--------------------------------------|----------------------------------|
+| Arithmetic, Comparison, Bitwise      | `test_operators_parametrized.py` |
+| Aggregation Operators                | `test_aggregation.py`            |
+| Set Operators                        | `test_unique_parametrized.py`    |
 
 ## Table Lifecycle Tracking
 
@@ -526,19 +526,19 @@ DataContext accepts an optional `lifecycle` parameter:
 
 `Object.__del__` and `View.__del__` include three guards:
 
-| Guard | Scenario |
-|-------|----------|
-| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
-| `_data_ctx_ref is None` | Object was never registered |
-| `context = _data_ctx_ref()` is None | Context already garbage collected |
+| Guard                                   | Scenario                                                         |
+|-----------------------------------------|------------------------------------------------------------------|
+| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues        |
+| `_data_ctx_ref is None`                 | Object was never registered                                      |
+| `context = _data_ctx_ref()` is None     | Context already garbage collected                                |
 
 ### Implementation Files
 
-| Component | File |
-|-----------|------|
-| `LifecycleHandler`, `LocalLifecycleHandler` | `aaiclick/data/lifecycle.py` |
-| `TableWorker`, `TableOp`, `TableMessage` | `aaiclick/data/table_worker.py` |
-| `PgLifecycleHandler`, `TableContextRef` | `aaiclick/orchestration/pg_lifecycle.py` |
-| `PgCleanupWorker` | `aaiclick/orchestration/pg_cleanup.py` |
-| `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
-| `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |
+| Component                                          | File                                        |
+|----------------------------------------------------|---------------------------------------------|
+| `LifecycleHandler`, `LocalLifecycleHandler`        | `aaiclick/data/lifecycle.py`                |
+| `TableWorker`, `TableOp`, `TableMessage`           | `aaiclick/data/table_worker.py`             |
+| `PgLifecycleHandler`, `TableContextRef`            | `aaiclick/orchestration/pg_lifecycle.py`    |
+| `PgCleanupWorker`                                  | `aaiclick/orchestration/pg_cleanup.py`      |
+| `Object._register()`, `__del__()`                  | `aaiclick/data/object.py`                   |
+| `View.__init__()`, `__del__()`                     | `aaiclick/data/object.py`                   |
