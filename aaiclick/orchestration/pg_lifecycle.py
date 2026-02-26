@@ -59,41 +59,6 @@ class TableContextRef(SQLModel, table=True):
     refcount: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
 
 
-# Module-level shared PG engine for claim_table() standalone function.
-_pg_engine: AsyncEngine | None = None
-
-
-def _get_pg_engine() -> AsyncEngine:
-    """Get or create the shared PG engine for standalone operations."""
-    global _pg_engine
-    if _pg_engine is None:
-        _pg_engine = create_async_engine(get_pg_url(), echo=False)
-    return _pg_engine
-
-
-async def claim_table(table_name: str, job_id: int) -> None:
-    """Release a job-scoped pinned ref (ownership transfer to consumer).
-
-    Called during deserialization when a consuming task takes ownership
-    of a result table. The consumer already has its own context-scoped
-    ref from incref, so the job-scoped pin ref can be safely removed.
-
-    Args:
-        table_name: ClickHouse table name to release
-        job_id: Job ID that was used as context_id for the pin
-    """
-    engine = _get_pg_engine()
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "DELETE FROM table_context_refs "
-                "WHERE table_name = :table AND context_id = :ctx"
-            ),
-            {"table": table_name, "ctx": job_id},
-        )
-        await session.commit()
-
-
 class PgLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle via PostgreSQL reference tracking.
 
@@ -147,6 +112,23 @@ class PgLifecycleHandler(LifecycleHandler):
     def pin(self, table_name: str) -> None:
         """Mark table as result — inserts a job-scoped ref that survives stop()."""
         self._queue.put(PgLifecycleMessage(PgLifecycleOp.PIN, table_name))
+
+    async def claim(self, table_name: str, job_id: int) -> None:
+        """Release a job-scoped pinned ref (ownership transfer to consumer).
+
+        Called during deserialization when a consuming task takes ownership
+        of a result table. The consumer already has its own context-scoped
+        ref from incref, so the job-scoped pin ref can be safely removed.
+        """
+        async with AsyncSession(self._engine) as session:
+            await session.execute(
+                text(
+                    "DELETE FROM table_context_refs "
+                    "WHERE table_name = :table AND context_id = :ctx"
+                ),
+                {"table": table_name, "ctx": job_id},
+            )
+            await session.commit()
 
     async def _process_loop(self) -> None:
         loop = asyncio.get_running_loop()

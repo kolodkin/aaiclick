@@ -137,6 +137,11 @@ class DataContext:
         return self._engine
 
     @property
+    def lifecycle(self) -> Optional[LifecycleHandler]:
+        """Get the lifecycle handler for this context."""
+        return self._lifecycle
+
+    @property
     def ch_client(self) -> AsyncClient:
         """
         Get the ClickHouse client for this context.

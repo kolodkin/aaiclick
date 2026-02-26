@@ -42,6 +42,14 @@ class LifecycleHandler(ABC):
     def pin(self, table_name: str) -> None:
         """Mark table as result that survives stop(). Default: no-op."""
 
+    async def claim(self, table_name: str, job_id: int) -> None:
+        """Release a job-scoped pinned ref (ownership transfer to consumer).
+
+        Only meaningful for distributed lifecycle handlers that track refs
+        in an external store (e.g. PostgreSQL). Local handler raises.
+        """
+        raise NotImplementedError("claim() requires a distributed lifecycle handler")
+
     async def __aenter__(self):
         await self.start()
         return self

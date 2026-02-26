@@ -16,7 +16,6 @@ from aaiclick.data.object import Object, View
 from .context import get_orch_context_session
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
-from .pg_lifecycle import claim_table
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -52,7 +51,7 @@ async def deserialize_task_params(kwargs: dict) -> dict:
     references and registers them with the current DataContext.
 
     For parameters with source_job_id, releases the job-scoped pin ref
-    via claim_table() (ownership transfer from orchestration to consumer).
+    via lifecycle.claim() (ownership transfer from orchestration to consumer).
 
     Args:
         kwargs: Task kwargs from database (JSON-deserialized)
@@ -82,7 +81,7 @@ async def deserialize_task_params(kwargs: dict) -> dict:
             obj._register(ctx)
             ctx._register_object(obj)
             if "source_job_id" in value:
-                await claim_table(value["table"], value["source_job_id"])
+                await ctx.lifecycle.claim(value["table"], value["source_job_id"])
             result[key] = obj
         elif obj_type == "view":
             source = Object(table=value["table"])
@@ -98,7 +97,7 @@ async def deserialize_task_params(kwargs: dict) -> dict:
             )
             ctx._register_object(view)
             if "source_job_id" in value:
-                await claim_table(value["table"], value["source_job_id"])
+                await ctx.lifecycle.claim(value["table"], value["source_job_id"])
             result[key] = view
         else:
             raise ValueError(f"Unknown object_type: {obj_type}. Must be 'object' or 'view'.")
@@ -153,7 +152,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     Serialize a task result to JSON-storable format.
 
     Handles Object and View types by creating reference dicts that include
-    source_job_id for ownership tracking during deserialization (claim_table).
+    source_job_id for ownership tracking during deserialization (lifecycle.claim).
 
     Args:
         result: Task function return value

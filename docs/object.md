@@ -491,6 +491,8 @@ class LifecycleHandler(ABC):
     async def stop(self) -> None: ...
     def incref(self, table_name: str) -> None: ...
     def decref(self, table_name: str) -> None: ...
+    def pin(self, table_name: str) -> None: ...          # no-op default
+    async def claim(self, table_name: str, job_id: int) -> None: ...  # raises NotImplementedError default
 ```
 
 ### Local Mode: LocalLifecycleHandler
@@ -503,7 +505,7 @@ Default handler. Wraps `TableWorker` — a background thread with queue-based re
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
-For distributed orchestration. Writes incref/decref to PostgreSQL via a thread-safe queue bridged to an asyncio task. Does NOT drop tables — cleanup is handled by a separate `PgCleanupWorker` that polls PostgreSQL.
+For distributed orchestration. Writes incref/decref to PostgreSQL via a thread-safe queue bridged to an asyncio task. Also implements `claim()` for ownership transfer — releases job-scoped pin refs using the handler's own PG engine. Does NOT drop tables — cleanup is handled by a separate `PgCleanupWorker` that polls PostgreSQL.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" section for the full distributed lifecycle design.
 
@@ -536,7 +538,7 @@ DataContext accepts an optional `lifecycle` parameter:
 |-----------|------|
 | `LifecycleHandler`, `LocalLifecycleHandler` | `aaiclick/data/lifecycle.py` |
 | `TableWorker`, `TableOp`, `TableMessage` | `aaiclick/data/table_worker.py` |
-| `PgLifecycleHandler`, `TableContextRef`, `claim_table` | `aaiclick/orchestration/pg_lifecycle.py` |
+| `PgLifecycleHandler`, `TableContextRef` | `aaiclick/orchestration/pg_lifecycle.py` |
 | `PgCleanupWorker` | `aaiclick/orchestration/pg_cleanup.py` |
 | `Object._register()`, `__del__()` | `aaiclick/data/object.py` |
 | `View.__init__()`, `__del__()` | `aaiclick/data/object.py` |

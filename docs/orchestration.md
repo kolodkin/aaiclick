@@ -464,7 +464,7 @@ Reference to a full aaiclick Object (entire ClickHouse table):
 }
 ```
 
-Worker deserializes to an `Object` instance. `source_job_id` is used for ownership tracking — `claim_table()` releases the job-scoped pin ref during deserialization.
+Worker deserializes to an `Object` instance. `source_job_id` is used for ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
 ### View Parameters
 
@@ -1167,7 +1167,7 @@ class TableContextRef(SQLModel, table=True):
 - **PIN**: Same as INCREF but uses `job_id` as context_id instead of handler's auto-generated ID
 - **stop()**: `DELETE FROM table_context_refs WHERE context_id = handler_snowflake` (unconditionally destructive)
 
-**`claim_table(table_name, job_id)`** — standalone async function that releases a job-scoped pin ref during deserialization.
+- **claim(table_name, job_id)**: Method on `PgLifecycleHandler` that releases a job-scoped pin ref during deserialization. Uses the handler's own engine — no separate global PG engine needed.
 
 ### PgCleanupWorker — Table Dropper + Job Cleanup + Dead Worker Detection
 
