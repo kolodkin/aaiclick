@@ -1466,11 +1466,7 @@ class GroupByQuery:
         if "aai_id" in keys:
             raise ValueError("Cannot group by 'aai_id'")
 
-        # For Views, get schema from source Object; for Objects, use _schema directly
-        if isinstance(source, View):
-            schema = source._source._schema
-        else:
-            schema = source._schema
+        schema = source._schema
         if schema is None:
             raise ValueError("Source object has no cached schema")
 
@@ -1510,8 +1506,7 @@ class GroupByQuery:
             GroupByInfo with source, group keys, and column metadata
         """
         source = self._source
-        # For Views, schema is on the source's source Object
-        schema = source._source._schema if isinstance(source, View) else source._schema
+        schema = source._schema
 
         # Determine source query and columns based on source type
         if isinstance(source, View):
