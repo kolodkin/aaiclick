@@ -407,6 +407,22 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 ```
 
+**Markdown table formatting** - align columns with padding for human readability:
+
+```markdown
+# GOOD - aligned columns, padded with spaces
+| Guard                                   | Scenario                                                  |
+|-----------------------------------------|-----------------------------------------------------------|
+| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues |
+| `_data_ctx_ref is None`                 | Object was never registered                               |
+
+# BAD - minimal separators, hard to read
+| Guard | Scenario |
+|-------|----------|
+| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
+| `_data_ctx_ref is None` | Object was never registered |
+```
+
 ## Documentation Patterns
 
 **For Implemented Features**:
@@ -444,12 +460,9 @@ class ModelName:
 
 ## Example: Orchestration Backend
 
-See `docs/orchestration.md` and `docs/orchestration_implementation_plan.md` for reference:
+See `docs/orchestration.md` for the full specification:
 
-- **Specification**: Comprehensive design document with all phases planned
-- **Implementation Plan**: Phase-by-phase breakdown with progress tracking
-- **Phase 2 Complete**: Implementation plan updated with ✅ and file references
-- **Documentation Updated**: orchestration.md references actual code, marks implementation status
+- **Specification**: Comprehensive design document referencing actual code
 - **No Duplication**: Implemented features point to code instead of duplicating
 
 # Making Changes

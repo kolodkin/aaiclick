@@ -1,13 +1,16 @@
 """Task execution utilities for orchestration backend."""
 
+from __future__ import annotations
+
 import asyncio
 import importlib
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from sqlmodel import select
 
-from aaiclick.data import DataContext
+from aaiclick.data import DataContext, get_data_context
+from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
@@ -39,33 +42,33 @@ def import_callback(entrypoint: str) -> Callable:
     return getattr(module, function_name)
 
 
-def deserialize_task_params(kwargs: dict) -> dict:
+async def deserialize_task_params(serialized_params: dict) -> dict:
     """
     Deserialize task parameters from JSON format.
 
     All parameters must be aaiclick Objects or Views - native Python values
-    are not supported. This ensures type safety and enables distributed
-    processing where data remains in ClickHouse.
+    are not supported. Reconstructs Object/View instances from serialized
+    references and registers them with the current DataContext.
 
-    Supported object_type values:
-    - object: Reference to aaiclick Object
-    - view: Reference to aaiclick View
+    For parameters with job_id, releases the job-scoped pin ref
+    via lifecycle.claim() (ownership transfer from orchestration to consumer).
 
     Args:
-        kwargs: Task kwargs from database (JSON-deserialized)
+        serialized_params: Task kwargs from database (JSON-deserialized)
 
     Returns:
         dict: Deserialized kwargs ready for function call
 
     Raises:
-        NotImplementedError: Object/View deserialization not yet implemented
-        ValueError: Unknown object_type
+        ValueError: Unknown object_type or missing required fields
     """
-    if not kwargs:
+    if not serialized_params:
         return {}
 
     result = {}
-    for key, value in kwargs.items():
+    ctx = get_data_context()
+
+    for key, value in serialized_params.items():
         if not isinstance(value, dict) or "object_type" not in value:
             raise ValueError(
                 f"Parameter '{key}' must be an Object or View reference with 'object_type' field. "
@@ -74,26 +77,53 @@ def deserialize_task_params(kwargs: dict) -> dict:
 
         obj_type = value["object_type"]
         if obj_type == "object":
-            raise NotImplementedError("Object parameter type not yet implemented")
+            obj = Object(table=value["table"])
+            obj._register(ctx)
+            ctx._register_object(obj)
+            if "job_id" in value:
+                await ctx.lifecycle.claim(value["table"], value["job_id"])
+            result[key] = obj
         elif obj_type == "view":
-            raise NotImplementedError("View parameter type not yet implemented")
+            source = Object(table=value["table"])
+            source._register(ctx)
+            ctx._register_object(source)
+            view = View(
+                source=source,
+                where=value.get("where"),
+                limit=value.get("limit"),
+                offset=value.get("offset"),
+                order_by=value.get("order_by"),
+                selected_fields=value.get("selected_fields"),
+            )
+            ctx._register_object(view)
+            if "job_id" in value:
+                await ctx.lifecycle.claim(value["table"], value["job_id"])
+            result[key] = view
         else:
             raise ValueError(f"Unknown object_type: {obj_type}. Must be 'object' or 'view'.")
 
     return result
 
 
-async def execute_task(task: Task) -> Any:
+async def execute_task(
+    task: Task,
+    lifecycle: LifecycleHandler | None = None,
+) -> Any:
     """
     Execute a single task with both DataContext and OrchContext available.
 
-    Imports the callback function, deserializes kwargs,
-    captures output, and executes the function. Tasks have access to:
-    - DataContext: For ClickHouse Object operations (created fresh for each task)
-    - OrchContext: For orchestration operations (from the outer context)
+    Imports the callback function, deserializes kwargs inside a DataContext,
+    captures output, and executes the function. When a lifecycle handler is
+    provided, it is injected into DataContext for distributed refcounting.
+    The caller is responsible for starting/stopping the lifecycle handler.
+
+    After execution, if the result is an Object or View, it is pinned
+    under the job scope so it survives lifecycle stop().
 
     Args:
         task: Task to execute
+        lifecycle: Optional pre-started LifecycleHandler for distributed
+                   refcounting with pin/claim ownership.
 
     Returns:
         Any: Result of the task function
@@ -102,29 +132,31 @@ async def execute_task(task: Task) -> Any:
         Exception: Re-raises any exception from the task function
     """
     func = import_callback(task.entrypoint)
-    kwargs = deserialize_task_params(task.kwargs)
 
     with capture_task_output(task.id):
-        # Wrap execution with DataContext so tasks can use ClickHouse operations
-        # OrchContext is already available from the outer context (run_job_tasks)
-        async with DataContext():
+        async with DataContext(lifecycle=lifecycle):
+            kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
                 result = func(**kwargs)
 
+    if lifecycle is not None and isinstance(result, (Object, View)):
+        lifecycle.pin(result.table)
+
     return result
 
 
-def serialize_task_result(result: Any) -> Optional[dict]:
+def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     """
     Serialize a task result to JSON-storable format.
 
-    Handles Object and View types by creating reference dicts.
-    Non-Object/View results are converted to Objects first.
+    Handles Object and View types by creating reference dicts that include
+    job_id for ownership tracking during deserialization (lifecycle.claim).
 
     Args:
         result: Task function return value
+        job_id: ID of the job this task belongs to
 
     Returns:
         dict: Serialized result reference, or None if result is None
@@ -141,15 +173,16 @@ def serialize_task_result(result: Any) -> Optional[dict]:
             "limit": result.limit,
             "offset": result.offset,
             "order_by": result.order_by,
+            "selected_fields": result.selected_fields,
+            "job_id": job_id,
         }
     elif isinstance(result, Object):
         return {
             "object_type": "object",
             "table": result.table,
+            "job_id": job_id,
         }
 
-    # Result is not an Object/View - this shouldn't happen in normal flow
-    # since tasks should return Object/View, but handle it gracefully
     return None
 
 
@@ -198,14 +231,15 @@ async def run_job_tasks(job: Job) -> None:
             session.add(task)
             await session.commit()
 
-            # Store task_id for later use (task object detaches after session closes)
+            # Store IDs for later use (task object detaches after session closes)
             task_id = task.id
+            task_job_id = task.job_id
 
         try:
             result = await execute_task(task)
 
             # Serialize result (Object or View) to JSON-storable reference
-            result_ref = serialize_task_result(result)
+            result_ref = serialize_task_result(result, task_job_id)
 
             async with get_orch_context_session() as session:
                 # Reload and update task to COMPLETED

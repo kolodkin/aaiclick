@@ -17,21 +17,29 @@ echo "Registering job..."
 uv run python "$SCRIPT_DIR/basic_worker_register.py"
 echo
 
-# Step 2: Start worker in background
-echo "Starting worker in background..."
+# Step 2: Start background cleanup worker
+echo "Starting background cleanup worker..."
+uv run python -m aaiclick background start &
+BACKGROUND_PID=$!
+echo "Background worker started (PID: $BACKGROUND_PID)"
+echo
+
+# Step 3: Start worker in background
+echo "Starting worker..."
 uv run python -m aaiclick worker start &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
 
-# Step 3: Wait for task execution
+# Step 4: Wait for task execution
 echo "Waiting 5 seconds for task execution..."
 sleep 5
 
-# Step 4: Stop worker
+# Step 5: Stop workers
 echo
-echo "Stopping worker..."
+echo "Stopping workers..."
 kill $WORKER_PID 2>/dev/null || true
+kill $BACKGROUND_PID 2>/dev/null || true
 
 echo
 echo "=== Example completed ==="

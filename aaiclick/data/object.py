@@ -61,7 +61,7 @@ class Object:
     All operators work element-wise on both scalar and array data types.
 
     For detailed operator documentation, examples, and Python-to-ClickHouse
-    operator mapping, see object.md in this directory.
+    operator mapping, see docs/object.md.
     """
 
     def __init__(

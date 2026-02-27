@@ -1,20 +1,22 @@
 """Worker management for orchestration backend."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import signal
 import socket
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlmodel import select
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import claim_next_task, update_task_status
 from .context import OrchContext, get_orch_context_session
-from .execution import execute_task
+from .execution import execute_task, serialize_task_result
 from .models import TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
@@ -162,6 +164,7 @@ async def worker_main_loop(
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
+    lifecycle_factory: Callable[[int], LifecycleHandler] | None = None,
 ) -> int:
     """
     Main worker execution loop.
@@ -174,6 +177,9 @@ async def worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
+        lifecycle_factory: Optional factory ``(job_id) -> LifecycleHandler`` used
+                          to create a per-task lifecycle handler for distributed
+                          refcounting with pin/claim ownership.
 
     Returns:
         int: Number of tasks executed
@@ -189,7 +195,8 @@ async def worker_main_loop(
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
-    # Register worker if not provided
+    # Default path: auto-register a new worker in the DB.
+    # Tests pass an explicit worker_id to reuse an existing record.
     if worker_id is None:
         worker = await register_worker()
         worker_id = worker.id
@@ -207,7 +214,8 @@ async def worker_main_loop(
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
 
-            # Check if we've exceeded max_empty_polls
+            # Testing-only exit: allow tests to stop the loop after N empty polls
+            # instead of polling forever. In production max_empty_polls is None.
             if max_empty_polls is not None and empty_polls >= max_empty_polls:
                 break
 
@@ -232,14 +240,14 @@ async def worker_main_loop(
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
             try:
-                result = await execute_task(task)
+                if lifecycle_factory is not None:
+                    async with lifecycle_factory(task.job_id) as lifecycle:
+                        result = await execute_task(task, lifecycle=lifecycle)
+                else:
+                    result = await execute_task(task)
 
-                # Convert result to Object reference if present
-                result_ref = None
-                if result is not None:
-                    async with DataContext():
-                        obj = await create_object_from_value(result)
-                        result_ref = {"object_type": "object", "table_id": obj.table_id}
+                # Serialize result (Object or View) to JSON-storable reference
+                result_ref = serialize_task_result(result, task.job_id)
 
                 # Update task status to COMPLETED
                 await update_task_status(

@@ -35,7 +35,8 @@ def test_basic_worker_script():
     expected = [
         "=== Basic Worker Example ===",
         "Registering job...",
-        "Starting worker in background...",
+        "Starting background cleanup worker...",
+        "Starting worker...",
         "Tick 1/6",
         "Tick 2/6",
         "Tick 3/6",

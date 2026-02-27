@@ -1,14 +1,19 @@
 """CLI entry point for aaiclick package.
 
 Usage:
-    python -m aaiclick migrate         # Run database migrations
-    python -m aaiclick migrate --help  # Show migration help
-    python -m aaiclick worker start    # Start a worker process
-    python -m aaiclick worker list     # List workers
+    python -m aaiclick migrate            # Run database migrations
+    python -m aaiclick migrate --help     # Show migration help
+    python -m aaiclick worker start       # Start a worker process
+    python -m aaiclick worker list        # List workers
+    python -m aaiclick background start   # Start background cleanup worker
 """
 
 import argparse
 import asyncio
+
+from aaiclick.orchestration import OrchContext, list_workers
+from aaiclick.orchestration.cli import start_background, start_worker
+from aaiclick.orchestration.migrate import run_migrations
 
 
 def main():
@@ -58,26 +63,38 @@ def main():
         help="List workers",
     )
 
+    # Add background subcommand
+    background_parser = subparsers.add_parser(
+        "background",
+        help="Background service commands",
+    )
+    background_subparsers = background_parser.add_subparsers(
+        dest="background_command",
+        help="Background commands",
+    )
+
+    # background start
+    background_start_parser = background_subparsers.add_parser(
+        "start",
+        help="Start background cleanup worker",
+    )
+    background_start_parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=10.0,
+        help="Cleanup poll interval in seconds (default: 10)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "migrate":
-        from aaiclick.orchestration.migrate import run_migrations
-
-        # Pass remaining args to migration command
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":
         if args.worker_command == "start":
-            from aaiclick.orchestration import OrchContext, worker_main_loop
-
-            async def start_worker():
-                async with OrchContext():
-                    await worker_main_loop(max_tasks=args.max_tasks)
-
-            asyncio.run(start_worker())
+            asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
-            from aaiclick.orchestration import OrchContext, list_workers
 
             async def show_workers():
                 async with OrchContext():
@@ -95,6 +112,13 @@ def main():
 
         else:
             worker_parser.print_help()
+
+    elif args.command == "background":
+        if args.background_command == "start":
+            asyncio.run(start_background(poll_interval=args.poll_interval))
+
+        else:
+            background_parser.print_help()
 
     else:
         parser.print_help()
