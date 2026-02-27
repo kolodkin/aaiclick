@@ -212,6 +212,89 @@ Set operators transform an array and return a new array. All computation happens
 
 **Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
 
+### Group By Operations
+
+**Implementation**: `aaiclick/data/object.py` - see `GroupByQuery` class, `aaiclick/data/operators.py` - see `group_by_agg()` and `group_by_multi_agg()`
+
+Group by operations aggregate data per group, returning a dict Object with group key columns and aggregated result columns. The pattern follows pandas-style two-step: `obj.group_by('key').sum('col')`.
+
+`GroupByQuery` is a standalone intermediate class (does not inherit from Object). It stores grouping info and exposes aggregation methods that execute the GROUP BY query.
+
+**Single aggregation:**
+
+```python
+obj = await create_object_from_value({
+    'category': ['A', 'A', 'B', 'B'],
+    'amount': [10, 20, 30, 40],
+})
+
+# Sum per group
+result = await obj.group_by('category').sum('amount')
+await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70]}
+
+# Count per group
+result = await obj.group_by('category').count()
+await result.data()  # {'category': ['A', 'B'], '_count': [2, 2]}
+
+# Multiple group keys
+result = await obj.group_by('region', 'category').sum('amount')
+```
+
+**Multi-aggregation with explicit column names:**
+
+```python
+result = await obj.group_by('category').agg({
+    'total':     ('sum', 'amount'),
+    'avg_price': ('mean', 'price'),
+    'rows':      ('count', None),
+})
+```
+
+**Array Object support (value_counts style):**
+
+```python
+arr = await create_object_from_value([1, 1, 2, 3, 3, 3])
+counts = await arr.group_by('value').count()
+await counts.data()  # {'value': [1, 2, 3], '_count': [2, 1, 3]}
+```
+
+**Supported aggregation methods on GroupByQuery:**
+
+| Method           | Description                  | Result Column Type                    |
+|------------------|------------------------------|---------------------------------------|
+| `.sum(col)`      | Sum per group                | Preserves int types, Float64 for float |
+| `.mean(col)`     | Average per group            | Float64                               |
+| `.min(col)`      | Minimum per group            | Preserves source type                 |
+| `.max(col)`      | Maximum per group            | Preserves source type                 |
+| `.count()`       | Count rows per group         | UInt64 (column named `_count`)        |
+| `.std(col)`      | Standard deviation per group | Float64                               |
+| `.var(col)`      | Variance per group           | Float64                               |
+| `.agg(dict)`     | Multiple aggregations        | Per-function type rules               |
+
+**Result is a normal dict Object** — supports all existing operations:
+
+```python
+result['amount']              # View selecting amount column
+await result['amount'].sum()  # Further aggregation
+await result.data(orient='records')  # [{...}, {...}]
+```
+
+**View support:**
+
+```python
+# WHERE view
+view = obj.view(where='amount > 15')
+await view.group_by('category').sum('amount')
+
+# Multi-field view
+view = obj[['category', 'amount']]
+await view.group_by('category').sum('amount')
+
+# Single-field view (value_counts)
+view = obj['x']
+await view.group_by('value').count()
+```
+
 ### Window Functions (Internal)
 
 Element-wise array operations use window functions internally:

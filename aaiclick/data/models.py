@@ -171,6 +171,26 @@ class ViewMetadata:
 
 
 @dataclass
+class GroupByInfo:
+    """
+    Info for group_by operations at database level.
+
+    Attributes:
+        source: Data source - table name or subquery "(SELECT ...)"
+        base_table: Base table name (always a simple table name)
+        group_keys: Column names to group by
+        columns: All source columns {name: ClickHouse type}
+        fieldtype: Source fieldtype ('a' for array, 'd' for dict)
+    """
+
+    source: str
+    base_table: str
+    group_keys: List[str]
+    columns: Dict[str, str]
+    fieldtype: str
+
+
+@dataclass
 class ColumnMeta:
     """
     Metadata for a column parsed from YAML comment.

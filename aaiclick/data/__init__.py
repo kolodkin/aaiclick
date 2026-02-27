@@ -28,6 +28,7 @@ from .models import (
     ColumnInfo,
     ColumnMeta,
     ColumnType,
+    GroupByInfo,
     ObjectMetadata,
     ViewMetadata,
     QueryInfo,
@@ -36,4 +37,4 @@ from .models import (
     ValueScalarType,
     ValueType,
 )
-from .object import DataResult, Object, View
+from .object import DataResult, GroupByQuery, Object, View
