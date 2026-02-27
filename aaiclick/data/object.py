@@ -68,7 +68,6 @@ class Object:
         self,
         table: Optional[str] = None,
         schema: Optional[Schema] = None,
-        source: Optional[Object] = None,
     ):
         """
         Initialize an Object.
@@ -77,12 +76,10 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
-            source: Optional source Object (set for Views, None for base Objects)
         """
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
         self._schema = schema
-        self._source = source
         self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
 
     def _register(self, context: DataContext) -> None:
@@ -112,11 +109,6 @@ class Object:
     def table(self) -> str:
         """Get the table name for this object."""
         return self._table_name
-
-    @property
-    def source(self) -> Optional[Object]:
-        """Get the source Object (None for base Objects, set for Views)."""
-        return self._source
 
     @property
     def ctx(self) -> Context:
@@ -1153,46 +1145,19 @@ class View(Object):
                              Single field [name] returns array-like view
                              Multiple fields returns dict-like view
         """
-        # Don't call super().__init__ - we share source's table
-        self._source = source
+        super().__init__(table=source.table, schema=source._schema)
         self._where = where
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
         self._selected_fields = selected_fields
-        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
 
-        # Incref same table as source
+        # Register with context for lifecycle tracking and stale marking
         if source._data_ctx_ref is not None:
             context = source._data_ctx_ref()
             if context is not None:
-                self._data_ctx_ref = weakref.ref(context)
-                context.incref(source.table)
-
-    def __del__(self):
-        """Decrement refcount on deletion."""
-        if sys.is_finalizing():
-            return
-
-        if self._data_ctx_ref is None:
-            return
-
-        context = self._data_ctx_ref()
-        if context is None:
-            return
-
-        # Decref the source's table
-        context.decref(self._source.table)
-
-    @property
-    def ctx(self) -> Context:
-        """Get the context from the source object."""
-        return self._source.ctx
-
-    @property
-    def table(self) -> str:
-        """Get the table name from the source object."""
-        return self._source.table
+                self._register(context)
+                context._register_object(self)
 
     @property
     def where(self) -> Optional[str]:
@@ -1225,11 +1190,6 @@ class View(Object):
         return self._selected_fields is not None and len(self._selected_fields) == 1
 
     @property
-    def stale(self) -> bool:
-        """Check if source object's context has been cleaned up."""
-        return self._source.stale
-
-    @property
     def has_constraints(self) -> bool:
         """Check if this view has any constraints including selected_fields."""
         return bool(
@@ -1239,10 +1199,6 @@ class View(Object):
             or self.order_by
             or self.selected_fields
         )
-
-    def checkstale(self):
-        """Check if source object is stale and raise error if so."""
-        self._source.checkstale()
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
@@ -1300,8 +1256,8 @@ class View(Object):
         # For single-field views, use the field name as value_column for metadata queries
         value_column = self._selected_fields[0] if self.is_single_field else "value"
 
-        # Get fieldtype and value_type from source schema
-        source_schema = self._source._schema
+        # Get fieldtype and value_type from schema
+        source_schema = self._schema
         if self.is_single_field and source_schema:
             # Single-field selection yields array type
             fieldtype = FIELDTYPE_ARRAY
@@ -1339,7 +1295,7 @@ class View(Object):
         Returns:
             CopyInfo with source query, schema metadata, and field selection info
         """
-        source_schema = self._source._schema
+        source_schema = self._schema
         source_query = f"({self._build_select()})" if self.has_constraints else self.table
         return CopyInfo(
             source_query=source_query,
@@ -1405,8 +1361,8 @@ class View(Object):
             >>> print(meta2.where)  # 'param1 > 1'
             >>> print(meta2.limit)  # 10
         """
-        # Get base metadata from source (may query DB if no cached schema)
-        base_meta = await self._source.metadata()
+        # Get base metadata (may query DB if no cached schema)
+        base_meta = await super().metadata()
 
         return ViewMetadata(
             table=base_meta.table,
