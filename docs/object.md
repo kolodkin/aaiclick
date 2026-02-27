@@ -267,7 +267,7 @@ For complete runnable examples of all operators, see:
 
 The `create_object_from_url()` function loads data from external HTTP URLs directly into ClickHouse using the native `url()` table function. All data flows from the URL into ClickHouse with **zero Python memory footprint**.
 
-**Implementation**: `aaiclick/data/data_context.py` — see `create_object_from_url()` function
+**Implementation**: `aaiclick/data/url.py` — see `create_object_from_url()` function
 
 ### Function Signature
 

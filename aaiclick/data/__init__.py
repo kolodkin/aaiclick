@@ -8,12 +8,12 @@ including context management, object creation, and database operations.
 from .data_context import (
     DataContext,
     create_object,
-    create_object_from_url,
     create_object_from_value,
     get_ch_client,
     get_data_context,
     get_pool,
 )
+from .url import create_object_from_url
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ENGINE_DEFAULT,
