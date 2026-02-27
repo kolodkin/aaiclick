@@ -125,15 +125,15 @@ async def test_group_by_std_var(ctx):
 
 
 async def test_group_by_agg_multiple(ctx):
-    """Multi-agg with explicit names via agg()."""
+    """Multi-agg with field: operator mapping via agg()."""
     obj = await create_object_from_value({
         "category": ["A", "A", "B", "B"],
         "amount": [10, 20, 30, 40],
+        "price": [1.5, 2.5, 3.5, 4.5],
     })
     result = await obj.group_by("category").agg({
-        "total": ("sum", "amount"),
-        "avg_amt": ("mean", "amount"),
-        "rows": ("count", None),
+        "amount": "sum",
+        "price": "mean",
     })
     data = await result.data()
 
@@ -141,12 +141,10 @@ async def test_group_by_agg_multiple(ctx):
     a_idx = lookup["A"]
     b_idx = lookup["B"]
 
-    assert data["total"][a_idx] == 30
-    assert data["total"][b_idx] == 70
-    assert abs(data["avg_amt"][a_idx] - 15.0) < THRESHOLD
-    assert abs(data["avg_amt"][b_idx] - 35.0) < THRESHOLD
-    assert data["rows"][a_idx] == 2
-    assert data["rows"][b_idx] == 2
+    assert data["amount"][a_idx] == 30
+    assert data["amount"][b_idx] == 70
+    assert abs(data["price"][a_idx] - 2.0) < THRESHOLD
+    assert abs(data["price"][b_idx] - 4.0) < THRESHOLD
 
 
 # =============================================================================

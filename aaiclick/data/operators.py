@@ -710,74 +710,18 @@ async def unique_group(info: QueryInfo, ch_client):
 
 # Group By Operators
 
-async def group_by_agg(info: GroupByInfo, column: str, agg_func: str, ch_client):
+async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     """
-    Apply a single aggregation with GROUP BY at database level.
+    Apply aggregations with GROUP BY at database level.
 
-    Groups data by the specified keys and applies an aggregation function
-    to the target column. Returns a dict Object with group key columns
-    and the aggregated result column.
+    Groups data by the specified keys and applies aggregation functions.
+    Each entry maps a result column name to an aggregation function.
+    For 'count', uses count() without arguments.
 
     Args:
         info: GroupByInfo with source, group keys, and column metadata
-        column: Column name to aggregate (ignored for 'count')
-        agg_func: Aggregation function key (e.g., 'sum', 'mean', 'count')
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New dict Object with group keys + aggregated column
-    """
-    from ..snowflake_id import get_snowflake_ids
-
-    sql_func = AGGREGATION_FUNCTIONS[agg_func]
-    keys_str = ", ".join(info.group_keys)
-
-    # Determine result column name and aggregation expression
-    if agg_func == "count":
-        result_col = "_count"
-        agg_expr = f"{sql_func}() AS _count"
-    else:
-        result_col = column
-        agg_expr = f"{sql_func}({column}) AS {column}"
-
-    # Execute GROUP BY query
-    query = f"SELECT {keys_str}, {agg_expr} FROM {info.source} GROUP BY {keys_str}"
-    query_result = await ch_client.query(query)
-    rows = query_result.result_rows
-
-    # Determine result types for schema
-    result_columns = {"aai_id": "UInt64"}
-    for key in info.group_keys:
-        result_columns[key] = info.columns[key]
-
-    if agg_func == "count":
-        result_columns["_count"] = "UInt64"
-    else:
-        source_type = info.columns[column]
-        result_columns[result_col] = _determine_agg_result_type(agg_func, source_type)
-
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
-    result = await create_object(schema)
-
-    if rows:
-        aai_ids = get_snowflake_ids(len(rows))
-        data = [[aai_id, *row] for aai_id, row in zip(aai_ids, rows)]
-        await ch_client.insert(result.table, data)
-
-    return result
-
-
-async def group_by_multi_agg(info: GroupByInfo, aggregations: dict, ch_client):
-    """
-    Apply multiple aggregations with GROUP BY at database level.
-
-    Groups data by the specified keys and applies multiple aggregation functions.
-    Each aggregation maps a result column name to a (function, source_column) tuple.
-
-    Args:
-        info: GroupByInfo with source, group keys, and column metadata
-        aggregations: Dict mapping result_name -> (agg_func, source_column).
-                      For count, source_column should be None.
+        aggregations: Dict mapping column_name -> agg_func
+                      (e.g., {'amount': 'sum', '_count': 'count'})
         ch_client: ClickHouse client instance
 
     Returns:
@@ -794,15 +738,15 @@ async def group_by_multi_agg(info: GroupByInfo, aggregations: dict, ch_client):
     for key in info.group_keys:
         result_columns[key] = info.columns[key]
 
-    for result_name, (agg_func, source_col) in aggregations.items():
+    for column, agg_func in aggregations.items():
         sql_func = AGGREGATION_FUNCTIONS[agg_func]
         if agg_func == "count":
-            agg_exprs.append(f"{sql_func}() AS {result_name}")
-            result_columns[result_name] = "UInt64"
+            agg_exprs.append(f"{sql_func}() AS {column}")
+            result_columns[column] = "UInt64"
         else:
-            agg_exprs.append(f"{sql_func}({source_col}) AS {result_name}")
-            source_type = info.columns[source_col]
-            result_columns[result_name] = _determine_agg_result_type(agg_func, source_type)
+            agg_exprs.append(f"{sql_func}({column}) AS {column}")
+            source_type = info.columns[column]
+            result_columns[column] = _determine_agg_result_type(agg_func, source_type)
 
     agg_str = ", ".join(agg_exprs)
     query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"

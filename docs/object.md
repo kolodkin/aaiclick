@@ -240,14 +240,14 @@ await result.data()  # {'category': ['A', 'B'], '_count': [2, 2]}
 result = await obj.group_by('region', 'category').sum('amount')
 ```
 
-**Multi-aggregation with explicit column names:**
+**Multi-aggregation (column → operator):**
 
 ```python
 result = await obj.group_by('category').agg({
-    'total':     ('sum', 'amount'),
-    'avg_price': ('mean', 'price'),
-    'rows':      ('count', None),
+    'amount': 'sum',
+    'price':  'mean',
 })
+await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70], 'price': [2.0, 4.0]}
 ```
 
 **Array Object support (value_counts style):**
@@ -269,7 +269,7 @@ await counts.data()  # {'value': [1, 2, 3], '_count': [2, 1, 3]}
 | `.count()`       | Count rows per group         | UInt64 (column named `_count`)        |
 | `.std(col)`      | Standard deviation per group | Float64                               |
 | `.var(col)`      | Variance per group           | Float64                               |
-| `.agg(dict)`     | Multiple aggregations        | Per-function type rules               |
+| `.agg({col: op})` | Multiple aggregations       | Per-function type rules               |
 
 **Result is a normal dict Object** — supports all existing operations:
 
@@ -294,6 +294,19 @@ await view.group_by('category').sum('amount')
 view = obj['x']
 await view.group_by('value').count()
 ```
+
+#### Known Gaps
+
+The following operations are **not supported** in group_by results:
+
+| Operation                        | Reason                                                                   |
+|----------------------------------|--------------------------------------------------------------------------|
+| `groupArray()` / array collect   | Object does not support ClickHouse `Array(T)` typed columns              |
+| `groupUniqArray()` / distinct    | Same — requires `Array(T)` column type                                   |
+| `groupArraySorted()`             | Same — requires `Array(T)` column type                                   |
+| Per-group concat                 | Same — collecting values into arrays requires `Array(T)` support         |
+
+These would require Object to support ClickHouse `Array(T)` column types as a first-class field type, which is not yet implemented.
 
 ### Window Functions (Internal)
 

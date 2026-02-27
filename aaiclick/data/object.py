@@ -1547,118 +1547,58 @@ class GroupByQuery:
             fieldtype=schema.fieldtype,
         )
 
-    async def sum(self, column: str) -> Object:
+    async def agg(self, aggregations: Dict[str, str]) -> Object:
         """
-        Calculate sum per group.
+        Apply aggregations per group. Core method — all convenience methods delegate here.
+
+        Each entry maps a column name to an aggregation function.
+        Result columns keep the same name as the source columns.
+        For 'count', the column key becomes the result column name
+        and count() is called without arguments.
 
         Args:
-            column: Column name to sum
-
-        Returns:
-            Dict Object with group keys + summed column
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "sum", self.ch_client)
-
-    async def mean(self, column: str) -> Object:
-        """
-        Calculate mean per group.
-
-        Args:
-            column: Column name to average
-
-        Returns:
-            Dict Object with group keys + averaged column
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "mean", self.ch_client)
-
-    async def min(self, column: str) -> Object:
-        """
-        Calculate minimum per group.
-
-        Args:
-            column: Column name to find minimum of
-
-        Returns:
-            Dict Object with group keys + min column
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "min", self.ch_client)
-
-    async def max(self, column: str) -> Object:
-        """
-        Calculate maximum per group.
-
-        Args:
-            column: Column name to find maximum of
-
-        Returns:
-            Dict Object with group keys + max column
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "max", self.ch_client)
-
-    async def count(self) -> Object:
-        """
-        Count rows per group.
-
-        Returns:
-            Dict Object with group keys + '_count' column (UInt64)
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, "", "count", self.ch_client)
-
-    async def std(self, column: str) -> Object:
-        """
-        Calculate standard deviation per group.
-
-        Args:
-            column: Column name to compute std of
-
-        Returns:
-            Dict Object with group keys + std column (Float64)
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "std", self.ch_client)
-
-    async def var(self, column: str) -> Object:
-        """
-        Calculate variance per group.
-
-        Args:
-            column: Column name to compute variance of
-
-        Returns:
-            Dict Object with group keys + var column (Float64)
-        """
-        info = self._get_group_by_info()
-        return await operators.group_by_agg(info, column, "var", self.ch_client)
-
-    async def agg(self, aggregations: Dict[str, tuple]) -> Object:
-        """
-        Apply multiple aggregations per group.
-
-        Each entry maps a result column name to a (function, source_column) tuple.
-        For count, use None as source_column.
-
-        Args:
-            aggregations: Dict mapping result_name -> (agg_func, source_column)
+            aggregations: Dict mapping column_name -> agg_func
                          agg_func: 'sum', 'mean', 'min', 'max', 'count', 'std', 'var'
-                         source_column: column name or None (for count)
 
         Returns:
             Dict Object with group keys + all aggregated columns
 
         Examples:
             >>> result = await obj.group_by('category').agg({
-            ...     'total':     ('sum', 'amount'),
-            ...     'avg_price': ('mean', 'price'),
-            ...     'rows':      ('count', None),
+            ...     'amount': 'sum',
+            ...     'price': 'mean',
             ... })
         """
         info = self._get_group_by_info()
-        return await operators.group_by_multi_agg(info, aggregations, self.ch_client)
+        return await operators.group_by_agg(info, aggregations, self.ch_client)
+
+    async def sum(self, column: str) -> Object:
+        """Convenience: sum per group. Delegates to agg()."""
+        return await self.agg({column: "sum"})
+
+    async def mean(self, column: str) -> Object:
+        """Convenience: mean per group. Delegates to agg()."""
+        return await self.agg({column: "mean"})
+
+    async def min(self, column: str) -> Object:
+        """Convenience: min per group. Delegates to agg()."""
+        return await self.agg({column: "min"})
+
+    async def max(self, column: str) -> Object:
+        """Convenience: max per group. Delegates to agg()."""
+        return await self.agg({column: "max"})
+
+    async def count(self) -> Object:
+        """Convenience: count per group. Delegates to agg()."""
+        return await self.agg({"_count": "count"})
+
+    async def std(self, column: str) -> Object:
+        """Convenience: std per group. Delegates to agg()."""
+        return await self.agg({column: "std"})
+
+    async def var(self, column: str) -> Object:
+        """Convenience: var per group. Delegates to agg()."""
+        return await self.agg({column: "var"})
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
