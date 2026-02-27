@@ -12,6 +12,7 @@ from .data import (
     DataContext,
     get_data_context,
     create_object,
+    create_object_from_url,
     create_object_from_value,
     LifecycleHandler,
     LocalLifecycleHandler,
