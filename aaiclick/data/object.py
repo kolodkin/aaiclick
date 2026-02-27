@@ -1361,26 +1361,14 @@ class View(Object):
             >>> print(meta2.where)  # 'param1 > 1'
             >>> print(meta2.limit)  # 10
         """
-        self.checkstale()
-
-        # Build column info and fieldtype from cached schema
-        column_infos: Dict[str, ColumnInfo] = {}
-        for name, col_type in self._schema.columns.items():
-            col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
-            column_infos[name] = ColumnInfo(
-                name=name,
-                type=str(col_type),
-                fieldtype=col_fieldtype,
-            )
-
-        column_names = set(self._schema.columns.keys())
-        is_dict_type = not (column_names <= {"aai_id", "value"})
-        overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
+        # Reuse Object.metadata() to build column_infos and compute overall_fieldtype
+        # from self._schema (handles scalar/array/dict detection, DB fallback, etc.)
+        base_meta = await super().metadata()
 
         return ViewMetadata(
-            table=self.table,
-            fieldtype=overall_fieldtype,
-            columns=column_infos,
+            table=base_meta.table,
+            fieldtype=base_meta.fieldtype,
+            columns=base_meta.columns,
             where=self._where,
             limit=self._limit,
             offset=self._offset,
