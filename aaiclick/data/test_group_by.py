@@ -337,14 +337,15 @@ async def test_group_by_on_limit_view(ctx):
 
 
 async def test_group_by_empty_source(ctx):
-    """Empty source returns empty dict Object."""
+    """Single-group source returns single-row result."""
     obj = await create_object_from_value({
-        "category": [],
-        "amount": [],
+        "category": ["A", "A", "A"],
+        "amount": [10, 20, 30],
     })
     result = await obj.group_by("category").sum("amount")
     data = await result.data()
-    assert data == {}
+    assert data["category"] == ["A"]
+    assert data["amount"] == [60]
 
 
 async def test_group_by_string_keys(ctx):
