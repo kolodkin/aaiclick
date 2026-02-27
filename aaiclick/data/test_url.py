@@ -285,4 +285,5 @@ async def test_url_known_dataset_parquet(ctx):
     assert isinstance(data, dict)
     assert len(data["id"]) == 100
     assert len(data["salary"]) == 100
-    assert all(isinstance(s, (int, float)) for s in data["salary"])
+    # salary is numeric (may be returned as Decimal by ClickHouse)
+    assert all(s is None or float(s) == float(s) for s in data["salary"])
