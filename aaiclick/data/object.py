@@ -23,6 +23,14 @@ from .models import (
     ColumnInfo,
     ColumnType,
     GroupByInfo,
+    GroupByOpType,
+    GB_COUNT,
+    GB_MAX,
+    GB_MEAN,
+    GB_MIN,
+    GB_STD,
+    GB_SUM,
+    GB_VAR,
     ObjectMetadata,
     ViewMetadata,
     QueryInfo,
@@ -1547,7 +1555,7 @@ class GroupByQuery:
             fieldtype=schema.fieldtype,
         )
 
-    async def agg(self, aggregations: Dict[str, str]) -> Object:
+    async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:
         """
         Apply aggregations per group. Core method — all convenience methods delegate here.
 
@@ -1557,16 +1565,16 @@ class GroupByQuery:
         and count() is called without arguments.
 
         Args:
-            aggregations: Dict mapping column_name -> agg_func
-                         agg_func: 'sum', 'mean', 'min', 'max', 'count', 'std', 'var'
+            aggregations: Dict mapping column_name -> GroupByOpType
+                         (GB_SUM, GB_MEAN, GB_MIN, GB_MAX, GB_COUNT, GB_STD, GB_VAR)
 
         Returns:
             Dict Object with group keys + all aggregated columns
 
         Examples:
             >>> result = await obj.group_by('category').agg({
-            ...     'amount': 'sum',
-            ...     'price': 'mean',
+            ...     'amount': GB_SUM,
+            ...     'price': GB_MEAN,
             ... })
         """
         info = self._get_group_by_info()
@@ -1574,31 +1582,31 @@ class GroupByQuery:
 
     async def sum(self, column: str) -> Object:
         """Convenience: sum per group. Delegates to agg()."""
-        return await self.agg({column: "sum"})
+        return await self.agg({column: GB_SUM})
 
     async def mean(self, column: str) -> Object:
         """Convenience: mean per group. Delegates to agg()."""
-        return await self.agg({column: "mean"})
+        return await self.agg({column: GB_MEAN})
 
     async def min(self, column: str) -> Object:
         """Convenience: min per group. Delegates to agg()."""
-        return await self.agg({column: "min"})
+        return await self.agg({column: GB_MIN})
 
     async def max(self, column: str) -> Object:
         """Convenience: max per group. Delegates to agg()."""
-        return await self.agg({column: "max"})
+        return await self.agg({column: GB_MAX})
 
     async def count(self) -> Object:
         """Convenience: count per group. Delegates to agg()."""
-        return await self.agg({"_count": "count"})
+        return await self.agg({"_count": GB_COUNT})
 
     async def std(self, column: str) -> Object:
         """Convenience: std per group. Delegates to agg()."""
-        return await self.agg({column: "std"})
+        return await self.agg({column: GB_STD})
 
     async def var(self, column: str) -> Object:
         """Convenience: var per group. Delegates to agg()."""
-        return await self.agg({column: "var"})
+        return await self.agg({column: GB_VAR})
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""

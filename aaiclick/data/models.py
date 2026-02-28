@@ -49,6 +49,16 @@ ENGINE_DEFAULT = ENGINE_MERGE_TREE
 ORIENT_DICT = "dict"
 ORIENT_RECORDS = "records"
 
+# GroupBy aggregation operator constants
+GB_SUM = "sum"
+GB_MEAN = "mean"
+GB_MIN = "min"
+GB_MAX = "max"
+GB_COUNT = "count"
+GB_STD = "std"
+GB_VAR = "var"
+GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var"]
+
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str]
 ValueListType = Union[List[int], List[float], List[bool], List[str]]
