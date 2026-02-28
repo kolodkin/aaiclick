@@ -18,5 +18,13 @@ services:
       timeout: 3s
       retries: 10
 
+  fileserver:
+    image: nginx:alpine
+    container_name: aaiclick_fileserver
+    volumes:
+      - ./aaiclick/url_samples:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+
 volumes:
   clickhouse_data:

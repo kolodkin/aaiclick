@@ -99,6 +99,9 @@ python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --strict-markers -W error"
 asyncio_mode = "auto"
+markers = [
+    "url: URL integration tests requiring a file server (use --run-url-tests to enable)",
+]
 filterwarnings = [
     "error",
 ]
