@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from .data_context import create_object, get_data_context
 from .models import FIELDTYPE_ARRAY, Schema
+from .sql_utils import quote_identifier
 from ..snowflake_id import get_snowflake_id
 
 SUPPORTED_URL_FORMATS = frozenset({
@@ -29,11 +30,6 @@ def _validate_url(url: str) -> None:
         )
     if not parsed.netloc:
         raise ValueError("URL must have a valid host")
-
-
-def _quote_identifier(name: str) -> str:
-    """Backtick-quote a ClickHouse identifier, escaping internal backticks."""
-    return f"`{name.replace('`', '``')}`"
 
 
 def _validate_url_columns(columns: list[str]) -> None:
@@ -99,7 +95,7 @@ async def create_object_from_url(
     safe_url = url.replace("'", "\\'")
 
     # Infer column types via DESCRIBE on the url() table function
-    quoted_columns = [_quote_identifier(c) for c in columns]
+    quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
     describe_query = (
         f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"

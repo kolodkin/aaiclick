@@ -136,6 +136,10 @@ CREATE TABLE (
 )
 ```
 
+### Identifier Quoting
+
+All column names are backtick-quoted in SQL statements across the codebase (CREATE TABLE DDL, SELECT, INSERT...SELECT). This supports column names with spaces, reserved words, and special characters. The shared utility `quote_identifier()` in `aaiclick/data/sql_utils.py` handles escaping internal backticks.
+
 ### Why aai_id?
 
 ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **[Snowflake IDs](https://en.wikipedia.org/wiki/Snowflake_ID)** to:

@@ -60,6 +60,7 @@ from __future__ import annotations
 
 from .data_context import create_object
 from .models import Schema, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .sql_utils import quote_identifier
 
 
 # Operator to SQL expression mapping
@@ -437,9 +438,10 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
+    safe_value_column = info.value_column.replace("'", "\\'")
     type_query = f"""
     SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = '{info.value_column}'
+    WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
     """
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
@@ -658,9 +660,10 @@ async def unique_group(info: QueryInfo, ch_client):
 
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
+    safe_value_column = info.value_column.replace("'", "\\'")
     type_query = f"""
     SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = '{info.value_column}'
+    WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
     """
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
