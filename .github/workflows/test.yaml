@@ -31,6 +31,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --add-host=host.docker.internal:host-gateway
 
       postgres:
         image: postgres:16
@@ -88,27 +89,6 @@ jobs:
             sleep 2
           done
 
-      - name: Start file server for URL tests
-        run: |
-          # Find ClickHouse container and its Docker network
-          CH_CONTAINER=$(docker ps --filter "ancestor=clickhouse/clickhouse-server:25.11.8" -q | head -1)
-          CH_NETWORK=$(docker inspect "$CH_CONTAINER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
-          echo "ClickHouse container: $CH_CONTAINER on network: $CH_NETWORK"
-          # Start nginx on the same network so ClickHouse can reach it
-          docker run -d --name fileserver \
-            --network "$CH_NETWORK" \
-            -v "${{ github.workspace }}/aaiclick/url_samples:/usr/share/nginx/html:ro" \
-            nginx:alpine
-          # Wait for nginx to be ready
-          for i in {1..10}; do
-            if docker exec fileserver wget --spider -q http://localhost:80/ 2>/dev/null; then
-              echo "File server is ready!"
-              break
-            fi
-            echo "Waiting for file server... ($i/10)"
-            sleep 1
-          done
-
       - name: Run database migrations
         env:
           POSTGRES_HOST: localhost
@@ -133,7 +113,6 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
-          FILESERVER_HOST: fileserver
           AAICLICK_URL_TEST_ENABLE: "1"
         run: |
           mkdir -p tmp
