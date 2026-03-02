@@ -11,6 +11,7 @@ from aaiclick import DataContext
 
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
+from .group_by import example as group_by_example
 from .orchestration_basic import amain as orchestration_basic_example
 from .selectors import example as selectors_example
 from .statistics import example as statistics_example
@@ -42,6 +43,12 @@ async def main():
         print("RUNNING: Views Example")
         print("=" * 60)
         await views_example(context)
+
+        print("\n" * 2)
+        print("=" * 60)
+        print("RUNNING: Group By Example")
+        print("=" * 60)
+        await group_by_example(context)
 
         print("\n" * 2)
         print("=" * 60)
