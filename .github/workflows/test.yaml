@@ -134,9 +134,10 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           FILESERVER_HOST: fileserver
+          AAICLICK_URL_TEST_ENABLE: "1"
         run: |
           mkdir -p tmp
-          uv run pytest aaiclick/ -v --junitxml=tmp/pytest-report.xml --run-url-tests
+          uv run pytest aaiclick/ -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v1
