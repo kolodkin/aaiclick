@@ -749,9 +749,30 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
             result_columns[column] = _determine_agg_result_type(agg_func, source_type)
 
     agg_str = ", ".join(agg_exprs)
-    query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
     if info.having:
-        query += f" HAVING {info.having}"
+        # Use temporary aliases to avoid ClickHouse resolving HAVING column
+        # references to SELECT aliases (which causes ILLEGAL_AGGREGATION error
+        # when alias name matches source column name).
+        tmp_agg_exprs = []
+        rename_exprs = []
+        for column, agg_func in aggregations.items():
+            sql_func = AGGREGATION_FUNCTIONS[agg_func]
+            tmp_alias = f"__agg_{column}"
+            if agg_func == "count":
+                tmp_agg_exprs.append(f"{sql_func}() AS {tmp_alias}")
+            else:
+                tmp_agg_exprs.append(f"{sql_func}({column}) AS {tmp_alias}")
+            rename_exprs.append(f"{tmp_alias} AS {column}")
+        tmp_agg_str = ", ".join(tmp_agg_exprs)
+        rename_str = ", ".join(rename_exprs)
+        inner = (
+            f"SELECT {keys_str}, {tmp_agg_str} "
+            f"FROM {info.source} GROUP BY {keys_str} "
+            f"HAVING {info.having}"
+        )
+        query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
+    else:
+        query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
     query_result = await ch_client.query(query)
     rows = query_result.result_rows
 
