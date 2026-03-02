@@ -38,6 +38,7 @@ def fileserver():
     thread.start()
     yield f"http://host.docker.internal:{port}"
     server.shutdown()
+    server.server_close()
 
 
 # =============================================================================
