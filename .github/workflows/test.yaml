@@ -114,6 +114,7 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_URL_TEST_ENABLE: "1"
+          AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
           uv run pytest aaiclick/ -v --junitxml=tmp/pytest-report.xml

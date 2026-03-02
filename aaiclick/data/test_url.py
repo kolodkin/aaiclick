@@ -6,9 +6,11 @@ Integration tests load data from sample files served by a local HTTP server
 (require AAICLICK_URL_TEST_ENABLE=1).
 
 The fileserver fixture starts Python's http.server on a random port, serving
-aaiclick/url_samples/. ClickHouse reaches it via host.docker.internal.
+aaiclick/url_samples/. Set AAICLICK_TEST_FILESERVER_HOST=host.docker.internal
+in CI where ClickHouse runs in Docker.
 """
 
+import os
 import threading
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -20,6 +22,7 @@ from aaiclick import create_object_from_url
 
 _NUM_ROWS = 200
 _SAMPLES_DIR = str(Path(__file__).resolve().parent.parent / "url_samples")
+_FILESERVER_HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 
 
 # =============================================================================
@@ -36,7 +39,7 @@ def fileserver():
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield f"http://host.docker.internal:{port}"
+    yield f"http://{_FILESERVER_HOST}:{port}"
     server.shutdown()
     server.server_close()
 
