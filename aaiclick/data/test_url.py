@@ -64,22 +64,6 @@ async def test_url_empty_columns(ctx):
         await create_object_from_url("https://example.com/data.parquet", columns=[])
 
 
-async def test_url_invalid_column_name(ctx):
-    with pytest.raises(ValueError, match="not a valid identifier"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["valid_col", "invalid col"],
-        )
-
-
-async def test_url_sql_injection_column_name(ctx):
-    with pytest.raises(ValueError, match="not a valid identifier"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1; DROP TABLE users--"],
-        )
-
-
 async def test_url_reserved_aai_id_column(ctx):
     with pytest.raises(ValueError, match="reserved"):
         await create_object_from_url(

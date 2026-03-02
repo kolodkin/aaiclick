@@ -327,7 +327,7 @@ This ensures monotonically increasing, unique IDs within the Object while preser
 ### Input Validation
 
 - URL must use `http://` or `https://` scheme
-- Column names must be valid identifiers (letters, digits, underscores)
+- Column names are backtick-quoted in SQL (supports spaces, special characters)
 - `aai_id` is reserved and cannot be used as a column name
 - Format must be in the supported formats list
 - WHERE clause cannot contain `;` (prevents multi-statement injection)

@@ -6,7 +6,6 @@ Uses ClickHouse's native url() table function for zero Python memory footprint.
 
 from __future__ import annotations
 
-import re
 from urllib.parse import urlparse
 
 from .data_context import create_object, get_data_context
@@ -20,8 +19,6 @@ SUPPORTED_URL_FORMATS = frozenset({
     "ORC", "Avro",
 })
 
-_SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
 
 def _validate_url(url: str) -> None:
     """Validate URL is a proper HTTP(S) URL."""
@@ -34,16 +31,16 @@ def _validate_url(url: str) -> None:
         raise ValueError("URL must have a valid host")
 
 
+def _quote_identifier(name: str) -> str:
+    """Backtick-quote a ClickHouse identifier, escaping internal backticks."""
+    return f"`{name.replace('`', '``')}`"
+
+
 def _validate_url_columns(columns: list[str]) -> None:
-    """Validate column names are safe identifiers."""
+    """Validate column list is non-empty and has no reserved names."""
     if not columns:
         raise ValueError("columns must be a non-empty list")
     for col in columns:
-        if not _SAFE_IDENTIFIER_RE.match(col):
-            raise ValueError(
-                f"Column name '{col}' is not a valid identifier. "
-                "Use only letters, digits, and underscores, starting with a letter or underscore."
-            )
         if col == "aai_id":
             raise ValueError("'aai_id' is a reserved column name and cannot be used")
 
@@ -102,7 +99,8 @@ async def create_object_from_url(
     safe_url = url.replace("'", "\\'")
 
     # Infer column types via DESCRIBE on the url() table function
-    columns_str = ", ".join(columns)
+    quoted_columns = [_quote_identifier(c) for c in columns]
+    columns_str = ", ".join(quoted_columns)
     describe_query = (
         f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
     )
@@ -118,7 +116,7 @@ async def create_object_from_url(
             fieldtype=FIELDTYPE_ARRAY,
             columns={"aai_id": "UInt64", "value": ch_types[columns[0]]},
         )
-        select_cols = f"{columns[0]} AS value"
+        select_cols = f"{quoted_columns[0]} AS value"
     else:
         schema_columns: dict[str, str] = {"aai_id": "UInt64"}
         for col_name in columns:
