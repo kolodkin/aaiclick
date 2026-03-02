@@ -750,6 +750,8 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     agg_str = ", ".join(agg_exprs)
     query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
+    if info.having:
+        query += f" HAVING {info.having}"
     query_result = await ch_client.query(query)
     rows = query_result.result_rows
 

@@ -198,6 +198,7 @@ class GroupByInfo:
     group_keys: List[str]
     columns: Dict[str, str]
     fieldtype: str
+    having: Optional[str] = None
 
 
 @dataclass

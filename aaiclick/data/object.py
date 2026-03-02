@@ -1497,11 +1497,34 @@ class GroupByQuery:
 
         self._source = source
         self._keys = keys
+        self._having: Optional[str] = None
 
     @property
     def ch_client(self):
         """Get the ClickHouse client from the source object."""
         return self._source.ch_client
+
+    def having(self, condition: str) -> "GroupByQuery":
+        """
+        Set a HAVING condition to filter groups after aggregation.
+
+        Args:
+            condition: Raw SQL HAVING expression (e.g., 'sum(amount) > 100')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty
+
+        Examples:
+            >>> result = await obj.group_by('category').having('sum(amount) > 100').sum('amount')
+            >>> result = await obj.group_by('cat').having('count() >= 3').count()
+        """
+        if not condition or not condition.strip():
+            raise ValueError("HAVING condition must be a non-empty string")
+        self._having = condition
+        return self
 
     def _get_group_by_info(self) -> GroupByInfo:
         """
@@ -1553,6 +1576,7 @@ class GroupByQuery:
             group_keys=self._keys,
             columns=columns,
             fieldtype=schema.fieldtype,
+            having=self._having,
         )
 
     async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:

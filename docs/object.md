@@ -214,7 +214,7 @@ Set operators transform an array and return a new array. All computation happens
 
 ### Group By Operations
 
-**Implementation**: `aaiclick/data/object.py` - see `GroupByQuery` class, `aaiclick/data/operators.py` - see `group_by_agg()` and `group_by_multi_agg()`
+**Implementation**: `aaiclick/data/object.py` - see `GroupByQuery` class, `aaiclick/data/operators.py` - see `group_by_agg()`
 
 Group by operations aggregate data per group, returning a dict Object with group key columns and aggregated result columns. The pattern follows pandas-style two-step: `obj.group_by('key').sum('col')`.
 
@@ -294,6 +294,28 @@ await view.group_by('category').sum('amount')
 view = obj['x']
 await view.group_by('value').count()
 ```
+
+**HAVING — filter groups after aggregation:**
+
+```python
+# Only groups where sum exceeds threshold
+result = await obj.group_by('category').having('sum(amount) > 100').sum('amount')
+
+# Filter by count
+result = await obj.group_by('category').having('count() >= 5').count()
+
+# Combine WHERE (pre-filter rows) + HAVING (post-filter groups)
+view = obj.view(where='amount > 10')
+result = await view.group_by('category').having('count() >= 2').count()
+
+# Works with multi-agg
+result = await obj.group_by('category').having('sum(amount) > 50').agg({
+    'amount': 'sum',
+    'price': 'mean',
+})
+```
+
+The HAVING condition is a raw SQL expression, same pattern as `view(where=...)`. Calling `.having()` multiple times overwrites the previous condition — combine with `AND`/`OR` in a single string.
 
 #### Known Gaps
 

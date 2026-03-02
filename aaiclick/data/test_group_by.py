@@ -358,3 +358,98 @@ async def test_group_by_string_keys(ctx):
     pairs = dict(zip(data["name"], data["score"]))
     assert pairs["Alice"] == 175
     assert pairs["Bob"] == 175
+
+
+# =============================================================================
+# HAVING tests
+# =============================================================================
+
+
+async def test_group_by_having_sum(ctx):
+    """having('sum(amount) > 30') filters groups by sum."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B"],
+        "amount": [10, 20, 30, 40],
+    })
+    result = await obj.group_by("category").having("sum(amount) > 50").sum("amount")
+    data = await result.data()
+
+    # A sum=30 (filtered out), B sum=70 (passes)
+    assert data["category"] == ["B"]
+    assert data["amount"] == [70]
+
+
+async def test_group_by_having_count(ctx):
+    """having('count() >= 3') filters groups by row count."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "A", "B", "B"],
+        "amount": [1, 2, 3, 4, 5],
+    })
+    result = await obj.group_by("category").having("count() >= 3").count()
+    data = await result.data()
+
+    # A has 3 rows (passes), B has 2 rows (filtered out)
+    assert data["category"] == ["A"]
+    assert data["_count"] == [3]
+
+
+async def test_group_by_having_with_agg(ctx):
+    """having() works with multi-agg agg() method."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B", "C", "C", "C"],
+        "amount": [10, 20, 30, 40, 1, 2, 3],
+        "price": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+    })
+    result = await obj.group_by("category").having("sum(amount) > 10").agg({
+        "amount": "sum",
+        "price": "mean",
+    })
+    data = await result.data()
+
+    # A sum=30 (passes), B sum=70 (passes), C sum=6 (filtered out)
+    cats = set(data["category"])
+    assert "A" in cats
+    assert "B" in cats
+    assert "C" not in cats
+
+
+async def test_group_by_having_with_where(ctx):
+    """WHERE + HAVING together: filter rows then filter groups."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "A", "B", "B", "B"],
+        "amount": [5, 15, 25, 10, 20, 30],
+    })
+    # WHERE filters rows first (amount > 10), then HAVING filters groups
+    view = obj.view(where="amount > 10")
+    result = await view.group_by("category").having("count() >= 2").count()
+    data = await result.data()
+
+    # After WHERE amount > 10: A has [15, 25] (2 rows), B has [20, 30] (2 rows)
+    # HAVING count() >= 2: both pass
+    pairs = dict(zip(data["category"], data["_count"]))
+    assert pairs["A"] == 2
+    assert pairs["B"] == 2
+
+
+async def test_group_by_having_all_filtered(ctx):
+    """All groups filtered out returns empty result Object."""
+    obj = await create_object_from_value({
+        "category": ["A", "B"],
+        "amount": [10, 20],
+    })
+    result = await obj.group_by("category").having("sum(amount) > 1000").sum("amount")
+    data = await result.data()
+
+    # Both groups filtered out — empty result
+    assert data["category"] == []
+    assert data["amount"] == []
+
+
+async def test_group_by_having_empty_string_raises(ctx):
+    """Empty string raises ValueError."""
+    obj = await create_object_from_value({
+        "category": ["A", "B"],
+        "amount": [10, 20],
+    })
+    with pytest.raises(ValueError, match="non-empty"):
+        obj.group_by("category").having("")
