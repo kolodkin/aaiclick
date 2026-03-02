@@ -32,6 +32,7 @@ from .models import (
     ORIENT_RECORDS,
 )
 from .data_context import get_data_context, DataContext, create_object_from_value
+from .sql_utils import quote_identifier
 
 
 @dataclass
@@ -1218,14 +1219,14 @@ class View(Object):
         if self._selected_fields:
             if self.is_single_field:
                 # Single field: rename as 'value' for array compatibility
-                field = self._selected_fields[0]
+                field = quote_identifier(self._selected_fields[0])
                 if columns == "value":
                     select_cols = f"{field} AS value"
                 else:
                     select_cols = f"aai_id, {field} AS value"
             else:
                 # Multiple fields: select all specified fields
-                fields_str = ", ".join(self._selected_fields)
+                fields_str = ", ".join(quote_identifier(f) for f in self._selected_fields)
                 select_cols = f"aai_id, {fields_str}"
         else:
             select_cols = columns
