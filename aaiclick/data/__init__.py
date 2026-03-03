@@ -13,6 +13,7 @@ from .data_context import (
     get_data_context,
     get_pool,
 )
+from .url import create_object_from_url
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ENGINE_DEFAULT,

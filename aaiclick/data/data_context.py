@@ -30,6 +30,7 @@ from .models import (
     EngineType,
     ENGINE_DEFAULT,
 )
+from .sql_utils import quote_identifier
 from ..snowflake_id import get_snowflake_ids
 
 
@@ -296,7 +297,7 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
     # Build column definitions for CREATE TABLE
     column_defs = []
     for name, col_type in schema.columns.items():
-        col_def = f"{name} {col_type}"
+        col_def = f"{quote_identifier(name)} {col_type}"
         if name == "aai_id":
             col_fieldtype = FIELDTYPE_SCALAR
         else:

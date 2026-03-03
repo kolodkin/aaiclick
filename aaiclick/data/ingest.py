@@ -11,6 +11,7 @@ from typing import Callable, Awaitable
 
 from .data_context import create_object
 from .models import ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .sql_utils import quote_identifier
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -174,7 +175,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
 
         new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
         result = await create_object(new_schema)
-        fields_str = ", ".join(copy_info.selected_fields)
+        fields_str = ", ".join(quote_identifier(f) for f in copy_info.selected_fields)
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT aai_id, {fields_str} FROM {copy_info.source_query}{alias}

@@ -31,6 +31,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --add-host=host.docker.internal:host-gateway
 
       postgres:
         image: postgres:16
@@ -112,6 +113,8 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
+          AAICLICK_URL_TEST_ENABLE: "1"
+          AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
           uv run pytest aaiclick/ -v --junitxml=tmp/pytest-report.xml

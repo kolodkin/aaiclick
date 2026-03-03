@@ -136,6 +136,10 @@ CREATE TABLE (
 )
 ```
 
+### Identifier Quoting
+
+All column names are backtick-quoted in SQL statements across the codebase (CREATE TABLE DDL, SELECT, INSERT...SELECT). This supports column names with spaces, reserved words, and special characters. The shared utility `quote_identifier()` in `aaiclick/data/sql_utils.py` handles escaping internal backticks.
+
 ### Why aai_id?
 
 ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **[Snowflake IDs](https://en.wikipedia.org/wiki/Snowflake_ID)** to:
@@ -381,6 +385,121 @@ values = await unique.data()  # [1, 2, 3, 4] (order not guaranteed)
 For complete runnable examples of all operators, see:
 - `examples/basic_operators.py` - Comprehensive examples of all 14 operators
 
+## Loading Data from URLs
+
+The `create_object_from_url()` function loads data from external HTTP URLs directly into ClickHouse using the native `url()` table function. All data flows from the URL into ClickHouse with **zero Python memory footprint**.
+
+**Implementation**: `aaiclick/data/url.py` — see `create_object_from_url()` function
+
+### Function Signature
+
+```python
+async def create_object_from_url(
+    url: str,
+    columns: list[str],
+    format: str = "Parquet",
+    where: str | None = None,
+    limit: int | None = None,
+) -> Object
+```
+
+### Parameters
+
+| Parameter | Type             | Default     | Description                                                   |
+|-----------|------------------|-------------|---------------------------------------------------------------|
+| `url`     | `str`            | (required)  | HTTP(S) URL to load data from                                 |
+| `columns` | `list[str]`      | (required)  | Column names to select from the URL source                    |
+| `format`  | `str`            | `"Parquet"` | ClickHouse format name                                        |
+| `where`   | `str \| None`    | `None`      | Optional SQL WHERE clause for server-side filtering           |
+| `limit`   | `int \| None`    | `None`      | Optional row limit applied at load time                       |
+
+### Supported Formats
+
+| Format                  | Description                         |
+|-------------------------|-------------------------------------|
+| `Parquet`               | Apache Parquet (default)            |
+| `CSV`                   | CSV without header                  |
+| `CSVWithNames`          | CSV with header row                 |
+| `CSVWithNamesAndTypes`  | CSV with header and type rows       |
+| `TSV`                   | Tab-separated values without header |
+| `TSVWithNames`          | TSV with header row                 |
+| `TSVWithNamesAndTypes`  | TSV with header and type rows       |
+| `JSON`                  | JSON format                         |
+| `JSONEachRow`           | One JSON object per line            |
+| `JSONCompactEachRow`    | One JSON array per line             |
+| `ORC`                   | Apache ORC                          |
+| `Avro`                  | Apache Avro                         |
+
+### Schema Behavior
+
+- **Single column**: Column is renamed to `value` (matches `create_object_from_value` list pattern)
+- **Multiple columns**: Column names are preserved from the source
+- **Type inference**: ClickHouse infers column types from the URL source automatically
+
+### Snowflake ID Assignment
+
+Since data flows directly from the URL into ClickHouse (never entering Python), Snowflake IDs are generated using `base_id + row_number() OVER ()`:
+
+1. A single Snowflake ID is generated in Python as the base
+2. ClickHouse's `row_number()` produces sequential integers `1, 2, ..., N`
+3. Each row gets `aai_id = base_id + row_number`
+
+This ensures monotonically increasing, unique IDs within the Object while preserving temporal ordering relative to other Objects.
+
+### Input Validation
+
+- URL must use `http://` or `https://` scheme
+- Column names are backtick-quoted in SQL (supports spaces, special characters)
+- `aai_id` is reserved and cannot be used as a column name
+- Format must be in the supported formats list
+- WHERE clause cannot contain `;` (prevents multi-statement injection)
+- Limit must be a positive integer
+
+### Examples
+
+**Load single column from Parquet:**
+```python
+async with DataContext():
+    obj = await create_object_from_url(
+        "https://example.com/data.parquet",
+        columns=["price"],
+    )
+    data = await obj.data()  # [10.5, 20.3, ...]
+```
+
+**Load multiple columns with filter:**
+```python
+async with DataContext():
+    obj = await create_object_from_url(
+        "https://example.com/data.parquet",
+        columns=["name", "price", "quantity"],
+        where="price > 10",
+        limit=1000,
+    )
+    data = await obj.data()  # {"name": [...], "price": [...], "quantity": [...]}
+```
+
+**Load CSV with aggregation:**
+```python
+async with DataContext():
+    prices = await create_object_from_url(
+        "https://example.com/prices.csv",
+        columns=["price"],
+        format="CSVWithNames",
+    )
+    avg_price = await prices.mean()
+    print(await avg_price.data())  # 42.5
+```
+
+**Chain operations on loaded data:**
+```python
+async with DataContext():
+    a = await create_object_from_url(url, columns=["col_a"], format="CSVWithNames")
+    b = await create_object_from_url(url, columns=["col_b"], format="CSVWithNames")
+    result = await (a + b)
+    data = await result.data()
+```
+
 ## The concat() Method
 
 The `concat()` method concatenates objects together, creating a new object with rows from the first object followed by rows from the second object.
@@ -570,6 +689,7 @@ Tests are organized by operator group:
 | Arithmetic, Comparison, Bitwise      | `test_operators_parametrized.py` |
 | Aggregation Operators                | `test_aggregation.py`            |
 | Set Operators                        | `test_unique_parametrized.py`    |
+| URL Loading                          | `test_url.py`                    |
 
 ## Table Lifecycle Tracking
 
