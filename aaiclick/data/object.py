@@ -1213,7 +1213,7 @@ class GroupByQuery:
 
         self._source = source
         self._keys = keys
-        self._having: Optional[str] = None
+        self._having_clauses: List[Tuple[str, str]] = []
 
     @property
     def ch_client(self):
@@ -1222,7 +1222,11 @@ class GroupByQuery:
 
     def having(self, condition: str) -> GroupByQuery:
         """
-        Set a HAVING condition to filter groups after aggregation.
+        Add a HAVING condition (AND-chained with previous conditions).
+
+        Multiple calls chain with AND:
+            .having('sum(x) > 10').having('count() >= 2')
+            → HAVING (sum(x) > 10) AND (count() >= 2)
 
         Args:
             condition: Raw SQL HAVING expression (e.g., 'sum(amount) > 100')
@@ -1232,15 +1236,47 @@ class GroupByQuery:
 
         Raises:
             ValueError: If condition is empty
-
-        Examples:
-            >>> result = await obj.group_by('category').having('sum(amount) > 100').sum('amount')
-            >>> result = await obj.group_by('cat').having('count() >= 3').count()
         """
         if not condition or not condition.strip():
             raise ValueError("HAVING condition must be a non-empty string")
-        self._having = condition
+        self._having_clauses.append((condition.strip(), "AND"))
         return self
+
+    def or_having(self, condition: str) -> GroupByQuery:
+        """
+        Add a HAVING condition (OR-chained with previous conditions).
+
+        Use after .having() to add an alternative condition:
+            .having('sum(x) > 100').or_having('count() >= 5')
+            → HAVING (sum(x) > 100) OR (count() >= 5)
+
+        Args:
+            condition: Raw SQL HAVING expression (e.g., 'max(amount) > 50')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty or no prior having clause exists
+        """
+        if not condition or not condition.strip():
+            raise ValueError("HAVING condition must be a non-empty string")
+        if not self._having_clauses:
+            raise ValueError("or_having() requires a prior having() call")
+        self._having_clauses.append((condition.strip(), "OR"))
+        return self
+
+    def _build_having(self) -> Optional[str]:
+        """Build the combined HAVING clause from stored conditions."""
+        if not self._having_clauses:
+            return None
+        parts = []
+        for i, (condition, connector) in enumerate(self._having_clauses):
+            if i == 0:
+                parts.append(f"({condition})")
+            else:
+                parts.append(f"{connector} ({condition})")
+        return " ".join(parts)
 
     def _get_group_by_info(self) -> GroupByInfo:
         """
@@ -1292,7 +1328,7 @@ class GroupByQuery:
             group_keys=self._keys,
             columns=columns,
             fieldtype=schema.fieldtype,
-            having=self._having,
+            having=self._build_having(),
         )
 
     async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:

@@ -453,3 +453,99 @@ async def test_group_by_having_empty_string_raises(ctx):
     })
     with pytest.raises(ValueError, match="non-empty"):
         obj.group_by("category").having("")
+
+
+# =============================================================================
+# Chained HAVING tests
+# =============================================================================
+
+
+async def test_group_by_having_chained_and(ctx):
+    """Multiple .having() calls chain with AND."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "A", "B", "B", "C"],
+        "amount": [10, 20, 30, 5, 15, 100],
+    })
+    # A: sum=60, count=3 → passes both
+    # B: sum=20, count=2 → fails count >= 3
+    # C: sum=100, count=1 → fails count >= 3
+    result = await (
+        obj.group_by("category")
+        .having("sum(amount) > 10")
+        .having("count() >= 3")
+        .sum("amount")
+    )
+    data = await result.data()
+    assert data["category"] == ["A"]
+    assert data["amount"] == [60]
+
+
+async def test_group_by_or_having(ctx):
+    """or_having() chains with OR."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B", "C"],
+        "amount": [10, 20, 30, 40, 5],
+    })
+    # A: sum=30, count=2
+    # B: sum=70, count=2
+    # C: sum=5, count=1
+    # sum > 50 → B passes; count = 1 → C passes; A fails both
+    result = await (
+        obj.group_by("category")
+        .having("sum(amount) > 50")
+        .or_having("count() = 1")
+        .sum("amount")
+    )
+    data = await result.data()
+    cats = set(data["category"])
+    assert "B" in cats
+    assert "C" in cats
+    assert "A" not in cats
+
+
+async def test_group_by_having_and_or_mixed(ctx):
+    """Mixed .having() and .or_having() chaining."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "A", "B", "B", "C", "C"],
+        "amount": [10, 20, 30, 5, 15, 100, 200],
+    })
+    # A: sum=60, count=3, max=30
+    # B: sum=20, count=2, max=15
+    # C: sum=300, count=2, max=200
+    # HAVING (sum > 50) AND (count >= 3) OR (max > 100)
+    # AND binds tighter: (sum>50 AND count>=3) OR (max>100)
+    # A: (60>50 AND 3>=3)=true OR (30>100)=false → true
+    # B: (20>50 AND 2>=3)=false OR (15>100)=false → false
+    # C: (300>50 AND 2>=3)=false OR (200>100)=true → true
+    result = await (
+        obj.group_by("category")
+        .having("sum(amount) > 50")
+        .having("count() >= 3")
+        .or_having("max(amount) > 100")
+        .sum("amount")
+    )
+    data = await result.data()
+    cats = set(data["category"])
+    assert "A" in cats
+    assert "C" in cats
+    assert "B" not in cats
+
+
+async def test_group_by_or_having_without_having_raises(ctx):
+    """or_having() without prior having() raises ValueError."""
+    obj = await create_object_from_value({
+        "category": ["A", "B"],
+        "amount": [10, 20],
+    })
+    with pytest.raises(ValueError, match="prior having"):
+        obj.group_by("category").or_having("sum(amount) > 10")
+
+
+async def test_group_by_or_having_empty_string_raises(ctx):
+    """or_having() with empty string raises ValueError."""
+    obj = await create_object_from_value({
+        "category": ["A", "B"],
+        "amount": [10, 20],
+    })
+    with pytest.raises(ValueError, match="non-empty"):
+        obj.group_by("category").having("count() > 0").or_having("")

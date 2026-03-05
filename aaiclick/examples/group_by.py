@@ -130,9 +130,41 @@ async def example(context):
     for store, cnt in sorted(zip(data["store"], data["_count"])):
         print(f"  {store}: {cnt} large transactions")
 
-    # Example 8: Array value_counts pattern
+    # Example 8: Chained HAVING with AND
     print("\n" + "=" * 50)
-    print("Example 8: Array value_counts pattern")
+    print("Example 8: Chained HAVING with AND")
+    print("-" * 50)
+
+    print("Stores with total > $200 AND at least 2 transactions:")
+    result = await (
+        transactions.group_by("store")
+        .having("sum(amount) > 200")
+        .having("count() >= 2")
+        .sum("amount")
+    )
+    data = await result.data()
+    for store, amt in sorted(zip(data["store"], data["amount"])):
+        print(f"  {store}: ${amt}")
+
+    # Example 9: OR HAVING
+    print("\n" + "=" * 50)
+    print("Example 9: OR HAVING")
+    print("-" * 50)
+
+    print("Stores with total > $700 OR only 1 transaction:")
+    result = await (
+        transactions.group_by("store")
+        .having("sum(amount) > 700")
+        .or_having("count() = 1")
+        .sum("amount")
+    )
+    data = await result.data()
+    for store, amt in sorted(zip(data["store"], data["amount"])):
+        print(f"  {store}: ${amt}")
+
+    # Example 10: Array value_counts pattern
+    print("\n" + "=" * 50)
+    print("Example 10: Array value_counts pattern")
     print("-" * 50)
 
     colors = await create_object_from_value(["red", "blue", "red", "green", "blue", "red"])
@@ -142,9 +174,9 @@ async def example(context):
     for val, cnt in sorted(zip(data["value"], data["_count"]), key=lambda x: -x[1]):
         print(f"  {val}: {cnt}")
 
-    # Example 9: Working with group_by results
+    # Example 11: Working with group_by results
     print("\n" + "=" * 50)
-    print("Example 9: Working with group_by results")
+    print("Example 11: Working with group_by results")
     print("-" * 50)
 
     result = await sales.group_by("category").sum("amount")
