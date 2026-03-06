@@ -207,14 +207,24 @@ Uses PostgreSQL CTE with `FOR UPDATE SKIP LOCKED` for atomic concurrent task cla
 - Atomically transitions job PENDING→RUNNING on first claim
 - Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
 
-### Worker CLI
+### CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
 ```bash
+# Worker management
 python -m aaiclick worker start               # Start a worker
 python -m aaiclick worker start --max-tasks 10 # Limit task count
 python -m aaiclick worker list                 # List workers
+
+# Job management
+python -m aaiclick job get <id>               # Get job details
+python -m aaiclick job list                   # List all jobs
+python -m aaiclick job list --status RUNNING  # Filter by status
+python -m aaiclick job list --like "%etl%"    # Filter by name pattern
+python -m aaiclick job list --limit 20 --offset 40  # Pagination
+
+# Background services
 python -m aaiclick background start            # Standalone cleanup worker
 ```
 
