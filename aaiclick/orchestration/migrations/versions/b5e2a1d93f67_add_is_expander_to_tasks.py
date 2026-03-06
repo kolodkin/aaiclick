@@ -1,7 +1,7 @@
 """add_is_expander_to_tasks
 
 Revision ID: b5e2a1d93f67
-Revises: a3c1f8e72b4d
+Revises: b5e2a1c93d7f
 Create Date: 2026-03-06 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'b5e2a1d93f67'
-down_revision: Union[str, Sequence[str], None] = 'a3c1f8e72b4d'
+down_revision: Union[str, Sequence[str], None] = 'b5e2a1c93d7f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

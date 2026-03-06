@@ -26,17 +26,23 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
 from typing import Any, Callable, Union
 
+from sqlmodel import select
+
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .context import commit_tasks, get_orch_session
 from .decorators import TaskFactory, _serialize_value
+from .execution import _deserialize_value, _resolve_upstream_ref, import_callback
 from .factories import _callable_to_string
 from .models import Dependency, Group, Task, TaskStatus
+from .worker_context import get_current_task_info
 
 
 @dataclass
@@ -210,10 +216,6 @@ async def _expand_map(
         partition_size: Number of rows per partition.
         group_id: Group ID for the partition tasks.
     """
-    from aaiclick.data.data_context import get_ch_client
-
-    from .execution import _resolve_upstream_ref
-
     # Resolve the object reference to get the table name
     table_name = await _resolve_object_table(object_ref)
 
@@ -285,20 +287,12 @@ async def _execute_reduce(
     Returns:
         Result of the user's reduce function.
     """
-    import asyncio
-
-    from .execution import _deserialize_value, import_callback
-
     func = import_callback(target_entrypoint)
 
     # Query all completed tasks in the group, ordered by ID (preserves partition order)
     async with get_orch_session() as session:
-        from sqlmodel import select
-
-        from .models import Task as TaskModel
-
         result = await session.execute(
-            select(TaskModel.result, TaskModel.job_id)
+            select(Task.result, Task.job_id)
             .where(
                 TaskModel.group_id == group_id,
                 TaskModel.status == TaskStatus.COMPLETED,
@@ -330,8 +324,6 @@ async def _resolve_object_table(ref: dict) -> str:
     if ref.get("ref_type") == "upstream":
         # Resolve upstream task to get its result
         async with get_orch_session() as session:
-            from .execution import _resolve_upstream_ref
-
             upstream_result = await _resolve_upstream_ref(ref, session)
             if isinstance(upstream_result, dict) and "table" in upstream_result:
                 return upstream_result["table"]
@@ -349,18 +341,11 @@ async def _get_current_job_id() -> int:
     The expander task's job_id is set when it was committed to the database.
     We retrieve it from the task record.
     """
-    # The expander function receives job_id indirectly through the task record.
-    # We need to query the current task from the worker context.
-    # The worker sets this via a ContextVar before executing the task.
-    from .worker_context import get_current_task_info
-
     info = get_current_task_info()
     return info.job_id
 
 
 async def _get_current_task_id() -> int:
     """Get the task_id of the currently executing task."""
-    from .worker_context import get_current_task_info
-
     info = get_current_task_info()
     return info.task_id
