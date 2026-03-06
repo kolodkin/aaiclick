@@ -885,6 +885,92 @@ class Object:
         for temp in temp_objects:
             await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
+    async def insert_from_url(
+        self,
+        url: str,
+        columns: list[str] | None = None,
+        format: str = "Parquet",
+        where: str | None = None,
+        limit: int | None = None,
+    ) -> None:
+        """
+        Insert data from an external URL into this object in place.
+
+        Uses ClickHouse's native url() table function - zero Python memory footprint.
+        Data flows directly from URL into this object's table.
+
+        Args:
+            url: HTTP(S) URL to load data from (e.g., Parquet file on S3)
+            columns: Column names to select. If None, uses this object's columns
+                (excluding aai_id). Column names must match the URL source.
+            format: ClickHouse format name. Default "Parquet".
+                Supported: Parquet, CSV, CSVWithNames, TSV, JSON, JSONEachRow, etc.
+            where: Optional SQL WHERE clause for filtering rows at load time
+            limit: Optional row limit applied at load time
+
+        Raises:
+            ValueError: If URL, columns, format, or limit are invalid
+            RuntimeError: If object has incompatible schema
+
+        Examples:
+            >>> # Create schema from first month, then insert more months
+            >>> trips = await create_object_from_url(
+            ...     "https://example.com/jan.parquet",
+            ...     columns=["fare", "tip", "distance"],
+            ... )
+            >>> await trips.insert_from_url("https://example.com/feb.parquet")
+            >>> await trips.insert_from_url("https://example.com/mar.parquet")
+        """
+        from .url import (
+            _validate_url,
+            _validate_url_format,
+            _validate_url_columns,
+            SUPPORTED_URL_FORMATS,
+        )
+
+        self.checkstale()
+
+        _validate_url(url)
+        _validate_url_format(format)
+
+        # If columns not specified, use this object's columns (excluding aai_id)
+        if columns is None:
+            columns = [c for c in self.schema.columns.keys() if c != "aai_id"]
+
+        _validate_url_columns(columns)
+
+        if limit is not None and (not isinstance(limit, int) or limit <= 0):
+            raise ValueError(f"limit must be a positive integer, got {limit}")
+        if where is not None and ";" in where:
+            raise ValueError("WHERE clause must not contain ';'")
+
+        # Escape single quotes in URL for safe SQL embedding
+        safe_url = url.replace("'", "\\'")
+
+        # Build column selection
+        quoted_columns = [quote_identifier(c) for c in columns]
+        columns_str = ", ".join(quoted_columns)
+
+        # Handle single-column case (mapped to "value")
+        if len(columns) == 1 and "value" in self.schema.columns:
+            select_cols = f"{quoted_columns[0]} AS value"
+        else:
+            select_cols = columns_str
+
+        # Build INSERT query with Snowflake ID generation
+        base_id = get_snowflake_id()
+        where_clause = f" WHERE {where}" if where else ""
+        limit_clause = f" LIMIT {limit}" if limit is not None else ""
+
+        insert_query = (
+            f"INSERT INTO {self.table} "
+            f"SELECT toUInt64({base_id} + row_number() OVER ()) AS aai_id, {select_cols} "
+            f"FROM url('{safe_url}', '{format}')"
+            f"{where_clause}"
+            f"{limit_clause}"
+        )
+        await self.ch_client.command(insert_query)
+
     async def min(self) -> Self:
         """
         Calculate the minimum value from the object's table.
