@@ -108,8 +108,10 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
-    # Use fieldtype from QueryInfo (already computed in _get_query_info)
-    fieldtype = info_a.fieldtype
+    # Determine result fieldtype: array if either operand is array
+    a_is_array = info_a.fieldtype == FIELDTYPE_ARRAY
+    b_is_array = info_b.fieldtype == FIELDTYPE_ARRAY
+    fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
 
     # Determine result type from QueryInfo value_types
     type_a = info_a.value_type
@@ -134,9 +136,9 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Create result object with schema
     result = await create_object(schema)
 
-    # Insert data based on fieldtype (use sources for data queries)
-    if fieldtype == FIELDTYPE_ARRAY:
-        # Array operation
+    # Insert data based on fieldtype combinations
+    if a_is_array and b_is_array:
+        # Array-Array: element-wise JOIN on row number
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT a.rn as aai_id, {expression} AS value
@@ -144,8 +146,22 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_b.source}) AS b
         ON a.rn = b.rn
         """
+    elif a_is_array:
+        # Array-Scalar: broadcast scalar b across all rows of a
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT a.aai_id, {expression} AS value
+        FROM {info_a.source} AS a, {info_b.source} AS b
+        """
+    elif b_is_array:
+        # Scalar-Array: broadcast scalar a across all rows of b
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT b.aai_id, {expression} AS value
+        FROM {info_a.source} AS a, {info_b.source} AS b
+        """
     else:
-        # Scalar operation
+        # Scalar-Scalar
         insert_query = f"""
         INSERT INTO {result.table}
         SELECT 1 AS aai_id, {expression} AS value
