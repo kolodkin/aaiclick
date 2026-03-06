@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
 from .claiming import claim_next_task, update_task_status
-from .context import apply, get_orch_session
+from .context import commit_tasks, get_orch_session
 from .execution import execute_task
 from .factories import create_job, create_task
 from .models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
@@ -315,7 +315,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     extra_task = create_task(
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
     )
-    await apply(extra_task, job_id=job1.id)
+    await commit_tasks(extra_task, job_id=job1.id)
 
     # Claim next task - should prioritize job1 (older running job)
     next_task = await claim_next_task(worker.id)
@@ -351,7 +351,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
     # Using standalone apply function
     task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
     initial_task >> task2  # task2 depends on initial_task
-    await apply(task2, job_id=job.id)
+    await commit_tasks(task2, job_id=job.id)
 
     # First claim should get initial_task (no dependencies)
     claimed1 = await claim_next_task(worker.id)
@@ -401,7 +401,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
 
     # Create a group and add initial_task to it
     group1 = Group(id=get_snowflake_id(), name="group1")
-    await apply(group1, job_id=job.id)
+    await commit_tasks(group1, job_id=job.id)
 
     # Update initial_task to be in group1
     async with get_orch_session() as session:
@@ -414,7 +414,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     # Create a task that depends on group1
     task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
     group1 >> task2
-    await apply(task2, job_id=job.id)
+    await commit_tasks(task2, job_id=job.id)
 
     # Claim initial_task (in group1)
     claimed1 = await claim_next_task(worker.id)

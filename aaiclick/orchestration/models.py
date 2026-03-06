@@ -152,7 +152,7 @@ class Group(SQLModel, table=True):
         """
         Declare that this group depends on a task or another group.
 
-        Creates a Dependency record that will be committed when apply() is called.
+        Creates a Dependency record that will be committed when commit_tasks() is called.
 
         Args:
             other: Task or Group that must complete before tasks in this group
@@ -247,7 +247,7 @@ class Task(SQLModel, table=True):
         """
         Declare that this task depends on another task or group.
 
-        Creates a Dependency record that will be committed when apply() is called.
+        Creates a Dependency record that will be committed when commit_tasks() is called.
 
         Args:
             other: Task or Group that must complete before this task

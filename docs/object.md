@@ -16,11 +16,11 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 ## Object Lifecycle and Staleness
 
-Objects are managed by a `DataContext` and become **stale** when the context exits. All async methods call `self.checkstale()` — using a stale Object raises `RuntimeError`.
+Objects are managed by a `data_context()` and become **stale** when the context exits. All async methods call `self.checkstale()` — using a stale Object raises `RuntimeError`.
 
 **Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-**Rules**: Create and use Objects within the same DataContext. Don't store Objects for use after context exit. Don't pass Objects between contexts.
+**Rules**: Create and use Objects within the same `data_context()`. Don't store Objects for use after context exit. Don't pass Objects between contexts.
 
 ## Table Schema and Structure
 
@@ -198,10 +198,10 @@ Tables are tracked via reference counting and dropped when no Objects reference 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      DataContext                             │
+│                    data_context()                             │
 │                                                              │
-│  __aenter__()  ──► Start LifecycleHandler                   │
-│  __aexit__()   ──► Stop LifecycleHandler, cleanup            │
+│  enter  ──► Start LifecycleHandler                           │
+│  exit   ──► Stop LifecycleHandler, cleanup                   │
 │                                                              │
 │  ┌──────────┐    incref()   ┌─────────────────────────────┐  │
 │  │  Object  │──────────────►│                             │  │
@@ -226,7 +226,7 @@ Abstract interface: `start()`, `stop()`, `incref()`, `decref()`, `pin()` (no-op 
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LocalLifecycleHandler` class
 
-Default handler. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. DataContext creates this when no handler is injected.
+Default handler. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. `data_context()` creates this when no handler is injected.
 
 ### Distributed Mode
 

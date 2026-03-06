@@ -85,7 +85,7 @@ async def get_orch_session(ctx: str = "default") -> AsyncIterator[AsyncSession]:
         yield session
 
 
-async def apply(
+async def commit_tasks(
     items: TasksType,
     job_id: int,
     ctx: str = "default",
