@@ -10,21 +10,7 @@ Dynamic task creation allows workflows to create parallel tasks at runtime based
 
 ### `map(func, obj, partition_size=1000, **kwargs) -> MapHandle`
 
-Like Python's `map(func, iterable)`, but partitions an Object into Views and creates parallel tasks for each partition.
-
-```python
-from aaiclick.orchestration import job, task, map, reduce
-
-@task
-async def double(partition: Object) -> Object:
-    return await (partition * 2)
-
-@job("parallel_pipeline")
-def pipeline():
-    data = load_data()
-    mapped = map(double, data, partition_size=1000)
-    return [data, mapped]
-```
+Like Python's `map(func, iterable)`, but partitions an Object into Views and creates parallel tasks for each partition. See `map()` function in `aaiclick/orchestration/dynamic.py` and the module docstring for a usage example.
 
 **Parameters**:
 
@@ -39,20 +25,7 @@ def pipeline():
 
 ### `reduce(func, mapped) -> Task`
 
-Like Python's `functools.reduce(func, iterable)`. Waits for all map partitions to complete, then passes their results as a list to `func`.
-
-```python
-@task
-async def combine(results: list) -> Object:
-    return await concat(*results)
-
-@job("map_reduce_pipeline")
-def pipeline():
-    data = load_data()
-    mapped = map(double, data, partition_size=1000)
-    result = reduce(combine, mapped)
-    return [data, mapped, result]
-```
+Like Python's `functools.reduce(func, iterable)`. Waits for all map partitions to complete, then passes their results as a list to `func`. See `reduce()` function in `aaiclick/orchestration/dynamic.py` and the module docstring for a usage example.
 
 **Parameters**:
 
@@ -76,26 +49,13 @@ A dataclass representing a pending map operation. It is a **job-definition-time 
 | `expander` | `Task`  | The expander task that runs at runtime to count rows and create partitions |
 | `group`    | `Group` | Container for all dynamically created partition tasks                    |
 
-**Dependency operators**:
+**Dependency operators** (see `MapHandle.__rshift__`, `__rrshift__`, and `depends_on` methods):
 
-```python
-# MapHandle >> Task: downstream depends on all map tasks (via group)
-mapped >> downstream_task
-
-# Task >> MapHandle: expander depends on upstream task
-upstream_task >> mapped
-
-# List support
-[prep_a, prep_b] >> mapped    # expander waits for both prep tasks
-mapped >> [task_a, task_b]    # both tasks wait for all partitions
-
-# Fluent API
-mapped.depends_on(some_prerequisite)
-
-# Chaining maps
-first_map = map(func1, data)
-second_map = map(func2, first_map)  # Waits for all first_map partitions
-```
+- `mapped >> task` — downstream depends on all map tasks (via group)
+- `task >> mapped` — expander depends on upstream task
+- `[a, b] >> mapped` / `mapped >> [a, b]` — list support for multiple dependencies
+- `mapped.depends_on(other)` — fluent API
+- `map(func2, first_map)` — chaining maps (second waits for all first partitions)
 
 **Lifecycle**:
 
