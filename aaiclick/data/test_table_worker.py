@@ -2,6 +2,7 @@
 Tests for TableWorker background thread lifecycle management.
 """
 
+import time
 from unittest.mock import MagicMock, patch
 
 from aaiclick.data.table_worker import TableWorker, TableOp, TableMessage
@@ -136,8 +137,6 @@ def test_worker_full_lifecycle(mock_get_client):
 @patch("aaiclick.data.table_worker.get_client")
 def test_worker_drops_table_when_refcount_zero(mock_get_client):
     """Test that table is dropped immediately when refcount reaches zero."""
-    import time
-
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
 

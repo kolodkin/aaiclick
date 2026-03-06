@@ -6,6 +6,7 @@ This script automatically discovers example output files and generates
 a markdown summary for GitHub Actions.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -97,7 +98,6 @@ def main():
     summary = generate_summary()
 
     # Get GITHUB_STEP_SUMMARY path from environment
-    import os
     summary_file = os.getenv('GITHUB_STEP_SUMMARY')
 
     if summary_file:

@@ -85,17 +85,18 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Keep code clean - version control tracks history
   - Remove outdated comments during refactoring
 
-- **Import ordering**: Organize imports in three groups, separated by blank lines:
-  1. Python native (standard library): `import asyncio`, `import json`
-  2. External packages (from pyproject.toml): `import pytest`, `import numpy`
-  3. Current package imports: `from aaiclick import DataContext`
-
-- **Top-level imports**: **ALWAYS** keep imports at the top of the file
-  - Do NOT import inside functions, loops, or conditional blocks
-  - Do NOT import inside test functions - put all imports at module level
-  - The ONLY exception is lazy imports to avoid circular dependencies:
+- **Imports**: **ALL imports MUST be at the top of the file.** No exceptions for test functions.
+  - Organize in three groups separated by blank lines:
+    1. Standard library: `import asyncio`, `import json`
+    2. External packages: `import pytest`, `import numpy`
+    3. Current package: `from aaiclick import DataContext`
+  - **Never** import inside functions, methods, loops, conditionals, or test functions
+  - **Only exception** — lazy imports to break circular dependencies:
+    - Use `from __future__ import annotations` for type hints (defers evaluation)
+    - Use inline imports inside methods only when two modules need each other at runtime
+    - Do NOT use `TYPE_CHECKING` pattern — prefer restructuring code instead
     ```python
-    # GOOD - imports at top of file
+    # GOOD — top of file
     from sqlmodel import select
     from .models import Task
 
@@ -103,27 +104,17 @@ This project uses pre-commit hooks that may modify files during commit (formatti
         result = await session.execute(select(Task).where(Task.id == task_id))
         return result.scalar_one()
 
-    # BAD - inline imports
+    # BAD — inline import
     async def get_task(task_id: int):
         from sqlmodel import select  # Don't do this!
-        from .models import Task      # Don't do this!
         result = await session.execute(select(Task).where(Task.id == task_id))
         return result.scalar_one()
-    ```
-  - Lazy import exception (only when necessary to break circular dependencies):
-    ```python
+
+    # OK — lazy import to break circular dependency
     def method(self):
-        from .other_module import something  # Lazy import to avoid circular dependency
+        from .other_module import something  # Circular dep workaround
         something()
     ```
-
-- **Circular imports**: Use two-pattern approach
-  - Type annotations: Add `from __future__ import annotations` at top of file
-    - Defers evaluation of type hints, avoiding import-time circular dependencies
-    - Allows `Object` instead of `"Object"` in type hints
-  - Runtime imports: Use lazy imports inside methods when modules need each other
-    - Example: `object.py` imports `operators` inside `__add__()` method, not at module level
-  - Do NOT use `TYPE_CHECKING` pattern - prefer restructuring code instead
 
 - **No __all__ in __init__.py**: Do NOT define `__all__` in `__init__.py` files
   - Simply import what needs to be exported
