@@ -33,6 +33,7 @@ from .models import (
     ObjectMetadata,
     ViewMetadata,
     QueryInfo,
+    ValueScalarType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -417,312 +418,168 @@ class Object:
             columns=columns
         )
 
-    async def _apply_operator(self, obj_b: Object, operator: str) -> Object:
+    async def _ensure_object(self, value: Union[Object, ValueScalarType]) -> Object:
+        """
+        Convert a scalar value to an Object if needed.
+
+        Args:
+            value: An Object or a Python scalar (int, float, bool, str)
+
+        Returns:
+            The value as an Object
+        """
+        if isinstance(value, (int, float, bool, str)):
+            return await create_object_from_value(value)
+        return value
+
+    async def _apply_operator(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
         """
         Apply an operator on two objects using SQL templates.
 
+        Supports scalar broadcast: if other is a Python scalar (int, float, bool, str),
+        it is automatically converted to an Object.
+
         Args:
-            obj_b: Another Object to operate with
+            other: Another Object or Python scalar to operate with
             operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
 
         Returns:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        obj_b.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = obj_b._get_query_info()
+        info_b = other._get_query_info()
         return await operators._apply_operator_db(
             info_a, info_b, operator, self.ch_client
         )
 
-    async def __add__(self, other: Object) -> Object:
+    async def _apply_operator_reverse(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
         """
-        Add two objects together.
+        Apply an operator with reversed operands (other op self).
 
-        Creates a new Object with a table containing the result of element-wise addition.
+        Used for __radd__, __rsub__, etc. when the left operand is a scalar.
 
         Args:
-            other: Another Object to add
+            other: A Python scalar or Object (left operand)
+            operator: Operator symbol
 
         Returns:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
+        other = await self._ensure_object(other)
         other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.add(info_a, info_b, self.ch_client)
+        info_a = other._get_query_info()
+        info_b = self._get_query_info()
+        return await operators._apply_operator_db(
+            info_a, info_b, operator, self.ch_client
+        )
 
-    async def __sub__(self, other: Object) -> Object:
-        """
-        Subtract one object from another.
+    async def __add__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Add: self + other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "+")
 
-        Creates a new Object with a table containing the result of element-wise subtraction.
+    async def __radd__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse add: other + self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "+")
 
-        Args:
-            other: Another Object to subtract
+    async def __sub__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Subtract: self - other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "-")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.sub(info_a, info_b, self.ch_client)
+    async def __rsub__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse subtract: other - self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "-")
 
-    async def __mul__(self, other: Object) -> Object:
-        """
-        Multiply two objects together.
+    async def __mul__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Multiply: self * other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "*")
 
-        Creates a new Object with a table containing the result of element-wise multiplication.
+    async def __rmul__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse multiply: other * self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "*")
 
-        Args:
-            other: Another Object to multiply
+    async def __truediv__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Divide: self / other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "/")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.mul(info_a, info_b, self.ch_client)
+    async def __rtruediv__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse divide: other / self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "/")
 
-    async def __truediv__(self, other: Object) -> Object:
-        """
-        Divide one object by another.
+    async def __floordiv__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Floor divide: self // other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "//")
 
-        Creates a new Object with a table containing the result of element-wise division.
+    async def __rfloordiv__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse floor divide: other // self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "//")
 
-        Args:
-            other: Another Object to divide by
+    async def __mod__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Modulo: self % other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "%")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.truediv(info_a, info_b, self.ch_client)
+    async def __rmod__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse modulo: other % self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "%")
 
-    async def __floordiv__(self, other: Object) -> Object:
-        """
-        Floor divide one object by another.
+    async def __pow__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Power: self ** other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "**")
 
-        Creates a new Object with a table containing the result of element-wise floor division.
+    async def __rpow__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse power: other ** self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "**")
 
-        Args:
-            other: Another Object to floor divide by
+    async def __eq__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Equality: self == other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "==")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.floordiv(info_a, info_b, self.ch_client)
+    async def __ne__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Inequality: self != other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "!=")
 
-    async def __mod__(self, other: Object) -> Object:
-        """
-        Modulo operation between two objects.
+    async def __lt__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Less than: self < other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "<")
 
-        Creates a new Object with a table containing the result of element-wise modulo.
+    async def __le__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Less or equal: self <= other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "<=")
 
-        Args:
-            other: Another Object to modulo with
+    async def __gt__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Greater than: self > other. Supports scalar broadcast."""
+        return await self._apply_operator(other, ">")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.mod(info_a, info_b, self.ch_client)
+    async def __ge__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Greater or equal: self >= other. Supports scalar broadcast."""
+        return await self._apply_operator(other, ">=")
 
-    async def __pow__(self, other: Object) -> Object:
-        """
-        Raise one object to the power of another.
+    async def __and__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Bitwise AND: self & other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "&")
 
-        Creates a new Object with a table containing the result of element-wise power operation.
+    async def __rand__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse bitwise AND: other & self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "&")
 
-        Args:
-            other: Another Object representing the exponent
+    async def __or__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Bitwise OR: self | other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "|")
 
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.pow(info_a, info_b, self.ch_client)
+    async def __ror__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse bitwise OR: other | self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "|")
 
-    async def __eq__(self, other: Object) -> Object:
-        """
-        Check equality between two objects.
+    async def __xor__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Bitwise XOR: self ^ other. Supports scalar broadcast."""
+        return await self._apply_operator(other, "^")
 
-        Creates a new Object with a table containing the result of element-wise equality comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.eq(info_a, info_b, self.ch_client)
-
-    async def __ne__(self, other: Object) -> Object:
-        """
-        Check inequality between two objects.
-
-        Creates a new Object with a table containing the result of element-wise inequality comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.ne(info_a, info_b, self.ch_client)
-
-    async def __lt__(self, other: Object) -> Object:
-        """
-        Check if one object is less than another.
-
-        Creates a new Object with a table containing the result of element-wise less than comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.lt(info_a, info_b, self.ch_client)
-
-    async def __le__(self, other: Object) -> Object:
-        """
-        Check if one object is less than or equal to another.
-
-        Creates a new Object with a table containing the result of element-wise less than or equal comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.le(info_a, info_b, self.ch_client)
-
-    async def __gt__(self, other: Object) -> Object:
-        """
-        Check if one object is greater than another.
-
-        Creates a new Object with a table containing the result of element-wise greater than comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.gt(info_a, info_b, self.ch_client)
-
-    async def __ge__(self, other: Object) -> Object:
-        """
-        Check if one object is greater than or equal to another.
-
-        Creates a new Object with a table containing the result of element-wise greater than or equal comparison.
-
-        Args:
-            other: Another Object to compare with
-
-        Returns:
-            Object: New Object instance pointing to result table (boolean values)
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.ge(info_a, info_b, self.ch_client)
-
-    async def __and__(self, other: Object) -> Object:
-        """
-        Bitwise AND operation between two objects.
-
-        Creates a new Object with a table containing the result of element-wise bitwise AND.
-
-        Args:
-            other: Another Object to AND with
-
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.and_(info_a, info_b, self.ch_client)
-
-    async def __or__(self, other: Object) -> Object:
-        """
-        Bitwise OR operation between two objects.
-
-        Creates a new Object with a table containing the result of element-wise bitwise OR.
-
-        Args:
-            other: Another Object to OR with
-
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.or_(info_a, info_b, self.ch_client)
-
-    async def __xor__(self, other: Object) -> Object:
-        """
-        Bitwise XOR operation between two objects.
-
-        Creates a new Object with a table containing the result of element-wise bitwise XOR.
-
-        Args:
-            other: Another Object to XOR with
-
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.xor(info_a, info_b, self.ch_client)
+    async def __rxor__(self, other: Union[Object, ValueScalarType]) -> Object:
+        """Reverse bitwise XOR: other ^ self. Supports scalar broadcast."""
+        return await self._apply_operator_reverse(other, "^")
 
     async def copy(self) -> "Object":
         """
