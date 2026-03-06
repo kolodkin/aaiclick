@@ -245,24 +245,10 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     if result is None:
         return None
 
-    # Check View first since View is a subclass of Object
-    if isinstance(result, View):
-        return {
-            "object_type": "view",
-            "table": result.table,
-            "where": result._build_where(),
-            "limit": result.limit,
-            "offset": result.offset,
-            "order_by": result.order_by,
-            "selected_fields": result.selected_fields,
-            "job_id": job_id,
-        }
-    elif isinstance(result, Object):
-        return {
-            "object_type": "object",
-            "table": result.table,
-            "job_id": job_id,
-        }
+    if isinstance(result, Object):
+        ref = result._serialize_ref()
+        ref["job_id"] = job_id
+        return ref
 
     return None
 

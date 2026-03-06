@@ -29,7 +29,7 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, List
 
-from aaiclick.data.object import Object, View
+from aaiclick.data.object import Object
 
 from ..snowflake_id import get_snowflake_id
 from .context import _current_orch_context, OrchContext, get_orch_context
@@ -65,18 +65,8 @@ def _serialize_value(value: Any) -> Any:
     """
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
-    elif isinstance(value, View):
-        return {
-            "object_type": "view",
-            "table": value.table,
-            "where": value.where,
-            "limit": value.limit,
-            "offset": value.offset,
-            "order_by": value.order_by,
-            "selected_fields": value.selected_fields,
-        }
     elif isinstance(value, Object):
-        return {"object_type": "object", "table": value.table}
+        return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
         return [_serialize_value(v) for v in value]
     elif isinstance(value, dict):

@@ -885,12 +885,12 @@ At runtime, the worker resolves upstream references by querying completed task r
 **Example: Complete Pipeline**
 
 ```python
+from aaiclick import create_object_from_value
 from aaiclick.orchestration import task, job
 from aaiclick.data.object import Object
 
 @task
 async def create_dataset(values: list) -> Object:
-    from aaiclick import create_object_from_value
     return await create_object_from_value(values)
 
 @task
