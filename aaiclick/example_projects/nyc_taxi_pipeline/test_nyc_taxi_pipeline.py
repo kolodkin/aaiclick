@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from aaiclick import DataContext, create_object_from_url
+from aaiclick import create_object_from_url
 
 # Test with small limit for speed
 _TEST_LIMIT = int(os.getenv("AAICLICK_NYC_TEST_LIMIT", "100"))
@@ -55,14 +55,16 @@ async def test_basic_aggregations(ctx):
         limit=_TEST_LIMIT,
     )
 
-    fares = trips["fare_amount"]
+    # Copy to materialized array Object for aggregation
+    fares = await trips["fare_amount"].copy()
 
     # Test aggregations
     total = await (await fares.sum()).data()
     avg = await (await fares.mean()).data()
     minimum = await (await fares.min()).data()
     maximum = await (await fares.max()).data()
-    count = await fares.count()
+    count_obj = await fares.count()
+    count = await count_obj.data()
 
     assert isinstance(total, (int, float))
     assert isinstance(avg, (int, float))
@@ -78,14 +80,13 @@ async def test_basic_aggregations(ctx):
 @pytest.mark.url
 async def test_statistical_operators(ctx):
     """Test statistical operators (std, var, quantile) on taxi data."""
-    trips = await create_object_from_url(
+    # Single column creates array Object with column named "value"
+    fares = await create_object_from_url(
         url=NYC_TAXI_URL,
         columns=["fare_amount"],
         format="Parquet",
         limit=_TEST_LIMIT,
     )
-
-    fares = trips["fare_amount"]
 
     # Test statistical operators
     std = await (await fares.std()).data()
@@ -164,13 +165,14 @@ async def test_column_operations(ctx):
         limit=_TEST_LIMIT,
     )
 
-    # Column indexing
-    fares = trips["fare_amount"]
-    tips = trips["tip_amount"]
-    distances = trips["trip_distance"]
+    # Column indexing - copy to materialized Objects
+    fares = await trips["fare_amount"].copy()
+    tips = await trips["tip_amount"].copy()
+    distances = await trips["trip_distance"].copy()
 
-    # Arithmetic operations
-    tip_pct = await ((tips / fares) * 100)
+    # Arithmetic operations - need to await each operation
+    div_result = await (tips / fares)
+    tip_pct = await (div_result * 100)
     fare_per_mile = await (fares / distances)
 
     # Verify results

@@ -253,54 +253,58 @@ async def test_url_aggregation_on_result(ctx, fileserver):
 
 
 # =============================================================================
-# insert_from_url() validation tests (no file server needed)
+# insert_from_url() validation tests (require file server to create initial object)
 # =============================================================================
 
 
-async def test_insert_from_url_invalid_scheme(ctx):
+@pytest.mark.url
+async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     """insert_from_url rejects non-HTTP URLs."""
     obj = await create_object_from_url(
-        "https://example.com/data.parquet", columns=["col1"], limit=1
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
     )
     with pytest.raises(ValueError, match="http or https"):
         await obj.insert_from_url("ftp://example.com/data.parquet")
 
 
-async def test_insert_from_url_unsupported_format(ctx):
+@pytest.mark.url
+async def test_insert_from_url_unsupported_format(ctx, fileserver):
     """insert_from_url rejects unsupported formats."""
     obj = await create_object_from_url(
-        "https://example.com/data.parquet", columns=["col1"], limit=1
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
     )
     with pytest.raises(ValueError, match="Unsupported format"):
         await obj.insert_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1"],
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
             format="InvalidFormat",
         )
 
 
-async def test_insert_from_url_invalid_limit(ctx):
+@pytest.mark.url
+async def test_insert_from_url_invalid_limit(ctx, fileserver):
     """insert_from_url rejects invalid limit values."""
     obj = await create_object_from_url(
-        "https://example.com/data.parquet", columns=["col1"], limit=1
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
     )
     with pytest.raises(ValueError, match="positive integer"):
         await obj.insert_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1"],
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
             limit=-1,
         )
 
 
-async def test_insert_from_url_where_with_semicolon(ctx):
+@pytest.mark.url
+async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
     """insert_from_url rejects WHERE with semicolons (SQL injection)."""
     obj = await create_object_from_url(
-        "https://example.com/data.parquet", columns=["col1"], limit=1
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
     )
     with pytest.raises(ValueError, match="must not contain"):
         await obj.insert_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1"],
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
             where="1=1; DROP TABLE users",
         )
 
