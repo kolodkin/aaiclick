@@ -1,41 +1,26 @@
 """
 aaiclick.orchestration - Orchestration backend for job and task management.
 
-This module provides orchestration capabilities for aaiclick, including
-job creation, task execution, and workflow management.
+This module provides the public API for defining and executing distributed
+workflows using @task and @job decorators.
+
+Usage:
+    from aaiclick.orchestration import task, job, OrchContext
+
+    @task
+    async def my_task(x: int) -> int:
+        return x * 2
+
+    @job("my_pipeline")
+    def my_pipeline(value: int):
+        result = my_task(x=value)
+        return [result]
+
+    async with OrchContext():
+        created_job = await my_pipeline(value=42)
 """
 
-from .claiming import claim_next_task, update_job_status, update_task_status
-from .context import OrchContext, get_orch_context
+from .context import OrchContext
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
-from .env import get_pg_url
-from .execution import execute_task, run_job_tasks
-from .factories import create_job, create_task
-from .logging import capture_task_output, get_logs_dir
-from .pg_cleanup import PgCleanupWorker
-from .pg_lifecycle import PgLifecycleHandler, TableContextRef
-from .models import (
-    DEPENDENCY_GROUP,
-    DEPENDENCY_TASK,
-    DEPENDENCY_TYPES,
-    Dependency,
-    DependencyType,
-    Group,
-    Job,
-    JobStatus,
-    Task,
-    TasksType,
-    TaskStatus,
-    Worker,
-    WorkerStatus,
-)
-from .worker import (
-    deregister_worker,
-    get_worker,
-    list_workers,
-    register_worker,
-    run_worker,
-    worker_heartbeat,
-    worker_main_loop,
-)
+from .models import JobStatus, TaskStatus

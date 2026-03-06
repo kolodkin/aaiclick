@@ -11,9 +11,10 @@ Usage:
 import argparse
 import asyncio
 
-from aaiclick.orchestration import OrchContext, list_workers
 from aaiclick.orchestration.cli import start_background, start_worker
+from aaiclick.orchestration.context import OrchContext
 from aaiclick.orchestration.migrate import run_migrations
+from aaiclick.orchestration.worker import list_workers
 
 
 def main():

@@ -123,20 +123,18 @@ As aaiclick scales to handle large-scale data processing, we need:
   - No long-lived transactions
   - Engine lifecycle managed globally (similar to ClickHouse urllib3 pool pattern)
 
-**High-Level Factory APIs**:
-- **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
-  - Generates snowflake ID for task
-  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_task()` function
-- **`create_job(name, entry)`**: Factory for creating Job with single entry point (Task or callback)
-  - Generates snowflake ID for job
-  - Commits Job and Task to PostgreSQL with JSON-serialized kwargs
-  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
-- **`orch_ctx.apply(tasks, job_id)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
-  - Generates snowflake IDs for groups if not already set
-  - Sets job_id on all items
-  - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
-- Factories provide simple interface for common workflows
-- IDs generated before database insertion (no round-trip needed)
+**User-Facing API** — Decorator-based TaskFlow API:
+- **`@task`**: Decorator that wraps async functions into `TaskFactory` instances
+  - When called, creates Task objects with automatic dependency detection
+  - Passing a Task as argument automatically creates upstream dependency
+- **`@job("name")`**: Decorator that wraps workflow functions into `JobFactory` instances
+  - When called, creates a Job and applies all returned tasks to PostgreSQL
+- **Implementation**: `aaiclick/orchestration/decorators.py`
+
+**Internal APIs** (implementation details, not for direct use):
+- `create_task()`, `create_job()` — low-level factory functions used by decorators
+- `orch_ctx.apply()` — commits DAG to PostgreSQL, called internally by `@job`
+- `Task()`, `Group()` constructors, `>>` / `<<` dependency operators — used internally
 
 ## Data Models
 
@@ -551,18 +549,48 @@ async def log_summary(data: Object):
 
 ### 1. Job Creation ✅ IMPLEMENTED
 
-**See**: Factory APIs section above for `create_job()` and `create_task()` usage
-**Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
+Define workflows using `@task` and `@job` decorators:
+
+```python
+from aaiclick.orchestration import task, job, OrchContext, job_test
+
+@task
+async def my_task(x: int) -> int:
+    return x * 2
+
+@job("my_pipeline")
+def my_pipeline(value: int):
+    result = my_task(x=value)
+    return [result]
+
+# Create and register the job
+async with OrchContext():
+    created_job = await my_pipeline(value=42)
+```
+
+**Implementation**: `aaiclick/orchestration/decorators.py`
 
 ### 1.1 Job Testing ✅ IMPLEMENTED
 
 Execute a job synchronously for testing/debugging:
 
 ```python
-from aaiclick.orchestration import create_job, job_test
+from aaiclick.orchestration import task, job, OrchContext, job_test
 
-job = await create_job("my_job", "mymodule.task1")
-job_test(job)  # Blocks until job completes
+@task
+async def my_task(x: int) -> int:
+    return x * 2
+
+@job("test_pipeline")
+def test_pipeline(value: int):
+    result = my_task(x=value)
+    return [result]
+
+# Create and test the job
+async with OrchContext():
+    created_job = await test_pipeline(value=42)
+
+job_test(created_job)  # Blocks until job completes
 # Job status is now COMPLETED or FAILED
 ```
 
@@ -572,47 +600,7 @@ job_test(job)  # Blocks until job completes
 
 ### 2. Dynamic Task Creation ⚠️ NOT YET IMPLEMENTED (Phase 8+)
 
-Tasks will be able to create additional tasks during execution via aaiclick operators:
-
-```python
-# In aaiclick/operators.py
-async def map(callback: str, obj: Object) -> Object:
-    """
-    Apply callback to each element of obj in parallel.
-    Creates one task per chunk of data using offset/limit.
-    """
-    from aaiclick.orchestration import create_task, get_current_context
-
-    # Get current context (has access to job_id and PostgreSQL session)
-    ctx = get_current_context()
-
-    # Get total row count without reading data
-    total_rows = await obj.count()
-    chunk_size = 10000  # Configurable chunk size
-
-    # Create task for each chunk using create_task factory
-    tasks = []
-    for offset in range(0, total_rows, chunk_size):
-        task = create_task(
-            callback=callback,
-            kwargs={
-                "chunk": {
-                    "object_type": "view",
-                    "table_id": obj.table_id,
-                    "offset": offset,
-                    "limit": chunk_size
-                }
-            }
-        )
-        tasks.append(task)
-
-    # Commit all tasks to database (context automatically sets job_id)
-    await ctx.apply(tasks)
-
-    # Return handle to future results
-    num_chunks = (total_rows + chunk_size - 1) // chunk_size
-    return await create_result_collector(ctx.job_id, num_chunks)
-```
+Tasks will be able to create additional tasks during execution via aaiclick operators (e.g., `map()` for parallel chunk processing). Implementation will use internal factory APIs to dynamically spawn tasks at runtime.
 
 ### 3. Worker Task Execution Loop ✅ IMPLEMENTED (Phase 6)
 
@@ -746,16 +734,14 @@ RETURNING (SELECT * FROM claimed_task);
 
 ## API / Interfaces
 
-### Job Management
+### Workflow Definition (User-Facing API)
 
-**Implemented (Phase 2):**
-- ✅ `create_task()` - See Factory APIs section
-- ✅ `create_job()` - See Factory APIs section
-- **Implementation**: `aaiclick/orchestration/factories.py`
-
-**Implemented (Phase 3):**
+**Implemented:**
+- ✅ `@task` - Decorator to define task functions → `TaskFactory`
+- ✅ `@job("name")` - Decorator to define workflow functions → `JobFactory`
 - ✅ `job_test(job)` - Execute job synchronously for testing
-  - **Implementation**: `aaiclick/orchestration/debug_execution.py` - see `job_test()` function
+- ✅ `ajob_test(job)` - Async variant of `job_test()`
+- **Implementation**: `aaiclick/orchestration/decorators.py`, `aaiclick/orchestration/debug_execution.py`
 
 **Not Yet Implemented (Phase 4+):**
 - ⚠️ `get_job(job_id)` - Get job status and details
@@ -765,302 +751,50 @@ RETURNING (SELECT * FROM claimed_task);
 ### Task Management ⚠️ NOT YET IMPLEMENTED (Phase 4+)
 
 ```python
-from aaiclick.orchestration import (
-    add_task_to_job,
-    get_task,
-    retry_failed_tasks
-)
-
-# Add task to existing job
-await add_task_to_job(
-    job_id=job.id,
-    entrypoint="myapp.process",
-    kwargs={"data": "tbl_xyz"}
-)
-
-# Get task details
-task = await get_task(task_id)
-
-# Retry failed tasks
-await retry_failed_tasks(job_id)
+# Future APIs for runtime task management
+# get_task(task_id) - Get task details
+# retry_failed_tasks(job_id) - Retry failed tasks in a job
 ```
 
 ### Context API for DAG Construction ✅ IMPLEMENTED (Phase 4)
 
+> **Implementation detail** — used internally by `@job` decorator. Not intended for direct use.
+
 **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 
-```python
-from aaiclick.orchestration import OrchContext, Task, Group, create_task
-
-# Create orchestration context
-async with OrchContext() as ctx:
-    # Define tasks in memory
-    task1 = create_task("myapp.func1", kwargs={...})
-    task2 = create_task("myapp.func2", kwargs={...})
-    group1 = Group(name="processing")
-
-    # Commit tasks and groups to database with job_id
-    await ctx.apply(task1, job_id=job.id)  # Apply single task
-    await ctx.apply([task1, task2, group1], job_id=job.id)  # Apply multiple
-
-# ctx.apply() performs:
-# - Sets job_id on all items
-# - Generates snowflake IDs for Groups if not set
-# - Inserts Task and Group records in database
-# - Returns committed objects with IDs assigned
-```
-
-**`context.apply()` Signature:**
-```python
-async def apply(
-    self,
-    items: Task | Group | list[Task | Group],
-    job_id: int,
-) -> Task | Group | list[Task | Group]:
-    """
-    Commit tasks, groups, and their dependencies to the database.
-
-    Args:
-        items: Single Task/Group or list of Task/Group objects
-        job_id: Job ID to assign to all items
-
-    Returns:
-        Same items with database IDs populated
-    """
-```
+`OrchContext.apply()` commits tasks, groups, and dependencies to PostgreSQL. The `@job` decorator calls this automatically when the workflow function returns tasks.
 
 ### DAG Construction with Dependency Operators ✅ IMPLEMENTED (Phase 7)
 
+> **Implementation detail** — dependencies are created automatically by the `@task` decorator when Tasks are passed as arguments. The `>>` / `<<` operators are used internally.
+
 **Implementation**: `aaiclick/orchestration/models.py` - see `Task` and `Group` dependency operators
 
-Airflow-like syntax for defining dependencies between tasks and groups:
+**With decorators, dependencies are automatic:**
 
 ```python
-from aaiclick.orchestration import Task, Group
+@task
+async def extract(url: str) -> Object:
+    return await create_object_from_url(url)
 
-# Task → Task dependencies
-task1 = Task(entrypoint="myapp.extract", kwargs={...})
-task2 = Task(entrypoint="myapp.transform", kwargs={...})
-task3 = Task(entrypoint="myapp.load", kwargs={...})
+@task
+async def transform(data: Object) -> Object:
+    return await (data * 2)
 
-# task2 depends on task1 (task1 executes before task2)
-task1 >> task2
-
-# task3 depends on task2
-task2 >> task3
-
-# Equivalent chaining
-task1 >> task2 >> task3
-
-# Reverse syntax (task1 depends on task2)
-task2 << task1  # Same as: task1 >> task2
-
-# Group → Group dependencies
-extract_group = Group(name="extract")
-transform_group = Group(name="transform")
-load_group = Group(name="load")
-
-extract_group >> transform_group >> load_group
-
-# Task → Group dependencies (task completes before all tasks in group start)
-validation_task = Task(entrypoint="myapp.validate", kwargs={...})
-validation_task >> transform_group
-
-# Group → Task dependencies (all tasks in group complete before task starts)
-transform_group >> final_report_task
-
-# Mixed dependencies
-task1 >> group1 >> task2 >> group2 >> task3
-
-# Multiple dependencies (fan-out and fan-in)
-# Fan-out: task1 must complete before task2, task3, and task4 can start
-task1 >> [task2, task3, task4]
-
-# Fan-in: task5 waits for task2, task3, and task4 to complete
-[task2, task3, task4] >> task5
-
-# Complex DAG
-source_task >> extract_group >> [transform_task1, transform_task2]
-[transform_task1, transform_task2] >> load_group >> final_task
-
-# Commit all tasks, groups, and dependencies to the database
-await context.apply([source_task, extract_group, transform_task1, transform_task2, load_group, final_task])
-# Or pass individual items
-await context.apply(source_task)
-await context.apply(extract_group)
+@job("etl")
+def etl_pipeline(url: str):
+    extracted = extract(url=url)
+    transformed = transform(data=extracted)  # extract >> transform (automatic)
+    return [extracted, transformed]
 ```
 
-**Using `context.apply()` to commit DAGs:**
-
-```python
-from aaiclick.orchestration import Context, Task, Group
-
-# Create context for a job
-context = Context(job_id=job.id)
-
-# Define tasks
-extract = Task(entrypoint="myapp.extract", kwargs={...})
-transform = Task(entrypoint="myapp.transform", kwargs={...})
-load = Task(entrypoint="myapp.load", kwargs={...})
-
-# Define dependencies
-extract >> transform >> load
-
-# Commit all tasks and dependencies to database
-await context.apply([extract, transform, load])
-# context.apply() saves:
-# - All Task/Group objects
-# - All Dependency records created by >> and << operators
-# - Validates no circular dependencies exist
-```
-
-**Operator Semantics:**
+**Internal operator semantics** (used by the framework, not directly by users):
 - `A >> B`: B depends on A (A is previous, B is next)
 - `A << B`: A depends on B (B is previous, A is next)
-- `A >> [B, C, D]`: B, C, and D all depend on A (fan-out)
-- `[A, B, C] >> D`: D depends on all of A, B, and C (fan-in)
+- `A >> [B, C, D]`: Fan-out — B, C, D all depend on A
+- `[A, B, C] >> D`: Fan-in — D depends on all of A, B, C
 - Works with any combination of Task and Group objects
-- Dependencies are stored in the unified Dependency table
-- Circular dependencies are detected and rejected
-
-**How Fan-In Works (`[A, B] >> C`):**
-
-Fan-in is **not** a built-in Python feature. It uses Python's **reverse operator** mechanism:
-
-1. Python evaluates `[A, B] >> C`
-2. Python first tries `list.__rshift__([A, B], C)` - but lists don't support `>>`
-3. Python falls back to the **reverse operator**: `C.__rrshift__([A, B])`
-4. The `__rrshift__` method on `C` receives the list `[A, B]` and calls `C.depends_on(A)` and `C.depends_on(B)`
-
-This means:
-- `__rshift__`: Normal operator called on left operand (`A >> B` → `A.__rshift__(B)`)
-- `__rrshift__`: Reverse operator called on right operand when left doesn't support operation (`[A, B] >> C` → `C.__rrshift__([A, B])`)
-- Same pattern for `__lshift__` and `__rlshift__`
-
-**Implementation:**
-```python
-class Task(SQLModel, table=True):
-    # ... fields ...
-
-    def depends_on(self, other: Union["Task", "Group"]) -> "Task":
-        """
-        Declare that this task depends on another task or group.
-        Creates a Dependency record in the database.
-
-        Args:
-            other: Task or Group that must complete before this task
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
-            next_id=self.id,
-            next_type="task"
-        )
-        session.add(dependency)
-        return self
-
-    def __rshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
-        """A >> B: B depends on A"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-    def __lshift__(self, other: Union["Task", "Group", list]) -> "Task":
-        """A << B: A depends on B"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union["Task", "Group", list]) -> "Task":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-class Group(SQLModel, table=True):
-    # ... fields ...
-
-    def depends_on(self, other: Union[Task, "Group"]) -> "Group":
-        """
-        Declare that this group depends on a task or another group.
-        Creates a Dependency record in the database.
-
-        Args:
-            other: Task or Group that must complete before tasks in this group
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
-            next_id=self.id,
-            next_type="group"
-        )
-        session.add(dependency)
-        return self
-
-    def __rshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
-        """A >> B: B depends on A"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-    def __lshift__(self, other: Union[Task, "Group", list]) -> "Group":
-        """A << B: A depends on B"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union[Task, "Group", list]) -> "Group":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-```
+- Dependencies stored in the unified Dependency table
 
 ### TaskFlow API with Decorators ✅ IMPLEMENTED
 
@@ -1203,27 +937,15 @@ async def main():
 
 ### Worker Management ✅ IMPLEMENTED (Phase 6)
 
+> **Implementation detail** — workers are started via CLI, not programmatically by users.
+
 **Implementation**: `aaiclick/orchestration/worker.py`
 
-```python
-from aaiclick.orchestration import (
-    register_worker,
-    worker_heartbeat,
-    deregister_worker,
-    list_workers
-)
+Workers are started via the CLI and handle registration, heartbeat, and deregistration automatically:
 
-# Register worker
-worker = await register_worker(hostname="worker-01", pid=12345)
-
-# Heartbeat (periodic)
-await worker_heartbeat(worker.id)
-
-# Deregister
-await deregister_worker(worker.id)
-
-# List active workers
-workers = await list_workers(status=WorkerStatus.ACTIVE)
+```bash
+# Start a worker
+python -m aaiclick.orchestration.worker
 ```
 
 ## Distributed Object Lifecycle
