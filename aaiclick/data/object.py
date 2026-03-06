@@ -22,6 +22,15 @@ from .models import (
     ColumnMeta,
     ColumnInfo,
     ColumnType,
+    GroupByInfo,
+    GroupByOpType,
+    GB_COUNT,
+    GB_MAX,
+    GB_MEAN,
+    GB_MIN,
+    GB_STD,
+    GB_SUM,
+    GB_VAR,
     ObjectMetadata,
     ViewMetadata,
     QueryInfo,
@@ -1077,6 +1086,37 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
+    def group_by(self, *keys: str) -> GroupByQuery:
+        """
+        Group data by one or more columns, returning a GroupByQuery.
+
+        The GroupByQuery is an intermediate object that stores grouping info.
+        Call aggregation methods (sum, mean, count, etc.) on it to produce
+        a dict Object with the grouped results.
+
+        Works on both dict Objects (group by named columns) and array Objects
+        (group by 'value' for value_counts-style operations).
+
+        Args:
+            *keys: Column name(s) to group by
+
+        Returns:
+            GroupByQuery: Intermediate object for applying aggregations
+
+        Raises:
+            ValueError: If no keys provided, key doesn't exist, or key is 'aai_id'
+
+        Examples:
+            >>> obj = await create_object_from_value({
+            ...     'category': ['A', 'A', 'B', 'B'],
+            ...     'amount': [10, 20, 30, 40],
+            ... })
+            >>> result = await obj.group_by('category').sum('amount')
+            >>> await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70]}
+        """
+        self.checkstale()
+        return GroupByQuery(self, list(keys))
+
     def __getitem__(self, key: Union[str, List[str]]) -> "View":
         """
         Select field(s) from a dict Object, returning a View.
@@ -1111,6 +1151,243 @@ class Object:
     def __repr__(self) -> str:
         """String representation of the Object."""
         return f"Object(table='{self._table_name}')"
+
+
+class GroupByQuery:
+    """
+    Intermediate object representing a GROUP BY operation on an Object.
+
+    GroupByQuery stores the source Object and grouping keys. It does NOT
+    inherit from Object because it has no ClickHouse table, no data(),
+    and no lifecycle management.
+
+    Call aggregation methods (sum, mean, count, etc.) to execute the
+    GROUP BY query and produce a dict Object with the results.
+
+    Examples:
+        >>> obj = await create_object_from_value({
+        ...     'category': ['A', 'A', 'B', 'B'],
+        ...     'amount': [10, 20, 30, 40],
+        ... })
+        >>> result = await obj.group_by('category').sum('amount')
+        >>> await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70]}
+    """
+
+    def __init__(self, source: Object, keys: List[str]):
+        """
+        Initialize a GroupByQuery.
+
+        Args:
+            source: Source Object to group
+            keys: List of column names to group by
+
+        Raises:
+            ValueError: If no keys, key is 'aai_id', key doesn't exist in schema
+        """
+        if not keys:
+            raise ValueError("group_by requires at least one key")
+
+        if "aai_id" in keys:
+            raise ValueError("Cannot group by 'aai_id'")
+
+        schema = source._schema
+        if schema is None:
+            raise ValueError("Source object has no cached schema")
+
+        # Determine available columns based on source type
+        if isinstance(source, View) and source.is_single_field:
+            # Single-field View projects to {aai_id, value}
+            available = {"value"}
+        elif isinstance(source, View) and source._selected_fields:
+            # Multi-field View projects to selected fields only
+            available = set(source._selected_fields)
+        else:
+            available = set(schema.columns.keys()) - {"aai_id"}
+
+        for key in keys:
+            if key not in available:
+                raise ValueError(
+                    f"Key '{key}' not found in source columns. "
+                    f"Available: {sorted(available)}"
+                )
+
+        self._source = source
+        self._keys = keys
+        self._having_clauses: List[Tuple[str, str]] = []
+
+    @property
+    def ch_client(self):
+        """Get the ClickHouse client from the source object."""
+        return self._source.ch_client
+
+    def having(self, condition: str) -> GroupByQuery:
+        """
+        Add a HAVING condition (AND-chained with previous conditions).
+
+        Multiple calls chain with AND:
+            .having('sum(x) > 10').having('count() >= 2')
+            → HAVING (sum(x) > 10) AND (count() >= 2)
+
+        Args:
+            condition: Raw SQL HAVING expression (e.g., 'sum(amount) > 100')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty
+        """
+        if not condition or not condition.strip():
+            raise ValueError("HAVING condition must be a non-empty string")
+        self._having_clauses.append((condition.strip(), "AND"))
+        return self
+
+    def or_having(self, condition: str) -> GroupByQuery:
+        """
+        Add a HAVING condition (OR-chained with previous conditions).
+
+        Use after .having() to add an alternative condition:
+            .having('sum(x) > 100').or_having('count() >= 5')
+            → HAVING (sum(x) > 100) OR (count() >= 5)
+
+        Args:
+            condition: Raw SQL HAVING expression (e.g., 'max(amount) > 50')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty or no prior having clause exists
+        """
+        if not condition or not condition.strip():
+            raise ValueError("HAVING condition must be a non-empty string")
+        if not self._having_clauses:
+            raise ValueError("or_having() requires a prior having() call")
+        self._having_clauses.append((condition.strip(), "OR"))
+        return self
+
+    def _build_having(self) -> Optional[str]:
+        """Build the combined HAVING clause from stored conditions."""
+        if not self._having_clauses:
+            return None
+        parts = []
+        for i, (condition, connector) in enumerate(self._having_clauses):
+            if i == 0:
+                parts.append(f"({condition})")
+            else:
+                parts.append(f"{connector} ({condition})")
+        return " ".join(parts)
+
+    def _get_group_by_info(self) -> GroupByInfo:
+        """
+        Build GroupByInfo from the source Object.
+
+        Handles plain Objects, Views with WHERE/LIMIT constraints,
+        multi-field Views, and single-field Views.
+
+        Returns:
+            GroupByInfo with source, group keys, and column metadata
+        """
+        source = self._source
+        schema = source._schema
+
+        # Determine source query and columns based on source type
+        if isinstance(source, View):
+            if source.is_single_field:
+                # Single-field View: columns are {aai_id, value}
+                field = source._selected_fields[0]
+                field_type = str(schema.columns.get(field, "Float64"))
+                columns = {"aai_id": "UInt64", "value": field_type}
+                source_query = f"({source._build_select()})"
+            elif source._selected_fields:
+                # Multi-field View: only selected columns available
+                columns = {"aai_id": "UInt64"}
+                for field in source._selected_fields:
+                    columns[field] = str(schema.columns.get(field, "Float64"))
+                source_query = f"({source._build_select()})"
+            elif source.has_constraints:
+                # WHERE/LIMIT View: full columns, wrapped in subquery
+                columns = {k: str(v) for k, v in schema.columns.items()}
+                source_query = f"({source._build_select()})"
+            else:
+                # Base View (no constraints): same as plain Object
+                columns = {k: str(v) for k, v in schema.columns.items()}
+                source_query = source.table
+        else:
+            # Plain Object
+            columns = {k: str(v) for k, v in schema.columns.items()}
+            source_query = (
+                f"({source._build_select()})"
+                if hasattr(source, "has_constraints") and source.has_constraints
+                else source.table
+            )
+
+        return GroupByInfo(
+            source=source_query,
+            base_table=source.table,
+            group_keys=self._keys,
+            columns=columns,
+            fieldtype=schema.fieldtype,
+            having=self._build_having(),
+        )
+
+    async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:
+        """
+        Apply aggregations per group. Core method — all convenience methods delegate here.
+
+        Each entry maps a column name to an aggregation function.
+        Result columns keep the same name as the source columns.
+        For 'count', the column key becomes the result column name
+        and count() is called without arguments.
+
+        Args:
+            aggregations: Dict mapping column_name -> GroupByOpType
+                         (GB_SUM, GB_MEAN, GB_MIN, GB_MAX, GB_COUNT, GB_STD, GB_VAR)
+
+        Returns:
+            Dict Object with group keys + all aggregated columns
+
+        Examples:
+            >>> result = await obj.group_by('category').agg({
+            ...     'amount': GB_SUM,
+            ...     'price': GB_MEAN,
+            ... })
+        """
+        info = self._get_group_by_info()
+        return await operators.group_by_agg(info, aggregations, self.ch_client)
+
+    async def sum(self, column: str) -> Object:
+        """Convenience: sum per group. Delegates to agg()."""
+        return await self.agg({column: GB_SUM})
+
+    async def mean(self, column: str) -> Object:
+        """Convenience: mean per group. Delegates to agg()."""
+        return await self.agg({column: GB_MEAN})
+
+    async def min(self, column: str) -> Object:
+        """Convenience: min per group. Delegates to agg()."""
+        return await self.agg({column: GB_MIN})
+
+    async def max(self, column: str) -> Object:
+        """Convenience: max per group. Delegates to agg()."""
+        return await self.agg({column: GB_MAX})
+
+    async def count(self) -> Object:
+        """Convenience: count per group. Delegates to agg()."""
+        return await self.agg({"_count": GB_COUNT})
+
+    async def std(self, column: str) -> Object:
+        """Convenience: std per group. Delegates to agg()."""
+        return await self.agg({column: GB_STD})
+
+    async def var(self, column: str) -> Object:
+        """Convenience: var per group. Delegates to agg()."""
+        return await self.agg({column: GB_VAR})
+
+    def __repr__(self) -> str:
+        """String representation of the GroupByQuery."""
+        keys_str = ", ".join(f"'{k}'" for k in self._keys)
+        return f"GroupByQuery(keys=[{keys_str}])"
 
 
 class View(Object):

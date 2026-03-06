@@ -24,11 +24,20 @@ from .models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
+    GB_COUNT,
+    GB_MAX,
+    GB_MEAN,
+    GB_MIN,
+    GB_STD,
+    GB_SUM,
+    GB_VAR,
+    GroupByOpType,
     ORIENT_DICT,
     ORIENT_RECORDS,
     ColumnInfo,
     ColumnMeta,
     ColumnType,
+    GroupByInfo,
     ObjectMetadata,
     ViewMetadata,
     QueryInfo,
@@ -37,4 +46,4 @@ from .models import (
     ValueScalarType,
     ValueType,
 )
-from .object import DataResult, Object, View
+from .object import DataResult, GroupByQuery, Object, View

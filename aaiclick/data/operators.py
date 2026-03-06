@@ -59,7 +59,7 @@ Memory/Disk Management (for large datasets):
 from __future__ import annotations
 
 from .data_context import create_object
-from .models import Schema, QueryInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .models import Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
 from .sql_utils import quote_identifier
 
 
@@ -416,6 +416,36 @@ AGGREGATION_FUNCTIONS = {
 }
 
 
+INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+
+
+def _determine_agg_result_type(agg_func: str, source_type: str) -> str:
+    """
+    Determine the ClickHouse result type for an aggregation function.
+
+    Rules:
+    - min/max preserve the source type
+    - sum preserves integer types, promotes to Float64 for float types
+    - count always returns UInt64
+    - mean/std/var always return Float64
+
+    Args:
+        agg_func: Aggregation function key (e.g., 'min', 'sum', 'mean')
+        source_type: ClickHouse type of the source column
+
+    Returns:
+        ClickHouse type string for the result
+    """
+    if agg_func in ("min", "max"):
+        return source_type
+    elif agg_func == "sum":
+        return source_type if source_type in INT_TYPES else "Float64"
+    elif agg_func == "count":
+        return "UInt64"
+    else:
+        return "Float64"
+
+
 async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     Apply an aggregation function on a table at the database level.
@@ -446,21 +476,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
 
-    # Determine result type based on aggregation function
-    # - min/max preserve the source type
-    # - sum preserves integer types, promotes to Float64 for float types
-    # - count always returns UInt64
-    # - mean/std/var always return Float64
-    if agg_func in ("min", "max"):
-        value_type = source_type
-    elif agg_func == "sum":
-        int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
-        value_type = source_type if source_type in int_types else "Float64"
-    elif agg_func == "count":
-        value_type = "UInt64"
-    else:
-        # mean, std, and var always return Float64
-        value_type = "Float64"
+    value_type = _determine_agg_result_type(agg_func, source_type)
 
     # Build schema for result table (scalar type)
     schema = Schema(
@@ -690,6 +706,85 @@ async def unique_group(info: QueryInfo, ch_client):
     if unique_values:
         aai_ids = get_snowflake_ids(len(unique_values))
         data = [[aai_id, value] for aai_id, value in zip(aai_ids, unique_values)]
+        await ch_client.insert(result.table, data)
+
+    return result
+
+
+# Group By Operators
+
+async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
+    """
+    Apply aggregations with GROUP BY at database level.
+
+    Groups data by the specified keys and applies aggregation functions.
+    Each entry maps a result column name to an aggregation function.
+    For 'count', uses count() without arguments.
+
+    Args:
+        info: GroupByInfo with source, group keys, and column metadata
+        aggregations: Dict mapping column_name -> agg_func
+                      (e.g., {'amount': 'sum', '_count': 'count'})
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New dict Object with group keys + all aggregated columns
+    """
+    from ..snowflake_id import get_snowflake_ids
+
+    keys_str = ", ".join(info.group_keys)
+
+    # Build aggregation expressions and result schema
+    agg_exprs = []
+    result_columns = {"aai_id": "UInt64"}
+
+    for key in info.group_keys:
+        result_columns[key] = info.columns[key]
+
+    for column, agg_func in aggregations.items():
+        sql_func = AGGREGATION_FUNCTIONS[agg_func]
+        if agg_func == "count":
+            agg_exprs.append(f"{sql_func}() AS {column}")
+            result_columns[column] = "UInt64"
+        else:
+            agg_exprs.append(f"{sql_func}({column}) AS {column}")
+            source_type = info.columns[column]
+            result_columns[column] = _determine_agg_result_type(agg_func, source_type)
+
+    agg_str = ", ".join(agg_exprs)
+    if info.having:
+        # Use temporary aliases to avoid ClickHouse resolving HAVING column
+        # references to SELECT aliases (which causes ILLEGAL_AGGREGATION error
+        # when alias name matches source column name).
+        tmp_agg_exprs = []
+        rename_exprs = []
+        for column, agg_func in aggregations.items():
+            sql_func = AGGREGATION_FUNCTIONS[agg_func]
+            tmp_alias = f"__agg_{column}"
+            if agg_func == "count":
+                tmp_agg_exprs.append(f"{sql_func}() AS {tmp_alias}")
+            else:
+                tmp_agg_exprs.append(f"{sql_func}({column}) AS {tmp_alias}")
+            rename_exprs.append(f"{tmp_alias} AS {column}")
+        tmp_agg_str = ", ".join(tmp_agg_exprs)
+        rename_str = ", ".join(rename_exprs)
+        inner = (
+            f"SELECT {keys_str}, {tmp_agg_str} "
+            f"FROM {info.source} GROUP BY {keys_str} "
+            f"HAVING {info.having}"
+        )
+        query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
+    else:
+        query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
+    query_result = await ch_client.query(query)
+    rows = query_result.result_rows
+
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
+    result = await create_object(schema)
+
+    if rows:
+        aai_ids = get_snowflake_ids(len(rows))
+        data = [[aai_id, *row] for aai_id, row in zip(aai_ids, rows)]
         await ch_client.insert(result.table, data)
 
     return result
