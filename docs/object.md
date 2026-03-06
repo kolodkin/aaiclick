@@ -500,6 +500,32 @@ async with DataContext():
     data = await result.data()
 ```
 
+### insert_from_url() ⚠️ NOT YET IMPLEMENTED
+
+Insert data from a URL into an existing Object:
+
+```python
+# Create empty schema object
+schema = await create_object_from_url(
+    "https://example.com/jan.parquet",
+    columns=["fare", "distance"],
+    limit=0,  # Just get schema, no data
+)
+
+# Insert data from multiple URLs
+await schema.insert_from_url("https://example.com/jan.parquet")
+await schema.insert_from_url("https://example.com/feb.parquet")
+await schema.insert_from_url("https://example.com/mar.parquet")
+
+# All data now in single table
+total = await schema.count()
+```
+
+**Efficient for distributed pipelines:**
+- Schema created once
+- Multiple workers can insert into same table
+- Uses ClickHouse's native URL loading (no Python data transfer)
+
 ## The concat() Method
 
 The `concat()` method concatenates objects together, creating a new object with rows from the first object followed by rows from the second object.
