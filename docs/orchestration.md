@@ -1062,6 +1062,145 @@ class Group(SQLModel, table=True):
             return other
 ```
 
+### TaskFlow API with Decorators ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/orchestration/decorators.py`
+
+Airflow-style TaskFlow API for defining workflows with automatic dependency detection and result passing between tasks.
+
+**`@task` Decorator:**
+
+Creates a `TaskFactory` that generates Task instances when called. When a Task is passed as an argument, it automatically:
+1. Creates an upstream reference for result injection at runtime
+2. Sets up the dependency (upstream task must complete first)
+
+```python
+from aaiclick.orchestration import task
+
+@task
+async def extract(url: str) -> Object:
+    """Extract data from URL."""
+    return await create_object_from_url(url)
+
+@task
+async def transform(data: Object, multiplier: int) -> Object:
+    """Transform data by multiplying values."""
+    return await (data * multiplier)
+
+@task
+async def compute_stats(data: Object) -> dict:
+    """Compute statistics."""
+    return {
+        "sum": await (await data.sum()).data(),
+        "mean": await (await data.mean()).data(),
+    }
+```
+
+**`@job` Decorator:**
+
+Creates a `JobFactory` that wraps workflow definitions. When called, it creates a Job and applies all returned tasks to the database.
+
+```python
+from aaiclick.orchestration import job, task, OrchContext
+
+@job("my_pipeline")
+def my_pipeline(input_url: str, multiplier: int = 2):
+    """Define workflow - returns list of tasks."""
+    # Create tasks
+    extracted = extract(url=input_url)
+
+    # Passing Task as argument creates dependency automatically
+    # extract >> transform is implicit
+    transformed = transform(data=extracted, multiplier=multiplier)
+
+    # Multiple tasks can depend on same upstream
+    stats = compute_stats(data=transformed)
+
+    return [extracted, transformed, stats]
+
+# Usage
+async with OrchContext():
+    job = await my_pipeline(
+        input_url="https://example.com/data.parquet",
+        multiplier=3,
+    )
+```
+
+**Native Python Values:**
+
+Task kwargs support both Object/View references and native Python values:
+
+```python
+@task
+async def process(data: Object, threshold: float, labels: list[str]) -> Object:
+    """Task with mixed parameter types."""
+    # data: Object injected from upstream task result
+    # threshold: float passed directly
+    # labels: list passed directly
+    ...
+
+# All these work
+result = process(
+    data=upstream_task,      # Task -> creates dependency + upstream ref
+    threshold=0.5,           # Native float
+    labels=["a", "b", "c"],  # Native list
+)
+```
+
+**Upstream Result Injection:**
+
+At runtime, the worker resolves upstream references by querying completed task results:
+
+```python
+# When task executes:
+# 1. Worker fetches upstream task's result from PostgreSQL
+# 2. Deserializes Object/View references
+# 3. Injects as function arguments
+# 4. Task function receives actual Object instances
+```
+
+**Example: Complete Pipeline**
+
+```python
+from aaiclick.orchestration import task, job, OrchContext
+from aaiclick import DataContext, create_object_from_value
+from aaiclick.data.object import Object
+
+@task
+async def create_dataset(values: list) -> Object:
+    return await create_object_from_value(values)
+
+@task
+async def double_values(data: Object) -> Object:
+    return await (data * 2)
+
+@task
+async def aggregate(data: Object) -> dict:
+    return {"sum": await (await data.sum()).data()}
+
+@job("example")
+def example_pipeline(values: list):
+    dataset = create_dataset(values=values)
+    doubled = double_values(data=dataset)  # Auto: dataset >> doubled
+    result = aggregate(data=doubled)        # Auto: doubled >> result
+    return [dataset, doubled, result]
+
+async def main():
+    async with OrchContext():
+        async with DataContext():
+            job = await example_pipeline(values=[1, 2, 3, 4, 5])
+            print(f"Created job: {job.id}")
+
+# Run with: python -m aaiclick.orchestration.worker
+```
+
+**Implementation Details:**
+
+- `TaskFactory.__call__()` serializes kwargs and detects Task arguments
+- `JobFactory.__call__()` executes workflow function and applies tasks
+- `deserialize_task_params()` resolves upstream refs at execution time
+- Dependencies created by `>>` operator still work for explicit ordering
+
 ### Worker Management ✅ IMPLEMENTED (Phase 6)
 
 **Implementation**: `aaiclick/orchestration/worker.py`

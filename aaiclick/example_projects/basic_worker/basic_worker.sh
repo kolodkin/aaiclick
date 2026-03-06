@@ -14,7 +14,7 @@ echo
 
 # Step 1: Register the job
 echo "Registering job..."
-uv run python "$SCRIPT_DIR/basic_worker_register.py"
+uv run python -m aaiclick.example_projects.basic_worker
 echo
 
 # Step 2: Start background cleanup worker

@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.data import DataContext, get_data_context
@@ -42,47 +43,84 @@ def import_callback(entrypoint: str) -> Callable:
     return getattr(module, function_name)
 
 
-async def deserialize_task_params(serialized_params: dict) -> dict:
-    """
-    Deserialize task parameters from JSON format.
-
-    All parameters must be aaiclick Objects or Views - native Python values
-    are not supported. Reconstructs Object/View instances from serialized
-    references and registers them with the current DataContext.
-
-    For parameters with job_id, releases the job-scoped pin ref
-    via lifecycle.claim() (ownership transfer from orchestration to consumer).
+async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
+    """Resolve an upstream task reference to its result.
 
     Args:
-        serialized_params: Task kwargs from database (JSON-deserialized)
+        ref: Dict with ref_type="upstream" and task_id
+        session: Database session for querying task result
 
     Returns:
-        dict: Deserialized kwargs ready for function call
+        The upstream task's result (Object, View, or native value)
 
     Raises:
-        ValueError: Unknown object_type or missing required fields
+        ValueError: If upstream task not found or not completed
     """
-    if not serialized_params:
-        return {}
+    task_id = ref["task_id"]
+    db_result = await session.execute(
+        select(Task.result, Task.status, Task.job_id).where(Task.id == task_id)
+    )
+    row = db_result.one_or_none()
 
-    result = {}
-    ctx = get_data_context()
+    if row is None:
+        raise ValueError(f"Upstream task {task_id} not found")
 
-    for key, value in serialized_params.items():
-        if not isinstance(value, dict) or "object_type" not in value:
-            raise ValueError(
-                f"Parameter '{key}' must be an Object or View reference with 'object_type' field. "
-                "Native Python values are not supported."
-            )
+    result, status, job_id = row
+    if status != TaskStatus.COMPLETED:
+        raise ValueError(f"Upstream task {task_id} is not completed (status: {status})")
 
+    if result is None:
+        return None
+
+    # Result is already serialized - deserialize it
+    # Add job_id for lifecycle claim if it's an Object/View
+    if isinstance(result, dict) and "object_type" in result:
+        result["job_id"] = job_id
+
+    return result
+
+
+async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
+    """Recursively deserialize a value from JSON format.
+
+    Handles:
+    - Upstream references (ref_type="upstream"): Resolves to task result
+    - Object references (object_type="object"): Reconstructs Object
+    - View references (object_type="view"): Reconstructs View
+    - Lists/dicts: Recursively deserializes contents
+    - Native Python types: Passed through unchanged
+
+    Args:
+        value: Serialized value from task kwargs
+        session: Database session for resolving upstream refs
+
+    Returns:
+        Deserialized value ready for function call
+    """
+    if not isinstance(value, dict):
+        if isinstance(value, list):
+            return [await _deserialize_value(v, session) for v in value]
+        return value
+
+    # Check for upstream reference
+    if value.get("ref_type") == "upstream":
+        upstream_result = await _resolve_upstream_ref(value, session)
+        # Recursively deserialize the upstream result
+        return await _deserialize_value(upstream_result, session)
+
+    # Check for Object/View reference
+    if "object_type" in value:
+        ctx = get_data_context()
         obj_type = value["object_type"]
+
         if obj_type == "object":
             obj = Object(table=value["table"])
             obj._register(ctx)
             ctx._register_object(obj)
-            if "job_id" in value:
+            if "job_id" in value and ctx.lifecycle is not None:
                 await ctx.lifecycle.claim(value["table"], value["job_id"])
-            result[key] = obj
+            return obj
+
         elif obj_type == "view":
             source = Object(table=value["table"])
             source._register(ctx)
@@ -96,13 +134,47 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
                 selected_fields=value.get("selected_fields"),
             )
             ctx._register_object(view)
-            if "job_id" in value:
+            if "job_id" in value and ctx.lifecycle is not None:
                 await ctx.lifecycle.claim(value["table"], value["job_id"])
-            result[key] = view
-        else:
-            raise ValueError(f"Unknown object_type: {obj_type}. Must be 'object' or 'view'.")
+            return view
 
-    return result
+        else:
+            raise ValueError(f"Unknown object_type: {obj_type}")
+
+    # Regular dict - recursively deserialize values
+    return {k: await _deserialize_value(v, session) for k, v in value.items()}
+
+
+async def deserialize_task_params(serialized_params: dict) -> dict:
+    """
+    Deserialize task parameters from JSON format.
+
+    Supports:
+    - Upstream references: Resolved to completed task results
+    - Object/View references: Reconstructed and registered with DataContext
+    - Native Python values: Passed through unchanged
+    - Nested structures: Lists and dicts are recursively processed
+
+    For parameters with job_id, releases the job-scoped pin ref
+    via lifecycle.claim() (ownership transfer from orchestration to consumer).
+
+    Args:
+        serialized_params: Task kwargs from database (JSON-deserialized)
+
+    Returns:
+        dict: Deserialized kwargs ready for function call
+
+    Raises:
+        ValueError: Unknown object_type or upstream task not completed
+    """
+    if not serialized_params:
+        return {}
+
+    async with get_orch_context_session() as session:
+        return {
+            k: await _deserialize_value(v, session)
+            for k, v in serialized_params.items()
+        }
 
 
 async def execute_task(

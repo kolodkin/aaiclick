@@ -129,13 +129,16 @@ async def test_deserialize_task_params_empty(orch_ctx):
     assert result == {}
 
 
-async def test_deserialize_task_params_rejects_native_python(orch_ctx):
-    """Test that native Python values are rejected."""
-    kwargs = {"x": 5, "y": 10}
+async def test_deserialize_task_params_native_python(orch_ctx):
+    """Test that native Python values are passed through unchanged."""
+    kwargs = {"x": 5, "y": 10, "name": "test", "items": [1, 2, 3]}
 
     async with DataContext():
-        with pytest.raises(ValueError, match="must be an Object or View"):
-            await deserialize_task_params(kwargs)
+        result = await deserialize_task_params(kwargs)
+        assert result["x"] == 5
+        assert result["y"] == 10
+        assert result["name"] == "test"
+        assert result["items"] == [1, 2, 3]
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):

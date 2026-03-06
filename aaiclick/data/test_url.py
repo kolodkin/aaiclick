@@ -250,3 +250,160 @@ async def test_url_aggregation_on_result(ctx, fileserver):
     total = await obj.sum()
     total_data = await total.data()
     assert total_data == pytest.approx(82.5, abs=0.1)
+
+
+# =============================================================================
+# insert_from_url() validation tests (require file server to create initial object)
+# =============================================================================
+
+
+@pytest.mark.url
+async def test_insert_from_url_invalid_scheme(ctx, fileserver):
+    """insert_from_url rejects non-HTTP URLs."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
+    )
+    with pytest.raises(ValueError, match="http or https"):
+        await obj.insert_from_url("ftp://example.com/data.parquet")
+
+
+@pytest.mark.url
+async def test_insert_from_url_unsupported_format(ctx, fileserver):
+    """insert_from_url rejects unsupported formats."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
+    )
+    with pytest.raises(ValueError, match="Unsupported format"):
+        await obj.insert_from_url(
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
+            format="InvalidFormat",
+        )
+
+
+@pytest.mark.url
+async def test_insert_from_url_invalid_limit(ctx, fileserver):
+    """insert_from_url rejects invalid limit values."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
+    )
+    with pytest.raises(ValueError, match="positive integer"):
+        await obj.insert_from_url(
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
+            limit=-1,
+        )
+
+
+@pytest.mark.url
+async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
+    """insert_from_url rejects WHERE with semicolons (SQL injection)."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
+    )
+    with pytest.raises(ValueError, match="must not contain"):
+        await obj.insert_from_url(
+            f"{fileserver}/sample.parquet",
+            columns=["id", "price"],
+            where="1=1; DROP TABLE users",
+        )
+
+
+# =============================================================================
+# insert_from_url() integration tests (require file server)
+# =============================================================================
+
+
+@pytest.mark.url
+async def test_insert_from_url_appends_data(ctx, fileserver):
+    """insert_from_url appends data to existing Object."""
+    # Create initial object with 10 rows
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=10,
+    )
+    initial_count = len((await obj.data())["id"])
+    assert initial_count == 10
+
+    # Insert 5 more rows
+    await obj.insert_from_url(
+        f"{fileserver}/sample.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=5,
+    )
+    final_count = len((await obj.data())["id"])
+    assert final_count == 15
+
+
+@pytest.mark.url
+async def test_insert_from_url_auto_columns(ctx, fileserver):
+    """insert_from_url uses object's columns when not specified."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
+        limit=5,
+    )
+
+    # Insert without specifying columns - should use object's columns
+    await obj.insert_from_url(
+        f"{fileserver}/sample.csv",
+        format="CSVWithNames",
+        limit=5,
+    )
+    data = await obj.data()
+    assert len(data["id"]) == 10
+    assert len(data["price"]) == 10
+
+
+@pytest.mark.url
+async def test_insert_from_url_with_where(ctx, fileserver):
+    """insert_from_url applies WHERE filter."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
+        limit=5,
+    )
+    initial_count = len((await obj.data())["id"])
+
+    # Insert only rows where price > 200
+    await obj.insert_from_url(
+        f"{fileserver}/sample.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
+        where="price > 200",
+    )
+    data = await obj.data()
+
+    # Should have more rows than initial, but not all 200
+    assert len(data["id"]) > initial_count
+    assert len(data["id"]) < initial_count + _NUM_ROWS
+
+
+@pytest.mark.url
+async def test_insert_from_url_snowflake_ids(ctx, fileserver):
+    """insert_from_url generates unique Snowflake IDs."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet",
+        columns=["price"],
+        format="Parquet",
+        limit=5,
+    )
+
+    # Insert more data
+    await obj.insert_from_url(
+        f"{fileserver}/sample.parquet",
+        columns=["price"],
+        format="Parquet",
+        limit=5,
+    )
+
+    # All IDs should be unique
+    result = await ctx.ch_client.query(f"SELECT aai_id FROM {obj.table}")
+    ids = [row[0] for row in result.result_rows]
+    assert len(set(ids)) == len(ids)  # All unique
+    assert len(ids) == 10
