@@ -129,24 +129,24 @@ async def test_view_both_sides():
 
 
 # =============================================================================
-# Chained WHERE tests (add_where / or_where)
+# Chained WHERE tests (where / or_where)
 # =============================================================================
 
 
-async def test_view_add_where_single():
-    """add_where() on Object creates a View with WHERE condition."""
+async def test_view_where_single():
+    """where() on Object creates a View with WHERE condition."""
     async with DataContext():
         obj = await create_object_from_value([1, 2, 3, 4, 5])
-        view = obj.add_where("value > 3")
+        view = obj.where("value > 3")
         result = await view.data()
         assert result == [4, 5]
 
 
-async def test_view_add_where_chained_and():
-    """Multiple add_where() calls chain with AND."""
+async def test_view_where_chained_and():
+    """Multiple where() calls chain with AND."""
     async with DataContext():
         obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        view = obj.view(where="value > 2").add_where("value < 8")
+        view = obj.view(where="value > 2").where("value < 8")
         result = await view.data()
         # value > 2 AND value < 8 → [3, 4, 5, 6, 7]
         assert result == [3, 4, 5, 6, 7]
@@ -162,12 +162,12 @@ async def test_view_or_where():
         assert result == [1, 2, 9, 10]
 
 
-async def test_view_add_where_and_or_mixed():
-    """Mixed add_where() and or_where() chaining."""
+async def test_view_where_and_or_mixed():
+    """Mixed where() and or_where() chaining."""
     async with DataContext():
         obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         # WHERE (value > 3) AND (value < 7) OR (value = 10)
-        view = obj.add_where("value > 3").add_where("value < 7").or_where("value = 10")
+        view = obj.where("value > 3").where("value < 7").or_where("value = 10")
         result = await view.data()
         # (value > 3 AND value < 7) OR (value = 10) → [4, 5, 6, 10]
         assert result == [4, 5, 6, 10]
@@ -182,13 +182,13 @@ async def test_view_or_where_without_where_raises():
             view.or_where("value > 1")
 
 
-async def test_view_add_where_empty_string_raises():
+async def test_view_where_empty_string_raises():
     """Empty string raises ValueError."""
     async with DataContext():
         obj = await create_object_from_value([1, 2, 3])
         view = obj.view(where="value > 1")
         with pytest.raises(ValueError, match="non-empty"):
-            view.add_where("")
+            view.where("")
 
 
 async def test_view_or_where_empty_string_raises():
@@ -208,28 +208,28 @@ async def test_object_or_where_raises():
             obj.or_where("value > 1")
 
 
-async def test_view_add_where_with_dict_object():
-    """add_where() works with dict objects."""
+async def test_view_where_with_dict_object():
+    """where() works with dict objects."""
     async with DataContext():
         obj = await create_object_from_value({
             "category": ["A", "B", "C", "A", "B"],
             "amount": [10, 20, 30, 40, 50],
         })
-        view = obj.add_where("amount > 15").add_where("amount < 45")
+        view = obj.where("amount > 15").where("amount < 45")
         result = await view.data()
         assert result["category"] == ["B", "C", "A"]
         assert result["amount"] == [20, 30, 40]
 
 
 async def test_view_or_where_with_group_by():
-    """add_where/or_where views work with group_by."""
+    """where/or_where views work with group_by."""
     async with DataContext():
         obj = await create_object_from_value({
             "category": ["A", "A", "B", "B", "C"],
             "amount": [5, 15, 10, 20, 100],
         })
         # WHERE (amount > 10) OR (category = 'C')
-        view = obj.add_where("amount > 10").or_where("category = 'C'")
+        view = obj.where("amount > 10").or_where("category = 'C'")
         result = await view.group_by("category").sum("amount")
         data = await result.data()
         pairs = dict(zip(data["category"], data["amount"]))

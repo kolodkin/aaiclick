@@ -145,7 +145,7 @@ async def test_view_metadata_where_clause(ctx):
     meta = await view.metadata()
 
     assert isinstance(meta, ViewMetadata)
-    assert meta.where == "value > 2"
+    assert meta.where == "(value > 2)"
     assert meta.limit is None
 
 
@@ -178,7 +178,7 @@ async def test_view_metadata_all_constraints(ctx):
     view = obj.view(where="value > 2", limit=5, offset=1, order_by="value DESC")
     meta = await view.metadata()
 
-    assert meta.where == "value > 2"
+    assert meta.where == "(value > 2)"
     assert meta.limit == 5
     assert meta.offset == 1
     assert meta.order_by == "value DESC"

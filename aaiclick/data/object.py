@@ -127,11 +127,6 @@ class Object:
         return get_data_context()
 
     @property
-    def where(self) -> Optional[str]:
-        """Get WHERE clause (None for base Object)."""
-        return None
-
-    @property
     def limit(self) -> Optional[int]:
         """Get LIMIT (None for base Object)."""
         return None
@@ -170,7 +165,7 @@ class Object:
     @property
     def has_constraints(self) -> bool:
         """Check if this object has any view constraints."""
-        return bool(self.where or self.limit is not None or self.offset is not None or self.order_by)
+        return bool(self.limit is not None or self.offset is not None or self.order_by)
 
     def checkstale(self):
         """
@@ -196,8 +191,6 @@ class Object:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         query = f"SELECT {columns} FROM {self.table}"
-        if self.where:
-            query += f" WHERE {self.where}"
         # Use custom order_by if set, otherwise use default
         order_clause = self.order_by or default_order_by
         if order_clause:
@@ -1086,12 +1079,12 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
-    def add_where(self, condition: str) -> "View":
+    def where(self, condition: str) -> "View":
         """
         Create a View with a WHERE condition.
 
         Shortcut for obj.view(where=condition). The returned View supports
-        chaining with .add_where() (AND) and .or_where() (OR).
+        chaining with .where() (AND) and .or_where() (OR).
 
         Args:
             condition: Raw SQL WHERE expression (e.g., 'value > 100')
@@ -1101,7 +1094,7 @@ class Object:
 
         Examples:
             >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
-            >>> view = obj.add_where("value > 2").add_where("value < 5")
+            >>> view = obj.where("value > 2").where("value < 5")
             >>> await view.data()  # Returns [3, 4]
         """
         return View(self, where=condition)
@@ -1110,16 +1103,16 @@ class Object:
         """
         Create a View with an OR WHERE condition.
 
-        Note: or_where() on Object requires wrapping with add_where() first,
-        or using view(where=...).or_where(). Use add_where() to start a chain.
+        Note: or_where() on Object requires a prior where() call.
+        Use where() first to start a chain.
 
         Raises:
             ValueError: Always, since there's no prior WHERE clause on a plain Object.
-                       Use add_where() first or view(where=...).or_where().
+                       Use where() first: obj.where('x > 5').or_where('y < 3')
         """
         raise ValueError(
             "or_where() requires a prior where condition. "
-            "Use add_where() first: obj.add_where('x > 5').or_where('y < 3')"
+            "Use where() first: obj.where('x > 5').or_where('y < 3')"
         )
 
     def group_by(self, *keys: str) -> GroupByQuery:
@@ -1476,11 +1469,6 @@ class View(Object):
                 context._register_object(self)
 
     @property
-    def where(self) -> Optional[str]:
-        """Get the combined WHERE clause built from stored conditions."""
-        return self._build_where()
-
-    @property
     def limit(self) -> Optional[int]:
         """Get LIMIT."""
         return self._limit
@@ -1517,12 +1505,12 @@ class View(Object):
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
-    def add_where(self, condition: str) -> View:
+    def where(self, condition: str) -> View:
         """
         Add a WHERE condition (AND-chained with previous conditions).
 
         Multiple calls chain with AND:
-            .add_where('x > 10').add_where('y < 20')
+            .where('x > 10').where('y < 20')
             → WHERE (x > 10) AND (y < 20)
 
         Args:
@@ -1567,7 +1555,7 @@ class View(Object):
     def has_constraints(self) -> bool:
         """Check if this view has any constraints including selected_fields."""
         return bool(
-            self.where
+            self._where_clauses
             or self.limit is not None
             or self.offset is not None
             or self.order_by
@@ -1605,8 +1593,9 @@ class View(Object):
             select_cols = columns
 
         query = f"SELECT {select_cols} FROM {self.table}"
-        if self.where:
-            query += f" WHERE {self.where}"
+        where_clause = self._build_where()
+        if where_clause:
+            query += f" WHERE {where_clause}"
         # Use custom order_by if set, otherwise use default
         order_clause = self.order_by or default_order_by
         if order_clause:
@@ -1732,7 +1721,7 @@ class View(Object):
             >>>
             >>> filtered = obj.view(where="param1 > 1", limit=10)
             >>> meta2 = await filtered.metadata()
-            >>> print(meta2.where)  # 'param1 > 1'
+            >>> print(meta2.where)  # '(param1 > 1)'
             >>> print(meta2.limit)  # 10
         """
         # Reuse Object.metadata() to build column_infos and compute overall_fieldtype
@@ -1743,7 +1732,7 @@ class View(Object):
             table=base_meta.table,
             fieldtype=base_meta.fieldtype,
             columns=base_meta.columns,
-            where=self._where,
+            where=self._build_where(),
             limit=self._limit,
             offset=self._offset,
             order_by=self._order_by,
@@ -1759,8 +1748,9 @@ class View(Object):
         constraints = []
         if self.selected_fields:
             constraints.append(f"selected_fields={self.selected_fields}")
-        if self.where:
-            constraints.append(f"where='{self.where}'")
+        where_clause = self._build_where()
+        if where_clause:
+            constraints.append(f"where='{where_clause}'")
         if self.limit:
             constraints.append(f"limit={self.limit}")
         if self.offset:

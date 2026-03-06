@@ -169,7 +169,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         return {
             "object_type": "view",
             "table": result.table,
-            "where": result.where,
+            "where": result._build_where(),
             "limit": result.limit,
             "offset": result.offset,
             "order_by": result.order_by,
