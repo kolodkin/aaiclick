@@ -2,6 +2,8 @@
 Tests for integer (Int64) data type - scalars, arrays, operators, and statistics.
 """
 
+import pytest
+
 from aaiclick import create_object_from_value, create_object
 import numpy as np
 
@@ -107,8 +109,6 @@ async def test_int_array_concat(ctx):
 
 async def test_int_scalar_concat_fails(ctx):
     """Test that concat method on scalar fails."""
-    import pytest
-
     a = await create_object_from_value(42)
     b = await create_object_from_value([1, 2, 3])
 
@@ -188,8 +188,6 @@ async def test_int_array_insert(ctx):
 
 async def test_int_scalar_insert_fails(ctx):
     """Test that insert method on scalar fails."""
-    import pytest
-
     a = await create_object_from_value(42)
     b = await create_object_from_value([1, 2, 3])
 

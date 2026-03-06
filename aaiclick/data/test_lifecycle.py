@@ -4,6 +4,8 @@ Tests for LifecycleHandler ABC and LocalLifecycleHandler.
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import _get_data_state, data_context, incref, decref
 from aaiclick.data.lifecycle import LifecycleHandler, LocalLifecycleHandler
@@ -12,8 +14,6 @@ from aaiclick.data.models import ClickHouseCreds
 
 def test_lifecycle_handler_is_abstract():
     """LifecycleHandler cannot be instantiated directly."""
-    import pytest
-
     with pytest.raises(TypeError):
         LifecycleHandler()
 

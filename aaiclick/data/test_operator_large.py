@@ -5,6 +5,8 @@ Each test uses NUM_ITEMS=10000 to validate performance and correctness at scale.
 Each operator is tested with different type combinations.
 """
 
+import math
+
 from aaiclick import create_object_from_value, create_object
 
 # Number of items for large array tests
@@ -147,7 +149,6 @@ async def test_std_float(ctx):
 
     # Verify: std of 0..9999 should be approximately 2886.75
     # For a uniform distribution from 0 to N-1, std = sqrt((N^2 - 1) / 12)
-    import math
     expected_std = math.sqrt((NUM_ITEMS**2 - 1) / 12.0)
     assert abs(std_val - expected_std) < 1.0  # Allow small variance
 

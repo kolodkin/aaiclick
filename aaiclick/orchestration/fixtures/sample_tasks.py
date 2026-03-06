@@ -4,6 +4,8 @@ Note: Task parameters must be aaiclick Objects or Views.
 Native Python values are not supported as task parameters.
 """
 
+import sys
+
 
 def simple_task():
     """A simple task that does basic arithmetic and prints."""
@@ -27,7 +29,5 @@ def failing_task():
 
 def task_with_output():
     """A task that produces both stdout and stderr output."""
-    import sys
-
     print("This is stdout")
     print("Error message", file=sys.stderr)
