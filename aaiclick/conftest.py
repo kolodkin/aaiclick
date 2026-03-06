@@ -33,15 +33,13 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 async def ctx():
     """
-    Fixture that provides a DataContext for tests.
+    Session-scoped DataContext shared across all tests in a worker.
 
-    Usage:
-        async def test_example(ctx):
-            obj = await create_object_from_value([1, 2, 3])
-            # Tables are automatically cleaned up
+    Objects are cleaned up via refcounting when they go out of scope,
+    so table accumulation is not a concern.
     """
     async with DataContext() as context:
         yield context
@@ -50,11 +48,10 @@ async def ctx():
 @pytest.fixture
 async def orch_ctx():
     """
-    Fixture that provides an OrchContext for orchestration tests.
+    Function-scoped OrchContext for orchestration tests.
 
-    Usage:
-        async def test_example(orch_ctx):
-            job = await create_job("my_job", "mymodule.task1")
+    Cannot be session-scoped: SQLAlchemy async sessions don't safely
+    share across tests (concurrent operation and event loop issues).
     """
     async with OrchContext() as context:
         yield context

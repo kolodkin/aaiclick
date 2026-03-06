@@ -42,6 +42,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -101,6 +102,7 @@ addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --stric
 asyncio_mode = "auto"
 markers = [
     "url: URL integration tests requiring a file server (set AAICLICK_URL_TEST_ENABLE=1)",
+    "xdist_group: group tests to run on the same xdist worker",
 ]
 filterwarnings = [
     "error",
