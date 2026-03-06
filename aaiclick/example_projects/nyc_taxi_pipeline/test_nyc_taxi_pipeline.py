@@ -55,10 +55,10 @@ async def test_basic_aggregations(ctx):
         limit=_TEST_LIMIT,
     )
 
-    # Copy to materialized array Object for aggregation
-    fares = await trips["fare_amount"].copy()
+    # View with single-field selection
+    fares = trips["fare_amount"]
 
-    # Test aggregations
+    # Test aggregations - Views should work directly
     total = await (await fares.sum()).data()
     avg = await (await fares.mean()).data()
     minimum = await (await fares.min()).data()
@@ -165,12 +165,12 @@ async def test_column_operations(ctx):
         limit=_TEST_LIMIT,
     )
 
-    # Column indexing - copy to materialized Objects
-    fares = await trips["fare_amount"].copy()
-    tips = await trips["tip_amount"].copy()
-    distances = await trips["trip_distance"].copy()
+    # Column indexing - Views should work directly in operations
+    fares = trips["fare_amount"]
+    tips = trips["tip_amount"]
+    distances = trips["trip_distance"]
 
-    # Arithmetic operations between arrays (same aai_ids, so element-wise works)
+    # Arithmetic operations between Views
     tip_ratio = await (tips / fares)
     fare_per_mile = await (fares / distances)
 
