@@ -124,6 +124,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
 
+    # Check for native value wrapper
+    if "native_value" in value and len(value) == 1:
+        return value["native_value"]
+
     # Check for Object/View reference
     if "object_type" in value:
         state = _get_data_state()
@@ -263,7 +267,8 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         ref["job_id"] = job_id
         return ref
 
-    return None
+    # Store JSON-serializable values (dict, list, int, float, str, bool) directly
+    return {"native_value": result}
 
 
 async def run_job_tasks(job: Job) -> None:
