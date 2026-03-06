@@ -173,9 +173,19 @@ Not for direct use:
 - `commit_tasks()` — commits DAG to PostgreSQL
 - `>>` / `<<` dependency operators on Task/Group
 
+### Job Management APIs ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
+
+- `get_job(job_id)` — retrieve a single job by ID
+- `list_jobs(status, name_like, limit, offset)` — list jobs with filtering and pagination
+- `count_jobs(status, name_like)` — count matching jobs
+
+**CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
+
 ### Not Yet Implemented
 
-- `get_job()`, `list_jobs()`, `cancel_job()` — job management APIs
+- `cancel_job()` — cancel an in-flight job
 - Dynamic task creation during execution (Phase 8+)
 
 ## Task Execution
@@ -197,14 +207,24 @@ Uses PostgreSQL CTE with `FOR UPDATE SKIP LOCKED` for atomic concurrent task cla
 - Atomically transitions job PENDING→RUNNING on first claim
 - Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
 
-### Worker CLI
+### CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
 ```bash
+# Worker management
 python -m aaiclick worker start               # Start a worker
 python -m aaiclick worker start --max-tasks 10 # Limit task count
 python -m aaiclick worker list                 # List workers
+
+# Job management
+python -m aaiclick job get <id>               # Get job details
+python -m aaiclick job list                   # List all jobs
+python -m aaiclick job list --status RUNNING  # Filter by status
+python -m aaiclick job list --like "%etl%"    # Filter by name pattern
+python -m aaiclick job list --limit 20 --offset 40  # Pagination
+
+# Background services
 python -m aaiclick background start            # Standalone cleanup worker
 ```
 
