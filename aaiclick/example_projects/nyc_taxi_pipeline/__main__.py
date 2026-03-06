@@ -1,4 +1,4 @@
-"""Entry point for `python -m aaiclick.example_projects.taxi_pipeline`."""
+"""Entry point for `python -m aaiclick.example_projects.nyc_taxi_pipeline`."""
 
 import asyncio
 
