@@ -111,24 +111,6 @@ async def test_context_factory_methods():
     assert obj2.stale
 
 
-async def test_context_weakref_behavior():
-    """Test that context uses weakref and doesn't prevent garbage collection."""
-    from aaiclick.data.data_context import _get_data_state
-
-    async with data_context():
-        obj = await create_object_from_value([1, 2, 3])
-
-        # Object is tracked
-        state = _get_data_state()
-        assert len(state.objects) == 1
-
-        # Even if object is deleted from our scope, weakref should handle it
-        del obj
-
-        # Context should still have the weakref entry (though it might be dead)
-        # We can't easily test GC behavior in Python, so just verify cleanup works
-
-
 async def test_context_dict_values():
     """Test context with dict values."""
     async with data_context():

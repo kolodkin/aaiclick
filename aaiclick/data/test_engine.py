@@ -8,12 +8,12 @@ from aaiclick.data.models import ENGINE_MEMORY, ENGINE_MERGE_TREE, Schema
 async def test_context_with_memory_engine():
     """Test non-default engine (Memory) set on data_context."""
     async with data_context(engine=ENGINE_MEMORY):
-        ch = get_ch_client()
+        ch_client = get_ch_client()
         obj_a = await create_object_from_value([1, 2, 3])
         obj_b = await create_object_from_value([4, 5, 6])
 
         # Verify source tables use Memory engine
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_a._table_name}'
         """)
         assert result.result_rows[0][0] == "Memory"
@@ -21,7 +21,7 @@ async def test_context_with_memory_engine():
         # Operator should also create Memory table
         obj_c = await (obj_a + obj_b)
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_c._table_name}'
         """)
         assert result.result_rows[0][0] == "Memory"
@@ -33,12 +33,12 @@ async def test_context_with_memory_engine():
 async def test_create_object_with_engine_override():
     """Test non-default engine passed directly to create_object."""
     async with data_context():  # Default MergeTree
-        ch = get_ch_client()
+        ch_client = get_ch_client()
         # Override with Memory engine
         schema = Schema(fieldtype="a", columns={"aai_id": "UInt64", "value": "Int64"})
         obj_a = await create_object(schema, engine=ENGINE_MEMORY)
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_a._table_name}'
         """)
         assert result.result_rows[0][0] == "Memory"
@@ -46,7 +46,7 @@ async def test_create_object_with_engine_override():
         # Without override, should use context default (MergeTree)
         obj_b = await create_object(schema)
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_b._table_name}'
         """)
         assert result.result_rows[0][0] == "MergeTree"
@@ -55,11 +55,11 @@ async def test_create_object_with_engine_override():
 async def test_mixed_engine_scenario():
     """Test mix of context engine and per-object override."""
     async with data_context(engine=ENGINE_MEMORY):
-        ch = get_ch_client()
+        ch_client = get_ch_client()
         # Create with context default (Memory)
         obj_a = await create_object_from_value([10, 20, 30])
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_a._table_name}'
         """)
         assert result.result_rows[0][0] == "Memory"
@@ -68,19 +68,19 @@ async def test_mixed_engine_scenario():
         schema = Schema(fieldtype="a", columns={"aai_id": "UInt64", "value": "Int64"})
         obj_b = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_b._table_name}'
         """)
         assert result.result_rows[0][0] == "MergeTree"
 
         # Insert data into obj_b
-        await ch.insert(obj_b._table_name, [[1, 100], [2, 200], [3, 300]])
+        await ch_client.insert(obj_b._table_name, [[1, 100], [2, 200], [3, 300]])
 
         # Operator between Memory and MergeTree objects
         # Result should use context default (Memory)
         obj_c = await (obj_a + obj_b)
 
-        result = await ch.query(f"""
+        result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_c._table_name}'
         """)
         assert result.result_rows[0][0] == "Memory"

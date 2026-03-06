@@ -40,8 +40,6 @@ from .models import (
     ORIENT_RECORDS,
 )
 from .data_context import (
-    DataCtxState,
-    _get_data_state,
     get_ch_client,
     incref,
     decref,
@@ -97,22 +95,22 @@ class Object:
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
         self._schema = schema
-        self._ctx_name: Optional[str] = None
+        self._ctx: Optional[str] = None
         self._where_clauses: List[Tuple[str, str]] = []
 
     def _register(self, ctx_name: str = "default") -> None:
         """Register this object with a named context for lifecycle tracking."""
-        self._ctx_name = ctx_name
+        self._ctx = ctx_name
         incref(self._table_name, ctx=ctx_name)
 
     def __del__(self):
         """Decrement refcount on deletion."""
         if sys.is_finalizing():
             return
-        if self._ctx_name is None:
+        if self._ctx is None:
             return
         try:
-            decref(self._table_name, ctx=self._ctx_name)
+            decref(self._table_name, ctx=self._ctx)
         except RuntimeError:
             return
 
@@ -125,12 +123,6 @@ class Object:
     def schema(self) -> Optional[Schema]:
         """Get the cached schema for this object (read-only)."""
         return self._schema
-
-    @property
-    def ctx(self) -> DataCtxState:
-        """Get the state bundle managing this object."""
-        self.checkstale()
-        return _get_data_state(self._ctx_name or "default")
 
     @property
     def limit(self) -> Optional[int]:
@@ -165,7 +157,7 @@ class Object:
     def ch_client(self):
         """Get the ClickHouse client from the context."""
         self.checkstale()
-        return get_ch_client(ctx=self._ctx_name or "default")
+        return get_ch_client(ctx=self._ctx or "default")
 
     @property
     def stale(self) -> bool:
@@ -1640,9 +1632,9 @@ class View(Object):
         new_view._offset = self._offset
         new_view._order_by = self._order_by
         new_view._selected_fields = self._selected_fields
-        if self._ctx_name is not None:
-            new_view._register(self._ctx_name)
-            register_object(new_view, ctx=self._ctx_name)
+        if self._ctx is not None:
+            new_view._register(self._ctx)
+            register_object(new_view, ctx=self._ctx)
         return new_view
 
     def where(self, condition: str) -> View:
