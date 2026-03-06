@@ -8,7 +8,6 @@ and supports operations through operator overloading.
 from __future__ import annotations
 
 import sys
-import weakref
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
@@ -40,7 +39,13 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .data_context import get_data_context, DataContext, create_object_from_value
+from .data_context import (
+    get_ch_client,
+    incref,
+    decref,
+    register_object,
+    create_object_from_value,
+)
 from .sql_utils import quote_identifier
 
 
@@ -90,31 +95,24 @@ class Object:
         self._table_name = table if table is not None else f"t{get_snowflake_id()}"
         self._stale = False
         self._schema = schema
-        self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
+        self._ctx: Optional[str] = None
         self._where_clauses: List[Tuple[str, str]] = []
 
-    def _register(self, context: DataContext) -> None:
-        """Register this object with context for lifecycle tracking."""
-        self._data_ctx_ref = weakref.ref(context)
-        context.incref(self._table_name)
+    def _register(self, ctx_name: str = "default") -> None:
+        """Register this object with a named context for lifecycle tracking."""
+        self._ctx = ctx_name
+        incref(self._table_name, ctx=ctx_name)
 
     def __del__(self):
         """Decrement refcount on deletion."""
-        # Guard 1: Interpreter shutdown
         if sys.is_finalizing():
             return
-
-        # Guard 2: Never registered
-        if self._data_ctx_ref is None:
+        if self._ctx is None:
             return
-
-        # Guard 3: Context gone
-        context = self._data_ctx_ref()
-        if context is None:
+        try:
+            decref(self._table_name, ctx=self._ctx)
+        except RuntimeError:
             return
-
-        # Decref (handles worker=None internally)
-        context.decref(self._table_name)
 
     @property
     def table(self) -> str:
@@ -125,12 +123,6 @@ class Object:
     def schema(self) -> Optional[Schema]:
         """Get the cached schema for this object (read-only)."""
         return self._schema
-
-    @property
-    def ctx(self) -> Context:
-        """Get the context managing this object."""
-        self.checkstale()
-        return get_data_context()
 
     @property
     def limit(self) -> Optional[int]:
@@ -165,7 +157,7 @@ class Object:
     def ch_client(self):
         """Get the ClickHouse client from the context."""
         self.checkstale()
-        return self.ctx.ch_client
+        return get_ch_client(ctx=self._ctx or "default")
 
     @property
     def stale(self) -> bool:
@@ -441,7 +433,7 @@ class Object:
         info_a = self._get_query_info()
         info_b = obj_b._get_query_info()
         return await operators._apply_operator_db(
-            info_a, info_b, operator, self.ch_client, self.ctx
+            info_a, info_b, operator, self.ch_client
         )
 
     async def __add__(self, other: Object) -> Object:
@@ -1589,11 +1581,9 @@ class View(Object):
         self._selected_fields = selected_fields
 
         # Register with context for lifecycle tracking and stale marking
-        if source._data_ctx_ref is not None:
-            context = source._data_ctx_ref()
-            if context is not None:
-                self._register(context)
-                context._register_object(self)
+        if source._ctx is not None:
+            self._register(source._ctx)
+            register_object(self, ctx=source._ctx)
 
     @property
     def limit(self) -> Optional[int]:
@@ -1642,11 +1632,9 @@ class View(Object):
         new_view._offset = self._offset
         new_view._order_by = self._order_by
         new_view._selected_fields = self._selected_fields
-        if self._data_ctx_ref is not None:
-            context = self._data_ctx_ref()
-            if context is not None:
-                new_view._register(context)
-                context._register_object(new_view)
+        if self._ctx is not None:
+            new_view._register(self._ctx)
+            register_object(new_view, ctx=self._ctx)
         return new_view
 
     def where(self, condition: str) -> View:

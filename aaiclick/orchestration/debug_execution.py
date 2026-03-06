@@ -5,7 +5,7 @@ This module provides functions for running jobs in debug/test mode.
 
 import asyncio
 
-from .context import OrchContext
+from .context import orch_context
 from .execution import run_job_tasks
 from .models import Job
 
@@ -36,5 +36,5 @@ async def ajob_test(job: Job) -> None:
     Args:
         job: Job to execute
     """
-    async with OrchContext():
+    async with orch_context():
         await run_job_tasks(job)

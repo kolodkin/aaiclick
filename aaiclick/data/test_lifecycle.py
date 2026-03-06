@@ -4,6 +4,8 @@ Tests for LifecycleHandler ABC and LocalLifecycleHandler.
 
 from unittest.mock import MagicMock, patch
 
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import _get_data_state, data_context, incref, decref
 from aaiclick.data.lifecycle import LifecycleHandler, LocalLifecycleHandler
 from aaiclick.data.models import ClickHouseCreds
 
@@ -61,12 +63,11 @@ async def test_local_lifecycle_stop_delegates():
 
 
 async def test_data_context_creates_local_lifecycle_by_default():
-    """DataContext creates LocalLifecycleHandler when no lifecycle injected."""
-    from aaiclick import DataContext, create_object_from_value
-
-    async with DataContext() as ctx:
-        assert isinstance(ctx._lifecycle, LocalLifecycleHandler)
-        assert ctx._owns_lifecycle is True
+    """data_context creates LocalLifecycleHandler when no lifecycle injected."""
+    async with data_context():
+        state = _get_data_state()
+        assert isinstance(state.lifecycle, LocalLifecycleHandler)
+        assert state.owns_lifecycle is True
 
         obj = await create_object_from_value([1, 2, 3])
         data = await obj.data()
@@ -74,14 +75,13 @@ async def test_data_context_creates_local_lifecycle_by_default():
 
 
 async def test_data_context_uses_injected_lifecycle():
-    """DataContext uses injected lifecycle handler without owning it."""
-    from aaiclick import DataContext, create_object_from_value
-
+    """data_context uses injected lifecycle handler without owning it."""
     mock_lifecycle = MagicMock(spec=LifecycleHandler)
 
-    async with DataContext(lifecycle=mock_lifecycle) as ctx:
-        assert ctx._lifecycle is mock_lifecycle
-        assert ctx._owns_lifecycle is False
+    async with data_context(lifecycle=mock_lifecycle):
+        state = _get_data_state()
+        assert state.lifecycle is mock_lifecycle
+        assert state.owns_lifecycle is False
 
         # start should NOT have been called (not owned)
         mock_lifecycle.start.assert_not_called()
@@ -92,13 +92,11 @@ async def test_data_context_uses_injected_lifecycle():
 
 async def test_data_context_injected_lifecycle_receives_incref_decref():
     """Injected lifecycle handler receives incref/decref calls."""
-    from aaiclick import DataContext, create_object_from_value
-
     mock_lifecycle = MagicMock(spec=LifecycleHandler)
 
-    async with DataContext(lifecycle=mock_lifecycle) as ctx:
-        ctx.incref("test_table")
-        ctx.decref("test_table")
+    async with data_context(lifecycle=mock_lifecycle):
+        incref("test_table")
+        decref("test_table")
 
     mock_lifecycle.incref.assert_called_once_with("test_table")
     mock_lifecycle.decref.assert_called_once_with("test_table")

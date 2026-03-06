@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import select
 
-from aaiclick.data import DataContext
+from aaiclick.data.data_context import data_context
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration.context import get_orch_context_session
+from aaiclick.orchestration.context import get_orch_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
     deserialize_task_params,
@@ -127,7 +127,7 @@ async def test_deserialize_task_params_native_python(orch_ctx):
     """Test that native Python values are passed through unchanged."""
     kwargs = {"x": 5, "y": 10, "name": "test", "items": [1, 2, 3]}
 
-    async with DataContext():
+    async with data_context():
         result = await deserialize_task_params(kwargs)
         assert result["x"] == 5
         assert result["y"] == 10
@@ -139,7 +139,7 @@ async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
     """Test that unknown object_type is rejected."""
     kwargs = {"x": {"object_type": "unknown", "value": 5}}
 
-    async with DataContext():
+    async with data_context():
         with pytest.raises(ValueError, match="Unknown object_type"):
             await deserialize_task_params(kwargs)
 
@@ -148,7 +148,7 @@ async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
     kwargs = {"data": {"object_type": "object", "table": "t123"}}
 
-    async with DataContext():
+    async with data_context():
         result = await deserialize_task_params(kwargs)
         assert "data" in result
         assert isinstance(result["data"], Object)
@@ -168,7 +168,7 @@ async def test_deserialize_task_params_view(orch_ctx):
         }
     }
 
-    async with DataContext():
+    async with data_context():
         result = await deserialize_task_params(kwargs)
         assert "data" in result
         assert isinstance(result["data"], View)
@@ -239,7 +239,7 @@ async def test_run_job_tasks_single_task(orch_ctx, monkeypatch):
         assert job.completed_at is not None
 
         # Verify task completed in database
-        async with get_orch_context_session() as session:
+        async with get_orch_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
@@ -260,7 +260,7 @@ async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
         assert "intentionally" in job.error
 
         # Verify task failed in database
-        async with get_orch_context_session() as session:
+        async with get_orch_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
@@ -278,7 +278,7 @@ async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
         await run_job_tasks(job)
 
         # Get the task to find log file
-        async with get_orch_context_session() as session:
+        async with get_orch_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             task = result.scalar_one()
 

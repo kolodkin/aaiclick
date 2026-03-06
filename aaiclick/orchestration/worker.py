@@ -15,7 +15,7 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import claim_next_task, update_task_status
-from .context import get_orch_context_session
+from .context import get_orch_session
 from .execution import execute_task, serialize_task_result
 from .models import TaskStatus, Worker, WorkerStatus
 
@@ -53,7 +53,7 @@ async def register_worker(
         started_at=datetime.utcnow(),
     )
 
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         session.add(worker)
         await session.commit()
         await session.refresh(worker)
@@ -74,7 +74,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -104,7 +104,7 @@ async def deregister_worker(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -130,7 +130,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     Returns:
         list[Worker]: List of workers matching criteria
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         query = select(Worker)
         if status is not None:
             query = query.where(Worker.status == status)
@@ -152,7 +152,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
     Returns:
         Worker if found, None otherwise
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -161,7 +161,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
 
 async def _increment_worker_stat(worker_id: int, field: str) -> None:
     """Increment a worker stat field (tasks_completed or tasks_failed)."""
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
         if worker:

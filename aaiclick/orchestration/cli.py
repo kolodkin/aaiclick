@@ -10,7 +10,7 @@ import asyncio
 import signal
 from typing import Optional
 
-from .context import OrchContext
+from .context import orch_context
 from .pg_cleanup import PgCleanupWorker
 from .pg_lifecycle import PgLifecycleHandler
 from .worker import list_workers, worker_main_loop
@@ -18,7 +18,7 @@ from .worker import list_workers, worker_main_loop
 
 async def show_workers() -> None:
     """List all registered workers."""
-    async with OrchContext():
+    async with orch_context():
         workers = await list_workers()
         if not workers:
             print("No workers found")
@@ -39,7 +39,7 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     pg_cleanup = PgCleanupWorker()
     await pg_cleanup.start()
     try:
-        async with OrchContext():
+        async with orch_context():
             await worker_main_loop(
                 max_tasks=max_tasks,
                 lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),

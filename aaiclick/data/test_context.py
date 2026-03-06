@@ -1,14 +1,16 @@
 """
-Tests for DataContext manager functionality.
+Tests for data context manager functionality.
 """
 
 import pytest
-from aaiclick import DataContext, get_data_context, create_object_from_value, create_object
+
+from aaiclick import create_object_from_value, create_object, Schema, FIELDTYPE_SCALAR
+from aaiclick.data.data_context import data_context, delete_object, get_ch_client
 
 
 async def test_context_basic_usage():
     """Test basic context manager usage with automatic cleanup."""
-    async with DataContext() as ctx:
+    async with data_context():
         obj = await create_object_from_value([1, 2, 3])
         data = await obj.data()
         assert data == [1, 2, 3]
@@ -20,7 +22,7 @@ async def test_context_basic_usage():
 
 async def test_context_multiple_objects():
     """Test context manager with multiple objects."""
-    async with DataContext() as ctx:
+    async with data_context():
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
         obj3 = await create_object_from_value(42)
@@ -46,7 +48,7 @@ async def test_context_multiple_objects():
 
 async def test_context_with_operations():
     """Test context manager with object operations."""
-    async with DataContext() as ctx:
+    async with data_context():
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
 
@@ -67,17 +69,15 @@ async def test_context_with_operations():
 
 async def test_context_create_object_with_schema():
     """Test context with create_object using explicit schema."""
-    from aaiclick import Schema, FIELDTYPE_SCALAR
-
-    async with DataContext() as ctx:
+    async with data_context():
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": "Float64"})
         obj = await create_object(schema)
-        ch_client = ctx.ch_client
+        ch = get_ch_client()
 
         # Insert some data
-        await ch_client.command(f"INSERT INTO {obj.table} VALUES (3.14)")
+        await ch.command(f"INSERT INTO {obj.table} VALUES (3.14)")
 
-        result = await ch_client.query(f"SELECT * FROM {obj.table}")
+        result = await ch.query(f"SELECT * FROM {obj.table}")
         assert len(result.result_rows) == 1
         assert abs(result.result_rows[0][0] - 3.14) < 1e-5
 
@@ -91,15 +91,13 @@ async def test_context_object_stale_flag(ctx):
     obj = await create_object_from_value([1, 2, 3])
     assert not obj.stale
 
-    await ctx.delete(obj)
+    await delete_object(obj)
     assert obj.stale
 
 
 async def test_context_factory_methods():
     """Test using factory methods via context."""
-    from aaiclick import Schema, FIELDTYPE_SCALAR
-
-    async with DataContext() as ctx:
+    async with data_context():
         # Using create_object_from_value
         obj1 = await create_object_from_value([1, 2, 3])
         # Using create_object
@@ -113,25 +111,9 @@ async def test_context_factory_methods():
     assert obj2.stale
 
 
-async def test_context_weakref_behavior():
-    """Test that context uses weakref and doesn't prevent garbage collection."""
-    async with DataContext() as ctx:
-        obj = await create_object_from_value([1, 2, 3])
-        table_name = obj.table
-
-        # Object is tracked
-        assert len(ctx._objects) == 1
-
-        # Even if object is deleted from our scope, weakref should handle it
-        del obj
-
-        # Context should still have the weakref entry (though it might be dead)
-        # We can't easily test GC behavior in Python, so just verify cleanup works
-
-
 async def test_context_dict_values():
     """Test context with dict values."""
-    async with DataContext() as ctx:
+    async with data_context():
         # Dict of scalars
         obj1 = await create_object_from_value({"name": "Alice", "age": 30})
         data1 = await obj1.data()
@@ -151,7 +133,7 @@ async def test_context_dict_values():
 
 async def test_context_concat_operation():
     """Test context with concat operation."""
-    async with DataContext() as ctx:
+    async with data_context():
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
 
@@ -170,9 +152,10 @@ async def test_context_concat_operation():
 
 async def test_context_client_usage():
     """Test that context can use global client."""
-    async with DataContext() as ctx:
-        # Context should use global client if none provided
-        assert ctx.ch_client is not None
+    async with data_context():
+        # Context should have a working client
+        ch = get_ch_client()
+        assert ch is not None
 
         obj = await create_object_from_value([1, 2, 3])
         data = await obj.data()
@@ -182,7 +165,7 @@ async def test_context_client_usage():
 async def test_stale_object_prevents_data_access(ctx):
     """Test that stale objects prevent database access."""
     obj = await create_object_from_value([1, 2, 3])
-    await ctx.delete(obj)
+    await delete_object(obj)
 
     # Object is now stale, should raise RuntimeError
     assert obj.stale
@@ -196,7 +179,7 @@ async def test_stale_object_prevents_operators(ctx):
     obj1 = await create_object_from_value([1, 2, 3])
     obj2 = await create_object_from_value([4, 5, 6])
 
-    await ctx.delete(obj1)
+    await delete_object(obj1)
     assert obj1.stale
 
     # Attempting to use operators on stale object should raise
@@ -207,7 +190,7 @@ async def test_stale_object_prevents_operators(ctx):
 async def test_stale_object_prevents_aggregates(ctx):
     """Test that stale objects prevent aggregate methods."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    await ctx.delete(obj)
+    await delete_object(obj)
 
     assert obj.stale
 
@@ -234,7 +217,7 @@ async def test_stale_object_prevents_operations(ctx, method):
     obj1 = await create_object_from_value([1, 2, 3])
     obj2 = await create_object_from_value([4, 5, 6])
 
-    await ctx.delete(obj1)
+    await delete_object(obj1)
     with pytest.raises(RuntimeError, match="Cannot use stale Object"):
         if method == "copy":
             await obj1.copy()
@@ -249,7 +232,7 @@ async def test_stale_object_allows_property_access(ctx):
     obj = await create_object_from_value([1, 2, 3])
     table_name = obj.table
 
-    await ctx.delete(obj)
+    await delete_object(obj)
 
     # Properties should still be accessible
     assert obj.stale
@@ -259,7 +242,7 @@ async def test_stale_object_allows_property_access(ctx):
 
 async def test_context_stale_error_messages():
     """Test that error messages include table name."""
-    async with DataContext() as ctx:
+    async with data_context():
         obj = await create_object_from_value([1, 2, 3])
         table_name = obj.table
 

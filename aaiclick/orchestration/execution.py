@@ -10,11 +10,15 @@ from typing import Any, Callable, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from aaiclick.data import DataContext, get_data_context
+from aaiclick.data.data_context import (
+    _get_data_state,
+    data_context,
+    register_object,
+)
 from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.object import Object, View
 
-from .context import get_orch_context_session
+from .context import get_orch_session
 from .decorators import TaskFactory
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
@@ -119,21 +123,21 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
     # Check for Object/View reference
     if "object_type" in value:
-        ctx = get_data_context()
+        state = _get_data_state()
         obj_type = value["object_type"]
 
         if obj_type == "object":
             obj = Object(table=value["table"])
-            obj._register(ctx)
-            ctx._register_object(obj)
-            if "job_id" in value and ctx.lifecycle is not None:
-                await ctx.lifecycle.claim(value["table"], value["job_id"])
+            obj._register()
+            register_object(obj)
+            if "job_id" in value and state.lifecycle is not None:
+                await state.lifecycle.claim(value["table"], value["job_id"])
             return obj
 
         elif obj_type == "view":
             source = Object(table=value["table"])
-            source._register(ctx)
-            ctx._register_object(source)
+            source._register()
+            register_object(source)
             view = View(
                 source=source,
                 where=value.get("where"),
@@ -142,9 +146,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 order_by=value.get("order_by"),
                 selected_fields=value.get("selected_fields"),
             )
-            ctx._register_object(view)
-            if "job_id" in value and ctx.lifecycle is not None:
-                await ctx.lifecycle.claim(value["table"], value["job_id"])
+            register_object(view)
+            if "job_id" in value and state.lifecycle is not None:
+                await state.lifecycle.claim(value["table"], value["job_id"])
             return view
 
         else:
@@ -179,7 +183,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
     if not serialized_params:
         return {}
 
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         return {
             k: await _deserialize_value(v, session)
             for k, v in serialized_params.items()
@@ -215,7 +219,7 @@ async def execute_task(
     func = import_callback(task.entrypoint)
 
     with capture_task_output(task.id):
-        async with DataContext(lifecycle=lifecycle):
+        async with data_context(lifecycle=lifecycle):
             kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
@@ -266,7 +270,7 @@ async def run_job_tasks(job: Job) -> None:
     Raises:
         Exception: If any task fails
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Update job to RUNNING
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -278,7 +282,7 @@ async def run_job_tasks(job: Job) -> None:
 
     # Fetch and execute one task at a time until no more pending tasks
     while True:
-        async with get_orch_context_session() as session:
+        async with get_orch_session() as session:
             # Fetch next pending task for this job
             result = await session.execute(
                 select(Task)
@@ -308,7 +312,7 @@ async def run_job_tasks(job: Job) -> None:
             # Serialize result (Object or View) to JSON-storable reference
             result_ref = serialize_task_result(result, task_job_id)
 
-            async with get_orch_context_session() as session:
+            async with get_orch_session() as session:
                 # Reload and update task to COMPLETED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
@@ -324,7 +328,7 @@ async def run_job_tasks(job: Job) -> None:
             job_failed = True
             error_msg = str(e)
 
-            async with get_orch_context_session() as session:
+            async with get_orch_session() as session:
                 # Reload and update task to FAILED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
@@ -337,7 +341,7 @@ async def run_job_tasks(job: Job) -> None:
 
             break
 
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Reload job and update final status
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one()

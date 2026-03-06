@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from .data_context import create_object, get_data_context
+from .data_context import create_object, get_ch_client
 from .models import FIELDTYPE_ARRAY, Schema
 from .sql_utils import quote_identifier
 from ..snowflake_id import get_snowflake_id
@@ -89,7 +89,7 @@ async def create_object_from_url(
     if where is not None and ";" in where:
         raise ValueError("WHERE clause must not contain ';'")
 
-    ctx = get_data_context()
+    ch = get_ch_client()
 
     # Escape single quotes in URL for safe SQL embedding
     safe_url = url.replace("'", "\\'")
@@ -100,7 +100,7 @@ async def create_object_from_url(
     describe_query = (
         f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
     )
-    describe_result = await ctx.ch_client.query(describe_query)
+    describe_result = await ch.query(describe_query)
 
     ch_types: dict[str, str] = {}
     for row in describe_result.result_rows:
@@ -138,6 +138,6 @@ async def create_object_from_url(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ctx.ch_client.command(insert_query)
+    await ch.command(insert_query)
 
     return obj

@@ -12,11 +12,12 @@ Views are read-only and reference the underlying table data.
 
 import asyncio
 
-from aaiclick import DataContext, ORIENT_RECORDS, create_object_from_value
+from aaiclick import ORIENT_RECORDS, create_object_from_value
+from aaiclick.data.data_context import data_context
 
 
-async def example(context):
-    """Run all view examples using the provided context."""
+async def example():
+    """Run all view examples."""
     # Example 1: WHERE clause with int scalar array
     print("Example 1: WHERE clause with int scalar array")
     print("-" * 50)
@@ -325,9 +326,9 @@ async def example(context):
 
 
 async def amain():
-    """Main entry point that creates context and calls example."""
-    async with DataContext() as context:
-        await example(context)
+    """Main entry point that creates data_context() and calls example."""
+    async with data_context():
+        await example()
 
 
 if __name__ == "__main__":

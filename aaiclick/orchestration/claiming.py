@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import select
 
-from .context import get_orch_context_session
+from .context import get_orch_session
 from .models import Job, JobStatus, Task, TaskStatus
 
 
@@ -33,7 +33,7 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
     Returns:
         Task if one was claimed, None if no tasks available
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Use raw SQL for FOR UPDATE SKIP LOCKED
         # SQLAlchemy's with_for_update() doesn't support SKIP LOCKED well with subqueries
         result = await session.execute(
@@ -148,7 +148,7 @@ async def update_task_status(
     Returns:
         bool: True if task was found and updated
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Use ORM to fetch and update task with row-level lock
         query_result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
@@ -184,7 +184,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: Optional[str]
     Returns:
         bool: True if job was found and updated
     """
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Use ORM to fetch and update job with row-level lock
         query_result = await session.execute(
             select(Job).where(Job.id == job_id).with_for_update()

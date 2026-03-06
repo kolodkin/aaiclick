@@ -32,7 +32,7 @@ from typing import Any, Callable, List
 from aaiclick.data.object import Object
 
 from ..snowflake_id import get_snowflake_id
-from .context import _current_orch_context, OrchContext, get_orch_context
+from .context import _orch_contexts, commit_tasks, get_orch_session, orch_context
 from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
@@ -197,15 +197,16 @@ class JobFactory:
         Returns:
             Job: Created job with all tasks applied
         """
-        # Check if we're already in an OrchContext
+        # Check if we're already in an orch context
         try:
-            _current_orch_context.get()
-            # Already in context, just run
-            return await self._create_job(**kwargs)
-        except LookupError:
-            # Not in context, create one
-            async with OrchContext():
+            contexts = _orch_contexts.get()
+            if "default" in contexts:
                 return await self._create_job(**kwargs)
+        except LookupError:
+            pass
+        # Not in context, create one
+        async with orch_context():
+            return await self._create_job(**kwargs)
 
     async def _create_job(self, **kwargs) -> Job:
         """Internal method to create job within an OrchContext."""
@@ -230,15 +231,13 @@ class JobFactory:
             created_at=datetime.utcnow(),
         )
 
-        # Get context and apply
-        ctx = get_orch_context()
-
-        async with ctx.get_session() as session:
+        # Commit job to database
+        async with get_orch_session() as session:
             session.add(job)
             await session.commit()
 
-        # Apply tasks with job_id
-        await ctx.apply(tasks, job.id)
+        # Commit tasks with job_id
+        await commit_tasks(tasks, job.id)
 
         return job
 

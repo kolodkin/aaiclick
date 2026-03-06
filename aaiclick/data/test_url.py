@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from aaiclick import create_object_from_url
+from aaiclick.data.data_context import get_ch_client
 
 _NUM_ROWS = 200
 _SAMPLES_DIR = str(Path(__file__).resolve().parent.parent / "url_samples")
@@ -233,7 +234,7 @@ async def test_url_snowflake_ids_ordered(ctx, fileserver):
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet", columns=["price"], format="Parquet", limit=100,
     )
-    result = await ctx.ch_client.query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
+    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
     ids = [row[0] for row in result.result_rows]
     assert ids == sorted(ids)
     assert len(set(ids)) == len(ids)
@@ -403,7 +404,7 @@ async def test_insert_from_url_snowflake_ids(ctx, fileserver):
     )
 
     # All IDs should be unique
-    result = await ctx.ch_client.query(f"SELECT aai_id FROM {obj.table}")
+    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table}")
     ids = [row[0] for row in result.result_rows]
     assert len(set(ids)) == len(ids)  # All unique
     assert len(ids) == 10

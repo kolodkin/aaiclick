@@ -1,13 +1,13 @@
 """
 Run all aaiclick examples.
 
-This script runs all example modules in sequence within a single DataContext.
+This script runs all example modules in sequence within a single data_context().
 Orchestration examples run with their own context management.
 """
 
 import asyncio
 
-from aaiclick import DataContext
+from aaiclick.data.data_context import data_context
 
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
@@ -20,43 +20,43 @@ from .views import example as views_example
 
 async def main():
     """Run all examples."""
-    async with DataContext() as context:
+    async with data_context():
         print("=" * 60)
         print("RUNNING: Basic Operators Example")
         print("=" * 60)
-        await basic_operators_example(context)
+        await basic_operators_example()
 
         print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Data Manipulation Example")
         print("=" * 60)
-        await data_manipulation_example(context)
+        await data_manipulation_example()
 
         print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Statistics Example")
         print("=" * 60)
-        await statistics_example(context)
+        await statistics_example()
 
         print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Views Example")
         print("=" * 60)
-        await views_example(context)
+        await views_example()
 
         print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Group By Example")
         print("=" * 60)
-        await group_by_example(context)
+        await group_by_example()
 
         print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Dict Selectors Example")
         print("=" * 60)
-        await selectors_example(context)
+        await selectors_example()
 
-    # Orchestration example manages its own contexts (OrchContext + DataContext)
+    # Orchestration example manages its own contexts (OrchContext + data_context())
     print("\n" * 2)
     await orchestration_basic_example()
 

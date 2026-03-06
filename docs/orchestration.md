@@ -26,7 +26,7 @@ As aaiclick scales to handle large-scale data processing, we need:
            │
            ▼
 ┌──────────────────────┐           ┌──────────────────────────┐
-│   DataContext        │           │    OrchContext           │
+│   data_context()     │           │    orch_context()        │
 │  (ClickHouse data)   │           │  (Orchestration state)   │
 │  ┌────────────────┐  │           │  ┌────────────────────┐ │
 │  │ ClickHouse     │  │           │  │ AsyncEngine        │ │
@@ -60,18 +60,18 @@ As aaiclick scales to handle large-scale data processing, we need:
 
 Both contexts are async context managers using `ContextVar` for async-safe global access:
 
-- **DataContext** (`aaiclick/data/data_context.py`): ClickHouse data operations
+- **data_context()** (`aaiclick/data/data_context.py`): ClickHouse data operations
   - Connection (AsyncClient via shared urllib3 pool)
   - Object tracking (weakref dict — marks Objects stale on exit)
   - Lifecycle/refcounting (`incref`/`decref` for table cleanup)
   - Public API — used directly by user code
 
-- **OrchContext** (`aaiclick/orchestration/context.py`): PostgreSQL orchestration state
+- **orch_context()** (`aaiclick/orchestration/context.py`): PostgreSQL orchestration state
   - Connection (SQLAlchemy AsyncEngine, created/disposed per context)
-  - `apply()` — persists task/group DAGs to PostgreSQL
+  - `commit_tasks()` — persists task/group DAGs to PostgreSQL
   - **Not public API** — `@job` decorator manages it automatically (see `JobFactory.__call__()`)
 
-Workers use **both** contexts internally: DataContext for data, OrchContext for state.
+Workers use **both** contexts internally: `data_context()` for data, `orch_context()` for state.
 
 ### Why Dual-Database?
 
@@ -156,7 +156,7 @@ Airflow-style TaskFlow API with automatic dependency detection. For usage exampl
 **How it works**:
 - `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
 - Passing a Task as an argument automatically creates an upstream dependency
-- `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages OrchContext, applies all tasks to PostgreSQL via `OrchContext.apply()`
+- `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages `orch_context()`, commits all tasks to PostgreSQL via `commit_tasks()`
 - Native Python values (int, float, list, etc.) work alongside Object/View parameters
 - At runtime, workers resolve upstream refs by querying completed task results
 
@@ -170,7 +170,7 @@ Airflow-style TaskFlow API with automatic dependency detection. For usage exampl
 
 Not for direct use:
 - `create_task()`, `create_job()` — low-level factories in `aaiclick/orchestration/factories.py`
-- `OrchContext.apply()` — commits DAG to PostgreSQL
+- `commit_tasks()` — commits DAG to PostgreSQL
 - `>>` / `<<` dependency operators on Task/Group
 
 ### Not Yet Implemented
@@ -224,12 +224,12 @@ Worker Process
 │   ├── polls completed/failed jobs → deletes job-scoped refs
 │   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
 │   └── detects dead workers → marks tasks FAILED
-├── OrchContext (PG engine for jobs/tasks/workers)
-└── DataContext (per task, ClickHouse)
+├── orch_context() (PG engine for jobs/tasks/workers)
+└── data_context() (per task, ClickHouse)
     └── lifecycle = PgLifecycleHandler (injected, not owned)
 ```
 
-Each component owns its own PG engine — fully decoupled from OrchContext.
+Each component owns its own PG engine — fully decoupled from `orch_context()`.
 
 ### Ownership Transfer (Pin/Claim)
 
@@ -237,7 +237,7 @@ Each component owns its own PG engine — fully decoupled from OrchContext.
 Task A executes (handler context_id=auto_snowflake, job_id=job.id)
   ├── incref intermediates → (table_name, auto_snowflake, N) rows in PG
   ├── Returns result Object (table t_result)
-  ├── DataContext exits → Objects marked stale, handler still alive
+  ├── data_context() exits → Objects marked stale, handler still alive
   ├── PIN: inserts (t_result, job_id, 1) — survives stop()
   └── stop() → DELETE WHERE context_id=auto_snowflake (intermediates cleaned)
 
@@ -245,7 +245,7 @@ Task B starts (handler context_id=auto_snowflake_2, job_id=job.id)
   ├── Deserializes task_a.result:
   │   ├── incref → inserts (t_result, auto_snowflake_2, 1)  ← consumer owns it
   │   └── claim → deletes (t_result, job_id, 1)             ← release job ref
-  └── obj_a now owned by Task B's DataContext
+  └── obj_a now owned by Task B's data_context()
 
 Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
 ```
@@ -285,7 +285,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ### Local Mode
 
-Without injected lifecycle handler, DataContext creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [Object documentation](object.md) — "Table Lifecycle Tracking".
+Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [Object documentation](object.md) — "Table Lifecycle Tracking".
 
 ## Configuration
 

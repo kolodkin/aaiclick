@@ -2,16 +2,17 @@
 Statistics example for aaiclick.
 
 This example demonstrates how to use the statistical methods (min, max, sum, mean, std)
-on Objects containing numeric data within a DataContext.
+on Objects containing numeric data within a data_context().
 """
 
 import asyncio
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
 
 
-async def example(context):
-    """Run all statistics examples using the provided context."""
+async def example():
+    """Run all statistics examples."""
     # Example 1: Basic statistics on a simple dataset
     print("Example 1: Basic statistics on a simple dataset")
     print("-" * 50)
@@ -123,9 +124,9 @@ async def example(context):
 
 
 async def amain():
-    """Main entry point that creates context and calls example."""
-    async with DataContext() as context:
-        await example(context)
+    """Main entry point that creates data_context() and calls example."""
+    async with data_context():
+        await example()
 
 
 if __name__ == "__main__":

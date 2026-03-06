@@ -7,7 +7,7 @@ from typing import Callable, Union
 
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .context import get_orch_context_session
+from .context import get_orch_session
 from .models import Job, JobStatus, Task, TaskStatus
 
 
@@ -160,7 +160,7 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
     task.job_id = job_id
 
     # Commit to database using OrchContext session
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         # Add job and task using ORM
         session.add(job)
         session.add(task)
