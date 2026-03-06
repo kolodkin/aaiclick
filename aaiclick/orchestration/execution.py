@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import math
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -245,6 +246,17 @@ async def execute_task(
     return result
 
 
+def _sanitize_for_json(value: Any) -> Any:
+    """Replace NaN/Inf floats with None for JSON compatibility."""
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    return value
+
+
 def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     """
     Serialize a task result to JSON-storable format.
@@ -268,7 +280,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         return ref
 
     # Store JSON-serializable values (dict, list, int, float, str, bool) directly
-    return {"native_value": result}
+    return {"native_value": _sanitize_for_json(result)}
 
 
 async def run_job_tasks(job: Job) -> None:

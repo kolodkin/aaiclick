@@ -99,7 +99,7 @@ async def compute_basic_stats(trips: Object) -> dict:
     distances = trips["trip_distance"]
     passengers = trips["passenger_count"]
 
-    total_trips = await fares.count()
+    total_trips = await (await fares.count()).data()
     total_fares = await (await fares.sum()).data()
     total_tips = await (await tips.sum()).data()
     total_revenue = await (await totals.sum()).data()
