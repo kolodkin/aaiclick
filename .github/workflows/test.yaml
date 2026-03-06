@@ -117,7 +117,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
-          uv run pytest aaiclick/ -n auto -v --junitxml=tmp/pytest-report.xml
+          uv run pytest aaiclick/ -n auto --dist loadgroup -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v1
