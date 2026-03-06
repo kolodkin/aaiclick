@@ -5,13 +5,21 @@ Usage:
     python -m aaiclick migrate --help     # Show migration help
     python -m aaiclick worker start       # Start a worker process
     python -m aaiclick worker list        # List workers
+    python -m aaiclick job get <id>       # Get job details
+    python -m aaiclick job list           # List jobs
     python -m aaiclick background start   # Start background cleanup worker
 """
 
 import argparse
 import asyncio
 
-from aaiclick.orchestration.cli import show_workers, start_background, start_worker
+from aaiclick.orchestration.cli import (
+    show_job,
+    show_jobs,
+    show_workers,
+    start_background,
+    start_worker,
+)
 from aaiclick.orchestration.migrate import run_migrations
 
 
@@ -62,6 +70,52 @@ def main():
         help="List workers",
     )
 
+    # Add job subcommand
+    job_parser = subparsers.add_parser(
+        "job",
+        help="Job management commands",
+    )
+    job_subparsers = job_parser.add_subparsers(
+        dest="job_command",
+        help="Job commands",
+    )
+
+    # job get <id>
+    job_get_parser = job_subparsers.add_parser(
+        "get",
+        help="Get job details by ID",
+    )
+    job_get_parser.add_argument("id", type=int, help="Job ID")
+
+    # job list
+    job_list_parser = job_subparsers.add_parser(
+        "list",
+        help="List jobs",
+    )
+    job_list_parser.add_argument(
+        "--status",
+        choices=["PENDING", "RUNNING", "COMPLETED", "FAILED"],
+        default=None,
+        help="Filter by status",
+    )
+    job_list_parser.add_argument(
+        "--like",
+        default=None,
+        help="Filter by name pattern (SQL LIKE, e.g. '%%etl%%')",
+    )
+    job_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum results (default: 50)",
+    )
+    job_list_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip N results (default: 0)",
+    )
+
     # Add background subcommand
     background_parser = subparsers.add_parser(
         "background",
@@ -98,6 +152,21 @@ def main():
 
         else:
             worker_parser.print_help()
+
+    elif args.command == "job":
+        if args.job_command == "get":
+            asyncio.run(show_job(args.id))
+
+        elif args.job_command == "list":
+            asyncio.run(show_jobs(
+                status=args.status,
+                name_like=args.like,
+                limit=args.limit,
+                offset=args.offset,
+            ))
+
+        else:
+            job_parser.print_help()
 
     elif args.command == "background":
         if args.background_command == "start":

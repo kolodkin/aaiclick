@@ -22,4 +22,5 @@ Usage:
 from .context import commit_tasks, get_orch_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
+from .job import count_jobs, get_job, list_jobs
 from .models import JobStatus, TaskStatus

@@ -173,9 +173,19 @@ Not for direct use:
 - `commit_tasks()` — commits DAG to PostgreSQL
 - `>>` / `<<` dependency operators on Task/Group
 
+### Job Management APIs ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/orchestration/job.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
+
+- `get_job(job_id)` — retrieve a single job by ID
+- `list_jobs(status, name_like, limit, offset)` — list jobs with filtering and pagination
+- `count_jobs(status, name_like)` — count matching jobs
+
+**CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
+
 ### Not Yet Implemented
 
-- `get_job()`, `list_jobs()`, `cancel_job()` — job management APIs
+- `cancel_job()` — cancel an in-flight job
 - Dynamic task creation during execution (Phase 8+)
 
 ## Task Execution

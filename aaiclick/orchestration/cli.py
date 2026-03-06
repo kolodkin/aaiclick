@@ -11,6 +11,8 @@ import signal
 from typing import Optional
 
 from .context import orch_context
+from .job import count_jobs, get_job, list_jobs
+from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
 from .pg_lifecycle import PgLifecycleHandler
 from .worker import list_workers, worker_main_loop
@@ -28,6 +30,54 @@ async def show_workers() -> None:
         print("-" * 80)
         for w in workers:
             print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
+
+
+async def show_job(job_id: int) -> None:
+    """Show details for a single job."""
+    async with orch_context():
+        job = await get_job(job_id)
+        if job is None:
+            print(f"Job {job_id} not found")
+            return
+
+        print(f"ID:           {job.id}")
+        print(f"Name:         {job.name}")
+        print(f"Status:       {job.status.value}")
+        print(f"Created at:   {job.created_at}")
+        print(f"Started at:   {job.started_at or '-'}")
+        print(f"Completed at: {job.completed_at or '-'}")
+        if job.error:
+            print(f"Error:        {job.error}")
+
+
+async def show_jobs(
+    *,
+    status: Optional[str] = None,
+    name_like: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> None:
+    """List jobs with optional filtering and pagination."""
+    job_status = JobStatus(status) if status else None
+
+    async with orch_context():
+        total = await count_jobs(status=job_status, name_like=name_like)
+        jobs = await list_jobs(
+            status=job_status,
+            name_like=name_like,
+            limit=limit,
+            offset=offset,
+        )
+        if not jobs:
+            print("No jobs found")
+            return
+
+        print(f"{'ID':<20} {'Name':<30} {'Status':<12} {'Created':<20}")
+        print("-" * 82)
+        for j in jobs:
+            created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{j.id:<20} {j.name:<30} {j.status.value:<12} {created:<20}")
+        print(f"\nShowing {offset + 1}-{offset + len(jobs)} of {total}")
 
 
 async def start_worker(max_tasks: Optional[int] = None) -> None:
