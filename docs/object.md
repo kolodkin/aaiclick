@@ -2,6 +2,8 @@
 
 ## Overview
 
+**Implementation**: `aaiclick/data/object.py` — see `Object` and `View` classes
+
 The `Object` class represents data stored in ClickHouse tables. Each Object instance corresponds to a ClickHouse table and supports operations through operator overloading that create new tables with results.
 
 **Key Features:**
@@ -14,714 +16,185 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 ## Object Lifecycle and Staleness
 
-### Context Management
+Objects are managed by a `DataContext` and become **stale** when the context exits. All async methods call `self.checkstale()` — using a stale Object raises `RuntimeError`.
 
-Objects are managed by a `DataContext` and automatically cleaned up when the context exits. All objects created within a context become **stale** when the context is closed.
+**Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-```python
-async with DataContext():
-    obj = await create_object_from_value([1, 2, 3])
-    data = await obj.data()  # ✓ Works fine
-
-# DataContext exits, obj becomes stale
-
-data = await obj.data()  # ✗ RuntimeError: Cannot use stale Object
-```
-
-### Staleness Detection
-
-Objects have built-in staleness detection that prevents operations on stale objects:
-
-**Properties:**
-- `obj.stale` - Returns `True` if object is stale, `False` otherwise
-- `obj.ctx` - Raises `RuntimeError` if object is stale
-- `obj.ch_client` - Raises `RuntimeError` if object is stale
-
-**Methods:**
-- All async database methods call `self.checkstale()` at the start
-- Clear error message: `"Cannot use stale Object. Table 't123...' has been deleted."`
-
-### Explicit Staleness Check
-
-```python
-# Manual check
-obj.checkstale()  # Raises RuntimeError if stale
-
-# Check property
-if obj.stale:
-    print("Object is stale")
-```
-
-### Best Practices
-
-**✓ DO:**
-- Keep all object operations within the context manager
-- Create and use objects in the same context
-- Allow automatic cleanup on context exit
-
-```python
-async with DataContext():
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([4, 5, 6])
-    result = await (a + b)
-    data = await result.data()  # All operations in context
-```
-
-**✗ DON'T:**
-- Store objects for use outside the context
-- Try to use objects after context exits
-- Pass objects between different contexts
-
-```python
-# Bad: Storing object for later use
-async with DataContext():
-    obj = await create_object_from_value([1, 2, 3])
-
-data = await obj.data()  # Error! Object is stale
-```
-
-### Implementation Details
-
-Staleness is implemented through explicit checks:
-- Each async method calls `self.checkstale()` at execution time
-- Properties `ctx` and `ch_client` also call `self.checkstale()`
-- When context exits, all registered objects have their `_stale` flag set to `True`
-- Any attempt to use a stale object raises a clear `RuntimeError`
-
-This provides robust protection against accessing deleted tables.
+**Rules**: Create and use Objects within the same DataContext. Don't store Objects for use after context exit. Don't pass Objects between contexts.
 
 ## Table Schema and Structure
 
-### Table Naming Convention
+Each Object gets a dedicated ClickHouse table named `t{snowflake_id}`. All tables include an `aai_id` column (Snowflake ID) for ordering — ClickHouse doesn't guarantee insertion order in SELECT.
 
-Each Object gets a dedicated ClickHouse table with a unique name generated using Snowflake IDs (prefixed with 't' for ClickHouse compatibility).
+**Implementation**: `aaiclick/data/data_context.py` — see `create_object()` and `create_object_from_value()`
 
 ### Schema Patterns
 
-All tables include an `aai_id` column with Snowflake IDs for consistency.
+| Data Type       | Columns                              | Rows     |
+|-----------------|--------------------------------------|----------|
+| Scalar          | `aai_id UInt64`, `value {type}`      | 1        |
+| Array/List      | `aai_id UInt64`, `value {type}`      | N        |
+| Dict of Scalars | `aai_id UInt64`, `col1`, `col2`, ... | 1        |
+| Dict of Arrays  | `aai_id UInt64`, `col1`, `col2`, ... | N        |
 
-**Scalars** - Single row with aai_id:
-```sql
-CREATE TABLE (
-    aai_id UInt64,  -- Snowflake ID
-    value {type}
-)
-```
+Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
 
-**Arrays/Lists** - Multiple rows with guaranteed insertion order:
-```sql
-CREATE TABLE (
-    aai_id UInt64,  -- Snowflake ID for ordering
-    value {type}
-)
-```
+### Snowflake ID Structure (64 bits)
 
-**Dict of Scalars** - Single row with aai_id:
-```sql
-CREATE TABLE (
-    aai_id UInt64,  -- Snowflake ID
-    col1 {type},
-    col2 {type},
-    ...
-)
-```
+| Bits  | Field      | Range                         |
+|-------|------------|-------------------------------|
+| 63    | Sign       | Always 0                      |
+| 62-22 | Timestamp  | 41 bits, ~69 years            |
+| 21-12 | Machine ID | 10 bits, up to 1024 machines  |
+| 11-0  | Sequence   | 12 bits, up to 4096 IDs/ms    |
 
-**Dict of Arrays** - Multiple rows with guaranteed insertion order:
-```sql
-CREATE TABLE (
-    aai_id UInt64,  -- Snowflake ID for ordering
-    col1 {type},
-    col2 {type},
-    ...
-)
-```
-
-### Identifier Quoting
-
-All column names are backtick-quoted in SQL statements across the codebase (CREATE TABLE DDL, SELECT, INSERT...SELECT). This supports column names with spaces, reserved words, and special characters. The shared utility `quote_identifier()` in `aaiclick/data/sql_utils.py` handles escaping internal backticks.
-
-### Why aai_id?
-
-ClickHouse doesn't guarantee insertion order in SELECT queries. The `aai_id` column uses **[Snowflake IDs](https://en.wikipedia.org/wiki/Snowflake_ID)** to:
-- Guarantee globally unique row identifiers
-- Preserve insertion order (time-ordered IDs)
-- Enable correct element-wise operations (a + b matches by position)
-- Support distributed/concurrent scenarios
-
-**Snowflake ID structure (64 bits):**
-- Bit 63: Sign bit (always 0)
-- Bits 62-22: Timestamp (41 bits, ~69 years)
-- Bits 21-12: Machine ID (10 bits, up to 1024 machines)
-- Bits 11-0: Sequence (12 bits, up to 4096 IDs/ms per machine)
+**Implementation**: `aaiclick/snowflake_id.py`
 
 ## Operator Support
 
-All operators work element-wise on both scalar and array data types.
+**Implementation**: `aaiclick/data/object.py` (dunder methods) delegates to `aaiclick/data/operators.py` (async functions).
+
+All operators work element-wise on both scalar and array data. Each operator creates a new Object table with the result via `_apply_operator()` using SQL templates (`apply_op_scalar.sql`, `apply_op_array.sql`).
+
+See [operators.md](operators.md) for complete function reference. For runnable examples, see `examples/basic_operators.py`.
 
 ### Arithmetic Operators
 
-| Python Operator | Description    | ClickHouse Equivalent | Python Method   | ClickHouse Reference                                                                            |
-|-----------------|----------------|-----------------------|-----------------|-------------------------------------------------------------------------------------------------|
-| `+`             | Addition       | `+`                   | `__add__`       | [operators#plus](https://clickhouse.com/docs/sql-reference/operators#plus)                      |
-| `-`             | Subtraction    | `-`                   | `__sub__`       | [operators#minus](https://clickhouse.com/docs/sql-reference/operators#minus)                    |
-| `*`             | Multiplication | `*`                   | `__mul__`       | [operators#multiply](https://clickhouse.com/docs/sql-reference/operators#multiply)              |
-| `/`             | Division       | `/`                   | `__truediv__`   | [operators#divide](https://clickhouse.com/docs/sql-reference/operators#divide)                  |
-| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | [intDiv](https://clickhouse.com/docs/sql-reference/functions/arithmetic-functions#intdiva-b)    |
-| `%`             | Modulo         | `%`                   | `__mod__`       | [operators#modulo](https://clickhouse.com/docs/sql-reference/operators#modulo)                  |
-| `**`            | Power          | `power()`             | `__pow__`       | [pow](https://clickhouse.com/docs/sql-reference/functions/math-functions#pow)                   |
+| Python Operator | Description    | ClickHouse Equivalent | Python Method   |
+|-----------------|----------------|-----------------------|-----------------|
+| `+`             | Addition       | `+`                   | `__add__`       |
+| `-`             | Subtraction    | `-`                   | `__sub__`       |
+| `*`             | Multiplication | `*`                   | `__mul__`       |
+| `/`             | Division       | `/`                   | `__truediv__`   |
+| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  |
+| `%`             | Modulo         | `%`                   | `__mod__`       |
+| `**`            | Power          | `power()`             | `__pow__`       |
 
 ### Comparison Operators
 
-| Python Operator | Description          | ClickHouse Equivalent | Python Method | ClickHouse Reference                                                                                        |
-|-----------------|----------------------|-----------------------|---------------|-------------------------------------------------------------------------------------------------------------|
-| `==`            | Equal                | `=`                   | `__eq__`      | [operators#equals](https://clickhouse.com/docs/sql-reference/operators#equals)                              |
-| `!=`            | Not Equal            | `!=`                  | `__ne__`      | [operators#not-equals](https://clickhouse.com/docs/sql-reference/operators#not-equals)                      |
-| `<`             | Less Than            | `<`                   | `__lt__`      | [operators#less](https://clickhouse.com/docs/sql-reference/operators#less)                                  |
-| `<=`            | Less Than or Equal   | `<=`                  | `__le__`      | [operators#less-or-equals](https://clickhouse.com/docs/sql-reference/operators#less-or-equals)              |
-| `>`             | Greater Than         | `>`                   | `__gt__`      | [operators#greater](https://clickhouse.com/docs/sql-reference/operators#greater)                            |
-| `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      | [operators#greater-or-equals](https://clickhouse.com/docs/sql-reference/operators#greater-or-equals)        |
+| Python Operator | Description           | ClickHouse Equivalent | Python Method |
+|-----------------|-----------------------|-----------------------|---------------|
+| `==`            | Equal                 | `=`                   | `__eq__`      |
+| `!=`            | Not Equal             | `!=`                  | `__ne__`      |
+| `<`             | Less Than             | `<`                   | `__lt__`      |
+| `<=`            | Less Than or Equal    | `<=`                  | `__le__`      |
+| `>`             | Greater Than          | `>`                   | `__gt__`      |
+| `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
 ### Bitwise Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method | ClickHouse Reference                                                                        |
-|-----------------|-------------|-----------------------|---------------|---------------------------------------------------------------------------------------------|
-| `&`             | Bitwise AND | `bitAnd()`            | `__and__`     | [bitAnd](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitanda-b)       |
-| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`      | [bitOr](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitora-b)         |
-| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`     | [bitXor](https://clickhouse.com/docs/sql-reference/functions/bit-functions#bitxora-b)       |
+| Python Operator | Description | ClickHouse Equivalent | Python Method |
+|-----------------|-------------|-----------------------|---------------|
+| `&`             | Bitwise AND | `bitAnd()`            | `__and__`     |
+| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`      |
+| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`     |
 
 ### Aggregation Operators
 
-Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse - no data round-trips to Python.
+Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1) memory.
 
-| Python Method    | Description        | ClickHouse Implementation | Memory Behavior   | ClickHouse Reference                                                                                    |
-|------------------|--------------------|---------------------------|-------------------|---------------------------------------------------------------------------------------------------------|
-| `.min()`         | Minimum value      | `min()`                   | Streaming (O(1))  | [min](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/min)                      |
-| `.max()`         | Maximum value      | `max()`                   | Streaming (O(1))  | [max](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/max)                      |
-| `.sum()`         | Sum of values      | `sum()`                   | Streaming (O(1))  | [sum](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/sum)                      |
-| `.mean()`        | Average value      | `avg()`                   | Streaming (O(1))  | [avg](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg)                      |
-| `.std()`         | Standard deviation | `stddevPop()`             | Streaming (O(1))  | [stddevPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/stddevpop)          |
-| `.var()`         | Variance           | `varPop()`                | Streaming (O(1))  | [varPop](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop)                |
-| `.count()`       | Count of values    | `count()`                 | Streaming (O(1))  | [count](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count)                  |
-| `.quantile(q)`   | Quantile at level q | `quantile(q)()`           | Approximate       | [quantile](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile)            |
-
-**Note:** All aggregation functions use ClickHouse's streaming aggregation, which processes data in chunks without holding the full dataset in memory. The `quantile()` function uses an approximate algorithm for efficiency on large datasets.
+| Method         | ClickHouse Function | Notes                |
+|----------------|---------------------|----------------------|
+| `.min()`       | `min()`             |                      |
+| `.max()`       | `max()`             |                      |
+| `.sum()`       | `sum()`             |                      |
+| `.mean()`      | `avg()`             |                      |
+| `.std()`       | `stddevPop()`       |                      |
+| `.var()`       | `varPop()`          |                      |
+| `.count()`     | `count()`           |                      |
+| `.quantile(q)` | `quantile(q)()`     | Approximate          |
 
 ### Set Operators
 
-Set operators transform an array and return a new array. All computation happens within ClickHouse - no data round-trips to Python.
-
-| Python Method | Description   | ClickHouse Implementation | Memory Behavior | ClickHouse Reference                                                                    |
-|---------------|---------------|---------------------------|-----------------|-----------------------------------------------------------------------------------------|
-| `.unique()`   | Unique values | `GROUP BY`                | Hash table      | [GROUP BY](https://clickhouse.com/docs/sql-reference/statements/select/group-by)        |
-
-**Note:** The `unique()` method uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets. The order of returned unique values is not guaranteed.
+| Method      | ClickHouse Implementation | Notes                          |
+|-------------|---------------------------|--------------------------------|
+| `.unique()` | `GROUP BY`                | Order not guaranteed           |
 
 ### Group By Operations
 
-**Implementation**: `aaiclick/data/object.py` - see `GroupByQuery` class, `aaiclick/data/operators.py` - see `group_by_agg()`
+**Implementation**: `aaiclick/data/object.py` — see `GroupByQuery` class, `aaiclick/data/operators.py` — see `group_by_agg()`
 
-Group by operations aggregate data per group, returning a dict Object with group key columns and aggregated result columns. The pattern follows pandas-style two-step: `obj.group_by('key').sum('col')`.
+Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a standalone intermediate class (not an Object subclass).
 
-`GroupByQuery` is a standalone intermediate class (does not inherit from Object). It stores grouping info and exposes aggregation methods that execute the GROUP BY query.
+**Aggregation methods on GroupByQuery:**
 
-**Single aggregation:**
+| Method             | Description                  | Result Column Type                     |
+|--------------------|------------------------------|----------------------------------------|
+| `.sum(col)`        | Sum per group                | Preserves int types, Float64 for float |
+| `.mean(col)`       | Average per group            | Float64                                |
+| `.min(col)`        | Minimum per group            | Preserves source type                  |
+| `.max(col)`        | Maximum per group            | Preserves source type                  |
+| `.count()`         | Count rows per group         | UInt64 (column named `_count`)         |
+| `.std(col)`        | Standard deviation per group | Float64                                |
+| `.var(col)`        | Variance per group           | Float64                                |
+| `.agg({col: op})`  | Multiple aggregations        | Per-function type rules                |
 
-```python
-obj = await create_object_from_value({
-    'category': ['A', 'A', 'B', 'B'],
-    'amount': [10, 20, 30, 40],
-})
+**Features**: Multiple group keys, `.having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
 
-# Sum per group
-result = await obj.group_by('category').sum('amount')
-await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70]}
+**Known gap**: No `Array(T)` column support — `groupArray()`, `groupUniqArray()`, per-group concat not available.
 
-# Count per group
-result = await obj.group_by('category').count()
-await result.data()  # {'category': ['A', 'B'], '_count': [2, 2]}
+### Memory/Disk Settings
 
-# Multiple group keys
-result = await obj.group_by('region', 'category').sum('amount')
-```
-
-**Multi-aggregation (column → operator):**
-
-```python
-result = await obj.group_by('category').agg({
-    'amount': 'sum',
-    'price':  'mean',
-})
-await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70], 'price': [2.0, 4.0]}
-```
-
-**Array Object support (value_counts style):**
-
-```python
-arr = await create_object_from_value([1, 1, 2, 3, 3, 3])
-counts = await arr.group_by('value').count()
-await counts.data()  # {'value': [1, 2, 3], '_count': [2, 1, 3]}
-```
-
-**Supported aggregation methods on GroupByQuery:**
-
-| Method           | Description                  | Result Column Type                    |
-|------------------|------------------------------|---------------------------------------|
-| `.sum(col)`      | Sum per group                | Preserves int types, Float64 for float |
-| `.mean(col)`     | Average per group            | Float64                               |
-| `.min(col)`      | Minimum per group            | Preserves source type                 |
-| `.max(col)`      | Maximum per group            | Preserves source type                 |
-| `.count()`       | Count rows per group         | UInt64 (column named `_count`)        |
-| `.std(col)`      | Standard deviation per group | Float64                               |
-| `.var(col)`      | Variance per group           | Float64                               |
-| `.agg({col: op})` | Multiple aggregations       | Per-function type rules               |
-
-**Result is a normal dict Object** — supports all existing operations:
-
-```python
-result['amount']              # View selecting amount column
-await result['amount'].sum()  # Further aggregation
-await result.data(orient='records')  # [{...}, {...}]
-```
-
-**View support:**
-
-```python
-# WHERE view
-view = obj.view(where='amount > 15')
-await view.group_by('category').sum('amount')
-
-# Multi-field view
-view = obj[['category', 'amount']]
-await view.group_by('category').sum('amount')
-
-# Single-field view (value_counts)
-view = obj['x']
-await view.group_by('value').count()
-```
-
-**HAVING — filter groups after aggregation:**
-
-```python
-# Only groups where sum exceeds threshold
-result = await obj.group_by('category').having('sum(amount) > 100').sum('amount')
-
-# Filter by count
-result = await obj.group_by('category').having('count() >= 5').count()
-
-# Combine WHERE (pre-filter rows) + HAVING (post-filter groups)
-view = obj.view(where='amount > 10')
-result = await view.group_by('category').having('count() >= 2').count()
-
-# Works with multi-agg
-result = await obj.group_by('category').having('sum(amount) > 50').agg({
-    'amount': 'sum',
-    'price': 'mean',
-})
-```
-
-The HAVING condition is a raw SQL expression, same pattern as `view(where=...)`. Calling `.having()` multiple times overwrites the previous condition — combine with `AND`/`OR` in a single string.
-
-#### Known Gaps
-
-The following operations are **not supported** in group_by results:
-
-| Operation                        | Reason                                                                   |
-|----------------------------------|--------------------------------------------------------------------------|
-| `groupArray()` / array collect   | Object does not support ClickHouse `Array(T)` typed columns              |
-| `groupUniqArray()` / distinct    | Same — requires `Array(T)` column type                                   |
-| `groupArraySorted()`             | Same — requires `Array(T)` column type                                   |
-| Per-group concat                 | Same — collecting values into arrays requires `Array(T)` support         |
-
-These would require Object to support ClickHouse `Array(T)` column types as a first-class field type, which is not yet implemented.
-
-### Window Functions (Internal)
-
-Element-wise array operations use window functions internally:
-
-| Function       | Purpose                          | ClickHouse Reference                                                                           |
-|----------------|----------------------------------|------------------------------------------------------------------------------------------------|
-| `row_number()` | Position-based element pairing   | [row_number](https://clickhouse.com/docs/sql-reference/window-functions#row_number)            |
-
-### Memory/Disk Settings (for large datasets)
-
-For very large datasets, ClickHouse can spill intermediate results to disk:
-
-| Setting                              | Purpose                      | ClickHouse Reference                                                                                                                  |
-|--------------------------------------|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `max_bytes_before_external_sort`     | Spill sorts to disk          | [max_bytes_before_external_sort](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort)      |
-| `max_bytes_in_join`                  | Limit join memory            | [max_bytes_in_join](https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join)                                |
-| `join_algorithm`                     | Join implementation strategy | [join_algorithm](https://clickhouse.com/docs/operations/settings/settings#join_algorithm)                                              |
-
-## Usage Examples
-
-All operators work element-wise on both scalar and array data:
-
-```python
-import aaiclick
-
-# Arithmetic
-a = await aaiclick.create_object_from_value([10, 20, 30])
-b = await aaiclick.create_object_from_value([2, 4, 5])
-result = await (a + b)      # [12, 24, 35]
-result = await (a ** b)     # [100, 160000, 24300000]
-
-# Comparison
-x = await aaiclick.create_object_from_value([1, 5, 10])
-y = await aaiclick.create_object_from_value([5, 5, 8])
-result = await (x == y)     # [False, True, False]
-result = await (x < y)      # [True, False, False]
-
-# Bitwise
-m = await aaiclick.create_object_from_value([12, 10, 8])
-n = await aaiclick.create_object_from_value([10, 12, 4])
-result = await (m & n)      # [8, 8, 0]
-
-# Set operators - unique values
-data = await aaiclick.create_object_from_value([1, 2, 2, 3, 3, 3, 4])
-unique = await data.unique()
-values = await unique.data()  # [1, 2, 3, 4] (order not guaranteed)
-```
-
-For complete runnable examples of all operators, see:
-- `examples/basic_operators.py` - Comprehensive examples of all 14 operators
+For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_sort`, `max_bytes_in_join`, `join_algorithm`.
 
 ## Loading Data from URLs
 
-The `create_object_from_url()` function loads data from external HTTP URLs directly into ClickHouse using the native `url()` table function. All data flows from the URL into ClickHouse with **zero Python memory footprint**.
+**Implementation**: `aaiclick/data/url.py` — see `create_object_from_url()`
 
-**Implementation**: `aaiclick/data/url.py` — see `create_object_from_url()` function
+Loads data from HTTP URLs directly into ClickHouse using the `url()` table function — **zero Python memory footprint**.
 
-### Function Signature
+**Parameters**: `url` (required), `columns` (required), `format` (default `"Parquet"`), `where`, `limit`.
 
-```python
-async def create_object_from_url(
-    url: str,
-    columns: list[str],
-    format: str = "Parquet",
-    where: str | None = None,
-    limit: int | None = None,
-) -> Object
-```
+**Supported formats**: Parquet, CSV, CSVWithNames, CSVWithNamesAndTypes, TSV, TSVWithNames, TSVWithNamesAndTypes, JSON, JSONEachRow, JSONCompactEachRow, ORC, Avro.
 
-### Parameters
+**Schema behavior**: Single column renamed to `value`; multiple columns preserve names; types inferred by ClickHouse.
 
-| Parameter | Type             | Default     | Description                                                   |
-|-----------|------------------|-------------|---------------------------------------------------------------|
-| `url`     | `str`            | (required)  | HTTP(S) URL to load data from                                 |
-| `columns` | `list[str]`      | (required)  | Column names to select from the URL source                    |
-| `format`  | `str`            | `"Parquet"` | ClickHouse format name                                        |
-| `where`   | `str \| None`    | `None`      | Optional SQL WHERE clause for server-side filtering           |
-| `limit`   | `int \| None`    | `None`      | Optional row limit applied at load time                       |
+**Snowflake IDs**: Generated as `base_id + row_number() OVER ()` since data never enters Python.
 
-### Supported Formats
-
-| Format                  | Description                         |
-|-------------------------|-------------------------------------|
-| `Parquet`               | Apache Parquet (default)            |
-| `CSV`                   | CSV without header                  |
-| `CSVWithNames`          | CSV with header row                 |
-| `CSVWithNamesAndTypes`  | CSV with header and type rows       |
-| `TSV`                   | Tab-separated values without header |
-| `TSVWithNames`          | TSV with header row                 |
-| `TSVWithNamesAndTypes`  | TSV with header and type rows       |
-| `JSON`                  | JSON format                         |
-| `JSONEachRow`           | One JSON object per line            |
-| `JSONCompactEachRow`    | One JSON array per line             |
-| `ORC`                   | Apache ORC                          |
-| `Avro`                  | Apache Avro                         |
-
-### Schema Behavior
-
-- **Single column**: Column is renamed to `value` (matches `create_object_from_value` list pattern)
-- **Multiple columns**: Column names are preserved from the source
-- **Type inference**: ClickHouse infers column types from the URL source automatically
-
-### Snowflake ID Assignment
-
-Since data flows directly from the URL into ClickHouse (never entering Python), Snowflake IDs are generated using `base_id + row_number() OVER ()`:
-
-1. A single Snowflake ID is generated in Python as the base
-2. ClickHouse's `row_number()` produces sequential integers `1, 2, ..., N`
-3. Each row gets `aai_id = base_id + row_number`
-
-This ensures monotonically increasing, unique IDs within the Object while preserving temporal ordering relative to other Objects.
-
-### Input Validation
-
-- URL must use `http://` or `https://` scheme
-- Column names are backtick-quoted in SQL (supports spaces, special characters)
-- `aai_id` is reserved and cannot be used as a column name
-- Format must be in the supported formats list
-- WHERE clause cannot contain `;` (prevents multi-statement injection)
-- Limit must be a positive integer
-
-### Examples
-
-**Load single column from Parquet:**
-```python
-async with DataContext():
-    obj = await create_object_from_url(
-        "https://example.com/data.parquet",
-        columns=["price"],
-    )
-    data = await obj.data()  # [10.5, 20.3, ...]
-```
-
-**Load multiple columns with filter:**
-```python
-async with DataContext():
-    obj = await create_object_from_url(
-        "https://example.com/data.parquet",
-        columns=["name", "price", "quantity"],
-        where="price > 10",
-        limit=1000,
-    )
-    data = await obj.data()  # {"name": [...], "price": [...], "quantity": [...]}
-```
-
-**Load CSV with aggregation:**
-```python
-async with DataContext():
-    prices = await create_object_from_url(
-        "https://example.com/prices.csv",
-        columns=["price"],
-        format="CSVWithNames",
-    )
-    avg_price = await prices.mean()
-    print(await avg_price.data())  # 42.5
-```
-
-**Chain operations on loaded data:**
-```python
-async with DataContext():
-    a = await create_object_from_url(url, columns=["col_a"], format="CSVWithNames")
-    b = await create_object_from_url(url, columns=["col_b"], format="CSVWithNames")
-    result = await (a + b)
-    data = await result.data()
-```
+**Validation**: HTTP(S) only, `aai_id` reserved, no `;` in WHERE, format must be in supported list.
 
 ### insert_from_url() ⚠️ NOT YET IMPLEMENTED
 
-Insert data from a URL into an existing Object:
-
-```python
-# Create empty schema object
-schema = await create_object_from_url(
-    "https://example.com/jan.parquet",
-    columns=["fare", "distance"],
-    limit=0,  # Just get schema, no data
-)
-
-# Insert data from multiple URLs
-await schema.insert_from_url("https://example.com/jan.parquet")
-await schema.insert_from_url("https://example.com/feb.parquet")
-await schema.insert_from_url("https://example.com/mar.parquet")
-
-# All data now in single table
-total = await schema.count()
-```
-
-**Efficient for distributed pipelines:**
-- Schema created once
-- Multiple workers can insert into same table
-- Uses ClickHouse's native URL loading (no Python data transfer)
+Insert data from a URL into an existing Object. Schema created once, multiple workers can insert.
 
 ## The concat() Method
 
-The `concat()` method concatenates objects together, creating a new object with rows from the first object followed by rows from the second object.
+**Implementation**: `aaiclick/data/operators.py` — see `concat()`
 
-**Requirements:**
-- The first object must be an array (have `FIELDTYPE_ARRAY`)
-- The second object can be an array or scalar
-- Both objects must have compatible types (same ClickHouse type)
-
-**Examples:**
-
-```python
-# Concatenate two arrays
-a = await aaiclick.create_object_from_value([1, 2, 3])
-b = await aaiclick.create_object_from_value([4, 5, 6])
-result = await a.concat(b)
-await result.data()  # [1, 2, 3, 4, 5, 6]
-
-# Append scalar to array
-a = await aaiclick.create_object_from_value([1, 2, 3])
-b = await aaiclick.create_object_from_value(42)
-result = await a.concat(b)
-await result.data()  # [1, 2, 3, 42]
-
-# Chain multiple concatenations
-a = await aaiclick.create_object_from_value([1, 2])
-b = await aaiclick.create_object_from_value([3, 4])
-c = await aaiclick.create_object_from_value([5, 6])
-result = await (await a.concat(b)).concat(c)
-await result.data()  # [1, 2, 3, 4, 5, 6]
-```
-
-**Note:** The standalone `concat(obj_a, obj_b)` function is also available as an alternative to the method form.
+Concatenates Objects — first must be array, second can be array or scalar. Both must have compatible ClickHouse types. Also available as standalone function `concat(obj_a, obj_b)`.
 
 ## The data() Method
 
-The `data()` method returns values directly based on the data type:
+**Implementation**: `aaiclick/data/object.py` — see `Object.data()`
 
-- **Scalar**: returns the value directly
-- **Array**: returns a list of values
-- **Dict (single row)**: returns dict directly
-- **Dict (multiple rows)**: use `orient` parameter to control output format
+Returns values based on data type: scalar → value, array → list, dict → dict or list of dicts.
 
-### Orient Parameter for Dicts
+**Orient parameter** (for dict Objects with multiple rows):
 
-| Constant         | Value       | Description                                      |
-|------------------|-------------|--------------------------------------------------|
-| `ORIENT_DICT`    | `'dict'`    | Returns dict with arrays as values (default)     |
-| `ORIENT_RECORDS` | `'records'` | Returns list of dicts (one per row)              |
-
-### Examples
-
-**Scalar:**
-```python
-obj = await aaiclick.create_object_from_value(42.0)
-value = await obj.data()  # 42.0
-```
-
-**Array:**
-```python
-obj = await aaiclick.create_object_from_value([1, 2, 3, 4, 5])
-values = await obj.data()  # [1, 2, 3, 4, 5]
-```
-
-**Dict of Scalars:**
-```python
-obj = await aaiclick.create_object_from_value({"id": 1, "name": "Alice", "age": 30})
-data = await obj.data()  # {"id": 1, "name": "Alice", "age": 30}
-```
-
-**Dict of Arrays:**
-```python
-data = {
-    "id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
-    "age": [30, 25, 35]
-}
-obj = await aaiclick.create_object_from_value(data)
-
-# Default: returns dict with arrays as values
-data = await obj.data()  # {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], ...}
-
-# With orient='records': returns list of dicts
-rows = await obj.data(orient=aaiclick.ORIENT_RECORDS)
-# [{"id": 1, "name": "Alice", "age": 30}, {"id": 2, "name": "Bob", "age": 25}, ...]
-```
+| Constant         | Value       | Description                                  |
+|------------------|-------------|----------------------------------------------|
+| `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
+| `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
 ## Column Metadata
 
-When tables are created via factory functions, each column gets a YAML comment containing the fieldtype.
+**Implementation**: `aaiclick/data/object.py` — see `FIELDTYPE_SCALAR`, `FIELDTYPE_ARRAY`, `FIELDTYPE_DICT`
 
-### Fieldtype Constants
-
-| Constant           | Value | Meaning                  |
-|--------------------|-------|--------------------------|
-| `FIELDTYPE_SCALAR` | `'s'` | Scalar - single value    |
-| `FIELDTYPE_ARRAY`  | `'a'` | Array - list of values   |
-| `FIELDTYPE_DICT`   | `'d'` | Dict - structured record |
-
-### Example Column Comment
-
-```yaml
-{fieldtype: a}
-```
-
-This indicates an array column.
+Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `'d'` (dict).
 
 ## Views
 
-The `View` class provides a read-only filtered view of an Object with SQL query constraints applied. Views reference the same underlying ClickHouse table without creating data copies.
+**Implementation**: `aaiclick/data/object.py` — see `View` class
 
-### Creating Views
+Read-only filtered view of an Object — references the same table, no data copy.
 
-Views are created using the `obj.view()` method with optional constraint parameters:
+Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations (`.data()`, operators, aggregations). Cannot `insert()`.
 
-```python
-obj = await create_object_from_value([1, 2, 3, 4, 5])
-view = obj.view(where="value > 2", limit=2, order_by="value ASC")
-await view.data()  # Returns [3, 4]
-```
-
-### View Constraints
-
-| Attribute  | Type             | Description                                                        |
-|------------|------------------|--------------------------------------------------------------------|
-| `where`    | `Optional[str]`  | WHERE clause condition for filtering rows (e.g., `"value > 2"`)   |
-| `limit`    | `Optional[int]`  | Maximum number of rows to return from the query                    |
-| `offset`   | `Optional[int]`  | Number of rows to skip before returning results                    |
-| `order_by` | `Optional[str]`  | ORDER BY clause for sorting results (e.g., `"value DESC"`)        |
-
-### Key Characteristics
-
-**Read-Only:** Views cannot be modified with write operations like `insert()`. Attempting to insert will raise a `RuntimeError`.
-
-**Same Table Reference:** Views don't create new tables - they query the source Object's table with constraints applied.
-
-**Supports Read Operations:** All read operations work on Views:
-- `.data()` - retrieve filtered data
-- Arithmetic and comparison operators - create new Objects from filtered data
-- Aggregation methods (`.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`)
-
-**Automatic Staleness Detection:** Views inherit staleness checks from the source Object.
-
-### Examples
-
-For complete runnable examples of filtering, pagination, sorting, combining constraints, and performing operations on views, see:
-- `examples/view_examples.py` - Comprehensive examples of all View capabilities
-
-## Implementation Details
-
-### Operator Architecture
-
-Operator implementations are separated into the `operators` module for modularity and testability. Each operator in the Object class delegates to a corresponding function in the operators module.
-
-**Object class** (`object.py`):
-- Provides operator overloading via dunder methods (`__add__`, `__mul__`, etc.)
-- Delegates to operator functions in the `operators` module
-
-**Operators module** (`operators.py`):
-- Contains static async functions for each operator (`add()`, `mul()`, etc.)
-- Each function calls `_apply_operator()` with the appropriate operator string
-
-See [operators.md](operators.md) for complete operator function reference and usage examples.
-
-### Operator Flow
-
-All operators use the common `_apply_operator` method that:
-1. Creates a new Object to hold the result
-2. Determines if the operation is on scalars or arrays
-3. Selects the appropriate SQL template (scalar or array)
-4. Executes the SQL query with the operator
-5. Returns the new Object
-
-**SQL Templates:**
-- `apply_op_scalar.sql` - For scalar-to-scalar operations
-- `apply_op_array.sql` - For array-to-array operations (preserves aai_id)
-
-**Type Preservation:**
-The result preserves the fieldtype metadata from the source objects, ensuring proper data type handling throughout operation chains.
-
-## Test Files
-
-Tests are organized by operator group:
-
-| Operator Group                       | Test File                        |
-|--------------------------------------|----------------------------------|
-| Arithmetic, Comparison, Bitwise      | `test_operators_parametrized.py` |
-| Aggregation Operators                | `test_aggregation.py`            |
-| Set Operators                        | `test_unique_parametrized.py`    |
-| URL Loading                          | `test_url.py`                    |
+For runnable examples, see `examples/view_examples.py`.
 
 ## Table Lifecycle Tracking
 
 Tables are tracked via reference counting and dropped when no Objects reference them.
-
-### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -745,64 +218,44 @@ Tables are tracked via reference counting and dropped when no Objects reference 
 
 ### LifecycleHandler ABC
 
-**Implementation**: `aaiclick/data/lifecycle.py`
+**Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler` class
 
-The abstract interface for table lifecycle management:
+Abstract interface: `start()`, `stop()`, `incref()`, `decref()`, `pin()` (no-op default), `claim()` (raises NotImplementedError default).
 
-```python
-class LifecycleHandler(ABC):
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    def incref(self, table_name: str) -> None: ...
-    def decref(self, table_name: str) -> None: ...
-    def pin(self, table_name: str) -> None: ...          # no-op default
-    async def claim(self, table_name: str, job_id: int) -> None: ...  # raises NotImplementedError default
-```
-
-### Local Mode: LocalLifecycleHandler
+### Local Mode
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LocalLifecycleHandler` class
 
-Default handler. Wraps `TableWorker` — a background thread with queue-based refcounting. When refcount reaches 0, immediately drops the ClickHouse table. DataContext creates this automatically when no handler is injected.
+Default handler. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. DataContext creates this when no handler is injected.
 
-### Distributed Mode: PgLifecycleHandler
+### Distributed Mode
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
-For distributed orchestration. Writes incref/decref to PostgreSQL via a thread-safe queue bridged to an asyncio task. Also implements `claim()` for ownership transfer — releases job-scoped pin refs using the handler's own PG engine. Does NOT drop tables — cleanup is handled by a separate `PgCleanupWorker` that polls PostgreSQL.
+Writes refcounts to PostgreSQL. Implements pin/claim for ownership transfer. Does NOT drop tables — cleanup by `PgCleanupWorker`.
 
-See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" section for the full distributed lifecycle design.
-
-### DataContext Integration
-
-DataContext accepts an optional `lifecycle` parameter:
-- `lifecycle=None` (default): creates and owns a `LocalLifecycleHandler`
-- `lifecycle=handler`: uses the injected handler without owning it
+See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
 
 ### Object Registration Flow
 
-1. `create_object()` creates a ClickHouse table
-2. Calls `obj._register(ctx)` → stores weakref to context, calls `ctx.incref(table_name)`
-3. When Object is garbage collected, `__del__` calls `ctx.decref(table_name)`
-4. Views incref/decref the source Object's table (no new tables created)
+1. `create_object()` generates table name, calls `obj._register(ctx)` → `incref` (write-ahead, before CREATE TABLE)
+2. `CREATE TABLE` in ClickHouse
+3. On garbage collection, `Object.__del__` → `decref`
+4. Views incref/decref the source Object's table (no new tables)
 
 ### __del__ Guard Clauses
 
-`Object.__del__` and `View.__del__` include three guards:
+| Guard                               | Scenario                                      |
+|-------------------------------------|-----------------------------------------------|
+| `sys.is_finalizing()`               | Interpreter shutdown — skip for thread safety  |
+| `_data_ctx_ref is None`             | Object was never registered                    |
+| `_data_ctx_ref()` returns None      | Context already garbage collected              |
 
-| Guard                                   | Scenario                                                         |
-|-----------------------------------------|------------------------------------------------------------------|
-| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues        |
-| `_data_ctx_ref is None`                 | Object was never registered                                      |
-| `context = _data_ctx_ref()` is None     | Context already garbage collected                                |
+## Test Files
 
-### Implementation Files
-
-| Component                                          | File                                        |
-|----------------------------------------------------|---------------------------------------------|
-| `LifecycleHandler`, `LocalLifecycleHandler`        | `aaiclick/data/lifecycle.py`                |
-| `TableWorker`, `TableOp`, `TableMessage`           | `aaiclick/data/table_worker.py`             |
-| `PgLifecycleHandler`, `TableContextRef`            | `aaiclick/orchestration/pg_lifecycle.py`    |
-| `PgCleanupWorker`                                  | `aaiclick/orchestration/pg_cleanup.py`      |
-| `Object._register()`, `__del__()`                  | `aaiclick/data/object.py`                   |
-| `View.__init__()`, `__del__()`                     | `aaiclick/data/object.py`                   |
+| Operator Group                  | Test File                        |
+|---------------------------------|----------------------------------|
+| Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
+| Aggregation                     | `test_aggregation.py`            |
+| Set Operators                   | `test_unique_parametrized.py`    |
+| URL Loading                     | `test_url.py`                    |
