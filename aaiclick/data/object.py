@@ -1581,9 +1581,9 @@ class View(Object):
         self._selected_fields = selected_fields
 
         # Register with context for lifecycle tracking and stale marking
-        if source._ctx_name is not None:
-            self._register(source._ctx_name)
-            register_object(self, ctx=source._ctx_name)
+        if source._ctx is not None:
+            self._register(source._ctx)
+            register_object(self, ctx=source._ctx)
 
     @property
     def limit(self) -> Optional[int]:
