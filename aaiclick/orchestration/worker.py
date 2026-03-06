@@ -14,7 +14,7 @@ from sqlmodel import select
 from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .claiming import claim_next_task, update_task_status
+from .claiming import check_task_cancelled, claim_next_task, update_task_status
 from .context import get_orch_session
 from .execution import execute_task, serialize_task_result
 from .models import TaskStatus, Worker, WorkerStatus
@@ -170,6 +170,24 @@ async def _increment_worker_stat(worker_id: int, field: str) -> None:
             await session.commit()
 
 
+async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task) -> None:
+    """Poll task status in DB and cancel the asyncio.Task if cancelled.
+
+    Runs concurrently with task execution. Checks the database every
+    POLL_INTERVAL seconds. When cancel_job() marks the task as CANCELLED,
+    this monitor cancels the asyncio.Task, raising CancelledError at the
+    next await point in the running coroutine.
+
+    Note: asyncio cancellation is cooperative — CPU-bound code without
+    await points won't be interrupted until it yields.
+    """
+    while not exec_task.done():
+        await asyncio.sleep(POLL_INTERVAL)
+        if await check_task_cancelled(task_id):
+            exec_task.cancel()
+            return
+
+
 async def worker_main_loop(
     worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
@@ -250,12 +268,22 @@ async def worker_main_loop(
 
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
 
-            try:
-                if lifecycle_factory is not None:
-                    async with lifecycle_factory(task.job_id) as lifecycle:
-                        result = await execute_task(task, lifecycle=lifecycle)
+            # Wrap execution in an asyncio.Task with a cancellation monitor
+            # so that cancel_job() can interrupt running tasks.
+            async def _run_task(t, lf):
+                if lf is not None:
+                    async with lf(t.job_id) as lifecycle:
+                        return await execute_task(t, lifecycle=lifecycle)
                 else:
-                    result = await execute_task(task)
+                    return await execute_task(t)
+
+            exec_task = asyncio.create_task(_run_task(task, lifecycle_factory))
+            monitor = asyncio.create_task(
+                _cancellation_monitor(task.id, exec_task)
+            )
+
+            try:
+                result = await exec_task
 
                 # Serialize result (Object or View) to JSON-storable reference
                 result_ref = serialize_task_result(result, task.job_id)
@@ -271,10 +299,20 @@ async def worker_main_loop(
                 print(f"Worker {worker_id} completed task {task.id}")
                 await _increment_worker_stat(worker_id, "tasks_completed")
 
+            except asyncio.CancelledError:
+                print(f"Worker {worker_id} task {task.id} cancelled")
+
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
                 await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
                 await _increment_worker_stat(worker_id, "tasks_failed")
+
+            finally:
+                monitor.cancel()
+                try:
+                    await monitor
+                except asyncio.CancelledError:
+                    pass
 
     finally:
         # Deregister worker on exit
