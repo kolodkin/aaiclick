@@ -67,18 +67,51 @@ def pipeline():
 
 **Implementation**: `aaiclick/orchestration/dynamic.py` — see `MapHandle` class
 
-Dataclass holding the expander task and output group. Supports dependency operators:
+A dataclass representing a pending map operation. It is a **job-definition-time placeholder** — actual partition tasks don't exist yet. They are created dynamically at runtime by the expander after it queries ClickHouse for the row count.
+
+**Important**: `MapHandle` is used in `@job` function bodies (graph definition), never inside `@task` functions (execution). Workers never see `MapHandle` objects — they receive plain serialized kwargs.
+
+| Field      | Type    | Purpose                                                                  |
+|------------|---------|--------------------------------------------------------------------------|
+| `expander` | `Task`  | The expander task that runs at runtime to count rows and create partitions |
+| `group`    | `Group` | Container for all dynamically created partition tasks                    |
+
+**Dependency operators**:
 
 ```python
-# MapHandle >> Task: downstream depends on all map tasks
+# MapHandle >> Task: downstream depends on all map tasks (via group)
 mapped >> downstream_task
 
-# Task >> MapHandle: expander depends on upstream
+# Task >> MapHandle: expander depends on upstream task
 upstream_task >> mapped
+
+# List support
+[prep_a, prep_b] >> mapped    # expander waits for both prep tasks
+mapped >> [task_a, task_b]    # both tasks wait for all partitions
+
+# Fluent API
+mapped.depends_on(some_prerequisite)
 
 # Chaining maps
 first_map = map(func1, data)
 second_map = map(func2, first_map)  # Waits for all first_map partitions
+```
+
+**Lifecycle**:
+
+```
+Job definition time:           Runtime (worker executes expander):
+┌─────────────┐                ┌──────────────────────────────────┐
+│ map() call  │                │ _expand_map():                   │
+│  ↓          │                │  1. Resolve object → table name  │
+│ Creates:    │                │  2. SELECT count() → row_count   │
+│  • expander │──── runs ────→│  3. N = ceil(count/partition_sz) │
+│  • group    │                │  4. Create N child Tasks in group│
+└─────────────┘                └──────────────────────────────────┘
+      │                                      │
+      ↓                                      ↓
+  MapHandle                        N partition tasks run in parallel
+  (expander + group)               each receives a View(limit, offset)
 ```
 
 ## Architecture: Expander Task Pattern
