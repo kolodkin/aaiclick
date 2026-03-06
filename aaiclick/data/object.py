@@ -935,7 +935,7 @@ class Object:
 
         # If columns not specified, use this object's columns (excluding aai_id)
         if columns is None:
-            columns = [c for c in self.schema.columns.keys() if c != "aai_id"]
+            columns = [c for c in self._schema.columns.keys() if c != "aai_id"]
 
         _validate_url_columns(columns)
 
@@ -952,7 +952,7 @@ class Object:
         columns_str = ", ".join(quoted_columns)
 
         # Handle single-column case (mapped to "value")
-        if len(columns) == 1 and "value" in self.schema.columns:
+        if len(columns) == 1 and "value" in self._schema.columns:
             select_cols = f"{quoted_columns[0]} AS value"
         else:
             select_cols = columns_str
