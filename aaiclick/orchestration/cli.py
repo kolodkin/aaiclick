@@ -11,7 +11,7 @@ import signal
 from typing import Optional
 
 from .context import orch_context
-from .job import count_jobs, get_job, list_jobs
+from .job_queries import count_jobs, get_job, list_jobs
 from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
 from .pg_lifecycle import PgLifecycleHandler

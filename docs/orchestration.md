@@ -175,7 +175,7 @@ Not for direct use:
 
 ### Job Management APIs ✅ IMPLEMENTED
 
-**Implementation**: `aaiclick/orchestration/job.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
+**Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
 
 - `get_job(job_id)` — retrieve a single job by ID
 - `list_jobs(status, name_like, limit, offset)` — list jobs with filtering and pagination
