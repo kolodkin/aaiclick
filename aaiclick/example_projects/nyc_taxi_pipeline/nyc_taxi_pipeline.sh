@@ -40,7 +40,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     sleep 5
     ELAPSED=$((ELAPSED + 5))
     JOB_STATUS=$(uv run python -m aaiclick job get "$JOB_ID" 2>/dev/null | grep "Status:" | awk '{print $2}')
-    if [ "$JOB_STATUS" = "completed" ] || [ "$JOB_STATUS" = "failed" ]; then
+    if [ "$JOB_STATUS" = "COMPLETED" ] || [ "$JOB_STATUS" = "FAILED" ]; then
         break
     fi
 done
@@ -59,9 +59,9 @@ wait $WORKER_PID 2>/dev/null || true
 wait $BACKGROUND_PID 2>/dev/null || true
 
 echo
-if [ "$JOB_STATUS" = "completed" ]; then
+if [ "$JOB_STATUS" = "COMPLETED" ]; then
     echo "=== Pipeline completed successfully ==="
-elif [ "$JOB_STATUS" = "failed" ]; then
+elif [ "$JOB_STATUS" = "FAILED" ]; then
     echo "=== Pipeline FAILED ==="
     exit 1
 else
