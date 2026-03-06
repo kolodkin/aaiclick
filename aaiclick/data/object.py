@@ -1249,41 +1249,53 @@ class GroupByQuery:
         """Get the ClickHouse client from the source object."""
         return self._source.ch_client
 
+    def _clone_with_having(self, condition: str, connector: str) -> GroupByQuery:
+        """Create a new GroupByQuery with all current state plus an additional HAVING clause."""
+        new_gbq = GroupByQuery.__new__(GroupByQuery)
+        new_gbq._source = self._source
+        new_gbq._keys = self._keys
+        new_gbq._having_clauses = list(self._having_clauses)
+        new_gbq._having_clauses.append((condition, connector))
+        return new_gbq
+
     def having(self, condition: str) -> GroupByQuery:
         """
-        Add a HAVING condition (AND-chained with previous conditions).
+        Return a new GroupByQuery with an AND-chained HAVING condition.
 
         Multiple calls chain with AND:
             .having('sum(x) > 10').having('count() >= 2')
             → HAVING (sum(x) > 10) AND (count() >= 2)
 
+        The original GroupByQuery is not modified.
+
         Args:
             condition: Raw SQL HAVING expression (e.g., 'sum(amount) > 100')
 
         Returns:
-            Self for method chaining
+            New GroupByQuery with the condition added
 
         Raises:
             ValueError: If condition is empty
         """
         if not condition or not condition.strip():
             raise ValueError("HAVING condition must be a non-empty string")
-        self._having_clauses.append((condition.strip(), "AND"))
-        return self
+        return self._clone_with_having(condition.strip(), "AND")
 
     def or_having(self, condition: str) -> GroupByQuery:
         """
-        Add a HAVING condition (OR-chained with previous conditions).
+        Return a new GroupByQuery with an OR-chained HAVING condition.
 
         Use after .having() to add an alternative condition:
             .having('sum(x) > 100').or_having('count() >= 5')
             → HAVING (sum(x) > 100) OR (count() >= 5)
 
+        The original GroupByQuery is not modified.
+
         Args:
             condition: Raw SQL HAVING expression (e.g., 'max(amount) > 50')
 
         Returns:
-            Self for method chaining
+            New GroupByQuery with the condition added
 
         Raises:
             ValueError: If condition is empty or no prior having clause exists
@@ -1292,8 +1304,7 @@ class GroupByQuery:
             raise ValueError("HAVING condition must be a non-empty string")
         if not self._having_clauses:
             raise ValueError("or_having() requires a prior having() call")
-        self._having_clauses.append((condition.strip(), "OR"))
-        return self
+        return self._clone_with_having(condition.strip(), "OR")
 
     def _build_having(self) -> Optional[str]:
         """Build the combined HAVING clause from stored conditions."""
@@ -1505,41 +1516,61 @@ class View(Object):
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
+    def _clone_with_clause(self, condition: str, connector: str) -> View:
+        """Create a new View with all current constraints plus an additional WHERE clause."""
+        new_view = View.__new__(View)
+        Object.__init__(new_view, table=self.table, schema=self._schema)
+        new_view._where_clauses = list(self._where_clauses)
+        new_view._where_clauses.append((condition, connector))
+        new_view._limit = self._limit
+        new_view._offset = self._offset
+        new_view._order_by = self._order_by
+        new_view._selected_fields = self._selected_fields
+        if self._data_ctx_ref is not None:
+            context = self._data_ctx_ref()
+            if context is not None:
+                new_view._register(context)
+                context._register_object(new_view)
+        return new_view
+
     def where(self, condition: str) -> View:
         """
-        Add a WHERE condition (AND-chained with previous conditions).
+        Return a new View with an AND-chained WHERE condition.
 
         Multiple calls chain with AND:
             .where('x > 10').where('y < 20')
             → WHERE (x > 10) AND (y < 20)
 
+        The original View is not modified.
+
         Args:
             condition: Raw SQL WHERE expression (e.g., 'value > 100')
 
         Returns:
-            Self for method chaining
+            New View with the condition added
 
         Raises:
             ValueError: If condition is empty
         """
         if not condition or not condition.strip():
             raise ValueError("WHERE condition must be a non-empty string")
-        self._where_clauses.append((condition.strip(), "AND"))
-        return self
+        return self._clone_with_clause(condition.strip(), "AND")
 
     def or_where(self, condition: str) -> View:
         """
-        Add a WHERE condition (OR-chained with previous conditions).
+        Return a new View with an OR-chained WHERE condition.
 
-        Use after .view(where=...) or .add_where() to add an alternative condition:
-            .add_where('x > 100').or_where('y < 5')
+        Use after .view(where=...) or .where() to add an alternative condition:
+            .where('x > 100').or_where('y < 5')
             → WHERE (x > 100) OR (y < 5)
+
+        The original View is not modified.
 
         Args:
             condition: Raw SQL WHERE expression (e.g., 'value < 10')
 
         Returns:
-            Self for method chaining
+            New View with the condition added
 
         Raises:
             ValueError: If condition is empty or no prior where clause exists
@@ -1548,8 +1579,7 @@ class View(Object):
             raise ValueError("WHERE condition must be a non-empty string")
         if not self._where_clauses:
             raise ValueError("or_where() requires a prior where condition")
-        self._where_clauses.append((condition.strip(), "OR"))
-        return self
+        return self._clone_with_clause(condition.strip(), "OR")
 
     @property
     def has_constraints(self) -> bool:

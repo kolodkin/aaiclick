@@ -460,6 +460,27 @@ async def test_group_by_having_empty_string_raises(ctx):
 # =============================================================================
 
 
+async def test_group_by_having_returns_new_query(ctx):
+    """having() returns a new GroupByQuery, original is unchanged."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B"],
+        "amount": [10, 20, 5, 15],
+    })
+    gbq1 = obj.group_by("category").having("sum(amount) > 10")
+    gbq2 = gbq1.having("count() >= 2")
+    assert gbq1 is not gbq2
+    # gbq1 has one having clause, gbq2 has two
+    data1 = await gbq1.sum("amount")
+    result1 = await data1.data()
+    # A: sum=30 > 10 ✓, B: sum=20 > 10 ✓
+    assert set(result1["category"]) == {"A", "B"}
+
+    data2 = await gbq2.sum("amount")
+    result2 = await data2.data()
+    # A: sum=30>10 AND count=2>=2 ✓, B: sum=20>10 AND count=2>=2 ✓
+    assert set(result2["category"]) == {"A", "B"}
+
+
 async def test_group_by_having_chained_and(ctx):
     """Multiple .having() calls chain with AND."""
     obj = await create_object_from_value({

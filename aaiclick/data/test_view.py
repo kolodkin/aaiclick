@@ -99,6 +99,16 @@ async def test_view_or_where(ctx):
     assert result == [1, 2, 9, 10]
 
 
+async def test_view_where_returns_new_view(ctx):
+    """where() returns a new View, original is unchanged."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    view1 = obj.where("value > 1")
+    view2 = view1.where("value < 5")
+    assert view1 is not view2
+    assert await view1.data() == [2, 3, 4, 5]
+    assert await view2.data() == [2, 3, 4]
+
+
 async def test_view_where_and_or_mixed(ctx):
     """Mixed where() and or_where() chaining."""
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
