@@ -91,6 +91,7 @@ class Object:
         self._stale = False
         self._schema = schema
         self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
+        self._where_clauses: List[Tuple[str, str]] = []
 
     def _register(self, context: DataContext) -> None:
         """Register this object with context for lifecycle tracking."""
@@ -165,7 +166,13 @@ class Object:
     @property
     def has_constraints(self) -> bool:
         """Check if this object has any view constraints."""
-        return bool(self.limit is not None or self.offset is not None or self.order_by)
+        return bool(
+            self._where_clauses
+            or self.limit is not None
+            or self.offset is not None
+            or self.order_by
+            or self.selected_fields
+        )
 
     def checkstale(self):
         """
@@ -179,6 +186,18 @@ class Object:
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
 
+    def _build_where(self) -> Optional[str]:
+        """Build the combined WHERE clause from stored conditions."""
+        if not self._where_clauses:
+            return None
+        parts = []
+        for i, (condition, connector) in enumerate(self._where_clauses):
+            if i == 0:
+                parts.append(f"({condition})")
+            else:
+                parts.append(f"{connector} ({condition})")
+        return " ".join(parts)
+
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -191,6 +210,9 @@ class Object:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         query = f"SELECT {columns} FROM {self.table}"
+        where = self._build_where()
+        if where:
+            query += f" WHERE {where}"
         # Use custom order_by if set, otherwise use default
         order_clause = self.order_by or default_order_by
         if order_clause:
@@ -1464,7 +1486,6 @@ class View(Object):
                              Multiple fields returns dict-like view
         """
         super().__init__(table=source.table, schema=source._schema)
-        self._where_clauses: List[Tuple[str, str]] = []
         if where:
             self._where_clauses.append((where.strip(), "AND"))
         self._limit = limit
@@ -1503,18 +1524,6 @@ class View(Object):
     def is_single_field(self) -> bool:
         """Check if this is a single-field selection (array-like output)."""
         return self._selected_fields is not None and len(self._selected_fields) == 1
-
-    def _build_where(self) -> Optional[str]:
-        """Build the combined WHERE clause from stored conditions."""
-        if not self._where_clauses:
-            return None
-        parts = []
-        for i, (condition, connector) in enumerate(self._where_clauses):
-            if i == 0:
-                parts.append(f"({condition})")
-            else:
-                parts.append(f"{connector} ({condition})")
-        return " ".join(parts)
 
     def _clone_with_clause(self, condition: str, connector: str) -> View:
         """Create a new View with all current constraints plus an additional WHERE clause."""
@@ -1580,17 +1589,6 @@ class View(Object):
         if not self._where_clauses:
             raise ValueError("or_where() requires a prior where condition")
         return self._clone_with_clause(condition.strip(), "OR")
-
-    @property
-    def has_constraints(self) -> bool:
-        """Check if this view has any constraints including selected_fields."""
-        return bool(
-            self._where_clauses
-            or self.limit is not None
-            or self.offset is not None
-            or self.order_by
-            or self.selected_fields
-        )
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
