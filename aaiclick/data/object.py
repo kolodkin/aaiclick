@@ -152,6 +152,10 @@ class Object:
         """Get selected field names (None for base Object)."""
         return None
 
+    def _serialize_ref(self) -> dict:
+        """Serialize this Object to a reference dict for task kwargs/results."""
+        return {"object_type": "object", "table": self.table}
+
     @property
     def is_single_field(self) -> bool:
         """Check if this is a single-field selection (False for base Object)."""
@@ -1615,6 +1619,18 @@ class View(Object):
     def is_single_field(self) -> bool:
         """Check if this is a single-field selection (array-like output)."""
         return self._selected_fields is not None and len(self._selected_fields) == 1
+
+    def _serialize_ref(self) -> dict:
+        """Serialize this View to a reference dict for task kwargs/results."""
+        return {
+            "object_type": "view",
+            "table": self.table,
+            "where": self._build_where(),
+            "limit": self.limit,
+            "offset": self.offset,
+            "order_by": self.order_by,
+            "selected_fields": self.selected_fields,
+        }
 
     def _clone_with_clause(self, condition: str, connector: str) -> View:
         """Create a new View with all current constraints plus an additional WHERE clause."""

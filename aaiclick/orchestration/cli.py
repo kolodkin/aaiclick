@@ -13,7 +13,21 @@ from typing import Optional
 from .context import OrchContext
 from .pg_cleanup import PgCleanupWorker
 from .pg_lifecycle import PgLifecycleHandler
-from .worker import worker_main_loop
+from .worker import list_workers, worker_main_loop
+
+
+async def show_workers() -> None:
+    """List all registered workers."""
+    async with OrchContext():
+        workers = await list_workers()
+        if not workers:
+            print("No workers found")
+            return
+
+        print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
+        print("-" * 80)
+        for w in workers:
+            print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
 
 
 async def start_worker(max_tasks: Optional[int] = None) -> None:

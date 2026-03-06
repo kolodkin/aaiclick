@@ -20,8 +20,7 @@ Example:
         transformed = transform(extracted)  # Auto-dependency: extract >> transform
         return [extracted, transformed]
 
-    async with OrchContext():
-        job = await pipeline(url="https://example.com/data.parquet")
+    job = await pipeline(url="https://example.com/data.parquet")
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, List
 
-from aaiclick.data.object import Object, View
+from aaiclick.data.object import Object
 
 from ..snowflake_id import get_snowflake_id
 from .context import _current_orch_context, OrchContext, get_orch_context
@@ -66,18 +65,8 @@ def _serialize_value(value: Any) -> Any:
     """
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
-    elif isinstance(value, View):
-        return {
-            "object_type": "view",
-            "table": value.table,
-            "where": value.where,
-            "limit": value.limit,
-            "offset": value.offset,
-            "order_by": value.order_by,
-            "selected_fields": value.selected_fields,
-        }
     elif isinstance(value, Object):
-        return {"object_type": "object", "table": value.table}
+        return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
         return [_serialize_value(v) for v in value]
     elif isinstance(value, dict):
@@ -179,7 +168,7 @@ class JobFactory:
     """Factory that creates and applies Jobs when called.
 
     Wraps a workflow definition function and handles:
-    - OrchContext management (creates if not already in context)
+    - Database context management (creates OrchContext internally if needed)
     - Job creation
     - Task collection from function return value
     - Applying all tasks to the database
@@ -199,8 +188,8 @@ class JobFactory:
     async def __call__(self, **kwargs) -> Job:
         """Execute workflow definition and create job with tasks.
 
-        Automatically manages OrchContext - creates one if not already
-        inside an OrchContext, otherwise uses the existing one.
+        Manages database context automatically — no need to wrap
+        in OrchContext externally.
 
         Args:
             **kwargs: Arguments passed to the workflow function
@@ -272,8 +261,7 @@ def job(name: str) -> Callable[[Callable], JobFactory]:
             t1 >> t2
             return [t1, t2]
 
-        async with OrchContext():
-            job = await my_workflow(input_url="https://...")
+        job = await my_workflow(input_url="https://...")
 
     Args:
         name: Name for the created jobs

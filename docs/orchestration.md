@@ -56,1179 +56,161 @@ As aaiclick scales to handle large-scale data processing, we need:
                                  └────────────────────────────┘
 ```
 
-**Dual-Context Architecture**:
-- **DataContext** (`aaiclick.data_context`): Manages ClickHouse data operations
-  - Handles Objects and Views
-  - Uses global urllib3 connection pool
-  - Accepts optional `LifecycleHandler` for distributed refcount tracking (see "Distributed Object Lifecycle" section)
-  - Example: `async with DataContext() as data_ctx:`
+### Dual-Context Design
 
-- **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
-  - Handles Jobs, Tasks, Groups, Dependencies
-  - Creates fresh SQLAlchemy AsyncEngine on `__aenter__`, disposes on `__aexit__`
-  - Ensures proper async lifecycle and test isolation
-  - Each operation creates its own AsyncSession for transaction isolation
-  - Example: `async with OrchContext() as orch_ctx:`
+Both contexts are async context managers using `ContextVar` for async-safe global access:
 
-- **Task Execution**: Workers use **both** contexts
-  - DataContext for data operations (Objects)
-  - OrchContext for orchestration operations (apply, etc.)
-  - Example:
-    ```python
-    async with DataContext() as data_ctx:
-        async with OrchContext(job_id=task.job_id) as orch_ctx:
-            # Task has access to both contexts
-            result = await func(**task.kwargs)
-    ```
+- **DataContext** (`aaiclick/data/data_context.py`): ClickHouse data operations
+  - Connection (AsyncClient via shared urllib3 pool)
+  - Object tracking (weakref dict — marks Objects stale on exit)
+  - Lifecycle/refcounting (`incref`/`decref` for table cleanup)
+  - Public API — used directly by user code
 
-**Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
+- **OrchContext** (`aaiclick/orchestration/context.py`): PostgreSQL orchestration state
+  - Connection (SQLAlchemy AsyncEngine, created/disposed per context)
+  - `apply()` — persists task/group DAGs to PostgreSQL
+  - **Not public API** — `@job` decorator manages it automatically (see `JobFactory.__call__()`)
 
-## Technology Stack
+Workers use **both** contexts internally: DataContext for data, OrchContext for state.
 
-- **SQLModel**: Type-safe ORM with Pydantic integration
-- **Alembic**: Database migrations for PostgreSQL
-- **PostgreSQL**: Orchestration state store (jobs, tasks, groups, dependencies)
-- **ClickHouse**: Data storage (Objects and Views)
-- **asyncpg** (via SQLModel): Async PostgreSQL driver
+### Why Dual-Database?
 
-### Why Dual-Database Architecture?
+**PostgreSQL for orchestration**: ACID consistency, row-level locking (`FOR UPDATE SKIP LOCKED`), JSONB for task params, Alembic migrations, foreign keys.
 
-**PostgreSQL for Orchestration State:**
-- **ACID compliance**: Strong consistency guarantees for job state
-- **Row-level locking**: Safe concurrent task claiming by workers (`FOR UPDATE SKIP LOCKED`)
-- **JSONB support**: Flexible task parameter storage
-- **Mature ecosystem**: Alembic migrations, connection pooling, monitoring
-- **Relational integrity**: Foreign keys for job→task→group relationships
-
-**ClickHouse for Data:**
-- **Columnar storage**: Efficient for analytical workloads
-- **High performance**: Fast aggregations and scans
-- **Scalability**: Handles massive datasets
-- **aaiclick Objects**: All data processing operates on ClickHouse tables
-
-**Separation of Concerns**:
-- **DataContext** is independent - handles only ClickHouse operations
-- **OrchContext** is independent - handles only PostgreSQL orchestration
-- Both can be used together or separately
-
-**OrchContext Connection Management**:
-- **Global SQLAlchemy AsyncEngine**: Shared across all OrchContext instances
-  - Engine manages connection pooling internally via asyncpg
-  - No separate pool management needed
-- OrchContext creates AsyncSessions from the global engine for each operation
-- Each operation (`apply()`, `claim_task()`, etc.) uses its own session
-- Benefits:
-  - Connection pooling handled automatically by SQLAlchemy
-  - Better transaction isolation per operation
-  - No long-lived transactions
-  - Engine lifecycle managed globally (similar to ClickHouse urllib3 pool pattern)
-
-**High-Level Factory APIs**:
-- **`create_task(callback, kwargs)`**: Factory for creating Task objects from callback strings
-  - Generates snowflake ID for task
-  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_task()` function
-- **`create_job(name, entry)`**: Factory for creating Job with single entry point (Task or callback)
-  - Generates snowflake ID for job
-  - Commits Job and Task to PostgreSQL with JSON-serialized kwargs
-  - **Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
-- **`orch_ctx.apply(tasks, job_id)`**: Commits DAG (tasks, groups, dependencies) to PostgreSQL
-  - Generates snowflake IDs for groups if not already set
-  - Sets job_id on all items
-  - **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
-- Factories provide simple interface for common workflows
-- IDs generated before database insertion (no round-trip needed)
+**ClickHouse for data**: Columnar storage, fast aggregations, scalability for large datasets.
 
 ## Data Models
 
-### ID Generation Strategy
+**Implementation**: `aaiclick/orchestration/models.py`
 
-**All entities use Snowflake IDs** generated by the aaiclick framework (not database auto-increment):
-
-- **Job IDs**: Framework-generated snowflake IDs
-- **Task IDs**: Framework-generated snowflake IDs
-- **Group IDs**: Framework-generated snowflake IDs
-
-**Why Snowflake IDs?**
-- **Distributed generation**: IDs can be generated independently across processes without coordination
-- **Time-ordered**: IDs encode creation timestamp for temporal ordering
-- **No database round-trip**: IDs assigned before database insert
-- **Consistency with aaiclick Objects**: Same ID strategy as ClickHouse data tables
-
-**Database Storage**:
-- PostgreSQL type: `BIGINT` (signed int64, range: -2^63 to 2^63-1)
-- Python/SQLModel type: `int` (unbounded)
-- **Important**: PostgreSQL has no native unsigned uint64 type
-- **Solution**: Use standard 64-bit Snowflake IDs (bit 63 always 0)
-- Snowflake IDs are always positive (max value: 2^63-1 = 9,223,372,036,854,775,807)
-- Database enforces uniqueness constraints via primary keys but does not generate IDs
-
-**Snowflake ID Format** (from `aaiclick.snowflake`):
-- Bit 63: Sign bit (always 0 for positive integers)
-- Bits 62-22: Timestamp (41 bits, milliseconds since epoch)
-- Bits 21-12: Machine ID (10 bits, supports 1024 machines)
-- Bits 11-0: Sequence (12 bits, 4096 IDs per millisecond)
-- Same implementation as ClickHouse Object IDs
-- Existing implementation is fully compatible with PostgreSQL BIGINT
-
-**SQLModel Field Definition**:
-```python
-from sqlmodel import Field, Column
-from sqlalchemy import BigInteger
-
-# Correct: ID generated by framework, stored as BIGINT (signed int64)
-id: int = Field(sa_column=Column(BigInteger, primary_key=True, autoincrement=False))
-
-# Simplified (SQLModel infers BigInteger from int type):
-id: int = Field(primary_key=True)
-
-# Wrong: Optional with default=None triggers auto-increment
-id: Optional[int] = Field(default=None, primary_key=True)
-```
+All entities use **Snowflake IDs** (not database auto-increment) — distributed generation, time-ordered, no DB round-trip. Stored as PostgreSQL `BIGINT`.
 
 ### Status Enums
 
-**Implementation**: `aaiclick/orchestration/models.py` - see `JobStatus`, `TaskStatus`, `WorkerStatus` enums
-
-**Note**: Actual implementation uses UPPERCASE enum values to match PostgreSQL enum types:
-
-```python
-from enum import StrEnum
-
-class JobStatus(StrEnum):
-    PENDING = "PENDING"      # PostgreSQL enums are case-sensitive
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-
-class TaskStatus(StrEnum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-
-class WorkerStatus(StrEnum):
-    ACTIVE = "ACTIVE"
-    IDLE = "IDLE"
-    STOPPED = "STOPPED"
-```
+| Enum           | Values                                          |
+|----------------|------------------------------------------------|
+| `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED             |
+| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED    |
+| `WorkerStatus` | ACTIVE, IDLE, STOPPED                            |
 
 ### Job
 
-Represents a workflow containing one or more tasks.
+Represents a workflow containing tasks. See `Job` class in `models.py`.
 
-**Implementation**: `aaiclick/orchestration/models.py` - see `Job` class
+Key fields: `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, `error`.
 
-```python
-from datetime import datetime
-from typing import Optional
-from sqlmodel import Field, SQLModel, Column
-from sqlalchemy import BigInteger
-
-class Job(SQLModel, table=True):
-    __tablename__ = "jobs"
-
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # uint64 snowflake ID generated by framework (not database auto-increment)
-    # Stored as BIGINT (signed int64) in PostgreSQL
-
-    # Job metadata
-    name: str = Field(index=True)
-
-    # Status tracking
-    status: JobStatus = Field(default=JobStatus.PENDING, index=True)
-
-    # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    # Error tracking
-    error: Optional[str] = None
-```
-
-**Job Status Lifecycle:**
-```
-PENDING → RUNNING → COMPLETED
-                  → FAILED
-                  → CANCELLED
-```
-
-### Group
-
-Represents a logical grouping of tasks and other groups within a job. Groups can be nested.
-
-**Implementation**: `aaiclick/orchestration/models.py` - see `Group` class
-
-```python
-from datetime import datetime
-from typing import Optional
-from sqlmodel import Field, SQLModel, Column
-from sqlalchemy import BigInteger, ForeignKey
-
-class Group(SQLModel, table=True):
-    __tablename__ = "groups"
-
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # uint64 snowflake ID generated by framework
-    # Stored as BIGINT (signed int64) in PostgreSQL
-
-    job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    parent_group_id: Optional[int] = Field(
-        default=None,
-        sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
-    )
-
-    # Group metadata
-    name: str = Field(index=True)
-
-    # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-```
-
-**Nested Group Support:**
-- Groups can contain tasks via `group_id` foreign key in Task
-- Groups can contain other groups via `parent_group_id` foreign key
-- Enables hierarchical workflow organization
-- Dependencies can be defined at any level of the hierarchy
-
-### Dependency
-
-Unified dependency table supporting all dependency types between tasks and groups.
-
-**Implementation**: `aaiclick/orchestration/models.py` - see `Dependency` class
-
-```python
-from sqlmodel import Field, SQLModel, Column
-from sqlalchemy import BigInteger
-
-class Dependency(SQLModel, table=True):
-    __tablename__ = "dependencies"
-
-    # Entity that must complete first
-    previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    previous_type: str = Field(primary_key=True)  # 'task' or 'group'
-
-    # Entity that waits (executes after previous completes)
-    next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    next_type: str = Field(primary_key=True)  # 'task' or 'group'
-```
-
-**Supported Dependency Types:**
-- Task → Task: `previous_type='task'`, `next_type='task'`
-- Task → Group: `previous_type='task'`, `next_type='group'` (all tasks in next group wait for previous task)
-- Group → Task: `previous_type='group'`, `next_type='task'` (next task waits for all tasks in previous group)
-- Group → Group: `previous_type='group'`, `next_type='group'` (next group waits for all tasks in previous group)
-
-**Benefits:**
-- Single unified table for all dependency relationships
-- Intuitive previous/next naming for workflow dependencies
-- Flexible schema supporting future entity types
-- Simplified querying across all dependency types
-- Validation enforced at ORM/application level
+**Status lifecycle**: `PENDING → RUNNING → COMPLETED / FAILED`
 
 ### Task
 
-Represents a single executable unit of work within a job.
+Single executable unit of work. See `Task` class in `models.py`.
 
-**Implementation**: `aaiclick/orchestration/models.py` - see `Task` class
+Key fields: `id`, `job_id`, `group_id`, `entrypoint` (importable callable like `module.function`), `kwargs` (JSONB — serialized Object/View refs), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, `created_at`, `claimed_at`, `started_at`, `completed_at`.
 
-```python
-from datetime import datetime
-from typing import Optional, Dict, Any
-from sqlmodel import Field, SQLModel, Column
-from sqlalchemy import BigInteger, ForeignKey, JSON
+**Status lifecycle**: `PENDING → CLAIMED → RUNNING → COMPLETED / FAILED`
 
-class Task(SQLModel, table=True):
-    __tablename__ = "tasks"
+### Group
 
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # uint64 snowflake ID generated by framework
-    # Stored as BIGINT (signed int64) in PostgreSQL
+Logical grouping of tasks. Supports nesting via `parent_group_id`. See `Group` class in `models.py`.
 
-    job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    group_id: Optional[int] = Field(
-        default=None,
-        sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
-    )
+Key fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`.
 
-    # Execution specification
-    entrypoint: str = Field()
-    # Format: "module.submodule.function" (importable callable)
-    # Example: "aaiclick.operators.map_function"
+### Dependency
 
-    kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    # Dictionary mapping parameter names to serialized Object/View references
-    # All parameters must be aaiclick Objects or Views (no native Python values)
-    # See "Task Parameter Serialization" section for format
+Unified dependency table — composite PK `(previous_id, previous_type, next_id, next_type)`. Types are `'task'` or `'group'`. Supports all four combinations: task→task, task→group, group→task, group→group.
 
-    # Status tracking
-    status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
-
-    # Result (JSON - same format as kwargs)
-    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    # Serialized Object or View reference (see "Task Return Values" section)
-    # null if task returns None
-
-    # Logging
-    log_path: Optional[str] = None
-    # Path to task log file: {get_logs_dir()}/{task_id}.log
-    # Captures stdout and stderr during task execution
-    # OS-dependent defaults: ~/.aaiclick/logs (macOS), /var/log/aaiclick (Linux)
-
-    # Error tracking
-    error: Optional[str] = None
-
-    # Worker assignment
-    worker_id: Optional[int] = Field(
-        default=None,
-        sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True)
-    )
-    # Identifier of the worker executing this task
-
-    # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    claimed_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-```
-
-**Task Dependencies and Groups**:
-- Each task belongs to one Group (optional, via group_id foreign key)
-- Groups can be nested (group contains other groups via parent_group_id)
-- All dependencies (task → task, task → group, group → task, group → group) managed via unified Dependency table
-- A task can only be claimed if all its direct dependencies are satisfied (completed tasks/groups)
-
-**Task Status Lifecycle:**
-```
-PENDING → CLAIMED → RUNNING → COMPLETED
-                            → FAILED → PENDING (if retries remain)
-                                    → FAILED (max retries exceeded)
-        → CANCELLED
-```
-
-**Dependency Constraints**:
-- A task can only be claimed if all its `previous` dependencies (tasks/groups) have status COMPLETED
-- Circular dependencies are not allowed
-- Dependencies managed via unified Dependency table with previous/next relationships
+See `Dependency` class in `models.py`.
 
 ### Worker
 
-Represents an active worker process.
+Active worker process. See `Worker` class in `models.py`.
 
-**Implementation**: `aaiclick/orchestration/models.py` - see `Worker` class
-
-```python
-from datetime import datetime
-from typing import Optional
-from sqlmodel import Field, SQLModel, Column
-from sqlalchemy import BigInteger
-
-class Worker(SQLModel, table=True):
-    __tablename__ = "workers"
-
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # uint64 snowflake ID generated by framework
-    # Stored as BIGINT (signed int64) in PostgreSQL
-
-    # Worker metadata
-    hostname: str = Field(index=True)
-    pid: int
-
-    # Status
-    status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
-
-    # Heartbeat
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow, index=True)
-
-    # Statistics
-    tasks_completed: int = Field(default=0)
-    tasks_failed: int = Field(default=0)
-
-    # Timestamps
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-```
+Key fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`.
 
 ## Task Parameter Serialization
 
-Task kwargs are stored as JSONB. All parameters must be aaiclick Objects or Views - native Python values are not supported. This ensures type safety and enables distributed processing where data remains in ClickHouse.
+Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_serialize_ref()` on Object/View — see `aaiclick/data/object.py`.
 
-### Object Parameters
+**Object ref**: `{"object_type": "object", "table": "t123...", "job_id": 789}`
 
-Reference to a full aaiclick Object (entire ClickHouse table):
+**View ref**: Adds `where`, `limit`, `offset`, `order_by`, `selected_fields` fields.
 
-```json
-{
-    "object_type": "object",
-    "table": "t123456789",
-    "job_id": 789
-}
-```
+`job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
-Worker deserializes to an `Object` instance. `job_id` is used for ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
+### Task Return Values
 
-### View Parameters
+- **`None`**: `task.result` is `null`
+- **Object/View**: Stored via `_serialize_ref()` + `job_id`
+- **Any other value**: Auto-converted via `create_object_from_value()`
 
-Reference to a subset/view of an Object with query constraints:
+**Implementation**: `aaiclick/orchestration/execution.py` — see `serialize_task_result()`
 
-```json
-{
-    "object_type": "view",
-    "table": "t123456789",
-    "offset": 0,
-    "limit": 10000,
-    "where": "value > 100",
-    "order_by": "aai_id ASC",
-    "selected_fields": null,
-    "job_id": 789
-}
-```
+## User-Facing API
 
-Worker deserializes to a `View` instance. All constraint fields are optional except `table`. Default ordering is `aai_id ASC`.
+**Implementation**: `aaiclick/orchestration/decorators.py` — see `TaskFactory` and `JobFactory`
 
-### Example Task Kwargs
+### @task and @job Decorators
 
-```python
-# Task with Object and View parameters
-task_kwargs = {
-    "input_data": {
-        "object_type": "view",
-        "table": "t987654321",
-        "offset": 10000,
-        "limit": 10000,
-        "job_id": 200,
-    },
-    "reference_table": {
-        "object_type": "object",
-        "table": "t111222333",
-        "job_id": 200,
-    }
-}
-```
+Airflow-style TaskFlow API with automatic dependency detection. For usage examples, see `aaiclick/examples/orchestration_basic.py`.
 
-## Task Return Values
+**How it works**:
+- `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
+- Passing a Task as an argument automatically creates an upstream dependency
+- `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages OrchContext, applies all tasks to PostgreSQL via `OrchContext.apply()`
+- Native Python values (int, float, list, etc.) work alongside Object/View parameters
+- At runtime, workers resolve upstream refs by querying completed task results
 
-Task functions can return any value. The execution flow automatically converts return values to aaiclick Objects:
+### Job Testing
 
-- **`None`**: Task produces no output data (`task.result` is `null`)
-- **Any other value**: Automatically converted to Object via `create_object_from_value()`
+**Implementation**: `aaiclick/orchestration/debug_execution.py` — see `job_test()` and `ajob_test()`
 
-The return value is serialized to JSON in `Task.result` via `serialize_task_result()`:
+`job_test(job)` executes a job synchronously in the current process for testing/debugging.
 
-```json
-// Object return value
-{
-    "object_type": "object",
-    "table": "t123456789",
-    "job_id": 789
-}
+### Internal APIs
 
-// None return value
-null
-```
+Not for direct use:
+- `create_task()`, `create_job()` — low-level factories in `aaiclick/orchestration/factories.py`
+- `OrchContext.apply()` — commits DAG to PostgreSQL
+- `>>` / `<<` dependency operators on Task/Group
 
-```python
-# Task that returns a computed value (auto-converted to Object)
-async def compute_sum(data: Object):
-    values = await data.data()
-    total = sum(values)
-    return total  # Auto-converted via create_object_from_value(total)
+### Not Yet Implemented
 
-# Task that returns a list (auto-converted to Object)
-async def process_data(data: Object):
-    results = [x * 2 for x in await data.data()]
-    return results  # Auto-converted via create_object_from_value(results)
+- `get_job()`, `list_jobs()`, `cancel_job()` — job management APIs
+- Dynamic task creation during execution (Phase 8+)
 
-# Task that returns None (side-effect only)
-async def log_summary(data: Object):
-    count = await data.count()
-    print(f"Processed {count} rows")
-    # task.result is null
-```
+## Task Execution
 
-**Note**: If a task already returns an Object, it is stored directly without re-conversion.
+### Worker Main Loop
 
-## Task Execution Flow
+**Implementation**: `aaiclick/orchestration/worker.py` — see `worker_main_loop()`
 
-### 1. Job Creation ✅ IMPLEMENTED
+Workers continuously poll for tasks, execute them, and update status. Handles auto-registration/deregistration, periodic heartbeats (30s), graceful SIGTERM/SIGINT shutdown, and per-task lifecycle handler creation via `lifecycle_factory`.
 
-**See**: Factory APIs section above for `create_job()` and `create_task()` usage
-**Implementation**: `aaiclick/orchestration/factories.py` - see `create_job()` function
+### Task Claiming
 
-### 1.1 Job Testing ✅ IMPLEMENTED
+**Implementation**: `aaiclick/orchestration/claiming.py` — see `claim_next_task()`
 
-Execute a job synchronously for testing/debugging:
+Uses PostgreSQL CTE with `FOR UPDATE SKIP LOCKED` for atomic concurrent task claiming:
 
-```python
-from aaiclick.orchestration import create_job, job_test
+- Finds oldest pending task whose dependencies are all satisfied
+- Checks all four dependency types (task→task, group→task, task→group, group→group)
+- Atomically transitions job PENDING→RUNNING on first claim
+- Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
 
-job = await create_job("my_job", "mymodule.task1")
-job_test(job)  # Blocks until job completes
-# Job status is now COMPLETED or FAILED
-```
+### Worker CLI
 
-**Implementation**: `aaiclick/orchestration/debug_execution.py` - see `job_test()` function
-- `aaiclick/orchestration/execution.py` - Task execution logic
-- `aaiclick/orchestration/logging.py` - Task logging utilities
+**Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
-### 2. Dynamic Task Creation ⚠️ NOT YET IMPLEMENTED (Phase 8+)
-
-Tasks will be able to create additional tasks during execution via aaiclick operators:
-
-```python
-# In aaiclick/operators.py
-async def map(callback: str, obj: Object) -> Object:
-    """
-    Apply callback to each element of obj in parallel.
-    Creates one task per chunk of data using offset/limit.
-    """
-    from aaiclick.orchestration import create_task, get_current_context
-
-    # Get current context (has access to job_id and PostgreSQL session)
-    ctx = get_current_context()
-
-    # Get total row count without reading data
-    total_rows = await obj.count()
-    chunk_size = 10000  # Configurable chunk size
-
-    # Create task for each chunk using create_task factory
-    tasks = []
-    for offset in range(0, total_rows, chunk_size):
-        task = create_task(
-            callback=callback,
-            kwargs={
-                "chunk": {
-                    "object_type": "view",
-                    "table_id": obj.table_id,
-                    "offset": offset,
-                    "limit": chunk_size
-                }
-            }
-        )
-        tasks.append(task)
-
-    # Commit all tasks to database (context automatically sets job_id)
-    await ctx.apply(tasks)
-
-    # Return handle to future results
-    num_chunks = (total_rows + chunk_size - 1) // chunk_size
-    return await create_result_collector(ctx.job_id, num_chunks)
-```
-
-### 3. Worker Task Execution Loop ✅ IMPLEMENTED (Phase 6)
-
-**Implementation**: `aaiclick/orchestration/worker.py` - see `worker_main_loop()` function
-
-```python
-# Worker main loop (planned for Phase 6+)
-async def worker_main_loop(worker_id: str):
-    while True:
-        # Claim next available task (atomic operation)
-        # Prioritizes tasks from oldest running jobs
-        task = await claim_next_task(worker_id)
-
-        if task is None:
-            await asyncio.sleep(1)  # No tasks available
-            continue
-
-        try:
-            # Update task status
-            await update_task_status(task.id, "running")
-
-            # Set up task logging
-            log_path = f"{get_logs_dir()}/{task.id}.log"
-            await update_task_log_path(task.id, log_path)
-
-            # Execute task with Context bound to job
-            async with Context(job_id=task.job_id) as ctx:
-                # Capture stdout/stderr to log file
-                with capture_task_output(task.id):
-                    # Import and execute entrypoint
-                    func = import_function(task.entrypoint)
-
-                    # Deserialize task kwargs (see Task Parameter Serialization section)
-                    # Converts object_type formats to Object/View/native Python instances
-                    task_kwargs = deserialize_task_params(task.kwargs, ctx)
-
-                    # All print() and errors write to {get_logs_dir()}/{task.id}.log
-                    result_obj = await func(**task_kwargs)
-
-            # Store result
-            await update_task_result(
-                task.id,
-                result_table_id=result_obj.table_id,
-                status=TaskStatus.COMPLETED
-            )
-
-        except Exception as e:
-            # Handle failure (error also logged to task log file)
-            await handle_task_failure(task, error=str(e))
-```
-
-### 4. Task Claiming (Atomic)
-
-Uses PostgreSQL row-level locking for safe concurrent access:
-
-```sql
--- Implemented via SQLModel/SQLAlchemy
--- Prioritizes tasks from oldest running jobs first
--- Respects all dependency types via unified dependency table
--- Also marks job as started and running when first task is claimed
-WITH claimed_task AS (
-    UPDATE tasks
-    SET
-        status = 'claimed',
-        worker_id = :worker_id,
-        claimed_at = NOW()
-    WHERE id = (
-        SELECT t.id FROM tasks t
-        JOIN jobs j ON t.job_id = j.id
-        WHERE t.status = 'pending'
-        -- Check previous task → next task dependencies
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.id
-            WHERE d.next_id = t.id
-            AND d.next_type = 'task'
-            AND d.previous_type = 'task'
-            AND prev.status != 'completed'
-        )
-        -- Check previous group → next task dependencies (all tasks in previous group must be completed)
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.group_id
-            WHERE d.next_id = t.id
-            AND d.next_type = 'task'
-            AND d.previous_type = 'group'
-            AND prev.status != 'completed'
-        )
-        -- Check previous task → next group dependencies (if task is in next group that waits for previous task)
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.id
-            WHERE d.next_id = t.group_id
-            AND d.next_type = 'group'
-            AND d.previous_type = 'task'
-            AND prev.status != 'completed'
-            AND t.group_id IS NOT NULL
-        )
-        -- Check previous group → next group dependencies (if task is in next group that waits for previous group)
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.group_id
-            WHERE d.next_id = t.group_id
-            AND d.next_type = 'group'
-            AND d.previous_type = 'group'
-            AND prev.status != 'completed'
-            AND t.group_id IS NOT NULL
-        )
-        ORDER BY j.started_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-    )
-    RETURNING *
-)
-UPDATE jobs
-SET
-    started_at = COALESCE(started_at, NOW()),
-    status = CASE WHEN started_at IS NULL THEN 'running' ELSE status END
-WHERE id = (SELECT job_id FROM claimed_task)
-RETURNING (SELECT * FROM claimed_task);
-```
-
-**Key features:**
-- `FOR UPDATE SKIP LOCKED`: Skip rows locked by other workers
-- `NOT EXISTS`: Only claim tasks where all previous dependencies (tasks/groups) are completed
-- `ORDER BY j.started_at ASC`: Prioritize tasks from oldest running jobs
-- `COALESCE(started_at, NOW())`: Atomically set job's started_at when first task is claimed
-- `CASE WHEN started_at IS NULL`: Set job status to 'running' on first task claim
-- Atomic update: Prevents race conditions
-- Unified dependency checking: Single table handles all dependency types (task→task, task→group, group→task, group→group)
-
-## API / Interfaces
-
-### Job Management
-
-**Implemented (Phase 2):**
-- ✅ `create_task()` - See Factory APIs section
-- ✅ `create_job()` - See Factory APIs section
-- **Implementation**: `aaiclick/orchestration/factories.py`
-
-**Implemented (Phase 3):**
-- ✅ `job_test(job)` - Execute job synchronously for testing
-  - **Implementation**: `aaiclick/orchestration/debug_execution.py` - see `job_test()` function
-
-**Not Yet Implemented (Phase 4+):**
-- ⚠️ `get_job(job_id)` - Get job status and details
-- ⚠️ `list_jobs(status)` - List jobs by status
-- ⚠️ `cancel_job(job_id)` - Cancel a running job
-
-### Task Management ⚠️ NOT YET IMPLEMENTED (Phase 4+)
-
-```python
-from aaiclick.orchestration import (
-    add_task_to_job,
-    get_task,
-    retry_failed_tasks
-)
-
-# Add task to existing job
-await add_task_to_job(
-    job_id=job.id,
-    entrypoint="myapp.process",
-    kwargs={"data": "tbl_xyz"}
-)
-
-# Get task details
-task = await get_task(task_id)
-
-# Retry failed tasks
-await retry_failed_tasks(job_id)
-```
-
-### Context API for DAG Construction ✅ IMPLEMENTED (Phase 4)
-
-**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
-
-```python
-from aaiclick.orchestration import OrchContext, Task, Group, create_task
-
-# Create orchestration context
-async with OrchContext() as ctx:
-    # Define tasks in memory
-    task1 = create_task("myapp.func1", kwargs={...})
-    task2 = create_task("myapp.func2", kwargs={...})
-    group1 = Group(name="processing")
-
-    # Commit tasks and groups to database with job_id
-    await ctx.apply(task1, job_id=job.id)  # Apply single task
-    await ctx.apply([task1, task2, group1], job_id=job.id)  # Apply multiple
-
-# ctx.apply() performs:
-# - Sets job_id on all items
-# - Generates snowflake IDs for Groups if not set
-# - Inserts Task and Group records in database
-# - Returns committed objects with IDs assigned
-```
-
-**`context.apply()` Signature:**
-```python
-async def apply(
-    self,
-    items: Task | Group | list[Task | Group],
-    job_id: int,
-) -> Task | Group | list[Task | Group]:
-    """
-    Commit tasks, groups, and their dependencies to the database.
-
-    Args:
-        items: Single Task/Group or list of Task/Group objects
-        job_id: Job ID to assign to all items
-
-    Returns:
-        Same items with database IDs populated
-    """
-```
-
-### DAG Construction with Dependency Operators ✅ IMPLEMENTED (Phase 7)
-
-**Implementation**: `aaiclick/orchestration/models.py` - see `Task` and `Group` dependency operators
-
-Airflow-like syntax for defining dependencies between tasks and groups:
-
-```python
-from aaiclick.orchestration import Task, Group
-
-# Task → Task dependencies
-task1 = Task(entrypoint="myapp.extract", kwargs={...})
-task2 = Task(entrypoint="myapp.transform", kwargs={...})
-task3 = Task(entrypoint="myapp.load", kwargs={...})
-
-# task2 depends on task1 (task1 executes before task2)
-task1 >> task2
-
-# task3 depends on task2
-task2 >> task3
-
-# Equivalent chaining
-task1 >> task2 >> task3
-
-# Reverse syntax (task1 depends on task2)
-task2 << task1  # Same as: task1 >> task2
-
-# Group → Group dependencies
-extract_group = Group(name="extract")
-transform_group = Group(name="transform")
-load_group = Group(name="load")
-
-extract_group >> transform_group >> load_group
-
-# Task → Group dependencies (task completes before all tasks in group start)
-validation_task = Task(entrypoint="myapp.validate", kwargs={...})
-validation_task >> transform_group
-
-# Group → Task dependencies (all tasks in group complete before task starts)
-transform_group >> final_report_task
-
-# Mixed dependencies
-task1 >> group1 >> task2 >> group2 >> task3
-
-# Multiple dependencies (fan-out and fan-in)
-# Fan-out: task1 must complete before task2, task3, and task4 can start
-task1 >> [task2, task3, task4]
-
-# Fan-in: task5 waits for task2, task3, and task4 to complete
-[task2, task3, task4] >> task5
-
-# Complex DAG
-source_task >> extract_group >> [transform_task1, transform_task2]
-[transform_task1, transform_task2] >> load_group >> final_task
-
-# Commit all tasks, groups, and dependencies to the database
-await context.apply([source_task, extract_group, transform_task1, transform_task2, load_group, final_task])
-# Or pass individual items
-await context.apply(source_task)
-await context.apply(extract_group)
-```
-
-**Using `context.apply()` to commit DAGs:**
-
-```python
-from aaiclick.orchestration import Context, Task, Group
-
-# Create context for a job
-context = Context(job_id=job.id)
-
-# Define tasks
-extract = Task(entrypoint="myapp.extract", kwargs={...})
-transform = Task(entrypoint="myapp.transform", kwargs={...})
-load = Task(entrypoint="myapp.load", kwargs={...})
-
-# Define dependencies
-extract >> transform >> load
-
-# Commit all tasks and dependencies to database
-await context.apply([extract, transform, load])
-# context.apply() saves:
-# - All Task/Group objects
-# - All Dependency records created by >> and << operators
-# - Validates no circular dependencies exist
-```
-
-**Operator Semantics:**
-- `A >> B`: B depends on A (A is previous, B is next)
-- `A << B`: A depends on B (B is previous, A is next)
-- `A >> [B, C, D]`: B, C, and D all depend on A (fan-out)
-- `[A, B, C] >> D`: D depends on all of A, B, and C (fan-in)
-- Works with any combination of Task and Group objects
-- Dependencies are stored in the unified Dependency table
-- Circular dependencies are detected and rejected
-
-**How Fan-In Works (`[A, B] >> C`):**
-
-Fan-in is **not** a built-in Python feature. It uses Python's **reverse operator** mechanism:
-
-1. Python evaluates `[A, B] >> C`
-2. Python first tries `list.__rshift__([A, B], C)` - but lists don't support `>>`
-3. Python falls back to the **reverse operator**: `C.__rrshift__([A, B])`
-4. The `__rrshift__` method on `C` receives the list `[A, B]` and calls `C.depends_on(A)` and `C.depends_on(B)`
-
-This means:
-- `__rshift__`: Normal operator called on left operand (`A >> B` → `A.__rshift__(B)`)
-- `__rrshift__`: Reverse operator called on right operand when left doesn't support operation (`[A, B] >> C` → `C.__rrshift__([A, B])`)
-- Same pattern for `__lshift__` and `__rlshift__`
-
-**Implementation:**
-```python
-class Task(SQLModel, table=True):
-    # ... fields ...
-
-    def depends_on(self, other: Union["Task", "Group"]) -> "Task":
-        """
-        Declare that this task depends on another task or group.
-        Creates a Dependency record in the database.
-
-        Args:
-            other: Task or Group that must complete before this task
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
-            next_id=self.id,
-            next_type="task"
-        )
-        session.add(dependency)
-        return self
-
-    def __rshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
-        """A >> B: B depends on A"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-    def __lshift__(self, other: Union["Task", "Group", list]) -> "Task":
-        """A << B: A depends on B"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union["Task", "Group", list]) -> "Task":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(self, other: Union["Task", "Group", list]) -> Union["Task", "Group", list]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-class Group(SQLModel, table=True):
-    # ... fields ...
-
-    def depends_on(self, other: Union[Task, "Group"]) -> "Group":
-        """
-        Declare that this group depends on a task or another group.
-        Creates a Dependency record in the database.
-
-        Args:
-            other: Task or Group that must complete before tasks in this group
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type="task" if isinstance(other, Task) else "group",
-            next_id=self.id,
-            next_type="group"
-        )
-        session.add(dependency)
-        return self
-
-    def __rshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
-        """A >> B: B depends on A"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-    def __lshift__(self, other: Union[Task, "Group", list]) -> "Group":
-        """A << B: A depends on B"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union[Task, "Group", list]) -> "Group":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)"""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(self, other: Union[Task, "Group", list]) -> Union[Task, "Group", list]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)"""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-```
-
-### TaskFlow API with Decorators ✅ IMPLEMENTED
-
-**Implementation**: `aaiclick/orchestration/decorators.py`
-
-Airflow-style TaskFlow API for defining workflows with automatic dependency detection and result passing between tasks.
-
-**`@task` Decorator:**
-
-Creates a `TaskFactory` that generates Task instances when called. When a Task is passed as an argument, it automatically:
-1. Creates an upstream reference for result injection at runtime
-2. Sets up the dependency (upstream task must complete first)
-
-```python
-from aaiclick.orchestration import task
-
-@task
-async def extract(url: str) -> Object:
-    """Extract data from URL."""
-    return await create_object_from_url(url)
-
-@task
-async def transform(data: Object, multiplier: int) -> Object:
-    """Transform data by multiplying values."""
-    return await (data * multiplier)
-
-@task
-async def compute_stats(data: Object) -> dict:
-    """Compute statistics."""
-    return {
-        "sum": await (await data.sum()).data(),
-        "mean": await (await data.mean()).data(),
-    }
-```
-
-**`@job` Decorator:**
-
-Creates a `JobFactory` that wraps workflow definitions. When called, it creates a Job and applies all returned tasks to the database.
-
-```python
-from aaiclick.orchestration import job, task, OrchContext
-
-@job("my_pipeline")
-def my_pipeline(input_url: str, multiplier: int = 2):
-    """Define workflow - returns list of tasks."""
-    # Create tasks
-    extracted = extract(url=input_url)
-
-    # Passing Task as argument creates dependency automatically
-    # extract >> transform is implicit
-    transformed = transform(data=extracted, multiplier=multiplier)
-
-    # Multiple tasks can depend on same upstream
-    stats = compute_stats(data=transformed)
-
-    return [extracted, transformed, stats]
-
-# Usage
-async with OrchContext():
-    job = await my_pipeline(
-        input_url="https://example.com/data.parquet",
-        multiplier=3,
-    )
-```
-
-**Native Python Values:**
-
-Task kwargs support both Object/View references and native Python values:
-
-```python
-@task
-async def process(data: Object, threshold: float, labels: list[str]) -> Object:
-    """Task with mixed parameter types."""
-    # data: Object injected from upstream task result
-    # threshold: float passed directly
-    # labels: list passed directly
-    ...
-
-# All these work
-result = process(
-    data=upstream_task,      # Task -> creates dependency + upstream ref
-    threshold=0.5,           # Native float
-    labels=["a", "b", "c"],  # Native list
-)
-```
-
-**Upstream Result Injection:**
-
-At runtime, the worker resolves upstream references by querying completed task results:
-
-```python
-# When task executes:
-# 1. Worker fetches upstream task's result from PostgreSQL
-# 2. Deserializes Object/View references
-# 3. Injects as function arguments
-# 4. Task function receives actual Object instances
-```
-
-**Example: Complete Pipeline**
-
-```python
-from aaiclick.orchestration import task, job, OrchContext
-from aaiclick import DataContext, create_object_from_value
-from aaiclick.data.object import Object
-
-@task
-async def create_dataset(values: list) -> Object:
-    return await create_object_from_value(values)
-
-@task
-async def double_values(data: Object) -> Object:
-    return await (data * 2)
-
-@task
-async def aggregate(data: Object) -> dict:
-    return {"sum": await (await data.sum()).data()}
-
-@job("example")
-def example_pipeline(values: list):
-    dataset = create_dataset(values=values)
-    doubled = double_values(data=dataset)  # Auto: dataset >> doubled
-    result = aggregate(data=doubled)        # Auto: doubled >> result
-    return [dataset, doubled, result]
-
-async def main():
-    async with OrchContext():
-        async with DataContext():
-            job = await example_pipeline(values=[1, 2, 3, 4, 5])
-            print(f"Created job: {job.id}")
-
-# Run with: python -m aaiclick.orchestration.worker
-```
-
-**Implementation Details:**
-
-- `TaskFactory.__call__()` serializes kwargs and detects Task arguments
-- `JobFactory.__call__()` executes workflow function and applies tasks
-- `deserialize_task_params()` resolves upstream refs at execution time
-- Dependencies created by `>>` operator still work for explicit ordering
-
-### Worker Management ✅ IMPLEMENTED (Phase 6)
-
-**Implementation**: `aaiclick/orchestration/worker.py`
-
-```python
-from aaiclick.orchestration import (
-    register_worker,
-    worker_heartbeat,
-    deregister_worker,
-    list_workers
-)
-
-# Register worker
-worker = await register_worker(hostname="worker-01", pid=12345)
-
-# Heartbeat (periodic)
-await worker_heartbeat(worker.id)
-
-# Deregister
-await deregister_worker(worker.id)
-
-# List active workers
-workers = await list_workers(status=WorkerStatus.ACTIVE)
+```bash
+python -m aaiclick worker start               # Start a worker
+python -m aaiclick worker start --max-tasks 10 # Limit task count
+python -m aaiclick worker list                 # List workers
+python -m aaiclick background start            # Standalone cleanup worker
 ```
 
 ## Distributed Object Lifecycle
 
-In distributed mode, Object table lifecycle is managed through PostgreSQL with **explicit ownership transfer** via pin/claim. Two independent components handle this:
+In distributed mode, Object table lifecycle is managed through PostgreSQL with **explicit ownership transfer** via pin/claim.
 
 ### Architecture
 
@@ -1249,310 +231,72 @@ Worker Process
 
 Each component owns its own PG engine — fully decoupled from OrchContext.
 
-### Ownership Transfer Model (Pin/Claim)
-
-Task result tables are explicitly transferred between execution contexts:
+### Ownership Transfer (Pin/Claim)
 
 ```
 Task A executes (handler context_id=auto_snowflake, job_id=job.id)
   ├── incref intermediates → (table_name, auto_snowflake, N) rows in PG
   ├── Returns result Object (table t_result)
-  │
   ├── DataContext exits → Objects marked stale, handler still alive
-  │
-  ├── PIN: enqueue PIN op → inserts (t_result, job_id, 1)
-  │   └── job-scoped ref, NOT affected by stop()
-  │
-  └── stop() → drain queue, then DELETE WHERE context_id=auto_snowflake
-      ├── All handler refs deleted (intermediates cleaned immediately)
-      └── (t_result, job_id, 1) survives (different context_id)
+  ├── PIN: inserts (t_result, job_id, 1) — survives stop()
+  └── stop() → DELETE WHERE context_id=auto_snowflake (intermediates cleaned)
 
 Task B starts (handler context_id=auto_snowflake_2, job_id=job.id)
-  ├── Deserializes task_a.result → obj_a = func()
+  ├── Deserializes task_a.result:
   │   ├── incref → inserts (t_result, auto_snowflake_2, 1)  ← consumer owns it
   │   └── claim → deletes (t_result, job_id, 1)             ← release job ref
-  │
-  ├── obj_a is now owned by Task B's DataContext
-  └── (cycle repeats: pin Task B's result, stop, etc.)
+  └── obj_a now owned by Task B's DataContext
 
 Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
 ```
 
-### PgLifecycleHandler — Context-Scoped Refcount Tracking
+### PgLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
-Each handler instance gets a unique `context_id` (snowflake ID) for grouping its execution refs. Pin operations use `job_id` as the context_id, so pinned results survive `stop()`.
+Each handler gets a unique `context_id` (snowflake). Pin operations use `job_id` as context_id so pinned results survive `stop()`.
 
-**Constructor**: `PgLifecycleHandler(job_id)` — auto-generates internal context_id.
+**Sync-to-async bridge**: `Object.__del__` calls `incref`/`decref` synchronously → `queue.Queue` → asyncio.Task drains via `run_in_executor` → writes to PG.
 
-**How sync incref/decref bridges to async**:
-- `Object.__del__` and `Object._register` call `incref`/`decref` synchronously
-- These put messages on a `queue.Queue` (thread-safe, non-blocking)
-- An asyncio.Task drains the queue via `run_in_executor` and writes to PG
+**PostgreSQL table**: `TableContextRef` in `pg_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
 
-**PostgreSQL table**:
+Operations: INCREF (upsert +1), DECREF (update -1), PIN (upsert with job_id), stop() (delete by context_id), claim() (release job-scoped pin).
 
-```python
-class TableContextRef(SQLModel, table=True):
-    __tablename__ = "table_context_refs"
-    table_name: str  # Composite PK part 1 — ClickHouse table name
-    context_id: int  # Composite PK part 2 — handler snowflake or job_id
-    refcount: int    # Reference count within this context
-```
-
-- **INCREF**: `INSERT ... ON CONFLICT (table_name, context_id) DO UPDATE SET refcount = refcount + 1`
-- **DECREF**: `UPDATE SET refcount = refcount - 1 WHERE table_name AND context_id`
-- **PIN**: Same as INCREF but uses `job_id` as context_id instead of handler's auto-generated ID
-- **stop()**: `DELETE FROM table_context_refs WHERE context_id = handler_snowflake` (unconditionally destructive)
-
-- **claim(table_name, job_id)**: Method on `PgLifecycleHandler` that releases a job-scoped pin ref during deserialization. Uses the handler's own engine — no separate global PG engine needed.
-
-### PgCleanupWorker — Table Dropper + Job Cleanup + Dead Worker Detection
+### PgCleanupWorker
 
 **Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker` class
 
-Background worker that performs three cleanup operations on each poll:
+Three cleanup operations per poll:
+1. **Job cleanup**: Completed/failed jobs → delete job-scoped pin refs
+2. **Table cleanup**: `HAVING SUM(refcount) <= 0` → DROP in CH → DELETE from PG
+3. **Dead worker detection**: Expired heartbeats → mark tasks FAILED, workers STOPPED
 
-1. **Job cleanup**: Finds completed/failed jobs → deletes their job-scoped pin refs from `table_context_refs`
-2. **Table cleanup**: `SELECT table_name FROM table_context_refs GROUP BY table_name HAVING SUM(refcount) <= 0` → DROP in CH → DELETE from PG
-3. **Dead worker detection**: Workers with expired `last_heartbeat` → marks their running tasks as FAILED → marks workers as STOPPED
-
-**Configuration**: `poll_interval` (default 10s), `worker_timeout` (default 90s)
-
-### Worker Startup Integration
-
-**Implementation**: `aaiclick/orchestration/cli.py` — see `start_worker()` function
-
-When a worker starts, a `lifecycle_factory` creates per-task handlers (each with unique context_id).
-The worker uses `async with` on each handler for automatic start/stop:
-
-```python
-async with lifecycle_factory(task.job_id) as lifecycle:
-    result = await execute_task(task, lifecycle=lifecycle)
-```
-
-The flow: `worker_main_loop` → creates handler per task via factory → `async with handler` → `execute_task(task, lifecycle=handler)` → `DataContext(lifecycle=handler)`.
-
-### Standalone Cleanup Process
-
-The cleanup worker can also run as a standalone process:
-
-```bash
-aaiclick background start                # Default 10s poll interval
-aaiclick background start --poll-interval 5  # Custom interval
-```
-
-This is useful for running cleanup separately from workers, or for dedicated cleanup processes in production.
+Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ### Write-Ahead Incref
 
-`create_object()` registers the table with the lifecycle handler **before** creating the ClickHouse table:
+**Implementation**: `aaiclick/data/data_context.py` — see `create_object()`
 
-```python
-obj = Object(schema=schema)           # 1. Generate table name (Snowflake ID)
-obj._register(ctx)                     # 2. incref BEFORE table creation
-await ctx.ch_client.command(create_q)  # 3. CREATE TABLE in ClickHouse
-```
+`create_object()` calls `incref` **before** `CREATE TABLE` in ClickHouse. Crash after incref but before CREATE → cleanup tries `DROP TABLE IF EXISTS` (harmless no-op).
 
-This prevents the most common orphan scenario: crash after `CREATE TABLE` but before incref reaches PostgreSQL. If a crash occurs after incref but before `CREATE TABLE`, the cleanup worker tries `DROP TABLE IF EXISTS` on a non-existent table (harmless no-op) and deletes the PG row.
+### TableSweeper ⚠️ NOT YET IMPLEMENTED
 
-**Implementation**: `aaiclick/data/data_context.py` — see `create_object()` function
+Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row. Complements PgCleanupWorker (catches tables refcount system missed entirely).
 
-### TableSweeper — Orphan Detection ⚠️ NOT YET IMPLEMENTED
+### Local Mode
 
-A periodic sweeper that catches orphaned tables regardless of cause. All aaiclick tables follow the naming convention `t{snowflake_id}`. The sweeper:
-
-1. Lists all `t*` tables in ClickHouse
-2. Extracts creation timestamp from each table's snowflake ID
-3. For tables older than a threshold (default 1 hour): checks if a `table_context_refs` row exists in PG
-4. If no row exists → table is orphaned → DROP it
-
-The sweeper is complementary to PgCleanupWorker:
-- **PgCleanupWorker**: Drops tables the refcount system knows about (refcount <= 0)
-- **TableSweeper**: Catches tables the refcount system missed (no PG row at all)
-
-### Relationship to Local Mode
-
-When no lifecycle handler is injected (e.g., during local development or testing), DataContext creates a `LocalLifecycleHandler` that wraps `TableWorker` — a background thread that drops tables immediately when refcount reaches 0. No PostgreSQL required.
-
-See [Object documentation](object.md) — "Table Lifecycle Tracking" section for the full LifecycleHandler interface.
+Without injected lifecycle handler, DataContext creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [Object documentation](object.md) — "Table Lifecycle Tracking".
 
 ## Configuration
 
-### Environment Variables
+See CLAUDE.md for environment variables. Orchestration-specific:
 
-```bash
-# PostgreSQL connection
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=aaiclick
-POSTGRES_PASSWORD=secret
-POSTGRES_DB=aaiclick_orchestration
+- **Log directory**: `AAICLICK_LOG_DIR` env var, or OS defaults (macOS: `~/.aaiclick/logs`, Linux: `/var/log/aaiclick`). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
+- **Migrations**: `python -m aaiclick migrate` — see `aaiclick/orchestration/migrate.py`
 
-# Task logging (optional - defaults via get_logs_dir())
-AAICLICK_LOG_DIR=<custom-path>  # Override default log directory
+## Implementation Status
 
-# Worker settings
-WORKER_HEARTBEAT_INTERVAL=30  # seconds
-WORKER_TASK_TIMEOUT=3600      # seconds
-WORKER_MAX_RETRIES=3
-
-# Job settings
-JOB_DEFAULT_TIMEOUT=86400     # seconds (24 hours)
-```
-
-**Log Directory Resolution**:
-
-The log directory is resolved via `get_logs_dir()` which provides OS-dependent defaults:
-
-```python
-def get_logs_dir() -> str:
-    """
-    Get task log directory with OS-dependent defaults.
-
-    Defaults:
-    - macOS: ${HOME}/.aaiclick/logs
-    - Linux: /var/log/aaiclick
-
-    Returns:
-        Log directory path (creates if doesn't exist)
-    """
-    if custom_dir := os.getenv("AAICLICK_LOG_DIR"):
-        return custom_dir
-
-    if sys.platform == "darwin":  # macOS
-        return os.path.expanduser("~/.aaiclick/logs")
-    else:  # Linux
-        return "/var/log/aaiclick"
-```
-
-**Notes**:
-- For distributed workers, use a shared mount (NFS, EFS, etc.) and set `AAICLICK_LOG_DIR` to the mount path
-- Single-machine deployments can use local filesystem with defaults
-- Directory is created automatically if it doesn't exist
-
-### Database Connection
-
-**Implementation**: `aaiclick/orchestration/database.py`
-
-The orchestration backend uses a global asyncpg connection pool (not SQLAlchemy engine):
-
-```python
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-
-# Global async engine (SQLAlchemy manages connection pooling internally)
-_engine: list[Optional[AsyncEngine]] = [None]
-
-def _get_engine() -> AsyncEngine:
-    """Get or create the global SQLAlchemy AsyncEngine."""
-    if _engine[0] is None:
-        database_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-        _engine[0] = create_async_engine(database_url, echo=False)
-    return _engine[0]
-
-# Usage pattern - create sessions from the global engine
-async with OrchContext():
-    async with get_orch_context_session() as session:
-        result = await session.execute(select(Job))
-        jobs = result.scalars().all()
-```
-
-**Implementation**: `aaiclick/orchestration/context.py` defines the global engine and context management.
-
-## Implementation Plan
-
-**Current Status**: Phases 1–7 complete.
-- ⚠️ Phase 8+: Dynamic Task Creation, Retry Logic
-
-## Monitoring & Observability
-
-### Metrics to Track
-
-```python
-# Job metrics
-- jobs_created_total
-- jobs_completed_total
-- jobs_failed_total
-- job_duration_seconds
-
-# Task metrics
-- tasks_created_total
-- tasks_completed_total
-- tasks_failed_total
-- task_duration_seconds
-- task_queue_depth
-
-# Worker metrics
-- workers_active
-- worker_task_execution_time
-- worker_heartbeat_age
-```
-
-### Health Checks
-
-```python
-async def health_check():
-    """Check orchestration backend health."""
-    checks = {
-        "database": await check_database_connection(),
-        "workers": await check_active_workers(),
-        "stale_tasks": await check_stale_tasks(),
-    }
-    return all(checks.values())
-```
-
-## Error Handling
-
-### Task Failures
-
-1. **Transient errors**: Retry up to `max_retries`
-2. **Permanent errors**: Mark task as failed, fail parent job
-3. **Timeout**: Kill worker, retry task on another worker
-
-### Worker Failures
-
-1. **Heartbeat timeout**: Mark worker as stopped
-2. **Orphaned tasks**: Reclaim tasks from stopped workers
-3. **Recovery**: Reset orphaned tasks to pending status
-
-### Job Failures
-
-1. **Task failure**: Propagate to job if critical
-2. **Cancellation**: Cancel all pending tasks
-3. **Cleanup**: Remove temporary resources
-
-## Packaging Consideration
-
-Database migrations are bundled with the aaiclick package and executable via CLI:
-
-**Implementation**: `aaiclick/__main__.py` and `aaiclick/orchestration/migrate.py`
-
-```bash
-# Run migrations
-python -m aaiclick migrate
-
-# Show current revision
-python -m aaiclick migrate current
-
-# Show migration history
-python -m aaiclick migrate history
-
-# Upgrade to specific revision
-python -m aaiclick migrate upgrade <revision>
-
-# Downgrade to specific revision
-python -m aaiclick migrate downgrade <revision>
-```
-
-**Key Features**:
-- Migrations bundled with package (no separate Alembic installation needed)
-- Programmatic Alembic execution via `aaiclick/orchestration/migrate.py`
-- CLI entry point via `aaiclick/__main__.py`
-- All Alembic commands supported (upgrade, downgrade, current, history, etc.)
-- Locates `alembic.ini` and migrations relative to package installation
-
-This ensures users can initialize and upgrade the orchestration database schema without manual migration management.
+Phases 1–7 complete. Phase 8+: Dynamic task creation, retry logic ⚠️ NOT YET IMPLEMENTED.
 
 ## References
 

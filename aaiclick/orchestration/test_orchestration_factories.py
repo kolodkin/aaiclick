@@ -4,14 +4,8 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from aaiclick.orchestration import (
-    Job,
-    JobStatus,
-    Task,
-    TaskStatus,
-    create_job,
-    create_task,
-)
+from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.context import get_orch_context_session
 
 

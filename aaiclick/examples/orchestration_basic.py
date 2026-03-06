@@ -2,74 +2,65 @@
 Basic orchestration example for aaiclick.
 
 This example demonstrates how to create and execute jobs using the
-orchestration backend. It shows the basic workflow of:
-1. Creating a job with a task
-2. Executing the job using job_test() for synchronous testing
-3. Using ajob_test() for async contexts
+orchestration backend with @task and @job decorators. It shows:
+1. Defining tasks with the @task decorator
+2. Defining a workflow with the @job decorator
+3. Executing the job using job_test() for synchronous testing
+4. Using ajob_test() for async contexts
 
 Note: This requires a running PostgreSQL server for job/task state storage.
 """
 
 import asyncio
 
-from aaiclick.orchestration import (
-    JobStatus,
-    OrchContext,
-    ajob_test,
-    create_job,
-    create_task,
-)
+from aaiclick.orchestration import JobStatus, ajob_test, job, task
 
 
-# Define sample task functions
-async def simple_arithmetic():
+# Define sample task functions using @task decorator
+@task
+async def simple_arithmetic() -> int:
     """A simple task that does basic arithmetic and prints the result."""
     a = 1
     b = 2
     c = a + b
     print(f"Computing: {a} + {b} = {c}")
+    return c
 
 
-async def task_with_params(x: int, y: int):
+@task
+async def multiply(x: int, y: int) -> int:
     """A task that takes parameters and prints their product."""
     result = x * y
     print(f"Computing: {x} * {y} = {result}")
+    return result
 
 
-async def example_simple_job():
-    """Example: Create and run a simple job with one task."""
-    print("\n" + "=" * 50)
-    print("Example 1: Simple Job with Callable Function")
-    print("-" * 50)
-
-    # Create a job using a callable function directly
-    # The function is automatically converted to its module path string
-    job = await create_job("simple_arithmetic_job", simple_arithmetic)
-
-    print(f"Created job: {job.name} (ID: {job.id})")
-    print(f"Initial status: {job.status}")
-
-    return job
+# Define workflows using @job decorator
+@job("simple_arithmetic_job")
+def simple_job():
+    """A simple job with one task."""
+    result = simple_arithmetic()
+    return [result]
 
 
-async def example_job_with_task():
-    """Example: Create a job using a Task object with parameters."""
-    print("\n" + "=" * 50)
-    print("Example 2: Job with Task Object and Parameters")
-    print("-" * 50)
+@job("parametrized_job")
+def parametrized_job(x: int, y: int):
+    """A job with a parametrized task."""
+    result = multiply(x=x, y=y)
+    return [result]
 
-    # Create a task with callable and parameters
-    task = create_task(task_with_params, {"x": 5, "y": 7})
 
-    # Create job with the task
-    job = await create_job("parametrized_job", task)
+@job("chained_job")
+def chained_job(x: int, y: int):
+    """A job demonstrating task chaining with automatic dependencies."""
+    # First task computes arithmetic
+    sum_result = simple_arithmetic()
 
-    print(f"Created job: {job.name} (ID: {job.id})")
-    print(f"Task entrypoint: {task.entrypoint}")
-    print(f"Task kwargs: {task.kwargs}")
-    print(f"Initial status: {job.status}")
+    # Second task uses parameters - both tasks run in parallel since
+    # multiply doesn't depend on simple_arithmetic
+    product = multiply(x=x, y=y)
 
-    return job
+    return [sum_result, product]
 
 
 async def amain():
@@ -79,9 +70,6 @@ async def amain():
     Use this when already inside an async context (e.g., pytest-asyncio tests,
     async web handlers). ajob_test() can be awaited without creating a new
     event loop.
-
-    Note: Only tests jobs without parameters since Object/View parameter
-    deserialization is not yet fully implemented.
     """
     print("=" * 50)
     print("aaiclick Orchestration Basic Example (Async)")
@@ -91,12 +79,16 @@ async def amain():
     print("      - Database migrations applied (python -m aaiclick migrate)")
     print()
 
-    async with OrchContext():
-        # Example 1: Create a simple job (no parameters)
-        job1 = await example_simple_job()
+    # Example 1: Simple job with one task
+    print("\n" + "=" * 50)
+    print("Example 1: Simple Job with @task and @job")
+    print("-" * 50)
+
+    job1 = await simple_job()
+
+    print(f"Created job: {job1.name} (ID: {job1.id})")
 
     # Test execution using ajob_test() - the async variant
-    # This creates its own OrchContext internally
     print("\n" + "=" * 50)
     print("Testing Job Execution (Async Mode with ajob_test)")
     print("-" * 50)

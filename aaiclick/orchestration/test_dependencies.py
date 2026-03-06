@@ -2,17 +2,10 @@
 
 from sqlmodel import select
 
-from aaiclick.orchestration import (
-    DEPENDENCY_GROUP,
-    DEPENDENCY_TASK,
-    Dependency,
-    Group,
-    OrchContext,
-    create_job,
-)
-from aaiclick.orchestration.context import get_orch_context_session
-from aaiclick.orchestration.factories import create_task
-from aaiclick.snowflake_id import get_snowflake_id
+from ..snowflake_id import get_snowflake_id
+from .context import get_orch_context, get_orch_context_session
+from .factories import create_job, create_task
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
 
 
 async def test_task_rshift_creates_dependency():
@@ -157,32 +150,33 @@ async def test_group_to_group_dependency():
     assert dep.next_type == DEPENDENCY_GROUP
 
 
-async def test_apply_saves_dependencies():
+async def test_apply_saves_dependencies(orch_ctx):
     """Test that apply() saves dependencies to database."""
-    async with OrchContext() as ctx:
-        # Create job
-        job = await create_job(
-            "test_deps_job",
-            "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        )
+    ctx = get_orch_context()
 
-        # Create tasks with dependency
-        task1 = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-        task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-        task1 >> task2  # task2 depends on task1
+    # Create job
+    job = await create_job(
+        "test_deps_job",
+        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
+    )
 
-        # Apply tasks to job
-        await ctx.apply([task1, task2], job_id=job.id)
+    # Create tasks with dependency
+    task1 = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
+    task1 >> task2  # task2 depends on task1
 
-        # Verify dependency was saved
-        async with get_orch_context_session() as session:
-            result = await session.execute(
-                select(Dependency).where(
-                    Dependency.previous_id == task1.id,
-                    Dependency.next_id == task2.id,
-                )
+    # Apply tasks to job
+    await ctx.apply([task1, task2], job_id=job.id)
+
+    # Verify dependency was saved
+    async with get_orch_context_session() as session:
+        result = await session.execute(
+            select(Dependency).where(
+                Dependency.previous_id == task1.id,
+                Dependency.next_id == task2.id,
             )
-            dep = result.scalar_one_or_none()
-            assert dep is not None
-            assert dep.previous_type == DEPENDENCY_TASK
-            assert dep.next_type == DEPENDENCY_TASK
+        )
+        dep = result.scalar_one_or_none()
+        assert dep is not None
+        assert dep.previous_type == DEPENDENCY_TASK
+        assert dep.next_type == DEPENDENCY_TASK

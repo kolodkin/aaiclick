@@ -15,7 +15,7 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import claim_next_task, update_task_status
-from .context import OrchContext, get_orch_context_session
+from .context import get_orch_context_session
 from .execution import execute_task, serialize_task_result
 from .models import TaskStatus, Worker, WorkerStatus
 
@@ -159,6 +159,17 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
         return result.scalar_one_or_none()
 
 
+async def _increment_worker_stat(worker_id: int, field: str) -> None:
+    """Increment a worker stat field (tasks_completed or tasks_failed)."""
+    async with get_orch_context_session() as session:
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
+        worker = result.scalar_one_or_none()
+        if worker:
+            setattr(worker, field, getattr(worker, field) + 1)
+            session.add(worker)
+            await session.commit()
+
+
 async def worker_main_loop(
     worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
@@ -258,34 +269,12 @@ async def worker_main_loop(
 
                 tasks_executed += 1
                 print(f"Worker {worker_id} completed task {task.id}")
-
-                # Update worker stats
-                async with get_orch_context_session() as session:
-                    result_query = await session.execute(
-                        select(Worker).where(Worker.id == worker_id)
-                    )
-                    worker = result_query.scalar_one_or_none()
-                    if worker:
-                        worker.tasks_completed += 1
-                        session.add(worker)
-                        await session.commit()
+                await _increment_worker_stat(worker_id, "tasks_completed")
 
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
-
-                # Update task status to FAILED
                 await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
-
-                # Update worker stats
-                async with get_orch_context_session() as session:
-                    result_query = await session.execute(
-                        select(Worker).where(Worker.id == worker_id)
-                    )
-                    worker = result_query.scalar_one_or_none()
-                    if worker:
-                        worker.tasks_failed += 1
-                        session.add(worker)
-                        await session.commit()
+                await _increment_worker_stat(worker_id, "tasks_failed")
 
     finally:
         # Deregister worker on exit
@@ -293,17 +282,3 @@ async def worker_main_loop(
         print(f"Worker {worker_id} stopped (executed {tasks_executed} tasks)")
 
     return tasks_executed
-
-
-async def run_worker() -> int:
-    """
-    Start a worker process with OrchContext.
-
-    This is the main entry point for running a worker.
-    Sets up OrchContext and runs the worker main loop.
-
-    Returns:
-        int: Number of tasks executed
-    """
-    async with OrchContext():
-        return await worker_main_loop()

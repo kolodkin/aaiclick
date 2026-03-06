@@ -15,6 +15,7 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
+from .decorators import TaskFactory
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
 
@@ -22,6 +23,9 @@ from .models import Job, JobStatus, Task, TaskStatus
 def import_callback(entrypoint: str) -> Callable:
     """
     Import a callback function from an entrypoint string.
+
+    If the imported attribute is a TaskFactory (from @task decorator),
+    unwraps it to get the original function.
 
     Args:
         entrypoint: Dot-separated module path and function name
@@ -40,7 +44,12 @@ def import_callback(entrypoint: str) -> Callable:
 
     module_path, function_name = parts
     module = importlib.import_module(module_path)
-    return getattr(module, function_name)
+    attr = getattr(module, function_name)
+
+    if isinstance(attr, TaskFactory):
+        return attr.func
+
+    return attr
 
 
 async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
@@ -236,24 +245,10 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     if result is None:
         return None
 
-    # Check View first since View is a subclass of Object
-    if isinstance(result, View):
-        return {
-            "object_type": "view",
-            "table": result.table,
-            "where": result._build_where(),
-            "limit": result.limit,
-            "offset": result.offset,
-            "order_by": result.order_by,
-            "selected_fields": result.selected_fields,
-            "job_id": job_id,
-        }
-    elif isinstance(result, Object):
-        return {
-            "object_type": "object",
-            "table": result.table,
-            "job_id": job_id,
-        }
+    if isinstance(result, Object):
+        ref = result._serialize_ref()
+        ref["job_id"] = job_id
+        return ref
 
     return None
 
