@@ -23,6 +23,9 @@ def import_callback(entrypoint: str) -> Callable:
     """
     Import a callback function from an entrypoint string.
 
+    If the imported attribute is a TaskFactory (from @task decorator),
+    unwraps it to get the original function.
+
     Args:
         entrypoint: Dot-separated module path and function name
                    (e.g., "mymodule.submodule.my_function")
@@ -34,13 +37,20 @@ def import_callback(entrypoint: str) -> Callable:
         ImportError: If module cannot be imported
         AttributeError: If function not found in module
     """
+    from .decorators import TaskFactory
+
     parts = entrypoint.rsplit(".", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid entrypoint format: {entrypoint}. Expected 'module.function'")
 
     module_path, function_name = parts
     module = importlib.import_module(module_path)
-    return getattr(module, function_name)
+    attr = getattr(module, function_name)
+
+    if isinstance(attr, TaskFactory):
+        return attr.func
+
+    return attr
 
 
 async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
