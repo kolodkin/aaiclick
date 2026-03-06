@@ -19,6 +19,7 @@ Usage:
     created_job = await my_pipeline(value=42)
 """
 
+from .claiming import cancel_job
 from .context import commit_tasks, get_orch_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task

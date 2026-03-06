@@ -99,7 +99,7 @@ class PgCleanupWorker:
             result = await session.execute(
                 text(
                     "SELECT id FROM jobs "
-                    "WHERE status IN ('COMPLETED', 'FAILED') "
+                    "WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') "
                     "AND id IN (SELECT DISTINCT context_id FROM table_context_refs)"
                 )
             )

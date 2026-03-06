@@ -10,6 +10,7 @@ import asyncio
 import signal
 from typing import Optional
 
+from .claiming import cancel_job
 from .context import orch_context
 from .job_queries import count_jobs, get_job, list_jobs
 from .models import JobStatus
@@ -96,6 +97,16 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
             )
     finally:
         await pg_cleanup.stop()
+
+
+async def cancel_job_cmd(job_id: int) -> None:
+    """Cancel a job and all its non-terminal tasks."""
+    async with orch_context():
+        success = await cancel_job(job_id)
+        if success:
+            print(f"Job {job_id} cancelled")
+        else:
+            print(f"Job {job_id} not found or already in terminal state")
 
 
 async def start_background(poll_interval: float = 10.0) -> None:

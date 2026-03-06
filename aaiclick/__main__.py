@@ -6,6 +6,7 @@ Usage:
     python -m aaiclick worker start       # Start a worker process
     python -m aaiclick worker list        # List workers
     python -m aaiclick job get <id>       # Get job details
+    python -m aaiclick job cancel <id>    # Cancel a job
     python -m aaiclick job list           # List jobs
     python -m aaiclick background start   # Start background cleanup worker
 """
@@ -14,6 +15,7 @@ import argparse
 import asyncio
 
 from aaiclick.orchestration.cli import (
+    cancel_job_cmd,
     show_job,
     show_jobs,
     show_workers,
@@ -87,6 +89,13 @@ def main():
     )
     job_get_parser.add_argument("id", type=int, help="Job ID")
 
+    # job cancel <id>
+    job_cancel_parser = job_subparsers.add_parser(
+        "cancel",
+        help="Cancel a job and its non-terminal tasks",
+    )
+    job_cancel_parser.add_argument("id", type=int, help="Job ID")
+
     # job list
     job_list_parser = job_subparsers.add_parser(
         "list",
@@ -94,7 +103,7 @@ def main():
     )
     job_list_parser.add_argument(
         "--status",
-        choices=["PENDING", "RUNNING", "COMPLETED", "FAILED"],
+        choices=["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
         default=None,
         help="Filter by status",
     )
@@ -156,6 +165,9 @@ def main():
     elif args.command == "job":
         if args.job_command == "get":
             asyncio.run(show_job(args.id))
+
+        elif args.job_command == "cancel":
+            asyncio.run(cancel_job_cmd(args.id))
 
         elif args.job_command == "list":
             asyncio.run(show_jobs(

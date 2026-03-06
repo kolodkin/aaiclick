@@ -183,9 +183,23 @@ Not for direct use:
 
 **CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
 
+### Job Cancellation ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/orchestration/claiming.py` — see `cancel_job()`, `check_task_cancelled()`
+
+- `cancel_job(job_id)` — cancel a job and all its non-terminal tasks
+  - Only PENDING and RUNNING jobs can be cancelled
+  - Atomically sets job to CANCELLED and bulk-updates PENDING/CLAIMED/RUNNING tasks to CANCELLED
+  - Tasks already COMPLETED or FAILED are preserved
+  - Returns `True` if cancelled, `False` if not found or already terminal
+- Workers detect cancellation via `_cancellation_monitor()` in `worker.py`, which polls task status and cancels the asyncio.Task via `task.cancel()`
+
+**Known limitation**: asyncio cancellation is cooperative — CPU-bound tasks without `await` points won't be interrupted until they yield.
+
+**CLI**: `python -m aaiclick job cancel <id>`
+
 ### Not Yet Implemented
 
-- `cancel_job()` — cancel an in-flight job
 - Dynamic task creation during execution (Phase 8+)
 
 ## Task Execution
@@ -219,6 +233,7 @@ python -m aaiclick worker list                 # List workers
 
 # Job management
 python -m aaiclick job get <id>               # Get job details
+python -m aaiclick job cancel <id>            # Cancel a job
 python -m aaiclick job list                   # List all jobs
 python -m aaiclick job list --status RUNNING  # Filter by status
 python -m aaiclick job list --like "%etl%"    # Filter by name pattern
