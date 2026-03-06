@@ -13,7 +13,7 @@ Note: This requires a running PostgreSQL server for job/task state storage.
 
 import asyncio
 
-from aaiclick.orchestration import JobStatus, OrchContext, ajob_test, job, task
+from aaiclick.orchestration import JobStatus, ajob_test, job, task
 
 
 # Define sample task functions using @task decorator
@@ -84,8 +84,7 @@ async def amain():
     print("Example 1: Simple Job with @task and @job")
     print("-" * 50)
 
-    async with OrchContext():
-        job1 = await simple_job()
+    job1 = await simple_job()
 
     print(f"Created job: {job1.name} (ID: {job1.id})")
 

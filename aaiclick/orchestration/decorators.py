@@ -20,8 +20,7 @@ Example:
         transformed = transform(extracted)  # Auto-dependency: extract >> transform
         return [extracted, transformed]
 
-    async with OrchContext():
-        job = await pipeline(url="https://example.com/data.parquet")
+    job = await pipeline(url="https://example.com/data.parquet")
 """
 
 from __future__ import annotations
@@ -179,7 +178,7 @@ class JobFactory:
     """Factory that creates and applies Jobs when called.
 
     Wraps a workflow definition function and handles:
-    - OrchContext management (creates if not already in context)
+    - Database context management (creates OrchContext internally if needed)
     - Job creation
     - Task collection from function return value
     - Applying all tasks to the database
@@ -199,8 +198,8 @@ class JobFactory:
     async def __call__(self, **kwargs) -> Job:
         """Execute workflow definition and create job with tasks.
 
-        Automatically manages OrchContext - creates one if not already
-        inside an OrchContext, otherwise uses the existing one.
+        Manages database context automatically — no need to wrap
+        in OrchContext externally.
 
         Args:
             **kwargs: Arguments passed to the workflow function
@@ -272,8 +271,7 @@ def job(name: str) -> Callable[[Callable], JobFactory]:
             t1 >> t2
             return [t1, t2]
 
-        async with OrchContext():
-            job = await my_workflow(input_url="https://...")
+        job = await my_workflow(input_url="https://...")
 
     Args:
         name: Name for the created jobs

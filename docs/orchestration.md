@@ -63,23 +63,15 @@ As aaiclick scales to handle large-scale data processing, we need:
   - Accepts optional `LifecycleHandler` for distributed refcount tracking (see "Distributed Object Lifecycle" section)
   - Example: `async with DataContext() as data_ctx:`
 
-- **OrchContext** (`aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
+- **OrchContext** (internal, `aaiclick.orchestration.context`): Manages PostgreSQL orchestration state
   - Handles Jobs, Tasks, Groups, Dependencies
   - Creates fresh SQLAlchemy AsyncEngine on `__aenter__`, disposes on `__aexit__`
-  - Ensures proper async lifecycle and test isolation
-  - Each operation creates its own AsyncSession for transaction isolation
-  - Example: `async with OrchContext() as orch_ctx:`
+  - **Not part of the public API** — `@job` decorator manages it automatically
+  - Used internally by workers, CLI, and debug execution
 
-- **Task Execution**: Workers use **both** contexts
+- **Task Execution**: Workers use **both** contexts internally
   - DataContext for data operations (Objects)
   - OrchContext for orchestration operations (apply, etc.)
-  - Example:
-    ```python
-    async with DataContext() as data_ctx:
-        async with OrchContext(job_id=task.job_id) as orch_ctx:
-            # Task has access to both contexts
-            result = await func(**task.kwargs)
-    ```
 
 **Worker Architecture**: Each worker is a single process that can execute multiple tasks concurrently using async/await. This allows efficient utilization of I/O-bound operations (database queries, network calls) without blocking.
 
@@ -107,11 +99,11 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **aaiclick Objects**: All data processing operates on ClickHouse tables
 
 **Separation of Concerns**:
-- **DataContext** is independent - handles only ClickHouse operations
-- **OrchContext** is independent - handles only PostgreSQL orchestration
-- Both can be used together or separately
+- **DataContext** is the public context - handles ClickHouse operations
+- **OrchContext** is internal - handles PostgreSQL orchestration (managed by `@job`)
+- DataContext is used directly; OrchContext is managed automatically
 
-**OrchContext Connection Management**:
+**OrchContext Connection Management** (internal):
 - **Global SQLAlchemy AsyncEngine**: Shared across all OrchContext instances
   - Engine manages connection pooling internally via asyncpg
   - No separate pool management needed
@@ -552,7 +544,7 @@ async def log_summary(data: Object):
 Define workflows using `@task` and `@job` decorators:
 
 ```python
-from aaiclick.orchestration import task, job, OrchContext, job_test
+from aaiclick.orchestration import task, job, job_test
 
 @task
 async def my_task(x: int) -> int:
@@ -564,8 +556,7 @@ def my_pipeline(value: int):
     return [result]
 
 # Create and register the job
-async with OrchContext():
-    created_job = await my_pipeline(value=42)
+created_job = await my_pipeline(value=42)
 ```
 
 **Implementation**: `aaiclick/orchestration/decorators.py`
@@ -575,7 +566,7 @@ async with OrchContext():
 Execute a job synchronously for testing/debugging:
 
 ```python
-from aaiclick.orchestration import task, job, OrchContext, job_test
+from aaiclick.orchestration import task, job, job_test
 
 @task
 async def my_task(x: int) -> int:
@@ -587,8 +578,7 @@ def test_pipeline(value: int):
     return [result]
 
 # Create and test the job
-async with OrchContext():
-    created_job = await test_pipeline(value=42)
+created_job = await test_pipeline(value=42)
 
 job_test(created_job)  # Blocks until job completes
 # Job status is now COMPLETED or FAILED
@@ -835,7 +825,7 @@ async def compute_stats(data: Object) -> dict:
 Creates a `JobFactory` that wraps workflow definitions. When called, it creates a Job and applies all returned tasks to the database.
 
 ```python
-from aaiclick.orchestration import job, task, OrchContext
+from aaiclick.orchestration import job, task
 
 @job("my_pipeline")
 def my_pipeline(input_url: str, multiplier: int = 2):
@@ -853,11 +843,10 @@ def my_pipeline(input_url: str, multiplier: int = 2):
     return [extracted, transformed, stats]
 
 # Usage
-async with OrchContext():
-    job = await my_pipeline(
-        input_url="https://example.com/data.parquet",
-        multiplier=3,
-    )
+job = await my_pipeline(
+    input_url="https://example.com/data.parquet",
+    multiplier=3,
+)
 ```
 
 **Native Python Values:**
@@ -896,12 +885,12 @@ At runtime, the worker resolves upstream references by querying completed task r
 **Example: Complete Pipeline**
 
 ```python
-from aaiclick.orchestration import task, job, OrchContext
-from aaiclick import DataContext, create_object_from_value
+from aaiclick.orchestration import task, job
 from aaiclick.data.object import Object
 
 @task
 async def create_dataset(values: list) -> Object:
+    from aaiclick import create_object_from_value
     return await create_object_from_value(values)
 
 @task
@@ -920,10 +909,8 @@ def example_pipeline(values: list):
     return [dataset, doubled, result]
 
 async def main():
-    async with OrchContext():
-        async with DataContext():
-            job = await example_pipeline(values=[1, 2, 3, 4, 5])
-            print(f"Created job: {job.id}")
+    job = await example_pipeline(values=[1, 2, 3, 4, 5])
+    print(f"Created job: {job.id}")
 
 # Run with: python -m aaiclick.orchestration.worker
 ```
@@ -1173,7 +1160,8 @@ def _get_engine() -> AsyncEngine:
         _engine[0] = create_async_engine(database_url, echo=False)
     return _engine[0]
 
-# Usage pattern - create sessions from the global engine
+# Internal usage pattern - create sessions from the global engine
+# (OrchContext is managed automatically by @job decorator)
 async with OrchContext():
     async with get_orch_context_session() as session:
         result = await session.execute(select(Job))

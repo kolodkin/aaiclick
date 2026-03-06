@@ -5,7 +5,7 @@ This module provides the public API for defining and executing distributed
 workflows using @task and @job decorators.
 
 Usage:
-    from aaiclick.orchestration import task, job, OrchContext
+    from aaiclick.orchestration import task, job
 
     @task
     async def my_task(x: int) -> int:
@@ -16,11 +16,9 @@ Usage:
         result = my_task(x=value)
         return [result]
 
-    async with OrchContext():
-        created_job = await my_pipeline(value=42)
+    created_job = await my_pipeline(value=42)
 """
 
-from .context import OrchContext
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
 from .models import JobStatus, TaskStatus

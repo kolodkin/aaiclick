@@ -8,7 +8,7 @@ executed by a worker started separately (see basic_worker.sh).
 import asyncio
 import time
 
-from aaiclick.orchestration import OrchContext, job, task
+from aaiclick.orchestration import job, task
 
 
 @task
@@ -29,9 +29,8 @@ def periodic_print_job():
 
 async def main():
     """Register the job."""
-    async with OrchContext():
-        created_job = await periodic_print_job()
-        print(f"Registered job: {created_job.name} (ID: {created_job.id})")
+    created_job = await periodic_print_job()
+    print(f"Registered job: {created_job.name} (ID: {created_job.id})")
 
 
 if __name__ == "__main__":
