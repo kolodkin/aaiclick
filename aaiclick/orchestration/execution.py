@@ -13,9 +13,12 @@ from sqlmodel import select
 from aaiclick.data.data_context import (
     _get_data_state,
     data_context,
+    get_ch_client,
     register_object,
 )
+from aaiclick.data.ingest import _get_table_schema
 from aaiclick.data.lifecycle import LifecycleHandler
+from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_session
@@ -127,15 +130,21 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         obj_type = value["object_type"]
 
         if obj_type == "object":
-            obj = Object(table=value["table"])
+            table = value["table"]
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
+            obj = Object(table=table, schema=schema)
             obj._register()
             register_object(obj)
             if "job_id" in value and state.lifecycle is not None:
-                await state.lifecycle.claim(value["table"], value["job_id"])
+                await state.lifecycle.claim(table, value["job_id"])
             return obj
 
         elif obj_type == "view":
-            source = Object(table=value["table"])
+            table = value["table"]
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
+            source = Object(table=table, schema=schema)
             source._register()
             register_object(source)
             view = View(

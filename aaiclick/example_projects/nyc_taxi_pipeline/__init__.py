@@ -254,8 +254,10 @@ async def compute_tip_analysis(trips: Object) -> dict:
     totals = trips["total_amount"]
 
     # Tip as percentage of fare (avoid division by zero via WHERE)
-    tip_pct = await ((tips / fares) * 100)
-    tip_share = await (tips / totals * 100)
+    tip_ratio = await (tips / fares)
+    tip_pct = await (tip_ratio * 100)
+    tip_share_ratio = await (tips / totals)
+    tip_share = await (tip_share_ratio * 100)
 
     avg_tip = await (await tips.mean()).data()
     median_tip = await (await tips.quantile(0.5)).data()
@@ -289,9 +291,9 @@ async def compute_distance_analysis(trips: Object) -> dict:
     avg_distance = await (await distances.mean()).data()
     median_distance = await (await distances.quantile(0.5)).data()
     short_trips = await (distances < 1)
-    short_trips_pct = await (await short_trips.mean()).data() * 100
+    short_trips_pct = (await (await short_trips.mean()).data()) * 100
     long_trips = await (distances > 10)
-    long_trips_pct = await (await long_trips.mean()).data() * 100
+    long_trips_pct = (await (await long_trips.mean()).data()) * 100
     avg_fare_per_mile = await (await fare_per_mile.mean()).data()
     median_fare_per_mile = await (await fare_per_mile.quantile(0.5)).data()
 
