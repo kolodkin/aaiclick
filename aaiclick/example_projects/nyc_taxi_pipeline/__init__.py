@@ -305,6 +305,65 @@ async def compute_distance_analysis(trips: Object) -> dict:
     }
 
 
+def _fmt(value: object) -> str:
+    """Format a numeric value for display."""
+    if isinstance(value, float):
+        return f"{value:,.2f}"
+    return f"{value:,}" if isinstance(value, int) else str(value)
+
+
+def _print_report(report: dict) -> None:
+    """Print formatted summary report to stdout."""
+    ov = report["overview"]
+    print("\n" + "=" * 60)
+    print("NYC TAXI ANALYSIS REPORT")
+    print("=" * 60)
+
+    print("\n--- Overview ---")
+    print(f"  Total trips:    {_fmt(ov['total_trips'])}")
+    print(f"  Total revenue:  ${_fmt(ov['total_revenue'])}")
+    print(f"  Total tips:     ${_fmt(ov['total_tips'])}")
+    print(f"  Avg fare:       ${_fmt(ov['avg_fare'])}")
+    print(f"  Avg distance:   {_fmt(ov['avg_distance'])} mi")
+
+    fd = report["fare_distribution"]
+    print("\n--- Fare Distribution ---")
+    print(f"  Mean:   ${_fmt(fd['mean'])}")
+    print(f"  Std:    ${_fmt(fd['std'])}")
+    print(f"  P25:    ${_fmt(fd['p25'])}")
+    print(f"  Median: ${_fmt(fd['median'])}")
+    print(f"  P75:    ${_fmt(fd['p75'])}")
+    print(f"  P90:    ${_fmt(fd['p90'])}")
+    print(f"  P99:    ${_fmt(fd['p99'])}")
+
+    ta = report["tip_analysis"]
+    print("\n--- Tip Analysis ---")
+    print(f"  Avg tip:          ${_fmt(ta['avg_tip'])}")
+    print(f"  Median tip:       ${_fmt(ta['median_tip'])}")
+    print(f"  Avg tip %:        {_fmt(ta['avg_tip_pct'])}%")
+    print(f"  Median tip %:     {_fmt(ta['median_tip_pct'])}%")
+    print(f"  Max tip:          ${_fmt(ta['max_tip'])}")
+    print(f"  Tip share total:  {_fmt(ta['tip_share_of_total'])}%")
+
+    da = report["distance_analysis"]
+    print("\n--- Distance Analysis ---")
+    print(f"  Avg distance:       {_fmt(da['avg_distance'])} mi")
+    print(f"  Median distance:    {_fmt(da['median_distance'])} mi")
+    print(f"  Short trips (<1mi): {_fmt(da['short_trips_pct'])}%")
+    print(f"  Long trips (>10mi): {_fmt(da['long_trips_pct'])}%")
+    print(f"  Avg fare/mile:      ${_fmt(da['avg_fare_per_mile'])}")
+    print(f"  Median fare/mile:   ${_fmt(da['median_fare_per_mile'])}")
+
+    print("\n--- Payment Breakdown ---")
+    for name, data in report["payment_breakdown"].items():
+        print(f"  {name}:")
+        print(f"    Avg fare:     ${_fmt(data['avg_fare'])}")
+        print(f"    Avg tip:      ${_fmt(data['avg_tip'])}")
+        print(f"    Avg distance: {_fmt(data['avg_distance'])} mi")
+
+    print("\n" + "=" * 60)
+
+
 @task
 async def generate_summary_report(
     basic_stats: dict,
@@ -321,7 +380,7 @@ async def generate_summary_report(
     # Map payment type codes to names
     payment_names = {1: "Credit", 2: "Cash", 3: "No charge", 4: "Dispute", 5: "Unknown"}
 
-    return {
+    report = {
         "overview": {
             "total_trips": basic_stats["total_trips"],
             "total_revenue": basic_stats["total_revenue"],
@@ -349,6 +408,9 @@ async def generate_summary_report(
             for i, ptype in enumerate(payment_data["payment_type"])
         },
     }
+
+    _print_report(report)
+    return report
 
 
 # =============================================================================
