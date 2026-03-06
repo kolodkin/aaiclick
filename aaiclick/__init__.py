@@ -7,10 +7,11 @@ operations, enabling execution of Python-equivalent computations at scale.
 
 __version__ = "0.1.0"
 
-# Import context manager (primary API), context accessor, and factory functions
+# Import context manager (primary API) and factory functions
 from .data import (
-    DataContext,
-    get_data_context,
+    data_context,
+    get_ch_client,
+    delete_object,
     create_object,
     create_object_from_url,
     create_object_from_value,

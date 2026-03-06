@@ -10,8 +10,8 @@ import os
 
 import pytest
 
-from aaiclick import DataContext, create_object, create_object_from_value, get_data_context
-from aaiclick.orchestration.context import OrchContext
+from aaiclick.data.data_context import data_context
+from aaiclick.orchestration.context import orch_context
 
 
 def pytest_collection_modifyitems(config, items):
@@ -36,22 +36,22 @@ def event_loop():
 @pytest.fixture(scope="session")
 async def ctx():
     """
-    Session-scoped DataContext shared across all tests in a worker.
+    Session-scoped data context shared across all tests in a worker.
 
     Objects are cleaned up via refcounting when they go out of scope,
     so table accumulation is not a concern.
     """
-    async with DataContext() as context:
-        yield context
+    async with data_context():
+        yield
 
 
 @pytest.fixture
 async def orch_ctx():
     """
-    Function-scoped OrchContext for orchestration tests.
+    Function-scoped orch context for orchestration tests.
 
     Cannot be session-scoped: SQLAlchemy async sessions don't safely
     share across tests (concurrent operation and event loop issues).
     """
-    async with OrchContext() as context:
-        yield context
+    async with orch_context():
+        yield

@@ -9,7 +9,8 @@ import subprocess
 import timeit
 from dataclasses import dataclass
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
 from aaiclick.data.models import ENGINE_MEMORY
 
 
@@ -145,7 +146,7 @@ async def run_add_benchmark(
     server_times = []
 
     for _ in range(runs):
-        async with DataContext(engine=ENGINE_MEMORY) as ctx:
+        async with data_context(engine=ENGINE_MEMORY):
             client = ctx._ch_client
             obj_a = await create_object_from_value(list(range(size)))
             obj_b = await create_object_from_value(list(range(size)))

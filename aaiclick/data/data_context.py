@@ -1,5 +1,5 @@
 """
-aaiclick.data.data_context - DataContext manager for managing ClickHouse client and Object lifecycle.
+aaiclick.data.data_context - Function-based context management for ClickHouse client and Object lifecycle.
 
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.
@@ -7,8 +7,10 @@ within its scope, automatically cleaning up tables when the context exits.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from typing import Optional, Union, List, Dict
+from dataclasses import dataclass, field
+from typing import AsyncIterator, Dict, List, Optional, Union
 import weakref
 
 import numpy as np
@@ -34,52 +36,95 @@ from .sql_utils import quote_identifier
 from ..snowflake_id import get_snowflake_ids
 
 
-# Global ContextVar to hold the current DataContext instance
-_current_context: ContextVar['DataContext'] = ContextVar('current_context')
+@dataclass
+class DataCtxState:
+    """State bundle for a named data context."""
+
+    ch_client: AsyncClient
+    lifecycle: Optional[LifecycleHandler]
+    owns_lifecycle: bool
+    engine: EngineType
+    creds: ClickHouseCreds
+    objects: Dict[int, weakref.ref] = field(default_factory=dict)
 
 
-def get_data_context() -> 'DataContext':
-    """
-    Get the current DataContext instance from ContextVar.
+# ContextVar holding dict[name -> DataCtxState]
+_data_contexts: ContextVar[dict[str, DataCtxState]] = ContextVar('data_contexts')
 
-    Returns:
-        DataContext: The active DataContext instance
+
+def _get_data_state(ctx: str = "default") -> DataCtxState:
+    """Get state bundle for a named context.
 
     Raises:
-        RuntimeError: If no active context (must be called within 'async with DataContext()')
+        RuntimeError: If no active context with that name.
     """
     try:
-        return _current_context.get()
+        contexts = _data_contexts.get()
     except LookupError:
-        raise RuntimeError("No active context - must be called within 'async with DataContext()'")
+        raise RuntimeError(
+            f"No active data context '{ctx}' - use 'async with data_context()'"
+        )
+    if ctx not in contexts:
+        raise RuntimeError(
+            f"No active data context '{ctx}' - use 'async with data_context()'"
+        )
+    return contexts[ctx]
 
 
-# Global connection pool shared across all Context instances
+def get_ch_client(ctx: str = "default") -> AsyncClient:
+    """Get the ClickHouse client from the active context."""
+    return _get_data_state(ctx).ch_client
+
+
+def get_engine(ctx: str = "default") -> EngineType:
+    """Get the engine type from the active context."""
+    return _get_data_state(ctx).engine
+
+
+def incref(table_name: str, ctx: str = "default") -> None:
+    """Increment reference count for table."""
+    state = _get_data_state(ctx)
+    if state.lifecycle is not None:
+        state.lifecycle.incref(table_name)
+
+
+def decref(table_name: str, ctx: str = "default") -> None:
+    """Decrement reference count for table."""
+    state = _get_data_state(ctx)
+    if state.lifecycle is not None:
+        state.lifecycle.decref(table_name)
+
+
+def register_object(obj: object, ctx: str = "default") -> None:
+    """Register an Object for stale marking on context exit."""
+    state = _get_data_state(ctx)
+    state.objects[id(obj)] = weakref.ref(obj)
+
+
+async def delete_object(obj: object, ctx: str = "default") -> None:
+    """Delete an Object's table and mark it as stale."""
+    state = _get_data_state(ctx)
+    obj._stale = True
+    obj_id = id(obj)
+    if obj_id in state.objects:
+        del state.objects[obj_id]
+    if state.lifecycle is not None:
+        state.lifecycle.decref(obj.table)
+
+
+# Global connection pool shared across all contexts
 _pool: list = [None]
 
 
 def get_pool() -> PoolManager:
-    """
-    Get or create the global urllib3 connection pool.
-
-    Returns:
-        PoolManager: Shared connection pool for ClickHouse clients
-    """
+    """Get or create the global urllib3 connection pool."""
     if _pool[0] is None:
         _pool[0] = PoolManager(num_pools=10, maxsize=10)
     return _pool[0]
 
 
-async def get_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
-    """
-    Create a ClickHouse client using the shared connection pool.
-
-    Args:
-        creds: ClickHouse credentials. If None, reads from environment variables.
-
-    Returns:
-        AsyncClient: ClickHouse client instance
-    """
+async def _create_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
+    """Create a ClickHouse client using the shared connection pool."""
     if creds is None:
         creds = get_ch_creds()
 
@@ -93,205 +138,87 @@ async def get_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
     )
 
 
-class DataContext:
+@asynccontextmanager
+async def data_context(
+    ctx: str = "default",
+    creds: ClickHouseCreds | None = None,
+    engine: EngineType | None = None,
+    lifecycle: LifecycleHandler | None = None,
+) -> AsyncIterator[None]:
+    """Async context manager for data operations.
+
+    Args:
+        ctx: Named context key (default "default").
+        creds: ClickHouse credentials. If None, reads from environment.
+        engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
+        lifecycle: LifecycleHandler for table refcounting.
+                  If None, creates a LocalLifecycleHandler.
     """
-    DataContext manager for managing ClickHouse client and Object lifecycle.
+    creds = creds or get_ch_creds()
+    ch_client = await _create_ch_client(creds)
+    owns_lifecycle = lifecycle is None
+    effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
-    This context manager:
-    - Manages a ClickHouse client instance (automatically initialized on enter)
-    - Tracks all Objects created within the context via weakref
-    - Automatically deletes tables and marks Objects as stale on exit
+    if owns_lifecycle:
+        lifecycle = LocalLifecycleHandler(creds)
+        await lifecycle.start()
 
-    Example:
-        >>> async with DataContext() as ctx:
-        ...     obj = await ctx.create_object_from_value([1, 2, 3])
-        ...     # Use obj...
-        ... # Tables are automatically deleted here
-    """
+    state = DataCtxState(
+        ch_client=ch_client,
+        lifecycle=lifecycle,
+        owns_lifecycle=owns_lifecycle,
+        engine=effective_engine,
+        creds=creds,
+    )
 
-    def __init__(
-        self,
-        creds: ClickHouseCreds | None = None,
-        engine: EngineType | None = None,
-        lifecycle: LifecycleHandler | None = None,
-    ):
-        """Initialize a DataContext.
+    # Copy-on-write: copy existing dict before mutation
+    try:
+        existing = _data_contexts.get()
+    except LookupError:
+        existing = {}
+    contexts = dict(existing)
+    contexts[ctx] = state
+    token = _data_contexts.set(contexts)
 
-        Args:
-            creds: ClickHouse credentials. If None, reads from environment variables.
-            engine: ClickHouse table engine to use. Defaults to ENGINE_DEFAULT (MergeTree).
-                   Use ENGINE_MEMORY for in-memory tables (faster, no disk I/O).
-            lifecycle: LifecycleHandler for table refcounting. If None, creates a
-                      LocalLifecycleHandler (current default behavior).
-        """
-        self._creds = creds or get_ch_creds()
-        self._ch_client: Optional[AsyncClient] = None
-        self._lifecycle: Optional[LifecycleHandler] = lifecycle
-        self._owns_lifecycle: bool = lifecycle is None
-        self._objects: Dict[int, weakref.ref] = {}  # Track objects for stale marking
-        self._token = None
-        self._engine: EngineType = engine if engine is not None else ENGINE_DEFAULT
-
-    @property
-    def engine(self) -> EngineType:
-        """Get the default engine for this context."""
-        return self._engine
-
-    @property
-    def lifecycle(self) -> Optional[LifecycleHandler]:
-        """Get the lifecycle handler for this context."""
-        return self._lifecycle
-
-    @property
-    def ch_client(self) -> AsyncClient:
-        """
-        Get the ClickHouse client for this context.
-
-        Returns:
-            AsyncClient: The ClickHouse client (initialized in __aenter__)
-
-        Raises:
-            RuntimeError: If accessed outside of context manager
-        """
-        if self._ch_client is None:
-            raise RuntimeError(
-                "DataContext client not initialized. Use 'async with DataContext() as ctx:' to enter context."
-            )
-        return self._ch_client
-
-    def incref(self, table_name: str) -> None:
-        """Increment reference count for table. Thread-safe, non-blocking."""
-        if self._lifecycle is not None:
-            self._lifecycle.incref(table_name)
-
-    def decref(self, table_name: str) -> None:
-        """Decrement reference count for table. Thread-safe, non-blocking."""
-        if self._lifecycle is not None:
-            self._lifecycle.decref(table_name)
-
-    def _register_object(self, obj: Object) -> None:
-        """
-        Register an Object to be tracked by this context for stale marking.
-
-        Args:
-            obj: Object instance to register
-        """
-        self._objects[id(obj)] = weakref.ref(obj)
-
-    async def __aenter__(self):
-        """Enter the context, initializing the client and starting the lifecycle handler."""
-        if self._ch_client is None:
-            self._ch_client = await get_ch_client(self._creds)
-
-        if self._owns_lifecycle:
-            self._lifecycle = LocalLifecycleHandler(self._creds)
-            await self._lifecycle.start()
-
-        self._token = _current_context.set(self)
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """
-        Exit the context, stopping the lifecycle handler and resetting ContextVar.
-
-        Owned lifecycle handlers will clean up all remaining tables on shutdown.
-        """
+    try:
+        yield
+    finally:
         # Mark all tracked objects as stale
-        for obj_ref in self._objects.values():
+        for obj_ref in state.objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
+        state.objects.clear()
 
-        # Clear the tracking dict
-        self._objects.clear()
+        # Stop lifecycle if we own it
+        if owns_lifecycle and state.lifecycle:
+            await state.lifecycle.stop()
 
-        # Only stop lifecycle if we own it (local mode)
-        if self._owns_lifecycle and self._lifecycle:
-            await self._lifecycle.stop()
-        self._lifecycle = None
-
-        # Reset the ContextVar
-        _current_context.reset(self._token)
-
-        return False
-
-    async def delete(self, obj: Object) -> None:
-        """
-        Delete an Object's table and mark it as stale.
-
-        This removes the Object from tracking and cleans up its ClickHouse table.
-
-        Args:
-            obj: Object to delete
-
-        Example:
-            >>> async with DataContext() as ctx:
-            ...     obj = await ctx.create_object_from_value([1, 2, 3])
-            ...     result = await (obj + obj)
-            ...     await ctx.delete(result)  # Clean up intermediate result
-        """
-        # Mark as stale
-        obj._stale = True
-
-        # Remove from tracking if present
-        obj_id = id(obj)
-        if obj_id in self._objects:
-            del self._objects[obj_id]
-
-        # Force decref to trigger cleanup
-        if self._lifecycle is not None:
-            self._lifecycle.decref(obj.table)
+        # Reset ContextVar
+        _data_contexts.reset(token)
 
 
 def get_engine_clause(engine: EngineType) -> str:
-    """Get the ENGINE clause for table creation.
-
-    Args:
-        engine: ClickHouse engine type
-
-    Returns:
-        ENGINE clause string (e.g., "ENGINE = MergeTree ORDER BY tuple()")
-    """
+    """Get the ENGINE clause for table creation."""
     if engine == "Memory":
         return "ENGINE = Memory"
     return "ENGINE = MergeTree ORDER BY tuple()"
 
 
 async def create_object(schema: Schema, engine: EngineType | None = None):
-    """
-    Create a new Object with a ClickHouse table using the specified schema.
-
-    This function creates Objects and their tables, automatically registering them
-    with the current context for cleanup when the context exits.
+    """Create a new Object with a ClickHouse table using the specified schema.
 
     Args:
         schema: Schema dataclass with fieldtype and columns dict.
-               Example: Schema(
-                   fieldtype='a',
-                   columns={"aai_id": "UInt64", "value": "Float64"}
-               )
         engine: ClickHouse table engine. If None, uses context's engine setting.
 
     Returns:
         Object: New Object instance with created table
-
-    Raises:
-        RuntimeError: If no active context (must be called within 'async with DataContext()')
-
-    Examples:
-        >>> async with DataContext():
-        ...     from aaiclick import Schema
-        ...     schema = Schema(
-        ...         fieldtype='a',
-        ...         columns={"aai_id": "UInt64", "value": "Float64"}
-        ...     )
-        ...     obj = await create_object(schema)
     """
     from .object import Object
 
-    ctx = get_data_context()
+    state = _get_data_state()
 
-    # Create Object with schema (metadata built internally)
     obj = Object(schema=schema)
 
     # Build column definitions for CREATE TABLE
@@ -308,41 +235,29 @@ async def create_object(schema: Schema, engine: EngineType | None = None):
             col_def += f" COMMENT '{comment}'"
         column_defs.append(col_def)
 
-    # Use provided engine or fall back to context's engine
-    effective_engine = engine if engine is not None else ctx.engine
+    effective_engine = engine if engine is not None else state.engine
 
-    # Create table with all columns and comments in single query
     engine_clause = get_engine_clause(effective_engine)
     create_query = f"""
     CREATE TABLE {obj.table} (
         {', '.join(column_defs)}
     ) {engine_clause}
     """
-    obj._register(ctx)  # Write-ahead incref: register before CREATE TABLE
-    ctx._register_object(obj)  # Object lifecycle: track for stale marking on exit
-    await ctx.ch_client.command(create_query)
+    obj._register()  # Write-ahead incref: register before CREATE TABLE
+    register_object(obj)  # Object lifecycle: track for stale marking on exit
+    await state.ch_client.command(create_query)
     return obj
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
-    """
-    Infer ClickHouse column type from Python value using numpy.
-
-    Args:
-        value: Python value (scalar or list)
-
-    Returns:
-        str: ClickHouse type string
-    """
+    """Infer ClickHouse column type from Python value using numpy."""
     if isinstance(value, list):
         if not value:
-            return "String"  # Default for empty list
+            return "String"
 
-        # Use numpy to infer the dtype
         arr = np.array(value)
         dtype = arr.dtype
 
-        # Map numpy dtype to ClickHouse type
         if np.issubdtype(dtype, np.bool_):
             return "UInt8"
         elif np.issubdtype(dtype, np.integer):
@@ -352,7 +267,6 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
         else:
             return "String"
 
-    # Scalar value type inference
     if isinstance(value, bool):
         return "UInt8"
     elif isinstance(value, int):
@@ -362,52 +276,37 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
     elif isinstance(value, str):
         return "String"
     else:
-        return "String"  # Default fallback
+        return "String"
 
 
 async def create_object_from_value(val: ValueType) -> Object:
-    """
-    Create a new Object from Python values with automatic schema inference.
-
-    Internal function - use DataContext.create_object_from_value() instead.
+    """Create a new Object from Python values with automatic schema inference.
 
     Args:
         val: Value to create object from. Can be:
             - Object or View: Returned directly without modification
-            - Scalar (int, float, bool, str): Creates "aai_id" and "value" columns, single row
-            - List of scalars: Creates "aai_id" and "value" columns with multiple rows
-            - Dict of scalars: Creates "aai_id" plus one column per key, single row
-            - Dict of arrays: Creates "aai_id" plus one column per key, multiple rows
+            - Scalar (int, float, bool, str): Creates single row
+            - List of scalars: Creates multiple rows
+            - Dict of scalars: Single row with columns per key
+            - Dict of arrays: Multiple rows with columns per key
 
     Returns:
-        Object: New Object instance with data (or passed Object/View directly)
-
-    Table Schema Details:
-        - All tables include aai_id column with snowflake IDs
-        - Scalars (single value): Single row with aai_id and value
-        - Arrays (lists): Multiple rows with aai_id and value, ordered by aai_id
-        - Dict of scalars: Single row with aai_id plus columns for each key
-        - Dict of arrays: Multiple rows with aai_id plus columns for each key, ordered by aai_id
+        Object: New Object instance with data
     """
     from .object import Object, View
 
-    # Return Objects and Views directly without modification
     if isinstance(val, (Object, View)):
         return val
 
-    ctx = get_data_context()
+    ch = get_ch_client()
 
     if isinstance(val, dict):
-        # Check if any values are lists (dict of arrays)
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays:
-            # Dict of arrays: one column per key, one row per array element
-            # All arrays must have the same length
             columns = {"aai_id": "UInt64"}
             array_len = None
 
-            # First pass: build schema and validate array lengths
             for key, value in val.items():
                 if isinstance(value, list):
                     if array_len is None:
@@ -425,28 +324,17 @@ async def create_object_from_value(val: ValueType) -> Object:
                     )
                 columns[key] = col_type
 
-            schema = Schema(
-                fieldtype=FIELDTYPE_ARRAY,
-                columns=columns
-            )
-
-            # Create object with schema
+            schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
             obj = await create_object(schema)
 
-            # Generate snowflake IDs for all rows
             aai_ids = get_snowflake_ids(array_len or 0)
 
-            # Build data rows for bulk insert
             if array_len and array_len > 0:
                 keys = list(val.keys())
-                # Zip aai_ids with all column arrays to create rows
                 data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
-
-                # Use clickhouse-connect's built-in insert
-                await ctx.ch_client.insert(obj.table, data)
+                await ch.insert(obj.table, data)
 
         else:
-            # Dict of scalars: one column per key, single row with aai_id
             columns = {"aai_id": "UInt64"}
             values = []
 
@@ -454,7 +342,6 @@ async def create_object_from_value(val: ValueType) -> Object:
                 col_type = _infer_clickhouse_type(value)
                 columns[key] = col_type
 
-                # Format value for SQL
                 if isinstance(value, str):
                     values.append(f"'{value}'")
                 elif isinstance(value, bool):
@@ -462,61 +349,39 @@ async def create_object_from_value(val: ValueType) -> Object:
                 else:
                     values.append(str(value))
 
-            schema = Schema(
-                fieldtype=FIELDTYPE_SCALAR,
-                columns=columns
-            )
-
-            # Create object with schema
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns=columns)
             obj = await create_object(schema)
 
-            # Generate single aai_id for scalar dict
             aai_id = get_snowflake_ids(1)[0]
             values.insert(0, str(aai_id))
 
-            # Insert single row
             insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-            await ctx.ch_client.command(insert_query)
+            await ch.command(insert_query)
 
     elif isinstance(val, list):
-        # List: single column "value" with multiple rows
-        # Add aai_id column to ensure stable ordering for element-wise operations
         col_type = _infer_clickhouse_type(val)
-
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": "UInt64", "value": col_type}
+            columns={"aai_id": "UInt64", "value": col_type},
         )
-
-        # Create object with schema
         obj = await create_object(schema)
 
-        # Generate snowflake IDs for all rows
         aai_ids = get_snowflake_ids(len(val))
 
-        # Build data rows for bulk insert
         if val:
-            # Zip aai_ids with values to create rows
             data = [list(row) for row in zip(aai_ids, val)]
-            # Use clickhouse-connect's built-in insert
-            await ctx.ch_client.insert(obj.table, data)
+            await ch.insert(obj.table, data)
 
     else:
-        # Scalar: single row with aai_id and value
         col_type = _infer_clickhouse_type(val)
-
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            columns={"aai_id": "UInt64", "value": col_type}
+            columns={"aai_id": "UInt64", "value": col_type},
         )
-
-        # Create object with schema
         obj = await create_object(schema)
 
-        # Generate single aai_id for scalar
         aai_id = get_snowflake_ids(1)[0]
 
-        # Insert single row
         if isinstance(val, str):
             value_str = f"'{val}'"
         elif isinstance(val, bool):
@@ -525,6 +390,6 @@ async def create_object_from_value(val: ValueType) -> Object:
             value_str = str(val)
 
         insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
-        await ctx.ch_client.command(insert_query)
+        await ch.command(insert_query)
 
     return obj

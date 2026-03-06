@@ -9,11 +9,12 @@ This example demonstrates how to use data manipulation methods:
 
 import asyncio
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
 
 
-async def example(context):
-    """Run all data manipulation examples using the provided context."""
+async def example():
+    """Run all data manipulation examples."""
     # Example 1: Copying objects
     print("Example 1: Copying objects")
     print("-" * 50)
@@ -189,9 +190,9 @@ async def example(context):
 
 
 async def amain():
-    """Main entry point that creates context and calls example."""
-    async with DataContext() as context:
-        await example(context)
+    """Main entry point that creates data_context() and calls example."""
+    async with data_context():
+        await example()
 
 
 if __name__ == "__main__":

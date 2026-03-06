@@ -3,7 +3,7 @@
 from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
-from .context import get_orch_context, get_orch_context_session
+from .context import apply, get_orch_session
 from .factories import create_job, create_task
 from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
 
@@ -152,8 +152,6 @@ async def test_group_to_group_dependency():
 
 async def test_apply_saves_dependencies(orch_ctx):
     """Test that apply() saves dependencies to database."""
-    ctx = get_orch_context()
-
     # Create job
     job = await create_job(
         "test_deps_job",
@@ -166,10 +164,10 @@ async def test_apply_saves_dependencies(orch_ctx):
     task1 >> task2  # task2 depends on task1
 
     # Apply tasks to job
-    await ctx.apply([task1, task2], job_id=job.id)
+    await apply([task1, task2], job_id=job.id)
 
     # Verify dependency was saved
-    async with get_orch_context_session() as session:
+    async with get_orch_session() as session:
         result = await session.execute(
             select(Dependency).where(
                 Dependency.previous_id == task1.id,

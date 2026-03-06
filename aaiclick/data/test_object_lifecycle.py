@@ -4,7 +4,8 @@ Tests for Object and View __del__ guards.
 
 from unittest.mock import patch
 
-from aaiclick import DataContext, create_object_from_value
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
 from aaiclick.data.object import Object
 
 
@@ -14,7 +15,7 @@ from aaiclick.data.object import Object
 def test_del_guard_unregistered_object():
     """Guard: Object created without factory should not error on __del__."""
     obj = Object()
-    assert obj._data_ctx_ref is None
+    assert obj._ctx_name is None
     obj.__del__()
 
 
@@ -32,7 +33,7 @@ async def test_del_guard_interpreter_shutdown(mock_finalizing, ctx):
 
 async def test_del_guard_after_context_exit():
     """Guard: __del__ after context exit should not raise."""
-    async with DataContext():
+    async with data_context():
         obj = await create_object_from_value([1, 2, 3])
 
     # Context exited, worker stopped
@@ -57,7 +58,7 @@ async def test_view_del_guard_interpreter_shutdown(mock_finalizing, ctx):
 
 async def test_view_del_guard_after_context_exit():
     """Guard: View.__del__ after context exit should not raise."""
-    async with DataContext():
+    async with data_context():
         obj = await create_object_from_value([1, 2, 3])
         view = obj.view(limit=2)
 

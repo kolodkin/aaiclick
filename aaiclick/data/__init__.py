@@ -6,12 +6,18 @@ including context management, object creation, and database operations.
 """
 
 from .data_context import (
-    DataContext,
+    DataCtxState,
+    _get_data_state,
     create_object,
     create_object_from_value,
+    data_context,
+    decref,
+    delete_object,
     get_ch_client,
-    get_data_context,
+    get_engine,
     get_pool,
+    incref,
+    register_object,
 )
 from .url import create_object_from_url
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
