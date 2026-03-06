@@ -233,6 +233,7 @@ class Task(SQLModel, table=True):
     result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
+    is_expander: bool = Field(default=False)
 
     # Dependencies where this task is the "next" (i.e., this task depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group

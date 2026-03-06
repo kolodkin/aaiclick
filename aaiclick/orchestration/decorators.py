@@ -39,8 +39,12 @@ from .models import Group, Job, JobStatus, Task, TaskStatus
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
     """Recursively collect Task instances from nested structures."""
+    from .dynamic import MapHandle
+
     if isinstance(value, Task):
         upstream_tasks.append(value)
+    elif isinstance(value, MapHandle):
+        upstream_tasks.append(value.expander)
     elif isinstance(value, (list, tuple)):
         for v in value:
             _collect_upstreams(v, upstream_tasks)
@@ -63,8 +67,12 @@ def _serialize_value(value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON storage
     """
+    from .dynamic import MapHandle
+
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
+    elif isinstance(value, MapHandle):
+        return {"ref_type": "group_results", "group_id": value.group.id}
     elif isinstance(value, Object):
         return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
@@ -210,19 +218,30 @@ class JobFactory:
 
     async def _create_job(self, **kwargs) -> Job:
         """Internal method to create job within an OrchContext."""
+        from .dynamic import MapHandle
+
         # Call workflow function to get tasks
         result = self.func(**kwargs)
 
         # Normalize result to list
-        if isinstance(result, (Task, Group)):
-            tasks = [result]
+        if isinstance(result, (Task, Group, MapHandle)):
+            items = [result]
         elif isinstance(result, (list, tuple)):
-            tasks = list(result)
+            items = list(result)
         else:
             raise ValueError(
-                f"Job function must return Task, Group, or list of them. "
+                f"Job function must return Task, Group, MapHandle, or list of them. "
                 f"Got {type(result).__name__}"
             )
+
+        # Expand MapHandle items into their Task + Group components
+        tasks = []
+        for item in items:
+            if isinstance(item, MapHandle):
+                tasks.append(item.expander)
+                tasks.append(item.group)
+            else:
+                tasks.append(item)
 
         job = Job(
             id=get_snowflake_id(),
