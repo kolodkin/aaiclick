@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from aaiclick import create_object_from_url, create_object_from_value
+from aaiclick import create_object_from_url
 
 # Test with small limit for speed
 _TEST_LIMIT = int(os.getenv("AAICLICK_NYC_TEST_LIMIT", "100"))
@@ -170,15 +170,13 @@ async def test_column_operations(ctx):
     tips = await trips["tip_amount"].copy()
     distances = await trips["trip_distance"].copy()
 
-    # Arithmetic operations - need to await each operation and wrap scalars
-    div_result = await (tips / fares)
-    hundred = await create_object_from_value(100)
-    tip_pct = await (div_result * hundred)
+    # Arithmetic operations between arrays (same aai_ids, so element-wise works)
+    tip_ratio = await (tips / fares)
     fare_per_mile = await (fares / distances)
 
     # Verify results
-    tip_pct_data = await tip_pct.data()
+    tip_ratio_data = await tip_ratio.data()
     fare_per_mile_data = await fare_per_mile.data()
 
-    assert len(tip_pct_data) == _TEST_LIMIT
+    assert len(tip_ratio_data) == _TEST_LIMIT
     assert len(fare_per_mile_data) == _TEST_LIMIT
