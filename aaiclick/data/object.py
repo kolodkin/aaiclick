@@ -1086,6 +1086,42 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
+    def add_where(self, condition: str) -> "View":
+        """
+        Create a View with a WHERE condition.
+
+        Shortcut for obj.view(where=condition). The returned View supports
+        chaining with .add_where() (AND) and .or_where() (OR).
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value > 100')
+
+        Returns:
+            View with the WHERE condition applied
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
+            >>> view = obj.add_where("value > 2").add_where("value < 5")
+            >>> await view.data()  # Returns [3, 4]
+        """
+        return View(self, where=condition)
+
+    def or_where(self, condition: str) -> "View":
+        """
+        Create a View with an OR WHERE condition.
+
+        Note: or_where() on Object requires wrapping with add_where() first,
+        or using view(where=...).or_where(). Use add_where() to start a chain.
+
+        Raises:
+            ValueError: Always, since there's no prior WHERE clause on a plain Object.
+                       Use add_where() first or view(where=...).or_where().
+        """
+        raise ValueError(
+            "or_where() requires a prior where condition. "
+            "Use add_where() first: obj.add_where('x > 5').or_where('y < 3')"
+        )
+
     def group_by(self, *keys: str) -> GroupByQuery:
         """
         Group data by one or more columns, returning a GroupByQuery.
@@ -1424,7 +1460,9 @@ class View(Object):
                              Multiple fields returns dict-like view
         """
         super().__init__(table=source.table, schema=source._schema)
-        self._where = where
+        self._where_clauses: List[Tuple[str, str]] = []
+        if where:
+            self._where_clauses.append((where.strip(), "AND"))
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
@@ -1439,8 +1477,8 @@ class View(Object):
 
     @property
     def where(self) -> Optional[str]:
-        """Get WHERE clause."""
-        return self._where
+        """Get the combined WHERE clause built from stored conditions."""
+        return self._build_where()
 
     @property
     def limit(self) -> Optional[int]:
@@ -1466,6 +1504,64 @@ class View(Object):
     def is_single_field(self) -> bool:
         """Check if this is a single-field selection (array-like output)."""
         return self._selected_fields is not None and len(self._selected_fields) == 1
+
+    def _build_where(self) -> Optional[str]:
+        """Build the combined WHERE clause from stored conditions."""
+        if not self._where_clauses:
+            return None
+        parts = []
+        for i, (condition, connector) in enumerate(self._where_clauses):
+            if i == 0:
+                parts.append(f"({condition})")
+            else:
+                parts.append(f"{connector} ({condition})")
+        return " ".join(parts)
+
+    def add_where(self, condition: str) -> View:
+        """
+        Add a WHERE condition (AND-chained with previous conditions).
+
+        Multiple calls chain with AND:
+            .add_where('x > 10').add_where('y < 20')
+            → WHERE (x > 10) AND (y < 20)
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value > 100')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty
+        """
+        if not condition or not condition.strip():
+            raise ValueError("WHERE condition must be a non-empty string")
+        self._where_clauses.append((condition.strip(), "AND"))
+        return self
+
+    def or_where(self, condition: str) -> View:
+        """
+        Add a WHERE condition (OR-chained with previous conditions).
+
+        Use after .view(where=...) or .add_where() to add an alternative condition:
+            .add_where('x > 100').or_where('y < 5')
+            → WHERE (x > 100) OR (y < 5)
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value < 10')
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If condition is empty or no prior where clause exists
+        """
+        if not condition or not condition.strip():
+            raise ValueError("WHERE condition must be a non-empty string")
+        if not self._where_clauses:
+            raise ValueError("or_where() requires a prior where condition")
+        self._where_clauses.append((condition.strip(), "OR"))
+        return self
 
     @property
     def has_constraints(self) -> bool:
