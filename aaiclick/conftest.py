@@ -45,10 +45,13 @@ async def ctx():
         yield context
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 async def orch_ctx():
     """
-    Session-scoped OrchContext shared across all orchestration tests.
+    Function-scoped OrchContext for orchestration tests.
+
+    Cannot be session-scoped: SQLAlchemy async sessions don't safely
+    share across tests (concurrent operation and event loop issues).
     """
     async with OrchContext() as context:
         yield context
