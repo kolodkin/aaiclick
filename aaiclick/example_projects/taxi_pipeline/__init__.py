@@ -19,7 +19,7 @@ import asyncio
 
 from aaiclick import create_object_from_value
 from aaiclick.data.object import Object
-from aaiclick.orchestration import OrchContext, job, task
+from aaiclick.orchestration import job, task
 
 
 @task
@@ -98,16 +98,14 @@ def taxi_pipeline(fares: list, distances: list, multiplier: int = 2):
 
 async def main():
     """Register the taxi pipeline job."""
-    async with OrchContext():
-        # Job registration only needs OrchContext (PostgreSQL)
-        # DataContext (ClickHouse) is used during task execution by workers
-        created_job = await taxi_pipeline(
-            fares=[10.5, 15.0, 8.75, 22.0, 12.5],
-            distances=[2.5, 4.0, 1.8, 6.2, 3.1],
-            multiplier=2,
-        )
-        print(f"Registered job: {created_job.name} (ID: {created_job.id})")
-        print("Run worker to execute: python -m aaiclick.orchestration.worker")
+    # JobFactory manages OrchContext internally - no explicit context needed
+    created_job = await taxi_pipeline(
+        fares=[10.5, 15.0, 8.75, 22.0, 12.5],
+        distances=[2.5, 4.0, 1.8, 6.2, 3.1],
+        multiplier=2,
+    )
+    print(f"Registered job: {created_job.name} (ID: {created_job.id})")
+    print("Run worker to execute: python -m aaiclick.orchestration.worker")
 
 
 if __name__ == "__main__":

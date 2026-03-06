@@ -188,6 +188,7 @@ class JobFactory:
     """Factory that creates and applies Jobs when called.
 
     Wraps a workflow definition function and handles:
+    - OrchContext management (creates if not already in context)
     - Job creation
     - Task collection from function return value
     - Applying all tasks to the database
@@ -207,12 +208,31 @@ class JobFactory:
     async def __call__(self, **kwargs) -> "Job":
         """Execute workflow definition and create job with tasks.
 
+        Automatically manages OrchContext - creates one if not already
+        inside an OrchContext, otherwise uses the existing one.
+
         Args:
             **kwargs: Arguments passed to the workflow function
 
         Returns:
             Job: Created job with all tasks applied
         """
+        from .context import _current_orch_context
+
+        # Check if we're already in an OrchContext
+        try:
+            _current_orch_context.get()
+            # Already in context, just run
+            return await self._create_job(**kwargs)
+        except LookupError:
+            # Not in context, create one
+            from .context import OrchContext
+
+            async with OrchContext():
+                return await self._create_job(**kwargs)
+
+    async def _create_job(self, **kwargs) -> "Job":
+        """Internal method to create job within an OrchContext."""
         from .models import Group, Job, JobStatus
 
         # Call workflow function to get tasks
