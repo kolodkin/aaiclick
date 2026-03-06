@@ -11,10 +11,8 @@ Usage:
 import argparse
 import asyncio
 
-from aaiclick.orchestration.cli import start_background, start_worker
-from aaiclick.orchestration.context import OrchContext
+from aaiclick.orchestration.cli import show_workers, start_background, start_worker
 from aaiclick.orchestration.migrate import run_migrations
-from aaiclick.orchestration.worker import list_workers
 
 
 def main():
@@ -96,19 +94,6 @@ def main():
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
-
-            async def show_workers():
-                async with OrchContext():
-                    workers = await list_workers()
-                    if not workers:
-                        print("No workers found")
-                        return
-
-                    print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
-                    print("-" * 80)
-                    for w in workers:
-                        print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
-
             asyncio.run(show_workers())
 
         else:

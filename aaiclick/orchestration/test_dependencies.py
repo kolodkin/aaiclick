@@ -2,10 +2,10 @@
 
 from sqlmodel import select
 
-from aaiclick.orchestration.context import get_orch_context, get_orch_context_session
-from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
-from aaiclick.snowflake_id import get_snowflake_id
+from ..snowflake_id import get_snowflake_id
+from .context import get_orch_context, get_orch_context_session
+from .factories import create_job, create_task
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
 
 
 async def test_task_rshift_creates_dependency():

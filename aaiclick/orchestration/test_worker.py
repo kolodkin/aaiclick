@@ -5,12 +5,13 @@ import asyncio
 from sqlalchemy import text
 from sqlmodel import select
 
-from aaiclick.orchestration.claiming import claim_next_task, update_task_status
-from aaiclick.orchestration.context import get_orch_context, get_orch_context_session
-from aaiclick.orchestration.execution import execute_task
-from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
-from aaiclick.orchestration.worker import (
+from ..snowflake_id import get_snowflake_id
+from .claiming import claim_next_task, update_task_status
+from .context import get_orch_context, get_orch_context_session
+from .execution import execute_task
+from .factories import create_job, create_task
+from .models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
+from .worker import (
     deregister_worker,
     get_worker,
     list_workers,
@@ -18,7 +19,6 @@ from aaiclick.orchestration.worker import (
     worker_heartbeat,
     worker_main_loop,
 )
-from aaiclick.snowflake_id import get_snowflake_id
 
 
 async def test_register_worker(orch_ctx):

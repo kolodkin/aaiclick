@@ -15,6 +15,7 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_context_session
+from .decorators import TaskFactory
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
 
@@ -37,8 +38,6 @@ def import_callback(entrypoint: str) -> Callable:
         ImportError: If module cannot be imported
         AttributeError: If function not found in module
     """
-    from .decorators import TaskFactory
-
     parts = entrypoint.rsplit(".", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid entrypoint format: {entrypoint}. Expected 'module.function'")
