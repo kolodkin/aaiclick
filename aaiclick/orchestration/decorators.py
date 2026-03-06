@@ -26,19 +26,28 @@ Example:
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List, Union
+from typing import Any, Callable, List
+
+from aaiclick.data.object import Object, View
 
 from ..snowflake_id import get_snowflake_id
-from .context import get_orch_context
-from .models import Task, TaskStatus
+from .context import _current_orch_context, OrchContext, get_orch_context
+from .factories import _callable_to_string
+from .models import Group, Job, JobStatus, Task, TaskStatus
 
 
-def _callable_to_string(func: Callable) -> str:
-    """Convert a callable to its module.function string representation."""
-    from .factories import _callable_to_string as impl
-
-    return impl(func)
+def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
+    """Recursively collect Task instances from nested structures."""
+    if isinstance(value, Task):
+        upstream_tasks.append(value)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _collect_upstreams(v, upstream_tasks)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _collect_upstreams(v, upstream_tasks)
 
 
 def _serialize_value(value: Any) -> Any:
@@ -55,8 +64,6 @@ def _serialize_value(value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON storage
     """
-    from aaiclick.data.object import Object, View
-
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
     elif isinstance(value, View):
@@ -120,27 +127,11 @@ class TaskFactory:
 
         # Collect upstream tasks for dependency creation
         upstream_tasks: List[Task] = []
-
-        def collect_upstreams(value: Any) -> None:
-            """Recursively collect Task instances from nested structures."""
-            if isinstance(value, Task):
-                upstream_tasks.append(value)
-            elif isinstance(value, (list, tuple)):
-                for v in value:
-                    collect_upstreams(v)
-            elif isinstance(value, dict):
-                for v in value.values():
-                    collect_upstreams(v)
-
-        # Collect all upstream tasks
         for value in kwargs.values():
-            collect_upstreams(value)
+            _collect_upstreams(value, upstream_tasks)
 
         # Serialize kwargs
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
-
-        # Create task
-        from datetime import datetime
 
         task = Task(
             id=get_snowflake_id(),
@@ -205,7 +196,7 @@ class JobFactory:
         self.func = func
         wraps(func)(self)
 
-    async def __call__(self, **kwargs) -> "Job":
+    async def __call__(self, **kwargs) -> Job:
         """Execute workflow definition and create job with tasks.
 
         Automatically manages OrchContext - creates one if not already
@@ -217,8 +208,6 @@ class JobFactory:
         Returns:
             Job: Created job with all tasks applied
         """
-        from .context import _current_orch_context
-
         # Check if we're already in an OrchContext
         try:
             _current_orch_context.get()
@@ -226,15 +215,11 @@ class JobFactory:
             return await self._create_job(**kwargs)
         except LookupError:
             # Not in context, create one
-            from .context import OrchContext
-
             async with OrchContext():
                 return await self._create_job(**kwargs)
 
-    async def _create_job(self, **kwargs) -> "Job":
+    async def _create_job(self, **kwargs) -> Job:
         """Internal method to create job within an OrchContext."""
-        from .models import Group, Job, JobStatus
-
         # Call workflow function to get tasks
         result = self.func(**kwargs)
 
@@ -248,9 +233,6 @@ class JobFactory:
                 f"Job function must return Task, Group, or list of them. "
                 f"Got {type(result).__name__}"
             )
-
-        # Create job
-        from datetime import datetime
 
         job = Job(
             id=get_snowflake_id(),

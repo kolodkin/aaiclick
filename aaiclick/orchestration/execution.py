@@ -145,10 +145,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     return {k: await _deserialize_value(v, session) for k, v in value.items()}
 
 
-async def deserialize_task_params(
-    serialized_params: dict,
-    session: AsyncSession | None = None,
-) -> dict:
+async def deserialize_task_params(serialized_params: dict) -> dict:
     """
     Deserialize task parameters from JSON format.
 
@@ -163,8 +160,6 @@ async def deserialize_task_params(
 
     Args:
         serialized_params: Task kwargs from database (JSON-deserialized)
-        session: Optional database session for resolving upstream refs.
-                 If None, a new session is created.
 
     Returns:
         dict: Deserialized kwargs ready for function call
@@ -175,13 +170,7 @@ async def deserialize_task_params(
     if not serialized_params:
         return {}
 
-    if session is None:
-        async with get_orch_context_session() as session:
-            return {
-                k: await _deserialize_value(v, session)
-                for k, v in serialized_params.items()
-            }
-    else:
+    async with get_orch_context_session() as session:
         return {
             k: await _deserialize_value(v, session)
             for k, v in serialized_params.items()
