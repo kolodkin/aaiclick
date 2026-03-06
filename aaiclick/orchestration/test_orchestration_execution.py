@@ -176,7 +176,7 @@ async def test_deserialize_task_params_view(orch_ctx):
         assert "data" in result
         assert isinstance(result["data"], View)
         assert result["data"].table == "t456"
-        assert result["data"].where == "value > 10"
+        assert result["data"]._build_where() == "(value > 10)"
         assert result["data"].limit == 100
         assert result["data"].offset == 50
         assert result["data"].order_by == "aai_id ASC"

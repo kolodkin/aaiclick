@@ -91,6 +91,7 @@ class Object:
         self._stale = False
         self._schema = schema
         self._data_ctx_ref: Optional[weakref.ref[DataContext]] = None
+        self._where_clauses: List[Tuple[str, str]] = []
 
     def _register(self, context: DataContext) -> None:
         """Register this object with context for lifecycle tracking."""
@@ -125,11 +126,6 @@ class Object:
         """Get the context managing this object."""
         self.checkstale()
         return get_data_context()
-
-    @property
-    def where(self) -> Optional[str]:
-        """Get WHERE clause (None for base Object)."""
-        return None
 
     @property
     def limit(self) -> Optional[int]:
@@ -170,7 +166,13 @@ class Object:
     @property
     def has_constraints(self) -> bool:
         """Check if this object has any view constraints."""
-        return bool(self.where or self.limit is not None or self.offset is not None or self.order_by)
+        return bool(
+            self._where_clauses
+            or self.limit is not None
+            or self.offset is not None
+            or self.order_by
+            or self.selected_fields
+        )
 
     def checkstale(self):
         """
@@ -184,6 +186,18 @@ class Object:
                 f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
             )
 
+    def _build_where(self) -> Optional[str]:
+        """Build the combined WHERE clause from stored conditions."""
+        if not self._where_clauses:
+            return None
+        parts = []
+        for i, (condition, connector) in enumerate(self._where_clauses):
+            if i == 0:
+                parts.append(f"({condition})")
+            else:
+                parts.append(f"{connector} ({condition})")
+        return " ".join(parts)
+
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -196,8 +210,9 @@ class Object:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         query = f"SELECT {columns} FROM {self.table}"
-        if self.where:
-            query += f" WHERE {self.where}"
+        where = self._build_where()
+        if where:
+            query += f" WHERE {where}"
         # Use custom order_by if set, otherwise use default
         order_clause = self.order_by or default_order_by
         if order_clause:
@@ -1086,6 +1101,42 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
+    def where(self, condition: str) -> "View":
+        """
+        Create a View with a WHERE condition.
+
+        Shortcut for obj.view(where=condition). The returned View supports
+        chaining with .where() (AND) and .or_where() (OR).
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value > 100')
+
+        Returns:
+            View with the WHERE condition applied
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
+            >>> view = obj.where("value > 2").where("value < 5")
+            >>> await view.data()  # Returns [3, 4]
+        """
+        return View(self, where=condition)
+
+    def or_where(self, condition: str) -> "View":
+        """
+        Create a View with an OR WHERE condition.
+
+        Note: or_where() on Object requires a prior where() call.
+        Use where() first to start a chain.
+
+        Raises:
+            ValueError: Always, since there's no prior WHERE clause on a plain Object.
+                       Use where() first: obj.where('x > 5').or_where('y < 3')
+        """
+        raise ValueError(
+            "or_where() requires a prior where condition. "
+            "Use where() first: obj.where('x > 5').or_where('y < 3')"
+        )
+
     def group_by(self, *keys: str) -> GroupByQuery:
         """
         Group data by one or more columns, returning a GroupByQuery.
@@ -1220,41 +1271,53 @@ class GroupByQuery:
         """Get the ClickHouse client from the source object."""
         return self._source.ch_client
 
+    def _clone_with_having(self, condition: str, connector: str) -> GroupByQuery:
+        """Create a new GroupByQuery with all current state plus an additional HAVING clause."""
+        new_gbq = GroupByQuery.__new__(GroupByQuery)
+        new_gbq._source = self._source
+        new_gbq._keys = self._keys
+        new_gbq._having_clauses = list(self._having_clauses)
+        new_gbq._having_clauses.append((condition, connector))
+        return new_gbq
+
     def having(self, condition: str) -> GroupByQuery:
         """
-        Add a HAVING condition (AND-chained with previous conditions).
+        Return a new GroupByQuery with an AND-chained HAVING condition.
 
         Multiple calls chain with AND:
             .having('sum(x) > 10').having('count() >= 2')
             → HAVING (sum(x) > 10) AND (count() >= 2)
 
+        The original GroupByQuery is not modified.
+
         Args:
             condition: Raw SQL HAVING expression (e.g., 'sum(amount) > 100')
 
         Returns:
-            Self for method chaining
+            New GroupByQuery with the condition added
 
         Raises:
             ValueError: If condition is empty
         """
         if not condition or not condition.strip():
             raise ValueError("HAVING condition must be a non-empty string")
-        self._having_clauses.append((condition.strip(), "AND"))
-        return self
+        return self._clone_with_having(condition.strip(), "AND")
 
     def or_having(self, condition: str) -> GroupByQuery:
         """
-        Add a HAVING condition (OR-chained with previous conditions).
+        Return a new GroupByQuery with an OR-chained HAVING condition.
 
         Use after .having() to add an alternative condition:
             .having('sum(x) > 100').or_having('count() >= 5')
             → HAVING (sum(x) > 100) OR (count() >= 5)
 
+        The original GroupByQuery is not modified.
+
         Args:
             condition: Raw SQL HAVING expression (e.g., 'max(amount) > 50')
 
         Returns:
-            Self for method chaining
+            New GroupByQuery with the condition added
 
         Raises:
             ValueError: If condition is empty or no prior having clause exists
@@ -1263,8 +1326,7 @@ class GroupByQuery:
             raise ValueError("HAVING condition must be a non-empty string")
         if not self._having_clauses:
             raise ValueError("or_having() requires a prior having() call")
-        self._having_clauses.append((condition.strip(), "OR"))
-        return self
+        return self._clone_with_having(condition.strip(), "OR")
 
     def _build_having(self) -> Optional[str]:
         """Build the combined HAVING clause from stored conditions."""
@@ -1424,7 +1486,8 @@ class View(Object):
                              Multiple fields returns dict-like view
         """
         super().__init__(table=source.table, schema=source._schema)
-        self._where = where
+        if where:
+            self._where_clauses.append((where.strip(), "AND"))
         self._limit = limit
         self._offset = offset
         self._order_by = order_by
@@ -1436,11 +1499,6 @@ class View(Object):
             if context is not None:
                 self._register(context)
                 context._register_object(self)
-
-    @property
-    def where(self) -> Optional[str]:
-        """Get WHERE clause."""
-        return self._where
 
     @property
     def limit(self) -> Optional[int]:
@@ -1467,16 +1525,70 @@ class View(Object):
         """Check if this is a single-field selection (array-like output)."""
         return self._selected_fields is not None and len(self._selected_fields) == 1
 
-    @property
-    def has_constraints(self) -> bool:
-        """Check if this view has any constraints including selected_fields."""
-        return bool(
-            self.where
-            or self.limit is not None
-            or self.offset is not None
-            or self.order_by
-            or self.selected_fields
-        )
+    def _clone_with_clause(self, condition: str, connector: str) -> View:
+        """Create a new View with all current constraints plus an additional WHERE clause."""
+        new_view = View.__new__(View)
+        Object.__init__(new_view, table=self.table, schema=self._schema)
+        new_view._where_clauses = list(self._where_clauses)
+        new_view._where_clauses.append((condition, connector))
+        new_view._limit = self._limit
+        new_view._offset = self._offset
+        new_view._order_by = self._order_by
+        new_view._selected_fields = self._selected_fields
+        if self._data_ctx_ref is not None:
+            context = self._data_ctx_ref()
+            if context is not None:
+                new_view._register(context)
+                context._register_object(new_view)
+        return new_view
+
+    def where(self, condition: str) -> View:
+        """
+        Return a new View with an AND-chained WHERE condition.
+
+        Multiple calls chain with AND:
+            .where('x > 10').where('y < 20')
+            → WHERE (x > 10) AND (y < 20)
+
+        The original View is not modified.
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value > 100')
+
+        Returns:
+            New View with the condition added
+
+        Raises:
+            ValueError: If condition is empty
+        """
+        if not condition or not condition.strip():
+            raise ValueError("WHERE condition must be a non-empty string")
+        return self._clone_with_clause(condition.strip(), "AND")
+
+    def or_where(self, condition: str) -> View:
+        """
+        Return a new View with an OR-chained WHERE condition.
+
+        Use after .view(where=...) or .where() to add an alternative condition:
+            .where('x > 100').or_where('y < 5')
+            → WHERE (x > 100) OR (y < 5)
+
+        The original View is not modified.
+
+        Args:
+            condition: Raw SQL WHERE expression (e.g., 'value < 10')
+
+        Returns:
+            New View with the condition added
+
+        Raises:
+            ValueError: If condition is empty or no prior where clause exists
+        """
+        if not condition or not condition.strip():
+            raise ValueError("WHERE condition must be a non-empty string")
+        if not self._where_clauses:
+            raise ValueError("or_where() requires a prior where condition")
+        return self._clone_with_clause(condition.strip(), "OR")
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
@@ -1509,8 +1621,9 @@ class View(Object):
             select_cols = columns
 
         query = f"SELECT {select_cols} FROM {self.table}"
-        if self.where:
-            query += f" WHERE {self.where}"
+        where_clause = self._build_where()
+        if where_clause:
+            query += f" WHERE {where_clause}"
         # Use custom order_by if set, otherwise use default
         order_clause = self.order_by or default_order_by
         if order_clause:
@@ -1636,7 +1749,7 @@ class View(Object):
             >>>
             >>> filtered = obj.view(where="param1 > 1", limit=10)
             >>> meta2 = await filtered.metadata()
-            >>> print(meta2.where)  # 'param1 > 1'
+            >>> print(meta2.where)  # '(param1 > 1)'
             >>> print(meta2.limit)  # 10
         """
         # Reuse Object.metadata() to build column_infos and compute overall_fieldtype
@@ -1647,7 +1760,7 @@ class View(Object):
             table=base_meta.table,
             fieldtype=base_meta.fieldtype,
             columns=base_meta.columns,
-            where=self._where,
+            where=self._build_where(),
             limit=self._limit,
             offset=self._offset,
             order_by=self._order_by,
@@ -1663,8 +1776,9 @@ class View(Object):
         constraints = []
         if self.selected_fields:
             constraints.append(f"selected_fields={self.selected_fields}")
-        if self.where:
-            constraints.append(f"where='{self.where}'")
+        where_clause = self._build_where()
+        if where_clause:
+            constraints.append(f"where='{where_clause}'")
         if self.limit:
             constraints.append(f"limit={self.limit}")
         if self.offset:
