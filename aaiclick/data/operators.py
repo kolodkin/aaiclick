@@ -688,7 +688,7 @@ async def unique_group(info: QueryInfo, ch_client):
     Returns:
         New Object with array of unique values
     """
-    from ..snowflake_id import get_snowflake_ids
+    from .sql_utils import insert_with_ids
 
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
@@ -709,20 +709,9 @@ async def unique_group(info: QueryInfo, ch_client):
     # Create result object with schema
     result = await create_object(schema)
 
-    # Query unique values using GROUP BY (not DISTINCT)
-    # GROUP BY is preferred over DISTINCT as it's more efficient in ClickHouse
-    # for large datasets and enables better distributed processing
-    unique_query = f"""
-    SELECT value FROM {info.source} GROUP BY value
-    """
-    unique_result = await ch_client.query(unique_query)
-
-    # Generate snowflake IDs for each unique value
-    unique_values = [row[0] for row in unique_result.result_rows]
-    if unique_values:
-        aai_ids = get_snowflake_ids(len(unique_values))
-        data = [[aai_id, value] for aai_id, value in zip(aai_ids, unique_values)]
-        await ch_client.insert(result.table, data)
+    # INSERT...SELECT unique values with SQL-generated snowflake IDs
+    unique_query = f"SELECT value FROM {info.source} GROUP BY value"
+    await insert_with_ids(ch_client, result.table, unique_query)
 
     return result
 
@@ -746,7 +735,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     Returns:
         New dict Object with group keys + all aggregated columns
     """
-    from ..snowflake_id import get_snowflake_ids
+    from .sql_utils import insert_with_ids
 
     keys_str = ", ".join(info.group_keys)
 
@@ -792,15 +781,10 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
     else:
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
-    query_result = await ch_client.query(query)
-    rows = query_result.result_rows
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    if rows:
-        aai_ids = get_snowflake_ids(len(rows))
-        data = [[aai_id, *row] for aai_id, row in zip(aai_ids, rows)]
-        await ch_client.insert(result.table, data)
+    await insert_with_ids(ch_client, result.table, query)
 
     return result

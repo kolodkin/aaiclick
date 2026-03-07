@@ -32,8 +32,7 @@ from .models import (
     EngineType,
     ENGINE_DEFAULT,
 )
-from .sql_utils import quote_identifier
-from ..snowflake_id import get_snowflake_ids
+from .sql_utils import quote_identifier, values_to_select, insert_with_ids
 
 
 @dataclass
@@ -326,37 +325,21 @@ async def create_object_from_value(val: ValueType) -> Object:
 
             schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
             obj = await create_object(schema)
-
-            aai_ids = get_snowflake_ids(array_len or 0)
-
-            if array_len and array_len > 0:
-                keys = list(val.keys())
-                data = [list(row) for row in zip(aai_ids, *[val[key] for key in keys])]
-                await ch.insert(obj.table, data)
+            select_query = values_to_select(val)
+            if select_query:
+                await insert_with_ids(ch, obj.table, select_query)
 
         else:
             columns = {"aai_id": "UInt64"}
-            values = []
-
             for key, value in val.items():
                 col_type = _infer_clickhouse_type(value)
                 columns[key] = col_type
 
-                if isinstance(value, str):
-                    values.append(f"'{value}'")
-                elif isinstance(value, bool):
-                    values.append("1" if value else "0")
-                else:
-                    values.append(str(value))
-
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns=columns)
             obj = await create_object(schema)
-
-            aai_id = get_snowflake_ids(1)[0]
-            values.insert(0, str(aai_id))
-
-            insert_query = f"INSERT INTO {obj.table} VALUES ({', '.join(values)})"
-            await ch.command(insert_query)
+            select_query = values_to_select(val)
+            if select_query:
+                await insert_with_ids(ch, obj.table, select_query)
 
     elif isinstance(val, list):
         col_type = _infer_clickhouse_type(val)
@@ -365,12 +348,9 @@ async def create_object_from_value(val: ValueType) -> Object:
             columns={"aai_id": "UInt64", "value": col_type},
         )
         obj = await create_object(schema)
-
-        aai_ids = get_snowflake_ids(len(val))
-
-        if val:
-            data = [list(row) for row in zip(aai_ids, val)]
-            await ch.insert(obj.table, data)
+        select_query = values_to_select(val)
+        if select_query:
+            await insert_with_ids(ch, obj.table, select_query)
 
     else:
         col_type = _infer_clickhouse_type(val)
@@ -379,17 +359,8 @@ async def create_object_from_value(val: ValueType) -> Object:
             columns={"aai_id": "UInt64", "value": col_type},
         )
         obj = await create_object(schema)
-
-        aai_id = get_snowflake_ids(1)[0]
-
-        if isinstance(val, str):
-            value_str = f"'{val}'"
-        elif isinstance(val, bool):
-            value_str = "1" if val else "0"
-        else:
-            value_str = str(val)
-
-        insert_query = f"INSERT INTO {obj.table} VALUES ({aai_id}, {value_str})"
-        await ch.command(insert_query)
+        select_query = values_to_select(val)
+        if select_query:
+            await insert_with_ids(ch, obj.table, select_query)
 
     return obj

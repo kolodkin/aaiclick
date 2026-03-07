@@ -81,6 +81,18 @@ class SnowflakeGenerator:
             timestamp = self._current_timestamp()
         return timestamp
 
+    def _sync_timestamp(self) -> int:
+        """Get current timestamp, waiting if last_timestamp is slightly ahead (from reserve)."""
+        timestamp = self._current_timestamp()
+        if timestamp < self.last_timestamp:
+            gap = self.last_timestamp - timestamp
+            if gap > 1000:
+                raise RuntimeError(
+                    f"Clock moved backwards by {gap}ms"
+                )
+            timestamp = self._wait_next_millis(self.last_timestamp - 1)
+        return timestamp
+
     def generate(self) -> int:
         """
         Generate a new Snowflake ID.
@@ -115,15 +127,7 @@ class SnowflakeGenerator:
 
         ids = []
         with self.lock:
-            # Get initial timestamp once at the start
-            timestamp = self._current_timestamp()
-
-            # Check for clock moving backwards
-            if timestamp < self.last_timestamp:
-                raise RuntimeError(
-                    f"Clock moved backwards. Refusing to generate ID for "
-                    f"{self.last_timestamp - timestamp}ms"
-                )
+            timestamp = self._sync_timestamp()
 
             # If new millisecond since last generate(), reset sequence
             if timestamp != self.last_timestamp:
@@ -150,6 +154,51 @@ class SnowflakeGenerator:
                 self.sequence += 1
 
         return ids
+
+    def reserve(self, count: int) -> tuple[int, int, int]:
+        """Reserve count IDs for SQL-side generation. Returns immediately.
+
+        Returns (base_timestamp, machine_id, start_sequence) for constructing
+        snowflake IDs in SQL using bit math. Does NOT busy-wait — advances
+        internal state arithmetically. The next generate()/reserve() call
+        will wait if wall-clock hasn't caught up.
+
+        Args:
+            count: Number of IDs to reserve (must be >= 1)
+
+        Returns:
+            tuple: (base_timestamp, machine_id, start_sequence)
+        """
+        if count < 1:
+            raise ValueError(f"Count must be at least 1, got {count}")
+
+        with self.lock:
+            timestamp = self._sync_timestamp()
+
+            if timestamp != self.last_timestamp:
+                self.sequence = 0
+                self.last_timestamp = timestamp
+
+            base_timestamp = timestamp
+            start_sequence = self.sequence
+
+            # Advance state arithmetically — no busy-wait
+            total_ids = start_sequence + count
+            seq_capacity = MAX_SEQUENCE + 1  # 4096
+            extra_ms = total_ids // seq_capacity
+            final_seq = total_ids % seq_capacity
+
+            if extra_ms > 0:
+                if final_seq == 0:
+                    self.last_timestamp = timestamp + extra_ms - 1
+                    self.sequence = seq_capacity
+                else:
+                    self.last_timestamp = timestamp + extra_ms
+                    self.sequence = final_seq
+            else:
+                self.sequence = final_seq
+
+            return base_timestamp, self.machine_id, start_sequence
 
     def get(self, size: int) -> list[int]:
         """
@@ -202,6 +251,34 @@ def get_snowflake_id() -> int:
         int: Unique 64-bit Snowflake ID
     """
     return _generator.generate()
+
+
+def snowflake_id_sql(base_timestamp: int, machine_id: int, start_sequence: int) -> str:
+    """Generate ClickHouse SQL expression for snowflake IDs using row_number().
+
+    Constructs proper snowflake IDs via bit manipulation, handling sequence
+    overflow by incrementing the timestamp — mirrors generate_bulk() logic.
+    """
+    seq_capacity = MAX_SEQUENCE + 1  # 4096
+    return (
+        f"bitOr(bitOr("
+        f"bitShiftLeft("
+        f"toUInt64({base_timestamp} + intDiv({start_sequence} + row_number() OVER () - 1, {seq_capacity})), "
+        f"{TIMESTAMP_SHIFT}), "
+        f"bitShiftLeft(toUInt64({machine_id}), {MACHINE_ID_SHIFT})), "
+        f"toUInt64(({start_sequence} + row_number() OVER () - 1) % {seq_capacity}))"
+    )
+
+
+def reserve_snowflake_ids_sql(count: int) -> str:
+    """Reserve count IDs and return a SQL expression that generates them.
+
+    The returned expression uses row_number() OVER () to produce unique,
+    time-ordered snowflake IDs entirely within ClickHouse.
+    No count limit — handles sequence overflow via timestamp increment.
+    """
+    base_ts, machine_id, start_seq = _generator.reserve(count)
+    return snowflake_id_sql(base_ts, machine_id, start_seq)
 
 
 def get_snowflake_ids(size: int) -> list[int]:

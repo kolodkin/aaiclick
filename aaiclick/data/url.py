@@ -10,8 +10,7 @@ from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
 from .models import FIELDTYPE_ARRAY, Schema
-from .sql_utils import quote_identifier
-from ..snowflake_id import get_snowflake_id
+from .sql_utils import quote_identifier, insert_with_ids
 
 SUPPORTED_URL_FORMATS = frozenset({
     "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",
@@ -126,18 +125,16 @@ async def create_object_from_url(
     # Create target table
     obj = await create_object(schema)
 
-    # Insert data from URL with Snowflake ID generation
-    base_id = get_snowflake_id()
+    # Insert data from URL with SQL-generated snowflake IDs
     where_clause = f" WHERE {where}" if where else ""
     limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
-    insert_query = (
-        f"INSERT INTO {obj.table} "
-        f"SELECT toUInt64({base_id} + row_number() OVER ()) AS aai_id, {select_cols} "
+    select_query = (
+        f"SELECT {select_cols} "
         f"FROM url('{safe_url}', '{format}')"
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ch.command(insert_query)
+    await insert_with_ids(ch, obj.table, select_query)
 
     return obj
