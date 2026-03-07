@@ -787,3 +787,109 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     await ch_client.command(insert_query)
 
     return result
+
+
+# String/Regex Operators
+# Docs: https://clickhouse.com/docs/sql-reference/functions/string-search-functions
+
+# SQL expression templates for string operations
+# {pattern} and {replacement} are SQL-escaped string literals (with quotes)
+STRING_OP_EXPRESSIONS = {
+    "match": "match(a.value, {pattern})",
+    "like": "a.value LIKE {pattern}",
+    "ilike": "a.value ILIKE {pattern}",
+    "extract": "extract(a.value, {pattern})",
+    "replace": "replaceRegexpAll(a.value, {pattern}, {replacement})",
+}
+
+# Fixed result types for string operations
+STRING_OP_RESULT_TYPES = {
+    "match": "UInt8",
+    "like": "UInt8",
+    "ilike": "UInt8",
+    "extract": "String",
+    "replace": "String",
+}
+
+
+def _escape_sql_string(value: str) -> str:
+    """Escape a Python string for use as a SQL string literal (with quotes)."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+async def _apply_string_op_db(
+    info: QueryInfo,
+    op_name: str,
+    pattern: str,
+    ch_client,
+    replacement: str = None,
+):
+    """
+    Apply a string/regex operation at the database level.
+
+    Args:
+        info: QueryInfo for source (string column)
+        op_name: Operation name key in STRING_OP_EXPRESSIONS
+        pattern: Regex or LIKE pattern string
+        ch_client: ClickHouse client instance
+        replacement: Replacement string (only for 'replace' operation)
+
+    Returns:
+        New Object instance pointing to result table
+    """
+    escaped_pattern = _escape_sql_string(pattern)
+    format_args = {"pattern": escaped_pattern}
+    if replacement is not None:
+        format_args["replacement"] = _escape_sql_string(replacement)
+
+    expression = STRING_OP_EXPRESSIONS[op_name].format(**format_args)
+    value_type = STRING_OP_RESULT_TYPES[op_name]
+    fieldtype = info.fieldtype
+
+    schema = Schema(
+        fieldtype=fieldtype,
+        columns={"aai_id": "UInt64", "value": value_type},
+    )
+
+    result = await create_object(schema)
+
+    if fieldtype == FIELDTYPE_ARRAY:
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT a.aai_id, {expression} AS value
+        FROM {info.source} AS a
+        """
+    else:
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT a.aai_id, {expression} AS value
+        FROM {info.source} AS a
+        """
+
+    await ch_client.command(insert_query)
+    return result
+
+
+async def match_op(info: QueryInfo, pattern: str, ch_client):
+    """RE2 regex match. Returns UInt8 (1 if match, 0 otherwise)."""
+    return await _apply_string_op_db(info, "match", pattern, ch_client)
+
+
+async def like_op(info: QueryInfo, pattern: str, ch_client):
+    """SQL LIKE pattern match. Returns UInt8 (1 if match, 0 otherwise)."""
+    return await _apply_string_op_db(info, "like", pattern, ch_client)
+
+
+async def ilike_op(info: QueryInfo, pattern: str, ch_client):
+    """Case-insensitive SQL LIKE pattern match. Returns UInt8."""
+    return await _apply_string_op_db(info, "ilike", pattern, ch_client)
+
+
+async def extract_op(info: QueryInfo, pattern: str, ch_client):
+    """Extract first regex capture group. Returns String."""
+    return await _apply_string_op_db(info, "extract", pattern, ch_client)
+
+
+async def replace_op(info: QueryInfo, pattern: str, replacement: str, ch_client):
+    """Replace all regex matches. Returns String."""
+    return await _apply_string_op_db(info, "replace", pattern, ch_client, replacement=replacement)

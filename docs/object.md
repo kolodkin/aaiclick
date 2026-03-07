@@ -134,6 +134,22 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 |-------------|---------------------------|--------------------------------|
 | `.unique()` | `GROUP BY`                | Order not guaranteed           |
 
+### String/Regex Operators
+
+**Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `_apply_string_op_db()`
+
+Pattern matching on String columns. All methods take a Python `str` pattern and return a new Object. Results can be chained with further operations (e.g., `match()` → `sum()` to count matches).
+
+| Method              | ClickHouse Function          | Result Type | Description                        |
+|---------------------|------------------------------|-------------|------------------------------------|
+| `.match(p)`         | `match(val, p)`              | UInt8       | RE2 regex match (0 or 1)          |
+| `.like(p)`          | `val LIKE p`                 | UInt8       | SQL LIKE (`%`, `_` wildcards)     |
+| `.ilike(p)`         | `val ILIKE p`                | UInt8       | Case-insensitive LIKE             |
+| `.extract(p)`       | `extract(val, p)`            | String      | Extract first capture group        |
+| `.replace(p, r)`    | `replaceRegexpAll(val, p, r)`| String      | Replace all regex matches          |
+
+**Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
+
 ### Group By Operations
 
 **Implementation**: `aaiclick/data/object.py` — see `GroupByQuery` class, `aaiclick/data/operators.py` — see `group_by_agg()`
@@ -286,3 +302,4 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | Aggregation                     | `test_aggregation.py`            |
 | Set Operators                   | `test_unique_parametrized.py`    |
 | URL Loading                     | `test_url.py`                    |
+| String/Regex Operators          | `test_regex_operators.py`        |

@@ -1051,6 +1051,108 @@ class Object:
         info = self._get_query_info()
         return await operators.unique_group(info, self.ch_client)
 
+    # String/Regex Operators
+
+    async def match(self, pattern: str) -> Self:
+        """
+        Test if string values match a RE2 regex pattern.
+
+        Args:
+            pattern: RE2 regex pattern string
+
+        Returns:
+            Self: New Object with UInt8 values (1 for match, 0 for no match)
+
+        Examples:
+            >>> obj = await create_object_from_value(["apple", "banana", "avocado"])
+            >>> result = await obj.match("^a")
+            >>> await result.data()  # [1, 0, 1]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.match_op(info, pattern, self.ch_client)
+
+    async def like(self, pattern: str) -> Self:
+        """
+        Test if string values match a SQL LIKE pattern.
+
+        Uses SQL LIKE syntax: % for any sequence, _ for single character.
+
+        Args:
+            pattern: SQL LIKE pattern string
+
+        Returns:
+            Self: New Object with UInt8 values (1 for match, 0 for no match)
+
+        Examples:
+            >>> obj = await create_object_from_value(["apple", "banana", "avocado"])
+            >>> result = await obj.like("a%")
+            >>> await result.data()  # [1, 0, 1]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.like_op(info, pattern, self.ch_client)
+
+    async def ilike(self, pattern: str) -> Self:
+        """
+        Test if string values match a SQL LIKE pattern (case-insensitive).
+
+        Args:
+            pattern: SQL LIKE pattern string (case-insensitive)
+
+        Returns:
+            Self: New Object with UInt8 values (1 for match, 0 for no match)
+
+        Examples:
+            >>> obj = await create_object_from_value(["Apple", "BANANA", "avocado"])
+            >>> result = await obj.ilike("a%")
+            >>> await result.data()  # [1, 0, 1]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.ilike_op(info, pattern, self.ch_client)
+
+    async def extract(self, pattern: str) -> Self:
+        """
+        Extract the first regex capture group match from string values.
+
+        Args:
+            pattern: RE2 regex pattern with a capture group
+
+        Returns:
+            Self: New Object with String values (extracted matches, empty string if no match)
+
+        Examples:
+            >>> obj = await create_object_from_value(["user_123", "user_456", "admin_789"])
+            >>> result = await obj.extract("_(\\\\d+)")
+            >>> await result.data()  # ["123", "456", "789"]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.extract_op(info, pattern, self.ch_client)
+
+    async def replace(self, pattern: str, replacement: str) -> Self:
+        """
+        Replace all regex matches in string values.
+
+        Uses replaceRegexpAll for replacing all occurrences (like Python re.sub).
+
+        Args:
+            pattern: RE2 regex pattern to match
+            replacement: Replacement string (supports \\\\1, \\\\2 backreferences)
+
+        Returns:
+            Self: New Object with String values (after replacement)
+
+        Examples:
+            >>> obj = await create_object_from_value(["hello world", "foo bar"])
+            >>> result = await obj.replace(" ", "_")
+            >>> await result.data()  # ["hello_world", "foo_bar"]
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.replace_op(info, pattern, replacement, self.ch_client)
+
     def view(
         self,
         where: Optional[str] = None,
