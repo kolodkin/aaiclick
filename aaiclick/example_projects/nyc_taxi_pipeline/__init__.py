@@ -506,9 +506,6 @@ async def main():
     """Register the NYC taxi analysis pipeline job."""
     created_job = await nyc_taxi_pipeline()
     print(f"Registered job: {created_job.name} (ID: {created_job.id})")
-    print(f"Tasks: {len(created_job.tasks) if hasattr(created_job, 'tasks') else 'N/A'}")
-    print(f"\nData source: {NYC_TAXI_2023_01}")
-    print("\nRun worker to execute: python -m aaiclick.orchestration.worker")
 
 
 if __name__ == "__main__":
