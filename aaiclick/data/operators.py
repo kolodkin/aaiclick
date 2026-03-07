@@ -50,17 +50,6 @@ Window Functions (used for element-wise array operations):
 Set Operations (for unique values):
 - GROUP BY: https://clickhouse.com/docs/sql-reference/statements/select/group-by
 
-String/Regex Functions (pattern matching on String columns):
-+----------------+------------------------+---------------------------------------------------------------+
-| Python         | ClickHouse             | Reference                                                     |
-+----------------+------------------------+---------------------------------------------------------------+
-| match(p)       | match(val, p)          | https://clickhouse.com/docs/sql-reference/functions/string-search-functions#match |
-| like(p)        | val LIKE p             | https://clickhouse.com/docs/sql-reference/functions/string-search-functions#like  |
-| ilike(p)       | val ILIKE p            | https://clickhouse.com/docs/sql-reference/functions/string-search-functions#ilike |
-| extract(p)     | extract(val, p)        | https://clickhouse.com/docs/sql-reference/functions/string-search-functions#extract |
-| replace(p, r)  | replaceRegexpAll(v,p,r)| https://clickhouse.com/docs/sql-reference/functions/string-replace-functions#replaceregexpall |
-+----------------+------------------------+---------------------------------------------------------------+
-
 Memory/Disk Management (for large datasets):
 - max_bytes_before_external_sort: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_before_external_sort
 - max_bytes_in_join: https://clickhouse.com/docs/operations/settings/query-complexity#max_bytes_in_join
