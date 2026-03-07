@@ -92,7 +92,6 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
         run: |
-          # Run migrations using package CLI
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
@@ -122,7 +121,87 @@ jobs:
           path: tmp/pytest-report.xml
           reporter: java-junit
 
-      - name: Run examples and capture output
+  examples:
+    runs-on: ubuntu-latest
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.11.8
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.10
+          uv pip install -e ".[dev]"
+
+      - name: Wait for ClickHouse
+        run: |
+          for i in {1..30}; do
+            if wget --spider -q http://localhost:8123/ping; then
+              echo "ClickHouse is ready!"
+              break
+            fi
+            echo "Waiting for ClickHouse... ($i/30)"
+            sleep 2
+          done
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U aaiclick; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run database migrations
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        run: |
+          uv run python -m aaiclick migrate upgrade head
+
+      - name: Run examples
         env:
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
@@ -137,13 +216,126 @@ jobs:
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
         run: |
           mkdir -p tmp
-          echo "Running all examples..."
-          uv run python -m aaiclick.examples.run_all > tmp/examples_output.txt 2>&1
-          echo "All examples completed successfully!"
+          uv run python -m aaiclick.examples.run_all 2>&1 | tee tmp/examples_output.txt
+          exit ${PIPESTATUS[0]}
 
       - name: Add example outputs to summary
         if: always()
         run: |
-          # Python script auto-discovers all *_output.txt files
-          # Edit .github/scripts/generate_summary.py to customize display order/titles
           uv run python .github/scripts/generate_summary.py
+
+  example-projects:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: basic-worker
+            title: Basic Worker Example
+            command: "chmod +x aaiclick/example_projects/basic_worker/basic_worker.sh && aaiclick/example_projects/basic_worker/basic_worker.sh"
+          - project: nyc-taxi-pipeline
+            title: NYC Taxi Pipeline
+            command: "chmod +x aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh && aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh"
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.11.8
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.10
+          uv pip install -e ".[dev]"
+
+      - name: Wait for ClickHouse
+        run: |
+          for i in {1..30}; do
+            if wget --spider -q http://localhost:8123/ping; then
+              echo "ClickHouse is ready!"
+              break
+            fi
+            echo "Waiting for ClickHouse... ($i/30)"
+            sleep 2
+          done
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U aaiclick; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run database migrations
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        run: |
+          uv run python -m aaiclick migrate upgrade head
+
+      - name: "Run: ${{ matrix.title }}"
+        env:
+          CLICKHOUSE_HOST: localhost
+          CLICKHOUSE_PORT: 8123
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DB: default
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+          AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+        run: |
+          mkdir -p tmp
+          ${{ matrix.command }} 2>&1 | tee tmp/${{ matrix.project }}_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Add output to summary
+        if: always()
+        run: |
+          echo "## ${{ matrix.title }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat tmp/${{ matrix.project }}_output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import math
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -13,9 +14,12 @@ from sqlmodel import select
 from aaiclick.data.data_context import (
     _get_data_state,
     data_context,
+    get_ch_client,
     register_object,
 )
+from aaiclick.data.ingest import _get_table_schema
 from aaiclick.data.lifecycle import LifecycleHandler
+from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
 from .context import get_orch_session
@@ -121,21 +125,31 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
 
+    # Check for native value wrapper
+    if "native_value" in value and len(value) == 1:
+        return value["native_value"]
+
     # Check for Object/View reference
     if "object_type" in value:
         state = _get_data_state()
         obj_type = value["object_type"]
 
         if obj_type == "object":
-            obj = Object(table=value["table"])
+            table = value["table"]
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
+            obj = Object(table=table, schema=schema)
             obj._register()
             register_object(obj)
             if "job_id" in value and state.lifecycle is not None:
-                await state.lifecycle.claim(value["table"], value["job_id"])
+                await state.lifecycle.claim(table, value["job_id"])
             return obj
 
         elif obj_type == "view":
-            source = Object(table=value["table"])
+            table = value["table"]
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
+            source = Object(table=table, schema=schema)
             source._register()
             register_object(source)
             view = View(
@@ -232,6 +246,17 @@ async def execute_task(
     return result
 
 
+def _sanitize_for_json(value: Any) -> Any:
+    """Replace NaN/Inf floats with None for JSON compatibility."""
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    return value
+
+
 def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     """
     Serialize a task result to JSON-storable format.
@@ -254,7 +279,8 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         ref["job_id"] = job_id
         return ref
 
-    return None
+    # Store JSON-serializable values (dict, list, int, float, str, bool) directly
+    return {"native_value": _sanitize_for_json(result)}
 
 
 async def run_job_tasks(job: Job) -> None:
