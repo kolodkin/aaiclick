@@ -483,7 +483,6 @@ async def delete_persistent_object(name: str) -> None:
 
 
 async def delete_persistent_objects(
-    *,
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
