@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators, ingest
-from .sql_utils import insert_with_ids
+from .sql_utils import insert_from_source_with_ids
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -851,13 +851,14 @@ class Object:
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
-        select_query = (
-            f"SELECT {select_cols} "
+        from_clause = (
             f"FROM url('{safe_url}', '{format}')"
             f"{where_clause}"
             f"{limit_clause}"
         )
-        await insert_with_ids(self.ch_client, self.table, select_query)
+        await insert_from_source_with_ids(
+            self.ch_client, self.table, select_cols, from_clause
+        )
 
     async def min(self) -> Self:
         """

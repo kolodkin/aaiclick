@@ -78,3 +78,28 @@ async def insert_with_ids(ch_client, table: str, select_query: str) -> None:
     await ch_client.command(
         f"INSERT INTO {table} SELECT {id_expr} AS aai_id, * FROM ({select_query})"
     )
+
+
+async def insert_from_source_with_ids(
+    ch_client, table: str, select_cols: str, from_clause: str
+) -> None:
+    """INSERT...SELECT with SQL-generated snowflake IDs from an external source.
+
+    Unlike insert_with_ids, does NOT wrap in a subquery — needed for url()
+    and other table functions where ClickHouse pushes target table schema
+    into the source parser when wrapped.
+
+    Args:
+        ch_client: ClickHouse client
+        table: Target table name
+        select_cols: Column expressions to select (without aai_id)
+        from_clause: FROM clause including source and any WHERE/LIMIT
+    """
+    count_result = await ch_client.query(f"SELECT count() {from_clause}")
+    count = count_result.result_rows[0][0]
+    if count == 0:
+        return
+    id_expr = reserve_snowflake_ids_sql(count)
+    await ch_client.command(
+        f"INSERT INTO {table} SELECT {id_expr} AS aai_id, {select_cols} {from_clause}"
+    )
