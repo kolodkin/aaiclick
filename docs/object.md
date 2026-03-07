@@ -171,26 +171,7 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 
 **Features**: Multiple group keys, chained `.having()`/`.or_having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
 
-**HAVING clause chaining** — same pattern as WHERE chaining on Views:
-
-| Method                    | Connector | Description                                 |
-|---------------------------|-----------|---------------------------------------------|
-| `.having(cond)`           | `AND`     | Adds AND-chained HAVING condition           |
-| `.or_having(cond)`        | `OR`      | Adds OR-chained HAVING condition            |
-
-```python
-# Filter groups with HAVING
-result = await obj.group_by("category").sum("amount").having("sum > 100")
-
-# Chained HAVING
-result = await (obj.group_by("category")
-    .sum("amount")
-    .having("sum > 100")
-    .or_having("_count >= 5"))
-# → HAVING (sum > 100) OR (_count >= 5)
-```
-
-**Note**: `.or_having()` requires a prior `.having()` call — raises `ValueError` otherwise.
+**HAVING clause chaining** — same pattern as WHERE chaining on Views. `.having(cond)` chains with AND, `.or_having(cond)` chains with OR. `.or_having()` requires a prior `.having()` — raises `ValueError` otherwise. For examples, see `examples/group_by.py`.
 
 **Known gap**: No `Array(T)` column support — `groupArray()`, `groupUniqArray()`, per-group concat not available.
 
@@ -261,27 +242,11 @@ For runnable examples, see `examples/view_examples.py`.
 
 Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions. Each call returns a **new** View (immutable).
 
-| Method                  | Connector | Description                                |
-|-------------------------|-----------|--------------------------------------------|
-| `obj.where(cond)`       | —         | Creates View with initial WHERE condition  |
-| `view.where(cond)`      | `AND`     | Adds AND-chained condition                 |
-| `view.or_where(cond)`   | `OR`      | Adds OR-chained condition                  |
+- `obj.where(cond)` — creates View with initial WHERE condition
+- `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
+- `view.or_where(cond)` — OR-chains: `.where('x > 100').or_where('y < 5')` → `WHERE (x > 100) OR (y < 5)`
 
-```python
-# AND chaining
-view = obj.where("value > 10").where("value < 100")
-# → WHERE (value > 10) AND (value < 100)
-
-# OR chaining
-view = obj.where("value > 100").or_where("value < 5")
-# → WHERE (value > 100) OR (value < 5)
-
-# Mixed
-view = obj.where("x > 10").where("y < 20").or_where("z = 0")
-# → WHERE (x > 10) AND (y < 20) OR (z = 0)
-```
-
-**Note**: `obj.or_where()` raises `ValueError` — use `where()` first to start a chain.
+**Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
 
 ## Table Lifecycle Tracking
 

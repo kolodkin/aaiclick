@@ -153,39 +153,14 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 Airflow-style TaskFlow API with automatic dependency detection. For usage examples, see `aaiclick/examples/orchestration_basic.py`.
 
-**@task decorator parameters**:
+**@task parameters**:
 
 | Parameter      | Type | Default         | Description                                   |
 |----------------|------|-----------------|-----------------------------------------------|
 | `name`         | str  | function name   | Human-readable name for created tasks         |
 | `max_retries`  | int  | 0               | Maximum retry attempts on failure             |
 
-```python
-@task                                    # bare — name="my_task", no retries
-async def my_task(data: Object) -> Object: ...
-
-@task(name="custom_name")                # custom name
-async def my_task(data: Object) -> Object: ...
-
-@task(max_retries=3)                     # retries on failure
-async def my_task(data: Object) -> Object: ...
-
-@task(name="etl_step", max_retries=5)    # both
-async def my_task(data: Object) -> Object: ...
-```
-
-**@job decorator forms**:
-
-```python
-@job("my_pipeline")                      # positional name
-def my_workflow(): ...
-
-@job(name="my_pipeline")                 # keyword name
-def my_workflow(): ...
-
-@job                                     # bare — name defaults to function name
-def my_workflow(): ...
-```
+**@job** accepts a name as positional arg, keyword `name=`, or bare (defaults to function name).
 
 **How it works**:
 - `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
