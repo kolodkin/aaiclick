@@ -51,6 +51,8 @@ def _short_entrypoint(entrypoint: str) -> str:
     """Extract the short function name from a fully-qualified entrypoint."""
     if ":" in entrypoint:
         return entrypoint.rsplit(":", 1)[-1]
+    if "." in entrypoint:
+        return entrypoint.rsplit(".", 1)[-1]
     return entrypoint
 
 
@@ -106,25 +108,28 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
 
 
 def print_job_stats(stats: JobStats) -> None:
-    """Print formatted job stats to stdout."""
-    print(f"\n{'=' * 70}")
-    print(f"JOB STATS: {stats.job_name} (ID: {stats.job_id})")
-    print(f"{'=' * 70}")
-    print(f"  Status:     {stats.job_status}")
-    print(f"  Tasks:      {stats.total_tasks}")
-    print(f"  Wall time:  {_fmt_duration(stats.wall_time)}")
-    print(f"  Exec time:  {_fmt_duration(stats.exec_time)}")
-
+    """Print formatted job stats as a markdown table to stdout."""
+    print(f"\n## Job: {stats.job_name} (ID: {stats.job_id})")
+    print()
     parts = [f"{status}: {count}" for status, count in sorted(stats.status_counts.items())]
-    print(f"  Breakdown:  {', '.join(parts)}")
-
-    print(f"\n  {'Task':<35} {'Status':<12} {'Queue':<10} {'Exec':<10}")
-    print(f"  {'-' * 67}")
+    print(f"| Status | Tasks | Wall Time | Exec Time | Breakdown |")
+    print(f"|--------|-------|-----------|-----------|-----------|")
+    print(
+        f"| {stats.job_status} "
+        f"| {stats.total_tasks} "
+        f"| {_fmt_duration(stats.wall_time)} "
+        f"| {_fmt_duration(stats.exec_time)} "
+        f"| {', '.join(parts)} |"
+    )
+    print()
+    print(f"| Task | Status | Queue | Exec |")
+    print(f"|------|--------|-------|------|")
     for t in stats.tasks:
+        error_suffix = f" `{t.error[:60]}`" if t.error else ""
         print(
-            f"  {t.entrypoint:<35} {t.status:<12} "
-            f"{_fmt_duration(t.queue_time):<10} {_fmt_duration(t.exec_time):<10}"
+            f"| {t.entrypoint} "
+            f"| {t.status} "
+            f"| {_fmt_duration(t.queue_time)} "
+            f"| {_fmt_duration(t.exec_time)}{error_suffix} |"
         )
-        if t.error:
-            print(f"    ERROR: {t.error[:80]}")
     print()

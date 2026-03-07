@@ -105,9 +105,18 @@ def test_compute_job_stats_task_durations():
     assert stats.tasks[0].exec_time == timedelta(seconds=5)
 
 
-def test_compute_job_stats_short_entrypoint():
+def test_compute_job_stats_short_entrypoint_colon():
     job = _make_job()
     task = _make_task(entrypoint="aaiclick.example_projects.nyc_taxi_pipeline:load_data")
+
+    stats = compute_job_stats(job, [task])
+
+    assert stats.tasks[0].entrypoint == "load_data"
+
+
+def test_compute_job_stats_short_entrypoint_dot():
+    job = _make_job()
+    task = _make_task(entrypoint="aaiclick.example_projects.nyc_taxi_pipeline.load_data")
 
     stats = compute_job_stats(job, [task])
 
