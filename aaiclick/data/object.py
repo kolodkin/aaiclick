@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators, ingest
-from .sql_utils import insert_from_source_with_ids
+from .sql_utils import insert_with_ids
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -856,7 +856,7 @@ class Object:
             f"{where_clause}"
             f"{limit_clause}"
         )
-        await insert_from_source_with_ids(
+        await insert_with_ids(
             self.ch_client, self.table, select_cols, from_clause
         )
 

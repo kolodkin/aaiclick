@@ -63,40 +63,18 @@ def values_to_select(val: Union[int, float, bool, str, list, dict]) -> str | Non
         return f"SELECT {_format_sql_value(val)} AS value"
 
 
-async def insert_with_ids(ch_client, table: str, select_query: str) -> None:
-    """INSERT...SELECT with SQL-generated snowflake IDs.
+async def insert_with_ids(
+    ch_client, table: str, select_cols: str, from_clause: str,
+    *, count: int | None = None,
+) -> None:
+    """INSERT...SELECT with SQL-generated snowflake IDs prepended.
 
-    Counts rows from select_query, reserves IDs, then does a single
-    INSERT INTO table SELECT {id_expr} AS aai_id, * FROM (select_query).
+    Pass count to skip the COUNT round-trip when the caller already knows it.
     No-op if count is 0.
     """
-    count_result = await ch_client.query(f"SELECT count() FROM ({select_query})")
-    count = count_result.result_rows[0][0]
-    if count == 0:
-        return
-    id_expr = reserve_snowflake_ids_sql(count)
-    await ch_client.command(
-        f"INSERT INTO {table} SELECT {id_expr} AS aai_id, * FROM ({select_query})"
-    )
-
-
-async def insert_from_source_with_ids(
-    ch_client, table: str, select_cols: str, from_clause: str
-) -> None:
-    """INSERT...SELECT with SQL-generated snowflake IDs from an external source.
-
-    Unlike insert_with_ids, does NOT wrap in a subquery — needed for url()
-    and other table functions where ClickHouse pushes target table schema
-    into the source parser when wrapped.
-
-    Args:
-        ch_client: ClickHouse client
-        table: Target table name
-        select_cols: Column expressions to select (without aai_id)
-        from_clause: FROM clause including source and any WHERE/LIMIT
-    """
-    count_result = await ch_client.query(f"SELECT count() {from_clause}")
-    count = count_result.result_rows[0][0]
+    if count is None:
+        count_result = await ch_client.query(f"SELECT count() {from_clause}")
+        count = count_result.result_rows[0][0]
     if count == 0:
         return
     id_expr = reserve_snowflake_ids_sql(count)

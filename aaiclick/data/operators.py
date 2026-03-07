@@ -710,8 +710,10 @@ async def unique_group(info: QueryInfo, ch_client):
     result = await create_object(schema)
 
     # INSERT...SELECT unique values with SQL-generated snowflake IDs
-    unique_query = f"SELECT value FROM {info.source} GROUP BY value"
-    await insert_with_ids(ch_client, result.table, unique_query)
+    await insert_with_ids(
+        ch_client, result.table, "value",
+        f"FROM {info.source} GROUP BY value",
+    )
 
     return result
 
@@ -778,13 +780,15 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
             f"FROM {info.source} GROUP BY {keys_str} "
             f"HAVING {info.having}"
         )
-        query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
+        select_cols = f"{keys_str}, {rename_str}"
+        from_clause = f"FROM ({inner})"
     else:
-        query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
+        select_cols = f"{keys_str}, {agg_str}"
+        from_clause = f"FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    await insert_with_ids(ch_client, result.table, query)
+    await insert_with_ids(ch_client, result.table, select_cols, from_clause)
 
     return result

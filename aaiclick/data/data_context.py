@@ -324,10 +324,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 columns[key] = col_type
 
             schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
-            obj = await create_object(schema)
-            select_query = values_to_select(val)
-            if select_query:
-                await insert_with_ids(ch, obj.table, select_query)
+            row_count = array_len or 0
 
         else:
             columns = {"aai_id": "UInt64"}
@@ -336,10 +333,7 @@ async def create_object_from_value(val: ValueType) -> Object:
                 columns[key] = col_type
 
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns=columns)
-            obj = await create_object(schema)
-            select_query = values_to_select(val)
-            if select_query:
-                await insert_with_ids(ch, obj.table, select_query)
+            row_count = 1
 
     elif isinstance(val, list):
         col_type = _infer_clickhouse_type(val)
@@ -347,10 +341,7 @@ async def create_object_from_value(val: ValueType) -> Object:
             fieldtype=FIELDTYPE_ARRAY,
             columns={"aai_id": "UInt64", "value": col_type},
         )
-        obj = await create_object(schema)
-        select_query = values_to_select(val)
-        if select_query:
-            await insert_with_ids(ch, obj.table, select_query)
+        row_count = len(val)
 
     else:
         col_type = _infer_clickhouse_type(val)
@@ -358,9 +349,11 @@ async def create_object_from_value(val: ValueType) -> Object:
             fieldtype=FIELDTYPE_SCALAR,
             columns={"aai_id": "UInt64", "value": col_type},
         )
-        obj = await create_object(schema)
-        select_query = values_to_select(val)
-        if select_query:
-            await insert_with_ids(ch, obj.table, select_query)
+        row_count = 1
+
+    obj = await create_object(schema)
+    select_query = values_to_select(val)
+    if select_query:
+        await insert_with_ids(ch, obj.table, "*", f"FROM ({select_query})", count=row_count)
 
     return obj

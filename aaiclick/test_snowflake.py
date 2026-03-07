@@ -72,23 +72,14 @@ def test_bulk_generation_edge_cases():
     assert len(set(ids_pair)) == 2
 
     # Test invalid counts
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(0)
-        assert False, "Should have raised ValueError for count=0"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(-1)
-        assert False, "Should have raised ValueError for count=-1"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(-100)
-        assert False, "Should have raised ValueError for count=-100"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
 
 def test_large_bulk_generation_5000_ids():
@@ -171,11 +162,8 @@ def test_get_snowflake_ids_validation():
     assert large_ids == sorted(large_ids)  # Time-ordered
 
     # Invalid sizes - only negative values should fail
-    try:
+    with pytest.raises(ValueError, match=">= 0"):
         get_snowflake_ids(-1)
-        assert False, "Should have raised ValueError for size=-1"
-    except ValueError as e:
-        assert ">= 0" in str(e)
 
 
 def test_sequential_calls_have_increasing_ids():

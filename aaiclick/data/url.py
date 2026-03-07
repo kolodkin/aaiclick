@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
 from .models import FIELDTYPE_ARRAY, Schema
-from .sql_utils import quote_identifier, insert_from_source_with_ids
+from .sql_utils import quote_identifier, insert_with_ids
 
 SUPPORTED_URL_FORMATS = frozenset({
     "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",
@@ -134,6 +134,6 @@ async def create_object_from_url(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await insert_from_source_with_ids(ch, obj.table, select_cols, from_clause)
+    await insert_with_ids(ch, obj.table, select_cols, from_clause)
 
     return obj
