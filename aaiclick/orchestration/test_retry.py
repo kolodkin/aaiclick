@@ -227,10 +227,24 @@ async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
     # Verify max_retries was persisted to DB
     async with get_orch_session() as session:
         result = await session.execute(
-            select(Task.max_retries).where(Task.job_id == job.id)
+            select(Task.max_retries, Task.attempt, Task.id).where(
+                Task.job_id == job.id
+            )
         )
-        db_max_retries = result.scalar_one()
+        row = result.one()
+        db_max_retries, db_attempt, task_id = row
         assert db_max_retries == 2, f"max_retries not persisted: got {db_max_retries}"
+        print(f"DEBUG: task_id={task_id}, max_retries={db_max_retries}, attempt={db_attempt}")
+
+    # Count pending tasks before worker runs
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task.id, Task.status, Task.max_retries, Task.job_id).where(
+                Task.status == TaskStatus.PENDING
+            )
+        )
+        pending = result.all()
+        print(f"DEBUG: {len(pending)} pending tasks before worker: {pending}")
 
     # Run worker for 1 task attempt
     await worker_main_loop(
@@ -239,13 +253,14 @@ async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
         max_empty_polls=3,
     )
 
-    # Task should be PENDING (retrying), not FAILED
+    # Check task state after worker
     async with get_orch_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
         t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING
+        print(f"DEBUG: after worker: status={t.status}, attempt={t.attempt}, max_retries={t.max_retries}, error={t.error}")
+        assert t.status == TaskStatus.PENDING, f"Expected PENDING, got {t.status}. attempt={t.attempt}, max_retries={t.max_retries}, error={t.error}"
         assert t.attempt == 1
         assert t.retry_after is not None
         assert t.error is not None
