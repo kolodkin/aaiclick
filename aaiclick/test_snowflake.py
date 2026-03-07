@@ -1,5 +1,5 @@
 """
-Tests for Snowflake ID generation.
+Tests for Snowflake ID generation (backed by ClickHouse).
 """
 
 from aaiclick.snowflake_id import (
@@ -38,14 +38,11 @@ def test_generate_bulk_ids():
 
 
 def test_bulk_ids_are_sequential():
-    """Test that bulk IDs are sequential within the same millisecond."""
+    """Test that bulk IDs are sequential within the same batch."""
     count = 10
     ids = get_snowflake_ids(count)
 
-    # Check that IDs increment by 1 in the sequence portion
-    # (this may not always be true if milliseconds change, but for small counts it should be)
     for i in range(1, len(ids)):
-        # The difference should be small (sequence increment or timestamp increment)
         diff = ids[i] - ids[i - 1]
         assert diff > 0, "IDs should be increasing"
 
@@ -88,7 +85,7 @@ def test_bulk_generation_edge_cases():
 
 def test_large_bulk_generation_5000_ids():
     """Test generating 5000 IDs in bulk - validates performance and correctness at scale."""
-    count = 5000  # Large enough to span multiple milliseconds
+    count = 5000
     gen = SnowflakeGenerator()
     ids = gen.generate_bulk(count)
 
@@ -102,11 +99,6 @@ def test_large_bulk_generation_5000_ids():
     # Verify IDs are in strictly ascending order (time-ordered property)
     assert ids == sorted(ids), "IDs must be in ascending order"
 
-    # Verify no gaps in uniqueness (every ID should be unique)
-    for i in range(1, len(ids)):
-        assert ids[i] != ids[i - 1], f"Duplicate ID found at positions {i-1} and {i}"
-        assert ids[i] > ids[i - 1], f"ID at position {i} is not greater than previous"
-
     # Verify all IDs are positive 64-bit integers
     for idx, id_val in enumerate(ids):
         assert isinstance(id_val, int), f"ID at position {idx} is not an integer"
@@ -115,21 +107,19 @@ def test_large_bulk_generation_5000_ids():
 
 
 def test_bulk_vs_individual_generation():
-    """Test that bulk generation produces same results as individual calls."""
-    # Reset generator state by creating a new one
-    gen1 = SnowflakeGenerator(machine_id=1)
-    gen2 = SnowflakeGenerator(machine_id=2)
+    """Test that bulk and individual generation produce unique IDs."""
+    gen = SnowflakeGenerator()
 
     # Generate IDs in bulk
-    bulk_ids = gen1.generate_bulk(10)
+    bulk_ids = gen.generate_bulk(10)
 
     # Generate IDs individually
-    individual_ids = [gen2.generate() for _ in range(10)]
+    individual_ids = [gen.generate() for _ in range(10)]
 
     # Both should have same count
     assert len(bulk_ids) == len(individual_ids)
 
-    # All should be unique
+    # All should be unique across both sets
     all_ids = bulk_ids + individual_ids
     assert len(set(all_ids)) == len(all_ids)
 
@@ -158,7 +148,7 @@ def test_get_snowflake_ids_validation():
     assert len(get_snowflake_ids(10)) == 10
     assert len(get_snowflake_ids(MAX_SEQUENCE)) == MAX_SEQUENCE
 
-    # Sizes larger than MAX_SEQUENCE should work (split into chunks)
+    # Sizes larger than MAX_SEQUENCE should work
     large_size = MAX_SEQUENCE + 100
     large_ids = get_snowflake_ids(large_size)
     assert len(large_ids) == large_size
@@ -173,52 +163,51 @@ def test_get_snowflake_ids_validation():
         assert ">= 0" in str(e)
 
 
+def test_decode_snowflake_id():
+    """Test decoding a Snowflake ID into its components."""
+    id_val = get_snowflake_id()
+
+    timestamp, machine_id, sequence = decode_snowflake_id(id_val)
+
+    # All components should be non-negative
+    assert timestamp >= 0
+    assert 0 <= machine_id <= 1023
+    assert 0 <= sequence <= MAX_SEQUENCE
+
+    # Reconstructing should give back the original ID
+    reconstructed = (timestamp << 22) | (machine_id << 12) | sequence
+    assert reconstructed == id_val
+
+
 def test_sequential_calls_have_increasing_ids():
-    """Test that sequential calls produce IDs with increasing timestamps or sequences."""
+    """Test that sequential calls produce increasing IDs."""
     gen = SnowflakeGenerator()
 
-    # Make two sequential calls
     id1 = gen.generate()
     id2 = gen.generate()
 
-    # Decode IDs into components
-    timestamp1, _, sequence1 = decode_snowflake_id(id1)
-    timestamp2, _, sequence2 = decode_snowflake_id(id2)
-
-    # Either timestamps are different (different milliseconds)
-    # or sequences are different (same millisecond)
-    if timestamp1 == timestamp2:
-        # Same millisecond - sequence should increment
-        assert sequence2 > sequence1, "Sequence should increment within same millisecond"
-    else:
-        # Different milliseconds - timestamp should be greater
-        assert timestamp2 > timestamp1, "Timestamp should increase across milliseconds"
-
-    # Overall, second ID should always be greater (time-ordered)
+    # Second ID should always be greater (time-ordered)
     assert id2 > id1, "IDs should be strictly increasing"
 
 
-def test_bulk_sequences_pattern():
-    """Test that bulk generation produces expected sequence pattern [0,1,...,n-1]."""
-    gen = SnowflakeGenerator()
+def test_buffer_refill():
+    """Test that buffer refill works correctly when exhausted."""
+    gen = SnowflakeGenerator(buffer_size=5)
 
-    # Generate bulk of size 10
-    size = 10
-    ids = gen.get(size)
+    # Generate more IDs than buffer size to trigger refill
+    ids = [gen.generate() for _ in range(12)]
 
-    # Extract sequences using decode function
-    sequences = [decode_snowflake_id(id_val)[2] for id_val in ids]
+    # All IDs should be unique
+    assert len(set(ids)) == 12
 
-    # Sequences should be [0, 1, 2, ..., 9]
-    expected = list(range(size))
-    assert sequences == expected, f"Expected sequences {expected}, got {sequences}"
+    # All IDs should be in ascending order
+    assert ids == sorted(ids)
 
 
 def test_get_snowflake_ids_max_size():
     """Test get_snowflake_ids with maximum allowed size."""
     gen = SnowflakeGenerator()
 
-    # Get maximum number of IDs (MAX_SEQUENCE = 4095)
     ids = gen.get(MAX_SEQUENCE)
 
     # Should generate exact count
