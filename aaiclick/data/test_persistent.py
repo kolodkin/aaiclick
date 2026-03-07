@@ -46,7 +46,8 @@ async def test_open_persistent_object():
             assert opened.table == "p_test_persist_open"
             assert opened.persistent is True
             data = await opened.data()
-            assert len(data) == 3
+            assert data["x"] == [1, 2, 3]
+            assert data["y"] == [4, 5, 6]
         finally:
             await delete_persistent_object("test_persist_open")
 
