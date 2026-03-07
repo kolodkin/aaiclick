@@ -198,9 +198,10 @@ Not for direct use:
 
 **CLI**: `python -m aaiclick job cancel <id>`
 
-### Not Yet Implemented
+### Partially Implemented
 
-- Dynamic task creation during execution (Phase 8+)
+- Dynamic task creation: `map()` and `reduce()` operators ✅ IMPLEMENTED — see `docs/dynamic_tasks.md`
+- Retry logic for failed tasks ⚠️ NOT YET IMPLEMENTED
 
 ## Task Execution
 
@@ -331,7 +332,7 @@ See CLAUDE.md for environment variables. Orchestration-specific:
 
 ## Implementation Status
 
-Phases 1–7 complete. Phase 8+: Dynamic task creation, retry logic ⚠️ NOT YET IMPLEMENTED.
+Phases 1–7 complete. Phase 8 partially complete: `map()` and `reduce()` operators ✅ IMPLEMENTED (see `docs/dynamic_tasks.md`). Remaining: retry logic ⚠️ NOT YET IMPLEMENTED.
 
 ## References
 
