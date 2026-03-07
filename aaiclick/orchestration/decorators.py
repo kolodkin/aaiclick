@@ -88,14 +88,16 @@ class TaskFactory:
     and automatic dependency detection when Task arguments are passed.
     """
 
-    def __init__(self, func: Callable):
+    def __init__(self, func: Callable, max_retries: int = 0):
         """Initialize TaskFactory.
 
         Args:
             func: The function to wrap
+            max_retries: Maximum number of retries on failure (default: 0)
         """
         self.func = func
         self.entrypoint = _callable_to_string(func)
+        self.max_retries = max_retries
         # Preserve function metadata
         wraps(func)(self)
 
@@ -133,6 +135,7 @@ class TaskFactory:
             kwargs=serialized_kwargs,
             status=TaskStatus.PENDING,
             created_at=datetime.utcnow(),
+            max_retries=self.max_retries,
         )
 
         # Set up dependencies: upstream >> task
@@ -145,8 +148,10 @@ class TaskFactory:
         return f"TaskFactory({self.entrypoint})"
 
 
-def task(func: Callable) -> TaskFactory:
+def task(func: Callable = None, *, max_retries: int = 0):
     """Decorator to create a TaskFactory from a function.
+
+    Supports both bare @task and @task(max_retries=3) forms.
 
     The decorated function can be called to create Task instances.
     When Task objects are passed as arguments, dependencies are
@@ -157,16 +162,24 @@ def task(func: Callable) -> TaskFactory:
         async def my_task(data: Object) -> Object:
             return await (data * 2)
 
-        # Creates a Task with dependency on upstream_task
-        t = my_task(data=upstream_task)
+        @task(max_retries=3)
+        async def my_retryable_task(data: Object) -> Object:
+            return await (data * 2)
 
     Args:
-        func: Async or sync function to wrap
+        func: Async or sync function to wrap (when used as bare @task)
+        max_retries: Maximum number of retries on failure (default: 0)
 
     Returns:
-        TaskFactory: Factory that creates Tasks when called
+        TaskFactory or decorator function
     """
-    return TaskFactory(func)
+    if func is not None:
+        return TaskFactory(func)
+
+    def decorator(f: Callable) -> TaskFactory:
+        return TaskFactory(f, max_retries=max_retries)
+
+    return decorator
 
 
 class JobFactory:

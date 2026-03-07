@@ -84,12 +84,13 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: Union[str, Callable], kwargs: dict = None) -> Task:
+def create_task(callback: Union[str, Callable], kwargs: dict = None, max_retries: int = 0) -> Task:
     """Create a Task object (not committed to database).
 
     Args:
         callback: Either a callback string (e.g., "mymodule.task1") or a callable function
         kwargs: Keyword arguments for the task function (default: empty dict)
+        max_retries: Maximum number of retries on failure (default: 0, no retry)
 
     Returns:
         Task object with generated snowflake ID
@@ -98,8 +99,8 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None) -> Task:
         # Using string
         task = create_task("mymodule.task1", {"param": "value"})
 
-        # Using callable
-        task = create_task(my_function, {"param": "value"})
+        # Using callable with retries
+        task = create_task(my_function, {"param": "value"}, max_retries=3)
     """
     task_id = get_snowflake_id()
 
@@ -115,6 +116,7 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None) -> Task:
         kwargs=kwargs or {},
         status=TaskStatus.PENDING,
         created_at=datetime.utcnow(),
+        max_retries=max_retries,
     )
 
 

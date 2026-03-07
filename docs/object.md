@@ -177,7 +177,9 @@ Loads data from HTTP URLs directly into ClickHouse using the `url()` table funct
 
 **Validation**: HTTP(S) only, `aai_id` reserved, no `;` in WHERE, format must be in supported list.
 
-### insert_from_url() ⚠️ NOT YET IMPLEMENTED
+### insert_from_url() ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.insert_from_url()`
 
 Insert data from a URL into an existing Object. Schema created once, multiple workers can insert.
 

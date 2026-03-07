@@ -198,9 +198,10 @@ Not for direct use:
 
 **CLI**: `python -m aaiclick job cancel <id>`
 
-### Not Yet Implemented
+### Partially Implemented
 
-- Dynamic task creation during execution (Phase 8+)
+- Dynamic task creation: `map()` and `reduce()` operators ✅ IMPLEMENTED — see `docs/dynamic_tasks.md`
+- Retry logic for failed tasks ✅ IMPLEMENTED — see `aaiclick/orchestration/worker.py` `_schedule_retry()`
 
 ## Task Execution
 
@@ -328,10 +329,6 @@ See CLAUDE.md for environment variables. Orchestration-specific:
 
 - **Log directory**: `AAICLICK_LOG_DIR` env var, or OS defaults (macOS: `~/.aaiclick/logs`, Linux: `/var/log/aaiclick`). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
 - **Migrations**: `python -m aaiclick migrate` — see `aaiclick/orchestration/migrate.py`
-
-## Implementation Status
-
-Phases 1–7 complete. Phase 8+: Dynamic task creation, retry logic ⚠️ NOT YET IMPLEMENTED.
 
 ## References
 
