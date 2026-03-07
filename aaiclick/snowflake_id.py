@@ -13,7 +13,6 @@ Snowflake ID format (64 bits):
 - Bits 11-0: Sequence number (12 bits)
 """
 
-import threading
 from collections import deque
 
 from clickhouse_connect import get_client
@@ -36,7 +35,7 @@ _BUFFER_SIZE = 100
 
 
 class SnowflakeGenerator:
-    """Thread-safe Snowflake ID generator backed by ClickHouse.
+    """Snowflake ID generator backed by ClickHouse.
 
     Pre-fetches batches of IDs from ClickHouse's generateSnowflakeID(),
     serving them from an in-memory buffer for efficiency. When the buffer
@@ -46,7 +45,6 @@ class SnowflakeGenerator:
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
         self._buffer_size = buffer_size
         self._buffer: deque[int] = deque()
-        self._lock = threading.Lock()
         self._client = None
 
     def _get_client(self):
@@ -72,10 +70,9 @@ class SnowflakeGenerator:
 
     def generate(self) -> int:
         """Generate a single Snowflake ID."""
-        with self._lock:
-            if not self._buffer:
-                self._buffer.extend(self._fetch_ids(self._buffer_size))
-            return self._buffer.popleft()
+        if not self._buffer:
+            self._buffer.extend(self._fetch_ids(self._buffer_size))
+        return self._buffer.popleft()
 
     def generate_bulk(self, count: int) -> list[int]:
         """Generate multiple Snowflake IDs.
@@ -104,18 +101,17 @@ class SnowflakeGenerator:
         if size == 0:
             return []
 
-        with self._lock:
-            if size <= len(self._buffer):
-                return [self._buffer.popleft() for _ in range(size)]
+        if size <= len(self._buffer):
+            return [self._buffer.popleft() for _ in range(size)]
 
-            # Drain buffer, fetch remaining + refill from CH
-            result = list(self._buffer)
-            self._buffer.clear()
-            remaining = size - len(result)
-            fetched = self._fetch_ids(remaining + self._buffer_size)
-            result.extend(fetched[:remaining])
-            self._buffer.extend(fetched[remaining:])
-            return result
+        # Drain buffer, fetch remaining + refill from CH
+        result = list(self._buffer)
+        self._buffer.clear()
+        remaining = size - len(result)
+        fetched = self._fetch_ids(remaining + self._buffer_size)
+        result.extend(fetched[:remaining])
+        self._buffer.extend(fetched[remaining:])
+        return result
 
 
 # Global generator instance (lazy CH connection on first use)
