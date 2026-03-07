@@ -153,12 +153,23 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 Airflow-style TaskFlow API with automatic dependency detection. For usage examples, see `aaiclick/examples/orchestration_basic.py`.
 
+**@task parameters**:
+
+| Parameter      | Type | Default         | Description                                   |
+|----------------|------|-----------------|-----------------------------------------------|
+| `name`         | str  | function name   | Human-readable name for created tasks         |
+| `max_retries`  | int  | 0               | Maximum retry attempts on failure             |
+
+**@job** accepts a name as positional arg, keyword `name=`, or bare (defaults to function name).
+
 **How it works**:
 - `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
 - Passing a Task as an argument automatically creates an upstream dependency
 - `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages `orch_context()`, commits all tasks to PostgreSQL via `commit_tasks()`
 - Native Python values (int, float, list, etc.) work alongside Object/View parameters
 - At runtime, workers resolve upstream refs by querying completed task results
+
+**Retry behavior**: When a task fails and has retries remaining, `_schedule_retry()` in `worker.py` resets it to PENDING with incremented `attempt` count. Workers pick it up again via normal claiming.
 
 ### Job Testing
 

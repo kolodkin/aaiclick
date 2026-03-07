@@ -169,7 +169,9 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 | `.var(col)`        | Variance per group           | Float64                                |
 | `.agg({col: op})`  | Multiple aggregations        | Per-function type rules                |
 
-**Features**: Multiple group keys, `.having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
+**Features**: Multiple group keys, chained `.having()`/`.or_having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
+
+**HAVING clause chaining** — same pattern as WHERE chaining on Views. `.having(cond)` chains with AND, `.or_having(cond)` chains with OR. `.or_having()` requires a prior `.having()` — raises `ValueError` otherwise. For examples, see `examples/group_by.py`.
 
 **Known gap**: No `Array(T)` column support — `groupArray()`, `groupUniqArray()`, per-group concat not available.
 
@@ -233,6 +235,18 @@ Read-only filtered view of an Object — references the same table, no data copy
 Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations (`.data()`, operators, aggregations). Cannot `insert()`.
 
 For runnable examples, see `examples/view_examples.py`.
+
+### Chained WHERE Clauses
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.where()`, `View.where()`, `View.or_where()`
+
+Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions. Each call returns a **new** View (immutable).
+
+- `obj.where(cond)` — creates View with initial WHERE condition
+- `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
+- `view.or_where(cond)` — OR-chains: `.where('x > 100').or_where('y < 5')` → `WHERE (x > 100) OR (y < 5)`
+
+**Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
 
 ## Table Lifecycle Tracking
 
