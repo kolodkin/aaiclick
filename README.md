@@ -8,9 +8,9 @@ aaiclick converts Python computational logic into a flow of ClickHouse database 
 
 ## Inspiration
 
-- **ClickHouse** — high-scale OLAP, used as the data store
+- **ClickHouse** — data warehouse for storage and built-in operators; all computation runs as ClickHouse queries whenever possible
+- **Apache Spark** — inspiration for custom operators when the data warehouse's built-in operators are not sufficient
 - **Airflow** — enterprise-grade orchestration
-- **Apache Spark** — compute orchestration
 - **Pandas** — API design inspiration
 - **SQLAlchemy** — API design inspiration
 
