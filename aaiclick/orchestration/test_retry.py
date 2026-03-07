@@ -209,8 +209,8 @@ async def test_claim_respects_retry_after(orch_ctx):
     await deregister_worker(worker.id)
 
 
-async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
-    """Failing task with max_retries=2 is retried, not immediately FAILED."""
+async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
+    """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
     # Cancel all pending/running tasks from previous tests
@@ -224,112 +224,64 @@ async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
         ),
     )
 
-    # Verify max_retries was persisted to DB
-    async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task.max_retries, Task.attempt, Task.id).where(
-                Task.job_id == job.id
-            )
-        )
-        row = result.one()
-        db_max_retries, db_attempt, task_id = row
-        assert db_max_retries == 2, f"max_retries not persisted: got {db_max_retries}"
-        print(f"DEBUG: task_id={task_id}, max_retries={db_max_retries}, attempt={db_attempt}")
-
-    # Count pending tasks before worker runs
-    async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task.id, Task.status, Task.max_retries, Task.job_id).where(
-                Task.status == TaskStatus.PENDING
-            )
-        )
-        pending = result.all()
-        print(f"DEBUG: {len(pending)} pending tasks before worker: {pending}")
-
-    # Run worker for 1 task attempt
+    # Worker will attempt task 3 times (attempt 0 + 2 retries) because
+    # backoff (1-2s) is close to POLL_INTERVAL (1s), so the worker
+    # picks up retried tasks in subsequent poll cycles.
     await worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=3,
+        max_empty_polls=5,
     )
 
-    # Check task state after worker
+    # After exhausting all retries: task FAILED, attempt=2
     async with get_orch_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
         t = result.scalar_one()
-        print(f"DEBUG: after worker: status={t.status}, attempt={t.attempt}, max_retries={t.max_retries}, error={t.error}")
-        assert t.status == TaskStatus.PENDING, f"Expected PENDING, got {t.status}. attempt={t.attempt}, max_retries={t.max_retries}, error={t.error}"
-        assert t.attempt == 1
-        assert t.retry_after is not None
+        assert t.status == TaskStatus.FAILED
+        assert t.attempt == 2  # 0 + 2 retries
+        assert t.max_retries == 2
         assert t.error is not None
 
-    # Job should still be RUNNING (not FAILED)
+    # Job should be FAILED
     async with get_orch_session() as session:
         result = await session.execute(
             select(Job).where(Job.id == job.id)
         )
         j = result.scalar_one()
-        assert j.status == JobStatus.RUNNING
+        assert j.status == JobStatus.FAILED
 
 
-async def test_failed_task_exhausts_retries(orch_ctx, monkeypatch, tmpdir):
-    """After all retries exhausted, task and job are FAILED."""
+async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
+    """Task with max_retries=0 fails immediately (no retry)."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
     # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
     job = await create_job(
-        "test_exhaust_retries",
+        "test_no_retry",
         create_task(
             "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-            max_retries=1,
+            max_retries=0,
         ),
     )
 
-    # First attempt: should retry
     await worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=3,
     )
 
+    # Task should be FAILED immediately (no retries)
     async with get_orch_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
         t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING
-        assert t.attempt == 1
-        task_id = t.id
-
-    # Set retry_after to past so worker can pick it up
-    async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id).with_for_update()
-        )
-        t = result.scalar_one()
-        t.retry_after = datetime.utcnow() - timedelta(seconds=1)
-        session.add(t)
-        await session.commit()
-
-    # Second attempt: should exhaust retries
-    await worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=3,
-    )
-
-    # Task should be FAILED now
-    async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id)
-        )
-        t = result.scalar_one()
         assert t.status == TaskStatus.FAILED
-        assert t.attempt == 1  # attempt stays at 1 (last retry attempt)
+        assert t.attempt == 0  # Never retried
         assert t.error is not None
 
     # Job should be FAILED
