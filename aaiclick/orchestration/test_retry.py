@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlmodel import select
 
 from .claiming import claim_next_task, update_task_status
@@ -16,6 +17,19 @@ from .worker import (
     register_worker,
     worker_main_loop,
 )
+
+
+async def _cancel_all_pending_tasks():
+    """Cancel all pending/running tasks to prevent interference between tests."""
+    async with get_orch_session() as session:
+        await session.execute(
+            text(
+                "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+            ),
+            {"now": datetime.utcnow()},
+        )
+        await session.commit()
 
 
 async def test_task_default_no_retries(orch_ctx):
@@ -149,11 +163,8 @@ async def test_retry_backoff_timing(orch_ctx):
 
 async def test_claim_respects_retry_after(orch_ctx):
     """Tasks with future retry_after are not claimed."""
-    # Clear pending tasks
-    cleanup_worker = await register_worker()
-    while await claim_next_task(cleanup_worker.id) is not None:
-        pass
-    await deregister_worker(cleanup_worker.id)
+    # Cancel all pending/running tasks from previous tests
+    await _cancel_all_pending_tasks()
 
     job = await create_job(
         "test_claim_retry",
@@ -202,11 +213,8 @@ async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
     """Failing task with max_retries=2 is retried, not immediately FAILED."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
-    # Clear pending tasks
-    cleanup_worker = await register_worker()
-    while await claim_next_task(cleanup_worker.id) is not None:
-        pass
-    await deregister_worker(cleanup_worker.id)
+    # Cancel all pending/running tasks from previous tests
+    await _cancel_all_pending_tasks()
 
     job = await create_job(
         "test_retry_worker",
@@ -255,11 +263,8 @@ async def test_failed_task_exhausts_retries(orch_ctx, monkeypatch, tmpdir):
     """After all retries exhausted, task and job are FAILED."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
-    # Clear pending tasks
-    cleanup_worker = await register_worker()
-    while await claim_next_task(cleanup_worker.id) is not None:
-        pass
-    await deregister_worker(cleanup_worker.id)
+    # Cancel all pending/running tasks from previous tests
+    await _cancel_all_pending_tasks()
 
     job = await create_job(
         "test_exhaust_retries",
