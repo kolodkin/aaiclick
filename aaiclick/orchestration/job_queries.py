@@ -7,7 +7,7 @@ from typing import Optional
 from sqlmodel import func, select
 
 from .context import get_orch_session
-from .models import Job, JobStatus
+from .models import Job, JobStatus, Task
 
 
 async def get_job(job_id: int) -> Optional[Job]:
@@ -77,3 +77,54 @@ async def count_jobs(
 
         result = await session.execute(query)
         return result.scalar_one()
+
+
+async def get_tasks_for_job(job_id: int) -> list[Task]:
+    """Get all tasks for a job, ordered by creation time.
+
+    Args:
+        job_id: Job ID
+
+    Returns:
+        List of tasks belonging to the job
+    """
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job_id).order_by(Task.created_at)
+        )
+        return list(result.scalars().all())
+
+
+async def get_latest_job_by_name(name: str) -> Optional[Job]:
+    """Get the most recent job with the given name.
+
+    Args:
+        name: Exact job name
+
+    Returns:
+        Most recent Job with that name, or None
+    """
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Job)
+            .where(Job.name == name)
+            .order_by(Job.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def resolve_job(ref: str) -> Optional[Job]:
+    """Resolve a job reference to a Job instance.
+
+    Tries numeric ID first, then falls back to name lookup (latest).
+
+    Args:
+        ref: Job ID (numeric string) or job name
+
+    Returns:
+        Job if found, None otherwise
+    """
+    if ref.isdigit():
+        return await get_job(int(ref))
+    return await get_latest_job_by_name(ref)

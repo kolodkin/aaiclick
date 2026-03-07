@@ -46,9 +46,9 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 done
 echo
 
-# Step 5: Show job details
-echo "Job summary:"
-uv run python -m aaiclick job get "$JOB_ID"
+# Step 5: Show job stats
+echo "Job stats:"
+uv run python -m aaiclick job stats "$JOB_ID"
 echo
 
 # Step 6: Stop workers

@@ -12,7 +12,8 @@ from typing import Optional
 
 from .claiming import cancel_job
 from .context import orch_context
-from .job_queries import count_jobs, get_job, list_jobs
+from .job_queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
+from .job_stats import compute_job_stats, print_job_stats
 from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
 from .pg_lifecycle import PgLifecycleHandler
@@ -33,12 +34,12 @@ async def show_workers() -> None:
             print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
 
 
-async def show_job(job_id: int) -> None:
+async def show_job(job_ref: str) -> None:
     """Show details for a single job."""
     async with orch_context():
-        job = await get_job(job_id)
+        job = await resolve_job(job_ref)
         if job is None:
-            print(f"Job {job_id} not found")
+            print(f"Job not found: {job_ref}")
             return
 
         print(f"ID:           {job.id}")
@@ -99,14 +100,31 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
         await pg_cleanup.stop()
 
 
-async def cancel_job_cmd(job_id: int) -> None:
+async def show_job_stats(job_ref: str) -> None:
+    """Show execution stats for a job."""
+    async with orch_context():
+        job = await resolve_job(job_ref)
+        if job is None:
+            print(f"Job not found: {job_ref}")
+            return
+
+        tasks = await get_tasks_for_job(job.id)
+        stats = compute_job_stats(job, tasks)
+        print_job_stats(stats)
+
+
+async def cancel_job_cmd(job_ref: str) -> None:
     """Cancel a job and all its non-terminal tasks."""
     async with orch_context():
-        success = await cancel_job(job_id)
+        job = await resolve_job(job_ref)
+        if job is None:
+            print(f"Job not found: {job_ref}")
+            return
+        success = await cancel_job(job.id)
         if success:
-            print(f"Job {job_id} cancelled")
+            print(f"Job {job.id} cancelled")
         else:
-            print(f"Job {job_id} not found or already in terminal state")
+            print(f"Job {job.id} already in terminal state")
 
 
 async def start_background(poll_interval: float = 10.0) -> None:
