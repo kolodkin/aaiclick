@@ -16,15 +16,23 @@ from pathlib import Path
 # with a title derived from the filename
 EXAMPLE_METADATA = {
     "basic_operators": "Basic Operators Example",
+    "data_manipulation": "Data Manipulation Example",
     "statistics": "Statistics Example",
     "views": "Views Example",
+    "group_by": "Group By Example",
+    "selectors": "Dict Selectors Example",
+    "orchestration_basic": "Orchestration Basic Example",
 }
 
 # Preferred display order (examples not in this list appear at the end)
 DISPLAY_ORDER = [
     "basic_operators",
+    "data_manipulation",
     "statistics",
     "views",
+    "group_by",
+    "selectors",
+    "orchestration_basic",
 ]
 
 

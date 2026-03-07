@@ -25,5 +25,13 @@ from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
 from .dynamic import map, reduce
 from .handles import MapHandle
-from .job_queries import count_jobs, get_job, list_jobs
+from .job_queries import (
+    count_jobs,
+    get_job,
+    get_latest_job_by_name,
+    get_tasks_for_job,
+    list_jobs,
+    resolve_job,
+)
+from .job_stats import JobStats, TaskStats, compute_job_stats, print_job_stats
 from .models import JobStatus, TaskStatus
