@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Union
 
 from aaiclick.data.object import Object
 
@@ -88,14 +88,16 @@ class TaskFactory:
     and automatic dependency detection when Task arguments are passed.
     """
 
-    def __init__(self, func: Callable, max_retries: int = 0):
+    def __init__(self, func: Callable, *, name: str, max_retries: int = 0):
         """Initialize TaskFactory.
 
         Args:
             func: The function to wrap
+            name: Human-readable name for created tasks
             max_retries: Maximum number of retries on failure (default: 0)
         """
         self.func = func
+        self.name = name
         self.entrypoint = _callable_to_string(func)
         self.max_retries = max_retries
         # Preserve function metadata
@@ -132,6 +134,7 @@ class TaskFactory:
         task = Task(
             id=get_snowflake_id(),
             entrypoint=self.entrypoint,
+            name=self.name,
             kwargs=serialized_kwargs,
             status=TaskStatus.PENDING,
             created_at=datetime.utcnow(),
@@ -148,36 +151,32 @@ class TaskFactory:
         return f"TaskFactory({self.entrypoint})"
 
 
-def task(func: Callable = None, *, max_retries: int = 0):
+def task(func: Callable = None, *, name: str = None, max_retries: int = 0) -> Union[TaskFactory, Callable]:
     """Decorator to create a TaskFactory from a function.
 
-    Supports both bare @task and @task(max_retries=3) forms.
-
-    The decorated function can be called to create Task instances.
-    When Task objects are passed as arguments, dependencies are
-    automatically created and results are injected at runtime.
-
-    Example:
+    Supports both bare and parameterized usage:
         @task
-        async def my_task(data: Object) -> Object:
-            return await (data * 2)
+        async def my_task(data: Object) -> Object: ...
+
+        @task(name="custom_name")
+        async def my_task(data: Object) -> Object: ...
 
         @task(max_retries=3)
-        async def my_retryable_task(data: Object) -> Object:
-            return await (data * 2)
+        async def my_retryable_task(data: Object) -> Object: ...
 
     Args:
-        func: Async or sync function to wrap (when used as bare @task)
+        func: Async or sync function to wrap (when used as bare decorator)
+        name: Human-readable name for created tasks (default: function name)
         max_retries: Maximum number of retries on failure (default: 0)
 
     Returns:
         TaskFactory or decorator function
     """
     if func is not None:
-        return TaskFactory(func)
+        return TaskFactory(func, name=name or func.__name__, max_retries=max_retries)
 
     def decorator(f: Callable) -> TaskFactory:
-        return TaskFactory(f, max_retries=max_retries)
+        return TaskFactory(f, name=name or f.__name__, max_retries=max_retries)
 
     return decorator
 
@@ -272,31 +271,36 @@ class JobFactory:
         return f"JobFactory({self.name!r})"
 
 
-def job(name: str) -> Callable[[Callable], JobFactory]:
+def job(name_or_func=None, *, name: str = None):
     """Decorator to create a JobFactory from a workflow function.
 
     The decorated function should return a list of Tasks (and Groups)
     that define the workflow DAG. When called, it creates a Job and
     applies all tasks to the database.
 
-    Example:
+    Supports multiple usage forms:
         @job("my_pipeline")
-        def my_workflow(input_url: str):
-            t1 = extract(url=input_url)
-            t2 = transform(data=t1)
-            t1 >> t2
-            return [t1, t2]
+        def my_workflow(): ...
 
-        job = await my_workflow(input_url="https://...")
+        @job(name="my_pipeline")
+        def my_workflow(): ...
+
+        @job
+        def my_workflow(): ...  # name defaults to "my_workflow"
 
     Args:
-        name: Name for the created jobs
+        name_or_func: Job name string, or the function itself (bare decorator)
+        name: Job name as keyword argument
 
     Returns:
-        Decorator function that creates JobFactory
+        JobFactory or decorator function
     """
+    if callable(name_or_func):
+        return JobFactory(name_or_func.__name__, name_or_func)
+
+    resolved_name = name_or_func or name
 
     def decorator(func: Callable) -> JobFactory:
-        return JobFactory(name, func)
+        return JobFactory(resolved_name or func.__name__, func)
 
     return decorator

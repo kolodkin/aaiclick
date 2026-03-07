@@ -223,6 +223,7 @@ class Task(SQLModel, table=True):
     job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
     group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
     entrypoint: str = Field()
+    name: str = Field()
     kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

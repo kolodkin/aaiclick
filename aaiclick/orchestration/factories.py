@@ -84,12 +84,13 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: Union[str, Callable], kwargs: dict = None, max_retries: int = 0) -> Task:
+def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: str = None, max_retries: int = 0) -> Task:
     """Create a Task object (not committed to database).
 
     Args:
         callback: Either a callback string (e.g., "mymodule.task1") or a callable function
         kwargs: Keyword arguments for the task function (default: empty dict)
+        name: Human-readable name (default: function name from entrypoint)
         max_retries: Maximum number of retries on failure (default: 0, no retry)
 
     Returns:
@@ -101,18 +102,24 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, max_retries
 
         # Using callable with retries
         task = create_task(my_function, {"param": "value"}, max_retries=3)
+
+        # Using custom name
+        task = create_task("mymodule.task1", name="my_task")
     """
     task_id = get_snowflake_id()
 
     # Convert callable to string if needed
     if callable(callback):
         entrypoint = _callable_to_string(callback)
+        resolved_name = name or getattr(callback, "__name__", entrypoint.rsplit(".", 1)[-1])
     else:
         entrypoint = callback
+        resolved_name = name or entrypoint.rsplit(".", 1)[-1]
 
     return Task(
         id=task_id,
         entrypoint=entrypoint,
+        name=resolved_name,
         kwargs=kwargs or {},
         status=TaskStatus.PENDING,
         created_at=datetime.utcnow(),

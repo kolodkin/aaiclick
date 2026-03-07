@@ -37,6 +37,7 @@ def _make_task(
         id=task_id,
         job_id=1,
         entrypoint=entrypoint,
+        name=entrypoint.rsplit(".", 1)[-1].rsplit(":", 1)[-1],
         status=status,
         created_at=created_at,
         started_at=started_at,

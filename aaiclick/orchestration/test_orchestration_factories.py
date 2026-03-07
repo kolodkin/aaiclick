@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.context import get_orch_session
@@ -15,6 +16,7 @@ async def test_create_task_basic(orch_ctx):
 
     assert task.id > 0  # Snowflake ID should be positive
     assert task.entrypoint == "mymodule.task1"
+    assert task.name == "task1"
     assert task.kwargs == {}
     assert task.status == TaskStatus.PENDING
     assert isinstance(task.created_at, datetime)
@@ -27,8 +29,71 @@ async def test_create_task_with_kwargs(orch_ctx):
     task = create_task("mymodule.task2", kwargs)
 
     assert task.entrypoint == "mymodule.task2"
+    assert task.name == "task2"
     assert task.kwargs == kwargs
     assert task.status == TaskStatus.PENDING
+
+
+async def test_create_task_with_custom_name(orch_ctx):
+    """Test task creation with explicit name."""
+    t = create_task("mymodule.task1", name="custom_name")
+
+    assert t.entrypoint == "mymodule.task1"
+    assert t.name == "custom_name"
+
+
+async def test_task_decorator_bare(orch_ctx):
+    """Test @task bare decorator defaults name to function name."""
+
+    @task
+    async def my_func():
+        pass
+
+    t = my_func()
+    assert t.name == "my_func"
+
+
+async def test_task_decorator_with_name(orch_ctx):
+    """Test @task(name="custom") sets custom name."""
+
+    @task(name="custom")
+    async def my_func():
+        pass
+
+    t = my_func()
+    assert t.name == "custom"
+
+
+async def test_task_decorator_with_name_and_retries(orch_ctx):
+    """Test @task(name="custom", max_retries=3) sets both."""
+
+    @task(name="custom", max_retries=3)
+    async def my_func():
+        pass
+
+    t = my_func()
+    assert t.name == "custom"
+    assert t.max_retries == 3
+
+
+async def test_job_decorator_bare(orch_ctx):
+    """Test @job bare decorator defaults name to function name."""
+
+    @job
+    def my_pipeline():
+        return [create_task("mymodule.task1")]
+
+    assert my_pipeline.name == "my_pipeline"
+
+
+async def test_job_decorator_with_name_kwarg(orch_ctx):
+    """Test @job(name="custom") sets custom name."""
+
+    @job(name="custom")
+    def my_pipeline():
+        return [create_task("mymodule.task1")]
+
+    assert my_pipeline.name == "custom"
 
 
 async def test_create_task_unique_ids(orch_ctx):
