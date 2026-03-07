@@ -846,14 +846,15 @@ class Object:
         else:
             select_cols = columns_str
 
-        # Build INSERT query with Snowflake ID generation
-        base_id = get_snowflake_id()
+        # Build INSERT query (aai_id uses DEFAULT generateSnowflakeID())
+        insert_col_names = [k for k in self.schema.columns if k != "aai_id"]
+        insert_cols_str = ", ".join(insert_col_names)
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
         insert_query = (
-            f"INSERT INTO {self.table} "
-            f"SELECT toUInt64({base_id} + row_number() OVER ()) AS aai_id, {select_cols} "
+            f"INSERT INTO {self.table} ({insert_cols_str}) "
+            f"SELECT {select_cols} "
             f"FROM url('{safe_url}', '{format}')"
             f"{where_clause}"
             f"{limit_clause}"

@@ -137,11 +137,13 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result = await create_object(schema)
 
     # Insert data based on fieldtype combinations
+    # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
+    # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
         # Array-Array: element-wise JOIN on row number
         insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT a.rn as aai_id, {expression} AS value
+        INSERT INTO {result.table} (value)
+        SELECT {expression} AS value
         FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_a.source}) AS a
         INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_b.source}) AS b
         ON a.rn = b.rn
@@ -163,8 +165,8 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     else:
         # Scalar-Scalar
         insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT 1 AS aai_id, {expression} AS value
+        INSERT INTO {result.table} (value)
+        SELECT {expression} AS value
         FROM {info_a.source} AS a, {info_b.source} AS b
         """
 
@@ -477,8 +479,6 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     Returns:
         New Object instance pointing to result table (scalar type)
     """
-    from ..snowflake_id import get_snowflake_id
-
     # Get SQL function from aggregation mapping
     sql_func = AGGREGATION_FUNCTIONS[agg_func]
 
@@ -503,18 +503,15 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Create result object with schema
     result = await create_object(schema)
 
-    # Generate a snowflake ID for the scalar result
-    aai_id = get_snowflake_id()
-
-    # Insert aggregated data
+    # Insert aggregated data (aai_id uses DEFAULT generateSnowflakeID())
     # count() uses count() without column, others use func(value)
     if agg_func == "count":
         agg_expr = f"{sql_func}()"
     else:
         agg_expr = f"{sql_func}(value)"
     insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT {aai_id} AS aai_id, {agg_expr} AS value
+    INSERT INTO {result.table} (value)
+    SELECT {agg_expr} AS value
     FROM {info.source}
     """
     await ch_client.command(insert_query)
@@ -640,8 +637,6 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     Returns:
         New Object instance with scalar quantile value
     """
-    from ..snowflake_id import get_snowflake_id
-
     if not 0 <= q <= 1:
         raise ValueError(f"Quantile level must be between 0 and 1, got {q}")
 
@@ -657,13 +652,10 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Create result object with schema
     result = await create_object(schema)
 
-    # Generate a snowflake ID for the scalar result
-    aai_id = get_snowflake_id()
-
-    # Insert quantile result
+    # Insert quantile result (aai_id uses DEFAULT generateSnowflakeID())
     insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT {aai_id} AS aai_id, quantile({q})(value) AS value
+    INSERT INTO {result.table} (value)
+    SELECT quantile({q})(value) AS value
     FROM {info.source}
     """
     await ch_client.command(insert_query)
@@ -688,8 +680,6 @@ async def unique_group(info: QueryInfo, ch_client):
     Returns:
         New Object with array of unique values
     """
-    from ..snowflake_id import get_snowflake_ids
-
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
     safe_value_column = info.value_column.replace("'", "\\'")
@@ -709,20 +699,13 @@ async def unique_group(info: QueryInfo, ch_client):
     # Create result object with schema
     result = await create_object(schema)
 
-    # Query unique values using GROUP BY (not DISTINCT)
-    # GROUP BY is preferred over DISTINCT as it's more efficient in ClickHouse
-    # for large datasets and enables better distributed processing
-    unique_query = f"""
+    # Insert unique values using GROUP BY (not DISTINCT) entirely in ClickHouse
+    # aai_id uses DEFAULT generateSnowflakeID()
+    insert_query = f"""
+    INSERT INTO {result.table} (value)
     SELECT value FROM {info.source} GROUP BY value
     """
-    unique_result = await ch_client.query(unique_query)
-
-    # Generate snowflake IDs for each unique value
-    unique_values = [row[0] for row in unique_result.result_rows]
-    if unique_values:
-        aai_ids = get_snowflake_ids(len(unique_values))
-        data = [[aai_id, value] for aai_id, value in zip(aai_ids, unique_values)]
-        await ch_client.insert(result.table, data)
+    await ch_client.command(insert_query)
 
     return result
 
@@ -746,8 +729,6 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     Returns:
         New dict Object with group keys + all aggregated columns
     """
-    from ..snowflake_id import get_snowflake_ids
-
     keys_str = ", ".join(info.group_keys)
 
     # Build aggregation expressions and result schema
@@ -768,6 +749,11 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
             result_columns[column] = _determine_agg_result_type(agg_func, source_type)
 
     agg_str = ", ".join(agg_exprs)
+
+    # Build non-aai_id column names for INSERT
+    insert_cols = [k for k in result_columns if k != "aai_id"]
+    insert_cols_str = ", ".join(insert_cols)
+
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
         # references to SELECT aliases (which causes ILLEGAL_AGGREGATION error
@@ -792,15 +778,12 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
     else:
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
-    query_result = await ch_client.query(query)
-    rows = query_result.result_rows
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    if rows:
-        aai_ids = get_snowflake_ids(len(rows))
-        data = [[aai_id, *row] for aai_id, row in zip(aai_ids, rows)]
-        await ch_client.insert(result.table, data)
+    # Insert directly from query (aai_id uses DEFAULT generateSnowflakeID())
+    insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
+    await ch_client.command(insert_query)
 
     return result
