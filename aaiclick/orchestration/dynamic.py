@@ -101,7 +101,6 @@ def map(func: Union[Callable, TaskFactory], obj: Union[Any, Task, MapHandle],
         },
         status=TaskStatus.PENDING,
         created_at=datetime.utcnow(),
-        is_expander=True,
     )
 
     # Wire dependencies: if obj is a Task, expander waits for it

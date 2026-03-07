@@ -30,7 +30,6 @@ def test_map_returns_map_handle(orch_ctx):
     assert isinstance(handle, MapHandle)
     assert isinstance(handle.expander, Task)
     assert isinstance(handle.group, Group)
-    assert handle.expander.is_expander is True
     assert handle.expander.status == TaskStatus.PENDING
     assert handle.expander.entrypoint == "aaiclick.orchestration.dynamic._expand_map"
 

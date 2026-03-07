@@ -111,14 +111,6 @@ Expander tasks need access to `job_id` and `task_id` during execution. The `work
 - `set_current_task_info(task_id, job_id)` — called by `execute_task()` before running any task
 - `get_current_task_info() -> TaskInfo` — used by `_expand_map()` to know its job context
 
-## Database Changes
-
-### `is_expander` Column on Tasks ✅ IMPLEMENTED
-
-**Migration**: `aaiclick/orchestration/migrations/versions/b5e2a1d93f67_add_is_expander_to_tasks.py`
-
-Boolean column (default `False`) marking tasks that dynamically create child tasks.
-
 ## Dependency Flow Diagram
 
 ```
@@ -127,7 +119,7 @@ Job Definition:                    Runtime:
   load_data (Task)                   load_data completes
       │                                  │
       ▼                                  ▼
-  _expand_map (Task, is_expander)    expander queries count(),
+  _expand_map (Task)                 expander queries count(),
       │                              creates N partition tasks
       │                                  │
       ▼                                  ▼
