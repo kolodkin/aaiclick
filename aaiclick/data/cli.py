@@ -12,6 +12,7 @@ from typing import Optional
 from .data_context import (
     data_context,
     delete_persistent_object,
+    delete_persistent_objects,
     list_persistent_objects,
     open_object,
 )
@@ -69,25 +70,35 @@ async def show_object_cmd(name: str) -> None:
             print(f"  {col_name}: {col_info.type}")
 
 
-async def delete_object_cmd(
-    name: str,
+async def delete_object_cmd(name: str) -> None:
+    """Delete a single persistent object by name."""
+    async with data_context():
+        await delete_persistent_object(name)
+        print(f"Deleted persistent object '{name}'")
+
+
+async def delete_objects_cmd(
     *,
     after: Optional[str] = None,
     before: Optional[str] = None,
 ) -> None:
-    """Delete a persistent object or rows within a time range."""
+    """Delete persistent objects filtered by creation time."""
     after_dt = _parse_datetime(after) if after else None
     before_dt = _parse_datetime(before) if before else None
 
     async with data_context():
-        await delete_persistent_object(name, after=after_dt, before=before_dt)
+        deleted = await delete_persistent_objects(after=after_dt, before=before_dt)
 
-        if after_dt or before_dt:
-            parts = []
-            if after_dt:
-                parts.append(f"after {after_dt}")
-            if before_dt:
-                parts.append(f"before {before_dt}")
-            print(f"Deleted rows from '{name}' ({', '.join(parts)})")
-        else:
-            print(f"Deleted persistent object '{name}'")
+        if not deleted:
+            print("No persistent objects matched the filter")
+            return
+
+        parts = []
+        if after_dt:
+            parts.append(f"after {after_dt}")
+        if before_dt:
+            parts.append(f"before {before_dt}")
+        filter_str = f" ({', '.join(parts)})" if parts else ""
+        print(f"Deleted {len(deleted)} persistent object(s){filter_str}:")
+        for name in deleted:
+            print(f"  {name}")

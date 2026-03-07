@@ -14,6 +14,7 @@ from .data_context import (
     decref,
     delete_object,
     delete_persistent_object,
+    delete_persistent_objects,
     get_ch_client,
     get_engine,
     get_pool,

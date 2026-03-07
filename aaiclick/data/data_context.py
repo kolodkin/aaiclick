@@ -467,50 +467,60 @@ async def open_object(name: str) -> Object:
     return obj
 
 
-async def delete_persistent_object(
-    name: str,
-    *,
-    after: datetime | None = None,
-    before: datetime | None = None,
-) -> None:
-    """Delete a persistent object or rows within a time range.
-
-    When called without ``after``/``before``, drops the entire table.
-    When either is provided, deletes only rows whose ``aai_id`` falls
-    within the specified range (using Snowflake ID timestamp encoding).
+async def delete_persistent_object(name: str) -> None:
+    """Drop a persistent table by name.
 
     Args:
         name: Persistent name (without ``p_`` prefix).
-        after: Delete rows created at or after this time (inclusive).
-        before: Delete rows created before this time (exclusive).
 
     Raises:
         ValueError: If name is invalid.
     """
-    from ..snowflake_id import TIMESTAMP_SHIFT
-
     _validate_persistent_name(name)
     state = _get_data_state()
     table_name = f"p_{name}"
+    await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
 
-    if after is None and before is None:
-        await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-        return
 
-    conditions = []
+async def delete_persistent_objects(
+    *,
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
+    """Drop persistent tables filtered by creation time.
+
+    Uses ClickHouse ``system.tables.metadata_modification_time`` to
+    determine when each table was created.
+
+    Args:
+        after: Drop tables created at or after this time (inclusive).
+        before: Drop tables created before this time (exclusive).
+
+    Returns:
+        List of deleted persistent names (without ``p_`` prefix).
+    """
+    state = _get_data_state()
+    conditions = [
+        f"database = '{state.creds.database}'",
+        r"name LIKE 'p\_%'",
+    ]
     if after is not None:
-        after_ms = int(after.timestamp() * 1000)
-        after_id = after_ms << TIMESTAMP_SHIFT
-        conditions.append(f"aai_id >= {after_id}")
+        after_str = after.strftime("%Y-%m-%d %H:%M:%S")
+        conditions.append(f"metadata_modification_time >= '{after_str}'")
     if before is not None:
-        before_ms = int(before.timestamp() * 1000)
-        before_id = before_ms << TIMESTAMP_SHIFT
-        conditions.append(f"aai_id < {before_id}")
+        before_str = before.strftime("%Y-%m-%d %H:%M:%S")
+        conditions.append(f"metadata_modification_time < '{before_str}'")
 
     where = " AND ".join(conditions)
-    await state.ch_client.command(
-        f"ALTER TABLE {table_name} DELETE WHERE {where}"
+    result = await state.ch_client.query(
+        f"SELECT name FROM system.tables WHERE {where}"
     )
+    names = [row[0] for row in result.result_rows]
+
+    for table_name in names:
+        await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+
+    return [n[2:] for n in names]
 
 
 async def list_persistent_objects() -> list[str]:

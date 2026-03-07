@@ -20,6 +20,7 @@ import asyncio
 
 from aaiclick.data.cli import (
     delete_object_cmd,
+    delete_objects_cmd,
     list_objects_cmd,
     show_object_cmd,
 )
@@ -168,18 +169,24 @@ def main():
     # data delete <name>
     data_delete_parser = data_subparsers.add_parser(
         "delete",
-        help="Delete persistent object",
+        help="Delete a single persistent object",
     )
     data_delete_parser.add_argument("name", type=str, help="Persistent object name")
-    data_delete_parser.add_argument(
+
+    # data purge [--after] [--before]
+    data_purge_parser = data_subparsers.add_parser(
+        "purge",
+        help="Delete persistent objects by creation time",
+    )
+    data_purge_parser.add_argument(
         "--after",
         default=None,
-        help="Delete rows created at or after this time (ISO 8601)",
+        help="Delete tables created at or after this time (ISO 8601)",
     )
-    data_delete_parser.add_argument(
+    data_purge_parser.add_argument(
         "--before",
         default=None,
-        help="Delete rows created before this time (ISO 8601)",
+        help="Delete tables created before this time (ISO 8601)",
     )
 
     # Add background subcommand
@@ -248,8 +255,10 @@ def main():
             asyncio.run(show_object_cmd(args.name))
 
         elif args.data_command == "delete":
-            asyncio.run(delete_object_cmd(
-                args.name,
+            asyncio.run(delete_object_cmd(args.name))
+
+        elif args.data_command == "purge":
+            asyncio.run(delete_objects_cmd(
                 after=args.after,
                 before=args.before,
             ))
