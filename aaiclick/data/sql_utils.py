@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from ..snowflake_id import reserve_snowflake_ids_sql
+from ..snowflake_id import begin_snowflake_ids_sql, end_snowflake_ids
 
 
 def quote_identifier(name: str) -> str:
@@ -65,19 +65,13 @@ def values_to_select(val: Union[int, float, bool, str, list, dict]) -> str | Non
 
 async def insert_with_ids(
     ch_client, table: str, select_cols: str, from_clause: str,
-    *, count: int | None = None,
 ) -> None:
     """INSERT...SELECT with SQL-generated snowflake IDs prepended.
 
-    Pass count to skip the COUNT round-trip when the caller already knows it.
-    No-op if count is 0.
+    Gets written_rows from the INSERT response — no extra COUNT query needed.
     """
-    if count is None:
-        count_result = await ch_client.query(f"SELECT count() {from_clause}")
-        count = count_result.result_rows[0][0]
-    if count == 0:
-        return
-    id_expr = reserve_snowflake_ids_sql(count)
-    await ch_client.command(
+    id_expr, base_ts, start_seq = begin_snowflake_ids_sql()
+    summary = await ch_client.command(
         f"INSERT INTO {table} SELECT {id_expr} AS aai_id, {select_cols} {from_clause}"
     )
+    end_snowflake_ids(base_ts, start_seq, summary.written_rows)

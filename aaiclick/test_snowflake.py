@@ -224,94 +224,91 @@ def test_get_snowflake_ids_max_size():
     assert ids == sorted(ids)
 
 
-def test_reserve_returns_correct_tuple():
-    """Test that reserve returns (base_timestamp, machine_id, start_sequence)."""
+def test_begin_reserve_returns_correct_tuple():
+    """Test that begin_reserve returns (base_timestamp, machine_id, start_sequence)."""
     gen = SnowflakeGenerator(machine_id=42)
-    base_ts, machine_id, start_seq = gen.reserve(10)
+    base_ts, machine_id, start_seq = gen.begin_reserve()
 
     assert machine_id == 42
     assert base_ts > 0
     assert start_seq >= 0
 
 
-def test_reserve_advances_state():
-    """Test that reserve advances generator state so next generate doesn't collide."""
+def test_begin_reserve_does_not_advance_state():
+    """Test that begin_reserve peeks without advancing state."""
+    gen = SnowflakeGenerator()
+    base_ts, _, start_seq = gen.begin_reserve()
+
+    # State should NOT be advanced — same position returned again
+    base_ts2, _, start_seq2 = gen.begin_reserve()
+    assert base_ts2 >= base_ts
+    assert start_seq2 == start_seq
+
+
+def test_end_reserve_advances_state():
+    """Test that end_reserve advances generator state by actual count."""
     gen = SnowflakeGenerator(machine_id=1)
 
-    base_ts, _, start_seq = gen.reserve(100)
-    next_id = gen.generate()
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 100)
 
-    # Decode the next ID to verify it comes after the reserved range
+    next_id = gen.generate()
     next_ts, _, next_seq = decode_snowflake_id(next_id)
     end_seq = start_seq + 100
 
     if end_seq <= MAX_SEQUENCE + 1:
-        # All reserved IDs fit in one ms
         if next_ts == base_ts:
             assert next_seq >= end_seq
         else:
             assert next_ts > base_ts
     else:
-        # Reserved IDs span ms boundaries
         assert next_ts >= base_ts
 
 
-def test_reserve_small_count():
-    """Test reserve with count that fits in current ms."""
+def test_end_reserve_spans_ms_boundary():
+    """Test end_reserve with count that spans ms boundaries."""
     gen = SnowflakeGenerator()
-    base_ts, machine_id, start_seq = gen.reserve(5)
-
-    # State should advance by 5
-    assert gen.sequence == start_seq + 5
-    assert gen.last_timestamp == base_ts
-
-
-def test_reserve_spans_ms_boundary():
-    """Test reserve with count that spans ms boundaries (arithmetically)."""
-    gen = SnowflakeGenerator()
-    # Force sequence near end
     gen.last_timestamp = gen._current_timestamp()
     gen.sequence = MAX_SEQUENCE - 1  # 4094, only 2 slots left
 
-    base_ts, _, start_seq = gen.reserve(10)
+    base_ts, _, start_seq = gen.begin_reserve()
     assert start_seq == MAX_SEQUENCE - 1
 
-    # Should have advanced last_timestamp (arithmetically, no busy-wait)
+    gen.end_reserve(base_ts, start_seq, 10)
+    # Should have advanced last_timestamp
     assert gen.last_timestamp > base_ts
 
 
-def test_reserve_exact_boundary():
-    """Test reserve landing exactly on 4096 boundary."""
+def test_end_reserve_exact_boundary():
+    """Test end_reserve landing exactly on 4096 boundary."""
     gen = SnowflakeGenerator()
     gen.last_timestamp = gen._current_timestamp()
     gen.sequence = 0
 
-    # Reserve exactly 4096 IDs (fills one ms completely)
-    base_ts, _, start_seq = gen.reserve(4096)
-    assert start_seq == 0
-    # total = 0 + 4096 = 4096, extra_ms = 1, final_seq = 0
-    # Lands exactly on boundary: last_timestamp = base_ts, sequence = 4096
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 4096)
     assert gen.last_timestamp == base_ts
     assert gen.sequence == MAX_SEQUENCE + 1
 
 
-def test_reserve_validation():
-    """Test reserve validates count parameter."""
+def test_end_reserve_zero_count_noop():
+    """Test that end_reserve with count=0 does nothing."""
     gen = SnowflakeGenerator()
+    base_ts, _, start_seq = gen.begin_reserve()
+    old_ts = gen.last_timestamp
+    old_seq = gen.sequence
 
-    with pytest.raises(ValueError, match="at least 1"):
-        gen.reserve(0)
-
-    with pytest.raises(ValueError, match="at least 1"):
-        gen.reserve(-1)
+    gen.end_reserve(base_ts, start_seq, 0)
+    assert gen.last_timestamp == old_ts
+    assert gen.sequence == old_seq
 
 
-def test_reserve_no_collision_with_generate():
-    """Test that IDs from generate after reserve don't overlap reserved range."""
+def test_end_reserve_no_collision_with_generate():
+    """Test that IDs from generate after end_reserve don't overlap reserved range."""
     gen = SnowflakeGenerator(machine_id=5)
 
-    # Reserve 100 IDs
-    base_ts, machine_id, start_seq = gen.reserve(100)
+    base_ts, machine_id, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 100)
 
     # Compute what the reserved IDs would be
     seq_capacity = MAX_SEQUENCE + 1
@@ -323,17 +320,18 @@ def test_reserve_no_collision_with_generate():
         rid = (ts << TIMESTAMP_SHIFT) | (machine_id << MACHINE_ID_SHIFT) | seq
         reserved_ids.add(rid)
 
-    # Generate IDs after reserve — none should collide
+    # Generate IDs after end_reserve — none should collide
     generated_ids = [gen.generate() for _ in range(50)]
     for gid in generated_ids:
         assert gid not in reserved_ids
 
 
-def test_reserve_then_generate_bulk():
-    """Test that generate_bulk after reserve works correctly."""
+def test_end_reserve_then_generate_bulk():
+    """Test that generate_bulk after end_reserve works correctly."""
     gen = SnowflakeGenerator(machine_id=3)
 
-    gen.reserve(500)
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 500)
     bulk_ids = gen.generate_bulk(100)
 
     assert len(bulk_ids) == 100

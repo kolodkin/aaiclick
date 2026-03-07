@@ -155,50 +155,49 @@ class SnowflakeGenerator:
 
         return ids
 
-    def reserve(self, count: int) -> tuple[int, int, int]:
-        """Reserve count IDs for SQL-side generation. Returns immediately.
+    def begin_reserve(self) -> tuple[int, int, int]:
+        """Get current position for SQL-side ID generation.
 
-        Returns (base_timestamp, machine_id, start_sequence) for constructing
-        snowflake IDs in SQL using bit math. Does NOT busy-wait — advances
-        internal state arithmetically. The next generate()/reserve() call
-        will wait if wall-clock hasn't caught up.
-
-        Args:
-            count: Number of IDs to reserve (must be >= 1)
-
-        Returns:
-            tuple: (base_timestamp, machine_id, start_sequence)
+        Returns (base_timestamp, machine_id, start_sequence) without advancing
+        state. Call end_reserve() after INSERT to advance by actual row count.
         """
-        if count < 1:
-            raise ValueError(f"Count must be at least 1, got {count}")
-
         with self.lock:
             timestamp = self._sync_timestamp()
-
             if timestamp != self.last_timestamp:
                 self.sequence = 0
                 self.last_timestamp = timestamp
+            return timestamp, self.machine_id, self.sequence
 
-            base_timestamp = timestamp
-            start_sequence = self.sequence
+    def end_reserve(self, base_timestamp: int, start_sequence: int, count: int) -> None:
+        """Advance state by actual count after INSERT completed.
 
-            # Advance state arithmetically — no busy-wait
+        Only advances forward — safe if called out of order.
+        """
+        if count == 0:
+            return
+        with self.lock:
+            seq_capacity = MAX_SEQUENCE + 1
             total_ids = start_sequence + count
-            seq_capacity = MAX_SEQUENCE + 1  # 4096
             extra_ms = total_ids // seq_capacity
             final_seq = total_ids % seq_capacity
 
             if extra_ms > 0:
                 if final_seq == 0:
-                    self.last_timestamp = timestamp + extra_ms - 1
-                    self.sequence = seq_capacity
+                    end_ts = base_timestamp + extra_ms - 1
+                    end_seq = seq_capacity
                 else:
-                    self.last_timestamp = timestamp + extra_ms
-                    self.sequence = final_seq
+                    end_ts = base_timestamp + extra_ms
+                    end_seq = final_seq
             else:
-                self.sequence = final_seq
+                end_ts = base_timestamp
+                end_seq = final_seq
 
-            return base_timestamp, self.machine_id, start_sequence
+            # Only advance forward
+            if end_ts > self.last_timestamp or (
+                end_ts == self.last_timestamp and end_seq > self.sequence
+            ):
+                self.last_timestamp = end_ts
+                self.sequence = end_seq
 
     def get(self, size: int) -> list[int]:
         """
@@ -270,15 +269,19 @@ def snowflake_id_sql(base_timestamp: int, machine_id: int, start_sequence: int) 
     )
 
 
-def reserve_snowflake_ids_sql(count: int) -> str:
-    """Reserve count IDs and return a SQL expression that generates them.
+def begin_snowflake_ids_sql() -> tuple[str, int, int]:
+    """Get SQL expression for snowflake IDs and reservation token.
 
-    The returned expression uses row_number() OVER () to produce unique,
-    time-ordered snowflake IDs entirely within ClickHouse.
-    No count limit — handles sequence overflow via timestamp increment.
+    Returns (sql_expr, base_ts, start_seq). After INSERT, call
+    end_snowflake_ids(base_ts, start_seq, written_rows) to advance state.
     """
-    base_ts, machine_id, start_seq = _generator.reserve(count)
-    return snowflake_id_sql(base_ts, machine_id, start_seq)
+    base_ts, machine_id, start_seq = _generator.begin_reserve()
+    return snowflake_id_sql(base_ts, machine_id, start_seq), base_ts, start_seq
+
+
+def end_snowflake_ids(base_ts: int, start_seq: int, count: int) -> None:
+    """Advance generator state by actual rows written."""
+    _generator.end_reserve(base_ts, start_seq, count)
 
 
 def get_snowflake_ids(size: int) -> list[int]:
