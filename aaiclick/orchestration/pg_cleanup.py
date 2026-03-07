@@ -123,6 +123,7 @@ class PgCleanupWorker:
             result = await session.execute(
                 text(
                     "SELECT table_name FROM table_context_refs "
+                    "WHERE table_name NOT LIKE 'p\\_%' "
                     "GROUP BY table_name "
                     "HAVING SUM(refcount) <= 0"
                 )

@@ -93,22 +93,31 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
         """
-        self._table_name = table if table is not None else f"t{get_snowflake_id()}"
+        self._table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        self._persistent = self._table_name.startswith("p_")
         self._stale = False
         self._schema = schema
         self._ctx: Optional[str] = None
         self._where_clauses: List[Tuple[str, str]] = []
 
+    @property
+    def persistent(self) -> bool:
+        """Check if this is a persistent (named) object that survives context exit."""
+        return self._persistent
+
     def _register(self, ctx_name: str = "default") -> None:
         """Register this object with a named context for lifecycle tracking."""
         self._ctx = ctx_name
-        incref(self._table_name, ctx=ctx_name)
+        if not self._persistent:
+            incref(self._table_name, ctx=ctx_name)
 
     def __del__(self):
         """Decrement refcount on deletion."""
         if sys.is_finalizing():
             return
         if self._ctx is None:
+            return
+        if self._persistent:
             return
         try:
             decref(self._table_name, ctx=self._ctx)
@@ -147,7 +156,10 @@ class Object:
 
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
-        return {"object_type": "object", "table": self.table}
+        ref = {"object_type": "object", "table": self.table}
+        if self._persistent:
+            ref["persistent"] = True
+        return ref
 
     @property
     def is_single_field(self) -> bool:
@@ -1501,7 +1513,7 @@ class View(Object):
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
-        return {
+        ref = {
             "object_type": "view",
             "table": self.table,
             "where": self._build_where(),
@@ -1510,6 +1522,9 @@ class View(Object):
             "order_by": self.order_by,
             "selected_fields": self.selected_fields,
         }
+        if self._persistent:
+            ref["persistent"] = True
+        return ref
 
     def _clone_with_clause(self, condition: str, connector: str) -> View:
         """Create a new View with all current constraints plus an additional WHERE clause."""
