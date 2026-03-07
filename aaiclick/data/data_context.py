@@ -11,6 +11,7 @@ import re
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import AsyncIterator, Dict, List, Optional, Union
 import weakref
 
@@ -466,19 +467,50 @@ async def open_object(name: str) -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str) -> None:
-    """Drop a persistent table by name.
+async def delete_persistent_object(
+    name: str,
+    *,
+    since: datetime | None = None,
+    before: datetime | None = None,
+) -> None:
+    """Delete a persistent object or rows within a time range.
+
+    When called without ``since``/``before``, drops the entire table.
+    When either is provided, deletes only rows whose ``aai_id`` falls
+    within the specified range (using Snowflake ID timestamp encoding).
 
     Args:
         name: Persistent name (without ``p_`` prefix).
+        since: Delete rows created at or after this time (inclusive).
+        before: Delete rows created before this time (exclusive).
 
     Raises:
         ValueError: If name is invalid.
     """
+    from ..snowflake_id import TIMESTAMP_SHIFT
+
     _validate_persistent_name(name)
     state = _get_data_state()
     table_name = f"p_{name}"
-    await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+
+    if since is None and before is None:
+        await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+        return
+
+    conditions = []
+    if since is not None:
+        since_ms = int(since.timestamp() * 1000)
+        since_id = since_ms << TIMESTAMP_SHIFT
+        conditions.append(f"aai_id >= {since_id}")
+    if before is not None:
+        before_ms = int(before.timestamp() * 1000)
+        before_id = before_ms << TIMESTAMP_SHIFT
+        conditions.append(f"aai_id < {before_id}")
+
+    where = " AND ".join(conditions)
+    await state.ch_client.command(
+        f"ALTER TABLE {table_name} DELETE WHERE {where}"
+    )
 
 
 async def list_persistent_objects() -> list[str]:
