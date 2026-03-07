@@ -6,7 +6,7 @@ import asyncio
 import os
 import signal
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from sqlmodel import select
@@ -37,8 +37,8 @@ async def _try_complete_job(job_id: int) -> None:
         if not statuses:
             return
 
-        # If any task is still pending or running, job is not done
-        if any(s in (TaskStatus.PENDING, TaskStatus.RUNNING) for s in statuses):
+        # If any task is still pending, claimed, or running, job is not done
+        if any(s in (TaskStatus.PENDING, TaskStatus.CLAIMED, TaskStatus.RUNNING) for s in statuses):
             return
 
         # All tasks are in terminal state
@@ -46,6 +46,29 @@ async def _try_complete_job(job_id: int) -> None:
             await update_job_status(job_id, JobStatus.FAILED, error="One or more tasks failed")
         else:
             await update_job_status(job_id, JobStatus.COMPLETED)
+
+
+async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> None:
+    """Reset a failed task to PENDING with incremented attempt and backoff delay."""
+    base_delay = 1  # seconds
+    delay = base_delay * (2 ** current_attempt)
+    retry_after = datetime.utcnow() + timedelta(seconds=delay)
+
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        task = result.scalar_one()
+        task.status = TaskStatus.PENDING
+        task.attempt = current_attempt + 1
+        task.retry_after = retry_after
+        task.error = error
+        task.worker_id = None
+        task.claimed_at = None
+        task.started_at = None
+        task.completed_at = None
+        session.add(task)
+        await session.commit()
 
 
 async def register_worker(
@@ -328,9 +351,16 @@ async def worker_main_loop(
 
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
-                await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
-                await _increment_worker_stat(worker_id, "tasks_failed")
-                await _try_complete_job(task.job_id)
+                if task.attempt < task.max_retries:
+                    await _schedule_retry(task.id, task.attempt, str(e))
+                    print(
+                        f"Worker {worker_id} task {task.id} scheduled for retry "
+                        f"(attempt {task.attempt + 1}/{task.max_retries})"
+                    )
+                else:
+                    await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
+                    await _increment_worker_stat(worker_id, "tasks_failed")
+                    await _try_complete_job(task.job_id)
 
             finally:
                 monitor.cancel()

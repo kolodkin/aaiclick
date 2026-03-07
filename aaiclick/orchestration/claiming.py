@@ -51,6 +51,7 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
                         SELECT t.id FROM tasks t
                         JOIN jobs j ON t.job_id = j.id
                         WHERE t.status = :pending_status
+                        AND (t.retry_after IS NULL OR t.retry_after <= :now)
                         AND j.status NOT IN (:cancelled_job_status, :failed_job_status)
                         -- Check task → task dependencies (previous task must be completed)
                         AND NOT EXISTS (
@@ -96,7 +97,8 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
                     )
                     RETURNING id, job_id, entrypoint, kwargs, status, result,
                               log_path, error, worker_id, created_at, claimed_at,
-                              started_at, completed_at, group_id
+                              started_at, completed_at, group_id,
+                              max_retries, attempt, retry_after
                 ),
                 updated_job AS (
                     UPDATE jobs
