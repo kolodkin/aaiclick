@@ -153,12 +153,48 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 Airflow-style TaskFlow API with automatic dependency detection. For usage examples, see `aaiclick/examples/orchestration_basic.py`.
 
+**@task decorator parameters**:
+
+| Parameter      | Type | Default         | Description                                   |
+|----------------|------|-----------------|-----------------------------------------------|
+| `name`         | str  | function name   | Human-readable name for created tasks         |
+| `max_retries`  | int  | 0               | Maximum retry attempts on failure             |
+
+```python
+@task                                    # bare — name="my_task", no retries
+async def my_task(data: Object) -> Object: ...
+
+@task(name="custom_name")                # custom name
+async def my_task(data: Object) -> Object: ...
+
+@task(max_retries=3)                     # retries on failure
+async def my_task(data: Object) -> Object: ...
+
+@task(name="etl_step", max_retries=5)    # both
+async def my_task(data: Object) -> Object: ...
+```
+
+**@job decorator forms**:
+
+```python
+@job("my_pipeline")                      # positional name
+def my_workflow(): ...
+
+@job(name="my_pipeline")                 # keyword name
+def my_workflow(): ...
+
+@job                                     # bare — name defaults to function name
+def my_workflow(): ...
+```
+
 **How it works**:
 - `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
 - Passing a Task as an argument automatically creates an upstream dependency
 - `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages `orch_context()`, commits all tasks to PostgreSQL via `commit_tasks()`
 - Native Python values (int, float, list, etc.) work alongside Object/View parameters
 - At runtime, workers resolve upstream refs by querying completed task results
+
+**Retry behavior**: When a task fails and has retries remaining, `_schedule_retry()` in `worker.py` resets it to PENDING with incremented `attempt` count. Workers pick it up again via normal claiming.
 
 ### Job Testing
 
