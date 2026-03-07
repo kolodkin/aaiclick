@@ -5,8 +5,9 @@ Usage:
     python -m aaiclick migrate --help     # Show migration help
     python -m aaiclick worker start       # Start a worker process
     python -m aaiclick worker list        # List workers
-    python -m aaiclick job get <id>       # Get job details
-    python -m aaiclick job cancel <id>    # Cancel a job
+    python -m aaiclick job get <ref>      # Get job details (by ID or name)
+    python -m aaiclick job stats <ref>    # Show job execution stats
+    python -m aaiclick job cancel <ref>   # Cancel a job
     python -m aaiclick job list           # List jobs
     python -m aaiclick background start   # Start background cleanup worker
 """
@@ -17,6 +18,7 @@ import asyncio
 from aaiclick.orchestration.cli import (
     cancel_job_cmd,
     show_job,
+    show_job_stats,
     show_jobs,
     show_workers,
     start_background,
@@ -82,19 +84,26 @@ def main():
         help="Job commands",
     )
 
-    # job get <id>
+    # job get <ref>
     job_get_parser = job_subparsers.add_parser(
         "get",
-        help="Get job details by ID",
+        help="Get job details by ID or name",
     )
-    job_get_parser.add_argument("id", type=int, help="Job ID")
+    job_get_parser.add_argument("ref", type=str, help="Job ID or name")
 
-    # job cancel <id>
+    # job stats <ref>
+    job_stats_parser = job_subparsers.add_parser(
+        "stats",
+        help="Show job execution stats",
+    )
+    job_stats_parser.add_argument("ref", type=str, help="Job ID or name")
+
+    # job cancel <ref>
     job_cancel_parser = job_subparsers.add_parser(
         "cancel",
         help="Cancel a job and its non-terminal tasks",
     )
-    job_cancel_parser.add_argument("id", type=int, help="Job ID")
+    job_cancel_parser.add_argument("ref", type=str, help="Job ID or name")
 
     # job list
     job_list_parser = job_subparsers.add_parser(
@@ -164,10 +173,13 @@ def main():
 
     elif args.command == "job":
         if args.job_command == "get":
-            asyncio.run(show_job(args.id))
+            asyncio.run(show_job(args.ref))
+
+        elif args.job_command == "stats":
+            asyncio.run(show_job_stats(args.ref))
 
         elif args.job_command == "cancel":
-            asyncio.run(cancel_job_cmd(args.id))
+            asyncio.run(cancel_job_cmd(args.ref))
 
         elif args.job_command == "list":
             asyncio.run(show_jobs(

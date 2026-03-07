@@ -14,16 +14,38 @@ from sqlmodel import select
 from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .claiming import check_task_cancelled, claim_next_task, update_task_status
+from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from .context import get_orch_session
 from .execution import execute_task, serialize_task_result
-from .models import TaskStatus, Worker, WorkerStatus
+from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
 
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
+
+
+async def _try_complete_job(job_id: int) -> None:
+    """Check if all tasks for a job are done and update job status accordingly."""
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task.status).where(Task.job_id == job_id)
+        )
+        statuses = [row[0] for row in result.all()]
+
+        if not statuses:
+            return
+
+        # If any task is still pending or running, job is not done
+        if any(s in (TaskStatus.PENDING, TaskStatus.RUNNING) for s in statuses):
+            return
+
+        # All tasks are in terminal state
+        if any(s == TaskStatus.FAILED for s in statuses):
+            await update_job_status(job_id, JobStatus.FAILED, error="One or more tasks failed")
+        else:
+            await update_job_status(job_id, JobStatus.COMPLETED)
 
 
 async def register_worker(
@@ -267,6 +289,7 @@ async def worker_main_loop(
             empty_polls = 0
 
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
+            await update_task_status(task.id, TaskStatus.RUNNING)
 
             # Wrap execution in an asyncio.Task with a cancellation monitor
             # so that cancel_job() can interrupt running tasks.
@@ -298,6 +321,7 @@ async def worker_main_loop(
                 tasks_executed += 1
                 print(f"Worker {worker_id} completed task {task.id}")
                 await _increment_worker_stat(worker_id, "tasks_completed")
+                await _try_complete_job(task.job_id)
 
             except asyncio.CancelledError:
                 print(f"Worker {worker_id} task {task.id} cancelled")
@@ -306,6 +330,7 @@ async def worker_main_loop(
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
                 await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
                 await _increment_worker_stat(worker_id, "tasks_failed")
+                await _try_complete_job(task.job_id)
 
             finally:
                 monitor.cancel()

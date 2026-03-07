@@ -196,9 +196,9 @@ async def test_serialize_task_result_object(orch_ctx):
 
 
 async def test_serialize_task_result_non_object(orch_ctx):
-    """Test serializing a non-Object/View result returns None."""
-    assert serialize_task_result(42, job_id=2) is None
-    assert serialize_task_result("hello", job_id=2) is None
+    """Test serializing a non-Object/View result wraps in native_value."""
+    assert serialize_task_result(42, job_id=2) == {"native_value": 42}
+    assert serialize_task_result("hello", job_id=2) == {"native_value": "hello"}
 
 
 async def test_execute_task_sync_function(orch_ctx, monkeypatch):
