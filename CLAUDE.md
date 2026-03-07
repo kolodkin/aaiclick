@@ -275,10 +275,11 @@ The Object class follows a consistent pattern where **all operators return new O
 
 ## Supported Operators (All Return Objects)
 
-**Binary Operators** (element-wise operations on two Objects):
+**Binary Operators** (element-wise operations on two Objects or Object and scalar):
 - Arithmetic: `+`, `-`, `*`, `/`, `//`, `%`, `**`
 - Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
 - Bitwise: `&`, `|`, `^`
+- **Scalar broadcast**: All binary operators support Python scalars (int, float, bool, str) on either side. The scalar is automatically converted to an Object via `create_object_from_value`. Reverse operators (`__radd__`, `__rsub__`, etc.) enable `5 + obj` syntax.
 
 **Aggregation Operators** (reduce to scalar Object):
 - `min()` - minimum value
@@ -310,6 +311,11 @@ async with DataContext():
     # Aggregation results can be used in further operations
     normalized = await (obj_a / total)  # Divide array by scalar
     await normalized.data()  # [0.066..., 0.133..., 0.2, 0.266..., 0.333...]
+
+    # Scalar broadcast - use Python scalars directly
+    doubled = await (obj_a * 2)  # [2, 4, 6, 8, 10]
+    shifted = await (obj_a + 100)  # [101, 102, 103, 104, 105]
+    inverse = await (10 - obj_a)  # [9, 8, 7, 6, 5] (reverse operator)
 ```
 
 ## Implementation Pattern

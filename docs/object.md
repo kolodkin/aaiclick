@@ -58,17 +58,39 @@ All operators work element-wise on both scalar and array data. Each operator cre
 
 See [operators.md](operators.md) for complete function reference. For runnable examples, see `examples/basic_operators.py`.
 
+### Scalar Broadcast
+
+**Implementation**: `aaiclick/data/object.py` — see `_to_query_info()` and `_scalar_query_info()`
+
+All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on either side. The scalar is inlined as a SQL literal — no temporary table is created. This works for both `obj + 5` (forward) and `5 + obj` (reverse).
+
+**How it works**: `_to_query_info()` dispatches based on operand type:
+- **Object**: calls `_get_query_info()` → references the Object's ClickHouse table
+- **Scalar**: calls `_scalar_query_info()` → inlines the value as a SQL literal (e.g., `5`, `'hello'`, `true`)
+
+Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()` which swaps the operand order so the scalar appears on the left in SQL.
+
+```python
+# Forward: obj is left operand
+result = await (obj * 2)      # SQL: ... obj.value * 2
+result = await (obj + 100)    # SQL: ... obj.value + 100
+
+# Reverse: obj is right operand
+result = await (10 - obj)     # SQL: ... 10 - obj.value
+result = await (2 ** obj)     # SQL: ... power(2, obj.value)
+```
+
 ### Arithmetic Operators
 
-| Python Operator | Description    | ClickHouse Equivalent | Python Method   |
-|-----------------|----------------|-----------------------|-----------------|
-| `+`             | Addition       | `+`                   | `__add__`       |
-| `-`             | Subtraction    | `-`                   | `__sub__`       |
-| `*`             | Multiplication | `*`                   | `__mul__`       |
-| `/`             | Division       | `/`                   | `__truediv__`   |
-| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  |
-| `%`             | Modulo         | `%`                   | `__mod__`       |
-| `**`            | Power          | `power()`             | `__pow__`       |
+| Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
+|-----------------|----------------|-----------------------|-----------------|-------------------|
+| `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
+| `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
+| `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
+| `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
+| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
+| `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
+| `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 ### Comparison Operators
 
@@ -81,13 +103,15 @@ See [operators.md](operators.md) for complete function reference. For runnable e
 | `>`             | Greater Than          | `>`                   | `__gt__`      |
 | `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
+Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
+
 ### Bitwise Operators
 
-| Python Operator | Description | ClickHouse Equivalent | Python Method |
-|-----------------|-------------|-----------------------|---------------|
-| `&`             | Bitwise AND | `bitAnd()`            | `__and__`     |
-| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`      |
-| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`     |
+| Python Operator | Description | ClickHouse Equivalent | Forward Method | Reverse Method |
+|-----------------|-------------|-----------------------|----------------|----------------|
+| `&`             | Bitwise AND | `bitAnd()`            | `__and__`      | `__rand__`     |
+| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`       | `__ror__`      |
+| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`      | `__rxor__`     |
 
 ### Aggregation Operators
 
@@ -256,6 +280,7 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | Operator Group                  | Test File                        |
 |---------------------------------|----------------------------------|
 | Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
+| Scalar Broadcast                | `test_scalar_broadcast.py`       |
 | Aggregation                     | `test_aggregation.py`            |
 | Set Operators                   | `test_unique_parametrized.py`    |
 | URL Loading                     | `test_url.py`                    |
