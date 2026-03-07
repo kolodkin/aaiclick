@@ -196,7 +196,7 @@ def test_get_entrypoint_with_callable(orch_ctx):
 
 def test_get_entrypoint_with_task_factory(orch_ctx):
     """_get_entrypoint resolves TaskFactory to its entrypoint."""
-    factory = TaskFactory(_dummy_func)
+    factory = TaskFactory(_dummy_func, name="_dummy_func")
     entrypoint = _get_entrypoint(factory)
     assert entrypoint == factory.entrypoint
 

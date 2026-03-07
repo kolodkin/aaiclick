@@ -52,6 +52,11 @@ def _get_entrypoint(func: Union[Callable, TaskFactory]) -> str:
     return _callable_to_string(func)
 
 
+def _name_from_entrypoint(entrypoint: str) -> str:
+    """Extract function name from an entrypoint string."""
+    return entrypoint.rsplit(".", 1)[-1]
+
+
 def map(func: Union[Callable, TaskFactory], obj: Union[Any, Task, MapHandle],
         partition_size: int = 1000, **kwargs) -> MapHandle:
     """Create a parallel map operation over partitions of an Object.
@@ -92,6 +97,7 @@ def map(func: Union[Callable, TaskFactory], obj: Union[Any, Task, MapHandle],
     expander = Task(
         id=get_snowflake_id(),
         entrypoint="aaiclick.orchestration.dynamic._expand_map",
+        name=f"_expand_map({func_name})",
         kwargs={
             "target_entrypoint": target_entrypoint,
             "object_ref": serialized_obj,
@@ -139,9 +145,12 @@ def reduce(func: Union[Callable, TaskFactory], mapped: MapHandle) -> Task:
     """
     target_entrypoint = _get_entrypoint(func)
 
+    func_name = _name_from_entrypoint(target_entrypoint)
+
     reduce_task = Task(
         id=get_snowflake_id(),
         entrypoint="aaiclick.orchestration.dynamic._execute_reduce",
+        name=f"_execute_reduce({func_name})",
         kwargs={
             "target_entrypoint": target_entrypoint,
             "group_id": mapped.group.id,
@@ -196,6 +205,7 @@ async def _expand_map(
     expander_task_id = await _get_current_task_id()
 
     # Create N child tasks
+    child_name = _name_from_entrypoint(target_entrypoint)
     tasks = []
     for i in range(n_partitions):
         # Build kwargs: partition view + extra kwargs
@@ -211,6 +221,7 @@ async def _expand_map(
         child = Task(
             id=get_snowflake_id(),
             entrypoint=target_entrypoint,
+            name=child_name,
             kwargs=partition_kwargs,
             group_id=group_id,
             status=TaskStatus.PENDING,
