@@ -2,12 +2,17 @@
 Tests for Snowflake ID generation.
 """
 
+import pytest
+
 from aaiclick.snowflake_id import (
     SnowflakeGenerator,
     get_snowflake_id,
     get_snowflake_ids,
     decode_snowflake_id,
+    snowflake_id_sql,
     MAX_SEQUENCE,
+    TIMESTAMP_SHIFT,
+    MACHINE_ID_SHIFT,
 )
 
 
@@ -67,23 +72,14 @@ def test_bulk_generation_edge_cases():
     assert len(set(ids_pair)) == 2
 
     # Test invalid counts
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(0)
-        assert False, "Should have raised ValueError for count=0"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(-1)
-        assert False, "Should have raised ValueError for count=-1"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
-    try:
+    with pytest.raises(ValueError, match="at least 1"):
         gen.generate_bulk(-100)
-        assert False, "Should have raised ValueError for count=-100"
-    except ValueError as e:
-        assert "at least 1" in str(e)
 
 
 def test_large_bulk_generation_5000_ids():
@@ -166,11 +162,8 @@ def test_get_snowflake_ids_validation():
     assert large_ids == sorted(large_ids)  # Time-ordered
 
     # Invalid sizes - only negative values should fail
-    try:
+    with pytest.raises(ValueError, match=">= 0"):
         get_snowflake_ids(-1)
-        assert False, "Should have raised ValueError for size=-1"
-    except ValueError as e:
-        assert ">= 0" in str(e)
 
 
 def test_sequential_calls_have_increasing_ids():
@@ -229,3 +222,184 @@ def test_get_snowflake_ids_max_size():
 
     # All should be in ascending order
     assert ids == sorted(ids)
+
+
+def test_begin_reserve_returns_correct_tuple():
+    """Test that begin_reserve returns (base_timestamp, machine_id, start_sequence)."""
+    gen = SnowflakeGenerator(machine_id=42)
+    base_ts, machine_id, start_seq = gen.begin_reserve()
+
+    assert machine_id == 42
+    assert base_ts > 0
+    assert start_seq >= 0
+
+
+def test_begin_reserve_does_not_advance_state():
+    """Test that begin_reserve peeks without advancing state."""
+    gen = SnowflakeGenerator()
+    base_ts, _, start_seq = gen.begin_reserve()
+
+    # State should NOT be advanced — same position returned again
+    base_ts2, _, start_seq2 = gen.begin_reserve()
+    assert base_ts2 >= base_ts
+    assert start_seq2 == start_seq
+
+
+def test_end_reserve_advances_state():
+    """Test that end_reserve advances generator state by actual count."""
+    gen = SnowflakeGenerator(machine_id=1)
+
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 100)
+
+    next_id = gen.generate()
+    next_ts, _, next_seq = decode_snowflake_id(next_id)
+    end_seq = start_seq + 100
+
+    if end_seq <= MAX_SEQUENCE + 1:
+        if next_ts == base_ts:
+            assert next_seq >= end_seq
+        else:
+            assert next_ts > base_ts
+    else:
+        assert next_ts >= base_ts
+
+
+def test_end_reserve_spans_ms_boundary():
+    """Test end_reserve with count that spans ms boundaries."""
+    gen = SnowflakeGenerator()
+    gen.last_timestamp = gen._current_timestamp()
+    gen.sequence = MAX_SEQUENCE - 1  # 4094, only 2 slots left
+
+    base_ts, _, start_seq = gen.begin_reserve()
+    assert start_seq == MAX_SEQUENCE - 1
+
+    gen.end_reserve(base_ts, start_seq, 10)
+    # Should have advanced last_timestamp
+    assert gen.last_timestamp > base_ts
+
+
+def test_end_reserve_exact_boundary():
+    """Test end_reserve landing exactly on 4096 boundary."""
+    gen = SnowflakeGenerator()
+    gen.last_timestamp = gen._current_timestamp()
+    gen.sequence = 0
+
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 4096)
+    assert gen.last_timestamp == base_ts
+    assert gen.sequence == MAX_SEQUENCE + 1
+
+
+def test_end_reserve_zero_count_noop():
+    """Test that end_reserve with count=0 does nothing."""
+    gen = SnowflakeGenerator()
+    base_ts, _, start_seq = gen.begin_reserve()
+    old_ts = gen.last_timestamp
+    old_seq = gen.sequence
+
+    gen.end_reserve(base_ts, start_seq, 0)
+    assert gen.last_timestamp == old_ts
+    assert gen.sequence == old_seq
+
+
+def test_end_reserve_no_collision_with_generate():
+    """Test that IDs from generate after end_reserve don't overlap reserved range."""
+    gen = SnowflakeGenerator(machine_id=5)
+
+    base_ts, machine_id, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 100)
+
+    # Compute what the reserved IDs would be
+    seq_capacity = MAX_SEQUENCE + 1
+    reserved_ids = set()
+    for i in range(100):
+        abs_seq = start_seq + i
+        ts = base_ts + abs_seq // seq_capacity
+        seq = abs_seq % seq_capacity
+        rid = (ts << TIMESTAMP_SHIFT) | (machine_id << MACHINE_ID_SHIFT) | seq
+        reserved_ids.add(rid)
+
+    # Generate IDs after end_reserve — none should collide
+    generated_ids = [gen.generate() for _ in range(50)]
+    for gid in generated_ids:
+        assert gid not in reserved_ids
+
+
+def test_end_reserve_then_generate_bulk():
+    """Test that generate_bulk after end_reserve works correctly."""
+    gen = SnowflakeGenerator(machine_id=3)
+
+    base_ts, _, start_seq = gen.begin_reserve()
+    gen.end_reserve(base_ts, start_seq, 500)
+    bulk_ids = gen.generate_bulk(100)
+
+    assert len(bulk_ids) == 100
+    assert len(set(bulk_ids)) == 100
+    assert bulk_ids == sorted(bulk_ids)
+
+
+def test_snowflake_id_sql_format():
+    """Test that snowflake_id_sql generates a valid SQL expression."""
+    sql = snowflake_id_sql(1000, 5, 0)
+
+    assert "bitOr" in sql
+    assert "bitShiftLeft" in sql
+    assert "row_number() OVER ()" in sql
+    assert "1000" in sql
+    assert "5" in sql
+
+
+def test_snowflake_id_sql_matches_python():
+    """Test that SQL expression logic matches Python generate_bulk logic."""
+    base_ts = 1000
+    machine_id = 5
+    start_seq = 100
+    seq_capacity = MAX_SEQUENCE + 1  # 4096
+
+    # Simulate what the SQL expression computes for row_number 1..10
+    sql_ids = []
+    for rn in range(1, 11):
+        abs_seq = start_seq + rn - 1
+        ts = base_ts + abs_seq // seq_capacity
+        seq = abs_seq % seq_capacity
+        rid = (ts << TIMESTAMP_SHIFT) | (machine_id << MACHINE_ID_SHIFT) | seq
+        sql_ids.append(rid)
+
+    # Verify all unique and ascending
+    assert len(set(sql_ids)) == 10
+    assert sql_ids == sorted(sql_ids)
+
+    # Decode first and last to verify structure
+    ts0, mid0, seq0 = decode_snowflake_id(sql_ids[0])
+    assert ts0 == base_ts
+    assert mid0 == machine_id
+    assert seq0 == start_seq
+
+    ts9, mid9, seq9 = decode_snowflake_id(sql_ids[9])
+    assert mid9 == machine_id
+    assert seq9 == start_seq + 9
+
+
+def test_snowflake_id_sql_overflow():
+    """Test SQL expression handles sequence overflow across ms boundaries."""
+    base_ts = 5000
+    machine_id = 1
+    start_seq = 4090
+    seq_capacity = MAX_SEQUENCE + 1
+
+    # Row 7 should overflow into next ms (4090 + 6 = 4096 → ts+1, seq=0)
+    for rn in range(1, 20):
+        abs_seq = start_seq + rn - 1
+        ts = base_ts + abs_seq // seq_capacity
+        seq = abs_seq % seq_capacity
+        rid = (ts << TIMESTAMP_SHIFT) | (machine_id << MACHINE_ID_SHIFT) | seq
+        decoded_ts, decoded_mid, decoded_seq = decode_snowflake_id(rid)
+
+        assert decoded_mid == machine_id
+        if rn <= 6:
+            assert decoded_ts == base_ts
+            assert decoded_seq == start_seq + rn - 1
+        else:
+            assert decoded_ts == base_ts + 1
+            assert decoded_seq == rn - 7

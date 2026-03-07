@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing_extensions import Self
 
 from . import operators, ingest
+from .sql_utils import insert_with_ids
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -846,19 +847,18 @@ class Object:
         else:
             select_cols = columns_str
 
-        # Build INSERT query with Snowflake ID generation
-        base_id = get_snowflake_id()
+        # Insert data from URL with SQL-generated snowflake IDs
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
-        insert_query = (
-            f"INSERT INTO {self.table} "
-            f"SELECT toUInt64({base_id} + row_number() OVER ()) AS aai_id, {select_cols} "
+        from_clause = (
             f"FROM url('{safe_url}', '{format}')"
             f"{where_clause}"
             f"{limit_clause}"
         )
-        await self.ch_client.command(insert_query)
+        await insert_with_ids(
+            self.ch_client, self.table, select_cols, from_clause
+        )
 
     async def min(self) -> Self:
         """
