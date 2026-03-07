@@ -34,13 +34,12 @@ from aaiclick.data.object import Object
 from ..snowflake_id import get_snowflake_id
 from .context import _orch_contexts, commit_tasks, get_orch_session, orch_context
 from .factories import _callable_to_string
+from .handles import MapHandle
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
     """Recursively collect Task instances from nested structures."""
-    from .dynamic import MapHandle
-
     if isinstance(value, Task):
         upstream_tasks.append(value)
     elif isinstance(value, MapHandle):
@@ -67,8 +66,6 @@ def _serialize_value(value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON storage
     """
-    from .dynamic import MapHandle
-
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
     elif isinstance(value, MapHandle):
@@ -218,8 +215,6 @@ class JobFactory:
 
     async def _create_job(self, **kwargs) -> Job:
         """Internal method to create job within an OrchContext."""
-        from .dynamic import MapHandle
-
         # Call workflow function to get tasks
         result = self.func(**kwargs)
 

@@ -27,7 +27,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
 from typing import Any, Callable, Union
@@ -41,45 +40,9 @@ from .context import commit_tasks, get_orch_session
 from .decorators import TaskFactory, _serialize_value
 from .execution import _deserialize_value, _resolve_upstream_ref, import_callback
 from .factories import _callable_to_string
+from .handles import MapHandle
 from .models import Dependency, Group, Task, TaskStatus
 from .worker_context import get_current_task_info
-
-
-@dataclass
-class MapHandle:
-    """Represents a pending map operation.
-
-    Holds the expander task (creates child tasks at runtime) and the output
-    group (contains all dynamically created partition tasks). Used as input
-    to reduce() and for dependency wiring.
-    """
-
-    expander: Task
-    group: Group
-
-    def depends_on(self, other: Union[Task, Group]) -> MapHandle:
-        """Declare that this map operation depends on a task or group."""
-        self.expander.depends_on(other)
-        return self
-
-    def __rshift__(self, other):
-        """MapHandle >> B: B depends on all map tasks (via group)."""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self.group)
-            return other
-        else:
-            other.depends_on(self.group)
-            return other
-
-    def __rrshift__(self, other):
-        """[A, B] >> MapHandle: expander depends on A and B."""
-        if isinstance(other, list):
-            for item in other:
-                self.expander.depends_on(item)
-        else:
-            self.expander.depends_on(other)
-        return self
 
 
 def _get_entrypoint(func: Union[Callable, TaskFactory]) -> str:

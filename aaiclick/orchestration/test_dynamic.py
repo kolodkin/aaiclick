@@ -1,7 +1,8 @@
 """Tests for dynamic task creation operators (map and reduce)."""
 
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
-from aaiclick.orchestration.dynamic import MapHandle, _get_entrypoint, map, reduce
+from aaiclick.orchestration.dynamic import _get_entrypoint, map, reduce
+from aaiclick.orchestration.handles import MapHandle
 from aaiclick.orchestration.factories import create_task
 from aaiclick.orchestration.models import (
     DEPENDENCY_GROUP,

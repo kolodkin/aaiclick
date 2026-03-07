@@ -38,7 +38,7 @@ Like Python's `functools.reduce(func, iterable)`. Waits for all map partitions t
 
 ### `MapHandle`
 
-**Implementation**: `aaiclick/orchestration/dynamic.py` — see `MapHandle` class
+**Implementation**: `aaiclick/orchestration/handles.py` — see `MapHandle` class
 
 A dataclass representing a pending map operation. It is a **job-definition-time placeholder** — actual partition tasks don't exist yet. They are created dynamically at runtime by the expander after it queries ClickHouse for the row count.
 
