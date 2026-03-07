@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlmodel import select
 
+from aaiclick.data.data_context import create_object_from_value
+
 from .claiming import claim_next_task, update_task_status
 from .context import get_orch_session
 from .decorators import task
@@ -291,3 +293,52 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         )
         j = result.scalar_one()
         assert j.status == JobStatus.FAILED
+
+
+async def test_worker_retry_succeeds_on_third_attempt(
+    ctx, orch_ctx, monkeypatch, tmpdir
+):
+    """Task with Object counter fails twice, succeeds on third attempt."""
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
+
+    # Cancel all pending/running tasks from previous tests
+    await _cancel_all_pending_tasks()
+
+    # Create counter Object with initial value (1 row = count 1)
+    counter = await create_object_from_value([0])
+
+    # Create job: increment_counter fails when count < 3, succeeds at count >= 3
+    # With max_retries=2: attempt 0 (count 1->fail), attempt 1 (count 2->fail),
+    # attempt 2 (count 3->success)
+    t = create_task(
+        "aaiclick.orchestration.fixtures.sample_tasks.increment_counter",
+        {"counter": counter._serialize_ref()},
+        max_retries=2,
+    )
+    job = await create_job("test_retry_succeeds", t)
+
+    # Worker will retry until success
+    tasks_executed = await worker_main_loop(
+        max_tasks=1,
+        install_signal_handlers=False,
+        max_empty_polls=5,
+    )
+
+    assert tasks_executed == 1  # Task eventually succeeded
+
+    # Task should be COMPLETED after 3 attempts
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id)
+        )
+        t = result.scalar_one()
+        assert t.status == TaskStatus.COMPLETED
+        assert t.attempt == 2  # Succeeded on attempt 2 (third try)
+
+    # Job should be COMPLETED
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Job).where(Job.id == job.id)
+        )
+        j = result.scalar_one()
+        assert j.status == JobStatus.COMPLETED
