@@ -89,7 +89,8 @@ class TableWorker:
                     if msg.table_name in self._refcounts:
                         self._refcounts[msg.table_name] -= 1
                         if self._refcounts[msg.table_name] <= 0:
-                            self._drop_table(msg.table_name)
+                            if not msg.table_name.startswith("p_"):
+                                self._drop_table(msg.table_name)
                             del self._refcounts[msg.table_name]
         finally:
             if self._ch_client:
@@ -103,7 +104,8 @@ class TableWorker:
             pass  # Best effort - table may already be gone
 
     def _cleanup_all(self) -> None:
-        """Drop all remaining tables on shutdown."""
+        """Drop all remaining tables on shutdown. Skips persistent (p_) tables."""
         for table_name in list(self._refcounts.keys()):
-            self._drop_table(table_name)
+            if not table_name.startswith("p_"):
+                self._drop_table(table_name)
         self._refcounts.clear()

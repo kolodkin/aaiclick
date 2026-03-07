@@ -13,10 +13,14 @@ from .data_context import (
     data_context,
     decref,
     delete_object,
+    delete_persistent_object,
+    delete_persistent_objects,
     get_ch_client,
     get_engine,
     get_pool,
     incref,
+    list_persistent_objects,
+    open_object,
     register_object,
 )
 from .url import create_object_from_url

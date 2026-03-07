@@ -9,12 +9,21 @@ Usage:
     python -m aaiclick job stats <ref>    # Show job execution stats
     python -m aaiclick job cancel <ref>   # Cancel a job
     python -m aaiclick job list           # List jobs
+    python -m aaiclick data list          # List persistent objects
+    python -m aaiclick data get <name>    # Show persistent object details
+    python -m aaiclick data delete <name> # Delete persistent object
     python -m aaiclick background start   # Start background cleanup worker
 """
 
 import argparse
 import asyncio
 
+from aaiclick.data.cli import (
+    delete_object_cmd,
+    delete_objects_cmd,
+    list_objects_cmd,
+    show_object_cmd,
+)
 from aaiclick.orchestration.cli import (
     cancel_job_cmd,
     show_job,
@@ -134,6 +143,52 @@ def main():
         help="Skip N results (default: 0)",
     )
 
+    # Add data subcommand
+    data_parser = subparsers.add_parser(
+        "data",
+        help="Persistent data management commands",
+    )
+    data_subparsers = data_parser.add_subparsers(
+        dest="data_command",
+        help="Data commands",
+    )
+
+    # data list
+    data_subparsers.add_parser(
+        "list",
+        help="List persistent objects",
+    )
+
+    # data get <name>
+    data_get_parser = data_subparsers.add_parser(
+        "get",
+        help="Show persistent object details",
+    )
+    data_get_parser.add_argument("name", type=str, help="Persistent object name")
+
+    # data delete <name>
+    data_delete_parser = data_subparsers.add_parser(
+        "delete",
+        help="Delete a single persistent object",
+    )
+    data_delete_parser.add_argument("name", type=str, help="Persistent object name")
+
+    # data purge [--after] [--before]
+    data_purge_parser = data_subparsers.add_parser(
+        "purge",
+        help="Delete persistent objects by creation time",
+    )
+    data_purge_parser.add_argument(
+        "--after",
+        default=None,
+        help="Delete tables created at or after this time (ISO 8601)",
+    )
+    data_purge_parser.add_argument(
+        "--before",
+        default=None,
+        help="Delete tables created before this time (ISO 8601)",
+    )
+
     # Add background subcommand
     background_parser = subparsers.add_parser(
         "background",
@@ -191,6 +246,25 @@ def main():
 
         else:
             job_parser.print_help()
+
+    elif args.command == "data":
+        if args.data_command == "list":
+            asyncio.run(list_objects_cmd())
+
+        elif args.data_command == "get":
+            asyncio.run(show_object_cmd(args.name))
+
+        elif args.data_command == "delete":
+            asyncio.run(delete_object_cmd(args.name))
+
+        elif args.data_command == "purge":
+            asyncio.run(delete_objects_cmd(
+                after=args.after,
+                before=args.before,
+            ))
+
+        else:
+            data_parser.print_help()
 
     elif args.command == "background":
         if args.background_command == "start":

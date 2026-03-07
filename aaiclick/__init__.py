@@ -12,9 +12,13 @@ from .data import (
     data_context,
     get_ch_client,
     delete_object,
+    delete_persistent_object,
+    delete_persistent_objects,
     create_object,
     create_object_from_url,
     create_object_from_value,
+    list_persistent_objects,
+    open_object,
     LifecycleHandler,
     LocalLifecycleHandler,
 )

@@ -157,12 +157,16 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
         if obj_type == "object":
             table = value["table"]
+            is_persistent = value.get("persistent", False)
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
-            obj._register()
+            if is_persistent:
+                obj._ctx = "default"
+            else:
+                obj._register()
             register_object(obj)
-            if "job_id" in value and state.lifecycle is not None:
+            if not is_persistent and "job_id" in value and state.lifecycle is not None:
                 await state.lifecycle.claim(table, value["job_id"])
             return obj
 
@@ -265,7 +269,8 @@ async def execute_task(
                 result = func(**kwargs)
 
     if lifecycle is not None and isinstance(result, (Object, View)):
-        lifecycle.pin(result.table)
+        if not result.persistent:
+            lifecycle.pin(result.table)
 
     return result
 
