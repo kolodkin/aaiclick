@@ -216,6 +216,14 @@ async def test_failed_task_retries_via_worker(orch_ctx, monkeypatch, tmpdir):
         ),
     )
 
+    # Verify max_retries was persisted to DB
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task.max_retries).where(Task.job_id == job.id)
+        )
+        db_max_retries = result.scalar_one()
+        assert db_max_retries == 2, f"max_retries not persisted: got {db_max_retries}"
+
     # Run worker for 1 task attempt
     await worker_main_loop(
         max_tasks=1,
