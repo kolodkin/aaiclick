@@ -23,6 +23,8 @@ from .claiming import cancel_job
 from .context import commit_tasks, get_orch_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
+from .dynamic import map, reduce
+from .handles import MapHandle
 from .job_queries import (
     count_jobs,
     get_job,

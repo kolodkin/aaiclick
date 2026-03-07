@@ -26,6 +26,7 @@ from .context import get_orch_session
 from .decorators import TaskFactory
 from .logging import capture_task_output
 from .models import Job, JobStatus, Task, TaskStatus
+from .worker_context import set_current_task_info
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -124,6 +125,26 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         upstream_result = await _resolve_upstream_ref(value, session)
         # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
+
+    # Check for group_results reference (from reduce() collecting map results)
+    if value.get("ref_type") == "group_results":
+        group_id = value["group_id"]
+        result = await session.execute(
+            select(Task.result, Task.job_id)
+            .where(
+                Task.group_id == group_id,
+                Task.status == TaskStatus.COMPLETED,
+            )
+            .order_by(Task.id)
+        )
+        rows = result.all()
+        deserialized = []
+        for row in rows:
+            task_result, job_id = row
+            if task_result is not None and isinstance(task_result, dict):
+                task_result["job_id"] = job_id
+            deserialized.append(await _deserialize_value(task_result, session))
+        return deserialized
 
     # Check for native value wrapper
     if "native_value" in value and len(value) == 1:
@@ -231,6 +252,9 @@ async def execute_task(
         Exception: Re-raises any exception from the task function
     """
     func = import_callback(task.entrypoint)
+
+    # Set task context so expander tasks can access job_id/task_id
+    set_current_task_info(task_id=task.id, job_id=task.job_id)
 
     with capture_task_output(task.id):
         async with data_context(lifecycle=lifecycle):
