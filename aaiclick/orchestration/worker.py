@@ -351,11 +351,19 @@ async def worker_main_loop(
 
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
-                if task.attempt < task.max_retries:
-                    await _schedule_retry(task.id, task.attempt, str(e))
+                # Read current retry state from DB to ensure accurate values
+                async with get_orch_session() as session:
+                    row = await session.execute(
+                        select(Task.max_retries, Task.attempt).where(
+                            Task.id == task.id
+                        )
+                    )
+                    max_retries, attempt = row.one()
+                if attempt < max_retries:
+                    await _schedule_retry(task.id, attempt, str(e))
                     print(
                         f"Worker {worker_id} task {task.id} scheduled for retry "
-                        f"(attempt {task.attempt + 1}/{task.max_retries})"
+                        f"(attempt {attempt + 1}/{max_retries})"
                     )
                 else:
                     await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
