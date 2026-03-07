@@ -289,6 +289,7 @@ async def worker_main_loop(
             empty_polls = 0
 
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
+            await update_task_status(task.id, TaskStatus.RUNNING)
 
             # Wrap execution in an asyncio.Task with a cancellation monitor
             # so that cancel_job() can interrupt running tasks.
