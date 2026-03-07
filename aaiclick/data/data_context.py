@@ -497,7 +497,15 @@ async def delete_persistent_objects(
 
     Returns:
         List of deleted persistent names (without ``p_`` prefix).
+
+    Raises:
+        ValueError: If neither ``after`` nor ``before`` is specified.
     """
+    if after is None and before is None:
+        raise ValueError(
+            "At least one of 'after' or 'before' must be specified "
+            "to prevent accidental deletion of all persistent objects"
+        )
     state = _get_data_state()
     conditions = [
         f"database = '{state.creds.database}'",

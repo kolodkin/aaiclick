@@ -6,6 +6,7 @@ from aaiclick import create_object, create_object_from_value, Schema, FIELDTYPE_
 from aaiclick.data.data_context import (
     data_context,
     delete_persistent_object,
+    delete_persistent_objects,
     get_ch_client,
     list_persistent_objects,
     open_object,
@@ -154,3 +155,10 @@ async def test_persistent_scalar_object():
             assert data == 42
         finally:
             await delete_persistent_object("test_persist_scalar")
+
+
+async def test_delete_persistent_objects_requires_time_filter():
+    """Calling delete_persistent_objects without after or before raises ValueError."""
+    async with data_context():
+        with pytest.raises(ValueError, match="At least one of"):
+            await delete_persistent_objects()
