@@ -94,7 +94,6 @@ class Object:
             schema: Optional Schema with column types (cached for internal use)
         """
         self._table_name = table if table is not None else f"t_{get_snowflake_id()}"
-        self._persistent = self._table_name.startswith("p_")
         self._stale = False
         self._schema = schema
         self._ctx: Optional[str] = None
@@ -103,12 +102,12 @@ class Object:
     @property
     def persistent(self) -> bool:
         """Check if this is a persistent (named) object that survives context exit."""
-        return self._persistent
+        return self._table_name.startswith("p_")
 
     def _register(self, ctx_name: str = "default") -> None:
         """Register this object with a named context for lifecycle tracking."""
         self._ctx = ctx_name
-        if not self._persistent:
+        if not self.persistent:
             incref(self._table_name, ctx=ctx_name)
 
     def __del__(self):
@@ -117,7 +116,7 @@ class Object:
             return
         if self._ctx is None:
             return
-        if self._persistent:
+        if self._table_name.startswith("p_"):
             return
         try:
             decref(self._table_name, ctx=self._ctx)
@@ -157,7 +156,7 @@ class Object:
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
         ref = {"object_type": "object", "table": self.table}
-        if self._persistent:
+        if self.persistent:
             ref["persistent"] = True
         return ref
 
@@ -1522,7 +1521,7 @@ class View(Object):
             "order_by": self.order_by,
             "selected_fields": self.selected_fields,
         }
-        if self._persistent:
+        if self.persistent:
             ref["persistent"] = True
         return ref
 
