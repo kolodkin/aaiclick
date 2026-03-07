@@ -172,7 +172,7 @@ def main():
     )
     data_delete_parser.add_argument("name", type=str, help="Persistent object name")
     data_delete_parser.add_argument(
-        "--since",
+        "--after",
         default=None,
         help="Delete rows created at or after this time (ISO 8601)",
     )
@@ -250,7 +250,7 @@ def main():
         elif args.data_command == "delete":
             asyncio.run(delete_object_cmd(
                 args.name,
-                since=args.since,
+                after=args.after,
                 before=args.before,
             ))
 

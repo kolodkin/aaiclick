@@ -72,20 +72,20 @@ async def show_object_cmd(name: str) -> None:
 async def delete_object_cmd(
     name: str,
     *,
-    since: Optional[str] = None,
+    after: Optional[str] = None,
     before: Optional[str] = None,
 ) -> None:
     """Delete a persistent object or rows within a time range."""
-    since_dt = _parse_datetime(since) if since else None
+    after_dt = _parse_datetime(after) if after else None
     before_dt = _parse_datetime(before) if before else None
 
     async with data_context():
-        await delete_persistent_object(name, since=since_dt, before=before_dt)
+        await delete_persistent_object(name, after=after_dt, before=before_dt)
 
-        if since_dt or before_dt:
+        if after_dt or before_dt:
             parts = []
-            if since_dt:
-                parts.append(f"since {since_dt}")
+            if after_dt:
+                parts.append(f"after {after_dt}")
             if before_dt:
                 parts.append(f"before {before_dt}")
             print(f"Deleted rows from '{name}' ({', '.join(parts)})")
