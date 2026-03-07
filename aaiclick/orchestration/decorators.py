@@ -1,9 +1,10 @@
 """Decorators for defining tasks and jobs in aaiclick orchestration.
 
-Provides Airflow-style TaskFlow API where:
+Provides a dynamic task execution API where:
 - @task decorates functions to create TaskFactory instances
 - Calling a TaskFactory with Task arguments creates dependencies automatically
-- @job decorates functions that define workflow DAGs
+- @job marks a function as the entry point task of a job
+- Any @task returning Task/Group objects triggers dynamic registration
 
 Example:
     @task
@@ -17,9 +18,12 @@ Example:
     @job("my_pipeline")
     def pipeline(url: str):
         extracted = extract(url=url)
-        transformed = transform(extracted)  # Auto-dependency: extract >> transform
+        transformed = transform(data=extracted)
         return [extracted, transformed]
 
+    # Creates Job + entry point task "pipeline" in DB
+    # Worker executes "pipeline" → returns [Task, Task] → those get registered
+    # Worker then executes "extract" → "transform" (respecting dependencies)
     job = await pipeline(url="https://example.com/data.parquet")
 """
 
@@ -182,13 +186,11 @@ def task(func: Callable = None, *, name: str = None, max_retries: int = 0) -> Un
 
 
 class JobFactory:
-    """Factory that creates and applies Jobs when called.
+    """Factory that creates Jobs with an entry point task when called.
 
-    Wraps a workflow definition function and handles:
-    - Database context management (creates OrchContext internally if needed)
-    - Job creation
-    - Task collection from function return value
-    - Applying all tasks to the database
+    The @job-decorated function becomes the entry point task of the job.
+    It runs on a worker, and if it returns Task/Group objects, those get
+    dynamically registered to the job.
     """
 
     def __init__(self, name: str, func: Callable):
@@ -196,23 +198,24 @@ class JobFactory:
 
         Args:
             name: Job name
-            func: Workflow definition function that returns tasks
+            func: Entry point function that will run as the first task
         """
         self.name = name
         self.func = func
+        self.entrypoint = _callable_to_string(func)
         wraps(func)(self)
 
     async def __call__(self, **kwargs) -> Job:
-        """Execute workflow definition and create job with tasks.
+        """Create a Job with an entry point task.
 
         Manages database context automatically — no need to wrap
         in OrchContext externally.
 
         Args:
-            **kwargs: Arguments passed to the workflow function
+            **kwargs: Arguments passed to the entry point task
 
         Returns:
-            Job: Created job with all tasks applied
+            Job: Created job with entry point task committed
         """
         # Check if we're already in an orch context
         try:
@@ -227,28 +230,8 @@ class JobFactory:
 
     async def _create_job(self, **kwargs) -> Job:
         """Internal method to create job within an OrchContext."""
-        # Call workflow function to get tasks
-        result = self.func(**kwargs)
-
-        # Normalize result to list
-        if isinstance(result, (Task, Group, MapHandle)):
-            items = [result]
-        elif isinstance(result, (list, tuple)):
-            items = list(result)
-        else:
-            raise ValueError(
-                f"Job function must return Task, Group, MapHandle, or list of them. "
-                f"Got {type(result).__name__}"
-            )
-
-        # Expand MapHandle items into their Task + Group components
-        tasks = []
-        for item in items:
-            if isinstance(item, MapHandle):
-                tasks.append(item.expander)
-                tasks.append(item.group)
-            else:
-                tasks.append(item)
+        # Serialize kwargs for the entry point task
+        serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
 
         job = Job(
             id=get_snowflake_id(),
@@ -262,8 +245,18 @@ class JobFactory:
             session.add(job)
             await session.commit()
 
-        # Commit tasks with job_id
-        await commit_tasks(tasks, job.id)
+        # Create entry point task
+        entry_task = Task(
+            id=get_snowflake_id(),
+            entrypoint=self.entrypoint,
+            name=self.name,
+            kwargs=serialized_kwargs,
+            status=TaskStatus.PENDING,
+            created_at=datetime.utcnow(),
+        )
+
+        # Commit entry point task with job_id
+        await commit_tasks([entry_task], job.id)
 
         return job
 
@@ -272,11 +265,11 @@ class JobFactory:
 
 
 def job(name_or_func=None, *, name: str = None):
-    """Decorator to create a JobFactory from a workflow function.
+    """Decorator to mark a function as a job's entry point task.
 
-    The decorated function should return a list of Tasks (and Groups)
-    that define the workflow DAG. When called, it creates a Job and
-    applies all tasks to the database.
+    The decorated function runs on a worker as the first task of the job.
+    If it returns Task/Group objects, those are dynamically registered
+    to the job with a dependency on the entry point task.
 
     Supports multiple usage forms:
         @job("my_pipeline")

@@ -15,15 +15,21 @@ from aaiclick.data.object import Object, View
 from aaiclick.orchestration.context import get_orch_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
+    _extract_task_items,
     deserialize_task_params,
     execute_task,
     import_callback,
+    register_returned_tasks,
     run_job_tasks,
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.fixtures.sample_tasks import (
+    chain_pipeline,
+    dynamic_pipeline,
+)
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
-from aaiclick.orchestration.models import JobStatus, Task, TaskStatus
+from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
 
 
 # Logging tests
@@ -310,3 +316,185 @@ async def test_job_test_simple(orch_ctx, monkeypatch):
         await ajob_test(job)
 
         assert job.status == JobStatus.COMPLETED
+
+
+# _extract_task_items tests
+
+
+def test_extract_task_items_single_task(orch_ctx):
+    """Single Task return is extracted."""
+    t = create_task("mod.func")
+    items, data = _extract_task_items(t)
+    assert items == [t]
+    assert data is None
+
+
+def test_extract_task_items_single_group(orch_ctx):
+    """Single Group return is extracted."""
+    from aaiclick.snowflake_id import get_snowflake_id
+
+    g = Group(id=get_snowflake_id(), name="g1")
+    items, data = _extract_task_items(g)
+    assert items == [g]
+    assert data is None
+
+
+def test_extract_task_items_list_of_tasks(orch_ctx):
+    """List of Tasks is extracted."""
+    t1 = create_task("mod.func1")
+    t2 = create_task("mod.func2")
+    items, data = _extract_task_items([t1, t2])
+    assert len(items) == 2
+    assert data is None
+
+
+def test_extract_task_items_native_value(orch_ctx):
+    """Native values are not extracted."""
+    items, data = _extract_task_items(42)
+    assert items == []
+    assert data == 42
+
+
+def test_extract_task_items_none(orch_ctx):
+    """None is treated as pure data."""
+    items, data = _extract_task_items(None)
+    assert items == []
+    assert data is None
+
+
+def test_extract_task_items_list_of_non_tasks(orch_ctx):
+    """List of non-task values is not extracted."""
+    items, data = _extract_task_items([1, 2, 3])
+    assert items == []
+    assert data == [1, 2, 3]
+
+
+# register_returned_tasks tests
+
+
+async def test_register_returned_tasks_no_tasks(orch_ctx):
+    """Non-task return values pass through unchanged."""
+    result = await register_returned_tasks(42, parent_task_id=1, job_id=1)
+    assert result == 42
+
+
+async def test_register_returned_tasks_with_task(orch_ctx):
+    """Returned Task is registered with dependency on parent."""
+    job = await create_job("reg_test", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    child = create_task("mod.child")
+
+    data_result = await register_returned_tasks(child, parent_task_id=parent.id, job_id=job.id)
+    assert data_result is None
+
+    # Verify child was committed with dependency on parent
+    async with get_orch_session() as session:
+        result = await session.execute(select(Task).where(Task.id == child.id))
+        db_child = result.scalar_one()
+        assert db_child.job_id == job.id
+
+        result = await session.execute(
+            select(Dependency).where(
+                Dependency.next_id == child.id,
+                Dependency.previous_id == parent.id,
+            )
+        )
+        dep = result.scalar_one()
+        assert dep.previous_type == "task"
+        assert dep.next_type == "task"
+
+
+async def test_register_returned_tasks_list(orch_ctx):
+    """List of Tasks is registered with dependencies on parent."""
+    job = await create_job("reg_list_test", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    c1 = create_task("mod.child1")
+    c2 = create_task("mod.child2")
+
+    data_result = await register_returned_tasks([c1, c2], parent_task_id=parent.id, job_id=job.id)
+    assert data_result is None
+
+    async with get_orch_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id, Task.entrypoint.in_(["mod.child1", "mod.child2"]))
+        )
+        children = result.scalars().all()
+        assert len(children) == 2
+
+
+# Dynamic pipeline integration tests
+
+
+async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
+    """@job creates a Job with an entry point task."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+
+        job = await dynamic_pipeline()
+
+        assert job.status == JobStatus.PENDING
+
+        # Verify entry point task was created
+        async with get_orch_session() as session:
+            result = await session.execute(
+                select(Task).where(Task.job_id == job.id)
+            )
+            tasks = list(result.scalars().all())
+            assert len(tasks) == 1
+            assert tasks[0].name == "dynamic_pipeline"
+            assert "sample_tasks.dynamic_pipeline" in tasks[0].entrypoint
+
+
+async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
+    """@job entry point runs and its returned tasks get registered and executed."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+
+        job = await dynamic_pipeline()
+        await run_job_tasks(job)
+
+        assert job.status == JobStatus.COMPLETED
+
+        # Entry point + 2 child tasks = 3 tasks total
+        async with get_orch_session() as session:
+            result = await session.execute(
+                select(Task).where(Task.job_id == job.id).order_by(Task.id)
+            )
+            tasks = list(result.scalars().all())
+            assert len(tasks) == 3
+
+            # All tasks should be completed
+            for t in tasks:
+                assert t.status == TaskStatus.COMPLETED
+
+            # Child tasks should have results
+            child_tasks = [t for t in tasks if t.name != "dynamic_pipeline"]
+            assert len(child_tasks) == 2
+            for ct in child_tasks:
+                assert ct.result is not None
+
+
+async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
+    """Chained dynamic creation: task A returns task B, task B returns task C."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+
+        job = await chain_pipeline()
+        await run_job_tasks(job)
+
+        assert job.status == JobStatus.COMPLETED
+
+        # chain_pipeline -> step_one -> step_two = 3 tasks
+        async with get_orch_session() as session:
+            result = await session.execute(
+                select(Task).where(Task.job_id == job.id).order_by(Task.id)
+            )
+            tasks = list(result.scalars().all())
+            assert len(tasks) == 3
+
+            for t in tasks:
+                assert t.status == TaskStatus.COMPLETED

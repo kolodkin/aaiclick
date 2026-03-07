@@ -16,7 +16,7 @@ from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from .context import get_orch_session
-from .execution import execute_task, serialize_task_result
+from .execution import execute_task, register_returned_tasks, serialize_task_result
 from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
@@ -331,8 +331,11 @@ async def worker_main_loop(
             try:
                 result = await exec_task
 
-                # Serialize result (Object or View) to JSON-storable reference
-                result_ref = serialize_task_result(result, task.job_id)
+                # Register any returned Task/Group objects to the job
+                data_result = await register_returned_tasks(result, task.id, task.job_id)
+
+                # Serialize the data portion of the result
+                result_ref = serialize_task_result(data_result, task.job_id)
 
                 # Update task status to COMPLETED
                 await update_task_status(
