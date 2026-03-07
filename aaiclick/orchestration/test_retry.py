@@ -1,11 +1,10 @@
 """Tests for task retry logic."""
 
+import os
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
 from sqlmodel import select
-
-from aaiclick.data.data_context import create_object_from_value
 
 from .claiming import claim_next_task, update_task_status
 from .context import get_orch_session
@@ -295,24 +294,22 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_retry_succeeds_on_third_attempt(
-    ctx, orch_ctx, monkeypatch, tmpdir
-):
-    """Task with Object counter fails twice, succeeds on third attempt."""
+async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmpdir):
+    """Flaky task fails twice, succeeds on the third attempt via retry."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
     # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
-    # Create counter Object with initial value (1 row = count 1)
-    counter = await create_object_from_value([0])
+    # Create a counter file path for the flaky task
+    counter_file = os.path.join(str(tmpdir), "counter.txt")
 
-    # Create job: increment_counter fails when count < 3, succeeds at count >= 3
-    # With max_retries=2: attempt 0 (count 1->fail), attempt 1 (count 2->fail),
-    # attempt 2 (count 3->success)
+    # flaky_task reads/increments counter_file, fails if count < 3
+    # With max_retries=2: attempt 0 (count=1 fail), attempt 1 (count=2 fail),
+    # attempt 2 (count=3 success)
     t = create_task(
-        "aaiclick.orchestration.fixtures.sample_tasks.increment_counter",
-        {"counter": counter._serialize_ref()},
+        "aaiclick.orchestration.fixtures.sample_tasks.flaky_task",
+        {"counter_file": counter_file},
         max_retries=2,
     )
     job = await create_job("test_retry_succeeds", t)
