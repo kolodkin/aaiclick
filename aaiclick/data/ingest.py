@@ -73,7 +73,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
         columns[name] = parse_ch_type(col_type)
-        if name == "value" and comment:
+        if name != "aai_id" and comment and fieldtype == FIELDTYPE_SCALAR:
             meta = ColumnMeta.from_yaml(comment)
             if meta.fieldtype:
                 fieldtype = meta.fieldtype

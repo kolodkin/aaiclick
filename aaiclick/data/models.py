@@ -103,7 +103,9 @@ GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var"]
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str]
 ValueListType = Union[List[int], List[float], List[bool], List[str]]
-ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
+ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
+ValueRecordType = List[ValueDictType]
+ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
 
 
 @dataclass

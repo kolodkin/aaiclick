@@ -293,6 +293,12 @@ async def create_object(
     return obj
 
 
+def _infer_array_clickhouse_type(value: list) -> ColumnDef:
+    """Infer Array(T) ClickHouse type from a Python list for use as an Array column."""
+    element_def = _infer_clickhouse_type(value)
+    return ColumnDef(f"Array({element_def.type})")
+
+
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnDef:
     """Infer ClickHouse column type from Python value using numpy.
 
@@ -409,16 +415,42 @@ async def create_object_from_value(
             await ch.command(insert_query)
 
     elif isinstance(val, list):
-        col_def = _infer_clickhouse_type(val)
-        schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnDef("UInt64"), "value": col_def},
-        )
-        obj = await create_object(schema, name=name)
+        if val and isinstance(val[0], dict):
+            # Records format: list of dicts with possible Array fields
+            first_keys = set(val[0].keys())
+            for i, record in enumerate(val[1:], 1):
+                if set(record.keys()) != first_keys:
+                    raise ValueError(
+                        f"All records must have identical keys. "
+                        f"Record 0 has {sorted(first_keys)}, "
+                        f"record {i} has {sorted(record.keys())}"
+                    )
 
-        if val:
-            data = [[v] for v in val]
-            await ch.insert(obj.table, data, column_names=["value"])
+            columns = {"aai_id": ColumnDef("UInt64")}
+            keys = list(val[0].keys())
+            for key in keys:
+                sample = val[0][key]
+                if isinstance(sample, list):
+                    columns[key] = _infer_array_clickhouse_type(sample)
+                else:
+                    columns[key] = _infer_clickhouse_type(sample)
+
+            schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+            obj = await create_object(schema, name=name)
+
+            data = [[record[key] for key in keys] for record in val]
+            await ch.insert(obj.table, data, column_names=keys)
+        else:
+            col_def = _infer_clickhouse_type(val)
+            schema = Schema(
+                fieldtype=FIELDTYPE_ARRAY,
+                columns={"aai_id": ColumnDef("UInt64"), "value": col_def},
+            )
+            obj = await create_object(schema, name=name)
+
+            if val:
+                data = [[v] for v in val]
+                await ch.insert(obj.table, data, column_names=["value"])
 
     else:
         col_def = _infer_clickhouse_type(val)

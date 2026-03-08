@@ -11,6 +11,11 @@ from typing import Any, Dict, List
 from .object import Object, ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
+def _convert_value(value):
+    """Convert tuples from ClickHouse Array columns to lists."""
+    return list(value) if isinstance(value, tuple) else value
+
+
 async def extract_scalar_data(obj: Object) -> Any:
     """
     Extract data from a scalar table (single row with aai_id and value).
@@ -75,13 +80,13 @@ async def extract_dict_data(
 
     if orient == ORIENT_RECORDS:
         # Return list of dicts (one per row)
-        return [{name: row[col_indices[name]] for name in output_columns} for row in rows]
+        return [{name: _convert_value(row[col_indices[name]]) for name in output_columns} for row in rows]
     else:
         # ORIENT_DICT
         if is_dict_of_arrays:
             # Dict of arrays: return dict with arrays as values
-            return {name: [row[col_indices[name]] for row in rows] for name in output_columns}
+            return {name: [_convert_value(row[col_indices[name]]) for row in rows] for name in output_columns}
         elif rows:
             # Dict of scalars: return single dict (first row)
-            return {name: rows[0][col_indices[name]] for name in output_columns}
+            return {name: _convert_value(rows[0][col_indices[name]]) for name in output_columns}
         return {}
