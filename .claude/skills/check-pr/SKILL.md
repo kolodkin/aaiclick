@@ -14,11 +14,16 @@ Execute the automated workflow checker script:
 .claude/skills/check-pr/run-workflow-check.sh
 ```
 
+To check only PR review comments (skip CI polling):
+```bash
+.claude/skills/check-pr/run-workflow-check.sh --comments-only
+```
+
 This script will automatically:
 1. Install gh CLI if not available
 2. Check authentication
 3. Get current branch
-4. Poll workflow status every 10 seconds until complete
+4. Poll workflow status until complete (or check comments only with `--comments-only`)
 5. Report SUCCESS or FAILURE with full logs
 
 ## On Failure
