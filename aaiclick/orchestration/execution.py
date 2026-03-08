@@ -25,7 +25,6 @@ from aaiclick.data.object import Object, View
 
 from .context import commit_tasks, get_orch_session
 from .decorators import JobFactory, TaskFactory
-from .handles import MapHandle
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
 from .worker_context import set_current_task_info
@@ -130,6 +129,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         upstream_result = await _resolve_upstream_ref(value, session)
         # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
+
+    # Check for callable reference
+    if value.get("ref_type") == "callable":
+        return import_callback(value["entrypoint"])
 
     # Check for group_results reference (from reduce() collecting map results)
     if value.get("ref_type") == "group_results":
@@ -313,8 +316,8 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
 
 
 def _is_registerable(value: Any) -> bool:
-    """Check if a value is a Task, Group, or MapHandle that can be registered."""
-    return isinstance(value, (Task, Group, MapHandle))
+    """Check if a value is a Task or Group that can be registered."""
+    return isinstance(value, (Task, Group))
 
 
 def _extract_task_items(result: Any) -> tuple[list, Any]:
@@ -331,9 +334,6 @@ def _extract_task_items(result: Any) -> tuple[list, Any]:
     if isinstance(result, Group):
         return ([result], None)
 
-    if isinstance(result, MapHandle):
-        return ([result.expander, result.group], None)
-
     if isinstance(result, (list, tuple)):
         task_items = []
         for item in result:
@@ -341,9 +341,6 @@ def _extract_task_items(result: Any) -> tuple[list, Any]:
                 task_items.append(item)
             elif isinstance(item, Group):
                 task_items.append(item)
-            elif isinstance(item, MapHandle):
-                task_items.append(item.expander)
-                task_items.append(item.group)
         if task_items:
             return (task_items, None)
 

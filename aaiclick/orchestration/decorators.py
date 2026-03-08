@@ -38,7 +38,6 @@ from aaiclick.data.object import Object
 from ..snowflake_id import get_snowflake_id
 from .context import _orch_contexts, commit_tasks, get_orch_session, orch_context
 from .factories import _callable_to_string
-from .handles import MapHandle
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
 
@@ -46,8 +45,6 @@ def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
     """Recursively collect Task instances from nested structures."""
     if isinstance(value, Task):
         upstream_tasks.append(value)
-    elif isinstance(value, MapHandle):
-        upstream_tasks.append(value.expander)
     elif isinstance(value, (list, tuple)):
         for v in value:
             _collect_upstreams(v, upstream_tasks)
@@ -72,14 +69,18 @@ def _serialize_value(value: Any) -> Any:
     """
     if isinstance(value, Task):
         return {"ref_type": "upstream", "task_id": value.id}
-    elif isinstance(value, MapHandle):
-        return {"ref_type": "group_results", "group_id": value.group.id}
+    elif isinstance(value, Group):
+        return {"ref_type": "group_results", "group_id": value.id}
     elif isinstance(value, Object):
         return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
         return [_serialize_value(v) for v in value]
     elif isinstance(value, dict):
         return {k: _serialize_value(v) for k, v in value.items()}
+    elif callable(value):
+        if isinstance(value, TaskFactory):
+            return {"ref_type": "callable", "entrypoint": value.entrypoint}
+        return {"ref_type": "callable", "entrypoint": _callable_to_string(value)}
     else:
         # Native Python types: str, int, float, bool, None
         return value
