@@ -211,7 +211,7 @@ Not for direct use:
 
 ### Partially Implemented
 
-- Dynamic task creation: `map()` and `reduce()` operators ✅ IMPLEMENTED — see `docs/dynamic_tasks.md`
+- Custom operators: `map()` ✅ IMPLEMENTED, `reduce()` ⚠️ NOT YET IMPLEMENTED — see `docs/dynamic_tasks.md`
 - Retry logic for failed tasks ✅ IMPLEMENTED — see `aaiclick/orchestration/worker.py` `_schedule_retry()`
 
 ## Task Execution
