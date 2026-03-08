@@ -1,6 +1,6 @@
 """Dynamic task creation operators for orchestration backend.
 
-Provides map() and map_apply() as @task-decorated functions for parallel
+Provides map() and map_part() as @task-decorated functions for parallel
 data processing, inspired by Apache Spark's partition-based parallelism.
 
 Usage:
@@ -38,7 +38,7 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
     """Partition an Object and create parallel tasks for each partition.
 
     Queries ClickHouse for the Object's row count, creates an output Object,
-    a Group, and N map_apply child tasks (one per partition). Each child task
+    a Group, and N map_part child tasks (one per partition). Each child task
     applies cbk to every row in its partition View.
 
     Args:
@@ -64,7 +64,7 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
 
     tasks = []
     for i in range(n_partitions):
-        child = map_apply(
+        child = map_part(
             cbk=cbk,
             part={
                 "object_type": "view",
@@ -82,7 +82,7 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
 
 
 @task
-async def map_apply(cbk: Callable, part: Object, out: Object) -> None:
+async def map_part(cbk: Callable, part: Object, out: Object) -> None:
     """Apply a callback to each row in a partition View.
 
     Reads rows from the partition, calls cbk(row) for each, and writes

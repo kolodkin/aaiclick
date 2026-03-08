@@ -1,7 +1,7 @@
-"""Tests for dynamic task creation operators (map and map_apply)."""
+"""Tests for dynamic task creation operators (map and map_part)."""
 
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
-from aaiclick.orchestration.dynamic import map, map_apply
+from aaiclick.orchestration.dynamic import map, map_part
 from aaiclick.orchestration.factories import create_task
 from aaiclick.orchestration.models import (
     DEPENDENCY_TASK,
@@ -63,14 +63,14 @@ def test_map_unique_ids(orch_ctx):
     assert t1.id != t2.id
 
 
-def test_map_apply_returns_task(orch_ctx):
-    """map_apply() returns a Task."""
+def test_map_part_returns_task(orch_ctx):
+    """map_part() returns a Task."""
     obj_task = create_task("mymodule.load_data")
 
-    result = map_apply(cbk=_dummy_func, part=obj_task, out=obj_task)
+    result = map_part(cbk=_dummy_func, part=obj_task, out=obj_task)
 
     assert isinstance(result, Task)
-    assert result.entrypoint == "aaiclick.orchestration.dynamic.map_apply"
+    assert result.entrypoint == "aaiclick.orchestration.dynamic.map_part"
 
 
 def test_serialize_callable(orch_ctx):
