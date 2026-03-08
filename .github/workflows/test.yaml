@@ -188,10 +188,10 @@ jobs:
         include:
           - project: basic-worker
             title: Basic Worker Example
-            command: "chmod +x aaiclick/example_projects/basic_worker/basic_worker.sh && aaiclick/example_projects/basic_worker/basic_worker.sh"
+            command: "aaiclick/example_projects/basic_worker/basic_worker.sh"
           - project: nyc-taxi-pipeline
             title: NYC Taxi Pipeline
-            command: "chmod +x aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh && aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh"
+            command: "aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh"
 
     services:
       clickhouse:
