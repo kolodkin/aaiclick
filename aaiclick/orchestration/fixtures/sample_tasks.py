@@ -1,8 +1,4 @@
-"""Sample task functions for orchestration tests.
-
-Note: Task parameters must be aaiclick Objects or Views.
-Native Python values are not supported as task parameters.
-"""
+"""Sample task functions for orchestration tests."""
 
 import sys
 from pathlib import Path

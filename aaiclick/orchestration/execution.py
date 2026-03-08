@@ -8,6 +8,7 @@ import math
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -22,10 +23,11 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
-from .context import get_orch_session
-from .decorators import TaskFactory
+from .context import commit_tasks, get_orch_session
+from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
-from .models import Job, JobStatus, Task, TaskStatus
+from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from .pg_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
 
 
@@ -56,6 +58,9 @@ def import_callback(entrypoint: str) -> Callable:
     attr = getattr(module, function_name)
 
     if isinstance(attr, TaskFactory):
+        return attr.func
+
+    if isinstance(attr, JobFactory):
         return attr.func
 
     return attr
@@ -125,6 +130,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         upstream_result = await _resolve_upstream_ref(value, session)
         # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
+
+    # Check for callable reference
+    if value.get("ref_type") == "callable":
+        return import_callback(value["entrypoint"])
 
     # Check for group_results reference (from reduce() collecting map results)
     if value.get("ref_type") == "group_results":
@@ -312,12 +321,138 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     return {"native_value": _sanitize_for_json(result)}
 
 
+def _is_registerable(value: Any) -> bool:
+    """Check if a value is a Task or Group that can be registered."""
+    return isinstance(value, (Task, Group))
+
+
+def _extract_task_items(result: Any) -> tuple[list, Any]:
+    """Extract Task/Group items from a task's return value.
+
+    When a Group carries attached tasks (via group.add_task()), those
+    tasks are flattened into the returned list for co-registration.
+
+    Returns:
+        Tuple of (registerable_items, data_result):
+        - registerable_items: list of Task/Group objects to register
+        - data_result: remaining data for serialization (None if all items are tasks)
+    """
+    items = _flatten_item(result)
+    if items:
+        return (items, None)
+
+    return ([], result)
+
+
+def _flatten_item(item: Any) -> list:
+    """Recursively extract Task/Group items, including Group._tasks."""
+    if isinstance(item, Task):
+        return [item]
+
+    if isinstance(item, Group):
+        return [item, *item.get_tasks()]
+
+    if isinstance(item, (list, tuple)):
+        result = []
+        for sub in item:
+            result.extend(_flatten_item(sub))
+        return result
+
+    return []
+
+
+async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
+    """Check if a task's result contains Task/Group objects and register them.
+
+    When a task returns Task or Group objects, those are dynamically registered
+    to the current job with a dependency on the parent task.
+
+    Args:
+        result: The raw return value from the task function
+        parent_task_id: ID of the task that returned this result
+        job_id: ID of the job these tasks belong to
+
+    Returns:
+        The non-task portion of the result for serialization, or None if
+        the entire result was tasks.
+    """
+    task_items, data_result = _extract_task_items(result)
+
+    if not task_items:
+        return result
+
+    # Wire dependency: each returned item depends on the parent task
+    for item in task_items:
+        if isinstance(item, (Task, Group)):
+            dep = Dependency(
+                previous_id=parent_task_id,
+                previous_type="task",
+                next_id=item.id,
+                next_type="task" if isinstance(item, Task) else "group",
+            )
+            item.previous_dependencies.append(dep)
+
+    await commit_tasks(task_items, job_id)
+
+    return data_result
+
+
+_READY_TASK_SQL = """
+    SELECT t.id FROM tasks t
+    JOIN jobs j ON t.job_id = j.id
+    WHERE t.job_id = :job_id
+    AND t.status = :pending_status
+    AND (t.retry_after IS NULL OR t.retry_after <= :now)
+    -- Check task → task dependencies
+    AND NOT EXISTS (
+        SELECT 1 FROM dependencies d
+        JOIN tasks prev ON d.previous_id = prev.id
+        WHERE d.next_id = t.id
+        AND d.next_type = 'task'
+        AND d.previous_type = 'task'
+        AND prev.status != :completed_status
+    )
+    -- Check group → task dependencies
+    AND NOT EXISTS (
+        SELECT 1 FROM dependencies d
+        JOIN tasks prev ON prev.group_id = d.previous_id
+        WHERE d.next_id = t.id
+        AND d.next_type = 'task'
+        AND d.previous_type = 'group'
+        AND prev.status != :completed_status
+    )
+    -- Check task → group dependencies
+    AND NOT EXISTS (
+        SELECT 1 FROM dependencies d
+        JOIN tasks prev ON d.previous_id = prev.id
+        WHERE d.next_id = t.group_id
+        AND d.next_type = 'group'
+        AND d.previous_type = 'task'
+        AND prev.status != :completed_status
+        AND t.group_id IS NOT NULL
+    )
+    -- Check group → group dependencies
+    AND NOT EXISTS (
+        SELECT 1 FROM dependencies d
+        JOIN tasks prev ON prev.group_id = d.previous_id
+        WHERE d.next_id = t.group_id
+        AND d.next_type = 'group'
+        AND d.previous_type = 'group'
+        AND prev.status != :completed_status
+        AND t.group_id IS NOT NULL
+    )
+    ORDER BY t.id ASC
+    LIMIT 1
+"""
+
+
 async def run_job_tasks(job: Job) -> None:
     """
     Execute all tasks for a job synchronously (test mode).
 
     This simulates worker behavior but runs in the current process.
-    Tasks are fetched and executed one at a time in order of creation (snowflake ID).
+    Tasks are fetched and executed one at a time, respecting dependencies.
+    Supports dynamic task creation (tasks returned by other tasks).
 
     Args:
         job: Job whose tasks to execute
@@ -335,37 +470,49 @@ async def run_job_tasks(job: Job) -> None:
     job_failed = False
     error_msg = None
 
-    # Fetch and execute one task at a time until no more pending tasks
+    # Fetch and execute one task at a time until no more ready tasks
     while True:
         async with get_orch_session() as session:
-            # Fetch next pending task for this job
+            # Fetch next ready task (dependency-aware)
+            now = datetime.utcnow()
             result = await session.execute(
-                select(Task)
-                .where(Task.job_id == job.id, Task.status == TaskStatus.PENDING)
-                .order_by(Task.id)
-                .limit(1)
+                text(_READY_TASK_SQL),
+                {
+                    "job_id": job.id,
+                    "pending_status": TaskStatus.PENDING.value,
+                    "completed_status": TaskStatus.COMPLETED.value,
+                    "now": now,
+                },
             )
-            task = result.scalar_one_or_none()
+            row = result.fetchone()
 
-            if task is None:
-                # No more pending tasks
+            if row is None:
                 break
 
-            # Update task to RUNNING
+            task_id = row[0]
+
+            # Fetch the full task and update to RUNNING
+            db_result = await session.execute(
+                select(Task).where(Task.id == task_id)
+            )
+            task = db_result.scalar_one()
+
             task.status = TaskStatus.RUNNING
-            task.started_at = datetime.utcnow()
+            task.started_at = now
             session.add(task)
             await session.commit()
 
-            # Store IDs for later use (task object detaches after session closes)
-            task_id = task.id
             task_job_id = task.job_id
 
         try:
-            result = await execute_task(task)
+            async with PgLifecycleHandler(task_job_id) as lifecycle:
+                result = await execute_task(task, lifecycle=lifecycle)
 
-            # Serialize result (Object or View) to JSON-storable reference
-            result_ref = serialize_task_result(result, task_job_id)
+            # Register any returned Task/Group objects to the job
+            data_result = await register_returned_tasks(result, task_id, task_job_id)
+
+            # Serialize the data portion of the result
+            result_ref = serialize_task_result(data_result, task_job_id)
 
             async with get_orch_session() as session:
                 # Reload and update task to COMPLETED

@@ -211,8 +211,35 @@ Not for direct use:
 
 ### Partially Implemented
 
-- Dynamic task creation: `map()` and `reduce()` operators ✅ IMPLEMENTED — see `docs/dynamic_tasks.md`
 - Retry logic for failed tasks ✅ IMPLEMENTED — see `aaiclick/orchestration/worker.py` `_schedule_retry()`
+
+## Custom Operators
+
+**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `map()` and `_map_part()` functions
+
+Plain `@task`-decorated functions for parallel data processing. Callbacks are serialized via `_serialize_value()` in `decorators.py` and deserialized via `_deserialize_value()` in `execution.py`.
+
+| Operator                                  | Status                   | Description                                                   |
+|-------------------------------------------|--------------------------|---------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `_map_part` child tasks. `args`/`kwargs` forwarded to `cbk`. |
+| `_map_part(cbk, part, out) -> None`               | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
+| `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
+
+### Spark Methods vs aaiclick Capabilities
+
+| Spark Method           | aaiclick Equivalent               | Notes                                       |
+|------------------------|-----------------------------------|---------------------------------------------|
+| `map(func)`            | Object operators (`+`, `*`, etc.) | Element-wise SQL operations                 |
+| `mapPartitions(func)`  | **`map(cbk, obj)`** ✅           | Custom Python logic per partition           |
+| `reduce(func)`         | ⚠️ NOT YET IMPLEMENTED           | Collect and aggregate partition results     |
+| `filter(pred)`         | `View(where=...)`                 | SQL WHERE clause                            |
+| `groupByKey`           | `obj.group_by(...)`               | SQL GROUP BY                                |
+| `count()`              | `obj.count()`                     | SQL COUNT aggregation                       |
+| `sum/mean/min/max/std` | `obj.sum()` etc.                  | SQL aggregation functions                   |
+| `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT                      |
+| `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                                |
+| `flatMap(func)`        | ⚠️ NOT YET IMPLEMENTED           | Variant of map() for variable-output tasks  |
+| `join`                 | ⚠️ NOT YET IMPLEMENTED           | SQL JOIN                                    |
 
 ## Task Execution
 

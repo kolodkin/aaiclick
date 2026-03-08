@@ -13,6 +13,7 @@ from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .group_by import example as group_by_example
 from .orchestration_basic import amain as orchestration_basic_example
+from .orchestration_dynamic import amain as orchestration_dynamic_example
 from .selectors import example as selectors_example
 from .statistics import example as statistics_example
 from .views import example as views_example
@@ -56,9 +57,12 @@ async def main():
         print("=" * 60)
         await selectors_example()
 
-    # Orchestration example manages its own contexts (OrchContext + data_context())
+    # Orchestration examples manage their own contexts (OrchContext + data_context())
     print("\n" * 2)
     await orchestration_basic_example()
+
+    print("\n" * 2)
+    await orchestration_dynamic_example()
 
     print("\n" * 2)
     print("=" * 60)
