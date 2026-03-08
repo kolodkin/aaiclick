@@ -221,8 +221,8 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 
 | Operator                                  | Status                   | Description                                                   |
 |-------------------------------------------|--------------------------|---------------------------------------------------------------|
-| `map(cbk, obj, partition=5000) -> Group`  | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `map_part` child tasks |
-| `map_part(cbk, part, out) -> None`        | ✅ IMPLEMENTED (internal) | Applies `cbk(row)` to each row in a partition View            |
+| `map(cbk, obj, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `map_part` child tasks. `args`/`kwargs` forwarded to `cbk`. |
+| `map_part(cbk, part, out) -> None`                | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
 | `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
 
 ### Spark Methods vs aaiclick Capabilities

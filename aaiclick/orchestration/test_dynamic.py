@@ -39,7 +39,7 @@ def test_map_group_carries_expander(orch_ctx):
 
 
 def test_map_expander_kwargs(orch_ctx):
-    """Expander task stores cbk, obj, partition, group_id in kwargs."""
+    """Expander task stores cbk, obj, partition, group_id, cbk_args, cbk_kwargs."""
     obj_task = create_task("mymodule.load_data")
 
     group = map(cbk=_dummy_func, obj=obj_task, partition=500)
@@ -52,6 +52,23 @@ def test_map_expander_kwargs(orch_ctx):
     assert kwargs["cbk"]["entrypoint"].endswith("_dummy_func")
     assert kwargs["obj"]["ref_type"] == "upstream"
     assert kwargs["obj"]["task_id"] == obj_task.id
+    assert kwargs["cbk_args"] == []
+    assert kwargs["cbk_kwargs"] == {}
+
+
+def test_map_with_args_kwargs(orch_ctx):
+    """args and kwargs are serialized in the expander task."""
+    obj_task = create_task("mymodule.load_data")
+
+    group = map(
+        cbk=_dummy_func, obj=obj_task, partition=500,
+        args=(10,), kwargs={"factor": 2, "mode": "fast"},
+    )
+
+    expander = group.get_tasks()[0]
+    assert expander.kwargs["cbk_args"] == [10]
+    assert expander.kwargs["cbk_kwargs"]["factor"] == 2
+    assert expander.kwargs["cbk_kwargs"]["mode"] == "fast"
 
 
 def test_map_expander_dependency(orch_ctx):
