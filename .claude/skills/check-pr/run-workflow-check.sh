@@ -277,7 +277,25 @@ poll_checks() {
         exit 0
     fi
 
-    # Failed - show status and fetch error logs
+    # --watch exited non-zero: could be actual CI failure or just review-required status
+    # Check if any CI checks actually failed
+    FAILED_CHECKS=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null | grep -c "fail" || true)
+
+    if [ "$FAILED_CHECKS" -eq 0 ]; then
+        # All checks passed - likely review-required or pending status
+        echo ""
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}STATUS: ALL CI CHECKS PASSED${NC}"
+        echo -e "${GREEN}PR: #$PR_NUMBER${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
+        echo ""
+        check_review_comments
+        exit 0
+    fi
+
+    # Actual CI failure - show status and fetch error logs
     echo ""
     echo -e "${RED}❌ Some checks FAILED!${NC}"
     echo ""
@@ -310,7 +328,11 @@ main() {
     detect_repo
     get_branch
     check_pr_exists
-    poll_checks
+    if [ "${1:-}" = "--comments-only" ]; then
+        check_review_comments
+    else
+        poll_checks
+    fi
 }
 
-main
+main "$@"
