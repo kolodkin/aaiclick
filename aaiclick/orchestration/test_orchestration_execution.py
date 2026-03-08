@@ -369,6 +369,37 @@ def test_extract_task_items_list_of_non_tasks(orch_ctx):
     assert data == [1, 2, 3]
 
 
+def test_extract_task_items_mixed_task_and_group(orch_ctx):
+    """Mixed list of Task and Group is extracted."""
+    from aaiclick.snowflake_id import get_snowflake_id
+
+    t = create_task("mod.func")
+    g = Group(id=get_snowflake_id(), name="g1")
+    items, data = _extract_task_items([t, g])
+    assert len(items) == 2
+    assert t in items
+    assert g in items
+    assert data is None
+
+
+def test_extract_task_items_mixed_with_explicit_dependency(orch_ctx):
+    """Task with explicit >> dependency is extracted with deps preserved."""
+    from aaiclick.snowflake_id import get_snowflake_id
+
+    t1 = create_task("mod.step1")
+    t2 = create_task("mod.step2")
+    g = Group(id=get_snowflake_id(), name="g1")
+    t2 >> t1  # explicit dependency: t1 depends on t2
+
+    items, data = _extract_task_items([t1, g])
+    assert t1 in items
+    assert g in items
+
+    # Explicit dependency is preserved
+    dep_ids = {d.previous_id for d in t1.previous_dependencies}
+    assert t2.id in dep_ids
+
+
 # register_returned_tasks tests
 
 

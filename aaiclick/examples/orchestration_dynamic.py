@@ -33,10 +33,18 @@ async def step_b(x: int) -> int:
 
 @task
 async def orchestrator():
-    """A task that dynamically creates child tasks at runtime."""
+    """A task that dynamically creates child tasks at runtime.
+
+    Demonstrates:
+    - Returning a list of Tasks for dynamic registration
+    - Implicit dependency via upstream ref (b depends on a)
+    - Explicit dependency via >> operator (c runs after b)
+    """
     a = step_a()
-    b = step_b(x=a)  # b depends on a (automatic via upstream ref)
-    return [a, b]  # returned tasks are registered to the current job
+    b = step_b(x=a)  # implicit dependency: b depends on a (via upstream ref)
+    c = step_a()
+    b >> c  # explicit dependency: c runs after b
+    return [a, b, c]  # returned tasks are registered to the current job
 
 
 @job("dynamic_tasks_example")
