@@ -46,9 +46,8 @@ class LifecycleHandler(ABC):
         """Release a job-scoped pinned ref (ownership transfer to consumer).
 
         Only meaningful for distributed lifecycle handlers that track refs
-        in an external store (e.g. PostgreSQL). Local handler raises.
+        in an external store (e.g. PostgreSQL). Default: no-op.
         """
-        raise NotImplementedError("claim() requires a distributed lifecycle handler")
 
     async def __aenter__(self):
         await self.start()

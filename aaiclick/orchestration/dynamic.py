@@ -78,7 +78,7 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
         child.group_id = group.id
         tasks.append(child)
 
-    return [out, group, *tasks]
+    return [group, *tasks]
 
 
 @task
