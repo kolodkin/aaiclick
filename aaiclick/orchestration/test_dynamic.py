@@ -1,5 +1,6 @@
 """Tests for dynamic task creation operators (map and map_part)."""
 
+from aaiclick.data.object import Object
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
 from aaiclick.orchestration.execution import _extract_task_items, import_callback
 from aaiclick.orchestration.factories import create_task
@@ -178,3 +179,43 @@ def test_map_part_dependencies(orch_ctx):
     dep_ids = {d.previous_id for d in result.previous_dependencies}
     assert part_task.id in dep_ids
     assert out_task.id in dep_ids
+
+
+def test_map_args_with_object(orch_ctx):
+    """Object in args is serialized via _serialize_value."""
+    obj_task = create_task("mymodule.load_data")
+    lookup = Object(table="t_lookup")
+
+    group = map(cbk=_dummy_func, obj=obj_task, args=(lookup,))
+
+    expander = group.get_tasks()[0]
+    serialized_args = expander.kwargs["cbk_args"]
+    assert len(serialized_args) == 1
+    assert serialized_args[0]["object_type"] == "object"
+    assert serialized_args[0]["table"] == "t_lookup"
+
+
+def test_map_kwargs_with_object(orch_ctx):
+    """Object in kwargs is serialized via _serialize_value."""
+    obj_task = create_task("mymodule.load_data")
+    lookup = Object(table="t_lookup")
+
+    group = map(cbk=_dummy_func, obj=obj_task, kwargs={"lookup": lookup})
+
+    expander = group.get_tasks()[0]
+    serialized_kwargs = expander.kwargs["cbk_kwargs"]
+    assert serialized_kwargs["lookup"]["object_type"] == "object"
+    assert serialized_kwargs["lookup"]["table"] == "t_lookup"
+
+
+def test_map_args_with_task_creates_dependency(orch_ctx):
+    """Task in args creates a dependency on the expander."""
+    obj_task = create_task("mymodule.load_data")
+    extra_task = create_task("mymodule.extra")
+
+    group = map(cbk=_dummy_func, obj=obj_task, args=(extra_task,))
+
+    expander = group.get_tasks()[0]
+    dep_ids = {d.previous_id for d in expander.previous_dependencies}
+    assert obj_task.id in dep_ids
+    assert extra_task.id in dep_ids
