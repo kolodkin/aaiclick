@@ -13,7 +13,7 @@ from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .group_by import example as group_by_example
 from .orchestration_basic import amain as orchestration_basic_example
-from .orchestration_map import amain as orchestration_map_example
+from .orchestration_dynamic import amain as orchestration_dynamic_example
 from .selectors import example as selectors_example
 from .statistics import example as statistics_example
 from .views import example as views_example
@@ -62,7 +62,7 @@ async def main():
     await orchestration_basic_example()
 
     print("\n" * 2)
-    await orchestration_map_example()
+    await orchestration_dynamic_example()
 
     print("\n" * 2)
     print("=" * 60)
