@@ -34,6 +34,39 @@ async def row_writer_with_factor(row, factor: int, output_file: str):
         f.write(f"{row * factor}\n")
 
 
+# --- Job pipelines (must be module-level for entrypoint resolution) ---
+
+
+@job("test_map_basic")
+def map_basic_pipeline(output_file: str):
+    data = create_test_data()
+    group = map(
+        cbk=row_writer, obj=data, partition=5000,
+        kwargs={"output_file": output_file},
+    )
+    return [data, group]
+
+
+@job("test_map_kwargs_exec")
+def map_kwargs_pipeline(output_file: str, factor: int):
+    data = create_test_data()
+    group = map(
+        cbk=row_writer_with_factor, obj=data, partition=5000,
+        kwargs={"factor": factor, "output_file": output_file},
+    )
+    return [data, group]
+
+
+@job("test_map_partitions")
+def map_partitions_pipeline(output_file: str):
+    data = create_test_data()
+    group = map(
+        cbk=row_writer, obj=data, partition=2,
+        kwargs={"output_file": output_file},
+    )
+    return [data, group]
+
+
 # --- Execution tests ---
 
 
@@ -43,16 +76,7 @@ async def test_map_execution_basic(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
-        @job("test_map_basic")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer, obj=data, partition=5000,
-                kwargs={"output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
+        j = await map_basic_pipeline(output_file=output_file)
         await ajob_test(j)
 
         assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
@@ -66,16 +90,7 @@ async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
-        @job("test_map_kwargs_exec")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer_with_factor, obj=data, partition=5000,
-                kwargs={"factor": 3, "output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
+        j = await map_kwargs_pipeline(output_file=output_file, factor=3)
         await ajob_test(j)
 
         assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
@@ -89,16 +104,7 @@ async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
-        @job("test_map_partitions")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer, obj=data, partition=2,
-                kwargs={"output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
+        j = await map_partitions_pipeline(output_file=output_file)
         await ajob_test(j)
 
         assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
