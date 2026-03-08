@@ -2,7 +2,8 @@
 
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
 from aaiclick.orchestration.dynamic import map, map_part
-from aaiclick.orchestration.factories import create_task
+from aaiclick.orchestration.execution import import_callback
+from aaiclick.orchestration.factories import _callable_to_string, create_task
 from aaiclick.orchestration.models import (
     DEPENDENCY_TASK,
     Task,
@@ -89,3 +90,48 @@ def test_serialize_task_factory_callable(orch_ctx):
 
     assert serialized["ref_type"] == "callable"
     assert serialized["entrypoint"] == factory.entrypoint
+
+
+def test_callable_roundtrip(orch_ctx):
+    """Callable serialized via _serialize_value can be deserialized via import_callback."""
+    serialized = _serialize_value(_dummy_func)
+    restored = import_callback(serialized["entrypoint"])
+
+    assert restored is _dummy_func
+
+
+def test_task_factory_callable_roundtrip(orch_ctx):
+    """TaskFactory serialized as callable can be roundtripped via import_callback."""
+    factory = TaskFactory(_dummy_func, name="_dummy_func")
+    serialized = _serialize_value(factory)
+    restored = import_callback(serialized["entrypoint"])
+
+    # import_callback unwraps TaskFactory to get the original function
+    assert restored is _dummy_func
+
+
+def test_map_part_kwargs(orch_ctx):
+    """map_part() stores cbk, part, and out in kwargs."""
+    part_task = create_task("mymodule.load_data")
+    out_task = create_task("mymodule.output")
+
+    result = map_part(cbk=_dummy_func, part=part_task, out=out_task)
+
+    kwargs = result.kwargs
+    assert kwargs["cbk"]["ref_type"] == "callable"
+    assert kwargs["part"]["ref_type"] == "upstream"
+    assert kwargs["part"]["task_id"] == part_task.id
+    assert kwargs["out"]["ref_type"] == "upstream"
+    assert kwargs["out"]["task_id"] == out_task.id
+
+
+def test_map_part_dependencies(orch_ctx):
+    """map_part() creates dependencies on part and out tasks."""
+    part_task = create_task("mymodule.load_data")
+    out_task = create_task("mymodule.output")
+
+    result = map_part(cbk=_dummy_func, part=part_task, out=out_task)
+
+    dep_ids = {d.previous_id for d in result.previous_dependencies}
+    assert part_task.id in dep_ids
+    assert out_task.id in dep_ids
