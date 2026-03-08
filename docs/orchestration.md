@@ -215,13 +215,13 @@ Not for direct use:
 
 ## Custom Operators
 
-**Implementation**: `aaiclick/orchestration/dynamic.py` — see `map()` and `map_part()` functions
+**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `map()` and `map_part()` functions
 
 Plain `@task`-decorated functions for parallel data processing. Callbacks are serialized via `_serialize_value()` in `decorators.py` and deserialized via `_deserialize_value()` in `execution.py`.
 
 | Operator                                  | Status                   | Description                                                   |
 |-------------------------------------------|--------------------------|---------------------------------------------------------------|
-| `map(cbk, obj, partition=5000) -> Task`   | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `map_part` child tasks |
+| `map(cbk, obj, partition=5000) -> Group`  | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `map_part` child tasks |
 | `map_part(cbk, part, out) -> None`        | ✅ IMPLEMENTED (internal) | Applies `cbk(row)` to each row in a partition View            |
 | `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
 

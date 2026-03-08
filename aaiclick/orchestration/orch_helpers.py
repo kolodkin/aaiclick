@@ -25,7 +25,7 @@ from math import ceil
 from typing import Callable
 
 from aaiclick.data.data_context import create_object, get_ch_client
-from aaiclick.data.object import Object
+from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import task
@@ -82,7 +82,7 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
 
 
 @task
-async def map_part(cbk: Callable, part: Object, out: Object) -> None:
+async def map_part(cbk: Callable, part: View, out: Object) -> None:
     """Apply a callback to each row in a partition View.
 
     Reads rows from the partition, calls cbk(row) for each, and writes

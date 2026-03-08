@@ -24,7 +24,7 @@ from aaiclick.orchestration.execution import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.fixtures.sample_tasks import (
+from aaiclick.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )
@@ -477,7 +477,7 @@ async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
             assert tasks[0].name == "dynamic_pipeline"
-            assert "sample_tasks.dynamic_pipeline" in tasks[0].entrypoint
+            assert "orchestration_dynamic.dynamic_pipeline" in tasks[0].entrypoint
 
 
 async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):

@@ -1,7 +1,7 @@
 """Tests for dynamic task creation operators (map and map_part)."""
 
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
-from aaiclick.orchestration.dynamic import map, map_part
+from aaiclick.orchestration.orch_helpers import map, map_part
 from aaiclick.orchestration.execution import import_callback
 from aaiclick.orchestration.factories import _callable_to_string, create_task
 from aaiclick.orchestration.models import (
@@ -23,7 +23,7 @@ def test_map_returns_task(orch_ctx):
 
     assert isinstance(result, Task)
     assert result.status == TaskStatus.PENDING
-    assert result.entrypoint == "aaiclick.orchestration.dynamic.map"
+    assert result.entrypoint == "aaiclick.orchestration.orch_helpers.map"
 
 
 def test_map_task_kwargs(orch_ctx):
@@ -71,7 +71,7 @@ def test_map_part_returns_task(orch_ctx):
     result = map_part(cbk=_dummy_func, part=obj_task, out=obj_task)
 
     assert isinstance(result, Task)
-    assert result.entrypoint == "aaiclick.orchestration.dynamic.map_part"
+    assert result.entrypoint == "aaiclick.orchestration.orch_helpers.map_part"
 
 
 def test_serialize_callable(orch_ctx):

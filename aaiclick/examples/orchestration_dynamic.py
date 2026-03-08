@@ -9,7 +9,7 @@ Demonstrates dynamic task creation patterns:
 
 Note: map() example is not included here because it requires distributed
 workers with lifecycle handlers for Object table management. See
-aaiclick/orchestration/dynamic.py for the map() implementation.
+aaiclick/orchestration/orch_helpers.py for the map() implementation.
 
 Note: This requires running PostgreSQL and ClickHouse servers.
 """
@@ -52,7 +52,56 @@ async def orchestrator():
 def dynamic_tasks_job():
     """Job whose entry point creates child tasks dynamically."""
     entry = orchestrator()
-    return [entry]
+    return entry
+
+
+# --- Test/example pipelines for dynamic task registration ---
+
+
+@task
+def child_task_a():
+    """A child task that returns a native value."""
+    return "result_a"
+
+
+@task
+def child_task_b():
+    """A child task that returns a native value."""
+    return "result_b"
+
+
+@task
+def task_returning_tasks():
+    """A task that returns child tasks for dynamic registration."""
+    a = child_task_a()
+    b = child_task_b()
+    return [a, b]
+
+
+@task
+def step_two():
+    """Second step in a chain."""
+    return "step_two_done"
+
+
+@task
+def step_one():
+    """First step that returns a child task for chaining."""
+    return step_two()
+
+
+@job("dynamic_pipeline")
+def dynamic_pipeline():
+    """Entry point that spawns child tasks."""
+    a = child_task_a()
+    b = child_task_b()
+    return [a, b]
+
+
+@job("chain_pipeline")
+def chain_pipeline():
+    """Entry point that returns a task which itself returns a task."""
+    return step_one()
 
 
 async def amain():
