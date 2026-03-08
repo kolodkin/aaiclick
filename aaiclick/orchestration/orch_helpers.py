@@ -1,7 +1,7 @@
 """Dynamic task creation operators for orchestration backend.
 
-Provides map() and map_part() as @task-decorated functions for parallel
-data processing, inspired by Apache Spark's partition-based parallelism.
+Provides map() for parallel data processing, inspired by Apache Spark's
+partition-based parallelism.
 
 Usage:
     from aaiclick.orchestration import job, task, map
@@ -20,34 +20,63 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from math import ceil
-from typing import Callable
+from typing import Callable, Union
 
 from aaiclick.data.data_context import create_object, get_ch_client
 from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .decorators import task
-from .models import Group, Task, TaskStatus
-from .worker_context import get_current_task_info
+from .decorators import TaskFactory, task
+from .models import Group, Task
 
 
-@task
-async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
-    """Partition an Object and create parallel tasks for each partition.
+def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
+        partition: int = 5000) -> Group:
+    """Create a parallel map operation over partitions of an Object.
 
-    Queries ClickHouse for the Object's row count, creates an output Object,
-    a Group, and N map_part child tasks (one per partition). Each child task
-    applies cbk to every row in its partition View.
+    At definition time, creates an expander Task + Group and returns the Group.
+    At runtime, the expander queries ClickHouse for row count and creates
+    N partition child tasks (one per partition).
 
     Args:
         cbk: Callback function applied to each row. Signature: cbk(row) -> None.
-        obj: Object to partition.
+        obj: Task or Object to partition. If Task, expander waits for it.
         partition: Number of rows per partition (default 5000).
 
     Returns:
-        List of [output_object, group, *child_tasks] for dynamic registration.
+        Group containing the expander task.
+    """
+    group = Group(id=get_snowflake_id(), name="map")
+
+    # Create expander task with serialized args
+    expander = _expand_map(
+        cbk=cbk,
+        obj=obj,
+        partition=partition,
+        group_id=group.id,
+    )
+
+    group.add_task(expander)
+    return group
+
+
+@task
+async def _expand_map(cbk: Callable, obj: Object, partition: int,
+                      group_id: int) -> list:
+    """Expander task: queries Object row count and creates partition tasks.
+
+    Runs at execution time. Partitions the Object into Views and creates
+    N map_part child tasks.
+
+    Args:
+        cbk: Callback function applied to each row.
+        obj: Object to partition.
+        partition: Number of rows per partition.
+        group_id: Group ID for the partition tasks.
+
+    Returns:
+        List of child tasks for dynamic registration.
     """
     table_name = obj.table
     ch_client = get_ch_client()
@@ -56,11 +85,6 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
     n_partitions = max(1, ceil(row_count / partition))
 
     out = await create_object(obj.schema)
-
-    group = Group(id=get_snowflake_id(), name="map")
-
-    info = get_current_task_info()
-    expander_task_id = info.task_id
 
     tasks = []
     for i in range(n_partitions):
@@ -75,10 +99,10 @@ async def map(cbk: Callable, obj: Object, partition: int = 5000) -> list:
             },
             out=out,
         )
-        child.group_id = group.id
+        child.group_id = group_id
         tasks.append(child)
 
-    return [group, *tasks]
+    return tasks
 
 
 @task

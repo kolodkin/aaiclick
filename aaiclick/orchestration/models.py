@@ -129,6 +129,8 @@ class Group(SQLModel, table=True):
     Group model - represents a logical grouping of tasks.
 
     Groups support nesting via parent_group_id.
+    Non-DB attribute ``_tasks`` carries associated Task objects so that
+    returning a Group from a @task/@job function also registers its tasks.
     """
 
     __tablename__ = "groups"
@@ -138,6 +140,16 @@ class Group(SQLModel, table=True):
     parent_group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def add_task(self, task: "Task") -> None:
+        """Attach a Task to this group for co-registration."""
+        if not hasattr(self, "_tasks"):
+            self._tasks = []
+        self._tasks.append(task)
+
+    def get_tasks(self) -> List["Task"]:
+        """Return tasks attached to this group (non-DB)."""
+        return getattr(self, "_tasks", [])
 
     # Dependencies where this group is the "next" (i.e., this group depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group

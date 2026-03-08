@@ -324,28 +324,36 @@ def _is_registerable(value: Any) -> bool:
 def _extract_task_items(result: Any) -> tuple[list, Any]:
     """Extract Task/Group items from a task's return value.
 
+    When a Group carries attached tasks (via group.add_task()), those
+    tasks are flattened into the returned list for co-registration.
+
     Returns:
         Tuple of (registerable_items, data_result):
         - registerable_items: list of Task/Group objects to register
         - data_result: remaining data for serialization (None if all items are tasks)
     """
-    if isinstance(result, Task):
-        return ([result], None)
-
-    if isinstance(result, Group):
-        return ([result], None)
-
-    if isinstance(result, (list, tuple)):
-        task_items = []
-        for item in result:
-            if isinstance(item, Task):
-                task_items.append(item)
-            elif isinstance(item, Group):
-                task_items.append(item)
-        if task_items:
-            return (task_items, None)
+    items = _flatten_item(result)
+    if items:
+        return (items, None)
 
     return ([], result)
+
+
+def _flatten_item(item: Any) -> list:
+    """Recursively extract Task/Group items, including Group._tasks."""
+    if isinstance(item, Task):
+        return [item]
+
+    if isinstance(item, Group):
+        return [item, *item.get_tasks()]
+
+    if isinstance(item, (list, tuple)):
+        result = []
+        for sub in item:
+            result.extend(_flatten_item(sub))
+        return result
+
+    return []
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:

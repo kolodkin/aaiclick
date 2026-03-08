@@ -1,67 +1,93 @@
 """Tests for dynamic task creation operators (map and map_part)."""
 
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
-from aaiclick.orchestration.orch_helpers import map, map_part
-from aaiclick.orchestration.execution import import_callback
-from aaiclick.orchestration.factories import _callable_to_string, create_task
+from aaiclick.orchestration.execution import _extract_task_items, import_callback
+from aaiclick.orchestration.factories import create_task
 from aaiclick.orchestration.models import (
     DEPENDENCY_TASK,
+    Group,
     Task,
-    TaskStatus,
 )
+from aaiclick.orchestration.orch_helpers import map, map_part
 
 
 async def _dummy_func(row):
     pass
 
 
-def test_map_returns_task(orch_ctx):
-    """map() returns a Task."""
+def test_map_returns_group(orch_ctx):
+    """map() returns a Group."""
     obj_task = create_task("mymodule.load_data")
 
     result = map(cbk=_dummy_func, obj=obj_task, partition=500)
 
-    assert isinstance(result, Task)
-    assert result.status == TaskStatus.PENDING
-    assert result.entrypoint == "aaiclick.orchestration.orch_helpers.map"
+    assert isinstance(result, Group)
+    assert result.name == "map"
 
 
-def test_map_task_kwargs(orch_ctx):
-    """map() stores cbk as callable ref, obj as upstream ref, partition as int."""
+def test_map_group_carries_expander(orch_ctx):
+    """map() Group carries an expander Task."""
     obj_task = create_task("mymodule.load_data")
 
-    result = map(cbk=_dummy_func, obj=obj_task, partition=500)
+    group = map(cbk=_dummy_func, obj=obj_task, partition=500)
 
-    kwargs = result.kwargs
+    tasks = group.get_tasks()
+    assert len(tasks) == 1
+    expander = tasks[0]
+    assert isinstance(expander, Task)
+    assert expander.entrypoint == "aaiclick.orchestration.orch_helpers._expand_map"
+
+
+def test_map_expander_kwargs(orch_ctx):
+    """Expander task stores cbk, obj, partition, group_id in kwargs."""
+    obj_task = create_task("mymodule.load_data")
+
+    group = map(cbk=_dummy_func, obj=obj_task, partition=500)
+
+    expander = group.get_tasks()[0]
+    kwargs = expander.kwargs
     assert kwargs["partition"] == 500
+    assert kwargs["group_id"] == group.id
     assert kwargs["cbk"]["ref_type"] == "callable"
     assert kwargs["cbk"]["entrypoint"].endswith("_dummy_func")
     assert kwargs["obj"]["ref_type"] == "upstream"
     assert kwargs["obj"]["task_id"] == obj_task.id
 
 
-def test_map_task_dependency(orch_ctx):
-    """When obj is a Task, map task depends on it."""
+def test_map_expander_dependency(orch_ctx):
+    """When obj is a Task, expander task depends on it."""
     upstream = create_task("mymodule.load_data")
 
-    result = map(cbk=_dummy_func, obj=upstream, partition=1000)
+    group = map(cbk=_dummy_func, obj=upstream, partition=1000)
 
-    deps = result.previous_dependencies
+    expander = group.get_tasks()[0]
+    deps = expander.previous_dependencies
     assert len(deps) == 1
     assert deps[0].previous_id == upstream.id
     assert deps[0].previous_type == DEPENDENCY_TASK
-    assert deps[0].next_id == result.id
-    assert deps[0].next_type == DEPENDENCY_TASK
 
 
 def test_map_unique_ids(orch_ctx):
-    """Each map() call creates a unique task."""
+    """Each map() call creates a unique Group."""
     t = create_task("mymodule.load_data")
 
-    t1 = map(cbk=_dummy_func, obj=t, partition=1000)
-    t2 = map(cbk=_dummy_func, obj=t, partition=1000)
+    g1 = map(cbk=_dummy_func, obj=t, partition=1000)
+    g2 = map(cbk=_dummy_func, obj=t, partition=1000)
 
-    assert t1.id != t2.id
+    assert g1.id != g2.id
+
+
+def test_map_extract_task_items(orch_ctx):
+    """_extract_task_items flattens Group with attached tasks."""
+    obj_task = create_task("mymodule.load_data")
+
+    group = map(cbk=_dummy_func, obj=obj_task, partition=500)
+
+    items, data = _extract_task_items(group)
+    assert data is None
+    assert len(items) == 2  # Group + expander Task
+    assert items[0] is group
+    assert isinstance(items[1], Task)
 
 
 def test_map_part_returns_task(orch_ctx):
