@@ -431,6 +431,12 @@ async def create_object_from_value(
             for key in keys:
                 sample = val[0][key]
                 if isinstance(sample, list):
+                    # Find a non-empty sample for better type inference
+                    if not sample:
+                        for record in val[1:]:
+                            if isinstance(record[key], list) and record[key]:
+                                sample = record[key]
+                                break
                     columns[key] = _infer_array_clickhouse_type(sample)
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
