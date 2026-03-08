@@ -1,18 +1,12 @@
-"""Tests for dynamic task creation operators (map and _map_part)."""
+"""Tests for dynamic task definition internals (map and _map_part)."""
 
-import tempfile
-from pathlib import Path
-
-from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
-from aaiclick.orchestration.debug_execution import ajob_test
-from aaiclick.orchestration.decorators import TaskFactory, _serialize_value, job, task
+from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
 from aaiclick.orchestration.execution import _extract_task_items, import_callback
 from aaiclick.orchestration.factories import create_task
 from aaiclick.orchestration.models import (
     DEPENDENCY_TASK,
     Group,
-    JobStatus,
     Task,
 )
 from aaiclick.orchestration.orch_helpers import _map_part, map
@@ -20,29 +14,6 @@ from aaiclick.orchestration.orch_helpers import _map_part, map
 
 async def _dummy_func(row):
     pass
-
-
-# --- Task fixtures for execution tests ---
-
-
-@task
-async def create_test_data() -> Object:
-    """Create an Object with integer values [10, 20, 30, 40, 50]."""
-    return await create_object_from_value([10, 20, 30, 40, 50])
-
-
-@task
-async def row_writer(row, output_file: str):
-    """Write each row value to a file, one per line."""
-    with Path(output_file).open("a") as f:
-        f.write(f"{row}\n")
-
-
-@task
-async def row_writer_with_factor(row, factor: int, output_file: str):
-    """Write row * factor to a file."""
-    with Path(output_file).open("a") as f:
-        f.write(f"{row * factor}\n")
 
 
 def test_map_returns_group(orch_ctx):
@@ -248,75 +219,3 @@ def test_map_args_with_task_creates_dependency(orch_ctx):
     dep_ids = {d.previous_id for d in expander.previous_dependencies}
     assert obj_task.id in dep_ids
     assert extra_task.id in dep_ids
-
-
-# --- Execution tests (run via ajob_test with real ClickHouse + Postgres) ---
-
-
-async def test_map_execution_basic(orch_ctx, monkeypatch):
-    """map() end-to-end: creates partitions, runs callback on each row."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        @job("test_map_basic")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer, obj=data, partition=5000,
-                kwargs={"output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
-        await ajob_test(j)
-
-        assert j.status == JobStatus.COMPLETED
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines) == ["10", "20", "30", "40", "50"]
-
-
-async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
-    """map() forwards extra kwargs to callback."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        @job("test_map_kwargs_exec")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer_with_factor, obj=data, partition=5000,
-                kwargs={"factor": 3, "output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
-        await ajob_test(j)
-
-        assert j.status == JobStatus.COMPLETED
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines, key=int) == ["30", "60", "90", "120", "150"]
-
-
-async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
-    """map() with small partition size creates multiple _map_part tasks."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        @job("test_map_partitions")
-        def pipeline():
-            data = create_test_data()
-            group = map(
-                cbk=row_writer, obj=data, partition=2,
-                kwargs={"output_file": output_file},
-            )
-            return [data, group]
-
-        j = await pipeline()
-        await ajob_test(j)
-
-        assert j.status == JobStatus.COMPLETED
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines) == ["10", "20", "30", "40", "50"]
