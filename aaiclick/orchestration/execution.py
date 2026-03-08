@@ -27,6 +27,7 @@ from .context import commit_tasks, get_orch_session
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from .pg_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
 
 
@@ -491,7 +492,8 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            result = await execute_task(task)
+            async with PgLifecycleHandler(task_job_id) as lifecycle:
+                result = await execute_task(task, lifecycle=lifecycle)
 
             # Register any returned Task/Group objects to the job
             data_result = await register_returned_tasks(result, task_id, task_job_id)
