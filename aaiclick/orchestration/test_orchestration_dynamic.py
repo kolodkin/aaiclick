@@ -55,7 +55,7 @@ async def test_map_execution_basic(orch_ctx, monkeypatch):
         j = await pipeline()
         await ajob_test(j)
 
-        assert j.status == JobStatus.COMPLETED
+        assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
         assert sorted(lines) == ["10", "20", "30", "40", "50"]
 
@@ -78,7 +78,7 @@ async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
         j = await pipeline()
         await ajob_test(j)
 
-        assert j.status == JobStatus.COMPLETED
+        assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
         assert sorted(lines, key=int) == ["30", "60", "90", "120", "150"]
 
@@ -101,6 +101,6 @@ async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
         j = await pipeline()
         await ajob_test(j)
 
-        assert j.status == JobStatus.COMPLETED
+        assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
         assert sorted(lines) == ["10", "20", "30", "40", "50"]
