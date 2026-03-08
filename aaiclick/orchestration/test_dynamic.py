@@ -1,4 +1,4 @@
-"""Tests for dynamic task creation operators (map and map_part)."""
+"""Tests for dynamic task creation operators (map and _map_part)."""
 
 from aaiclick.data.object import Object
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
@@ -9,7 +9,7 @@ from aaiclick.orchestration.models import (
     Group,
     Task,
 )
-from aaiclick.orchestration.orch_helpers import map, map_part
+from aaiclick.orchestration.orch_helpers import _map_part, map
 
 
 async def _dummy_func(row):
@@ -108,14 +108,14 @@ def test_map_extract_task_items(orch_ctx):
     assert isinstance(items[1], Task)
 
 
-def test_map_part_returns_task(orch_ctx):
-    """map_part() returns a Task."""
+def test__map_part_returns_task(orch_ctx):
+    """_map_part() returns a Task."""
     obj_task = create_task("mymodule.load_data")
 
-    result = map_part(cbk=_dummy_func, part=obj_task, out=obj_task)
+    result = _map_part(cbk=_dummy_func, part=obj_task, out=obj_task)
 
     assert isinstance(result, Task)
-    assert result.entrypoint == "aaiclick.orchestration.orch_helpers.map_part"
+    assert result.entrypoint == "aaiclick.orchestration.orch_helpers._map_part"
 
 
 def test_serialize_callable(orch_ctx):
@@ -154,12 +154,12 @@ def test_task_factory_callable_roundtrip(orch_ctx):
     assert restored is _dummy_func
 
 
-def test_map_part_kwargs(orch_ctx):
-    """map_part() stores cbk, part, and out in kwargs."""
+def test__map_part_kwargs(orch_ctx):
+    """_map_part() stores cbk, part, and out in kwargs."""
     part_task = create_task("mymodule.load_data")
     out_task = create_task("mymodule.output")
 
-    result = map_part(cbk=_dummy_func, part=part_task, out=out_task)
+    result = _map_part(cbk=_dummy_func, part=part_task, out=out_task)
 
     kwargs = result.kwargs
     assert kwargs["cbk"]["ref_type"] == "callable"
@@ -169,12 +169,12 @@ def test_map_part_kwargs(orch_ctx):
     assert kwargs["out"]["task_id"] == out_task.id
 
 
-def test_map_part_dependencies(orch_ctx):
-    """map_part() creates dependencies on part and out tasks."""
+def test__map_part_dependencies(orch_ctx):
+    """_map_part() creates dependencies on part and out tasks."""
     part_task = create_task("mymodule.load_data")
     out_task = create_task("mymodule.output")
 
-    result = map_part(cbk=_dummy_func, part=part_task, out=out_task)
+    result = _map_part(cbk=_dummy_func, part=part_task, out=out_task)
 
     dep_ids = {d.previous_id for d in result.previous_dependencies}
     assert part_task.id in dep_ids

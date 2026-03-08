@@ -75,7 +75,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
     """Expander task: queries Object row count and creates partition tasks.
 
     Runs at execution time. Partitions the Object into Views and creates
-    N map_part child tasks.
+    N _map_part child tasks.
 
     Args:
         cbk: Callback function applied to each row.
@@ -98,7 +98,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
 
     tasks = []
     for i in range(n_partitions):
-        child = map_part(
+        child = _map_part(
             cbk=cbk,
             part={
                 "object_type": "view",
@@ -118,7 +118,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
 
 
 @task
-async def map_part(cbk: Callable, part: View, out: Object,
+async def _map_part(cbk: Callable, part: View, out: Object,
                    cbk_args: list = None, cbk_kwargs: dict = None) -> None:
     """Apply a callback to each row in a partition View.
 
