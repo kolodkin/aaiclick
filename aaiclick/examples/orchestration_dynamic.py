@@ -3,20 +3,21 @@ Dynamic task creation example for aaiclick orchestration.
 
 Demonstrates dynamic task creation patterns:
 1. @task returning Task objects for dynamic registration
-2. @task returning a list of Tasks
-3. Using map() to partition data and apply a callback in parallel
+2. Implicit dependencies via upstream refs
+3. Explicit dependencies via >> operator
+4. Mixed [Task, Task, ...] returns
+
+Note: map() example is not included here because it requires distributed
+workers with lifecycle handlers for Object table management. See
+aaiclick/orchestration/dynamic.py for the map() implementation.
 
 Note: This requires running PostgreSQL and ClickHouse servers.
 """
 
 import asyncio
 
-from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration import JobStatus, ajob_test, job, map, task
-
-
-# --- Dynamic task creation: tasks returning tasks ---
+from aaiclick.orchestration import JobStatus, ajob_test, job, task
 
 
 @task
@@ -54,37 +55,14 @@ def dynamic_tasks_job():
     return [entry]
 
 
-# --- Map operator ---
-
-
-@task
-async def load_numbers():
-    """Load sample data into an Object."""
-    return await create_object_from_value(list(range(1, 11)))
-
-
-async def print_row(row):
-    """Callback applied to each row by map_part."""
-    print(f"  map callback: row={row}")
-
-
-@job("map_example")
-def map_job():
-    """Job that partitions data and processes partitions in parallel."""
-    data = load_numbers()
-    mapped = map(cbk=print_row, obj=data, partition=5)
-    return [data, mapped]
-
-
 async def amain():
-    """Run all dynamic orchestration examples."""
+    """Run dynamic orchestration example."""
     print("=" * 50)
-    print("aaiclick Dynamic Orchestration Examples")
+    print("aaiclick Dynamic Orchestration Example")
     print("=" * 50)
 
     async with data_context():
-        # Example 1: Dynamic task creation
-        print("\nExample 1: Task returning child tasks")
+        print("\nTask returning child tasks (implicit + explicit deps)")
         print("-" * 50)
 
         job1 = await dynamic_tasks_job()
@@ -97,22 +75,8 @@ async def amain():
             f"Expected COMPLETED, got {job1.status}: {job1.error}"
         )
 
-        # Example 2: Map operator
-        print(f"\nExample 2: map() operator")
-        print("-" * 50)
-
-        job2 = await map_job()
-        print(f"Created job: {job2.name} (ID: {job2.id})")
-        await ajob_test(job2)
-        print(f"Job status: {job2.status}")
-        if job2.error:
-            print(f"Error: {job2.error}")
-        assert job2.status == JobStatus.COMPLETED, (
-            f"Expected COMPLETED, got {job2.status}: {job2.error}"
-        )
-
     print("\n" + "=" * 50)
-    print("Dynamic examples completed successfully!")
+    print("Dynamic example completed successfully!")
     print("=" * 50)
 
 
