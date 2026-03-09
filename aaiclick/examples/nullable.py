@@ -41,8 +41,8 @@ async def example():
     data = await obj.data()
     print(f"Nullable array: {data}")
 
-    meta = await obj.metadata()
-    print(f"Column nullable: {meta.columns['value'].nullable}")
+    schema = obj.schema
+    print(f"Column nullable: {schema.columns['value'].nullable}")
 
     # Example 2: Nullable promotion in concat
     print("\n" + "=" * 50)
@@ -54,14 +54,14 @@ async def example():
 
     obj_regular = await create_object_from_value([20, 30])
 
-    meta_a = await obj_nullable.metadata()
-    meta_b = await obj_regular.metadata()
-    print(f"Source A nullable: {meta_a.columns['value'].nullable}")
-    print(f"Source B nullable: {meta_b.columns['value'].nullable}")
+    schema_a = obj_nullable.schema
+    schema_b = obj_regular.schema
+    print(f"Source A nullable: {schema_a.columns['value'].nullable}")
+    print(f"Source B nullable: {schema_b.columns['value'].nullable}")
 
     result = await obj_nullable.concat(obj_regular)
-    meta_result = await result.metadata()
-    print(f"Result nullable:  {meta_result.columns['value'].nullable}")
+    schema_result = result.schema
+    print(f"Result nullable:  {schema_result.columns['value'].nullable}")
     print(f"Result data: {await result.data()}")
 
     # Example 3: Arithmetic with nullable values
@@ -93,8 +93,8 @@ async def example():
     filled = await obj_nulls.coalesce(0)
     print(f"After coalesce(0): {await filled.data()}")
 
-    meta_filled = await filled.metadata()
-    print(f"Result nullable: {meta_filled.columns['value'].nullable}")
+    schema_filled = filled.schema
+    print(f"Result nullable: {schema_filled.columns['value'].nullable}")
     print("Note: coalesce with non-nullable fallback produces non-nullable result")
 
     # Note: All objects created via context are automatically cleaned up when context exits

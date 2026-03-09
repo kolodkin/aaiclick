@@ -41,12 +41,12 @@ async def example():
     print("Example 2: Object metadata")
     print("-" * 50)
 
-    meta = await obj.metadata()
+    schema = obj.schema
     print(f"Schema for dict Object:")
-    print(f"  table: {meta.table}")
-    print(f"  fieldtype: '{meta.fieldtype}' (d = dict)")
+    print(f"  table: {schema.table}")
+    print(f"  fieldtype: '{schema.fieldtype}' (d = dict)")
     print(f"  columns:")
-    for name, col in meta.columns.items():
+    for name, col in schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 
     # Example 3: View metadata with selected_fields
@@ -55,15 +55,15 @@ async def example():
     print("-" * 50)
 
     view = obj['param1']
-    view_meta = await view.metadata()
+    view_schema = view.schema
     print(f"ViewSchema for obj['param1']:")
-    print(f"  table: {view_meta.table}")
-    print(f"  fieldtype: '{view_meta.fieldtype}' (source table type)")
-    print(f"  selected_fields: {view_meta.selected_fields}")
-    print(f"  where: {view_meta.where}")
-    print(f"  limit: {view_meta.limit}")
-    print(f"  offset: {view_meta.offset}")
-    print(f"  order_by: {view_meta.order_by}")
+    print(f"  table: {view_schema.table}")
+    print(f"  fieldtype: '{view_schema.fieldtype}' (source table type)")
+    print(f"  selected_fields: {view_schema.selected_fields}")
+    print(f"  where: {view_schema.where}")
+    print(f"  limit: {view_schema.limit}")
+    print(f"  offset: {view_schema.offset}")
+    print(f"  order_by: {view_schema.order_by}")
 
     # Example 4: Copy view to array Object
     print("\n" + "=" * 50)
@@ -79,12 +79,12 @@ async def example():
     print(f"Copied data: {await arr.data()}")
 
     # Check copied object's metadata
-    arr_meta = await arr.metadata()
+    arr_schema = arr.schema
     print(f"\nCopied Schema:")
-    print(f"  table: {arr_meta.table} (new table)")
-    print(f"  fieldtype: '{arr_meta.fieldtype}' (a = array)")
+    print(f"  table: {arr_schema.table} (new table)")
+    print(f"  fieldtype: '{arr_schema.fieldtype}' (a = array)")
     print(f"  columns:")
-    for name, col in arr_meta.columns.items():
+    for name, col in arr_schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 
     # Example 5: Operations with selected fields

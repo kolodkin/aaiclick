@@ -1,7 +1,7 @@
 """
-Tests for Object.metadata() method.
+Tests for Object.schema and View.schema properties.
 
-This module tests the metadata() method that returns schema information
+This module tests the schema property that returns schema information
 including table name, fieldtype, and column details.
 """
 
@@ -26,7 +26,7 @@ async def test_schema_array(ctx):
     """Test schema for array object."""
     obj = await create_object_from_value([1, 2, 3])
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_ARRAY
@@ -40,7 +40,7 @@ async def test_schema_scalar(ctx):
     """Test schema for scalar object."""
     obj = await create_object_from_value(42)
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert schema.fieldtype == FIELDTYPE_SCALAR
     assert schema.columns["value"].type == "Int64"
@@ -50,7 +50,7 @@ async def test_schema_dict(ctx):
     """Test schema for dict object."""
     obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert schema.fieldtype == FIELDTYPE_DICT
     assert "aai_id" in schema.columns
@@ -68,7 +68,7 @@ async def test_schema_dict_mixed_types(ctx):
         'strings': ['a', 'b', 'c']
     })
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert schema.fieldtype == FIELDTYPE_DICT
     assert schema.columns["ints"].type == "Int64"
@@ -84,8 +84,7 @@ async def test_column_info_structure(ctx):
     """Test that ColumnInfo has expected structure."""
     obj = await create_object_from_value([1.5, 2.5, 3.5])
 
-    schema = await obj.metadata()
-    value_col = schema.columns["value"]
+    value_col = obj.schema.columns["value"]
 
     assert isinstance(value_col, ColumnInfo)
     assert value_col.type == "Float64"
@@ -95,8 +94,7 @@ async def test_column_info_aai_id(ctx):
     """Test aai_id column type."""
     obj = await create_object_from_value([1, 2, 3])
 
-    schema = await obj.metadata()
-    aai_id_col = schema.columns["aai_id"]
+    aai_id_col = obj.schema.columns["aai_id"]
 
     assert aai_id_col.type == "UInt64"
 
@@ -106,11 +104,11 @@ async def test_column_info_aai_id(ctx):
 # =============================================================================
 
 async def test_view_schema_returns_view_schema(ctx):
-    """Test that view.metadata() returns ViewSchema type."""
+    """Test that view.schema returns ViewSchema type."""
     obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6]})
 
     view = obj['x']
-    schema = await view.metadata()
+    schema = view.schema
 
     assert isinstance(schema, ViewSchema)
     assert schema.table == obj.table
@@ -124,7 +122,7 @@ async def test_view_schema_selected_fields(ctx):
     obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
 
     view = obj['param1']
-    schema = await view.metadata()
+    schema = view.schema
 
     assert schema.selected_fields == ['param1']
     assert schema.where is None
@@ -138,7 +136,7 @@ async def test_view_schema_where_clause(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
 
     view = obj.view(where="value > 2")
-    schema = await view.metadata()
+    schema = view.schema
 
     assert isinstance(schema, ViewSchema)
     assert schema.where == "(value > 2)"
@@ -150,7 +148,7 @@ async def test_view_schema_limit_offset(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
 
     view = obj.view(limit=3, offset=1)
-    schema = await view.metadata()
+    schema = view.schema
 
     assert schema.limit == 3
     assert schema.offset == 1
@@ -162,7 +160,7 @@ async def test_view_schema_order_by(ctx):
     obj = await create_object_from_value([5, 3, 1, 4, 2])
 
     view = obj.view(order_by="value DESC")
-    schema = await view.metadata()
+    schema = view.schema
 
     assert schema.order_by == "value DESC"
 
@@ -172,7 +170,7 @@ async def test_view_schema_all_constraints(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
     view = obj.view(where="value > 2", limit=5, offset=1, order_by="value DESC")
-    schema = await view.metadata()
+    schema = view.schema
 
     assert schema.where == "(value > 2)"
     assert schema.limit == 5
@@ -182,10 +180,10 @@ async def test_view_schema_all_constraints(ctx):
 
 
 async def test_object_returns_schema(ctx):
-    """Test that Object.metadata() returns Schema (not ViewSchema)."""
+    """Test that Object.schema returns Schema (not ViewSchema)."""
     obj = await create_object_from_value([1, 2, 3])
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert isinstance(schema, Schema)
     assert not isinstance(schema, ViewSchema)
@@ -197,7 +195,7 @@ async def test_copied_view_schema(ctx):
 
     view = obj['x']
     cloned = await view.copy()
-    schema = await cloned.metadata()
+    schema = cloned.schema
 
     # Cloned object should be an array type (Schema, not ViewSchema)
     assert isinstance(schema, Schema)
@@ -225,7 +223,7 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
     """Test schema correctly reports fieldtype and column type for various value types."""
     obj = await create_object_from_value(value)
 
-    schema = await obj.metadata()
+    schema = obj.schema
 
     assert schema.fieldtype == expected_fieldtype
     assert schema.columns["value"].type == expected_type

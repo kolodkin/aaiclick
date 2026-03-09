@@ -59,12 +59,12 @@ async def show_object_cmd(name: str) -> None:
             print(f"Persistent object not found: {name}")
             return
 
-        meta = await obj.metadata()
+        schema = obj.schema
         print(f"Name:      {name}")
         print(f"Table:     {obj.table}")
-        print(f"Fieldtype: {meta.fieldtype}")
+        print(f"Fieldtype: {schema.fieldtype}")
         print(f"Columns:")
-        for col_name, col_info in meta.columns.items():
+        for col_name, col_info in schema.columns.items():
             if col_name == "aai_id":
                 continue
             print(f"  {col_name}: {col_info.type}")

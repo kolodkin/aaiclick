@@ -22,7 +22,6 @@ from .models import (
     ColumnMeta,
     ColumnType,
     GroupByInfo,
-    parse_ch_type,
     GroupByOpType,
     GB_COUNT,
     GB_MAX,
@@ -37,7 +36,6 @@ from .models import (
     ValueScalarType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
@@ -370,66 +368,6 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def metadata(self) -> Schema:
-        """
-        Get metadata for this object including table name, fieldtype, and column info.
-
-        Builds metadata from cached schema if available, otherwise
-        queries the ClickHouse system.columns table.
-
-        Returns:
-            Schema: Dataclass with table, fieldtype, and columns info
-
-        Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
-            >>> meta = await obj.metadata()
-            >>> print(meta)
-            Schema(table='t...', fieldtype='d', columns={
-                'aai_id': ColumnInfo(type='UInt64'),
-                'param1': ColumnInfo(type='Int64'),
-                'param2': ColumnInfo(type='Int64')
-            })
-            >>> view = obj['param1']
-            >>> view_meta = await view.metadata()  # Returns ViewSchema
-        """
-        self.checkstale()
-
-        # Return cached schema if columns are populated
-        if self._schema.columns:
-            return self._schema
-
-        # Fallback: query database for schema (e.g. objects loaded from DB)
-        columns_query = f"""
-        SELECT name, type, comment
-        FROM system.columns
-        WHERE table = '{self.table}'
-        ORDER BY position
-        """
-        columns_result = await self.ch_client.query(columns_query)
-
-        # Parse columns and determine overall fieldtype
-        columns: Dict[str, ColumnInfo] = {}
-        overall_fieldtype = FIELDTYPE_SCALAR
-        column_names = []
-
-        for name, col_type, comment in columns_result.result_rows:
-            meta = ColumnMeta.from_yaml(comment)
-            columns[name] = parse_ch_type(col_type)
-            column_names.append(name)
-
-            # Determine overall fieldtype from value column or detect dict type
-            if name == "value" and meta.fieldtype:
-                overall_fieldtype = meta.fieldtype
-
-        # If we have columns beyond aai_id and value, it's a dict type
-        is_dict_type = not (set(column_names) <= {"aai_id", "value"})
-        if is_dict_type:
-            overall_fieldtype = FIELDTYPE_DICT
-
-        self._schema.fieldtype = overall_fieldtype
-        self._schema.columns = columns
-        return self._schema
-
     @staticmethod
     def _scalar_query_info(value: ValueScalarType) -> QueryInfo:
         """
@@ -694,8 +632,7 @@ class Object:
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
             >>> result = await obj_nullable.concat(obj_non_null)
-            >>> meta = await result.metadata()
-            >>> meta.columns["value"].nullable  # True
+            >>> result.schema.columns["value"].nullable  # True
         """
         if not args:
             raise ValueError("concat requires at least one argument")
@@ -1866,35 +1803,13 @@ class View(Object):
         # Delegate to parent for normal views
         return await super().data(orient=orient)
 
-    async def metadata(self) -> ViewSchema:
-        """
-        Get metadata for this view including table info and view constraints.
-
-        Builds ViewSchema from source's metadata on demand.
-
-        Returns:
-            ViewSchema: Dataclass with table, fieldtype, columns, and view constraints
-
-        Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
-            >>> view = obj['param1']
-            >>> meta = await view.metadata()
-            >>> print(meta.selected_fields)  # ['param1']
-            >>> print(meta.fieldtype)  # 'd' (source table is dict type)
-            >>>
-            >>> filtered = obj.view(where="param1 > 1", limit=10)
-            >>> meta2 = await filtered.metadata()
-            >>> print(meta2.where)  # '(param1 > 1)'
-            >>> print(meta2.limit)  # 10
-        """
-        # Reuse Object.metadata() to build column_infos and compute overall_fieldtype
-        # from self._schema (handles scalar/array/dict detection, DB fallback, etc.)
-        base_meta = await super().metadata()
-
+    @property
+    def schema(self) -> ViewSchema:
+        """Get schema for this view including view constraints."""
         return ViewSchema(
-            fieldtype=base_meta.fieldtype,
-            columns=base_meta.columns,
-            table=base_meta.table,
+            fieldtype=self._schema.fieldtype,
+            columns=self._schema.columns,
+            table=self._schema.table,
             where=self._build_where(),
             limit=self._limit,
             offset=self._offset,

@@ -150,10 +150,10 @@ async def test_schema_shows_nullable(ctx):
     )
     obj = await create_object(schema)
 
-    meta = await obj.metadata()
-    assert meta.columns["value"].nullable is True
-    assert meta.columns["value"].type == "Int64"
-    assert meta.columns["aai_id"].nullable is False
+    schema = obj.schema
+    assert schema.columns["value"].nullable is True
+    assert schema.columns["value"].type == "Int64"
+    assert schema.columns["aai_id"].nullable is False
 
 
 # --- Operator NULL propagation ---
@@ -349,5 +349,5 @@ async def test_concat_nullable_with_nonnullable(ctx):
     obj_b = await create_object_from_value([3, 4])
 
     result = await obj_a.concat(obj_b)
-    meta = await result.metadata()
-    assert meta.columns["value"].nullable is True
+    schema = result.schema
+    assert schema.columns["value"].nullable is True
