@@ -874,22 +874,21 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     type_a = info_a.value_type
     type_b = info_b.value_type
 
-    int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
-    float_types = {"Float32", "Float64"}
     comparison_ops = {"==", "!=", "<", "<=", ">", ">="}
 
     if operator in comparison_ops:
         value_type = "UInt8"
-    elif (type_a in int_types and type_b in float_types) or (type_a in float_types and type_b in int_types):
+    elif (type_a in INT_TYPES and type_b in FLOAT_TYPES) or (type_a in FLOAT_TYPES and type_b in INT_TYPES):
         value_type = "Float64"
-    elif type_a in float_types or type_b in float_types:
+    elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
         value_type = "Float64"
     else:
         value_type = type_a
 
+    result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": "UInt64", "value": value_type},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
