@@ -203,9 +203,13 @@ Insert data from a URL into an existing Object. Schema created once, multiple wo
 
 ## The concat() Method
 
-**Implementation**: `aaiclick/data/operators.py` — see `concat()`
+**Implementation**: `aaiclick/data/object.py` — see `Object.concat()`, `aaiclick/data/ingest.py` — see `concat_objects_db()`
 
-Concatenates Objects — first must be array, second can be array or scalar. Both must have compatible ClickHouse types. Also available as standalone function `concat(obj_a, obj_b)`.
+Concatenates multiple sources into a new Object via a single `UNION ALL`. Self must be array; args can be Objects (array or scalar), Python scalars, or lists. Also available as standalone function `concat(obj_a, obj_b, ...)`.
+
+- **Variadic**: `obj.concat(a, b, c)` — any number of sources in one call
+- **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
+- **Compatible types**: all sources must have matching column names and compatible ClickHouse types
 
 ## The data() Method
 

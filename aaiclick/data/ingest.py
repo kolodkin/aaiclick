@@ -10,44 +10,47 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .models import ColumnDef, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
     """
-    Check if source_type can be inserted into target_type.
+    Check if source_type is directly compatible with target_type (no CAST).
 
-    ClickHouse allows casting between numeric types (Int*, UInt*, Float*),
-    but not between numeric and string types.
-
-    Args:
-        target_type: ClickHouse type of target column
-        source_type: ClickHouse type of source column
-
-    Returns:
-        bool: True if types are compatible for insertion
+    Used for UNION ALL in concat where ClickHouse requires exact type matches.
+    Only allows same-type or same-category integer/float matches within the same
+    category (int↔int, float↔float), but NOT across categories (int↔float).
     """
     if target_type == source_type:
         return True
 
-    int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
-    float_types = {"Float32", "Float64"}
-    numeric_types = int_types | float_types
-
-    if target_type in numeric_types and source_type in numeric_types:
+    if target_type in INT_TYPES and source_type in INT_TYPES:
         return True
 
-    string_types = {"String", "FixedString"}
-
-    if (target_type in numeric_types and source_type in string_types) or \
-       (target_type in string_types and source_type in numeric_types):
-        return False
+    if target_type in FLOAT_TYPES and source_type in FLOAT_TYPES:
+        return True
 
     return False
 
 
-async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]:
+def _are_types_castable(target_type: str, source_type: str) -> bool:
+    """
+    Check if source_type can be CAST to target_type.
+
+    Used for INSERT with explicit CAST where ClickHouse allows casting between
+    all numeric types (Int*, UInt*, Float*), but not between numeric and string.
+    """
+    if _are_types_compatible(target_type, source_type):
+        return True
+
+    if target_type in NUMERIC_TYPES and source_type in NUMERIC_TYPES:
+        return True
+
+    return False
+
+
+async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnDef]]:
     """
     Get fieldtype and columns from a table.
 
@@ -56,7 +59,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
         ch_client: ClickHouse client instance
 
     Returns:
-        Tuple of (fieldtype, columns dict)
+        Tuple of (fieldtype, columns dict mapping names to ColumnDef)
     """
     columns_query = f"""
     SELECT name, type, comment
@@ -69,7 +72,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
     columns = {}
     fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
-        columns[name] = col_type
+        columns[name] = parse_ch_type(col_type)
         if name == "value" and comment:
             meta = ColumnMeta.from_yaml(comment)
             if meta.fieldtype:
@@ -78,7 +81,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
     return fieldtype, columns
 
 
-async def _get_value_column_type(table: str, ch_client) -> str:
+async def _get_value_column_type(table: str, ch_client) -> ColumnDef:
     """
     Get the value column type from a table.
 
@@ -87,14 +90,16 @@ async def _get_value_column_type(table: str, ch_client) -> str:
         ch_client: ClickHouse client instance
 
     Returns:
-        ClickHouse type string for value column
+        ColumnDef for the value column
     """
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{table}' AND name = 'value'
     """
     type_result = await ch_client.query(type_query)
-    return type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+    if type_result.result_rows:
+        return parse_ch_type(type_result.result_rows[0][0])
+    return ColumnDef("Float64")
 
 
 async def _get_fieldtype(table: str, ch_client) -> str:
@@ -161,7 +166,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         field = copy_info.selected_fields[0]
         new_schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": "UInt64", "value": copy_info.columns[field]}
+            columns={"aai_id": ColumnDef("UInt64"), "value": copy_info.columns[field]}
         )
         result = await create_object(new_schema)
         insert_query = f"""
@@ -169,7 +174,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         SELECT aai_id, value FROM {copy_info.source_query}{alias}
         """
     else:
-        columns = {"aai_id": "UInt64"}
+        columns = {"aai_id": ColumnDef("UInt64")}
         for field in copy_info.selected_fields:
             columns[field] = copy_info.columns[field]
 
@@ -186,7 +191,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
 
 
 async def concat_objects_db(
-    query_infos: list[QueryInfo],
+    query_infos: list[IngestQueryInfo],
     ch_client,
 ):
     """
@@ -209,28 +214,48 @@ async def concat_objects_db(
     if len(query_infos) < 2:
         raise ValueError("concat requires at least 2 sources")
 
-    # Use base_table for metadata queries
-    fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
-    if fieldtype != FIELDTYPE_ARRAY:
+    first_info = query_infos[0]
+    if first_info.fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("concat requires first source to have array fieldtype")
 
-    value_type = await _get_value_column_type(query_infos[0].base_table, ch_client)
+    # Validate all sources have compatible schemas and promote nullable
+    first_columns = first_info.columns
+    result_columns = dict(first_columns)
+    data_col_names = sorted(k for k in first_columns if k != "aai_id")
 
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": "UInt64", "value": value_type}
-    )
+    for i, info in enumerate(query_infos[1:], start=1):
+        other_columns = info.columns
+        other_data_cols = sorted(k for k in other_columns if k != "aai_id")
 
+        if other_data_cols != data_col_names:
+            raise ValueError(
+                f"concat source {i} has columns {other_data_cols}, "
+                f"expected {data_col_names}"
+            )
+
+        for col_name in data_col_names:
+            target_def = result_columns[col_name]
+            source_def = other_columns[col_name]
+            if not _are_types_compatible(target_def.type, source_def.type):
+                raise ValueError(
+                    f"concat source {i} column '{col_name}' has incompatible type "
+                    f"{source_def.type} (target: {target_def.type})"
+                )
+            # Promote to nullable if any source is nullable
+            if source_def.nullable and not target_def.nullable:
+                result_columns[col_name] = ColumnDef(target_def.type, nullable=True)
+
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    # Single multi-table UNION ALL operation using sources (can be subqueries)
-    # Add alias for subqueries (sources starting with '(')
+    # Build UNION ALL with all data columns
+    select_cols = ", ".join(["aai_id"] + data_col_names)
     union_parts = []
     for i, info in enumerate(query_infos):
         if info.source.startswith('('):
-            union_parts.append(f"SELECT aai_id, value FROM {info.source} AS s{i}")
+            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
         else:
-            union_parts.append(f"SELECT aai_id, value FROM {info.source}")
+            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
 
     insert_query = f"""
     INSERT INTO {result.table}
@@ -242,50 +267,66 @@ async def concat_objects_db(
 
 
 async def insert_objects_db(
-    target_table: str,
-    source_tables: list[str],
+    target_info: IngestQueryInfo,
+    source_infos: list[IngestQueryInfo],
     ch_client,
 ) -> None:
     """
-    Insert data from multiple source tables into target via single operation.
+    Insert data from multiple sources into target via single operation.
 
     Preserves existing Snowflake IDs. Order is maintained via existing
     Snowflake IDs when data is retrieved.
 
     Args:
-        target_table: Target table name (must have array fieldtype)
-        source_tables: List of source table names
+        target_info: QueryInfo for the target (must have array fieldtype)
+        source_infos: List of QueryInfo for sources
         ch_client: ClickHouse client instance
 
     Raises:
-        ValueError: If target table does not have array fieldtype
+        ValueError: If target does not have array fieldtype
         ValueError: If any source value types are incompatible with target
     """
-    if not source_tables:
+    if not source_infos:
         return
 
-    fieldtype = await _get_fieldtype(target_table, ch_client)
-    if fieldtype != FIELDTYPE_ARRAY:
+    if target_info.fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("insert requires target table to have array fieldtype")
 
-    target_value_type = await _get_value_column_type(target_table, ch_client)
+    target_columns = target_info.columns
+    data_col_names = sorted(k for k in target_columns if k != "aai_id")
 
-    # Validate all source types are compatible
-    for source_table in source_tables:
-        source_value_type = await _get_value_column_type(source_table, ch_client)
-        if not _are_types_compatible(target_value_type, source_value_type):
+    # Validate all source schemas are compatible
+    for info in source_infos:
+        source_columns = info.columns
+        source_data_cols = sorted(k for k in source_columns if k != "aai_id")
+
+        if source_data_cols != data_col_names:
             raise ValueError(
-                f"Cannot insert {source_value_type} into {target_value_type}: "
-                f"types are incompatible"
+                f"Source table {info.base_table} has columns {source_data_cols}, "
+                f"expected {data_col_names}"
             )
 
-    # Single multi-source INSERT with UNION ALL
+        for col_name in data_col_names:
+            target_def = target_columns[col_name]
+            source_def = source_columns[col_name]
+            if not _are_types_castable(target_def.type, source_def.type):
+                raise ValueError(
+                    f"Cannot insert {source_def.type} into {target_def.type} "
+                    f"for column '{col_name}': types are incompatible"
+                )
+
+    # Build CAST expressions for each data column
+    cast_exprs = ", ".join(
+        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+        for col in data_col_names
+    )
+
     union_parts = [
-        f"SELECT aai_id, CAST(value AS {target_value_type}) as value FROM {table}"
-        for table in source_tables
+        f"SELECT aai_id, {cast_exprs} FROM {info.base_table}"
+        for info in source_infos
     ]
     insert_query = f"""
-    INSERT INTO {target_table}
+    INSERT INTO {target_info.base_table}
     {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)

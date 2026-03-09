@@ -5,7 +5,7 @@ This module provides dataclasses, type literals, and constants used throughout t
 """
 
 from typing import Optional, Dict, Union, Literal, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import yaml
 
@@ -31,6 +31,47 @@ ColumnType = Literal[
     "Bool", "UUID",
     "Array", "Tuple", "Map", "Nested"
 ]
+
+# Type category sets for runtime type checking
+INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
+FLOAT_TYPES = frozenset({"Float32", "Float64"})
+NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
+
+
+@dataclass(frozen=True)
+class ColumnDef:
+    """Definition for a single column including base type and nullability.
+
+    Attributes:
+        type: Base ClickHouse type (e.g., 'Int64', 'String')
+        nullable: Whether the column allows NULL values
+    """
+
+    type: str
+    nullable: bool = False
+
+    def ch_type(self) -> str:
+        """Return the ClickHouse DDL type string.
+
+        Returns 'Nullable(Int64)' when nullable=True, 'Int64' otherwise.
+        """
+        return f"Nullable({self.type})" if self.nullable else self.type
+
+
+def parse_ch_type(type_str: str) -> ColumnDef:
+    """Parse a ClickHouse type string into a ColumnDef.
+
+    Handles both plain types ('Int64') and nullable types ('Nullable(Int64)').
+
+    Args:
+        type_str: ClickHouse type string from system.columns
+
+    Returns:
+        ColumnDef with extracted base type and nullable flag
+    """
+    if type_str.startswith("Nullable(") and type_str.endswith(")"):
+        return ColumnDef(type=type_str[9:-1], nullable=True)
+    return ColumnDef(type=type_str, nullable=False)
 
 
 # Fieldtype constants
@@ -72,7 +113,7 @@ class QueryInfo:
 
     Couples the data source (which may be a subquery) with the base table name
     and schema metadata. This makes it easier to pass all required values together
-    in operator and concat operations without querying system tables.
+    in operator operations without querying system tables.
 
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
@@ -86,6 +127,18 @@ class QueryInfo:
     value_column: str
     fieldtype: str
     value_type: str
+    nullable: bool = False
+
+
+@dataclass
+class IngestQueryInfo(QueryInfo):
+    """
+    Extended QueryInfo carrying full column schema for concat/insert operations.
+
+    Adds column metadata so concat_objects_db and insert_objects_db can validate
+    schemas without querying system.columns.
+    """
+    columns: Dict[str, "ColumnDef"] = field(default_factory=dict)
 
 
 @dataclass
@@ -103,7 +156,7 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, ColumnType]
+    columns: Dict[str, "ColumnDef"]
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
 
@@ -119,7 +172,7 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, ColumnType]
+    columns: Dict[str, "ColumnDef"]
 
 
 @dataclass
@@ -136,6 +189,7 @@ class ColumnInfo:
     name: str
     type: str
     fieldtype: Optional[str] = None
+    nullable: bool = False
 
 
 @dataclass
