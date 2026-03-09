@@ -8,7 +8,6 @@ type coercion and result accuracy.
 import numpy as np
 import pytest
 
-from clickhouse_connect.driver.exceptions import DatabaseError
 
 from aaiclick import create_object_from_value, create_object
 
@@ -360,8 +359,8 @@ async def test_mixed_int_float_concat_fails(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
-    # ClickHouse UNION ALL does not allow int/float - no common supertype
-    with pytest.raises(DatabaseError):
+    # Int/Float types are incompatible for concat (UNION ALL without CAST)
+    with pytest.raises(ValueError, match="incompatible type"):
         await a.concat(b)
 
 
@@ -370,8 +369,8 @@ async def test_mixed_float_int_concat_fails(ctx):
     a = await create_object_from_value([1.5, 2.5, 3.5])
     b = await create_object_from_value([4, 5, 6])
 
-    # ClickHouse UNION ALL does not allow float/int - no common supertype
-    with pytest.raises(DatabaseError):
+    # Int/Float types are incompatible for concat (UNION ALL without CAST)
+    with pytest.raises(ValueError, match="incompatible type"):
         await a.concat(b)
 
 
