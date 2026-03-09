@@ -40,34 +40,34 @@ async def test_view_insert_blocked(ctx):
 
 
 async def test_view_operator_addition(ctx):
-    """Test that operators work with views."""
+    """Test that operators work with views — length must match."""
     obj_a = await create_object_from_value([10, 20, 30, 40, 50])
-    obj_b = await create_object_from_value([1, 2, 3, 4, 5])
-    view = obj_a.view(where="value > 20")  # [30, 40, 50]
+    obj_b = await create_object_from_value([1, 2, 3])
+    view = obj_a.view(where="value > 20")  # [30, 40, 50] — 3 elements
     result = await (view + obj_b)
     data = await result.data()
     assert data == [31, 42, 53]
 
 
 async def test_view_operator_with_limit(ctx):
-    """Test operators with view having LIMIT."""
+    """Test operators with view having LIMIT — length must match."""
     obj_a = await create_object_from_value([100, 200, 300, 400])
-    obj_b = await create_object_from_value([1, 2, 3, 4])
-    view = obj_a.view(limit=2)  # [100, 200]
+    obj_b = await create_object_from_value([1, 2])
+    view = obj_a.view(limit=2)  # [100, 200] — 2 elements
     result = await (view * obj_b)
     data = await result.data()
     assert data == [100, 400]
 
 
 async def test_view_both_sides(ctx):
-    """Test operators when both operands are views."""
+    """Test operators when both operands are views — length must match."""
     obj_a = await create_object_from_value([5, 10, 15, 20, 25])
     obj_b = await create_object_from_value([1, 2, 3, 4, 5])
-    view_a = obj_a.view(where="value >= 10")  # [10, 15, 20, 25]
-    view_b = obj_b.view(limit=3)  # [1, 2, 3]
+    view_a = obj_a.view(where="value >= 10")  # [10, 15, 20, 25] — 4 elements
+    view_b = obj_b.view(limit=4)  # [1, 2, 3, 4] — 4 elements
     result = await (view_a + view_b)
     data = await result.data()
-    assert data == [11, 17, 23]
+    assert data == [11, 17, 23, 24]
 
 
 # =============================================================================

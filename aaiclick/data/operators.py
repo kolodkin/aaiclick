@@ -121,23 +121,31 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
     await ch_client.command(f"""
         CREATE TABLE {temp_table} (
             a_value Nullable({type_a}),
-            b_value Nullable({type_b}),
-            cnt_a UInt64,
-            cnt_b UInt64
+            b_value Nullable({type_b})
         ) ENGINE = Memory
     """)
 
+    # Cast to Nullable inside subqueries so FULL OUTER JOIN produces NULLs
+    # (ClickHouse uses default values for non-nullable types in outer joins)
     await ch_client.command(f"""
         INSERT INTO {temp_table}
-        SELECT a.value AS a_value, b.value AS b_value,
-               count(a.rn) OVER () AS cnt_a,
-               count(b.rn) OVER () AS cnt_b
-        FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {source_a}) AS a
-        FULL OUTER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {source_b}) AS b
+        SELECT a.value AS a_value, b.value AS b_value
+        FROM (
+            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+                   CAST(value AS Nullable({type_a})) AS value
+            FROM {source_a}
+        ) AS a
+        FULL OUTER JOIN (
+            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+                   CAST(value AS Nullable({type_b})) AS value
+            FROM {source_b}
+        ) AS b
         ON a.rn = b.rn
     """)
 
-    result = await ch_client.query(f"SELECT cnt_a, cnt_b FROM {temp_table} LIMIT 1")
+    result = await ch_client.query(
+        f"SELECT countIf(a_value IS NOT NULL), countIf(b_value IS NOT NULL) FROM {temp_table}"
+    )
     if result.result_rows:
         cnt_a, cnt_b = result.result_rows[0]
         if cnt_a != cnt_b:
