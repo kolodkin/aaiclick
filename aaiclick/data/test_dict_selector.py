@@ -284,8 +284,8 @@ async def test_multi_field_selector_repr(ctx):
     assert "'y'" in repr_str
 
 
-async def test_multi_field_selector_metadata(ctx):
-    """Test that ViewMetadata includes selected_fields."""
+async def test_multi_field_selector_schema(ctx):
+    """Test that ViewSchema includes selected_fields."""
     obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4], 'z': [5, 6]})
 
     view = obj[['x', 'z']]

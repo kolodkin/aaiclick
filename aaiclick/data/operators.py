@@ -62,7 +62,7 @@ from typing import Union
 
 from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
-from .models import ColumnDef, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
+from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
 from .sql_utils import quote_identifier
 
 
@@ -234,7 +234,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)}
     )
 
     # Create result object with schema
@@ -560,7 +560,7 @@ AGGREGATION_FUNCTIONS = {
 INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
 
 
-def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnDef]) -> str:
+def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo]) -> str:
     """
     Determine the ClickHouse result type for an aggregation function.
 
@@ -575,12 +575,12 @@ def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnDef]
 
     Args:
         agg_func: Aggregation function key (e.g., 'min', 'sum', 'mean')
-        source_type: ClickHouse type string or ColumnDef
+        source_type: ClickHouse type string or ColumnInfo
 
     Returns:
         ClickHouse base type string for the result (never Nullable)
     """
-    base_type = source_type.type if isinstance(source_type, ColumnDef) else parse_ch_type(source_type).type
+    base_type = source_type.type if isinstance(source_type, ColumnInfo) else parse_ch_type(source_type).type
     if agg_func in ("min", "max"):
         return base_type
     elif agg_func == "sum":
@@ -624,7 +624,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
     # Create result object with schema
@@ -773,7 +773,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
     # Create result object with schema
@@ -821,7 +821,7 @@ async def unique_group(info: QueryInfo, ch_client):
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": ColumnDef("UInt64"), "value": source_col_def}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def}
     )
 
     # Create result object with schema
@@ -947,20 +947,20 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     # Build aggregation expressions and result schema
     agg_exprs = []
-    result_columns = {"aai_id": ColumnDef("UInt64")}
+    result_columns = {"aai_id": ColumnInfo("UInt64")}
 
     for key in info.group_keys:
-        result_columns[key] = ColumnDef(info.columns[key])
+        result_columns[key] = ColumnInfo(info.columns[key])
 
     for column, agg_func in aggregations.items():
         sql_func = AGGREGATION_FUNCTIONS[agg_func]
         if agg_func == "count":
             agg_exprs.append(f"{sql_func}() AS {column}")
-            result_columns[column] = ColumnDef("UInt64")
+            result_columns[column] = ColumnInfo("UInt64")
         else:
             agg_exprs.append(f"{sql_func}({column}) AS {column}")
             source_type = info.columns[column]
-            result_columns[column] = ColumnDef(_determine_agg_result_type(agg_func, source_type))
+            result_columns[column] = ColumnInfo(_determine_agg_result_type(agg_func, source_type))
 
     agg_str = ", ".join(agg_exprs)
 
@@ -1062,7 +1062,7 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
     )
 
     result = await create_object(schema)
@@ -1117,7 +1117,7 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1132,7 +1132,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1159,7 +1159,7 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 

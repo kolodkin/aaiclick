@@ -2,7 +2,7 @@
 
 from aaiclick import create_object, create_object_from_value
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.models import ColumnDef, ENGINE_MEMORY, ENGINE_MERGE_TREE, Schema
+from aaiclick.data.models import ColumnInfo, ENGINE_MEMORY, ENGINE_MERGE_TREE, Schema
 
 
 async def test_context_with_memory_engine():
@@ -35,7 +35,7 @@ async def test_create_object_with_engine_override():
     async with data_context():  # Default MergeTree
         ch_client = get_ch_client()
         # Override with Memory engine
-        schema = Schema(fieldtype="a", columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("Int64")})
+        schema = Schema(fieldtype="a", columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("Int64")})
         obj_a = await create_object(schema, engine=ENGINE_MEMORY)
 
         result = await ch_client.query(f"""
@@ -65,7 +65,7 @@ async def test_mixed_engine_scenario():
         assert result.result_rows[0][0] == "Memory"
 
         # Override to MergeTree for specific object
-        schema = Schema(fieldtype="a", columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("Int64")})
+        schema = Schema(fieldtype="a", columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("Int64")})
         obj_b = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
         result = await ch_client.query(f"""

@@ -42,7 +42,7 @@ async def example():
     print("-" * 50)
 
     meta = await obj.metadata()
-    print(f"ObjectMetadata for dict Object:")
+    print(f"Schema for dict Object:")
     print(f"  table: {meta.table}")
     print(f"  fieldtype: '{meta.fieldtype}' (d = dict)")
     print(f"  columns:")
@@ -56,7 +56,7 @@ async def example():
 
     view = obj['param1']
     view_meta = await view.metadata()
-    print(f"ViewMetadata for obj['param1']:")
+    print(f"ViewSchema for obj['param1']:")
     print(f"  table: {view_meta.table}")
     print(f"  fieldtype: '{view_meta.fieldtype}' (source table type)")
     print(f"  selected_fields: {view_meta.selected_fields}")
@@ -80,7 +80,7 @@ async def example():
 
     # Check copied object's metadata
     arr_meta = await arr.metadata()
-    print(f"\nCopied ObjectMetadata:")
+    print(f"\nCopied Schema:")
     print(f"  table: {arr_meta.table} (new table)")
     print(f"  fieldtype: '{arr_meta.fieldtype}' (a = array)")
     print(f"  columns:")

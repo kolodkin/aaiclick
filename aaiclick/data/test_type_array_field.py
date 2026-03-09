@@ -189,7 +189,7 @@ async def test_records_inconsistent_keys_raises(ctx):
 # =============================================================================
 
 
-async def test_records_metadata_fieldtype(ctx):
+async def test_records_schema_fieldtype(ctx):
     """metadata() reports correct fieldtype for records."""
     obj = await create_object_from_value([
         {"a": [1, 2], "b": 10},

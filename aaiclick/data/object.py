@@ -17,10 +17,9 @@ from ..snowflake_id import get_snowflake_id
 
 from .models import (
     Schema,
-    ColumnDef,
+    ColumnInfo,
     CopyInfo,
     ColumnMeta,
-    ColumnInfo,
     ColumnType,
     GroupByInfo,
     parse_ch_type,
@@ -32,8 +31,7 @@ from .models import (
     GB_STD,
     GB_SUM,
     GB_VAR,
-    ObjectMetadata,
-    ViewMetadata,
+    ViewSchema,
     QueryInfo,
     IngestQueryInfo,
     ValueScalarType,
@@ -251,13 +249,13 @@ class Object:
         source = f"({self._build_select()})" if self.has_constraints else self.table
         value_column = self.selected_fields[0] if self.is_single_field else "value"
 
-        col_def = ColumnDef("Float64")
+        col_def = ColumnInfo("Float64")
         if self.is_single_field and self._schema:
             fieldtype = FIELDTYPE_ARRAY
-            col_def = self._schema.columns.get(value_column, ColumnDef("Float64"))
+            col_def = self._schema.columns.get(value_column, ColumnInfo("Float64"))
         elif self._schema:
             fieldtype = self._schema.fieldtype
-            col_def = self._schema.columns.get("value", ColumnDef("Float64"))
+            col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
         else:
             fieldtype = FIELDTYPE_ARRAY
 
@@ -367,7 +365,7 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def metadata(self) -> ObjectMetadata:
+    async def metadata(self) -> Schema:
         """
         Get metadata for this object including table name, fieldtype, and column info.
 
@@ -375,43 +373,32 @@ class Object:
         queries the ClickHouse system.columns table.
 
         Returns:
-            ObjectMetadata: Dataclass with table, fieldtype, and columns info
+            Schema: Dataclass with table, fieldtype, and columns info
 
         Examples:
             >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
             >>> meta = await obj.metadata()
             >>> print(meta)
-            ObjectMetadata(table='t...', fieldtype='d', columns={
-                'aai_id': ColumnInfo(name='aai_id', type='UInt64', fieldtype='s'),
-                'param1': ColumnInfo(name='param1', type='Int64', fieldtype='a'),
-                'param2': ColumnInfo(name='param2', type='Int64', fieldtype='a')
+            Schema(table='t...', fieldtype='d', columns={
+                'aai_id': ColumnInfo(type='UInt64'),
+                'param1': ColumnInfo(type='Int64'),
+                'param2': ColumnInfo(type='Int64')
             })
             >>> view = obj['param1']
-            >>> view_meta = await view.metadata()  # Returns ViewMetadata
+            >>> view_meta = await view.metadata()  # Returns ViewSchema
         """
         self.checkstale()
 
         # Build from cached schema if available
         if self._schema is not None:
-            column_infos: Dict[str, ColumnInfo] = {}
-            for name, col_def in self._schema.columns.items():
-                col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
-                column_infos[name] = ColumnInfo(
-                    name=name,
-                    type=col_def.type,
-                    fieldtype=col_fieldtype,
-                    nullable=col_def.nullable,
-                    array=col_def.array,
-                )
-
             column_names = set(self._schema.columns.keys())
             is_dict_type = not (column_names <= {"aai_id", "value"})
             overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
 
-            return ObjectMetadata(
-                table=self.table,
+            return Schema(
                 fieldtype=overall_fieldtype,
-                columns=column_infos,
+                columns=self._schema.columns,
+                table=self.table,
             )
 
         # Fallback: query database for metadata (for objects not created via create_object)
@@ -430,14 +417,7 @@ class Object:
 
         for name, col_type, comment in columns_result.result_rows:
             meta = ColumnMeta.from_yaml(comment)
-            col_def = parse_ch_type(col_type)
-            columns[name] = ColumnInfo(
-                name=name,
-                type=col_def.type,
-                fieldtype=meta.fieldtype,
-                nullable=col_def.nullable,
-                array=col_def.array,
-            )
+            columns[name] = parse_ch_type(col_type)
             column_names.append(name)
 
             # Determine overall fieldtype from value column or detect dict type
@@ -449,10 +429,10 @@ class Object:
         if is_dict_type:
             overall_fieldtype = FIELDTYPE_DICT
 
-        return ObjectMetadata(
-            table=self.table,
+        return Schema(
             fieldtype=overall_fieldtype,
-            columns=columns
+            columns=columns,
+            table=self.table,
         )
 
     @staticmethod
@@ -714,8 +694,8 @@ class Object:
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
             ...     fieldtype=FIELDTYPE_ARRAY,
-            ...     columns={"aai_id": ColumnDef("UInt64"),
-            ...              "value": ColumnDef("Int64", nullable=True)},
+            ...     columns={"aai_id": ColumnInfo("UInt64"),
+            ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
             >>> result = await obj_nullable.concat(obj_non_null)
@@ -1558,14 +1538,14 @@ class GroupByQuery:
             if source.is_single_field:
                 # Single-field View: columns are {aai_id, value}
                 field = source._selected_fields[0]
-                col_def = schema.columns.get(field, ColumnDef("Float64"))
+                col_def = schema.columns.get(field, ColumnInfo("Float64"))
                 columns = {"aai_id": "UInt64", "value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source._selected_fields:
                 # Multi-field View: only selected columns available
                 columns = {"aai_id": "UInt64"}
                 for field in source._selected_fields:
-                    col_def = schema.columns.get(field, ColumnDef("Float64"))
+                    col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
                 source_query = f"({source._build_select()})"
             elif source.has_constraints:
@@ -1891,14 +1871,14 @@ class View(Object):
         # Delegate to parent for normal views
         return await super().data(orient=orient)
 
-    async def metadata(self) -> ViewMetadata:
+    async def metadata(self) -> ViewSchema:
         """
         Get metadata for this view including table info and view constraints.
 
-        Builds ViewMetadata from source's metadata on demand.
+        Builds ViewSchema from source's metadata on demand.
 
         Returns:
-            ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
+            ViewSchema: Dataclass with table, fieldtype, columns, and view constraints
 
         Examples:
             >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
@@ -1916,10 +1896,10 @@ class View(Object):
         # from self._schema (handles scalar/array/dict detection, DB fallback, etc.)
         base_meta = await super().metadata()
 
-        return ViewMetadata(
-            table=base_meta.table,
+        return ViewSchema(
             fieldtype=base_meta.fieldtype,
             columns=base_meta.columns,
+            table=base_meta.table,
             where=self._build_where(),
             limit=self._limit,
             offset=self._offset,

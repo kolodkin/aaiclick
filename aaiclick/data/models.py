@@ -39,8 +39,8 @@ NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 
 @dataclass(frozen=True)
-class ColumnDef:
-    """Definition for a single column including base type, nullability, and array wrapping.
+class ColumnInfo:
+    """Column definition including base type, nullability, and array wrapping.
 
     Attributes:
         type: Base ClickHouse element type (e.g., 'Int64', 'String')
@@ -56,17 +56,17 @@ class ColumnDef:
         """Return the ClickHouse DDL type string.
 
         Examples:
-            ColumnDef('Int64').ch_type()                          -> 'Int64'
-            ColumnDef('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
-            ColumnDef('Int64', array=True).ch_type()              -> 'Array(Int64)'
-            ColumnDef('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
+            ColumnInfo('Int64').ch_type()                          -> 'Int64'
+            ColumnInfo('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
+            ColumnInfo('Int64', array=True).ch_type()              -> 'Array(Int64)'
+            ColumnInfo('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
         """
         base = f"Nullable({self.type})" if self.nullable else self.type
         return f"Array({base})" if self.array else base
 
 
-def parse_ch_type(type_str: str) -> ColumnDef:
-    """Parse a ClickHouse type string into a ColumnDef.
+def parse_ch_type(type_str: str) -> "ColumnInfo":
+    """Parse a ClickHouse type string into a ColumnInfo.
 
     Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
     array ('Array(Int64)'), and combined ('Array(Nullable(Int64))').
@@ -75,7 +75,7 @@ def parse_ch_type(type_str: str) -> ColumnDef:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnDef with extracted base type, nullable, and array flags
+        ColumnInfo with extracted base type, nullable, and array flags
     """
     array = False
     if type_str.startswith("Array(") and type_str.endswith(")"):
@@ -87,7 +87,7 @@ def parse_ch_type(type_str: str) -> ColumnDef:
         nullable = True
         type_str = type_str[9:-1]
 
-    return ColumnDef(type=type_str, nullable=nullable, array=array)
+    return ColumnInfo(type=type_str, nullable=nullable, array=array)
 
 
 # Fieldtype constants
@@ -156,7 +156,7 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
-    columns: Dict[str, "ColumnDef"] = field(default_factory=dict)
+    columns: Dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 
 @dataclass
@@ -174,7 +174,7 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, "ColumnDef"]
+    columns: Dict[str, "ColumnInfo"]
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
 
@@ -182,58 +182,26 @@ class CopyInfo:
 @dataclass
 class Schema:
     """
-    Schema definition for creating Object tables.
+    Schema definition for Object tables. Also serves as Object metadata
+    when table is set.
 
     Attributes:
         fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column names to ClickHouse column types
+        columns: Dict mapping column names to ColumnInfo
+        table: ClickHouse table name (empty for blueprints, set for realized objects)
     """
 
     fieldtype: str
-    columns: Dict[str, "ColumnDef"]
-
-
-@dataclass(frozen=True)
-class ColumnInfo(ColumnDef):
-    """
-    Column metadata extending ColumnDef with name and fieldtype.
-
-    Inherits type, nullable, array, and ch_type() from ColumnDef.
-
-    Attributes:
-        name: Column name
-        fieldtype: 's' for scalar, 'a' for array, or None if not set
-    """
-
-    name: str = ""
-    fieldtype: Optional[str] = None
+    columns: Dict[str, "ColumnInfo"]
+    table: Optional[str] = None
 
 
 @dataclass
-class ObjectMetadata:
+class ViewSchema(Schema):
     """
-    Metadata for an Object including table name, fieldtype, and column information.
+    Metadata for a View. Inherits fieldtype, columns, and table from Schema.
 
     Attributes:
-        table: ClickHouse table name
-        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column name to ColumnInfo
-    """
-
-    table: str
-    fieldtype: str
-    columns: Dict[str, ColumnInfo]
-
-
-@dataclass
-class ViewMetadata:
-    """
-    Metadata for a View including table info and view constraints.
-
-    Attributes:
-        table: ClickHouse table name (from source Object)
-        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column name to ColumnInfo
         where: WHERE clause constraint (or None)
         limit: LIMIT constraint (or None)
         offset: OFFSET constraint (or None)
@@ -241,9 +209,6 @@ class ViewMetadata:
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
-    table: str
-    fieldtype: str
-    columns: Dict[str, ColumnInfo]
     where: Optional[str] = None
     limit: Optional[int] = None
     offset: Optional[int] = None

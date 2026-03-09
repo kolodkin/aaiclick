@@ -11,7 +11,7 @@ This example demonstrates how nullable columns work:
 import asyncio
 
 from aaiclick import (
-    ColumnDef,
+    ColumnInfo,
     Schema,
     create_object,
     create_object_from_value,
@@ -31,8 +31,8 @@ async def example():
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
