@@ -121,30 +121,36 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
     await ch_client.command(f"""
         CREATE TABLE {temp_table} (
             a_value Nullable({type_a}),
-            b_value Nullable({type_b})
+            b_value Nullable({type_b}),
+            a_present Nullable(UInt8),
+            b_present Nullable(UInt8)
         ) ENGINE = Memory
     """)
 
-    # Cast to Nullable inside subqueries so FULL OUTER JOIN produces NULLs
-    # (ClickHouse uses default values for non-nullable types in outer joins)
+    # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
+    # Add explicit presence markers (also Nullable) to distinguish join-NULLs
+    # from data-NULLs in nullable source columns.
     await ch_client.command(f"""
         INSERT INTO {temp_table}
-        SELECT a.value AS a_value, b.value AS b_value
+        SELECT a.value AS a_value, b.value AS b_value,
+               a.present AS a_present, b.present AS b_present
         FROM (
             SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
-                   CAST(value AS Nullable({type_a})) AS value
+                   CAST(value AS Nullable({type_a})) AS value,
+                   CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
             SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
-                   CAST(value AS Nullable({type_b})) AS value
+                   CAST(value AS Nullable({type_b})) AS value,
+                   CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_b}
         ) AS b
         ON a.rn = b.rn
     """)
 
     result = await ch_client.query(
-        f"SELECT countIf(a_value IS NOT NULL), countIf(b_value IS NOT NULL) FROM {temp_table}"
+        f"SELECT countIf(a_present IS NOT NULL), countIf(b_present IS NOT NULL) FROM {temp_table}"
     )
     if result.result_rows:
         cnt_a, cnt_b = result.result_rows[0]

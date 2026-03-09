@@ -67,7 +67,7 @@ async def test_view_both_sides(ctx):
     view_b = obj_b.view(limit=4)  # [1, 2, 3, 4] — 4 elements
     result = await (view_a + view_b)
     data = await result.data()
-    assert data == [11, 17, 23, 24]
+    assert data == [11, 17, 23, 29]
 
 
 # =============================================================================
