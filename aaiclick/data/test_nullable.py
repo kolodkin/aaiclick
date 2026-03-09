@@ -219,8 +219,8 @@ async def test_nullable_sum_skips_nulls(ctx):
     assert await total.data() == 4
 
 
-async def test_nullable_count_skips_nulls(ctx):
-    """count() counts non-NULL values."""
+async def test_nullable_count_counts_all_rows(ctx):
+    """count() counts all rows (including NULLs) per ClickHouse semantics."""
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
@@ -233,7 +233,8 @@ async def test_nullable_count_skips_nulls(ctx):
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (1), (NULL), (3)")
 
     cnt = await obj.count()
-    assert await cnt.data() == 2
+    # count() uses count() without args, so it counts all rows
+    assert await cnt.data() == 3
 
 
 async def test_nullable_mean_skips_nulls(ctx):

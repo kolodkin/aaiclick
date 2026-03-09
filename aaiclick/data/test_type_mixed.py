@@ -8,8 +8,6 @@ type coercion and result accuracy.
 import numpy as np
 import pytest
 
-from clickhouse_connect.driver.exceptions import DatabaseError
-
 from aaiclick import create_object_from_value, create_object
 
 THRESHOLD = 1e-5
@@ -355,24 +353,26 @@ async def test_mixed_symmetry(ctx):
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_fails(ctx):
-    """Test that concatenating int array with float array fails with type error."""
+async def test_mixed_int_float_concat_succeeds(ctx):
+    """Test that concatenating int array with float array succeeds (numeric types are compatible)."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4.5, 5.5, 6.5])
 
-    # ClickHouse does not allow int/float concat - no common supertype
-    with pytest.raises(DatabaseError):
-        await a.concat(b)
+    result = await a.concat(b)
+    data = await result.data()
+    # Result uses first source's type (Int64), so floats get truncated
+    assert len(data) == 6
 
 
-async def test_mixed_float_int_concat_fails(ctx):
-    """Test that concatenating float array with int array fails with type error."""
+async def test_mixed_float_int_concat_succeeds(ctx):
+    """Test that concatenating float array with int array succeeds (numeric types are compatible)."""
     a = await create_object_from_value([1.5, 2.5, 3.5])
     b = await create_object_from_value([4, 5, 6])
 
-    # ClickHouse does not allow float/int concat - no common supertype
-    with pytest.raises(DatabaseError):
-        await a.concat(b)
+    result = await a.concat(b)
+    data = await result.data()
+    # Result uses first source's type (Float64), so ints get promoted
+    assert len(data) == 6
 
 
 async def test_mixed_int_string_concat_fails(ctx):
@@ -380,7 +380,7 @@ async def test_mixed_int_string_concat_fails(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value(["a", "b", "c"])
 
-    with pytest.raises(DatabaseError):
+    with pytest.raises(ValueError, match="incompatible type"):
         await a.concat(b)
 
 
