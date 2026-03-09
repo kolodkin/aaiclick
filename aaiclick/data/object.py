@@ -401,6 +401,7 @@ class Object:
                     type=col_def.type,
                     fieldtype=col_fieldtype,
                     nullable=col_def.nullable,
+                    array=col_def.array,
                 )
 
             column_names = set(self._schema.columns.keys())
@@ -435,6 +436,7 @@ class Object:
                 type=col_def.type,
                 fieldtype=meta.fieldtype,
                 nullable=col_def.nullable,
+                array=col_def.array,
             )
             column_names.append(name)
 

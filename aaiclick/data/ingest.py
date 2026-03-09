@@ -243,7 +243,7 @@ async def concat_objects_db(
                 )
             # Promote to nullable if any source is nullable
             if source_def.nullable and not target_def.nullable:
-                result_columns[col_name] = ColumnDef(target_def.type, nullable=True)
+                result_columns[col_name] = ColumnDef(target_def.type, nullable=True, array=target_def.array)
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)

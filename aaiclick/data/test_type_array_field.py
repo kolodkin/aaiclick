@@ -144,7 +144,8 @@ async def test_records_int_array_field(ctx):
     ])
 
     meta = await obj.metadata()
-    assert "Array(Int64)" in meta.columns["values"].type
+    assert meta.columns["values"].type == "Int64"
+    assert meta.columns["values"].array is True
 
 
 async def test_records_float_array_field(ctx):
@@ -154,7 +155,8 @@ async def test_records_float_array_field(ctx):
     ])
 
     meta = await obj.metadata()
-    assert "Array(Float64)" in meta.columns["values"].type
+    assert meta.columns["values"].type == "Float64"
+    assert meta.columns["values"].array is True
 
 
 async def test_records_string_array_field(ctx):
@@ -164,7 +166,8 @@ async def test_records_string_array_field(ctx):
     ])
 
     meta = await obj.metadata()
-    assert "Array(String)" in meta.columns["tags"].type
+    assert meta.columns["tags"].type == "String"
+    assert meta.columns["tags"].array is True
 
 
 # =============================================================================
@@ -198,5 +201,6 @@ async def test_records_metadata_fieldtype(ctx):
     assert meta.fieldtype == "d"
     assert "a" in meta.columns
     assert "b" in meta.columns
-    assert "Array" in meta.columns["a"].type
+    assert meta.columns["a"].array is True
     assert meta.columns["b"].type == "Int64"
+    assert meta.columns["b"].array is False

@@ -40,38 +40,54 @@ NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 @dataclass(frozen=True)
 class ColumnDef:
-    """Definition for a single column including base type and nullability.
+    """Definition for a single column including base type, nullability, and array wrapping.
 
     Attributes:
-        type: Base ClickHouse type (e.g., 'Int64', 'String')
+        type: Base ClickHouse element type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
+        array: Whether the column is an Array(T) type
     """
 
     type: str
     nullable: bool = False
+    array: bool = False
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
 
-        Returns 'Nullable(Int64)' when nullable=True, 'Int64' otherwise.
+        Examples:
+            ColumnDef('Int64').ch_type()                          -> 'Int64'
+            ColumnDef('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
+            ColumnDef('Int64', array=True).ch_type()              -> 'Array(Int64)'
+            ColumnDef('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
         """
-        return f"Nullable({self.type})" if self.nullable else self.type
+        base = f"Nullable({self.type})" if self.nullable else self.type
+        return f"Array({base})" if self.array else base
 
 
 def parse_ch_type(type_str: str) -> ColumnDef:
     """Parse a ClickHouse type string into a ColumnDef.
 
-    Handles both plain types ('Int64') and nullable types ('Nullable(Int64)').
+    Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
+    array ('Array(Int64)'), and combined ('Array(Nullable(Int64))').
 
     Args:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnDef with extracted base type and nullable flag
+        ColumnDef with extracted base type, nullable, and array flags
     """
+    array = False
+    if type_str.startswith("Array(") and type_str.endswith(")"):
+        array = True
+        type_str = type_str[6:-1]
+
+    nullable = False
     if type_str.startswith("Nullable(") and type_str.endswith(")"):
-        return ColumnDef(type=type_str[9:-1], nullable=True)
-    return ColumnDef(type=type_str, nullable=False)
+        nullable = True
+        type_str = type_str[9:-1]
+
+    return ColumnDef(type=type_str, nullable=nullable, array=array)
 
 
 # Fieldtype constants
@@ -177,21 +193,20 @@ class Schema:
     columns: Dict[str, "ColumnDef"]
 
 
-@dataclass
-class ColumnInfo:
+@dataclass(frozen=True)
+class ColumnInfo(ColumnDef):
     """
-    Information about a single column including type and metadata.
+    Column metadata extending ColumnDef with name and fieldtype.
+
+    Inherits type, nullable, array, and ch_type() from ColumnDef.
 
     Attributes:
         name: Column name
-        type: ClickHouse data type (e.g., 'Int64', 'Float64', 'String')
         fieldtype: 's' for scalar, 'a' for array, or None if not set
     """
 
-    name: str
-    type: str
+    name: str = ""
     fieldtype: Optional[str] = None
-    nullable: bool = False
 
 
 @dataclass

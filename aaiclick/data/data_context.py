@@ -296,7 +296,7 @@ async def create_object(
 def _infer_array_clickhouse_type(value: list) -> ColumnDef:
     """Infer Array(T) ClickHouse type from a Python list for use as an Array column."""
     element_def = _infer_clickhouse_type(value)
-    return ColumnDef(f"Array({element_def.type})")
+    return ColumnDef(element_def.type, array=True)
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnDef:
