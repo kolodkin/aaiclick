@@ -707,6 +707,18 @@ class Object:
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
             >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
+            >>>
+            >>> # Nullable promotion: if any source has nullable columns,
+            >>> # result is promoted to nullable
+            >>> obj_nullable = await create_object(Schema(
+            ...     fieldtype=FIELDTYPE_ARRAY,
+            ...     columns={"aai_id": ColumnDef("UInt64"),
+            ...              "value": ColumnDef("Int64", nullable=True)},
+            ... ))
+            >>> obj_non_null = await create_object_from_value([3, 4])
+            >>> result = await obj_nullable.concat(obj_non_null)
+            >>> meta = await result.metadata()
+            >>> meta.columns["value"].nullable  # True
         """
         if not args:
             raise ValueError("concat requires at least one argument")
