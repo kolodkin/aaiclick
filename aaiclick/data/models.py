@@ -113,7 +113,7 @@ class QueryInfo:
 
     Couples the data source (which may be a subquery) with the base table name
     and schema metadata. This makes it easier to pass all required values together
-    in operator and concat operations without querying system tables.
+    in operator operations without querying system tables.
 
     Attributes:
         source: Data source - either a table name or a wrapped subquery like "(SELECT ...)"
@@ -128,6 +128,17 @@ class QueryInfo:
     fieldtype: str
     value_type: str
     nullable: bool = False
+
+
+@dataclass
+class IngestQueryInfo(QueryInfo):
+    """
+    Extended QueryInfo carrying full column schema for concat/insert operations.
+
+    Adds column metadata so concat_objects_db and insert_objects_db can validate
+    schemas without querying system.columns.
+    """
+    columns: Dict[str, "ColumnDef"] = field(default_factory=dict)
 
 
 @dataclass
