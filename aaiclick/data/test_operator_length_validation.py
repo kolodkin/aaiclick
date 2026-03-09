@@ -55,3 +55,30 @@ async def test_coalesce_length_mismatch_raises(ctx):
     b = await create_object_from_value([10, 20])
     with pytest.raises(ValueError, match="Operand length mismatch"):
         await a.coalesce(b)
+
+
+async def test_object_view_length_mismatch_raises(ctx):
+    """Object + View with different lengths raises ValueError."""
+    a = await create_object_from_value([1, 2, 3, 4, 5])
+    b = await create_object_from_value([10, 20, 30, 40, 50])
+    view_b = b.view(where="value <= 30")  # [10, 20, 30] — 3 elements
+    with pytest.raises(ValueError, match="left has 5 .* right has 3"):
+        await (a + view_b)
+
+
+async def test_view_object_length_mismatch_raises(ctx):
+    """View + Object with different lengths raises ValueError."""
+    a = await create_object_from_value([1, 2, 3, 4, 5])
+    b = await create_object_from_value([10, 20, 30])
+    view_a = a.view(where="value >= 3")  # [3, 4, 5] — 3 elements
+    with pytest.raises(ValueError, match="Operand length mismatch"):
+        await (view_a + b)
+
+
+async def test_object_view_same_length_works(ctx):
+    """Object + View with same length produces correct results."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30, 40, 50])
+    view_b = b.view(limit=3)  # [10, 20, 30]
+    result = await (a + view_b)
+    assert await result.data() == [11, 22, 33]
