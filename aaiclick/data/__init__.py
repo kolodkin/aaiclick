@@ -26,6 +26,7 @@ from .data_context import (
 from .url import create_object_from_url
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
+    ColumnDef,
     ENGINE_DEFAULT,
     ENGINE_MEMORY,
     ENGINE_MERGE_TREE,
@@ -52,6 +53,7 @@ from .models import (
     ViewMetadata,
     QueryInfo,
     Schema,
+    parse_ch_type,
     ValueListType,
     ValueScalarType,
     ValueType,

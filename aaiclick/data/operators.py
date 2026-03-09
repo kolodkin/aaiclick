@@ -58,8 +58,10 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
+from typing import Union
+
 from .data_context import create_object
-from .models import Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY
+from .models import ColumnDef, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type
 from .sql_utils import quote_identifier
 
 
@@ -128,9 +130,10 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         value_type = type_a
 
     # Build schema for result table
+    result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": "UInt64", "value": value_type}
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)}
     )
 
     # Create result object with schema
@@ -437,27 +440,31 @@ AGGREGATION_FUNCTIONS = {
 INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
 
 
-def _determine_agg_result_type(agg_func: str, source_type: str) -> str:
+def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnDef]) -> str:
     """
     Determine the ClickHouse result type for an aggregation function.
 
+    Aggregation results are always non-nullable (ClickHouse aggregations
+    skip NULLs and always produce a value).
+
     Rules:
-    - min/max preserve the source type
+    - min/max preserve the source base type
     - sum preserves integer types, promotes to Float64 for float types
     - count always returns UInt64
     - mean/std/var always return Float64
 
     Args:
         agg_func: Aggregation function key (e.g., 'min', 'sum', 'mean')
-        source_type: ClickHouse type of the source column
+        source_type: ClickHouse type string or ColumnDef
 
     Returns:
-        ClickHouse type string for the result
+        ClickHouse base type string for the result (never Nullable)
     """
+    base_type = source_type.type if isinstance(source_type, ColumnDef) else parse_ch_type(source_type).type
     if agg_func in ("min", "max"):
-        return source_type
+        return base_type
     elif agg_func == "sum":
-        return source_type if source_type in INT_TYPES else "Float64"
+        return base_type if base_type in INT_TYPES else "Float64"
     elif agg_func == "count":
         return "UInt64"
     else:
@@ -494,10 +501,10 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 
     value_type = _determine_agg_result_type(agg_func, source_type)
 
-    # Build schema for result table (scalar type)
+    # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": "UInt64", "value": value_type}
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
     )
 
     # Create result object with schema
@@ -646,7 +653,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": "UInt64", "value": value_type}
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
     )
 
     # Create result object with schema
@@ -689,11 +696,12 @@ async def unique_group(info: QueryInfo, ch_client):
     """
     type_result = await ch_client.query(type_query)
     source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+    source_col_def = parse_ch_type(source_type)
 
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": "UInt64", "value": source_type}
+        columns={"aai_id": ColumnDef("UInt64"), "value": source_col_def}
     )
 
     # Create result object with schema
@@ -733,20 +741,20 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     # Build aggregation expressions and result schema
     agg_exprs = []
-    result_columns = {"aai_id": "UInt64"}
+    result_columns = {"aai_id": ColumnDef("UInt64")}
 
     for key in info.group_keys:
-        result_columns[key] = info.columns[key]
+        result_columns[key] = ColumnDef(info.columns[key])
 
     for column, agg_func in aggregations.items():
         sql_func = AGGREGATION_FUNCTIONS[agg_func]
         if agg_func == "count":
             agg_exprs.append(f"{sql_func}() AS {column}")
-            result_columns[column] = "UInt64"
+            result_columns[column] = ColumnDef("UInt64")
         else:
             agg_exprs.append(f"{sql_func}({column}) AS {column}")
             source_type = info.columns[column]
-            result_columns[column] = _determine_agg_result_type(agg_func, source_type)
+            result_columns[column] = ColumnDef(_determine_agg_result_type(agg_func, source_type))
 
     agg_str = ", ".join(agg_exprs)
 
@@ -848,7 +856,7 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": "UInt64", "value": value_type},
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)},
     )
 
     result = await create_object(schema)
@@ -893,3 +901,88 @@ async def extract_op(info: QueryInfo, pattern: str, ch_client):
 async def replace_op(info: QueryInfo, pattern: str, replacement: str, ch_client):
     """Replace all regex matches. Returns String."""
     return await _apply_string_op_db(info, "replace", pattern, ch_client, replacement=replacement)
+
+
+# Null Operations
+# Docs: https://clickhouse.com/docs/sql-reference/functions/functions-for-nulls
+
+
+async def is_null_op(info: QueryInfo, ch_client):
+    """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
+    schema = Schema(
+        fieldtype=info.fieldtype,
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+    )
+    result = await create_object(schema)
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT aai_id, isNull(value) AS value FROM {info.source}
+    """
+    await ch_client.command(insert_query)
+    return result
+
+
+async def is_not_null_op(info: QueryInfo, ch_client):
+    """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
+    schema = Schema(
+        fieldtype=info.fieldtype,
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+    )
+    result = await create_object(schema)
+    insert_query = f"""
+    INSERT INTO {result.table}
+    SELECT aai_id, isNotNull(value) AS value FROM {info.source}
+    """
+    await ch_client.command(insert_query)
+    return result
+
+
+async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
+    """Apply coalesce(a, b) — returns first non-NULL value.
+
+    Result is non-nullable if the fallback (info_b) is non-nullable.
+    """
+    a_is_array = info_a.fieldtype == FIELDTYPE_ARRAY
+    b_is_array = info_b.fieldtype == FIELDTYPE_ARRAY
+    fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
+
+    # Result type follows the first operand's base type
+    value_type = info_a.value_type
+    # Result is nullable only if both operands are nullable
+    result_nullable = info_a.nullable and info_b.nullable
+
+    schema = Schema(
+        fieldtype=fieldtype,
+        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)},
+    )
+    result = await create_object(schema)
+
+    if a_is_array and b_is_array:
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT coalesce(a.value, b.value) AS value
+        FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_a.source}) AS a
+        INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_b.source}) AS b
+        ON a.rn = b.rn
+        """
+    elif a_is_array:
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT a.aai_id, coalesce(a.value, b.value) AS value
+        FROM {info_a.source} AS a, {info_b.source} AS b
+        """
+    elif b_is_array:
+        insert_query = f"""
+        INSERT INTO {result.table}
+        SELECT b.aai_id, coalesce(a.value, b.value) AS value
+        FROM {info_a.source} AS a, {info_b.source} AS b
+        """
+    else:
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT coalesce(a.value, b.value) AS value
+        FROM {info_a.source} AS a, {info_b.source} AS b
+        """
+
+    await ch_client.command(insert_query)
+    return result

@@ -5,7 +5,7 @@ This module provides dataclasses, type literals, and constants used throughout t
 """
 
 from typing import Optional, Dict, Union, Literal, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import yaml
 
@@ -31,6 +31,42 @@ ColumnType = Literal[
     "Bool", "UUID",
     "Array", "Tuple", "Map", "Nested"
 ]
+
+
+@dataclass(frozen=True)
+class ColumnDef:
+    """Definition for a single column including base type and nullability.
+
+    Attributes:
+        type: Base ClickHouse type (e.g., 'Int64', 'String')
+        nullable: Whether the column allows NULL values
+    """
+
+    type: str
+    nullable: bool = False
+
+    def ch_type(self) -> str:
+        """Return the ClickHouse DDL type string.
+
+        Returns 'Nullable(Int64)' when nullable=True, 'Int64' otherwise.
+        """
+        return f"Nullable({self.type})" if self.nullable else self.type
+
+
+def parse_ch_type(type_str: str) -> ColumnDef:
+    """Parse a ClickHouse type string into a ColumnDef.
+
+    Handles both plain types ('Int64') and nullable types ('Nullable(Int64)').
+
+    Args:
+        type_str: ClickHouse type string from system.columns
+
+    Returns:
+        ColumnDef with extracted base type and nullable flag
+    """
+    if type_str.startswith("Nullable(") and type_str.endswith(")"):
+        return ColumnDef(type=type_str[9:-1], nullable=True)
+    return ColumnDef(type=type_str, nullable=False)
 
 
 # Fieldtype constants
@@ -86,6 +122,7 @@ class QueryInfo:
     value_column: str
     fieldtype: str
     value_type: str
+    nullable: bool = False
 
 
 @dataclass
@@ -103,7 +140,7 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, ColumnType]
+    columns: Dict[str, "ColumnDef"]
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
 
@@ -119,7 +156,7 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, ColumnType]
+    columns: Dict[str, "ColumnDef"]
 
 
 @dataclass
@@ -136,6 +173,7 @@ class ColumnInfo:
     name: str
     type: str
     fieldtype: Optional[str] = None
+    nullable: bool = False
 
 
 @dataclass

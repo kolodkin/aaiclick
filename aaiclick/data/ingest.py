@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType
+from .models import ColumnDef, ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type
 from .sql_utils import quote_identifier
 
 
@@ -47,7 +47,7 @@ def _are_types_compatible(target_type: str, source_type: str) -> bool:
     return False
 
 
-async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]:
+async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnDef]]:
     """
     Get fieldtype and columns from a table.
 
@@ -56,7 +56,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
         ch_client: ClickHouse client instance
 
     Returns:
-        Tuple of (fieldtype, columns dict)
+        Tuple of (fieldtype, columns dict mapping names to ColumnDef)
     """
     columns_query = f"""
     SELECT name, type, comment
@@ -69,7 +69,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
     columns = {}
     fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
-        columns[name] = col_type
+        columns[name] = parse_ch_type(col_type)
         if name == "value" and comment:
             meta = ColumnMeta.from_yaml(comment)
             if meta.fieldtype:
@@ -78,7 +78,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, str]]
     return fieldtype, columns
 
 
-async def _get_value_column_type(table: str, ch_client) -> str:
+async def _get_value_column_type(table: str, ch_client) -> ColumnDef:
     """
     Get the value column type from a table.
 
@@ -87,14 +87,16 @@ async def _get_value_column_type(table: str, ch_client) -> str:
         ch_client: ClickHouse client instance
 
     Returns:
-        ClickHouse type string for value column
+        ColumnDef for the value column
     """
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{table}' AND name = 'value'
     """
     type_result = await ch_client.query(type_query)
-    return type_result.result_rows[0][0] if type_result.result_rows else "Float64"
+    if type_result.result_rows:
+        return parse_ch_type(type_result.result_rows[0][0])
+    return ColumnDef("Float64")
 
 
 async def _get_fieldtype(table: str, ch_client) -> str:
@@ -161,7 +163,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         field = copy_info.selected_fields[0]
         new_schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": "UInt64", "value": copy_info.columns[field]}
+            columns={"aai_id": ColumnDef("UInt64"), "value": copy_info.columns[field]}
         )
         result = await create_object(new_schema)
         insert_query = f"""
@@ -169,7 +171,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         SELECT aai_id, value FROM {copy_info.source_query}{alias}
         """
     else:
-        columns = {"aai_id": "UInt64"}
+        columns = {"aai_id": ColumnDef("UInt64")}
         for field in copy_info.selected_fields:
             columns[field] = copy_info.columns[field]
 
@@ -209,28 +211,50 @@ async def concat_objects_db(
     if len(query_infos) < 2:
         raise ValueError("concat requires at least 2 sources")
 
-    # Use base_table for metadata queries
-    fieldtype = await _get_fieldtype(query_infos[0].base_table, ch_client)
-    if fieldtype != FIELDTYPE_ARRAY:
+    # Get full schema from first source
+    first_fieldtype, first_columns = await _get_table_schema(
+        query_infos[0].base_table, ch_client
+    )
+    if first_fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("concat requires first source to have array fieldtype")
 
-    value_type = await _get_value_column_type(query_infos[0].base_table, ch_client)
+    # Validate all sources have compatible schemas and promote nullable
+    result_columns = dict(first_columns)
+    data_col_names = sorted(k for k in first_columns if k != "aai_id")
 
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": "UInt64", "value": value_type}
-    )
+    for i, info in enumerate(query_infos[1:], start=1):
+        _, other_columns = await _get_table_schema(info.base_table, ch_client)
+        other_data_cols = sorted(k for k in other_columns if k != "aai_id")
 
+        if other_data_cols != data_col_names:
+            raise ValueError(
+                f"concat source {i} has columns {other_data_cols}, "
+                f"expected {data_col_names}"
+            )
+
+        for col_name in data_col_names:
+            target_def = result_columns[col_name]
+            source_def = other_columns[col_name]
+            if not _are_types_compatible(target_def.type, source_def.type):
+                raise ValueError(
+                    f"concat source {i} column '{col_name}' has incompatible type "
+                    f"{source_def.type} (target: {target_def.type})"
+                )
+            # Promote to nullable if any source is nullable
+            if source_def.nullable and not target_def.nullable:
+                result_columns[col_name] = ColumnDef(target_def.type, nullable=True)
+
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    # Single multi-table UNION ALL operation using sources (can be subqueries)
-    # Add alias for subqueries (sources starting with '(')
+    # Build UNION ALL with all data columns
+    select_cols = ", ".join(["aai_id"] + data_col_names)
     union_parts = []
     for i, info in enumerate(query_infos):
         if info.source.startswith('('):
-            union_parts.append(f"SELECT aai_id, value FROM {info.source} AS s{i}")
+            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
         else:
-            union_parts.append(f"SELECT aai_id, value FROM {info.source}")
+            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
 
     insert_query = f"""
     INSERT INTO {result.table}
@@ -264,24 +288,40 @@ async def insert_objects_db(
     if not source_tables:
         return
 
-    fieldtype = await _get_fieldtype(target_table, ch_client)
-    if fieldtype != FIELDTYPE_ARRAY:
+    target_fieldtype, target_columns = await _get_table_schema(target_table, ch_client)
+    if target_fieldtype != FIELDTYPE_ARRAY:
         raise ValueError("insert requires target table to have array fieldtype")
 
-    target_value_type = await _get_value_column_type(target_table, ch_client)
+    data_col_names = sorted(k for k in target_columns if k != "aai_id")
 
-    # Validate all source types are compatible
+    # Validate all source schemas are compatible
     for source_table in source_tables:
-        source_value_type = await _get_value_column_type(source_table, ch_client)
-        if not _are_types_compatible(target_value_type, source_value_type):
+        _, source_columns = await _get_table_schema(source_table, ch_client)
+        source_data_cols = sorted(k for k in source_columns if k != "aai_id")
+
+        if source_data_cols != data_col_names:
             raise ValueError(
-                f"Cannot insert {source_value_type} into {target_value_type}: "
-                f"types are incompatible"
+                f"Source table {source_table} has columns {source_data_cols}, "
+                f"expected {data_col_names}"
             )
 
-    # Single multi-source INSERT with UNION ALL
+        for col_name in data_col_names:
+            target_def = target_columns[col_name]
+            source_def = source_columns[col_name]
+            if not _are_types_compatible(target_def.type, source_def.type):
+                raise ValueError(
+                    f"Cannot insert {source_def.type} into {target_def.type} "
+                    f"for column '{col_name}': types are incompatible"
+                )
+
+    # Build CAST expressions for each data column
+    cast_exprs = ", ".join(
+        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+        for col in data_col_names
+    )
+
     union_parts = [
-        f"SELECT aai_id, CAST(value AS {target_value_type}) as value FROM {table}"
+        f"SELECT aai_id, {cast_exprs} FROM {table}"
         for table in source_tables
     ]
     insert_query = f"""

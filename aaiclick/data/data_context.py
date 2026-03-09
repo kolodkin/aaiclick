@@ -24,6 +24,7 @@ from .env import get_ch_creds
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ClickHouseCreds,
+    ColumnDef,
     ValueScalarType,
     ValueListType,
     ValueType,
@@ -33,6 +34,7 @@ from .models import (
     FIELDTYPE_ARRAY,
     EngineType,
     ENGINE_DEFAULT,
+    parse_ch_type,
 )
 from .sql_utils import quote_identifier
 
@@ -252,18 +254,21 @@ async def create_object(
 
     # Build column definitions for CREATE TABLE
     column_defs = []
-    for col_name, col_type in schema.columns.items():
-        col_def = f"{quote_identifier(col_name)} {col_type}"
+    for col_name, col_def in schema.columns.items():
+        if col_name == "aai_id" and col_def.nullable:
+            raise ValueError("aai_id column cannot be nullable")
+
+        ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
         if col_name == "aai_id":
-            col_def += " DEFAULT generateSnowflakeID()"
+            ddl += " DEFAULT generateSnowflakeID()"
             col_fieldtype = FIELDTYPE_SCALAR
         else:
             col_fieldtype = schema.fieldtype
 
         comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
         if comment:
-            col_def += f" COMMENT '{comment}'"
-        column_defs.append(col_def)
+            ddl += f" COMMENT '{comment}'"
+        column_defs.append(ddl)
 
     if obj.persistent:
         effective_engine = "MergeTree"
@@ -288,34 +293,38 @@ async def create_object(
     return obj
 
 
-def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> str:
-    """Infer ClickHouse column type from Python value using numpy."""
+def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnDef:
+    """Infer ClickHouse column type from Python value using numpy.
+
+    Returns a ColumnDef with nullable=False. Nullable columns must be
+    created explicitly via Schema with ColumnDef(type, nullable=True).
+    """
     if isinstance(value, list):
         if not value:
-            return "String"
+            return ColumnDef("String")
 
         arr = np.array(value)
         dtype = arr.dtype
 
         if np.issubdtype(dtype, np.bool_):
-            return "UInt8"
+            return ColumnDef("UInt8")
         elif np.issubdtype(dtype, np.integer):
-            return "Int64"
+            return ColumnDef("Int64")
         elif np.issubdtype(dtype, np.floating):
-            return "Float64"
+            return ColumnDef("Float64")
         else:
-            return "String"
+            return ColumnDef("String")
 
     if isinstance(value, bool):
-        return "UInt8"
+        return ColumnDef("UInt8")
     elif isinstance(value, int):
-        return "Int64"
+        return ColumnDef("Int64")
     elif isinstance(value, float):
-        return "Float64"
+        return ColumnDef("Float64")
     elif isinstance(value, str):
-        return "String"
+        return ColumnDef("String")
     else:
-        return "String"
+        return ColumnDef("String")
 
 
 async def create_object_from_value(
@@ -349,7 +358,7 @@ async def create_object_from_value(
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays:
-            columns = {"aai_id": "UInt64"}
+            columns = {"aai_id": ColumnDef("UInt64")}
             array_len = None
 
             for key, value in val.items():
@@ -361,13 +370,13 @@ async def create_object_from_value(
                             f"All arrays must have same length. "
                             f"Expected {array_len}, got {len(value)} for key '{key}'"
                         )
-                    col_type = _infer_clickhouse_type(value)
+                    col_def = _infer_clickhouse_type(value)
                 else:
                     raise ValueError(
                         f"Dict of arrays requires all values to be lists. "
                         f"Key '{key}' has type {type(value).__name__}"
                     )
-                columns[key] = col_type
+                columns[key] = col_def
 
             schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
             obj = await create_object(schema, name=name)
@@ -378,12 +387,12 @@ async def create_object_from_value(
                 await ch.insert(obj.table, data, column_names=keys)
 
         else:
-            columns = {"aai_id": "UInt64"}
+            columns = {"aai_id": ColumnDef("UInt64")}
             values = []
 
             for key, value in val.items():
-                col_type = _infer_clickhouse_type(value)
-                columns[key] = col_type
+                col_def = _infer_clickhouse_type(value)
+                columns[key] = col_def
 
                 if isinstance(value, str):
                     values.append(f"'{value}'")
@@ -400,10 +409,10 @@ async def create_object_from_value(
             await ch.command(insert_query)
 
     elif isinstance(val, list):
-        col_type = _infer_clickhouse_type(val)
+        col_def = _infer_clickhouse_type(val)
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": "UInt64", "value": col_type},
+            columns={"aai_id": ColumnDef("UInt64"), "value": col_def},
         )
         obj = await create_object(schema, name=name)
 
@@ -412,10 +421,10 @@ async def create_object_from_value(
             await ch.insert(obj.table, data, column_names=["value"])
 
     else:
-        col_type = _infer_clickhouse_type(val)
+        col_def = _infer_clickhouse_type(val)
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            columns={"aai_id": "UInt64", "value": col_type},
+            columns={"aai_id": ColumnDef("UInt64"), "value": col_def},
         )
         obj = await create_object(schema, name=name)
 

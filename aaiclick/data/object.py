@@ -17,11 +17,13 @@ from ..snowflake_id import get_snowflake_id
 
 from .models import (
     Schema,
+    ColumnDef,
     CopyInfo,
     ColumnMeta,
     ColumnInfo,
     ColumnType,
     GroupByInfo,
+    parse_ch_type,
     GroupByOpType,
     GB_COUNT,
     GB_MAX,
@@ -249,15 +251,16 @@ class Object:
         source = f"({self._build_select()})" if self.has_constraints else self.table
         # Get fieldtype and value_type from cached schema
         fieldtype = self._schema.fieldtype if self._schema else FIELDTYPE_ARRAY
-        value_type = "Float64"
+        col_def = ColumnDef("Float64")
         if self._schema and "value" in self._schema.columns:
-            value_type = str(self._schema.columns["value"])
+            col_def = self._schema.columns["value"]
         return QueryInfo(
             source=source,
             base_table=self.table,
             value_column="value",
             fieldtype=fieldtype,
-            value_type=value_type,
+            value_type=col_def.type,
+            nullable=col_def.nullable,
         )
 
     def _get_copy_info(self) -> CopyInfo:
@@ -373,12 +376,13 @@ class Object:
         # Build from cached schema if available
         if self._schema is not None:
             column_infos: Dict[str, ColumnInfo] = {}
-            for name, col_type in self._schema.columns.items():
+            for name, col_def in self._schema.columns.items():
                 col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
                 column_infos[name] = ColumnInfo(
                     name=name,
-                    type=str(col_type),
+                    type=col_def.type,
                     fieldtype=col_fieldtype,
+                    nullable=col_def.nullable,
                 )
 
             column_names = set(self._schema.columns.keys())
@@ -407,10 +411,12 @@ class Object:
 
         for name, col_type, comment in columns_result.result_rows:
             meta = ColumnMeta.from_yaml(comment)
+            col_def = parse_ch_type(col_type)
             columns[name] = ColumnInfo(
                 name=name,
-                type=col_type,
-                fieldtype=meta.fieldtype
+                type=col_def.type,
+                fieldtype=meta.fieldtype,
+                nullable=col_def.nullable,
             )
             column_names.append(name)
 
@@ -1164,6 +1170,43 @@ class Object:
         info = self._get_query_info()
         return await operators.replace_op(info, pattern, replacement, self.ch_client)
 
+    async def is_null(self) -> Self:
+        """Check which values are NULL.
+
+        Returns:
+            Self: New Object with UInt8 values (1 where NULL, 0 otherwise)
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.is_null_op(info, self.ch_client)
+
+    async def is_not_null(self) -> Self:
+        """Check which values are not NULL.
+
+        Returns:
+            Self: New Object with UInt8 values (1 where not NULL, 0 otherwise)
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.is_not_null_op(info, self.ch_client)
+
+    async def coalesce(self, other) -> Self:
+        """Return first non-NULL value from self or other.
+
+        In ClickHouse, NULL = NULL returns NULL (standard SQL semantics).
+        Use coalesce to replace NULLs with a fallback value.
+
+        Args:
+            other: Fallback value — Object, View, or Python scalar
+
+        Returns:
+            Self: New Object with coalesced values
+        """
+        self.checkstale()
+        info_a = self._get_query_info()
+        info_b = self._to_query_info(other)
+        return await operators.coalesce_op(info_a, info_b, self.ch_client)
+
     def view(
         self,
         where: Optional[str] = None,
@@ -1447,26 +1490,27 @@ class GroupByQuery:
             if source.is_single_field:
                 # Single-field View: columns are {aai_id, value}
                 field = source._selected_fields[0]
-                field_type = str(schema.columns.get(field, "Float64"))
-                columns = {"aai_id": "UInt64", "value": field_type}
+                col_def = schema.columns.get(field, ColumnDef("Float64"))
+                columns = {"aai_id": "UInt64", "value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source._selected_fields:
                 # Multi-field View: only selected columns available
                 columns = {"aai_id": "UInt64"}
                 for field in source._selected_fields:
-                    columns[field] = str(schema.columns.get(field, "Float64"))
+                    col_def = schema.columns.get(field, ColumnDef("Float64"))
+                    columns[field] = col_def.type
                 source_query = f"({source._build_select()})"
             elif source.has_constraints:
                 # WHERE/LIMIT View: full columns, wrapped in subquery
-                columns = {k: str(v) for k, v in schema.columns.items()}
+                columns = {k: cd.type for k, cd in schema.columns.items()}
                 source_query = f"({source._build_select()})"
             else:
                 # Base View (no constraints): same as plain Object
-                columns = {k: str(v) for k, v in schema.columns.items()}
+                columns = {k: cd.type for k, cd in schema.columns.items()}
                 source_query = source.table
         else:
             # Plain Object
-            columns = {k: str(v) for k, v in schema.columns.items()}
+            columns = {k: cd.type for k, cd in schema.columns.items()}
             source_query = (
                 f"({source._build_select()})"
                 if hasattr(source, "has_constraints") and source.has_constraints
@@ -1749,16 +1793,16 @@ class View(Object):
 
         # Get fieldtype and value_type from schema
         source_schema = self._schema
+        col_def = ColumnDef("Float64")
         if self.is_single_field and source_schema:
             # Single-field selection yields array type
             fieldtype = FIELDTYPE_ARRAY
-            value_type = str(source_schema.columns.get(value_column, "Float64"))
+            col_def = source_schema.columns.get(value_column, ColumnDef("Float64"))
         elif source_schema:
             fieldtype = source_schema.fieldtype
-            value_type = str(source_schema.columns.get("value", "Float64"))
+            col_def = source_schema.columns.get("value", ColumnDef("Float64"))
         else:
             fieldtype = FIELDTYPE_ARRAY
-            value_type = "Float64"
 
         # Always use subquery when has_constraints (includes selected_fields)
         if self.has_constraints:
@@ -1767,14 +1811,16 @@ class View(Object):
                 base_table=self.table,
                 value_column=value_column,
                 fieldtype=fieldtype,
-                value_type=value_type,
+                value_type=col_def.type,
+                nullable=col_def.nullable,
             )
         return QueryInfo(
             source=self.table,
             base_table=self.table,
             value_column=value_column,
             fieldtype=fieldtype,
-            value_type=value_type,
+            value_type=col_def.type,
+            nullable=col_def.nullable,
         )
 
     def _get_copy_info(self) -> CopyInfo:
