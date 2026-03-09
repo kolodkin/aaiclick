@@ -47,7 +47,7 @@ async def example():
     print(f"  fieldtype: '{meta.fieldtype}' (d = dict)")
     print(f"  columns:")
     for name, col in meta.columns.items():
-        print(f"    {name}: type={col.type}, fieldtype={col.fieldtype}")
+        print(f"    {name}: type={col.ch_type()}")
 
     # Example 3: View metadata with selected_fields
     print("\n" + "=" * 50)
@@ -85,7 +85,7 @@ async def example():
     print(f"  fieldtype: '{arr_meta.fieldtype}' (a = array)")
     print(f"  columns:")
     for name, col in arr_meta.columns.items():
-        print(f"    {name}: type={col.type}, fieldtype={col.fieldtype}")
+        print(f"    {name}: type={col.ch_type()}")
 
     # Example 5: Operations with selected fields
     print("\n" + "=" * 50)
