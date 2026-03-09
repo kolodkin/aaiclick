@@ -694,7 +694,6 @@ class Object:
             raise ValueError("concat requires at least one argument")
 
         self.checkstale()
-        from . import ingest
 
         # Convert all arguments to QueryInfo
         query_infos = [self._get_query_info()]
@@ -762,7 +761,6 @@ class Object:
             raise ValueError("insert requires at least one argument")
 
         self.checkstale()
-        from . import ingest
 
         # Convert all arguments to table names
         source_tables = []
