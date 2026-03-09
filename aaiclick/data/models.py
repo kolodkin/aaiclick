@@ -40,38 +40,58 @@ NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 @dataclass(frozen=True)
 class ColumnDef:
-    """Definition for a single column including base type and nullability.
+    """Definition for a single column including base type, nullability, and cardinality.
 
     Attributes:
         type: Base ClickHouse type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
+        low_cardinality: Whether to use LowCardinality encoding
     """
 
     type: str
     nullable: bool = False
+    low_cardinality: bool = False
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
 
-        Returns 'Nullable(Int64)' when nullable=True, 'Int64' otherwise.
+        Wraps in LowCardinality and/or Nullable as needed.
+        Examples: 'String', 'LowCardinality(String)',
+        'Nullable(String)', 'LowCardinality(Nullable(String))'.
         """
-        return f"Nullable({self.type})" if self.nullable else self.type
+        base = self.type
+        if self.nullable:
+            base = f"Nullable({base})"
+        if self.low_cardinality:
+            base = f"LowCardinality({base})"
+        return base
 
 
 def parse_ch_type(type_str: str) -> ColumnDef:
     """Parse a ClickHouse type string into a ColumnDef.
 
-    Handles both plain types ('Int64') and nullable types ('Nullable(Int64)').
+    Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
+    low cardinality ('LowCardinality(String)'), and combinations
+    ('LowCardinality(Nullable(String))').
 
     Args:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnDef with extracted base type and nullable flag
+        ColumnDef with extracted base type, nullable, and low_cardinality flags
     """
+    low_cardinality = False
+    nullable = False
+
+    if type_str.startswith("LowCardinality(") and type_str.endswith(")"):
+        low_cardinality = True
+        type_str = type_str[15:-1]
+
     if type_str.startswith("Nullable(") and type_str.endswith(")"):
-        return ColumnDef(type=type_str[9:-1], nullable=True)
-    return ColumnDef(type=type_str, nullable=False)
+        nullable = True
+        type_str = type_str[9:-1]
+
+    return ColumnDef(type=type_str, nullable=nullable, low_cardinality=low_cardinality)
 
 
 # Fieldtype constants
@@ -190,6 +210,7 @@ class ColumnInfo:
     type: str
     fieldtype: Optional[str] = None
     nullable: bool = False
+    low_cardinality: bool = False
 
 
 @dataclass

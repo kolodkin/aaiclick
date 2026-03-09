@@ -59,6 +59,34 @@ def test_parse_ch_type_nullable_string():
     assert cd.nullable is True
 
 
+# --- LowCardinality support ---
+
+
+def test_column_def_low_cardinality():
+    cd = ColumnDef("String", low_cardinality=True)
+    assert cd.ch_type() == "LowCardinality(String)"
+    assert cd.low_cardinality is True
+
+
+def test_column_def_low_cardinality_nullable():
+    cd = ColumnDef("String", nullable=True, low_cardinality=True)
+    assert cd.ch_type() == "LowCardinality(Nullable(String))"
+
+
+def test_parse_ch_type_low_cardinality():
+    cd = parse_ch_type("LowCardinality(String)")
+    assert cd.type == "String"
+    assert cd.nullable is False
+    assert cd.low_cardinality is True
+
+
+def test_parse_ch_type_low_cardinality_nullable():
+    cd = parse_ch_type("LowCardinality(Nullable(String))")
+    assert cd.type == "String"
+    assert cd.nullable is True
+    assert cd.low_cardinality is True
+
+
 # --- Table creation with nullable columns ---
 
 

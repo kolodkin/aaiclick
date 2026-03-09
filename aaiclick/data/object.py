@@ -435,6 +435,7 @@ class Object:
                 type=col_def.type,
                 fieldtype=meta.fieldtype,
                 nullable=col_def.nullable,
+                low_cardinality=col_def.low_cardinality,
             )
             column_names.append(name)
 
