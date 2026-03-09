@@ -264,7 +264,7 @@ async def create_object(
             ddl += " DEFAULT generateSnowflakeID()"
             col_fieldtype = FIELDTYPE_SCALAR
         else:
-            col_fieldtype = schema.fieldtype
+            col_fieldtype = schema.col_fieldtype or schema.fieldtype
 
         comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
         if comment:
@@ -385,7 +385,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
             obj = await create_object(schema, name=name)
 
             if array_len and array_len > 0:
@@ -408,7 +408,7 @@ async def create_object_from_value(
                 else:
                     values.append(str(value))
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
             obj = await create_object(schema, name=name)
 
             col_names = [quote_identifier(k) for k in val.keys()]
@@ -442,7 +442,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
             obj = await create_object(schema, name=name)
 
             data = [[record[key] for key in keys] for record in val]
@@ -507,8 +507,10 @@ async def open_object(name: str) -> Object:
             f"(table {table_name})"
         )
 
-    fieldtype, columns = await _get_table_schema(table_name, state.ch_client)
-    schema = Schema(fieldtype=fieldtype, columns=columns)
+    col_fieldtype, columns = await _get_table_schema(table_name, state.ch_client)
+    is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
+    fieldtype = FIELDTYPE_DICT if is_dict_type else col_fieldtype
+    schema = Schema(fieldtype=fieldtype, columns=columns, col_fieldtype=col_fieldtype)
     obj = Object(table=table_name, schema=schema)
     obj._ctx = "default"
     register_object(obj)
