@@ -1235,6 +1235,44 @@ class Object:
         info_b = self._to_query_info(other)
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
 
+    # arrayMap Operator
+
+    async def array_map(self, other: Union["Object", ValueScalarType], operator: str) -> Self:
+        """
+        Apply an element-wise operation using ClickHouse's arrayMap function.
+
+        Unlike binary operators (which use INNER JOIN on row_number and silently
+        drop extra elements), arrayMap raises an error when array sizes don't match.
+
+        Args:
+            other: Another Object or Python scalar to operate with
+            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
+
+        Returns:
+            Self: New array Object with element-wise results
+
+        Raises:
+            DB::Exception: If both operands are arrays with different sizes
+
+        Examples:
+            >>> a = await create_object_from_value([1, 2, 3])
+            >>> b = await create_object_from_value([10, 20, 30])
+            >>> result = await a.array_map(b, '+')
+            >>> await result.data()  # [11, 22, 33]
+            >>>
+            >>> # With scalar
+            >>> result = await a.array_map(5, '*')
+            >>> await result.data()  # [5, 10, 15]
+            >>>
+            >>> # Size mismatch raises error
+            >>> c = await create_object_from_value([10, 20])
+            >>> await a.array_map(c, '+')  # Raises DB::Exception
+        """
+        self.checkstale()
+        info_a = self._get_query_info()
+        info_b = self._to_query_info(other)
+        return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
+
     def view(
         self,
         where: Optional[str] = None,

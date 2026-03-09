@@ -66,6 +66,29 @@ from .models import ColumnDef, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR,
 from .sql_utils import quote_identifier
 
 
+# Operator to arrayMap lambda expression mapping (uses x, y variables)
+ARRAYMAP_EXPRESSIONS = {
+    # Arithmetic operators
+    "+": "x + y",
+    "-": "x - y",
+    "*": "x * y",
+    "/": "x / y",
+    "//": "intDiv(x, y)",
+    "%": "x % y",
+    "**": "power(x, y)",
+    # Comparison operators
+    "==": "toUInt8(x = y)",
+    "!=": "toUInt8(x != y)",
+    "<": "toUInt8(x < y)",
+    "<=": "toUInt8(x <= y)",
+    ">": "toUInt8(x > y)",
+    ">=": "toUInt8(x >= y)",
+    # Bitwise operators
+    "&": "bitAnd(x, y)",
+    "|": "bitOr(x, y)",
+    "^": "bitXor(x, y)",
+}
+
 # Operator to SQL expression mapping
 OPERATOR_EXPRESSIONS = {
     # Arithmetic operators
@@ -812,6 +835,92 @@ async def unique_group(info: QueryInfo, ch_client):
     """
     await ch_client.command(insert_query)
 
+    return result
+
+
+# arrayMap Operators
+# Docs: https://clickhouse.com/docs/sql-reference/functions/array-functions#arraymapfunc-arr1-
+
+
+async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
+    """
+    Apply an element-wise operation using ClickHouse's arrayMap function.
+
+    Collects both sources into arrays (preserving Snowflake ID order),
+    applies arrayMap with a lambda, then expands back into rows via arrayJoin.
+
+    Unlike _apply_operator_db (which uses INNER JOIN on row_number and silently
+    drops extra elements), arrayMap raises an error when array sizes don't match.
+
+    Args:
+        info_a: QueryInfo for first operand (must be FIELDTYPE_ARRAY)
+        info_b: QueryInfo for second operand (FIELDTYPE_ARRAY or FIELDTYPE_SCALAR)
+        operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object instance pointing to result table (FIELDTYPE_ARRAY)
+
+    Raises:
+        ValueError: If operator is not supported
+        DB::Exception: If array sizes don't match (from ClickHouse)
+    """
+    if operator not in ARRAYMAP_EXPRESSIONS:
+        raise ValueError(f"Unsupported operator for array_map: {operator!r}")
+
+    expression = ARRAYMAP_EXPRESSIONS[operator]
+
+    # Determine result type
+    type_a = info_a.value_type
+    type_b = info_b.value_type
+
+    int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+    float_types = {"Float32", "Float64"}
+    comparison_ops = {"==", "!=", "<", "<=", ">", ">="}
+
+    if operator in comparison_ops:
+        value_type = "UInt8"
+    elif (type_a in int_types and type_b in float_types) or (type_a in float_types and type_b in int_types):
+        value_type = "Float64"
+    elif type_a in float_types or type_b in float_types:
+        value_type = "Float64"
+    else:
+        value_type = type_a
+
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"aai_id": "UInt64", "value": value_type},
+    )
+    result = await create_object(schema)
+
+    b_is_scalar = info_b.fieldtype == FIELDTYPE_SCALAR
+
+    if b_is_scalar:
+        # arrayMap with single array + scalar as subquery in lambda body
+        scalar_expr = expression.replace("y", f"(SELECT value FROM {info_b.source})")
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT arrayJoin(
+            arrayMap(
+                x -> {scalar_expr},
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id))
+            )
+        ) AS value
+        """
+    else:
+        # arrayMap with two arrays — ClickHouse enforces equal sizes
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT arrayJoin(
+            arrayMap(
+                (x, y) -> {expression},
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id)),
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source} ORDER BY aai_id))
+            )
+        ) AS value
+        """
+
+    await ch_client.command(insert_query)
     return result
 
 
