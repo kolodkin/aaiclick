@@ -95,6 +95,18 @@ OPERATOR_EXPRESSIONS = {
 }
 
 
+async def _validate_array_lengths(source_a, source_b, ch_client):
+    """Validate two plain-table sources have equal row counts."""
+    result = await ch_client.query(
+        f"SELECT (SELECT count() FROM {source_a}), (SELECT count() FROM {source_b})"
+    )
+    cnt_a, cnt_b = result.result_rows[0]
+    if cnt_a != cnt_b:
+        raise ValueError(
+            f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements"
+        )
+
+
 async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client):
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
@@ -209,21 +221,31 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
     # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
-        # Array-Array: materialize FULL OUTER JOIN, validate lengths, compute
-        temp_table = await _materialize_array_join(
-            info_a.source, info_a.value_type,
-            info_b.source, info_b.value_type,
-            ch_client,
-        )
-        temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
-        try:
-            insert_query = f"""
-            INSERT INTO {result.table} (value)
-            SELECT {temp_expr} AS value FROM {temp_table}
-            """
-            await ch_client.command(insert_query)
-        finally:
-            await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+
+        if either_is_view:
+            temp_table = await _materialize_array_join(
+                info_a.source, info_a.value_type,
+                info_b.source, info_b.value_type,
+                ch_client,
+            )
+            temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+            try:
+                await ch_client.command(f"""
+                    INSERT INTO {result.table} (value)
+                    SELECT {temp_expr} AS value FROM {temp_table}
+                """)
+            finally:
+                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        else:
+            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            await ch_client.command(f"""
+                INSERT INTO {result.table} (value)
+                SELECT {expression} AS value
+                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                ON a.rn = b.rn
+            """)
 
         return result
     elif a_is_array:
@@ -1033,19 +1055,30 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     result = await create_object(schema)
 
     if a_is_array and b_is_array:
-        temp_table = await _materialize_array_join(
-            info_a.source, info_a.value_type,
-            info_b.source, info_b.value_type,
-            ch_client,
-        )
-        try:
-            insert_query = f"""
-            INSERT INTO {result.table} (value)
-            SELECT coalesce(a_value, b_value) AS value FROM {temp_table}
-            """
-            await ch_client.command(insert_query)
-        finally:
-            await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+
+        if either_is_view:
+            temp_table = await _materialize_array_join(
+                info_a.source, info_a.value_type,
+                info_b.source, info_b.value_type,
+                ch_client,
+            )
+            try:
+                await ch_client.command(f"""
+                    INSERT INTO {result.table} (value)
+                    SELECT coalesce(a_value, b_value) AS value FROM {temp_table}
+                """)
+            finally:
+                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        else:
+            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            await ch_client.command(f"""
+                INSERT INTO {result.table} (value)
+                SELECT coalesce(a.value, b.value) AS value
+                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                ON a.rn = b.rn
+            """)
 
         return result
     elif a_is_array:
