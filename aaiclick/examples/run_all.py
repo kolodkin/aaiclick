@@ -12,6 +12,7 @@ from aaiclick.data.data_context import data_context
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .group_by import example as group_by_example
+from .nullable import example as nullable_example
 from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
 from .selectors import example as selectors_example
@@ -50,6 +51,12 @@ async def main():
         print("RUNNING: Group By Example")
         print("=" * 60)
         await group_by_example()
+
+        print("\n" * 2)
+        print("=" * 60)
+        print("RUNNING: Nullable Columns Example")
+        print("=" * 60)
+        await nullable_example()
 
         print("\n" * 2)
         print("=" * 60)
