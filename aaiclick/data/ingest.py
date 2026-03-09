@@ -14,35 +14,58 @@ from .models import ColumnDef, ColumnMeta, CopyInfo, Schema, QueryInfo, FIELDTYP
 from .sql_utils import quote_identifier
 
 
+_INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+_FLOAT_TYPES = {"Float32", "Float64"}
+_NUMERIC_TYPES = _INT_TYPES | _FLOAT_TYPES
+_STRING_TYPES = {"String", "FixedString"}
+
+
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
     """
-    Check if source_type can be inserted into target_type.
+    Check if source_type is directly compatible with target_type (no CAST).
 
-    ClickHouse allows casting between numeric types (Int*, UInt*, Float*),
-    but not between numeric and string types.
+    Used for UNION ALL in concat where ClickHouse requires exact type matches.
+    Only allows same-type or same-category integer/float matches within the same
+    category (int↔int, float↔float), but NOT across categories (int↔float).
 
     Args:
         target_type: ClickHouse type of target column
         source_type: ClickHouse type of source column
 
     Returns:
-        bool: True if types are compatible for insertion
+        bool: True if types are directly compatible without CAST
     """
     if target_type == source_type:
         return True
 
-    int_types = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
-    float_types = {"Float32", "Float64"}
-    numeric_types = int_types | float_types
-
-    if target_type in numeric_types and source_type in numeric_types:
+    if target_type in _INT_TYPES and source_type in _INT_TYPES:
         return True
 
-    string_types = {"String", "FixedString"}
+    if target_type in _FLOAT_TYPES and source_type in _FLOAT_TYPES:
+        return True
 
-    if (target_type in numeric_types and source_type in string_types) or \
-       (target_type in string_types and source_type in numeric_types):
-        return False
+    return False
+
+
+def _are_types_castable(target_type: str, source_type: str) -> bool:
+    """
+    Check if source_type can be CAST to target_type.
+
+    Used for INSERT with explicit CAST where ClickHouse allows casting between
+    all numeric types (Int*, UInt*, Float*), but not between numeric and string.
+
+    Args:
+        target_type: ClickHouse type of target column
+        source_type: ClickHouse type of source column
+
+    Returns:
+        bool: True if types are compatible via explicit CAST
+    """
+    if target_type == source_type:
+        return True
+
+    if target_type in _NUMERIC_TYPES and source_type in _NUMERIC_TYPES:
+        return True
 
     return False
 
@@ -308,7 +331,7 @@ async def insert_objects_db(
         for col_name in data_col_names:
             target_def = target_columns[col_name]
             source_def = source_columns[col_name]
-            if not _are_types_compatible(target_def.type, source_def.type):
+            if not _are_types_castable(target_def.type, source_def.type):
                 raise ValueError(
                     f"Cannot insert {source_def.type} into {target_def.type} "
                     f"for column '{col_name}': types are incompatible"
