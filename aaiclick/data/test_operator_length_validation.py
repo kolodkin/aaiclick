@@ -69,9 +69,9 @@ async def test_object_view_length_mismatch_raises(ctx):
 async def test_view_object_length_mismatch_raises(ctx):
     """View + Object with different lengths raises ValueError."""
     a = await create_object_from_value([1, 2, 3, 4, 5])
-    b = await create_object_from_value([10, 20, 30])
+    b = await create_object_from_value([10, 20])
     view_a = a.view(where="value >= 3")  # [3, 4, 5] — 3 elements
-    with pytest.raises(ValueError, match="Operand length mismatch"):
+    with pytest.raises(ValueError, match="left has 3 .* right has 2"):
         await (view_a + b)
 
 
