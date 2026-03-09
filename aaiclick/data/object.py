@@ -94,7 +94,10 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
         """
-        self._table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        if schema is None:
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
+        schema.table = table_name
         self._stale = False
         self._schema = schema
         self._ctx: Optional[str] = None
@@ -104,13 +107,13 @@ class Object:
     @property
     def persistent(self) -> bool:
         """Check if this is a persistent (named) object that survives context exit."""
-        return self._table_name.startswith("p_")
+        return self.table.startswith("p_")
 
     def _register(self, ctx_name: str = "default") -> None:
         """Register this object with a named context for lifecycle tracking."""
         self._ctx = ctx_name
         if not self.persistent:
-            incref(self._table_name, ctx=ctx_name)
+            incref(self.table, ctx=ctx_name)
 
     def __del__(self):
         """Decrement refcount on deletion."""
@@ -118,21 +121,26 @@ class Object:
             return
         if self._ctx is None:
             return
-        if self._table_name.startswith("p_"):
+        if self.table.startswith("p_"):
             return
         try:
-            decref(self._table_name, ctx=self._ctx)
+            decref(self.table, ctx=self._ctx)
         except RuntimeError:
             return
 
     @property
     def table(self) -> str:
         """Get the table name for this object."""
-        return self._table_name
+        return self._schema.table
+
+    @table.setter
+    def table(self, value: str) -> None:
+        """Set the table name for this object."""
+        self._schema.table = value
 
     @property
-    def schema(self) -> Optional[Schema]:
-        """Get the cached schema for this object (read-only)."""
+    def schema(self) -> Schema:
+        """Get the cached schema for this object."""
         return self._schema
 
     @property
@@ -198,7 +206,7 @@ class Object:
         """
         if self._stale:
             raise RuntimeError(
-                f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
+                f"Cannot use stale Object. Table '{self.table}' has been deleted."
             )
 
     def _build_where(self) -> Optional[str]:
@@ -249,15 +257,12 @@ class Object:
         source = f"({self._build_select()})" if self.has_constraints else self.table
         value_column = self.selected_fields[0] if self.is_single_field else "value"
 
-        col_def = ColumnInfo("Float64")
-        if self.is_single_field and self._schema:
+        if self.is_single_field:
             fieldtype = FIELDTYPE_ARRAY
             col_def = self._schema.columns.get(value_column, ColumnInfo("Float64"))
-        elif self._schema:
+        else:
             fieldtype = self._schema.fieldtype
             col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
-        else:
-            fieldtype = FIELDTYPE_ARRAY
 
         return QueryInfo(
             source=source,
@@ -276,7 +281,7 @@ class Object:
         can validate without querying system.columns.
         """
         info = self._get_query_info()
-        columns = self._schema.columns if self._schema else {}
+        columns = self._schema.columns
         return IngestQueryInfo(**vars(info), columns=columns)
 
     def _get_copy_info(self) -> CopyInfo:
@@ -389,19 +394,11 @@ class Object:
         """
         self.checkstale()
 
-        # Build from cached schema if available
-        if self._schema is not None:
-            column_names = set(self._schema.columns.keys())
-            is_dict_type = not (column_names <= {"aai_id", "value"})
-            overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
+        # Return cached schema if columns are populated
+        if self._schema.columns:
+            return self._schema
 
-            return Schema(
-                fieldtype=overall_fieldtype,
-                columns=self._schema.columns,
-                table=self.table,
-            )
-
-        # Fallback: query database for metadata (for objects not created via create_object)
+        # Fallback: query database for schema (e.g. objects loaded from DB)
         columns_query = f"""
         SELECT name, type, comment
         FROM system.columns
@@ -429,11 +426,9 @@ class Object:
         if is_dict_type:
             overall_fieldtype = FIELDTYPE_DICT
 
-        return Schema(
-            fieldtype=overall_fieldtype,
-            columns=columns,
-            table=self.table,
-        )
+        self._schema.fieldtype = overall_fieldtype
+        self._schema.columns = columns
+        return self._schema
 
     @staticmethod
     def _scalar_query_info(value: ValueScalarType) -> QueryInfo:
@@ -1381,7 +1376,7 @@ class Object:
 
     def __repr__(self) -> str:
         """String representation of the Object."""
-        return f"Object(table='{self._table_name}')"
+        return f"Object(table='{self.table}')"
 
 
 class GroupByQuery:

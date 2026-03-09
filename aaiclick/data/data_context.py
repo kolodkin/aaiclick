@@ -32,6 +32,7 @@ from .models import (
     ColumnMeta,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
     EngineType,
     ENGINE_DEFAULT,
     parse_ch_type,
@@ -384,7 +385,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def
 
-            schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
             if array_len and array_len > 0:
@@ -407,7 +408,7 @@ async def create_object_from_value(
                 else:
                     values.append(str(value))
 
-            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
             col_names = [quote_identifier(k) for k in val.keys()]
@@ -441,7 +442,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
 
-            schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
             data = [[record[key] for key in keys] for record in val]

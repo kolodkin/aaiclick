@@ -158,7 +158,7 @@ async def run_add_benchmark(
             start = timeit.default_timer()
             for _ in range(reps):
                 result = await (obj_a + obj_b)
-                result_tables.append(result._table_name)
+                result_tables.append(result.table)
             run_total = timeit.default_timer() - start
 
             # Query server times AFTER timing is complete
