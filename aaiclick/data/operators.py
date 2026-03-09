@@ -60,6 +60,7 @@ from __future__ import annotations
 
 from typing import Union
 
+from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
 from .models import ColumnDef, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
 from .sql_utils import quote_identifier
@@ -92,6 +93,86 @@ OPERATOR_EXPRESSIONS = {
     "|": "bitOr(a.value, b.value)",
     "^": "bitXor(a.value, b.value)",
 }
+
+
+async def _validate_array_lengths(source_a, source_b, ch_client):
+    """Validate two plain-table sources have equal row counts."""
+    result = await ch_client.query(
+        f"SELECT (SELECT count() FROM {source_a}), (SELECT count() FROM {source_b})"
+    )
+    cnt_a, cnt_b = result.result_rows[0]
+    if cnt_a != cnt_b:
+        raise ValueError(
+            f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements"
+        )
+
+
+async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client):
+    """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
+
+    Creates a temporary Memory table containing both operand values joined by
+    row number, with window-function counts embedded in every row.  After
+    insertion, a single-row read validates that both sides have the same
+    number of elements.
+
+    Args:
+        source_a: SQL source for left operand (table name or subquery)
+        type_a: ClickHouse value type of left operand (e.g. 'Float64')
+        source_b: SQL source for right operand
+        type_b: ClickHouse value type of right operand
+        ch_client: ClickHouse async client
+
+    Returns:
+        Name of the temp table.  Caller is responsible for DROP.
+
+    Raises:
+        ValueError: If the two sources have different row counts.
+    """
+    temp_table = f"tmp_{get_snowflake_id()}"
+
+    await ch_client.command(f"""
+        CREATE TABLE {temp_table} (
+            a_value Nullable({type_a}),
+            b_value Nullable({type_b}),
+            a_present Nullable(UInt8),
+            b_present Nullable(UInt8)
+        ) ENGINE = Memory
+    """)
+
+    # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
+    # Add explicit presence markers (also Nullable) to distinguish join-NULLs
+    # from data-NULLs in nullable source columns.
+    await ch_client.command(f"""
+        INSERT INTO {temp_table}
+        SELECT a.value AS a_value, b.value AS b_value,
+               a.present AS a_present, b.present AS b_present
+        FROM (
+            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+                   CAST(value AS Nullable({type_a})) AS value,
+                   CAST(1 AS Nullable(UInt8)) AS present
+            FROM {source_a}
+        ) AS a
+        FULL OUTER JOIN (
+            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+                   CAST(value AS Nullable({type_b})) AS value,
+                   CAST(1 AS Nullable(UInt8)) AS present
+            FROM {source_b}
+        ) AS b
+        ON a.rn = b.rn
+    """)
+
+    result = await ch_client.query(
+        f"SELECT countIf(a_present IS NOT NULL), countIf(b_present IS NOT NULL) FROM {temp_table}"
+    )
+    if result.result_rows:
+        cnt_a, cnt_b = result.result_rows[0]
+        if cnt_a != cnt_b:
+            await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+            raise ValueError(
+                f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements"
+            )
+
+    return temp_table
 
 
 async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
@@ -140,14 +221,33 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
     # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
-        # Array-Array: element-wise JOIN on row number
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
-        SELECT {expression} AS value
-        FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_a.source}) AS a
-        INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_b.source}) AS b
-        ON a.rn = b.rn
-        """
+        either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+
+        if either_is_view:
+            temp_table = await _materialize_array_join(
+                info_a.source, info_a.value_type,
+                info_b.source, info_b.value_type,
+                ch_client,
+            )
+            temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+            try:
+                await ch_client.command(f"""
+                    INSERT INTO {result.table} (value)
+                    SELECT {temp_expr} AS value FROM {temp_table}
+                """)
+            finally:
+                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        else:
+            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            await ch_client.command(f"""
+                INSERT INTO {result.table} (value)
+                SELECT {expression} AS value
+                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                ON a.rn = b.rn
+            """)
+
+        return result
     elif a_is_array:
         # Array-Scalar: broadcast scalar b across all rows of a
         insert_query = f"""
@@ -955,13 +1055,32 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     result = await create_object(schema)
 
     if a_is_array and b_is_array:
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
-        SELECT coalesce(a.value, b.value) AS value
-        FROM (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_a.source}) AS a
-        INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) as rn, value FROM {info_b.source}) AS b
-        ON a.rn = b.rn
-        """
+        either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+
+        if either_is_view:
+            temp_table = await _materialize_array_join(
+                info_a.source, info_a.value_type,
+                info_b.source, info_b.value_type,
+                ch_client,
+            )
+            try:
+                await ch_client.command(f"""
+                    INSERT INTO {result.table} (value)
+                    SELECT coalesce(a_value, b_value) AS value FROM {temp_table}
+                """)
+            finally:
+                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+        else:
+            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            await ch_client.command(f"""
+                INSERT INTO {result.table} (value)
+                SELECT coalesce(a.value, b.value) AS value
+                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                ON a.rn = b.rn
+            """)
+
+        return result
     elif a_is_array:
         insert_query = f"""
         INSERT INTO {result.table}
