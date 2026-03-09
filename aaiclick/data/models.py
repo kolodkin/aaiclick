@@ -32,6 +32,11 @@ ColumnType = Literal[
     "Array", "Tuple", "Map", "Nested"
 ]
 
+# Type category sets for runtime type checking
+INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
+FLOAT_TYPES = frozenset({"Float32", "Float64"})
+NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
+
 
 @dataclass(frozen=True)
 class ColumnDef:
