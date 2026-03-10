@@ -65,9 +65,9 @@ result = await (10 - a)  # [0, -10, -20] (reverse operator)
 
 ## Scalar Broadcasting
 
-**Implementation**: `operators.py` — see `_apply_operator_db()` and `Object._scalar_query_info()`
+**Implementation**: `operators.py` — see `_apply_operator_db()` and `Object._to_query_info()`
 
-When a Python scalar is used with an Object, it is inlined as a SQL literal `(SELECT 5 AS value)` with `FIELDTYPE_SCALAR`. The cross-join in `_apply_operator_db` handles all non-array×array cases uniformly — only the `aai_id` source differs.
+When a Python scalar is used with an Object, it is first converted to a scalar Object via `create_object_from_value`. The cross-join in `_apply_operator_db` handles all non-array×array cases uniformly — only the `aai_id` source differs.
 
 ### Aggregation Operators
 
