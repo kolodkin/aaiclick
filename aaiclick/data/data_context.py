@@ -8,6 +8,7 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 import re
+import warnings
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ import weakref
 
 import numpy as np
 from clickhouse_connect import get_async_client
+
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from urllib3 import PoolManager
 
@@ -38,6 +40,12 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
+
+# clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
+# internals during query result processing. Suppress globally so the filter covers
+# all call sites (client creation, queries, inserts), not just client init.
+# Remove once clickhouse-connect ships a release that no longer emits these warnings.
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect\.")
 
 
 @dataclass

@@ -30,6 +30,12 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Upload uv.lock as reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: uv-lock
+          path: uv.lock
+
   test-package:
     needs: build
     runs-on: ubuntu-latest
@@ -66,6 +72,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
@@ -81,8 +90,13 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Install package with test dependencies
-        run: uv pip install --python /tmp/test-venv/bin/python "aaiclick[test]" --find-links dist/
+      - name: Export pinned dependencies from uv.lock
+        run: uv export --frozen --extra test --no-emit-project -o /tmp/requirements.txt
+
+      - name: Install pinned dependencies and built wheel
+        run: |
+          uv pip install --python /tmp/test-venv/bin/python -r /tmp/requirements.txt
+          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ aaiclick
 
       - name: Run database migrations
         env:
