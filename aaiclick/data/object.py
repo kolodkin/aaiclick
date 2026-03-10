@@ -101,9 +101,6 @@ class Object:
         self._stale = False
         self._schema = schema
         self._ctx: Optional[str] = None
-        self._where_clauses: List[Tuple[str, str]] = []
-        self._selected_fields: Optional[List[str]] = None
-        self._computed_columns: Optional[Dict[str, Computed]] = None
 
     @property
     def persistent(self) -> bool:
@@ -157,7 +154,17 @@ class Object:
     @property
     def selected_fields(self) -> Optional[List[str]]:
         """Get selected field names (None for base Object)."""
-        return self._selected_fields
+        return None
+
+    @property
+    def where_clauses(self) -> List[Tuple[str, str]]:
+        """Get WHERE clauses (empty for base Object)."""
+        return []
+
+    @property
+    def computed_columns(self) -> Optional[Dict[str, Computed]]:
+        """Get computed columns (None for base Object)."""
+        return None
 
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
@@ -169,7 +176,7 @@ class Object:
     @property
     def is_single_field(self) -> bool:
         """Check if this is a single-field selection."""
-        return self._selected_fields is not None and len(self._selected_fields) == 1
+        return self.selected_fields is not None and len(self.selected_fields) == 1
 
     @property
     def ch_client(self):
@@ -186,12 +193,12 @@ class Object:
     def has_constraints(self) -> bool:
         """Check if this object has any view constraints."""
         return bool(
-            self._where_clauses
+            self.where_clauses
             or self.limit is not None
             or self.offset is not None
             or self.order_by
             or self.selected_fields
-            or self._computed_columns
+            or self.computed_columns
         )
 
     def checkstale(self):
@@ -208,10 +215,10 @@ class Object:
 
     def _build_where(self) -> Optional[str]:
         """Build the combined WHERE clause from stored conditions."""
-        if not self._where_clauses:
+        if not self.where_clauses:
             return None
         parts = []
-        for i, (condition, connector) in enumerate(self._where_clauses):
+        for i, (condition, connector) in enumerate(self.where_clauses):
             if i == 0:
                 parts.append(f"({condition})")
             else:
@@ -1504,14 +1511,14 @@ class GroupByQuery:
         if isinstance(source, View) and source.is_single_field:
             # Single-field View projects to {aai_id, value}
             available = {"value"}
-        elif isinstance(source, View) and source._selected_fields:
+        elif isinstance(source, View) and source.selected_fields:
             # Multi-field View projects to selected fields only
-            available = set(source._selected_fields)
+            available = set(source.selected_fields)
         else:
             available = set(schema.columns.keys()) - {"aai_id"}
         # Include computed columns
-        if source._computed_columns:
-            available |= set(source._computed_columns.keys())
+        if source.computed_columns:
+            available |= set(source.computed_columns.keys())
 
         for key in keys:
             if key not in available:
@@ -1615,25 +1622,25 @@ class GroupByQuery:
         if isinstance(source, View):
             if source.is_single_field:
                 # Single-field View: columns are {aai_id, value}
-                field = source._selected_fields[0]
+                field = source.selected_fields[0]
                 col_def = schema.columns.get(field, ColumnInfo("Float64"))
                 columns = {"aai_id": "UInt64", "value": col_def.type}
                 source_query = f"({source._build_select()})"
-            elif source._selected_fields:
+            elif source.selected_fields:
                 # Multi-field View: only selected columns available
                 columns = {"aai_id": "UInt64"}
-                for field in source._selected_fields:
+                for field in source.selected_fields:
                     col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
-                if source._computed_columns:
-                    for col_name, comp in source._computed_columns.items():
+                if source.computed_columns:
+                    for col_name, comp in source.computed_columns.items():
                         columns[col_name] = comp.type
                 source_query = f"({source._build_select()})"
             elif source.has_constraints:
                 # WHERE/LIMIT View: full columns, wrapped in subquery
                 columns = {k: cd.type for k, cd in schema.columns.items()}
-                if source._computed_columns:
-                    for col_name, comp in source._computed_columns.items():
+                if source.computed_columns:
+                    for col_name, comp in source.computed_columns.items():
                         columns[col_name] = comp.type
                 source_query = f"({source._build_select()})"
             else:
@@ -1753,6 +1760,7 @@ class View(Object):
             computed_columns: Optional dict of computed column definitions
         """
         super().__init__(table=source.table, schema=source._schema)
+        self._where_clauses: List[Tuple[str, str]] = []
         if where:
             self._where_clauses.append((where.strip(), "AND"))
         self._limit = limit
@@ -1781,6 +1789,20 @@ class View(Object):
         """Get ORDER BY clause."""
         return self._order_by
 
+    @property
+    def where_clauses(self) -> List[Tuple[str, str]]:
+        """Get WHERE clauses."""
+        return self._where_clauses
+
+    @property
+    def selected_fields(self) -> Optional[List[str]]:
+        """Get selected field names."""
+        return self._selected_fields
+
+    @property
+    def computed_columns(self) -> Optional[Dict[str, Computed]]:
+        """Get computed columns."""
+        return self._computed_columns
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
@@ -1801,13 +1823,13 @@ class View(Object):
         """Create a new View with all current constraints plus an additional WHERE clause."""
         new_view = View.__new__(View)
         Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self._where_clauses)
+        new_view._where_clauses = list(self.where_clauses)
         new_view._where_clauses.append((condition, connector))
         new_view._limit = self._limit
         new_view._offset = self._offset
         new_view._order_by = self._order_by
-        new_view._selected_fields = self._selected_fields
-        new_view._computed_columns = self._computed_columns
+        new_view._selected_fields = self.selected_fields
+        new_view._computed_columns = self.computed_columns
         if self._ctx is not None:
             new_view._register(self._ctx)
             register_object(new_view, ctx=self._ctx)
@@ -1857,7 +1879,7 @@ class View(Object):
         """
         if not condition or not condition.strip():
             raise ValueError("WHERE condition must be a non-empty string")
-        if not self._where_clauses:
+        if not self.where_clauses:
             raise ValueError("or_where() requires a prior where condition")
         return self._clone_with_clause(condition.strip(), "OR")
 
@@ -1874,8 +1896,8 @@ class View(Object):
         # Check collision with source schema columns
         existing = set(self._schema.columns.keys())
         # Also check collision with already-computed columns
-        if self._computed_columns:
-            existing |= set(self._computed_columns.keys())
+        if self.computed_columns:
+            existing |= set(self.computed_columns.keys())
         for name, computed in columns.items():
             if name in existing:
                 raise ValueError(
@@ -1883,16 +1905,16 @@ class View(Object):
                 )
             self._validate_expression(computed.expression)
 
-        merged = dict(self._computed_columns) if self._computed_columns else {}
+        merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
 
         new_view = View.__new__(View)
         Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self._where_clauses)
+        new_view._where_clauses = list(self.where_clauses)
         new_view._limit = self._limit
         new_view._offset = self._offset
         new_view._order_by = self._order_by
-        new_view._selected_fields = self._selected_fields
+        new_view._selected_fields = self.selected_fields
         new_view._computed_columns = merged
         if self._ctx is not None:
             new_view._register(self._ctx)
@@ -1915,26 +1937,26 @@ class View(Object):
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
-        if self._selected_fields:
+        if self.selected_fields:
             if self.is_single_field:
                 # Single field: rename as 'value' for array compatibility
-                field = quote_identifier(self._selected_fields[0])
+                field = quote_identifier(self.selected_fields[0])
                 if columns == "value":
                     select_cols = f"{field} AS value"
                 else:
                     select_cols = f"aai_id, {field} AS value"
             else:
                 # Multiple fields: select all specified fields
-                fields_str = ", ".join(quote_identifier(f) for f in self._selected_fields)
+                fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
                 select_cols = f"aai_id, {fields_str}"
         else:
             select_cols = columns
 
         # Append computed column expressions
-        if self._computed_columns:
+        if self.computed_columns:
             computed_parts = [
                 f"{comp.expression} AS {quote_identifier(name)}"
-                for name, comp in self._computed_columns.items()
+                for name, comp in self.computed_columns.items()
             ]
             select_cols += ", " + ", ".join(computed_parts)
 
@@ -1967,7 +1989,7 @@ class View(Object):
             source_query=source_query,
             fieldtype=source_schema.fieldtype,
             columns=source_schema.columns,
-            selected_fields=self._selected_fields,
+            selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
         )
 
@@ -1990,30 +2012,30 @@ class View(Object):
         """
         self.checkstale()
 
-        if self._selected_fields:
+        if self.selected_fields:
             if self.is_single_field:
                 # Single field: return as array
                 return await data_extraction.extract_array_data(self)
             else:
                 # Multiple fields: return as dict with only selected fields
                 columns: Dict[str, ColumnMeta] = {}
-                for field in self._selected_fields:
+                for field in self.selected_fields:
                     columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
 
-                column_names = ["aai_id"] + list(self._selected_fields)
+                column_names = ["aai_id"] + list(self.selected_fields)
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
-        if self._computed_columns:
+        if self.computed_columns:
             columns: Dict[str, ColumnMeta] = {}
             # Real columns (excluding aai_id)
             for col_name in self._schema.columns:
                 if col_name != "aai_id":
                     columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
             # Computed columns
-            for col_name in self._computed_columns:
+            for col_name in self.computed_columns:
                 columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
 
-            column_names = list(self._schema.columns.keys()) + list(self._computed_columns.keys())
+            column_names = list(self._schema.columns.keys()) + list(self.computed_columns.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         # Delegate to parent for normal views
@@ -2030,8 +2052,8 @@ class View(Object):
             limit=self._limit,
             offset=self._offset,
             order_by=self._order_by,
-            selected_fields=self._selected_fields,
-            computed_columns=self._computed_columns,
+            selected_fields=self.selected_fields,
+            computed_columns=self.computed_columns,
         )
 
     async def insert(self, *args) -> None:
