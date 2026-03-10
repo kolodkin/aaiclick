@@ -317,27 +317,48 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 
 See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
 
+### Design: SELECT Expression Approach (No Materialization)
+
+`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy, no schema mutation — the computed column exists only in the View's query.
+
+**Why SELECT expressions over alternatives:**
+
+| Aspect                    | Materialized table           | ALIAS column                        | SELECT expression (chosen)     |
+|---------------------------|------------------------------|-------------------------------------|--------------------------------|
+| Schema change             | New table created            | `ALTER TABLE ADD COLUMN ... ALIAS`  | None                           |
+| Storage                   | Full copy                    | Zero                                | Zero                           |
+| Table mutation             | No (new table)               | Yes (adds metadata to table)        | No                             |
+| Persistence               | Permanent column             | Permanent column                    | Exists only in that View       |
+| `SELECT *` visibility     | Yes                          | No (must name explicitly)           | Yes (in the View)              |
+| Reusable across Views     | Yes (real column)            | Yes (any query can reference it)    | No (must repeat expression)    |
+| Composability             | Returns Object               | Mutates table                       | Returns View (chainable)       |
+| Performance               | O(n) INSERT                  | O(1) ALTER                          | O(1) View creation             |
+
+SELECT expressions are the simplest and most composable — they align with how Views already work. The computed column is just another entry in the View's SELECT list.
+
 ### API
 
 ```python
 from aaiclick.data.models import Computed
 
-# On Object — materializes all existing columns + new computed ones
-enriched = await kev.with_columns({
+# On Object — returns a View with existing columns + computed expressions
+enriched = kev.with_columns({
     "year": Computed("UInt16", "toYear(dateAdded)"),
     "vendor_lower": Computed("String", "lower(vendorProject)"),
     "days_to_fix": Computed("Int32", "dateDiff('day', dateAdded, dueDate)"),
 })
 
-# On View — respects WHERE/LIMIT/OFFSET/ORDER BY from the view
+# On View — preserves existing WHERE/LIMIT/OFFSET/ORDER BY + adds computed columns
 filtered = kev.where("dateAdded >= '2023-01-01'")
-enriched = await filtered.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
+enriched = filtered.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
-# Result is a normal dict Object — all operations work
+# Result is a View — all View operations work
 by_year = await enriched.group_by("year").agg({"cveID": "count"})
 by_vendor = await enriched.group_by("vendor_lower").agg({"cveID": "count"})
 recent = enriched.where("days_to_fix < 30")
 ```
+
+**Note**: `with_columns()` is synchronous — it just creates a View, no database call needed. No `await`.
 
 ### Computed NamedTuple
 
@@ -355,17 +376,19 @@ Named fields make call sites self-documenting and enable IDE autocompletion. Bei
 ### Signature
 
 ```python
-async def with_columns(
+def with_columns(
     self,
     columns: dict[str, Computed],
-) -> Object:
-    """Create a new Object with all existing columns plus computed ones.
+) -> View:
+    """Create a View with all existing columns plus computed expressions.
 
-    Follows the standard operator pattern: creates a new table, populates via
-    INSERT...SELECT, returns a new Object. All computation in ClickHouse.
+    Returns a View whose SELECT list includes `expr AS name` for each
+    computed column. No table is created, no data is copied — the
+    expression is evaluated at query time by ClickHouse.
 
-    Works on both Object and View. Views apply their constraints (WHERE, LIMIT,
-    OFFSET, ORDER BY) to the source SELECT before computing new columns.
+    Works on both Object and View. On Views, preserves existing constraints
+    (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the
+    SELECT list.
 
     Args:
         columns: Mapping of column_name -> Computed(type, expression).
@@ -374,7 +397,7 @@ async def with_columns(
             ClickHouse function (toYear, lower, dateDiff, if, multiIf, etc.)
 
     Returns:
-        New dict Object with original columns + computed columns.
+        View with original columns + computed expression aliases.
 
     Raises:
         ValueError: If computed column name collides with existing column.
@@ -386,16 +409,16 @@ async def with_columns(
 
 ### Result Schema Rules
 
-The result is always a **dict Object** (`fieldtype='d'`):
+The result is always a **View** with dict-like schema (`fieldtype='d'`):
 
-| Source Type           | Behavior                                                    |
-|-----------------------|-------------------------------------------------------------|
-| Array (`value` col)   | Result has `value` + computed columns → promotes to dict    |
-| Dict (named columns)  | Result has all existing columns + computed columns          |
-| Scalar                | **Rejected** — raises `ValueError`                         |
-| View (single field)   | Source column renamed to original name + computed columns   |
-| View (multi field)    | Selected fields + computed columns                         |
-| View (with WHERE)     | WHERE applied to source SELECT before computing            |
+| Source Type           | Behavior                                                          |
+|-----------------------|-------------------------------------------------------------------|
+| Array (`value` col)   | View selects `value` + computed columns → promotes to dict        |
+| Dict (named columns)  | View selects all existing columns + computed columns              |
+| Scalar                | **Rejected** — raises `ValueError`                               |
+| View (single field)   | View selects source field + computed columns                      |
+| View (multi field)    | View selects selected fields + computed columns                   |
+| View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
 
 ### Column Name Collision
 
@@ -403,23 +426,56 @@ Computed column names must not collide with existing column names. This is inten
 
 ```python
 # Raises ValueError: "year" already exists
-await enriched.with_columns({"year": Computed("UInt16", "toYear(dueDate)")})
+enriched.with_columns({"year": Computed("UInt16", "toYear(dueDate)")})
 ```
 
 ### Implementation
 
-**Location**: `aaiclick/data/object.py` — `Object.with_columns()` method
+**Location**: `aaiclick/data/object.py` — `Object.with_columns()` and `View.with_columns()` methods
 
-Follows the standard operator pattern (`copy_db`, `group_by_agg`):
+The approach differs from the standard operator pattern — no new table, no `INSERT...SELECT`. Instead, it creates a View with computed expressions in the SELECT list.
 
-1. Validate inputs (not scalar, no collisions, non-empty)
-2. Build result schema: copy existing columns + add new `ColumnInfo` entries
-3. Create new Object via `create_object(schema)`
-4. Build `INSERT INTO {result} SELECT existing_cols, expr AS new_col FROM {source}`
-5. Return result Object
+#### ViewSchema Extension
+
+`ViewSchema` gains a new field to store computed column definitions:
 
 ```python
-async def with_columns(self, columns: dict[str, Computed]) -> Object:
+@dataclass
+class ViewSchema(Schema):
+    where: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    order_by: Optional[str] = None
+    selected_fields: Optional[List[str]] = None
+    computed_columns: Optional[Dict[str, Computed]] = None  # NEW
+```
+
+#### View._build_select() Extension
+
+When `computed_columns` is set, the View's SELECT list includes the expressions:
+
+```python
+def _build_select(self, columns: str = "*", default_order_by=None) -> str:
+    # ... existing field selection logic ...
+
+    # If computed columns exist, expand * to explicit columns + expressions
+    if self._computed_columns:
+        # Get existing column names (from schema, excluding aai_id)
+        existing = [quote_identifier(k) for k in self._schema.columns if k != "aai_id"]
+        computed = [
+            f"{c.expression} AS {quote_identifier(name)}"
+            for name, c in self._computed_columns.items()
+        ]
+        select_cols = "aai_id, " + ", ".join(existing + computed)
+
+    query = f"SELECT {select_cols} FROM {self.table}"
+    # ... existing WHERE/ORDER BY/LIMIT/OFFSET logic ...
+```
+
+#### Object.with_columns()
+
+```python
+def with_columns(self, columns: dict[str, Computed]) -> View:
     self.checkstale()
 
     if not columns:
@@ -439,74 +495,56 @@ async def with_columns(self, columns: dict[str, Computed]) -> Object:
     for name, computed in columns.items():
         _validate_expression(computed.expression)
 
-    # Build result schema — parse_ch_type handles Nullable/Array wrappers
-    result_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
-    for name, col_info in self._schema.columns.items():
-        if name != "aai_id":
-            result_columns[name] = col_info
+    # Build extended schema with computed columns included
+    result_columns = dict(self._schema.columns)
     for name, computed in columns.items():
         result_columns[name] = parse_ch_type(computed.type)
 
-    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    result = await create_object(schema)
-
-    # Build SELECT: existing columns + SQL expressions for computed ones
-    existing_cols = [
-        quote_identifier(k) for k in self._schema.columns if k != "aai_id"
-    ]
-    computed_cols = [
-        f"{computed.expression} AS {quote_identifier(name)}"
-        for name, computed in columns.items()
-    ]
-    select_str = ", ".join(existing_cols + computed_cols)
-
-    # Source query: plain table for Objects, subquery for Views
-    source = (
-        f"({self._build_select()})" if self.has_constraints else self.table
+    schema = ViewSchema(
+        fieldtype=FIELDTYPE_DICT,
+        columns=result_columns,
+        computed_columns=columns,
     )
-    alias = " AS s" if source.startswith("(") else ""
 
-    await self.ch_client.command(
-        f"INSERT INTO {result.table} SELECT {select_str} "
-        f"FROM {source}{alias}"
-    )
-    return result
+    # Return a View with computed columns in the SELECT list
+    return View(source=self, schema=schema, computed_columns=columns)
 ```
 
 ### View Integration
 
-`with_columns()` works on Views because `_build_select()` embeds WHERE/LIMIT/OFFSET/ORDER BY into a subquery. The computed expressions are evaluated on the filtered rows.
+`with_columns()` on a View preserves all existing constraints and adds computed columns:
 
 ```python
-# View with WHERE → subquery source
+# View with WHERE + computed columns
 view = kev.where("dateAdded >= '2023-01-01'")
-enriched = await view.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
+enriched = view.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
-# Generated SQL:
-# INSERT INTO t_new SELECT vendorProject, cveID, ..., toYear(dateAdded) AS year
-# FROM (SELECT * FROM t_kev WHERE (dateAdded >= '2023-01-01')) AS s
+# Generated SQL (when data() is called):
+# SELECT aai_id, vendorProject, cveID, ..., toYear(dateAdded) AS year
+# FROM t_kev
+# WHERE (dateAdded >= '2023-01-01')
 ```
 
-For single-field Views (`kev["dateAdded"]`), the source column is selected as its original name (not renamed to "value") so the SQL expression can reference it. The result is a dict Object with the original field + computed columns.
+For single-field Views (`kev["dateAdded"]`), the source column is selected alongside the computed columns. The result becomes a dict-like View.
 
 ### Chaining
 
-`with_columns()` returns a normal dict Object, so all existing operations work:
+`with_columns()` returns a View, so all View operations work:
 
 ```python
-enriched = await kev.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
+enriched = kev.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
 # group_by + agg
 by_year = await enriched.group_by("year").agg({"cveID": "count"})
 
-# where filtering
+# where filtering (AND-chains with existing constraints)
 recent = enriched.where("year >= 2023")
 
 # column selection
 years_only = recent["year"]
 
 # further with_columns (additive)
-enriched2 = await enriched.with_columns({
+enriched2 = enriched.with_columns({
     "month": Computed("UInt8", "toMonth(dateAdded)"),
 })
 
@@ -515,37 +553,13 @@ year_obj = enriched["year"]
 shifted = await (year_obj - 2000)
 ```
 
-### Delegation to operators.py
-
-The core SQL generation should live in `operators.py` as `with_columns_db()`, following the pattern of `group_by_agg()` and `_apply_operator_db()`. The `Object.with_columns()` method handles validation and delegates:
-
-```python
-# In operators.py
-async def with_columns_db(
-    source_obj: Object,
-    columns: dict[str, Computed],
-    ch_client,
-) -> Object:
-    """Create a new Object with existing + computed columns.
-
-    Args:
-        source_obj: Source Object or View
-        columns: name -> Computed(type, expression)
-        ch_client: ClickHouse client
-
-    Returns:
-        New dict Object with all columns
-    """
-    ...
-```
-
 ### Security: SQL Expression Validation
 
 SQL expressions are passed verbatim to ClickHouse. Basic validation:
 
 1. **Reject semicolons** — prevents statement injection (same as View WHERE clauses)
 2. **Reject subqueries** — disallow `SELECT` keyword in expressions
-3. **Type validated by ClickHouse** — if the expression result type doesn't match the declared `ch_type`, ClickHouse raises a type error at INSERT time
+3. **Type validated by ClickHouse** — if the expression result type doesn't match the declared `ch_type`, ClickHouse raises a type error at query time
 
 ```python
 def _validate_expression(expr: str) -> None:
@@ -565,8 +579,8 @@ def _validate_expression(expr: str) -> None:
 | `test_with_columns_basic`              | Add one computed column, verify data                     |
 | `test_with_columns_multiple`           | Add multiple computed columns in one call                |
 | `test_with_columns_on_view`            | Source is a View with WHERE — filters applied            |
-| `test_with_columns_on_view_with_limit` | Source is a View with LIMIT — only N rows materialized   |
-| `test_with_columns_single_field_view`  | Source is `obj["col"]` — single field preserved          |
+| `test_with_columns_on_view_with_limit` | Source is a View with LIMIT — only N rows               |
+| `test_with_columns_single_field_view`  | Source is `obj["col"]` — promotes to dict View           |
 | `test_with_columns_group_by`           | Chain: with_columns → group_by → agg                    |
 | `test_with_columns_chained`            | Two successive with_columns calls (additive)             |
 | `test_with_columns_collision_error`    | Computed name matches existing → ValueError              |
@@ -577,6 +591,7 @@ def _validate_expression(expr: str) -> None:
 | `test_with_columns_string_functions`   | lower, upper, length on String columns                   |
 | `test_with_columns_arithmetic`         | Computed column from arithmetic expression               |
 | `test_with_columns_nullable`           | Computed column from nullable source preserves nulls     |
+| `test_with_columns_synchronous`        | Verify no await needed — returns View immediately        |
 
 ### Use Cases
 
