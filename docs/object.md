@@ -309,6 +309,123 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | `_data_ctx_ref is None`             | Object was never registered                    |
 | `_data_ctx_ref()` returns None      | Context already garbage collected              |
 
+## Future Optimization: Computed Column Materialization ⚠️ NOT YET IMPLEMENTED
+
+`group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), you must manually materialize it into an intermediate Object.
+
+### Current Workaround (Manual Materialization)
+
+```python
+from aaiclick.data.data_context import create_object, get_ch_client
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+
+# Want: kev.group_by("toYear(dateAdded)").agg({"cveID": "count"})
+# Problem: group_by() rejects SQL expressions
+
+# Step 1: Create intermediate Object with derived column
+schema = Schema(
+    fieldtype=FIELDTYPE_ARRAY,
+    columns={
+        "aai_id": ColumnInfo("UInt64"),
+        "year": ColumnInfo("UInt16"),
+        "cveID": ColumnInfo("String"),
+    },
+)
+year_obj = await create_object(schema)
+
+# Step 2: Populate via INSERT...SELECT with SQL expression
+ch = get_ch_client()
+await ch.command(
+    f"INSERT INTO {year_obj.table} (year, cveID) "
+    f"SELECT toYear(dateAdded) AS year, cveID FROM {kev.table}"
+)
+
+# Step 3: Now group_by works on the materialized column
+result = await year_obj.group_by("year").agg({"cveID": "count"})
+```
+
+### Proposed API: `Object.with_columns()`
+
+A `with_columns()` method would automate this pattern — creating a new Object with additional computed columns via SQL expressions, all inside ClickHouse:
+
+```python
+# Proposed API — single call replaces the 3-step workaround
+enriched = await kev.with_columns({
+    "year": ("UInt16", "toYear(dateAdded)"),
+    "vendor_lower": ("String", "lower(vendorProject)"),
+    "days_to_fix": ("Int32", "dateDiff('day', dateAdded, dueDate)"),
+})
+
+# Now group_by works naturally
+by_year = await enriched.group_by("year").agg({"cveID": "count"})
+by_vendor = await enriched.group_by("vendor_lower").agg({"cveID": "count"})
+```
+
+**Signature**:
+
+```python
+async def with_columns(
+    self,
+    columns: dict[str, tuple[str, str]],
+    # key: new column name
+    # value: (ClickHouse type, SQL expression)
+) -> Object:
+    """Create a new Object with additional computed columns.
+
+    All existing columns are copied. New columns are computed via
+    SQL expressions evaluated inside ClickHouse (zero Python memory).
+
+    Args:
+        columns: Mapping of column_name -> (ch_type, sql_expression).
+            The sql_expression can reference any existing column.
+
+    Returns:
+        New Object with original + computed columns.
+    """
+```
+
+**Implementation sketch**:
+
+```python
+async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
+    # 1. Build schema: copy existing columns + add new ones
+    new_schema_columns = {"aai_id": ColumnInfo("UInt64")}
+    for name, col_info in self.schema.columns.items():
+        if name != "aai_id":
+            new_schema_columns[name] = col_info
+    for name, (ch_type, _expr) in columns.items():
+        new_schema_columns[name] = ColumnInfo(ch_type)
+
+    schema = Schema(fieldtype=self.schema.fieldtype, columns=new_schema_columns)
+    result = await create_object(schema)
+
+    # 2. Build SELECT: existing columns + SQL expressions for new ones
+    existing = [k for k in self.schema.columns if k != "aai_id"]
+    computed = [f"{expr} AS {quote_identifier(name)}" for name, (_type, expr) in columns.items()]
+    select_str = ", ".join(existing + computed)
+    insert_cols = ", ".join(k for k in new_schema_columns if k != "aai_id")
+
+    # 3. INSERT...SELECT (all inside ClickHouse)
+    ch = get_ch_client()
+    await ch.command(
+        f"INSERT INTO {result.table} ({insert_cols}) "
+        f"SELECT {select_str} FROM {self.table}"
+    )
+    return result
+```
+
+**Benefits over manual materialization**:
+- Single call instead of 3-step boilerplate
+- Schema is inferred from source + additions (no manual aai_id setup)
+- SQL injection surface reduced (types validated against ClickHouse)
+- Chainable: `kev.with_columns({...}).group_by("year").agg({...})`
+
+**Use cases**:
+- Date extraction: `toYear()`, `toMonth()`, `toDayOfWeek()`
+- String normalization: `lower()`, `upper()`, `trim()`
+- Derived metrics: `dateDiff()`, arithmetic expressions
+- Type casting: `toFloat64()`, `toString()`
+
 ## Test Files
 
 | Operator Group                  | Test File                        |
