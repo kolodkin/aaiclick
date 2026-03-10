@@ -183,7 +183,7 @@ async def test_with_columns_group_by(ctx):
     })
     result = await view.group_by("bucket").count()
     data = await result.data()
-    pairs = dict(zip(data["bucket"], data["count"]))
+    pairs = dict(zip(data["bucket"], data["_count"]))
     assert pairs["low"] == 3
     assert pairs["high"] == 3
 
