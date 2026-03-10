@@ -6,21 +6,11 @@ scripts/setup_and_test.py or manually via docker-compose.
 """
 
 import asyncio
-import os
 
 import pytest
 
 from aaiclick.data.data_context import data_context
 from aaiclick.orchestration.context import orch_context
-
-
-def pytest_collection_modifyitems(config, items):
-    if os.getenv("AAICLICK_URL_TEST_ENABLE"):
-        return
-    skip_url = pytest.mark.skip(reason="set AAICLICK_URL_TEST_ENABLE=1 to run")
-    for item in items:
-        if "url" in item.keywords:
-            item.add_marker(skip_url)
 
 
 @pytest.fixture(scope="session")
