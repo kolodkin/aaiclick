@@ -8,6 +8,7 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 import re
+import warnings
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -132,14 +133,16 @@ async def _create_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient
     if creds is None:
         creds = get_ch_creds()
 
-    return await get_async_client(
-        host=creds.host,
-        port=creds.port,
-        username=creds.user,
-        password=creds.password,
-        database=creds.database,
-        pool_mgr=get_pool(),
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        return await get_async_client(
+            host=creds.host,
+            port=creds.port,
+            username=creds.user,
+            password=creds.password,
+            database=creds.database,
+            pool_mgr=get_pool(),
+        )
 
 
 @asynccontextmanager
