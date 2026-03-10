@@ -1,22 +1,31 @@
 """
 Array operators example for aaiclick.
 
-This example demonstrates element-wise operations on array Objects,
-including binary operators, scalar broadcast, aggregations, array_map,
-and concat/insert.
+Demonstrates two ways to do element-wise operations on array Objects:
+
+1. **Normal operators** (e.g. `a + b`) — use row-JOIN internally.
+   Validates array lengths and raises ValueError on mismatch.
+
+2. **array_map** (e.g. `a.array_map(b, '+')`) — uses ClickHouse arrayMap.
+   Also raises an error on size mismatch (from ClickHouse).
 """
 
 import asyncio
 
-from aaiclick import FIELDTYPE_ARRAY, Object, create_object_from_value
+from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 
 
 async def example():
     """Run all array operator examples."""
-    # Example 1: Basic array arithmetic
-    print("Example 1: Array arithmetic operators")
-    print("-" * 50)
+    # ── Normal Operators on Arrays ──────────────────────────────
+    print("=" * 60)
+    print("PART 1: Normal operators on array Objects")
+    print("=" * 60)
+
+    # Arithmetic
+    print("\nArithmetic operators")
+    print("-" * 60)
 
     a = await create_object_from_value([10, 20, 30, 40, 50])
     b = await create_object_from_value([2, 4, 5, 8, 10])
@@ -25,16 +34,16 @@ async def example():
     print(f"b: {await b.data()}\n")
 
     result = await (a + b)
-    print(f"a + b = {await result.data()}")
+    print(f"a + b  = {await result.data()}")
 
     result = await (a - b)
-    print(f"a - b = {await result.data()}")
+    print(f"a - b  = {await result.data()}")
 
     result = await (a * b)
-    print(f"a * b = {await result.data()}")
+    print(f"a * b  = {await result.data()}")
 
     result = await (a / b)
-    print(f"a / b = {await result.data()}")
+    print(f"a / b  = {await result.data()}")
 
     result = await (a // b)
     print(f"a // b = {await result.data()}")
@@ -45,16 +54,15 @@ async def example():
     result = await (a ** b)
     print(f"a ** b = {await result.data()}")
 
-    # Example 2: Scalar broadcast
-    print("\n" + "=" * 50)
-    print("Example 2: Scalar broadcast")
-    print("-" * 50)
+    # Scalar broadcast
+    print("\nScalar broadcast")
+    print("-" * 60)
 
     a = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"a: {await a.data()}\n")
 
     result = await (a * 10)
-    print(f"a * 10 = {await result.data()}")
+    print(f"a * 10  = {await result.data()}")
 
     result = await (a + 100)
     print(f"a + 100 = {await result.data()}")
@@ -63,12 +71,11 @@ async def example():
     print(f"100 - a = {await result.data()}")
 
     result = await (2 ** a)
-    print(f"2 ** a = {await result.data()}")
+    print(f"2 ** a  = {await result.data()}")
 
-    # Example 3: Comparison operators
-    print("\n" + "=" * 50)
-    print("Example 3: Array comparison operators")
-    print("-" * 50)
+    # Comparison
+    print("\nComparison operators")
+    print("-" * 60)
 
     x = await create_object_from_value([1, 5, 10, 15, 20])
     y = await create_object_from_value([5, 5, 8, 20, 20])
@@ -77,18 +84,36 @@ async def example():
     print(f"y: {await y.data()}\n")
 
     result = await (x == y)
-    print(f"x == y: {await result.data()}")
+    print(f"x == y = {await result.data()}")
 
     result = await (x < y)
-    print(f"x < y:  {await result.data()}")
+    print(f"x < y  = {await result.data()}")
 
     result = await (x >= y)
-    print(f"x >= y: {await result.data()}")
+    print(f"x >= y = {await result.data()}")
 
-    # Example 4: Aggregations on arrays
-    print("\n" + "=" * 50)
-    print("Example 4: Array aggregations")
-    print("-" * 50)
+    # Bitwise
+    print("\nBitwise operators")
+    print("-" * 60)
+
+    m = await create_object_from_value([12, 10, 8])
+    n = await create_object_from_value([10, 12, 4])
+
+    print(f"m: {await m.data()}")
+    print(f"n: {await n.data()}\n")
+
+    result = await (m & n)
+    print(f"m & n = {await result.data()}")
+
+    result = await (m | n)
+    print(f"m | n = {await result.data()}")
+
+    result = await (m ^ n)
+    print(f"m ^ n = {await result.data()}")
+
+    # Aggregations
+    print("\nAggregations")
+    print("-" * 60)
 
     a = await create_object_from_value([10, 20, 30, 40, 50])
     print(f"a: {await a.data()}\n")
@@ -108,63 +133,25 @@ async def example():
     sd = await a.std()
     print(f"std:  {await sd.data()}")
 
-    # Example 5: Chained operations (all computation in ClickHouse)
-    print("\n" + "=" * 50)
-    print("Example 5: Chained operations")
-    print("-" * 50)
+    # Chained operations
+    print("\nChained operations")
+    print("-" * 60)
 
     a = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"a: {await a.data()}\n")
 
-    # Normalize: divide each element by the sum
     total = await a.sum()
     normalized = await (a / total)
     print(f"normalized (a / sum(a)): {await normalized.data()}")
 
-    # Mean difference between two arrays
     b = await create_object_from_value([10, 20, 30, 40, 50])
     diff = await (b - a)
     mean_diff = await diff.mean()
     print(f"mean(b - a): {await mean_diff.data()}")
 
-    # Example 6: array_map (ClickHouse arrayMap)
-    print("\n" + "=" * 50)
-    print("Example 6: array_map operator")
-    print("-" * 50)
-
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([10, 20, 30])
-
-    print(f"a: {await a.data()}")
-    print(f"b: {await b.data()}\n")
-
-    result = await a.array_map(b, "+")
-    print(f"array_map(a, b, '+'): {await result.data()}")
-
-    result = await a.array_map(5, "*")
-    print(f"array_map(a, 5, '*'): {await result.data()}")
-
-    # Example 7: Concat and insert
-    print("\n" + "=" * 50)
-    print("Example 7: Concat and insert")
-    print("-" * 50)
-
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([4, 5, 6])
-
-    print(f"a: {await a.data()}")
-    print(f"b: {await b.data()}\n")
-
-    result = await a.concat(b)
-    print(f"concat(a, b): {await result.data()}")
-
-    result = await a.concat(b, [7, 8, 9])
-    print(f"concat(a, b, [7,8,9]): {await result.data()}")
-
-    # Example 8: Size mismatch raises error
-    print("\n" + "=" * 50)
-    print("Example 8: Size mismatch raises ValueError")
-    print("-" * 50)
+    # Size mismatch
+    print("\nSize mismatch raises ValueError")
+    print("-" * 60)
 
     a = await create_object_from_value([1, 2, 3])
     c = await create_object_from_value([10, 20])
@@ -173,12 +160,95 @@ async def example():
         await (a + c)
         print("ERROR: Should have raised!")
     except ValueError as e:
-        print(f"a + c with mismatched sizes: {e}")
+        print(f"a + c: {e}")
 
-    # Example 9: Bitwise operators on arrays
-    print("\n" + "=" * 50)
-    print("Example 9: Bitwise operators on arrays")
-    print("-" * 50)
+    # Concat
+    print("\nConcat and insert")
+    print("-" * 60)
+
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
+
+    print(f"a: {await a.data()}")
+    print(f"b: {await b.data()}\n")
+
+    result = await a.concat(b)
+    print(f"concat(a, b):          {await result.data()}")
+
+    result = await a.concat(b, [7, 8, 9])
+    print(f"concat(a, b, [7,8,9]): {await result.data()}")
+
+    # ── array_map Operators ─────────────────────────────────────
+    print("\n\n" + "=" * 60)
+    print("PART 2: array_map operators (ClickHouse arrayMap)")
+    print("=" * 60)
+
+    # Arithmetic
+    print("\nArithmetic via array_map")
+    print("-" * 60)
+
+    a = await create_object_from_value([10, 20, 30, 40, 50])
+    b = await create_object_from_value([2, 4, 5, 8, 10])
+
+    print(f"a: {await a.data()}")
+    print(f"b: {await b.data()}\n")
+
+    result = await a.array_map(b, "+")
+    print(f"array_map('+')  = {await result.data()}")
+
+    result = await a.array_map(b, "-")
+    print(f"array_map('-')  = {await result.data()}")
+
+    result = await a.array_map(b, "*")
+    print(f"array_map('*')  = {await result.data()}")
+
+    result = await a.array_map(b, "/")
+    print(f"array_map('/')  = {await result.data()}")
+
+    result = await a.array_map(b, "//")
+    print(f"array_map('//') = {await result.data()}")
+
+    result = await a.array_map(b, "%")
+    print(f"array_map('%%') = {await result.data()}")
+
+    result = await a.array_map(b, "**")
+    print(f"array_map('**') = {await result.data()}")
+
+    # Scalar broadcast via array_map
+    print("\nScalar broadcast via array_map")
+    print("-" * 60)
+
+    a = await create_object_from_value([1, 2, 3, 4, 5])
+    print(f"a: {await a.data()}\n")
+
+    result = await a.array_map(10, "*")
+    print(f"array_map(10, '*')  = {await result.data()}")
+
+    result = await a.array_map(100, "+")
+    print(f"array_map(100, '+') = {await result.data()}")
+
+    # Comparison via array_map
+    print("\nComparison via array_map")
+    print("-" * 60)
+
+    x = await create_object_from_value([1, 5, 10, 15, 20])
+    y = await create_object_from_value([5, 5, 8, 20, 20])
+
+    print(f"x: {await x.data()}")
+    print(f"y: {await y.data()}\n")
+
+    result = await x.array_map(y, "==")
+    print(f"array_map('==') = {await result.data()}")
+
+    result = await x.array_map(y, "<")
+    print(f"array_map('<')  = {await result.data()}")
+
+    result = await x.array_map(y, ">=")
+    print(f"array_map('>=') = {await result.data()}")
+
+    # Bitwise via array_map
+    print("\nBitwise via array_map")
+    print("-" * 60)
 
     m = await create_object_from_value([12, 10, 8])
     n = await create_object_from_value([10, 12, 4])
@@ -186,14 +256,27 @@ async def example():
     print(f"m: {await m.data()}")
     print(f"n: {await n.data()}\n")
 
-    result = await (m & n)
-    print(f"m & n: {await result.data()}")
+    result = await m.array_map(n, "&")
+    print(f"array_map('&') = {await result.data()}")
 
-    result = await (m | n)
-    print(f"m | n: {await result.data()}")
+    result = await m.array_map(n, "|")
+    print(f"array_map('|') = {await result.data()}")
 
-    result = await (m ^ n)
-    print(f"m ^ n: {await result.data()}")
+    result = await m.array_map(n, "^")
+    print(f"array_map('^') = {await result.data()}")
+
+    # Size mismatch via array_map
+    print("\nSize mismatch raises error")
+    print("-" * 60)
+
+    a = await create_object_from_value([1, 2, 3])
+    c = await create_object_from_value([10, 20])
+
+    try:
+        await a.array_map(c, "+")
+        print("ERROR: Should have raised!")
+    except Exception as e:
+        print(f"array_map(c, '+'): {type(e).__name__}: {e}")
 
 
 async def amain():
