@@ -464,9 +464,8 @@ async def _create_nested_object(
     obj = await create_object(schema, name=name)
 
     keys = list(flat.keys())
-    quoted_keys = [quote_identifier(k) for k in keys]
     data = [[flat[k] for k in keys]]
-    await ch.insert(obj.table, data, column_names=quoted_keys)
+    await ch.insert(obj.table, data, column_names=keys)
 
     return obj
 
@@ -507,9 +506,8 @@ async def _create_nested_records_object(
 
     flat_records = [_flatten_nested_record(record) for record in val]
     keys = list(flat_records[0].keys())
-    quoted_keys = [quote_identifier(k) for k in keys]
     data = [[record[k] for k in keys] for record in flat_records]
-    await ch.insert(obj.table, data, column_names=quoted_keys)
+    await ch.insert(obj.table, data, column_names=keys)
 
     return obj
 
