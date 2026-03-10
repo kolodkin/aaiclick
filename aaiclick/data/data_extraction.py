@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from . import object as object_mod
 from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
@@ -16,12 +17,12 @@ def _convert_value(value):
     return list(value) if isinstance(value, tuple) else value
 
 
-async def extract_scalar_data(obj: Any) -> Any:
+async def extract_scalar_data(obj: object_mod.Object) -> Any:
     """
     Extract data from a scalar table (single row with aai_id and value).
 
     Args:
-        obj: Any instance with scalar data
+        obj: Object instance with scalar data
 
     Returns:
         Single scalar value or None if empty
@@ -32,12 +33,12 @@ async def extract_scalar_data(obj: Any) -> Any:
     return rows[0][0] if rows else None
 
 
-async def extract_array_data(obj: Any) -> List[Any]:
+async def extract_array_data(obj: object_mod.Object) -> List[Any]:
     """
     Extract data from an array table (multiple rows with aai_id and value).
 
     Args:
-        obj: Any instance with array data
+        obj: Object instance with array data
 
     Returns:
         List of values ordered by aai_id
@@ -49,7 +50,7 @@ async def extract_array_data(obj: Any) -> List[Any]:
 
 
 async def extract_dict_data(
-    obj: Any,
+    obj: object_mod.Object,
     column_names: List[str],
     columns: Dict[str, ColumnMeta],
     orient: str
@@ -58,7 +59,7 @@ async def extract_dict_data(
     Extract data from a dict table (multiple columns with aai_id).
 
     Args:
-        obj: Any instance with dict data
+        obj: Object instance with dict data
         column_names: List of column names in order
         columns: Dict mapping column names to metadata
         orient: Output format (ORIENT_DICT or ORIENT_RECORDS)
