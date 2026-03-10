@@ -18,6 +18,7 @@ from ..snowflake_id import get_snowflake_id
 from .models import (
     Schema,
     ColumnInfo,
+    Computed,
     CopyInfo,
     ColumnMeta,
     ColumnType,
@@ -36,6 +37,7 @@ from .models import (
     ValueScalarType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
@@ -101,6 +103,7 @@ class Object:
         self._ctx: Optional[str] = None
         self._where_clauses: List[Tuple[str, str]] = []
         self._selected_fields: Optional[List[str]] = None
+        self._computed_columns: Optional[Dict[str, Computed]] = None
 
     @property
     def persistent(self) -> bool:
@@ -188,6 +191,7 @@ class Object:
             or self.offset is not None
             or self.order_by
             or self.selected_fields
+            or self._computed_columns
         )
 
     def checkstale(self):
@@ -1159,6 +1163,45 @@ class Object:
         info_b = other._get_query_info()
         return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
 
+    @staticmethod
+    def _validate_expression(expression: str) -> None:
+        """Validate a SQL expression for safety."""
+        if ";" in expression:
+            raise ValueError("Expression must not contain ';'")
+        upper = expression.upper()
+        if "SELECT" in upper.split():
+            raise ValueError("Expression must not contain subqueries")
+
+    def with_columns(self, columns: Dict[str, Computed]) -> "View":
+        """Add computed columns to this Object, returning a View.
+
+        Synchronous — no database call. The computed columns exist only
+        in the View's SELECT list as ``expr AS name`` aliases.
+
+        Args:
+            columns: Mapping of column name to Computed(type, expression).
+
+        Returns:
+            View with original columns + computed expression aliases.
+
+        Raises:
+            ValueError: If columns is empty, name collides with existing,
+                or Object is scalar.
+        """
+        self.checkstale()
+        if not columns:
+            raise ValueError("columns must be a non-empty dict")
+        if self._schema.fieldtype == FIELDTYPE_SCALAR:
+            raise ValueError("with_columns() cannot be used on scalar Objects")
+        existing = set(self._schema.columns.keys())
+        for name, computed in columns.items():
+            if name in existing:
+                raise ValueError(
+                    f"Computed column '{name}' collides with existing column"
+                )
+            self._validate_expression(computed.expression)
+        return View(self, computed_columns=columns)
+
     def view(
         self,
         where: Optional[str] = None,
@@ -1338,6 +1381,9 @@ class GroupByQuery:
             available = set(source._selected_fields)
         else:
             available = set(schema.columns.keys()) - {"aai_id"}
+        # Include computed columns
+        if source._computed_columns:
+            available |= set(source._computed_columns.keys())
 
         for key in keys:
             if key not in available:
@@ -1556,6 +1602,7 @@ class View(Object):
         offset: Optional[int] = None,
         order_by: Optional[str] = None,
         selected_fields: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Computed]] = None,
     ):
         """
         Initialize a View.
@@ -1569,6 +1616,7 @@ class View(Object):
             selected_fields: Optional list of field names to select
                              Single field [name] returns array-like view
                              Multiple fields returns dict-like view
+            computed_columns: Optional dict of computed column definitions
         """
         super().__init__(table=source.table, schema=source._schema)
         if where:
@@ -1577,6 +1625,7 @@ class View(Object):
         self._offset = offset
         self._order_by = order_by
         self._selected_fields = selected_fields
+        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns
 
         # Register with context for lifecycle tracking and stale marking
         if source._ctx is not None:
@@ -1624,6 +1673,7 @@ class View(Object):
         new_view._offset = self._offset
         new_view._order_by = self._order_by
         new_view._selected_fields = self._selected_fields
+        new_view._computed_columns = self._computed_columns
         if self._ctx is not None:
             new_view._register(self._ctx)
             register_object(new_view, ctx=self._ctx)
@@ -1677,6 +1727,44 @@ class View(Object):
             raise ValueError("or_where() requires a prior where condition")
         return self._clone_with_clause(condition.strip(), "OR")
 
+    def with_columns(self, columns: Dict[str, Computed]) -> "View":
+        """Add computed columns to this View, returning a new View.
+
+        Additive — merges with any existing computed columns.
+        Preserves all existing constraints (WHERE, LIMIT, etc.).
+        """
+        self.checkstale()
+        if not columns:
+            raise ValueError("columns must be a non-empty dict")
+
+        # Check collision with source schema columns
+        existing = set(self._schema.columns.keys())
+        # Also check collision with already-computed columns
+        if self._computed_columns:
+            existing |= set(self._computed_columns.keys())
+        for name, computed in columns.items():
+            if name in existing:
+                raise ValueError(
+                    f"Computed column '{name}' collides with existing column"
+                )
+            self._validate_expression(computed.expression)
+
+        merged = dict(self._computed_columns) if self._computed_columns else {}
+        merged.update(columns)
+
+        new_view = View.__new__(View)
+        Object.__init__(new_view, table=self.table, schema=self._schema)
+        new_view._where_clauses = list(self._where_clauses)
+        new_view._limit = self._limit
+        new_view._offset = self._offset
+        new_view._order_by = self._order_by
+        new_view._selected_fields = self._selected_fields
+        new_view._computed_columns = merged
+        if self._ctx is not None:
+            new_view._register(self._ctx)
+            register_object(new_view, ctx=self._ctx)
+        return new_view
+
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -1684,6 +1772,7 @@ class View(Object):
         For single-field selection, renames the field as 'value' for array compatibility.
         For multi-field selection, selects all specified fields.
         If columns="value" is requested, only the value column is selected.
+        Computed columns are appended as ``expr AS name`` aliases.
 
         Args:
             columns: Column specification (default "*", respected for field selection views)
@@ -1704,8 +1793,22 @@ class View(Object):
                 # Multiple fields: select all specified fields
                 fields_str = ", ".join(quote_identifier(f) for f in self._selected_fields)
                 select_cols = f"aai_id, {fields_str}"
+        elif self._computed_columns:
+            # Expand * to explicit columns + computed aliases
+            real_cols = ", ".join(
+                quote_identifier(c) for c in self._schema.columns
+            )
+            select_cols = real_cols
         else:
             select_cols = columns
+
+        # Append computed column expressions
+        if self._computed_columns:
+            computed_parts = [
+                f"{comp.expression} AS {quote_identifier(name)}"
+                for name, comp in self._computed_columns.items()
+            ]
+            select_cols += ", " + ", ".join(computed_parts)
 
         query = f"SELECT {select_cols} FROM {self.table}"
         where_clause = self._build_where()
@@ -1746,6 +1849,7 @@ class View(Object):
 
         For single-field selection, returns array data (the selected column).
         For multi-field selection, returns dict data (subset of columns).
+        For computed columns, returns dict data with computed values included.
 
         Args:
             orient: Output format for dict data
@@ -1753,6 +1857,7 @@ class View(Object):
         Returns:
             - For single-field views: returns list of values (array)
             - For multi-field views: returns dict with selected columns
+            - For computed column views: returns dict with real + computed columns
             - Otherwise: delegates to parent Object.data()
         """
         self.checkstale()
@@ -1772,6 +1877,21 @@ class View(Object):
                 column_names = ["aai_id"] + list(self._selected_fields)
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
+        if self._computed_columns:
+            from . import data_extraction
+
+            columns: Dict[str, ColumnMeta] = {}
+            # Real columns (excluding aai_id)
+            for col_name in self._schema.columns:
+                if col_name != "aai_id":
+                    columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+            # Computed columns
+            for col_name in self._computed_columns:
+                columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+
+            column_names = list(self._schema.columns.keys()) + list(self._computed_columns.keys())
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+
         # Delegate to parent for normal views
         return await super().data(orient=orient)
 
@@ -1787,6 +1907,7 @@ class View(Object):
             offset=self._offset,
             order_by=self._order_by,
             selected_fields=self._selected_fields,
+            computed_columns=self._computed_columns,
         )
 
     async def insert(self, *args) -> None:
