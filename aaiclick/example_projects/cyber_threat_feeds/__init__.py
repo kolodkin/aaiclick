@@ -26,7 +26,8 @@ Usage:
 import asyncio
 
 from aaiclick import create_object_from_url
-from aaiclick.data.models import ColumnInfo
+from aaiclick.data.data_context import create_object, get_ch_client
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.data.object import Object
 from aaiclick.orchestration import job, task
 
@@ -99,6 +100,30 @@ async def analyze_kev_by_vendor(kev: Object) -> Object:
 
 
 @task
+async def analyze_kev_by_year(kev: Object) -> Object:
+    """KEV entries grouped by year added to the catalog.
+
+    Materializes toYear(dateAdded) into a 'year' column since group_by()
+    only accepts column names, not SQL expressions.
+    """
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "year": ColumnInfo("UInt16"),
+            "cveID": ColumnInfo("String"),
+        },
+    )
+    year_obj = await create_object(schema)
+    ch = get_ch_client()
+    await ch.command(
+        f"INSERT INTO {year_obj.table} (year, cveID) "
+        f"SELECT toYear(dateAdded) AS year, cveID FROM {kev.table}"
+    )
+    return await year_obj.group_by("year").agg({"cveID": "count"})
+
+
+@task
 async def analyze_kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
     total_count = await (await kev["cveID"].count()).data()
@@ -125,6 +150,7 @@ async def analyze_kev_ransomware(kev: Object) -> dict:
 async def generate_kev_report(
     kev: Object,
     by_vendor: Object,
+    by_year: Object,
     ransomware_stats: dict,
 ) -> dict:
     """Combine KEV analyses into a summary report."""
@@ -138,12 +164,19 @@ async def generate_kev_report(
     )
     top_vendors = vendor_counts[:10]
 
+    year_data = await by_year.data()
+    year_counts = sorted(
+        zip(year_data["year"], year_data["cveID"]),
+        key=lambda x: x[0],
+    )
+
     report = {
         "kev_summary": {
             "total_vulnerabilities": total_kev,
             "ransomware_linked": ransomware_stats["ransomware_linked"],
             "ransomware_pct": ransomware_stats["ransomware_pct"],
             "top_vendors": {name: count for name, count in top_vendors},
+            "by_year": {year: count for year, count in year_counts},
         },
     }
 
@@ -296,6 +329,10 @@ def _print_kev_report(report: dict) -> None:
     for vendor, count in kev["top_vendors"].items():
         print(f"  {vendor:<30s} {count:>5}")
 
+    print("\n--- KEV Entries by Year ---")
+    for year, count in kev["by_year"].items():
+        print(f"  {year}  {count:>5}")
+
     print("=" * 60)
 
 
@@ -363,10 +400,12 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     # Phase 1: CISA KEV
     kev = load_kev_data()
     by_vendor = analyze_kev_by_vendor(kev=kev)
+    by_year = analyze_kev_by_year(kev=kev)
     ransomware = analyze_kev_ransomware(kev=kev)
     kev_report = generate_kev_report(
         kev=kev,
         by_vendor=by_vendor,
+        by_year=by_year,
         ransomware_stats=ransomware,
     )
 
@@ -387,6 +426,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     return [
         kev,
         by_vendor,
+        by_year,
         ransomware,
         kev_report,
         cves,
