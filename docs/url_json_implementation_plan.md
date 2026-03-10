@@ -85,59 +85,49 @@ When `ColumnInfo.nullable=True`, always use the generic form: `JSONExtract(elem,
 
 ## Phases
 
-### Phase 1: Add `RawBLOB` and `JSONAsString` formats
+### Phase 1: Add `RawBLOB` and `JSONAsString` formats ✅
 
 | Task                                                                    | Status |
 |-------------------------------------------------------------------------|--------|
-| Add `RawBLOB` and `JSONAsString` to `SUPPORTED_URL_FORMATS`            |        |
-| Update `_validate_url_format` docstring                                 |        |
+| Add `RawBLOB` and `JSONAsString` to `SUPPORTED_URL_FORMATS`            | ✅     |
 
-**Implementation**: `aaiclick/data/url.py` — add two entries to the frozenset.
+**Implementation**: `aaiclick/data/url.py` — see `SUPPORTED_URL_FORMATS` frozenset.
 
-### Phase 2: JSON extraction helpers
-
-| Task                                                                    | Status |
-|-------------------------------------------------------------------------|--------|
-| Add `_json_extract_expr(field_name, col_info)` helper                   |        |
-| Add `_build_json_select(json_columns, json_path, format)` helper        |        |
-| Add tests for the helpers via `chdb-eval` skill                         |        |
-
-**`_json_extract_expr(field_name: str, col_info: ColumnInfo) -> str`**
-
-Returns the JSONExtract expression for a single field:
-- `JSONExtractString(elem, 'cveID')` for `ColumnInfo("String")`
-- `JSONExtractInt(elem, 'dateAdded')` for `ColumnInfo("Int64")`
-- `JSONExtract(elem, 'cwes', 'Array(String)')` for `ColumnInfo("String", array=True)`
-
-**`_build_json_select(json_columns: dict[str, ColumnInfo], json_path: str, format: str) -> tuple[str, str]`**
-
-Returns `(select_exprs, from_subquery)`:
-- `select_exprs`: comma-separated JSONExtract expressions
-- `from_subquery`: `(SELECT arrayJoin(JSONExtractArrayRaw(raw_blob, '{json_path}')) AS elem FROM url(...))`
-
-The format determines the source column name:
-- `RawBLOB` → `raw_blob`
-- `JSONAsString` → `json`
-
-### Phase 3: Extend `create_object_from_url` signature
+### Phase 2: JSON extraction helpers ✅
 
 | Task                                                                    | Status |
 |-------------------------------------------------------------------------|--------|
-| Add `json_path: str | None = None` parameter                           |        |
-| Add `json_columns: dict[str, ColumnInfo] | None = None` parameter       |        |
-| Validate: `json_path` and `json_columns` must be provided together      |        |
-| Validate: `columns` and `json_columns` are mutually exclusive            |        |
-| When `json_columns` provided, skip DESCRIBE (types are explicit)         |        |
-| Build schema from `json_columns` dict                                    |        |
-| Generate INSERT...SELECT using `_build_json_select`                      |        |
-| Write tests                                                              |        |
+| Add `_json_extract_expr(field_name, col_info)` helper                   | ✅     |
+| Add `_build_json_select(json_columns, json_path, format, safe_url)`     | ✅     |
+| Add unit tests for `_json_extract_expr`                                  | ✅     |
+
+**Implementation**: `aaiclick/data/url.py` — see `_json_extract_expr()` and `_build_json_select()`.
+
+**Tests**: `aaiclick/data/test_url_json.py` — unit tests for all type variants.
+
+### Phase 3: Extend `create_object_from_url` signature ✅
+
+| Task                                                                    | Status |
+|-------------------------------------------------------------------------|--------|
+| Add `json_path: str | None = None` parameter                           | ✅     |
+| Add `json_columns: dict[str, ColumnInfo] | None = None` parameter       | ✅     |
+| Validate: `json_path` and `json_columns` must be provided together      | ✅     |
+| Validate: `columns` and `json_columns` are mutually exclusive            | ✅     |
+| When `json_columns` provided, skip DESCRIBE (types are explicit)         | ✅     |
+| Build schema from `json_columns` dict                                    | ✅     |
+| Generate INSERT...SELECT using `_build_json_select`                      | ✅     |
+| Write integration tests                                                  | ✅     |
+
+**Implementation**: `aaiclick/data/url.py` — see `_create_from_json()`.
 
 **Parameter rules**:
 - **Tabular mode** (existing): `columns` required, `json_path`/`json_columns` must be None
 - **JSON mode** (new): `json_path` + `json_columns` required, `columns` must be empty or omitted
 - `where` and `limit` work in both modes (applied to the subquery output)
 
-### Phase 4: Headers support (optional, for authenticated APIs)
+**Tests**: `aaiclick/data/test_url_json.py` — validation tests + integration tests with local JSON server.
+
+### Phase 4: Headers support ⚠️ NOT YET IMPLEMENTED
 
 | Task                                                                    | Status |
 |-------------------------------------------------------------------------|--------|
@@ -155,6 +145,6 @@ This enables authenticated APIs (GitHub, NVD with API key, etc.).
 
 | File                             | Changes                                               |
 |----------------------------------|-------------------------------------------------------|
-| `aaiclick/data/url.py`           | All phases — formats, helpers, extended signature     |
+| `aaiclick/data/url.py`           | Phases 1-3 — formats, helpers, extended signature     |
 | `aaiclick/data/test_url_json.py` | Tests for JSON extraction helpers and integration     |
 | `aaiclick/data/__init__.py`      | No changes needed (already exports `create_object_from_url`) |
