@@ -364,60 +364,29 @@ class Object:
         return None
 
     @staticmethod
-    def _scalar_query_info(value: ValueScalarType) -> QueryInfo:
+    async def _ensure_object(value: Union[Object, ValueScalarType]) -> Object:
         """
-        Build a QueryInfo with an inline SQL literal for a Python scalar.
+        Ensure value is an Object, converting Python scalars if needed.
 
-        Avoids creating a ClickHouse table just to hold a single value.
-
-        Args:
-            value: A Python scalar (int, float, bool, str)
-
-        Returns:
-            QueryInfo with source as an inline SELECT subquery
-        """
-        # bool must be checked before int (bool is a subclass of int)
-        if isinstance(value, bool):
-            literal = "1" if value else "0"
-            value_type = "UInt8"
-        elif isinstance(value, int):
-            literal = str(value)
-            value_type = "Int64"
-        elif isinstance(value, float):
-            literal = str(value)
-            value_type = "Float64"
-        else:
-            literal = "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
-            value_type = "String"
-        return QueryInfo(
-            source=f"(SELECT {literal} AS value)",
-            base_table="",
-            value_column="value",
-            fieldtype=FIELDTYPE_SCALAR,
-            value_type=value_type,
-        )
-
-    def _to_query_info(self, value: Union[Object, ValueScalarType]) -> QueryInfo:
-        """
-        Get QueryInfo for an Object or a Python scalar.
+        Python scalars are converted to Objects via create_object_from_value,
+        so all data stays in ClickHouse with a unified code path.
 
         Args:
             value: An Object or a Python scalar (int, float, bool, str)
 
         Returns:
-            QueryInfo for use in operator SQL
+            Object instance (existing or newly created from scalar)
         """
         if isinstance(value, (int, float, bool, str)):
-            return self._scalar_query_info(value)
-        value.checkstale()
-        return value._get_query_info()
+            return await create_object_from_value(value)
+        return value
 
     async def _apply_operator(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
         """
         Apply an operator on two objects using SQL templates.
 
         Supports scalar broadcast: if other is a Python scalar (int, float, bool, str),
-        it is inlined as a SQL literal without creating a ClickHouse table.
+        it is converted to a scalar Object via create_object_from_value.
 
         Args:
             other: Another Object or Python scalar to operate with
@@ -427,8 +396,10 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators._apply_operator_db(
             info_a, info_b, operator, self.ch_client
         )
@@ -447,7 +418,9 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        info_a = self._to_query_info(other)
+        other = await self._ensure_object(other)
+        other.checkstale()
+        info_a = other._get_query_info()
         info_b = self._get_query_info()
         return await operators._apply_operator_db(
             info_a, info_b, operator, self.ch_client
@@ -1140,8 +1113,10 @@ class Object:
             Self: New Object with coalesced values
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
 
     # arrayMap Operator
@@ -1178,8 +1153,10 @@ class Object:
             >>> await a.array_map(c, '+')  # Raises DB::Exception
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
 
     def view(

@@ -2,125 +2,96 @@
 
 ## Overview
 
-The `operators` module contains static async functions that implement all binary operations for Object instances. Each function is a standalone implementation that can be called directly or through operator overloading.
+The `operators` module contains the database-level implementation for all binary operations on Object instances. All operators are dispatched through `_apply_operator_db()` which handles fieldtype combinations (array×array, array×scalar, scalar×scalar) via a unified SQL generation path.
 
 ## Design
 
-All operator functions follow a consistent pattern:
-- Take two Object parameters (`obj_a` and `obj_b`)
-- Return a new Object with the result
-- Are async functions (must be awaited)
-- Delegate to `_apply_operator` method on the Object class
+All operators follow a consistent pattern:
+- Object class methods (`__add__`, `__sub__`, etc.) call `_apply_operator(other, op_symbol)`
+- `_apply_operator` builds `QueryInfo` for both operands and delegates to `_apply_operator_db()`
+- Reverse operators (`__radd__`, `__rsub__`, etc.) swap operand order for `scalar op object` syntax
+- Python scalars are inlined as `(SELECT literal AS value)` — no ClickHouse table created
 
-## Function Reference
+## Operator Reference
 
 ### Arithmetic Operators
 
-| Function | Operator | Description | ClickHouse |
-|----------|----------|-------------|------------|
-| `add(obj_a, obj_b)` | `+` | Addition | `+` |
-| `sub(obj_a, obj_b)` | `-` | Subtraction | `-` |
-| `mul(obj_a, obj_b)` | `*` | Multiplication | `*` |
-| `truediv(obj_a, obj_b)` | `/` | Division | `/` |
-| `floordiv(obj_a, obj_b)` | `//` | Floor Division | `DIV` |
-| `mod(obj_a, obj_b)` | `%` | Modulo | `%` |
-| `pow(obj_a, obj_b)` | `**` | Power | `power()` |
+| Python | ClickHouse           | Expression                |
+|--------|----------------------|---------------------------|
+| `+`    | `+`                  | `a.value + b.value`       |
+| `-`    | `-`                  | `a.value - b.value`       |
+| `*`    | `*`                  | `a.value * b.value`       |
+| `/`    | `/`                  | `a.value / b.value`       |
+| `//`   | `intDiv(a, b)`       | `intDiv(a.value, b.value)`|
+| `%`    | `%`                  | `a.value % b.value`       |
+| `**`   | `power(a, b)`        | `power(a.value, b.value)` |
 
 ### Comparison Operators
 
-| Function | Operator | Description | ClickHouse |
-|----------|----------|-------------|------------|
-| `eq(obj_a, obj_b)` | `==` | Equal | `=` |
-| `ne(obj_a, obj_b)` | `!=` | Not Equal | `!=` |
-| `lt(obj_a, obj_b)` | `<` | Less Than | `<` |
-| `le(obj_a, obj_b)` | `<=` | Less or Equal | `<=` |
-| `gt(obj_a, obj_b)` | `>` | Greater Than | `>` |
-| `ge(obj_a, obj_b)` | `>=` | Greater or Equal | `>=` |
+| Python | ClickHouse | Expression            |
+|--------|------------|-----------------------|
+| `==`   | `=`        | `a.value = b.value`   |
+| `!=`   | `!=`       | `a.value != b.value`  |
+| `<`    | `<`        | `a.value < b.value`   |
+| `<=`   | `<=`       | `a.value <= b.value`  |
+| `>`    | `>`        | `a.value > b.value`   |
+| `>=`   | `>=`       | `a.value >= b.value`  |
 
 ### Bitwise Operators
 
-| Function | Operator | Description | ClickHouse |
-|----------|----------|-------------|------------|
-| `and_(obj_a, obj_b)` | `&` | Bitwise AND | `bitAnd()` |
-| `or_(obj_a, obj_b)` | `\|` | Bitwise OR | `bitOr()` |
-| `xor(obj_a, obj_b)` | `^` | Bitwise XOR | `bitXor()` |
+| Python | ClickHouse   | Expression                  |
+|--------|--------------|-----------------------------|
+| `&`    | `bitAnd()`   | `bitAnd(a.value, b.value)`  |
+| `\|`   | `bitOr()`    | `bitOr(a.value, b.value)`   |
+| `^`    | `bitXor()`   | `bitXor(a.value, b.value)`  |
 
 ## Usage
 
-### Via Operator Overloading (Recommended)
-
 ```python
 import aaiclick
 
 a = await aaiclick.create_object_from_value([10, 20, 30])
 b = await aaiclick.create_object_from_value([2, 4, 5])
 
-# Use Python operators
-result = await (a + b)   # Uses operators.add(a, b)
-result = await (a * b)   # Uses operators.mul(a, b)
-result = await (a ** b)  # Uses operators.pow(a, b)
+# Use Python operators — all dispatch through _apply_operator_db
+result = await (a + b)   # [12, 24, 35]
+result = await (a * b)   # [20, 80, 150]
+result = await (a ** b)  # [100, 160000, 24300000]
+
+# Scalar broadcast
+result = await (a * 2)   # [20, 40, 60]
+result = await (10 - a)  # [0, -10, -20] (reverse operator)
 ```
 
-### Direct Function Calls
+## Scalar Broadcasting
 
-```python
-from aaiclick import operators
-import aaiclick
+**Implementation**: `operators.py` — see `_apply_operator_db()` and `Object._ensure_object()`
 
-a = await aaiclick.create_object_from_value([10, 20, 30])
-b = await aaiclick.create_object_from_value([2, 4, 5])
-
-# Call operator functions directly
-result = await operators.add(a, b)
-result = await operators.mul(a, b)
-result = await operators.pow(a, b)
-```
-
-## Implementation Details
-
-All operator functions delegate to the `_apply_operator` method on the Object class:
-
-```python
-async def add(obj_a: "Object", obj_b: "Object") -> "Object":
-    """Add two objects together."""
-    return await obj_a._apply_operator(obj_b, "+")
-```
-
-The `_apply_operator` method:
-1. Creates a new Object to hold the result
-2. Determines if operating on scalars or arrays
-3. Selects appropriate SQL template
-4. Executes SQL with the operator string
-5. Returns the new Object
+When a Python scalar is used with an Object, it is first converted to a scalar Object via `create_object_from_value`. The cross-join in `_apply_operator_db` handles all non-array×array cases uniformly — only the `aai_id` source differs.
 
 ### Aggregation Operators
 
 Aggregation operators reduce an array to a scalar value. All computation happens within ClickHouse.
 
-| Function | Description | ClickHouse | Returns |
-|----------|-------------|------------|---------|
-| `min_agg(info, ch_client)` | Minimum value | `min()` | Scalar Object |
-| `max_agg(info, ch_client)` | Maximum value | `max()` | Scalar Object |
-| `sum_agg(info, ch_client)` | Sum of values | `sum()` | Scalar Object |
-| `mean_agg(info, ch_client)` | Average value | `avg()` | Scalar Object |
-| `std_agg(info, ch_client)` | Standard deviation | `stddevPop()` | Scalar Object |
+| Function | Description          | ClickHouse     | Returns       |
+|----------|----------------------|----------------|---------------|
+| `min()`  | Minimum value        | `min()`        | Scalar Object |
+| `max()`  | Maximum value        | `max()`        | Scalar Object |
+| `sum()`  | Sum of values        | `sum()`        | Scalar Object |
+| `mean()` | Average value        | `avg()`        | Scalar Object |
+| `std()`  | Standard deviation   | `stddevPop()`  | Scalar Object |
 
 **Note:** Aggregation functions use streaming aggregation with O(1) memory.
 
 ### Set Operators
 
-Set operators transform an array and return a new array. All computation happens within ClickHouse.
-
-| Function | Description | ClickHouse | Returns |
-|----------|-------------|------------|---------|
-| `unique_group(info, ch_client)` | Unique values | `GROUP BY` | Array Object |
-
-**Note:** `unique_group` uses `GROUP BY` instead of `DISTINCT` for better performance on large datasets.
+| Function                       | Description   | ClickHouse  | Returns      |
+|--------------------------------|---------------|-------------|--------------|
+| `unique_group(info, ch_client)`| Unique values | `GROUP BY`  | Array Object |
 
 ## Benefits of This Architecture
 
 **Modularity**: Operator implementations are separate from the Object class
 **Testability**: Each operator can be tested independently
-**Reusability**: Functions can be called directly or through operators
 **Maintainability**: Easy to add new operators or modify existing ones
 **Clarity**: Clear separation between interface (Object) and implementation (operators)

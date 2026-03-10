@@ -271,277 +271,27 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
             """)
 
         return result
-    elif a_is_array:
-        # Array-Scalar: broadcast scalar b across all rows of a
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT a.aai_id, {expression} AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
-    elif b_is_array:
-        # Scalar-Array: broadcast scalar a across all rows of b
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT b.aai_id, {expression} AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
-    else:
-        # Scalar-Scalar
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
-        SELECT {expression} AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
 
-    await ch_client.command(insert_query)
+    # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
+    # Cross-join works for all cases; only the aai_id source differs.
+    # Scalar-scalar omits aai_id (DEFAULT generateSnowflakeID() fills it).
+    if a_is_array:
+        insert_target = result.table
+        select_cols = f"a.aai_id, {expression} AS value"
+    elif b_is_array:
+        insert_target = result.table
+        select_cols = f"b.aai_id, {expression} AS value"
+    else:
+        insert_target = f"{result.table} (value)"
+        select_cols = f"{expression} AS value"
+
+    await ch_client.command(f"""
+        INSERT INTO {insert_target}
+        SELECT {select_cols}
+        FROM {info_a.source} AS a, {info_b.source} AS b
+    """)
 
     return result
-
-
-# Arithmetic Operators
-
-async def add(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Add two sources together at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result of info_a + info_b
-    """
-    return await _apply_operator_db(info_a, info_b, "+", ch_client)
-
-
-async def sub(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Subtract one source from another at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result of info_a - info_b
-    """
-    return await _apply_operator_db(info_a, info_b, "-", ch_client)
-
-
-async def mul(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "*", ch_client)
-
-
-async def truediv(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "/", ch_client)
-
-
-async def floordiv(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "//", ch_client)
-
-
-async def mod(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "%", ch_client)
-
-
-async def pow(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "**", ch_client)
-
-
-# Comparison Operators
-
-async def eq(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "==", ch_client)
-
-
-async def ne(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "!=", ch_client)
-
-
-async def lt(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "<", ch_client)
-
-
-async def le(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "<=", ch_client)
-
-
-async def gt(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, ">", ch_client)
-
-
-async def ge(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, ">=", ch_client)
-
-
-# Bitwise Operators
-
-async def and_(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "&", ch_client)
-
-
-async def or_(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "|", ch_client)
-
-
-async def xor(info_a: QueryInfo, info_b: QueryInfo, ch_client):
-    """
-    Apply operator at database level.
-
-    Args:
-        info_a: QueryInfo for first operand
-        info_b: QueryInfo for second operand
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with result
-    """
-    return await _apply_operator_db(info_a, info_b, "^", ch_client)
 
 
 # Aggregation functions mapping
@@ -1065,20 +815,11 @@ async def _apply_string_op_db(
 
     result = await create_object(schema)
 
-    if fieldtype == FIELDTYPE_ARRAY:
-        insert_query = f"""
+    await ch_client.command(f"""
         INSERT INTO {result.table}
         SELECT a.aai_id, {expression} AS value
         FROM {info.source} AS a
-        """
-    else:
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT a.aai_id, {expression} AS value
-        FROM {info.source} AS a
-        """
-
-    await ch_client.command(insert_query)
+    """)
     return result
 
 
@@ -1188,24 +929,21 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
             """)
 
         return result
-    elif a_is_array:
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT a.aai_id, coalesce(a.value, b.value) AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
-    elif b_is_array:
-        insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT b.aai_id, coalesce(a.value, b.value) AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
-    else:
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
-        SELECT coalesce(a.value, b.value) AS value
-        FROM {info_a.source} AS a, {info_b.source} AS b
-        """
 
-    await ch_client.command(insert_query)
+    # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
+    if a_is_array:
+        insert_target = result.table
+        select_cols = f"a.aai_id, coalesce(a.value, b.value) AS value"
+    elif b_is_array:
+        insert_target = result.table
+        select_cols = f"b.aai_id, coalesce(a.value, b.value) AS value"
+    else:
+        insert_target = f"{result.table} (value)"
+        select_cols = f"coalesce(a.value, b.value) AS value"
+
+    await ch_client.command(f"""
+        INSERT INTO {insert_target}
+        SELECT {select_cols}
+        FROM {info_a.source} AS a, {info_b.source} AS b
+    """)
     return result
