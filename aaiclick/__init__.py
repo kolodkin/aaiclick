@@ -5,7 +5,12 @@ This framework converts Python computational logic into a flow of ClickHouse dat
 operations, enabling execution of Python-equivalent computations at scale.
 """
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version as _version
+
+    __version__ = _version("aaiclick")
+except Exception:
+    __version__ = "0.0.0"
 
 # Import context manager (primary API) and factory functions
 from .data import (
