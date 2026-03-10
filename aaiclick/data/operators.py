@@ -274,15 +274,19 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     # Cross-join works for all cases; only the aai_id source differs.
+    # Scalar-scalar omits aai_id (DEFAULT generateSnowflakeID() fills it).
     if a_is_array:
+        insert_target = result.table
         select_cols = f"a.aai_id, {expression} AS value"
     elif b_is_array:
+        insert_target = result.table
         select_cols = f"b.aai_id, {expression} AS value"
     else:
+        insert_target = f"{result.table} (value)"
         select_cols = f"{expression} AS value"
 
     await ch_client.command(f"""
-        INSERT INTO {result.table}
+        INSERT INTO {insert_target}
         SELECT {select_cols}
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
@@ -928,14 +932,17 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     if a_is_array:
+        insert_target = result.table
         select_cols = f"a.aai_id, coalesce(a.value, b.value) AS value"
     elif b_is_array:
+        insert_target = result.table
         select_cols = f"b.aai_id, coalesce(a.value, b.value) AS value"
     else:
+        insert_target = f"{result.table} (value)"
         select_cols = f"coalesce(a.value, b.value) AS value"
 
     await ch_client.command(f"""
-        INSERT INTO {result.table}
+        INSERT INTO {insert_target}
         SELECT {select_cols}
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
