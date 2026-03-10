@@ -47,7 +47,6 @@ from .models import (
     ColumnInfo,
     ColumnMeta,
     ColumnType,
-    Computed,
     GroupByInfo,
     ViewSchema,
     QueryInfo,

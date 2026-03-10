@@ -362,8 +362,10 @@ def _print_threat_report(
     print("=" * 60)
 
     print("\n--- Data Sources ---")
-    print(f"  CISA KEV:    {CISA_KEV_URL}")
+    print(f"  CISA KEV:     {CISA_KEV_URL}")
+    print(f"    Total rows: {_fmt(report['kev']['total_vulnerabilities'])}")
     print(f"  Shodan CVEDB: {SHODAN_CVEDB_URL}")
+    print(f"    Total rows: {_fmt(report['high_risk']['total_cves'])}")
 
     kev = report["kev"]
     print("\n--- CISA KEV Summary ---")
