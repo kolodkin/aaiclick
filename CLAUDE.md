@@ -71,6 +71,11 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
   - Simply define async test functions with `async def test_*():`
 
+- **Unrelated test failures**: When tests outside the scope of your changes break, fix the implementation — not the tests
+  - These failures indicate your changes have unintended side effects
+  - Do NOT modify, skip, or weaken unrelated tests to make them pass
+  - If unsure whether the test or the implementation is wrong, ask the user
+
 
 # Code Quality
 
@@ -128,6 +133,11 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     # BAD - Don't add __all__
     __all__ = ["Job", "Task", "Worker"]
     ```
+
+- **No compromising on typing**: Never use `Any` as a shortcut to avoid proper typing
+  - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
+  - Prefer `obj: mod.ClassName` over `obj: Any`
+  - If restructuring is needed to get proper types, do it
 
 ## ClickHouse Client Guidelines
 

@@ -2,6 +2,8 @@
 aaiclick.data.url - Load data from external URLs into ClickHouse Objects.
 
 Uses ClickHouse's native url() table function for zero Python memory footprint.
+Supports both tabular formats (Parquet, CSV, JSONEachRow) and nested JSON APIs
+via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 """
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
-from .models import ColumnInfo, FIELDTYPE_ARRAY, Schema, parse_ch_type
+from .models import ColumnInfo, FIELDTYPE_ARRAY, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
 from .sql_utils import quote_identifier
 
 SUPPORTED_URL_FORMATS = frozenset({
@@ -17,7 +19,15 @@ SUPPORTED_URL_FORMATS = frozenset({
     "TSV", "TSVWithNames", "TSVWithNamesAndTypes",
     "JSON", "JSONEachRow", "JSONCompactEachRow",
     "ORC", "Avro",
+    "RawBLOB", "JSONAsString",
 })
+
+JSON_BLOB_FORMATS = frozenset({"RawBLOB", "JSONAsString"})
+
+_FORMAT_SOURCE_COLUMN = {
+    "RawBLOB": "raw_blob",
+    "JSONAsString": "json",
+}
 
 
 def _validate_url(url: str) -> None:
@@ -49,12 +59,81 @@ def _validate_url_format(fmt: str) -> None:
         )
 
 
+def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
+    """Build a JSONExtract expression for a single JSON field.
+
+    Selects the most specific JSONExtract variant based on the ColumnInfo type:
+    - Array or Nullable types use generic JSONExtract with explicit CH type
+    - String/Int/Float/Bool use specialized JSONExtractString/Int/Float/Bool
+
+    Args:
+        field_name: JSON field name to extract
+        col_info: ColumnInfo describing the target ClickHouse type
+
+    Returns:
+        SQL expression like "JSONExtractString(elem, 'cveID')"
+    """
+    safe_field = field_name.replace("'", "\\'")
+
+    if col_info.array or col_info.nullable:
+        return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
+
+    base = col_info.type
+    if base == "String":
+        return f"JSONExtractString(elem, '{safe_field}')"
+    if base in INT_TYPES:
+        return f"JSONExtractInt(elem, '{safe_field}')"
+    if base in FLOAT_TYPES:
+        return f"JSONExtractFloat(elem, '{safe_field}')"
+    if base == "Bool":
+        return f"JSONExtractBool(elem, '{safe_field}')"
+
+    return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
+
+
+def _build_json_select(
+    json_columns: dict[str, ColumnInfo],
+    json_path: str,
+    format: str,
+    safe_url: str,
+) -> tuple[str, str]:
+    """Build SELECT expressions and FROM subquery for JSON extraction.
+
+    Args:
+        json_columns: Mapping of JSON field name to target ColumnInfo
+        json_path: Dot-path to the JSON array (e.g., "vulnerabilities")
+        format: RawBLOB or JSONAsString
+        safe_url: SQL-safe URL string (single quotes escaped)
+
+    Returns:
+        (select_exprs, from_subquery) tuple for use in INSERT...SELECT
+    """
+    source_col = _FORMAT_SOURCE_COLUMN[format]
+    safe_path = json_path.replace("'", "\\'")
+
+    select_parts = []
+    for field_name, col_info in json_columns.items():
+        expr = _json_extract_expr(field_name, col_info)
+        select_parts.append(f"{expr} AS {quote_identifier(field_name)}")
+
+    select_exprs = ", ".join(select_parts)
+    from_subquery = (
+        f"(SELECT arrayJoin(JSONExtractArrayRaw("
+        f"{quote_identifier(source_col)}, '{safe_path}')) AS elem "
+        f"FROM url('{safe_url}', '{format}')) AS _json_src"
+    )
+
+    return select_exprs, from_subquery
+
+
 async def create_object_from_url(
     url: str,
-    columns: list[str],
+    columns: list[str] | None = None,
     format: str = "Parquet",
     where: str | None = None,
     limit: int | None = None,
+    json_path: str | None = None,
+    json_columns: dict[str, ColumnInfo] | None = None,
 ) -> Object:
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
@@ -62,38 +141,76 @@ async def create_object_from_url(
     All data flows directly from the URL into ClickHouse - zero Python memory footprint.
     ClickHouse handles the HTTP request, parsing, and type inference natively.
 
+    Supports two modes:
+
+    **Tabular mode** (default): For formats where each row maps to an Object row.
+        Requires `columns` parameter. Types are inferred via DESCRIBE.
+
+    **JSON mode**: For nested JSON APIs that return an array inside an envelope.
+        Requires `json_path` + `json_columns`. Uses JSONExtract to parse fields.
+        Format must be RawBLOB or JSONAsString.
+
     Args:
-        url: HTTP(S) URL to load data from (e.g., Parquet file on S3, CSV on web server)
-        columns: List of column names to select from the URL source
+        url: HTTP(S) URL to load data from
+        columns: Column names to select (tabular mode). Mutually exclusive with json_columns.
         format: ClickHouse format name. Default "Parquet".
-            Supported: Parquet, CSV, CSVWithNames, TSV, TSVWithNames,
-            JSON, JSONEachRow, ORC, Avro, etc.
         where: Optional SQL WHERE clause for filtering rows at load time
         limit: Optional row limit applied at load time
+        json_path: Path to JSON array in response (e.g., "vulnerabilities"). Requires json_columns.
+        json_columns: Mapping of JSON field names to ColumnInfo types. Requires json_path.
 
     Returns:
         Object: New Object with loaded data.
-            - 1 column: column named "value"
-            - Multiple columns: columns keep original names
 
     Raises:
-        ValueError: If URL, columns, format, or limit are invalid
+        ValueError: If parameters are invalid or incompatible
         RuntimeError: If no active DataContext
     """
     _validate_url(url)
-    _validate_url_columns(columns)
     _validate_url_format(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
     if where is not None and ";" in where:
         raise ValueError("WHERE clause must not contain ';'")
 
-    ch = get_ch_client()
+    json_mode = json_path is not None or json_columns is not None
+    tabular_mode = columns is not None
 
-    # Escape single quotes in URL for safe SQL embedding
+    if json_mode and tabular_mode:
+        raise ValueError("columns and json_columns/json_path are mutually exclusive")
+
+    if json_mode:
+        if json_path is None or json_columns is None:
+            raise ValueError("json_path and json_columns must both be provided")
+        if not json_columns:
+            raise ValueError("json_columns must be a non-empty dict")
+        if format not in JSON_BLOB_FORMATS:
+            raise ValueError(
+                f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, "
+                f"got '{format}'"
+            )
+        for col_name in json_columns:
+            if col_name == "aai_id":
+                raise ValueError("'aai_id' is a reserved column name and cannot be used")
+        return await _create_from_json(url, format, json_path, json_columns, where, limit)
+
+    if columns is None:
+        raise ValueError("Either columns or json_path/json_columns must be provided")
+    _validate_url_columns(columns)
+    return await _create_from_tabular(url, format, columns, where, limit)
+
+
+async def _create_from_tabular(
+    url: str,
+    format: str,
+    columns: list[str],
+    where: str | None,
+    limit: int | None,
+) -> Object:
+    """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
+    ch = get_ch_client()
     safe_url = url.replace("'", "\\'")
 
-    # Infer column types via DESCRIBE on the url() table function
     quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
     describe_query = (
@@ -105,7 +222,6 @@ async def create_object_from_url(
     for row in describe_result.result_rows:
         ch_types[row[0]] = row[1]
 
-    # Build schema
     if len(columns) == 1:
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
@@ -122,14 +238,11 @@ async def create_object_from_url(
         )
         select_cols = columns_str
 
-    # Create target table
     obj = await create_object(schema)
 
-    # Insert data from URL (aai_id uses DEFAULT generateSnowflakeID())
     where_clause = f" WHERE {where}" if where else ""
     limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
-    # Build column list excluding aai_id for INSERT
     insert_col_names = [k for k in schema.columns if k != "aai_id"]
     insert_cols_str = ", ".join(insert_col_names)
 
@@ -137,6 +250,47 @@ async def create_object_from_url(
         f"INSERT INTO {obj.table} ({insert_cols_str}) "
         f"SELECT {select_cols} "
         f"FROM url('{safe_url}', '{format}')"
+        f"{where_clause}"
+        f"{limit_clause}"
+    )
+    await ch.command(insert_query)
+
+    return obj
+
+
+async def _create_from_json(
+    url: str,
+    format: str,
+    json_path: str,
+    json_columns: dict[str, ColumnInfo],
+    where: str | None,
+    limit: int | None,
+) -> Object:
+    """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
+    ch = get_ch_client()
+    safe_url = url.replace("'", "\\'")
+
+    schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
+    for col_name, col_info in json_columns.items():
+        schema_columns[col_name] = col_info
+
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=schema_columns)
+    obj = await create_object(schema)
+
+    select_exprs, from_subquery = _build_json_select(
+        json_columns, json_path, format, safe_url,
+    )
+
+    insert_col_names = [k for k in schema_columns if k != "aai_id"]
+    insert_cols_str = ", ".join(quote_identifier(c) for c in insert_col_names)
+
+    where_clause = f" WHERE {where}" if where else ""
+    limit_clause = f" LIMIT {limit}" if limit is not None else ""
+
+    insert_query = (
+        f"INSERT INTO {obj.table} ({insert_cols_str}) "
+        f"SELECT {select_exprs} "
+        f"FROM {from_subquery}"
         f"{where_clause}"
         f"{limit_clause}"
     )
