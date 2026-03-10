@@ -18,6 +18,7 @@ import weakref
 
 import numpy as np
 from clickhouse_connect import get_async_client
+
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from urllib3 import PoolManager
 
@@ -39,6 +40,12 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
+
+# clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
+# internals during query result processing. Suppress globally so the filter covers
+# all call sites (client creation, queries, inserts), not just client init.
+# Remove once clickhouse-connect ships a release that no longer emits these warnings.
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect\.")
 
 
 @dataclass
@@ -133,16 +140,14 @@ async def _create_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient
     if creds is None:
         creds = get_ch_creds()
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        return await get_async_client(
-            host=creds.host,
-            port=creds.port,
-            username=creds.user,
-            password=creds.password,
-            database=creds.database,
-            pool_mgr=get_pool(),
-        )
+    return await get_async_client(
+        host=creds.host,
+        port=creds.port,
+        username=creds.user,
+        password=creds.password,
+        database=creds.database,
+        pool_mgr=get_pool(),
+    )
 
 
 @asynccontextmanager
