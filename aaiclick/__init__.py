@@ -37,6 +37,7 @@ from .data import (
     ColumnType,
     ViewSchema,
     QueryInfo,
+    DATE_TYPES,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,

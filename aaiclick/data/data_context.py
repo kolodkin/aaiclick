@@ -317,10 +317,14 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     Returns a ColumnInfo with nullable=False. Nullable columns must be
     created explicitly via Schema with ColumnInfo(type, nullable=True).
     String types default to LowCardinality for better storage and query performance.
+    Datetime types map to DateTime64(3, 'UTC') for millisecond-precision UTC storage.
     """
     if isinstance(value, list):
         if not value:
             return ColumnInfo("String", low_cardinality=True)
+
+        if isinstance(value[0], datetime):
+            return ColumnInfo("DateTime64(3, 'UTC')")
 
         arr = np.array(value)
         dtype = arr.dtype
@@ -336,6 +340,8 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
 
     if isinstance(value, bool):
         return ColumnInfo("UInt8")
+    elif isinstance(value, datetime):
+        return ColumnInfo("DateTime64(3, 'UTC')")
     elif isinstance(value, int):
         return ColumnInfo("Int64")
     elif isinstance(value, float):
@@ -417,6 +423,8 @@ async def create_object_from_value(
                     values.append(f"'{value}'")
                 elif isinstance(value, bool):
                     values.append("1" if value else "0")
+                elif isinstance(value, datetime):
+                    values.append(f"'{value.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'")
                 else:
                     values.append(str(value))
 
@@ -483,6 +491,8 @@ async def create_object_from_value(
             value_str = f"'{val}'"
         elif isinstance(val, bool):
             value_str = "1" if val else "0"
+        elif isinstance(val, datetime):
+            value_str = f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
         else:
             value_str = str(val)
 
