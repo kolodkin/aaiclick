@@ -2,6 +2,8 @@
 Tests for Object.with_columns() and View.with_columns() functionality.
 """
 
+import math
+
 import pytest
 
 from aaiclick import create_object_from_value
@@ -153,11 +155,16 @@ async def test_string_helpers(ctx):
 
 async def test_numeric_helpers(ctx):
     """with_abs and with_sqrt."""
-    obj = await create_object_from_value({"x": [-4, 9, 16]})
-    view = obj.with_abs("x").with_sqrt("x")
-    result = await view.data()
-    assert result["x_abs"] == [4.0, 9.0, 16.0]
-    assert result["x_sqrt"] == [2.0, 3.0, 4.0]
+    obj = await create_object_from_value({"x": [-3, 0, 5]})
+    view_abs = obj.with_abs("x")
+    r_abs = await view_abs.data()
+    assert r_abs["x_abs"] == [3.0, 0.0, 5.0]
+
+    obj2 = await create_object_from_value({"x": [4, 9, -16]})
+    view_sqrt = obj2.with_sqrt("x")
+    r_sqrt = await view_sqrt.data()
+    assert r_sqrt["x_sqrt"][:2] == [2.0, 3.0]
+    assert math.isnan(r_sqrt["x_sqrt"][2])
 
 
 async def test_with_bucket(ctx):
