@@ -1497,10 +1497,16 @@ class GroupByQuery:
                 for field in source._selected_fields:
                     col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
+                if source._computed_columns:
+                    for col_name, comp in source._computed_columns.items():
+                        columns[col_name] = comp.type
                 source_query = f"({source._build_select()})"
             elif source.has_constraints:
                 # WHERE/LIMIT View: full columns, wrapped in subquery
                 columns = {k: cd.type for k, cd in schema.columns.items()}
+                if source._computed_columns:
+                    for col_name, comp in source._computed_columns.items():
+                        columns[col_name] = comp.type
                 source_query = f"({source._build_select()})"
             else:
                 # Base View (no constraints): same as plain Object
