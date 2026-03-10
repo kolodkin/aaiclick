@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "aaiclick"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A Python framework that translates Python code into ClickHouse operations for big data computing"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,9 +38,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
+test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+]
+dev = [
+    "aaiclick[test]",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.5.0",
     "black>=23.0.0",
@@ -53,11 +56,16 @@ Homepage = "https://github.com/kolodkin/aaiclick"
 Repository = "https://github.com/kolodkin/aaiclick"
 Issues = "https://github.com/kolodkin/aaiclick/issues"
 
-[tool.setuptools]
-packages = ["aaiclick"]
+[tool.setuptools.packages.find]
+include = ["aaiclick*"]
 
 [tool.setuptools.package-data]
 aaiclick = ["py.typed"]
+"aaiclick.orchestration" = ["alembic.ini"]
+"aaiclick.orchestration.migrations" = ["script.py.mako"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
 
 [tool.black]
 line-length = 120
