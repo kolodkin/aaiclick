@@ -106,8 +106,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          pytest --pyargs aaiclick
-          -n auto --dist loadgroup -v
+          pytest --pyargs aaiclick -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           --strict-markers
