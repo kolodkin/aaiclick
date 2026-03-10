@@ -1,9 +1,8 @@
 """
 Tests for JSON mode of create_object_from_url().
 
-Unit tests verify _json_extract_expr and validation (always run).
-Integration tests load nested JSON from a local HTTP server
-(require AAICLICK_URL_TEST_ENABLE=1).
+Unit tests verify _json_extract_expr and validation.
+Integration tests load nested JSON from a local HTTP server.
 """
 
 import json
@@ -106,7 +105,7 @@ async def test_json_mode_validation_errors(ctx):
 
 
 # =============================================================================
-# Integration tests (require AAICLICK_URL_TEST_ENABLE=1)
+# Integration tests (require local HTTP server fixture)
 # =============================================================================
 
 
@@ -147,7 +146,7 @@ def json_server():
     server.server_close()
 
 
-@pytest.mark.url
+
 async def test_json_load_all_columns_and_schema(ctx, json_server):
     """Load all columns, verify data and schema."""
     obj = await create_object_from_url(
@@ -174,7 +173,7 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
     assert schema.columns["tags"].type == "String"
 
 
-@pytest.mark.url
+
 async def test_json_load_subset_with_limit_and_where(ctx, json_server):
     """Subset columns, limit, and where filter."""
     # Subset columns
@@ -218,7 +217,7 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
     assert all(s > 80 for s in data_filtered["score"])
 
 
-@pytest.mark.url
+
 async def test_json_load_array_field(ctx, json_server):
     """Array fields are correctly extracted."""
     obj = await create_object_from_url(
@@ -237,7 +236,7 @@ async def test_json_load_array_field(ctx, json_server):
     assert tags_by_id["A-003"] == []
 
 
-@pytest.mark.url
+
 async def test_json_load_json_as_string_format(ctx, json_server):
     """JSONAsString format also works for JSON mode."""
     obj = await create_object_from_url(

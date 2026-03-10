@@ -1,9 +1,8 @@
 """
 Tests for create_object_from_url().
 
-Validation tests verify input sanitization (always run).
-Integration tests load data from sample files served by a local HTTP server
-(require AAICLICK_URL_TEST_ENABLE=1).
+Validation tests verify input sanitization.
+Integration tests load data from sample files served by a local HTTP server.
 
 The fileserver fixture starts Python's http.server on a random port, serving
 aaiclick/url_samples/. Set AAICLICK_TEST_FILESERVER_HOST=host.docker.internal
@@ -114,7 +113,7 @@ async def test_url_where_with_semicolon(ctx):
 # =============================================================================
 
 
-@pytest.mark.url
+
 async def test_url_format_parquet(ctx, fileserver):
     """Load 100 rows from Parquet sample file."""
     obj = await create_object_from_url(
@@ -126,7 +125,7 @@ async def test_url_format_parquet(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-@pytest.mark.url
+
 async def test_url_format_csv_with_names(ctx, fileserver):
     """Load 100 rows from CSV sample file."""
     obj = await create_object_from_url(
@@ -139,7 +138,7 @@ async def test_url_format_csv_with_names(ctx, fileserver):
     assert len(data["name"]) == 100
 
 
-@pytest.mark.url
+
 async def test_url_format_tsv_with_names(ctx, fileserver):
     """Load 100 rows from TSV sample file."""
     obj = await create_object_from_url(
@@ -151,7 +150,7 @@ async def test_url_format_tsv_with_names(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-@pytest.mark.url
+
 async def test_url_format_json_each_row(ctx, fileserver):
     """Load 100 rows from JSONL sample file."""
     obj = await create_object_from_url(
@@ -163,7 +162,7 @@ async def test_url_format_json_each_row(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-@pytest.mark.url
+
 async def test_url_format_orc(ctx, fileserver):
     """Load 100 rows from ORC sample file."""
     obj = await create_object_from_url(
@@ -180,7 +179,7 @@ async def test_url_format_orc(ctx, fileserver):
 # =============================================================================
 
 
-@pytest.mark.url
+
 async def test_url_single_column(ctx, fileserver):
     """Single column load creates an array Object (column renamed to 'value')."""
     obj = await create_object_from_url(
@@ -192,7 +191,7 @@ async def test_url_single_column(ctx, fileserver):
     assert not obj.stale
 
 
-@pytest.mark.url
+
 async def test_url_multi_column(ctx, fileserver):
     """Multi-column load creates a dict Object with original column names."""
     obj = await create_object_from_url(
@@ -205,7 +204,7 @@ async def test_url_multi_column(ctx, fileserver):
     assert len(data["name"]) == _NUM_ROWS
 
 
-@pytest.mark.url
+
 async def test_url_with_limit(ctx, fileserver):
     """LIMIT restricts the number of loaded rows."""
     obj = await create_object_from_url(
@@ -215,7 +214,7 @@ async def test_url_with_limit(ctx, fileserver):
     assert len(data) == 3
 
 
-@pytest.mark.url
+
 async def test_url_with_where(ctx, fileserver):
     """WHERE clause filters rows during load."""
     obj = await create_object_from_url(
@@ -228,7 +227,7 @@ async def test_url_with_where(ctx, fileserver):
     assert len(data["price"]) < _NUM_ROWS
 
 
-@pytest.mark.url
+
 async def test_url_snowflake_ids_ordered(ctx, fileserver):
     """Snowflake IDs are monotonically increasing and unique."""
     obj = await create_object_from_url(
@@ -241,7 +240,7 @@ async def test_url_snowflake_ids_ordered(ctx, fileserver):
     assert len(ids) == 100
 
 
-@pytest.mark.url
+
 async def test_url_aggregation_on_result(ctx, fileserver):
     """Aggregation operators work on Objects loaded from URL."""
     obj = await create_object_from_url(
@@ -258,7 +257,7 @@ async def test_url_aggregation_on_result(ctx, fileserver):
 # =============================================================================
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     """insert_from_url rejects non-HTTP URLs."""
     obj = await create_object_from_url(
@@ -268,7 +267,7 @@ async def test_insert_from_url_invalid_scheme(ctx, fileserver):
         await obj.insert_from_url("ftp://example.com/data.parquet")
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_unsupported_format(ctx, fileserver):
     """insert_from_url rejects unsupported formats."""
     obj = await create_object_from_url(
@@ -282,7 +281,7 @@ async def test_insert_from_url_unsupported_format(ctx, fileserver):
         )
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_invalid_limit(ctx, fileserver):
     """insert_from_url rejects invalid limit values."""
     obj = await create_object_from_url(
@@ -296,7 +295,7 @@ async def test_insert_from_url_invalid_limit(ctx, fileserver):
         )
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
     """insert_from_url rejects WHERE with semicolons (SQL injection)."""
     obj = await create_object_from_url(
@@ -315,7 +314,7 @@ async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
 # =============================================================================
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_appends_data(ctx, fileserver):
     """insert_from_url appends data to existing Object."""
     # Create initial object with 10 rows
@@ -339,7 +338,7 @@ async def test_insert_from_url_appends_data(ctx, fileserver):
     assert final_count == 15
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_auto_columns(ctx, fileserver):
     """insert_from_url uses object's columns when not specified."""
     obj = await create_object_from_url(
@@ -360,7 +359,7 @@ async def test_insert_from_url_auto_columns(ctx, fileserver):
     assert len(data["price"]) == 10
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_with_where(ctx, fileserver):
     """insert_from_url applies WHERE filter."""
     obj = await create_object_from_url(
@@ -385,7 +384,7 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     assert len(data["id"]) < initial_count + _NUM_ROWS
 
 
-@pytest.mark.url
+
 async def test_insert_from_url_snowflake_ids(ctx, fileserver):
     """insert_from_url generates unique Snowflake IDs."""
     obj = await create_object_from_url(
