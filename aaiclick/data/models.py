@@ -47,13 +47,14 @@ class ColumnInfo:
     Attributes:
         type: Base ClickHouse element type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
-        array: Whether the column is an Array(T) type
+        array: Nesting depth of Array wrapping. ``False``/``0`` means plain column,
+               ``True``/``1`` means ``Array(T)``, ``2`` means ``Array(Array(T))``, etc.
         low_cardinality: Whether to use LowCardinality encoding
     """
 
     type: str
     nullable: bool = False
-    array: bool = False
+    array: int = False
     low_cardinality: bool = False
     description: str = ""
 
@@ -64,6 +65,7 @@ class ColumnInfo:
             ColumnInfo('Int64').ch_type()                          -> 'Int64'
             ColumnInfo('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
             ColumnInfo('Int64', array=True).ch_type()              -> 'Array(Int64)'
+            ColumnInfo('Int64', array=2).ch_type()                 -> 'Array(Array(Int64))'
             ColumnInfo('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
             ColumnInfo('String', low_cardinality=True).ch_type()   -> 'LowCardinality(String)'
             ColumnInfo('String', nullable=True, low_cardinality=True).ch_type()
@@ -74,7 +76,10 @@ class ColumnInfo:
             base = f"Nullable({base})"
         if self.low_cardinality:
             base = f"LowCardinality({base})"
-        return f"Array({base})" if self.array else base
+        depth = int(self.array)
+        for _ in range(depth):
+            base = f"Array({base})"
+        return base
 
 
 
@@ -89,18 +94,19 @@ def parse_ch_type(type_str: str) -> "ColumnInfo":
     """Parse a ClickHouse type string into a ColumnInfo.
 
     Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
-    array ('Array(Int64)'), low cardinality ('LowCardinality(String)'),
+    array ('Array(Int64)'), nested arrays ('Array(Array(Int64))'),
+    low cardinality ('LowCardinality(String)'),
     and combinations ('Array(LowCardinality(Nullable(String)))').
 
     Args:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnInfo with extracted base type, nullable, array, and low_cardinality flags
+        ColumnInfo with extracted base type, nullable, array depth, and low_cardinality flags
     """
-    array = False
-    if type_str.startswith("Array(") and type_str.endswith(")"):
-        array = True
+    array = 0
+    while type_str.startswith("Array(") and type_str.endswith(")"):
+        array += 1
         type_str = type_str[6:-1]
 
     low_cardinality = False

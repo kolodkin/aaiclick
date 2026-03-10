@@ -311,6 +311,83 @@ def _infer_array_clickhouse_type(value: list) -> ColumnInfo:
     return ColumnInfo(element_def.type, array=True)
 
 
+def _is_list_of_dicts(value: object) -> bool:
+    """Check if a value is a non-empty list of dicts (nested array-of-objects)."""
+    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
+
+
+def _has_nested_dicts(record: dict) -> bool:
+    """Check if a dict contains any list-of-dicts values (nested structures)."""
+    return any(_is_list_of_dicts(v) for v in record.values())
+
+
+def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> Dict[str, ColumnInfo]:
+    """Recursively infer flat column schema from a nested record.
+
+    Uses dot-star notation for nested array-of-objects levels.
+    Each ``*`` adds one Array() wrapper to the leaf column type.
+
+    Args:
+        sample: A sample record to infer schema from
+        prefix: Column name prefix (e.g., ``"b.*."`` for nested fields)
+        array_depth: Number of ``*`` nesting levels above this point
+
+    Returns:
+        Dict mapping flat column names to ColumnInfo
+    """
+    columns: Dict[str, ColumnInfo] = {}
+    for key, val in sample.items():
+        col_name = f"{prefix}{key}"
+
+        if _is_list_of_dicts(val):
+            sub_cols = _flatten_nested_schema(val[0], f"{col_name}.*.", array_depth + 1)
+            columns.update(sub_cols)
+        elif isinstance(val, list):
+            col_info = _infer_array_clickhouse_type(val)
+            columns[col_name] = ColumnInfo(
+                col_info.type,
+                array=int(col_info.array) + array_depth,
+                low_cardinality=col_info.low_cardinality,
+            )
+        else:
+            col_info = _infer_clickhouse_type(val)
+            if array_depth:
+                columns[col_name] = ColumnInfo(
+                    col_info.type,
+                    array=array_depth,
+                    low_cardinality=col_info.low_cardinality,
+                )
+            else:
+                columns[col_name] = col_info
+    return columns
+
+
+def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
+    """Flatten a single nested record into dot-star notation.
+
+    Converts nested list-of-dicts into parallel arrays (ClickHouse Nested style).
+
+    Args:
+        record: A dict possibly containing list-of-dicts values
+        prefix: Column name prefix
+
+    Returns:
+        Flat dict with dot-star column names and array values
+    """
+    result: dict = {}
+    for key, val in record.items():
+        col_name = f"{prefix}{key}"
+
+        if _is_list_of_dicts(val):
+            sub_records = [_flatten_nested_record(item, f"{col_name}.*.") for item in val]
+            if sub_records:
+                for sub_key in sub_records[0]:
+                    result[sub_key] = [sr[sub_key] for sr in sub_records]
+        else:
+            result[col_name] = val
+    return result
+
+
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnInfo:
     """Infer ClickHouse column type from Python value using numpy.
 
@@ -352,6 +429,91 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         return ColumnInfo("String", low_cardinality=True)
 
 
+def _find_non_empty_nested_sample(records: list, key: str) -> dict:
+    """Find a non-empty sample for a nested list-of-dicts field across records.
+
+    When the first record has an empty list for a nested field, searches
+    subsequent records for a non-empty sample to infer schema from.
+    """
+    for record in records:
+        val = record[key]
+        if _is_list_of_dicts(val):
+            return val[0]
+    return {}
+
+
+async def _create_nested_object(
+    val: dict,
+    ch: AsyncClient,
+    name: str | None,
+) -> Object:
+    """Create an Object from a single dict with nested list-of-dicts values.
+
+    Flattens nested structures using dot-star notation. For example:
+    ``{a: 2, b: [{c: [1,2,3], d: 5}, {c: [4,5,6], d: 10}]}``
+    becomes columns ``a`` (Int64), ``b.*.c`` (Array(Array(Int64))),
+    ``b.*.d`` (Array(Int64)) with one row.
+    """
+    flat = _flatten_nested_record(val)
+    nested_cols = _flatten_nested_schema(val)
+
+    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns.update(nested_cols)
+
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
+    obj = await create_object(schema, name=name)
+
+    keys = list(flat.keys())
+    quoted_keys = [quote_identifier(k) for k in keys]
+    data = [[flat[k] for k in keys]]
+    await ch.insert(obj.table, data, column_names=quoted_keys)
+
+    return obj
+
+
+async def _create_nested_records_object(
+    val: list,
+    ch: AsyncClient,
+    name: str | None,
+) -> Object:
+    """Create an Object from a list of dicts with nested list-of-dicts values.
+
+    Flattens nested structures using dot-star notation. Each record becomes
+    one row with nested array-of-objects stored as parallel Array columns.
+    """
+    first_keys = set(val[0].keys())
+    for i, record in enumerate(val[1:], 1):
+        if set(record.keys()) != first_keys:
+            raise ValueError(
+                f"All records must have identical keys. "
+                f"Record 0 has {sorted(first_keys)}, "
+                f"record {i} has {sorted(record.keys())}"
+            )
+
+    # Infer schema from first record, using non-empty samples for nested fields
+    sample = dict(val[0])
+    for key in sample:
+        if _is_list_of_dicts(sample[key]) and not sample[key]:
+            found = _find_non_empty_nested_sample(val[1:], key)
+            if found:
+                sample[key] = [found]
+
+    nested_cols = _flatten_nested_schema(sample)
+    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns.update(nested_cols)
+
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
+    obj = await create_object(schema, name=name)
+
+    flat_records = [_flatten_nested_record(record) for record in val]
+    keys = list(flat_records[0].keys())
+    quoted_keys = [quote_identifier(k) for k in keys]
+    data = [[record[k] for k in keys] for record in flat_records]
+    await ch.insert(obj.table, data, column_names=quoted_keys)
+
+    return obj
+
+
 async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
@@ -365,6 +527,7 @@ async def create_object_from_value(
             - List of scalars: Creates multiple rows
             - Dict of scalars: Single row with columns per key
             - Dict of arrays: Multiple rows with columns per key
+            - Dict/List with nested list-of-dicts: Flattened with dot-star notation
         name: Optional persistent name. When provided, creates a persistent
               table that survives context exit. If the table already exists,
               data is appended.
@@ -380,6 +543,9 @@ async def create_object_from_value(
     ch = get_ch_client()
 
     if isinstance(val, dict):
+        if _has_nested_dicts(val):
+            return await _create_nested_object(val, ch, name)
+
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays:
@@ -437,6 +603,9 @@ async def create_object_from_value(
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
+            if _has_nested_dicts(val[0]):
+                return await _create_nested_records_object(val, ch, name)
+
             # Records format: list of dicts with possible Array fields
             first_keys = set(val[0].keys())
             for i, record in enumerate(val[1:], 1):
