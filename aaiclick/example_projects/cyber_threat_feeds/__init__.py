@@ -389,7 +389,9 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     DAG Structure:
                                     +-> analyze_kev_by_vendor ------+
                                     |                               |
-        load_kev_data --------------+-> analyze_kev_ransomware -----+-> generate_kev_report --+
+        load_kev_data --------------+-> analyze_kev_by_year --------+-> generate_kev_report --+
+                                    |                               |                         |
+                                    +-> analyze_kev_ransomware -----+                         |
                                                                                               |
                                     +-> analyze_cvss_distribution --+                         |
                                     |                               |                         |

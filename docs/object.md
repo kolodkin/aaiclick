@@ -309,122 +309,267 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | `_data_ctx_ref is None`             | Object was never registered                    |
 | `_data_ctx_ref()` returns None      | Context already garbage collected              |
 
-## Future Optimization: Computed Column Materialization ⚠️ NOT YET IMPLEMENTED
+## Computed Column Expansion: `with_columns()` ⚠️ NOT YET IMPLEMENTED
 
-`group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), you must manually materialize it into an intermediate Object.
+### Motivation
 
-### Current Workaround (Manual Materialization)
+`group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), the workaround is manual: create an intermediate Object, populate it with `INSERT...SELECT`, then group. `with_columns()` automates this pattern.
 
-```python
-from aaiclick.data.data_context import create_object, get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
 
-# Want: kev.group_by("toYear(dateAdded)").agg({"cveID": "count"})
-# Problem: group_by() rejects SQL expressions
-
-# Step 1: Create intermediate Object with derived column
-schema = Schema(
-    fieldtype=FIELDTYPE_ARRAY,
-    columns={
-        "aai_id": ColumnInfo("UInt64"),
-        "year": ColumnInfo("UInt16"),
-        "cveID": ColumnInfo("String"),
-    },
-)
-year_obj = await create_object(schema)
-
-# Step 2: Populate via INSERT...SELECT with SQL expression
-ch = get_ch_client()
-await ch.command(
-    f"INSERT INTO {year_obj.table} (year, cveID) "
-    f"SELECT toYear(dateAdded) AS year, cveID FROM {kev.table}"
-)
-
-# Step 3: Now group_by works on the materialized column
-result = await year_obj.group_by("year").agg({"cveID": "count"})
-```
-
-### Proposed API: `Object.with_columns()`
-
-A `with_columns()` method would automate this pattern — creating a new Object with additional computed columns via SQL expressions, all inside ClickHouse:
+### API
 
 ```python
-# Proposed API — single call replaces the 3-step workaround
+# On Object — materializes all existing columns + new computed ones
 enriched = await kev.with_columns({
     "year": ("UInt16", "toYear(dateAdded)"),
     "vendor_lower": ("String", "lower(vendorProject)"),
     "days_to_fix": ("Int32", "dateDiff('day', dateAdded, dueDate)"),
 })
 
-# Now group_by works naturally
+# On View — respects WHERE/LIMIT/OFFSET/ORDER BY from the view
+filtered = kev.where("dateAdded >= '2023-01-01'")
+enriched = await filtered.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+
+# Result is a normal dict Object — all operations work
 by_year = await enriched.group_by("year").agg({"cveID": "count"})
 by_vendor = await enriched.group_by("vendor_lower").agg({"cveID": "count"})
+recent = enriched.where("days_to_fix < 30")
 ```
 
-**Signature**:
+### Signature
 
 ```python
 async def with_columns(
     self,
     columns: dict[str, tuple[str, str]],
-    # key: new column name
-    # value: (ClickHouse type, SQL expression)
 ) -> Object:
-    """Create a new Object with additional computed columns.
+    """Create a new Object with all existing columns plus computed ones.
 
-    All existing columns are copied. New columns are computed via
-    SQL expressions evaluated inside ClickHouse (zero Python memory).
+    Follows the standard operator pattern: creates a new table, populates via
+    INSERT...SELECT, returns a new Object. All computation in ClickHouse.
+
+    Works on both Object and View. Views apply their constraints (WHERE, LIMIT,
+    OFFSET, ORDER BY) to the source SELECT before computing new columns.
 
     Args:
         columns: Mapping of column_name -> (ch_type, sql_expression).
-            The sql_expression can reference any existing column.
+            The sql_expression can reference any existing column by name.
+            Expression is passed verbatim to ClickHouse — supports any
+            ClickHouse function (toYear, lower, dateDiff, if, multiIf, etc.)
 
     Returns:
-        New Object with original + computed columns.
+        New dict Object with original columns + computed columns.
+
+    Raises:
+        ValueError: If computed column name collides with existing column.
+        ValueError: If called on a scalar Object (fieldtype 's').
+        ValueError: If columns dict is empty.
+        RuntimeError: If Object is stale.
     """
 ```
 
-**Implementation sketch**:
+### Result Schema Rules
+
+The result is always a **dict Object** (`fieldtype='d'`):
+
+| Source Type           | Behavior                                                    |
+|-----------------------|-------------------------------------------------------------|
+| Array (`value` col)   | Result has `value` + computed columns → promotes to dict    |
+| Dict (named columns)  | Result has all existing columns + computed columns          |
+| Scalar                | **Rejected** — raises `ValueError`                         |
+| View (single field)   | Source column renamed to original name + computed columns   |
+| View (multi field)    | Selected fields + computed columns                         |
+| View (with WHERE)     | WHERE applied to source SELECT before computing            |
+
+### Column Name Collision
+
+Computed column names must not collide with existing column names. This is intentional — `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
+
+```python
+# Raises ValueError: "year" already exists
+await enriched.with_columns({"year": ("UInt16", "toYear(dueDate)")})
+```
+
+### Implementation
+
+**Location**: `aaiclick/data/object.py` — `Object.with_columns()` method
+
+Follows the standard operator pattern (`copy_db`, `group_by_agg`):
+
+1. Validate inputs (not scalar, no collisions, non-empty)
+2. Build result schema: copy existing columns + add new `ColumnInfo` entries
+3. Create new Object via `create_object(schema)`
+4. Build `INSERT INTO {result} SELECT existing_cols, expr AS new_col FROM {source}`
+5. Return result Object
 
 ```python
 async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
-    # 1. Build schema: copy existing columns + add new ones
-    new_schema_columns = {"aai_id": ColumnInfo("UInt64")}
-    for name, col_info in self.schema.columns.items():
-        if name != "aai_id":
-            new_schema_columns[name] = col_info
-    for name, (ch_type, _expr) in columns.items():
-        new_schema_columns[name] = ColumnInfo(ch_type)
+    self.checkstale()
 
-    schema = Schema(fieldtype=self.schema.fieldtype, columns=new_schema_columns)
+    if not columns:
+        raise ValueError("columns must not be empty")
+    if self._schema.fieldtype == FIELDTYPE_SCALAR:
+        raise ValueError("with_columns() not supported on scalar Objects")
+
+    # Detect collisions with existing columns (excluding aai_id)
+    existing_names = {k for k in self._schema.columns if k != "aai_id"}
+    collisions = existing_names & set(columns)
+    if collisions:
+        raise ValueError(
+            f"Computed column names collide with existing: {collisions}"
+        )
+
+    # Build result schema
+    result_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
+    for name, col_info in self._schema.columns.items():
+        if name != "aai_id":
+            result_columns[name] = col_info
+    for name, (ch_type, _expr) in columns.items():
+        result_columns[name] = ColumnInfo(ch_type)
+
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     result = await create_object(schema)
 
-    # 2. Build SELECT: existing columns + SQL expressions for new ones
-    existing = [k for k in self.schema.columns if k != "aai_id"]
-    computed = [f"{expr} AS {quote_identifier(name)}" for name, (_type, expr) in columns.items()]
-    select_str = ", ".join(existing + computed)
-    insert_cols = ", ".join(k for k in new_schema_columns if k != "aai_id")
+    # Build SELECT: existing columns + SQL expressions for computed ones
+    existing_cols = [
+        quote_identifier(k) for k in self._schema.columns if k != "aai_id"
+    ]
+    computed_cols = [
+        f"{expr} AS {quote_identifier(name)}"
+        for name, (_ch_type, expr) in columns.items()
+    ]
+    select_str = ", ".join(existing_cols + computed_cols)
 
-    # 3. INSERT...SELECT (all inside ClickHouse)
-    ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {result.table} ({insert_cols}) "
-        f"SELECT {select_str} FROM {self.table}"
+    # Source query: plain table for Objects, subquery for Views
+    source = (
+        f"({self._build_select()})" if self.has_constraints else self.table
+    )
+    alias = " AS s" if source.startswith("(") else ""
+
+    await self.ch_client.command(
+        f"INSERT INTO {result.table} SELECT {select_str} "
+        f"FROM {source}{alias}"
     )
     return result
 ```
 
-**Benefits over manual materialization**:
-- Single call instead of 3-step boilerplate
-- Schema is inferred from source + additions (no manual aai_id setup)
-- SQL injection surface reduced (types validated against ClickHouse)
-- Chainable: `kev.with_columns({...}).group_by("year").agg({...})`
+### View Integration
 
-**Use cases**:
-- Date extraction: `toYear()`, `toMonth()`, `toDayOfWeek()`
-- String normalization: `lower()`, `upper()`, `trim()`
-- Derived metrics: `dateDiff()`, arithmetic expressions
-- Type casting: `toFloat64()`, `toString()`
+`with_columns()` works on Views because `_build_select()` embeds WHERE/LIMIT/OFFSET/ORDER BY into a subquery. The computed expressions are evaluated on the filtered rows.
+
+```python
+# View with WHERE → subquery source
+view = kev.where("dateAdded >= '2023-01-01'")
+enriched = await view.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+
+# Generated SQL:
+# INSERT INTO t_new SELECT vendorProject, cveID, ..., toYear(dateAdded) AS year
+# FROM (SELECT * FROM t_kev WHERE (dateAdded >= '2023-01-01')) AS s
+```
+
+For single-field Views (`kev["dateAdded"]`), the source column is selected as its original name (not renamed to "value") so the SQL expression can reference it. The result is a dict Object with the original field + computed columns.
+
+### Chaining
+
+`with_columns()` returns a normal dict Object, so all existing operations work:
+
+```python
+enriched = await kev.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+
+# group_by + agg
+by_year = await enriched.group_by("year").agg({"cveID": "count"})
+
+# where filtering
+recent = enriched.where("year >= 2023")
+
+# column selection
+years_only = recent["year"]
+
+# further with_columns (additive)
+enriched2 = await enriched.with_columns({
+    "month": ("UInt8", "toMonth(dateAdded)"),
+})
+
+# operators on selected columns
+year_obj = enriched["year"]
+shifted = await (year_obj - 2000)
+```
+
+### Delegation to operators.py
+
+The core SQL generation should live in `operators.py` as `with_columns_db()`, following the pattern of `group_by_agg()` and `_apply_operator_db()`. The `Object.with_columns()` method handles validation and delegates:
+
+```python
+# In operators.py
+async def with_columns_db(
+    source_obj: Object,
+    columns: dict[str, tuple[str, str]],
+    ch_client,
+) -> Object:
+    """Create a new Object with existing + computed columns.
+
+    Args:
+        source_obj: Source Object or View
+        columns: name -> (ch_type, sql_expression)
+        ch_client: ClickHouse client
+
+    Returns:
+        New dict Object with all columns
+    """
+    ...
+```
+
+### Security: SQL Expression Validation
+
+SQL expressions are passed verbatim to ClickHouse. Basic validation:
+
+1. **Reject semicolons** — prevents statement injection (same as View WHERE clauses)
+2. **Reject subqueries** — disallow `SELECT` keyword in expressions
+3. **Type validated by ClickHouse** — if the expression result type doesn't match the declared `ch_type`, ClickHouse raises a type error at INSERT time
+
+```python
+def _validate_expression(expr: str) -> None:
+    """Validate SQL expression for safety."""
+    if ";" in expr:
+        raise ValueError(f"SQL expression must not contain semicolons: {expr}")
+    if re.search(r"\bSELECT\b", expr, re.IGNORECASE):
+        raise ValueError(f"SQL expression must not contain subqueries: {expr}")
+```
+
+### Test Plan
+
+**Test file**: `aaiclick/data/test_with_columns.py`
+
+| Test                                    | Description                                              |
+|-----------------------------------------|----------------------------------------------------------|
+| `test_with_columns_basic`              | Add one computed column, verify data                     |
+| `test_with_columns_multiple`           | Add multiple computed columns in one call                |
+| `test_with_columns_on_view`            | Source is a View with WHERE — filters applied            |
+| `test_with_columns_on_view_with_limit` | Source is a View with LIMIT — only N rows materialized   |
+| `test_with_columns_single_field_view`  | Source is `obj["col"]` — single field preserved          |
+| `test_with_columns_group_by`           | Chain: with_columns → group_by → agg                    |
+| `test_with_columns_chained`            | Two successive with_columns calls (additive)             |
+| `test_with_columns_collision_error`    | Computed name matches existing → ValueError              |
+| `test_with_columns_scalar_error`       | Called on scalar Object → ValueError                     |
+| `test_with_columns_empty_error`        | Empty columns dict → ValueError                          |
+| `test_with_columns_semicolon_error`    | Expression with `;` → ValueError                        |
+| `test_with_columns_date_functions`     | toYear, toMonth, toDayOfWeek on Date columns             |
+| `test_with_columns_string_functions`   | lower, upper, length on String columns                   |
+| `test_with_columns_arithmetic`         | Computed column from arithmetic expression               |
+| `test_with_columns_nullable`           | Computed column from nullable source preserves nulls     |
+
+### Use Cases
+
+| Category              | Example Expressions                                       |
+|-----------------------|-----------------------------------------------------------|
+| Date extraction       | `toYear(col)`, `toMonth(col)`, `toDayOfWeek(col)`        |
+| Date arithmetic       | `dateDiff('day', col_a, col_b)`, `addDays(col, 30)`      |
+| String normalization  | `lower(col)`, `upper(col)`, `trim(col)`, `length(col)`   |
+| Conditional           | `if(col > 0, 'pos', 'neg')`, `multiIf(...)`              |
+| Type casting          | `toFloat64(col)`, `toString(col)`, `toDate(col)`         |
+| Math                  | `log2(col)`, `sqrt(col)`, `abs(col_a - col_b)`           |
+| Hashing/bucketing     | `cityHash64(col) % 100`, `intDiv(col, 10)`               |
 
 ## Test Files
 
