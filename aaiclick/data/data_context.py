@@ -305,10 +305,11 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
     created explicitly via Schema with ColumnInfo(type, nullable=True).
+    String types default to LowCardinality for better storage and query performance.
     """
     if isinstance(value, list):
         if not value:
-            return ColumnInfo("String")
+            return ColumnInfo("String", low_cardinality=True)
 
         arr = np.array(value)
         dtype = arr.dtype
@@ -320,7 +321,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         elif np.issubdtype(dtype, np.floating):
             return ColumnInfo("Float64")
         else:
-            return ColumnInfo("String")
+            return ColumnInfo("String", low_cardinality=True)
 
     if isinstance(value, bool):
         return ColumnInfo("UInt8")
@@ -329,9 +330,9 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     elif isinstance(value, float):
         return ColumnInfo("Float64")
     elif isinstance(value, str):
-        return ColumnInfo("String")
+        return ColumnInfo("String", low_cardinality=True)
     else:
-        return ColumnInfo("String")
+        return ColumnInfo("String", low_cardinality=True)
 
 
 async def create_object_from_value(

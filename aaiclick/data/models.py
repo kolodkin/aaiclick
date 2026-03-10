@@ -40,17 +40,19 @@ NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 @dataclass(frozen=True)
 class ColumnInfo:
-    """Column definition including base type, nullability, and array wrapping.
+    """Column definition including base type, nullability, array wrapping, and cardinality.
 
     Attributes:
         type: Base ClickHouse element type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
         array: Whether the column is an Array(T) type
+        low_cardinality: Whether to use LowCardinality encoding
     """
 
     type: str
     nullable: bool = False
     array: bool = False
+    low_cardinality: bool = False
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
@@ -60,8 +62,15 @@ class ColumnInfo:
             ColumnInfo('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
             ColumnInfo('Int64', array=True).ch_type()              -> 'Array(Int64)'
             ColumnInfo('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
+            ColumnInfo('String', low_cardinality=True).ch_type()   -> 'LowCardinality(String)'
+            ColumnInfo('String', nullable=True, low_cardinality=True).ch_type()
+                -> 'Array(LowCardinality(Nullable(String)))' if array else 'LowCardinality(Nullable(String))'
         """
-        base = f"Nullable({self.type})" if self.nullable else self.type
+        base = self.type
+        if self.nullable:
+            base = f"Nullable({base})"
+        if self.low_cardinality:
+            base = f"LowCardinality({base})"
         return f"Array({base})" if self.array else base
 
 
@@ -69,25 +78,31 @@ def parse_ch_type(type_str: str) -> "ColumnInfo":
     """Parse a ClickHouse type string into a ColumnInfo.
 
     Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
-    array ('Array(Int64)'), and combined ('Array(Nullable(Int64))').
+    array ('Array(Int64)'), low cardinality ('LowCardinality(String)'),
+    and combinations ('Array(LowCardinality(Nullable(String)))').
 
     Args:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnInfo with extracted base type, nullable, and array flags
+        ColumnInfo with extracted base type, nullable, array, and low_cardinality flags
     """
     array = False
     if type_str.startswith("Array(") and type_str.endswith(")"):
         array = True
         type_str = type_str[6:-1]
 
+    low_cardinality = False
+    if type_str.startswith("LowCardinality(") and type_str.endswith(")"):
+        low_cardinality = True
+        type_str = type_str[15:-1]
+
     nullable = False
     if type_str.startswith("Nullable(") and type_str.endswith(")"):
         nullable = True
         type_str = type_str[9:-1]
 
-    return ColumnInfo(type=type_str, nullable=nullable, array=array)
+    return ColumnInfo(type=type_str, nullable=nullable, array=array, low_cardinality=low_cardinality)
 
 
 # Fieldtype constants
