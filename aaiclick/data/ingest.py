@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnDef, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
 
 
@@ -50,7 +50,7 @@ def _are_types_castable(target_type: str, source_type: str) -> bool:
     return False
 
 
-async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnDef]]:
+async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnInfo]]:
     """
     Get fieldtype and columns from a table.
 
@@ -59,7 +59,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
         ch_client: ClickHouse client instance
 
     Returns:
-        Tuple of (fieldtype, columns dict mapping names to ColumnDef)
+        Tuple of (fieldtype, columns dict mapping names to ColumnInfo)
     """
     columns_query = f"""
     SELECT name, type, comment
@@ -73,7 +73,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
         columns[name] = parse_ch_type(col_type)
-        if name == "value" and comment:
+        if name != "aai_id" and comment and fieldtype == FIELDTYPE_SCALAR:
             meta = ColumnMeta.from_yaml(comment)
             if meta.fieldtype:
                 fieldtype = meta.fieldtype
@@ -81,7 +81,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     return fieldtype, columns
 
 
-async def _get_value_column_type(table: str, ch_client) -> ColumnDef:
+async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:
     """
     Get the value column type from a table.
 
@@ -90,7 +90,7 @@ async def _get_value_column_type(table: str, ch_client) -> ColumnDef:
         ch_client: ClickHouse client instance
 
     Returns:
-        ColumnDef for the value column
+        ColumnInfo for the value column
     """
     type_query = f"""
     SELECT type FROM system.columns
@@ -99,7 +99,7 @@ async def _get_value_column_type(table: str, ch_client) -> ColumnDef:
     type_result = await ch_client.query(type_query)
     if type_result.result_rows:
         return parse_ch_type(type_result.result_rows[0][0])
-    return ColumnDef("Float64")
+    raise RuntimeError(f"Table '{table}' has no 'value' column")
 
 
 async def _get_fieldtype(table: str, ch_client) -> str:
@@ -166,7 +166,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         field = copy_info.selected_fields[0]
         new_schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnDef("UInt64"), "value": copy_info.columns[field]}
+            columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
         )
         result = await create_object(new_schema)
         insert_query = f"""
@@ -174,7 +174,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         SELECT aai_id, value FROM {copy_info.source_query}{alias}
         """
     else:
-        columns = {"aai_id": ColumnDef("UInt64")}
+        columns = {"aai_id": ColumnInfo("UInt64")}
         for field in copy_info.selected_fields:
             columns[field] = copy_info.columns[field]
 
@@ -243,9 +243,10 @@ async def concat_objects_db(
                 )
             # Promote to nullable if any source is nullable
             if source_def.nullable and not target_def.nullable:
-                result_columns[col_name] = ColumnDef(
+                result_columns[col_name] = ColumnInfo(
                     target_def.type,
                     nullable=True,
+                    array=target_def.array,
                     low_cardinality=target_def.low_cardinality,
                 )
 

@@ -161,9 +161,9 @@ async def test_group_by_result_is_dict_object(ctx):
     result = await obj.group_by("category").sum("amount")
 
     # Should be a dict Object with category + amount columns
-    meta = await result.metadata()
-    assert "category" in meta.columns
-    assert "amount" in meta.columns
+    schema = result.schema
+    assert "category" in schema.columns
+    assert "amount" in schema.columns
 
 
 async def test_group_by_result_field_selection(ctx):

@@ -266,10 +266,10 @@ async def test_multi_field_selector_copy(ctx):
     assert data == {'x': [1, 2, 3], 'y': [4, 5, 6]}
 
     # Verify cloned is a dict Object
-    meta = await cloned.metadata()
-    assert 'x' in meta.columns
-    assert 'y' in meta.columns
-    assert 'z' not in meta.columns
+    schema = cloned.schema
+    assert 'x' in schema.columns
+    assert 'y' in schema.columns
+    assert 'z' not in schema.columns
 
 
 async def test_multi_field_selector_repr(ctx):
@@ -284,11 +284,11 @@ async def test_multi_field_selector_repr(ctx):
     assert "'y'" in repr_str
 
 
-async def test_multi_field_selector_metadata(ctx):
-    """Test that ViewMetadata includes selected_fields."""
+async def test_multi_field_selector_schema(ctx):
+    """Test that ViewSchema includes selected_fields."""
     obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4], 'z': [5, 6]})
 
     view = obj[['x', 'z']]
-    meta = await view.metadata()
+    schema = view.schema
 
-    assert meta.selected_fields == ['x', 'z']
+    assert schema.selected_fields == ['x', 'z']

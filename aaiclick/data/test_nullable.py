@@ -3,7 +3,7 @@
 import pytest
 
 from aaiclick import (
-    ColumnDef,
+    ColumnInfo,
     Schema,
     create_object,
     create_object_from_value,
@@ -14,23 +14,23 @@ from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import parse_ch_type
 
 
-# --- ColumnDef and parse_ch_type utility tests ---
+# --- ColumnInfo and parse_ch_type utility tests ---
 
 
 def test_column_def_ch_type_non_nullable():
-    cd = ColumnDef("Int64")
+    cd = ColumnInfo("Int64")
     assert cd.ch_type() == "Int64"
     assert cd.nullable is False
 
 
 def test_column_def_ch_type_nullable():
-    cd = ColumnDef("Int64", nullable=True)
+    cd = ColumnInfo("Int64", nullable=True)
     assert cd.ch_type() == "Nullable(Int64)"
     assert cd.nullable is True
 
 
 def test_column_def_frozen():
-    cd = ColumnDef("Int64")
+    cd = ColumnInfo("Int64")
     with pytest.raises(AttributeError):
         cd.type = "String"
 
@@ -63,13 +63,13 @@ def test_parse_ch_type_nullable_string():
 
 
 def test_column_def_low_cardinality():
-    cd = ColumnDef("String", low_cardinality=True)
+    cd = ColumnInfo("String", low_cardinality=True)
     assert cd.ch_type() == "LowCardinality(String)"
     assert cd.low_cardinality is True
 
 
 def test_column_def_low_cardinality_nullable():
-    cd = ColumnDef("String", nullable=True, low_cardinality=True)
+    cd = ColumnInfo("String", nullable=True, low_cardinality=True)
     assert cd.ch_type() == "LowCardinality(Nullable(String))"
 
 
@@ -95,8 +95,8 @@ async def test_create_nullable_column(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -115,8 +115,8 @@ async def test_create_nullable_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("String", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("String", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -133,8 +133,8 @@ async def test_aai_id_nullable_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64", nullable=True),
-            "value": ColumnDef("Int64"),
+            "aai_id": ColumnInfo("UInt64", nullable=True),
+            "value": ColumnInfo("Int64"),
         },
     )
     with pytest.raises(ValueError, match="aai_id column cannot be nullable"):
@@ -146,9 +146,9 @@ async def test_nullable_dict_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "name": ColumnDef("String"),
-            "score": ColumnDef("Float64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "name": ColumnInfo("String"),
+            "score": ColumnInfo("Float64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -167,21 +167,21 @@ async def test_nullable_dict_columns(ctx):
 # --- Metadata ---
 
 
-async def test_metadata_shows_nullable(ctx):
+async def test_schema_shows_nullable(ctx):
     """metadata() should report nullable=True for nullable columns."""
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
 
-    meta = await obj.metadata()
-    assert meta.columns["value"].nullable is True
-    assert meta.columns["value"].type == "Int64"
-    assert meta.columns["aai_id"].nullable is False
+    schema = obj.schema
+    assert schema.columns["value"].nullable is True
+    assert schema.columns["value"].type == "Int64"
+    assert schema.columns["aai_id"].nullable is False
 
 
 # --- Operator NULL propagation ---
@@ -192,8 +192,8 @@ async def test_nullable_add_propagates_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -212,8 +212,8 @@ async def test_nullable_comparison_returns_nullable(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -235,8 +235,8 @@ async def test_nullable_sum_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -252,8 +252,8 @@ async def test_nullable_count_counts_all_rows(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -270,8 +270,8 @@ async def test_nullable_mean_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -290,8 +290,8 @@ async def test_is_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -307,8 +307,8 @@ async def test_is_not_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -324,8 +324,8 @@ async def test_coalesce_with_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -342,8 +342,8 @@ async def test_coalesce_with_object(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -366,8 +366,8 @@ async def test_concat_nullable_with_nonnullable(ctx):
     schema_nullable = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnDef("UInt64"),
-            "value": ColumnDef("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64"),
+            "value": ColumnInfo("Int64", nullable=True),
         },
     )
     obj_a = await create_object(schema_nullable)
@@ -377,5 +377,5 @@ async def test_concat_nullable_with_nonnullable(ctx):
     obj_b = await create_object_from_value([3, 4])
 
     result = await obj_a.concat(obj_b)
-    meta = await result.metadata()
-    assert meta.columns["value"].nullable is True
+    schema = result.schema
+    assert schema.columns["value"].nullable is True

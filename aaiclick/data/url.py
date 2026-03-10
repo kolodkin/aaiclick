@@ -9,7 +9,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
-from .models import ColumnDef, FIELDTYPE_ARRAY, Schema, parse_ch_type
+from .models import ColumnInfo, FIELDTYPE_ARRAY, Schema, parse_ch_type
 from .sql_utils import quote_identifier
 
 SUPPORTED_URL_FORMATS = frozenset({
@@ -109,11 +109,11 @@ async def create_object_from_url(
     if len(columns) == 1:
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnDef("UInt64"), "value": parse_ch_type(ch_types[columns[0]])},
+            columns={"aai_id": ColumnInfo("UInt64"), "value": parse_ch_type(ch_types[columns[0]])},
         )
         select_cols = f"{quoted_columns[0]} AS value"
     else:
-        schema_columns = {"aai_id": ColumnDef("UInt64")}
+        schema_columns = {"aai_id": ColumnInfo("UInt64")}
         for col_name in columns:
             schema_columns[col_name] = parse_ch_type(ch_types[col_name])
         schema = Schema(

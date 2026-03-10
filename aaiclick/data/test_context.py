@@ -4,7 +4,7 @@ Tests for data context manager functionality.
 
 import pytest
 
-from aaiclick import create_object_from_value, create_object, ColumnDef, Schema, FIELDTYPE_SCALAR
+from aaiclick import create_object_from_value, create_object, ColumnInfo, Schema, FIELDTYPE_SCALAR
 from aaiclick.data.data_context import data_context, delete_object, get_ch_client
 
 
@@ -70,7 +70,7 @@ async def test_context_with_operations():
 async def test_context_create_object_with_schema():
     """Test context with create_object using explicit schema."""
     async with data_context():
-        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnDef("Float64")})
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Float64")})
         obj = await create_object(schema)
         ch = get_ch_client()
 
@@ -101,7 +101,7 @@ async def test_context_factory_methods():
         # Using create_object_from_value
         obj1 = await create_object_from_value([1, 2, 3])
         # Using create_object
-        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnDef("Int64")})
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Int64")})
         obj2 = await create_object(schema)
 
         assert not obj1.stale
