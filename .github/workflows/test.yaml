@@ -192,6 +192,9 @@ jobs:
           - project: nyc-taxi-pipeline
             title: NYC Taxi Pipeline
             command: "aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh"
+          - project: cyber-threat-feeds
+            title: Cyber Threat Feeds Pipeline
+            command: "aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds.sh"
 
     services:
       clickhouse:
