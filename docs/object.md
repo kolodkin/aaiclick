@@ -377,17 +377,33 @@ SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semi
 
 **Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
 
-### Use Cases
+### Domain Helpers ✅ IMPLEMENTED
 
-| Category              | Example Expressions                                       |
-|-----------------------|-----------------------------------------------------------|
-| Date extraction       | `toYear(col)`, `toMonth(col)`, `toDayOfWeek(col)`        |
-| Date arithmetic       | `dateDiff('day', col_a, col_b)`, `addDays(col, 30)`      |
-| String normalization  | `lower(col)`, `upper(col)`, `trim(col)`, `length(col)`   |
-| Conditional           | `if(col > 0, 'pos', 'neg')`, `multiIf(...)`              |
-| Type casting          | `toFloat64(col)`, `toString(col)`, `toDate(col)`         |
-| Math                  | `log2(col)`, `sqrt(col)`, `abs(col_a - col_b)`           |
-| Hashing/bucketing     | `cityHash64(col) % 100`, `intDiv(col, 10)`               |
+**Implementation**: `aaiclick/data/object.py` — methods on `Object` class, delegating to `with_columns()`
+
+Each helper auto-names the result column and auto-selects the ClickHouse type. All accept `alias=` to override the default name. All return a `View`.
+
+| Helper                                    | Default Alias         | Type      | Expression                            |
+|-------------------------------------------|-----------------------|-----------|---------------------------------------|
+| `with_year(col)`                          | `{col}_year`          | `UInt16`  | `toYear(col)`                         |
+| `with_month(col)`                         | `{col}_month`         | `UInt8`   | `toMonth(col)`                        |
+| `with_day_of_week(col)`                   | `{col}_dow`           | `UInt8`   | `toDayOfWeek(col)`                    |
+| `with_date_diff(unit, col_a, col_b)`      | `{col_a}_{col_b}_diff`| `Int64`   | `dateDiff('unit', col_a, col_b)`      |
+| `with_lower(col)`                         | `{col}_lower`         | `String`  | `lower(col)`                          |
+| `with_upper(col)`                         | `{col}_upper`         | `String`  | `upper(col)`                          |
+| `with_length(col)`                        | `{col}_length`        | `UInt64`  | `length(col)`                         |
+| `with_trim(col)`                          | `{col}_trimmed`       | `String`  | `trim(col)`                           |
+| `with_abs(col)`                           | `{col}_abs`           | `Float64` | `abs(col)`                            |
+| `with_log2(col)`                          | `{col}_log2`          | `Float64` | `log2(col)`                           |
+| `with_sqrt(col)`                          | `{col}_sqrt`          | `Float64` | `sqrt(col)`                           |
+| `with_bucket(col, size)`                  | `{col}_bucket`        | `Int64`   | `intDiv(col, size)`                   |
+| `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
+| `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
+| `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
+
+`with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
+
+**Tests**: `aaiclick/data/test_with_columns.py`
 
 ## Test Files
 

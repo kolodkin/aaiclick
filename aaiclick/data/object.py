@@ -1202,6 +1202,135 @@ class Object:
             self._validate_expression(computed.expression)
         return View(self, computed_columns=columns)
 
+    # -----------------------------------------------------------------
+    # Domain helpers — each delegates to with_columns()
+    # -----------------------------------------------------------------
+
+    def with_year(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Extract year from a Date/DateTime column."""
+        name = alias or f"{column}_year"
+        return self.with_columns({name: Computed("UInt16", f"toYear({column})")})
+
+    def with_month(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Extract month (1-12) from a Date/DateTime column."""
+        name = alias or f"{column}_month"
+        return self.with_columns({name: Computed("UInt8", f"toMonth({column})")})
+
+    def with_day_of_week(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Extract day of week (1=Mon, 7=Sun) from a Date/DateTime column."""
+        name = alias or f"{column}_dow"
+        return self.with_columns({name: Computed("UInt8", f"toDayOfWeek({column})")})
+
+    def with_date_diff(
+        self,
+        unit: str,
+        col_a: str,
+        col_b: str,
+        *,
+        alias: Optional[str] = None,
+    ) -> "View":
+        """Compute date difference between two columns.
+
+        Args:
+            unit: Time unit ('day', 'hour', 'minute', 'second', 'month', 'year')
+            col_a: Start date column
+            col_b: End date column
+            alias: Result column name (default: '{col_a}_{col_b}_diff')
+        """
+        name = alias or f"{col_a}_{col_b}_diff"
+        return self.with_columns(
+            {name: Computed("Int64", f"dateDiff('{unit}', {col_a}, {col_b})")}
+        )
+
+    def with_lower(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Lowercase a String column."""
+        name = alias or f"{column}_lower"
+        return self.with_columns({name: Computed("String", f"lower({column})")})
+
+    def with_upper(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Uppercase a String column."""
+        name = alias or f"{column}_upper"
+        return self.with_columns({name: Computed("String", f"upper({column})")})
+
+    def with_length(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """String length of a column."""
+        name = alias or f"{column}_length"
+        return self.with_columns({name: Computed("UInt64", f"length({column})")})
+
+    def with_trim(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Trim whitespace from a String column."""
+        name = alias or f"{column}_trimmed"
+        return self.with_columns({name: Computed("String", f"trim({column})")})
+
+    def with_abs(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Absolute value of a numeric column. Result type is Float64."""
+        name = alias or f"{column}_abs"
+        return self.with_columns({name: Computed("Float64", f"abs({column})")})
+
+    def with_log2(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Log base 2 of a numeric column."""
+        name = alias or f"{column}_log2"
+        return self.with_columns({name: Computed("Float64", f"log2({column})")})
+
+    def with_sqrt(self, column: str, *, alias: Optional[str] = None) -> "View":
+        """Square root of a numeric column."""
+        name = alias or f"{column}_sqrt"
+        return self.with_columns({name: Computed("Float64", f"sqrt({column})")})
+
+    def with_bucket(
+        self, column: str, size: int, *, alias: Optional[str] = None
+    ) -> "View":
+        """Integer division bucketing: intDiv(column, size)."""
+        name = alias or f"{column}_bucket"
+        return self.with_columns(
+            {name: Computed("Int64", f"intDiv({column}, {size})")}
+        )
+
+    def with_hash_bucket(
+        self, column: str, n_buckets: int, *, alias: Optional[str] = None
+    ) -> "View":
+        """Hash bucketing: cityHash64(column) % n_buckets."""
+        name = alias or f"{column}_hash"
+        return self.with_columns(
+            {name: Computed("UInt64", f"cityHash64({column}) % {n_buckets}")}
+        )
+
+    def with_if(
+        self,
+        condition: str,
+        then_value: str,
+        else_value: str,
+        *,
+        alias: str,
+        type: str = "String",
+    ) -> "View":
+        """Conditional column: if(condition, then, else).
+
+        Args:
+            condition: SQL boolean expression
+            then_value: Value when true (SQL literal or column)
+            else_value: Value when false (SQL literal or column)
+            alias: Required — result column name
+            type: ClickHouse result type (default 'String')
+        """
+        return self.with_columns(
+            {alias: Computed(type, f"if({condition}, {then_value}, {else_value})")}
+        )
+
+    def with_cast(
+        self, column: str, ch_type: str, *, alias: Optional[str] = None
+    ) -> "View":
+        """Cast a column to a different ClickHouse type.
+
+        Args:
+            column: Source column name
+            ch_type: Target ClickHouse type (e.g., 'Float64', 'String', 'Date')
+            alias: Result column name (default: '{column}_{type_lower}')
+        """
+        name = alias or f"{column}_{ch_type.lower()}"
+        func = f"to{ch_type}" if not ch_type.startswith("to") else ch_type
+        return self.with_columns({name: Computed(ch_type, f"{func}({column})")})
+
     def view(
         self,
         where: Optional[str] = None,
