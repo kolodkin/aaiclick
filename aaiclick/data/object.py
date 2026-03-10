@@ -1150,8 +1150,8 @@ class Object:
         """
         Apply an element-wise operation using ClickHouse's arrayMap function.
 
-        Unlike binary operators (which use INNER JOIN on row_number and silently
-        drop extra elements), arrayMap raises an error when array sizes don't match.
+        Uses ClickHouse's arrayMap function for element-wise operations.
+        Raises an error when array sizes don't match.
 
         Args:
             other: Another Object or Python scalar to operate with
