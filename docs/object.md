@@ -301,7 +301,7 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | `_data_ctx_ref is None`             | Object was never registered                    |
 | `_data_ctx_ref()` returns None      | Context already garbage collected              |
 
-## Computed Column Expansion: `with_columns()` ⚠️ NOT YET IMPLEMENTED
+## Computed Column Expansion: `with_columns()` ✅ IMPLEMENTED
 
 ### Motivation
 
@@ -342,6 +342,8 @@ SELECT expressions are the simplest and most composable — they align with how 
 
 **Raises**: `ValueError` if column name collides with existing, if called on scalar Object, or if columns dict is empty. `RuntimeError` if Object is stale.
 
+**Examples**: See `aaiclick/data/test_with_columns.py` for usage patterns including basic computed columns, chaining, group_by integration, and error cases.
+
 ### Result Schema Rules
 
 The result is always a **View** with dict-like schema (`fieldtype='d'`):
@@ -374,29 +376,6 @@ Computed column names must not collide with existing column names. `with_columns
 SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons (prevents statement injection) and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time.
 
 **Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
-
-### Test Plan
-
-**Test file**: `aaiclick/data/test_with_columns.py`
-
-| Test                                    | Description                                              |
-|-----------------------------------------|----------------------------------------------------------|
-| `test_with_columns_basic`              | Add one computed column, verify data                     |
-| `test_with_columns_multiple`           | Add multiple computed columns in one call                |
-| `test_with_columns_on_view`            | Source is a View with WHERE — filters applied            |
-| `test_with_columns_on_view_with_limit` | Source is a View with LIMIT — only N rows               |
-| `test_with_columns_single_field_view`  | Source is `obj["col"]` — promotes to dict View           |
-| `test_with_columns_group_by`           | Chain: with_columns → group_by → agg                    |
-| `test_with_columns_chained`            | Two successive with_columns calls (additive)             |
-| `test_with_columns_collision_error`    | Computed name matches existing → ValueError              |
-| `test_with_columns_scalar_error`       | Called on scalar Object → ValueError                     |
-| `test_with_columns_empty_error`        | Empty columns dict → ValueError                          |
-| `test_with_columns_semicolon_error`    | Expression with `;` → ValueError                        |
-| `test_with_columns_date_functions`     | toYear, toMonth, toDayOfWeek on Date columns             |
-| `test_with_columns_string_functions`   | lower, upper, length on String columns                   |
-| `test_with_columns_arithmetic`         | Computed column from arithmetic expression               |
-| `test_with_columns_nullable`           | Computed column from nullable source preserves nulls     |
-| `test_with_columns_synchronous`        | Verify no await needed — returns View immediately        |
 
 ### Use Cases
 
