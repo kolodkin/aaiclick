@@ -17,13 +17,11 @@ from ..snowflake_id import get_snowflake_id
 
 from .models import (
     Schema,
-    ColumnDef,
+    ColumnInfo,
     CopyInfo,
     ColumnMeta,
-    ColumnInfo,
     ColumnType,
     GroupByInfo,
-    parse_ch_type,
     GroupByOpType,
     GB_COUNT,
     GB_MAX,
@@ -32,14 +30,12 @@ from .models import (
     GB_STD,
     GB_SUM,
     GB_VAR,
-    ObjectMetadata,
-    ViewMetadata,
+    ViewSchema,
     QueryInfo,
     IngestQueryInfo,
     ValueScalarType,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
@@ -96,7 +92,10 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
         """
-        self._table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        if schema is None:
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
+        schema.table = table_name
         self._stale = False
         self._schema = schema
         self._ctx: Optional[str] = None
@@ -106,13 +105,13 @@ class Object:
     @property
     def persistent(self) -> bool:
         """Check if this is a persistent (named) object that survives context exit."""
-        return self._table_name.startswith("p_")
+        return self.table.startswith("p_")
 
     def _register(self, ctx_name: str = "default") -> None:
         """Register this object with a named context for lifecycle tracking."""
         self._ctx = ctx_name
         if not self.persistent:
-            incref(self._table_name, ctx=ctx_name)
+            incref(self.table, ctx=ctx_name)
 
     def __del__(self):
         """Decrement refcount on deletion."""
@@ -120,21 +119,21 @@ class Object:
             return
         if self._ctx is None:
             return
-        if self._table_name.startswith("p_"):
+        if self.table.startswith("p_"):
             return
         try:
-            decref(self._table_name, ctx=self._ctx)
+            decref(self.table, ctx=self._ctx)
         except RuntimeError:
             return
 
     @property
     def table(self) -> str:
-        """Get the table name for this object."""
-        return self._table_name
+        """Get the table name for this object (read-only)."""
+        return self._schema.table
 
     @property
-    def schema(self) -> Optional[Schema]:
-        """Get the cached schema for this object (read-only)."""
+    def schema(self) -> Schema:
+        """Get the cached schema for this object."""
         return self._schema
 
     @property
@@ -200,7 +199,7 @@ class Object:
         """
         if self._stale:
             raise RuntimeError(
-                f"Cannot use stale Object. Table '{self._table_name}' has been deleted."
+                f"Cannot use stale Object. Table '{self.table}' has been deleted."
             )
 
     def _build_where(self) -> Optional[str]:
@@ -251,15 +250,12 @@ class Object:
         source = f"({self._build_select()})" if self.has_constraints else self.table
         value_column = self.selected_fields[0] if self.is_single_field else "value"
 
-        col_def = ColumnDef("Float64")
-        if self.is_single_field and self._schema:
+        if self.is_single_field:
             fieldtype = FIELDTYPE_ARRAY
-            col_def = self._schema.columns.get(value_column, ColumnDef("Float64"))
-        elif self._schema:
-            fieldtype = self._schema.fieldtype
-            col_def = self._schema.columns.get("value", ColumnDef("Float64"))
+            col_def = self._schema.columns.get(value_column, ColumnInfo("Float64"))
         else:
-            fieldtype = FIELDTYPE_ARRAY
+            fieldtype = self._schema.fieldtype
+            col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
 
         return QueryInfo(
             source=source,
@@ -278,7 +274,7 @@ class Object:
         can validate without querying system.columns.
         """
         info = self._get_query_info()
-        columns = self._schema.columns if self._schema else {}
+        columns = self._schema.columns
         return IngestQueryInfo(**vars(info), columns=columns)
 
     def _get_copy_info(self) -> CopyInfo:
@@ -366,92 +362,6 @@ class Object:
             meta = ColumnMeta.from_yaml(result.result_rows[0][0])
             return meta.fieldtype
         return None
-
-    async def metadata(self) -> ObjectMetadata:
-        """
-        Get metadata for this object including table name, fieldtype, and column info.
-
-        Builds metadata from cached schema if available, otherwise
-        queries the ClickHouse system.columns table.
-
-        Returns:
-            ObjectMetadata: Dataclass with table, fieldtype, and columns info
-
-        Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
-            >>> meta = await obj.metadata()
-            >>> print(meta)
-            ObjectMetadata(table='t...', fieldtype='d', columns={
-                'aai_id': ColumnInfo(name='aai_id', type='UInt64', fieldtype='s'),
-                'param1': ColumnInfo(name='param1', type='Int64', fieldtype='a'),
-                'param2': ColumnInfo(name='param2', type='Int64', fieldtype='a')
-            })
-            >>> view = obj['param1']
-            >>> view_meta = await view.metadata()  # Returns ViewMetadata
-        """
-        self.checkstale()
-
-        # Build from cached schema if available
-        if self._schema is not None:
-            column_infos: Dict[str, ColumnInfo] = {}
-            for name, col_def in self._schema.columns.items():
-                col_fieldtype = FIELDTYPE_SCALAR if name == "aai_id" else self._schema.fieldtype
-                column_infos[name] = ColumnInfo(
-                    name=name,
-                    type=col_def.type,
-                    fieldtype=col_fieldtype,
-                    nullable=col_def.nullable,
-                )
-
-            column_names = set(self._schema.columns.keys())
-            is_dict_type = not (column_names <= {"aai_id", "value"})
-            overall_fieldtype = FIELDTYPE_DICT if is_dict_type else self._schema.fieldtype
-
-            return ObjectMetadata(
-                table=self.table,
-                fieldtype=overall_fieldtype,
-                columns=column_infos,
-            )
-
-        # Fallback: query database for metadata (for objects not created via create_object)
-        columns_query = f"""
-        SELECT name, type, comment
-        FROM system.columns
-        WHERE table = '{self.table}'
-        ORDER BY position
-        """
-        columns_result = await self.ch_client.query(columns_query)
-
-        # Parse columns and determine overall fieldtype
-        columns: Dict[str, ColumnInfo] = {}
-        overall_fieldtype = FIELDTYPE_SCALAR
-        column_names = []
-
-        for name, col_type, comment in columns_result.result_rows:
-            meta = ColumnMeta.from_yaml(comment)
-            col_def = parse_ch_type(col_type)
-            columns[name] = ColumnInfo(
-                name=name,
-                type=col_def.type,
-                fieldtype=meta.fieldtype,
-                nullable=col_def.nullable,
-            )
-            column_names.append(name)
-
-            # Determine overall fieldtype from value column or detect dict type
-            if name == "value" and meta.fieldtype:
-                overall_fieldtype = meta.fieldtype
-
-        # If we have columns beyond aai_id and value, it's a dict type
-        is_dict_type = not (set(column_names) <= {"aai_id", "value"})
-        if is_dict_type:
-            overall_fieldtype = FIELDTYPE_DICT
-
-        return ObjectMetadata(
-            table=self.table,
-            fieldtype=overall_fieldtype,
-            columns=columns
-        )
 
     @staticmethod
     def _scalar_query_info(value: ValueScalarType) -> QueryInfo:
@@ -712,13 +622,12 @@ class Object:
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
             ...     fieldtype=FIELDTYPE_ARRAY,
-            ...     columns={"aai_id": ColumnDef("UInt64"),
-            ...              "value": ColumnDef("Int64", nullable=True)},
+            ...     columns={"aai_id": ColumnInfo("UInt64"),
+            ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
             >>> result = await obj_nullable.concat(obj_non_null)
-            >>> meta = await result.metadata()
-            >>> meta.columns["value"].nullable  # True
+            >>> result.schema.columns["value"].nullable  # True
         """
         if not args:
             raise ValueError("concat requires at least one argument")
@@ -1235,6 +1144,44 @@ class Object:
         info_b = self._to_query_info(other)
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
 
+    # arrayMap Operator
+
+    async def array_map(self, other: Union["Object", ValueScalarType], operator: str) -> Self:
+        """
+        Apply an element-wise operation using ClickHouse's arrayMap function.
+
+        Uses ClickHouse's arrayMap function for element-wise operations.
+        Raises an error when array sizes don't match.
+
+        Args:
+            other: Another Object or Python scalar to operate with
+            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
+
+        Returns:
+            Self: New array Object with element-wise results
+
+        Raises:
+            DB::Exception: If both operands are arrays with different sizes
+
+        Examples:
+            >>> a = await create_object_from_value([1, 2, 3])
+            >>> b = await create_object_from_value([10, 20, 30])
+            >>> result = await a.array_map(b, '+')
+            >>> await result.data()  # [11, 22, 33]
+            >>>
+            >>> # With scalar
+            >>> result = await a.array_map(5, '*')
+            >>> await result.data()  # [5, 10, 15]
+            >>>
+            >>> # Size mismatch raises error
+            >>> c = await create_object_from_value([10, 20])
+            >>> await a.array_map(c, '+')  # Raises DB::Exception
+        """
+        self.checkstale()
+        info_a = self._get_query_info()
+        info_b = self._to_query_info(other)
+        return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
+
     def view(
         self,
         where: Optional[str] = None,
@@ -1361,7 +1308,7 @@ class Object:
 
     def __repr__(self) -> str:
         """String representation of the Object."""
-        return f"Object(table='{self._table_name}')"
+        return f"Object(table='{self.table}')"
 
 
 class GroupByQuery:
@@ -1518,14 +1465,14 @@ class GroupByQuery:
             if source.is_single_field:
                 # Single-field View: columns are {aai_id, value}
                 field = source._selected_fields[0]
-                col_def = schema.columns.get(field, ColumnDef("Float64"))
+                col_def = schema.columns.get(field, ColumnInfo("Float64"))
                 columns = {"aai_id": "UInt64", "value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source._selected_fields:
                 # Multi-field View: only selected columns available
                 columns = {"aai_id": "UInt64"}
                 for field in source._selected_fields:
-                    col_def = schema.columns.get(field, ColumnDef("Float64"))
+                    col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
                 source_query = f"({source._build_select()})"
             elif source.has_constraints:
@@ -1851,35 +1798,13 @@ class View(Object):
         # Delegate to parent for normal views
         return await super().data(orient=orient)
 
-    async def metadata(self) -> ViewMetadata:
-        """
-        Get metadata for this view including table info and view constraints.
-
-        Builds ViewMetadata from source's metadata on demand.
-
-        Returns:
-            ViewMetadata: Dataclass with table, fieldtype, columns, and view constraints
-
-        Examples:
-            >>> obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
-            >>> view = obj['param1']
-            >>> meta = await view.metadata()
-            >>> print(meta.selected_fields)  # ['param1']
-            >>> print(meta.fieldtype)  # 'd' (source table is dict type)
-            >>>
-            >>> filtered = obj.view(where="param1 > 1", limit=10)
-            >>> meta2 = await filtered.metadata()
-            >>> print(meta2.where)  # '(param1 > 1)'
-            >>> print(meta2.limit)  # 10
-        """
-        # Reuse Object.metadata() to build column_infos and compute overall_fieldtype
-        # from self._schema (handles scalar/array/dict detection, DB fallback, etc.)
-        base_meta = await super().metadata()
-
-        return ViewMetadata(
-            table=base_meta.table,
-            fieldtype=base_meta.fieldtype,
-            columns=base_meta.columns,
+    @property
+    def schema(self) -> ViewSchema:
+        """Get schema for this view including view constraints."""
+        return ViewSchema(
+            fieldtype=self._schema.fieldtype,
+            columns=self._schema.columns,
+            table=self._schema.table,
             where=self._build_where(),
             limit=self._limit,
             offset=self._offset,

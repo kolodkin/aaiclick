@@ -9,6 +9,7 @@ import asyncio
 
 from aaiclick.data.data_context import data_context
 
+from .array_operators import example as array_operators_example
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .group_by import example as group_by_example
@@ -23,6 +24,12 @@ from .views import example as views_example
 async def main():
     """Run all examples."""
     async with data_context():
+        print("=" * 60)
+        print("RUNNING: Array Operators Example")
+        print("=" * 60)
+        await array_operators_example()
+
+        print("\n" * 2)
         print("=" * 60)
         print("RUNNING: Basic Operators Example")
         print("=" * 60)

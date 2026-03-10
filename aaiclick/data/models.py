@@ -39,39 +39,55 @@ NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 
 @dataclass(frozen=True)
-class ColumnDef:
-    """Definition for a single column including base type and nullability.
+class ColumnInfo:
+    """Column definition including base type, nullability, and array wrapping.
 
     Attributes:
-        type: Base ClickHouse type (e.g., 'Int64', 'String')
+        type: Base ClickHouse element type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
+        array: Whether the column is an Array(T) type
     """
 
     type: str
     nullable: bool = False
+    array: bool = False
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
 
-        Returns 'Nullable(Int64)' when nullable=True, 'Int64' otherwise.
+        Examples:
+            ColumnInfo('Int64').ch_type()                          -> 'Int64'
+            ColumnInfo('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
+            ColumnInfo('Int64', array=True).ch_type()              -> 'Array(Int64)'
+            ColumnInfo('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
         """
-        return f"Nullable({self.type})" if self.nullable else self.type
+        base = f"Nullable({self.type})" if self.nullable else self.type
+        return f"Array({base})" if self.array else base
 
 
-def parse_ch_type(type_str: str) -> ColumnDef:
-    """Parse a ClickHouse type string into a ColumnDef.
+def parse_ch_type(type_str: str) -> "ColumnInfo":
+    """Parse a ClickHouse type string into a ColumnInfo.
 
-    Handles both plain types ('Int64') and nullable types ('Nullable(Int64)').
+    Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
+    array ('Array(Int64)'), and combined ('Array(Nullable(Int64))').
 
     Args:
         type_str: ClickHouse type string from system.columns
 
     Returns:
-        ColumnDef with extracted base type and nullable flag
+        ColumnInfo with extracted base type, nullable, and array flags
     """
+    array = False
+    if type_str.startswith("Array(") and type_str.endswith(")"):
+        array = True
+        type_str = type_str[6:-1]
+
+    nullable = False
     if type_str.startswith("Nullable(") and type_str.endswith(")"):
-        return ColumnDef(type=type_str[9:-1], nullable=True)
-    return ColumnDef(type=type_str, nullable=False)
+        nullable = True
+        type_str = type_str[9:-1]
+
+    return ColumnInfo(type=type_str, nullable=nullable, array=array)
 
 
 # Fieldtype constants
@@ -103,7 +119,9 @@ GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var"]
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str]
 ValueListType = Union[List[int], List[float], List[bool], List[str]]
-ValueType = Union[ValueScalarType, ValueListType, Dict[str, Union[ValueScalarType, ValueListType]]]
+ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
+ValueRecordType = List[ValueDictType]
+ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
 
 
 @dataclass
@@ -138,7 +156,7 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
-    columns: Dict[str, "ColumnDef"] = field(default_factory=dict)
+    columns: Dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 
 @dataclass
@@ -156,7 +174,7 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, "ColumnDef"]
+    columns: Dict[str, "ColumnInfo"]
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
 
@@ -164,59 +182,29 @@ class CopyInfo:
 @dataclass
 class Schema:
     """
-    Schema definition for creating Object tables.
+    Schema definition for Object tables. Also serves as Object metadata
+    when table is set.
 
     Attributes:
         fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column names to ClickHouse column types
+        columns: Dict mapping column names to ColumnInfo
+        table: ClickHouse table name (empty for blueprints, set for realized objects)
+        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT. Defaults to fieldtype.
+                       For dict schemas, distinguishes array data ('a') from scalar data ('s').
     """
 
     fieldtype: str
-    columns: Dict[str, "ColumnDef"]
+    columns: Dict[str, "ColumnInfo"]
+    table: Optional[str] = None
+    col_fieldtype: Optional[str] = None
 
 
 @dataclass
-class ColumnInfo:
+class ViewSchema(Schema):
     """
-    Information about a single column including type and metadata.
+    Metadata for a View. Inherits fieldtype, columns, and table from Schema.
 
     Attributes:
-        name: Column name
-        type: ClickHouse data type (e.g., 'Int64', 'Float64', 'String')
-        fieldtype: 's' for scalar, 'a' for array, or None if not set
-    """
-
-    name: str
-    type: str
-    fieldtype: Optional[str] = None
-    nullable: bool = False
-
-
-@dataclass
-class ObjectMetadata:
-    """
-    Metadata for an Object including table name, fieldtype, and column information.
-
-    Attributes:
-        table: ClickHouse table name
-        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column name to ColumnInfo
-    """
-
-    table: str
-    fieldtype: str
-    columns: Dict[str, ColumnInfo]
-
-
-@dataclass
-class ViewMetadata:
-    """
-    Metadata for a View including table info and view constraints.
-
-    Attributes:
-        table: ClickHouse table name (from source Object)
-        fieldtype: Overall object fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column name to ColumnInfo
         where: WHERE clause constraint (or None)
         limit: LIMIT constraint (or None)
         offset: OFFSET constraint (or None)
@@ -224,9 +212,6 @@ class ViewMetadata:
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
-    table: str
-    fieldtype: str
-    columns: Dict[str, ColumnInfo]
     where: Optional[str] = None
     limit: Optional[int] = None
     offset: Optional[int] = None

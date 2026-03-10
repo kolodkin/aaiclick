@@ -62,9 +62,32 @@ from typing import Union
 
 from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
-from .models import ColumnDef, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
+from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
 from .sql_utils import quote_identifier
 
+
+# Operator to arrayMap lambda expression mapping (uses x, y variables)
+ARRAYMAP_EXPRESSIONS = {
+    # Arithmetic operators
+    "+": "x + y",
+    "-": "x - y",
+    "*": "x * y",
+    "/": "x / y",
+    "//": "intDiv(x, y)",
+    "%": "x % y",
+    "**": "power(x, y)",
+    # Comparison operators
+    "==": "toUInt8(x = y)",
+    "!=": "toUInt8(x != y)",
+    "<": "toUInt8(x < y)",
+    "<=": "toUInt8(x <= y)",
+    ">": "toUInt8(x > y)",
+    ">=": "toUInt8(x >= y)",
+    # Bitwise operators
+    "&": "bitAnd(x, y)",
+    "|": "bitOr(x, y)",
+    "^": "bitXor(x, y)",
+}
 
 # Operator to SQL expression mapping
 OPERATOR_EXPRESSIONS = {
@@ -211,7 +234,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)}
     )
 
     # Create result object with schema
@@ -537,7 +560,7 @@ AGGREGATION_FUNCTIONS = {
 INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
 
 
-def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnDef]) -> str:
+def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo]) -> str:
     """
     Determine the ClickHouse result type for an aggregation function.
 
@@ -552,12 +575,12 @@ def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnDef]
 
     Args:
         agg_func: Aggregation function key (e.g., 'min', 'sum', 'mean')
-        source_type: ClickHouse type string or ColumnDef
+        source_type: ClickHouse type string or ColumnInfo
 
     Returns:
         ClickHouse base type string for the result (never Nullable)
     """
-    base_type = source_type.type if isinstance(source_type, ColumnDef) else parse_ch_type(source_type).type
+    base_type = source_type.type if isinstance(source_type, ColumnInfo) else parse_ch_type(source_type).type
     if agg_func in ("min", "max"):
         return base_type
     elif agg_func == "sum":
@@ -601,7 +624,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
     # Create result object with schema
@@ -750,7 +773,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
     # Create result object with schema
@@ -798,7 +821,7 @@ async def unique_group(info: QueryInfo, ch_client):
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": ColumnDef("UInt64"), "value": source_col_def}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def}
     )
 
     # Create result object with schema
@@ -812,6 +835,90 @@ async def unique_group(info: QueryInfo, ch_client):
     """
     await ch_client.command(insert_query)
 
+    return result
+
+
+# arrayMap Operators
+# Docs: https://clickhouse.com/docs/sql-reference/functions/array-functions#arraymapfunc-arr1-
+
+
+async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
+    """
+    Apply an element-wise operation using ClickHouse's arrayMap function.
+
+    Collects both sources into arrays (preserving Snowflake ID order),
+    applies arrayMap with a lambda, then expands back into rows via arrayJoin.
+
+    Like _apply_operator_db, this raises an error when array sizes don't match.
+
+    Args:
+        info_a: QueryInfo for first operand (must be FIELDTYPE_ARRAY)
+        info_b: QueryInfo for second operand (FIELDTYPE_ARRAY or FIELDTYPE_SCALAR)
+        operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object instance pointing to result table (FIELDTYPE_ARRAY)
+
+    Raises:
+        ValueError: If operator is not supported
+        DB::Exception: If array sizes don't match (from ClickHouse)
+    """
+    if operator not in ARRAYMAP_EXPRESSIONS:
+        raise ValueError(f"Unsupported operator for array_map: {operator!r}")
+
+    expression = ARRAYMAP_EXPRESSIONS[operator]
+
+    # Determine result type
+    type_a = info_a.value_type
+    type_b = info_b.value_type
+
+    comparison_ops = {"==", "!=", "<", "<=", ">", ">="}
+
+    if operator in comparison_ops:
+        value_type = "UInt8"
+    elif (type_a in INT_TYPES and type_b in FLOAT_TYPES) or (type_a in FLOAT_TYPES and type_b in INT_TYPES):
+        value_type = "Float64"
+    elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
+        value_type = "Float64"
+    else:
+        value_type = type_a
+
+    result_nullable = info_a.nullable or info_b.nullable
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+    )
+    result = await create_object(schema)
+
+    b_is_scalar = info_b.fieldtype == FIELDTYPE_SCALAR
+
+    if b_is_scalar:
+        # arrayMap with single array + scalar as subquery in lambda body
+        scalar_expr = expression.replace("y", f"(SELECT value FROM {info_b.source})")
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT arrayJoin(
+            arrayMap(
+                x -> {scalar_expr},
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id))
+            )
+        ) AS value
+        """
+    else:
+        # arrayMap with two arrays — ClickHouse enforces equal sizes
+        insert_query = f"""
+        INSERT INTO {result.table} (value)
+        SELECT arrayJoin(
+            arrayMap(
+                (x, y) -> {expression},
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id)),
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source} ORDER BY aai_id))
+            )
+        ) AS value
+        """
+
+    await ch_client.command(insert_query)
     return result
 
 
@@ -838,20 +945,20 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     # Build aggregation expressions and result schema
     agg_exprs = []
-    result_columns = {"aai_id": ColumnDef("UInt64")}
+    result_columns = {"aai_id": ColumnInfo("UInt64")}
 
     for key in info.group_keys:
-        result_columns[key] = ColumnDef(info.columns[key])
+        result_columns[key] = ColumnInfo(info.columns[key])
 
     for column, agg_func in aggregations.items():
         sql_func = AGGREGATION_FUNCTIONS[agg_func]
         if agg_func == "count":
             agg_exprs.append(f"{sql_func}() AS {column}")
-            result_columns[column] = ColumnDef("UInt64")
+            result_columns[column] = ColumnInfo("UInt64")
         else:
             agg_exprs.append(f"{sql_func}({column}) AS {column}")
             source_type = info.columns[column]
-            result_columns[column] = ColumnDef(_determine_agg_result_type(agg_func, source_type))
+            result_columns[column] = ColumnInfo(_determine_agg_result_type(agg_func, source_type))
 
     agg_str = ", ".join(agg_exprs)
 
@@ -953,7 +1060,7 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type)},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
     )
 
     result = await create_object(schema)
@@ -1008,7 +1115,7 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1023,7 +1130,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef("UInt8")},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1050,7 +1157,7 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"aai_id": ColumnDef("UInt64"), "value": ColumnDef(value_type, nullable=result_nullable)},
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 

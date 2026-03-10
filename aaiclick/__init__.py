@@ -26,13 +26,11 @@ from .data import (
 # Import core objects
 from .data import Object, View, DataResult
 from .data import (
-    ColumnDef,
     Schema,
     ColumnInfo,
     ColumnMeta,
     ColumnType,
-    ObjectMetadata,
-    ViewMetadata,
+    ViewSchema,
     QueryInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
