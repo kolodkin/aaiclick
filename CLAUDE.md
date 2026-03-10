@@ -129,6 +129,11 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     __all__ = ["Job", "Task", "Worker"]
     ```
 
+- **No compromising on typing**: Never use `Any` as a shortcut to avoid proper typing
+  - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
+  - Prefer `obj: mod.ClassName` over `obj: Any`
+  - If restructuring is needed to get proper types, do it
+
 ## ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**

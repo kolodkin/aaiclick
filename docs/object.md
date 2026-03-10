@@ -68,15 +68,7 @@ All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on ei
 
 Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()` which swaps the operand order so the scalar appears on the left in SQL.
 
-```python
-# Forward: obj is left operand
-result = await (obj * 2)      # SQL: ... obj.value * 2
-result = await (obj + 100)    # SQL: ... obj.value + 100
-
-# Reverse: obj is right operand
-result = await (10 - obj)     # SQL: ... 10 - obj.value
-result = await (2 ** obj)     # SQL: ... power(2, obj.value)
-```
+For runnable examples, see `examples/basic_operators.py`.
 
 ### Arithmetic Operators
 
@@ -308,6 +300,110 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | `sys.is_finalizing()`               | Interpreter shutdown — skip for thread safety  |
 | `_data_ctx_ref is None`             | Object was never registered                    |
 | `_data_ctx_ref()` returns None      | Context already garbage collected              |
+
+## Computed Column Expansion: `with_columns()` ✅ IMPLEMENTED
+
+### Motivation
+
+`group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), the workaround is manual: create an intermediate Object, populate it with `INSERT...SELECT`, then group. `with_columns()` automates this pattern.
+
+See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
+
+### Design: SELECT Expression Approach (No Materialization)
+
+`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy, no schema mutation — the computed column exists only in the View's query.
+
+**Why SELECT expressions over alternatives:**
+
+| Aspect                    | Materialized table           | ALIAS column                        | SELECT expression (chosen)     |
+|---------------------------|------------------------------|-------------------------------------|--------------------------------|
+| Schema change             | New table created            | `ALTER TABLE ADD COLUMN ... ALIAS`  | None                           |
+| Storage                   | Full copy                    | Zero                                | Zero                           |
+| Table mutation             | No (new table)               | Yes (adds metadata to table)        | No                             |
+| Persistence               | Permanent column             | Permanent column                    | Exists only in that View       |
+| `SELECT *` visibility     | Yes                          | No (must name explicitly)           | Yes (in the View)              |
+| Reusable across Views     | Yes (real column)            | Yes (any query can reference it)    | No (must repeat expression)    |
+| Composability             | Returns Object               | Mutates table                       | Returns View (chainable)       |
+| Performance               | O(n) INSERT                  | O(1) ALTER                          | O(1) View creation             |
+
+SELECT expressions are the simplest and most composable — they align with how Views already work. The computed column is just another entry in the View's SELECT list.
+
+### API
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.with_columns()` and `View.with_columns()` methods
+
+**Implementation**: `aaiclick/data/models.py` — see `Computed` class (NamedTuple with `type` and `expression` fields)
+
+`with_columns()` is synchronous — it creates a View, no database call needed. No `await`. Works on both Object and View. On Views, preserves existing constraints (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the SELECT list.
+
+**Parameters**: `columns: dict[str, Computed]` — mapping of column name to `Computed(type, expression)`. Expression is passed verbatim to ClickHouse.
+
+**Returns**: View with original columns + computed expression aliases.
+
+**Raises**: `ValueError` if column name collides with existing, if called on scalar Object, or if columns dict is empty. `RuntimeError` if Object is stale.
+
+**Examples**: See `aaiclick/data/test_with_columns.py` for usage patterns including basic computed columns, chaining, group_by integration, and error cases.
+
+### Result Schema Rules
+
+The result is always a **View** with dict-like schema (`fieldtype='d'`):
+
+| Source Type           | Behavior                                                          |
+|-----------------------|-------------------------------------------------------------------|
+| Array (`value` col)   | View selects `value` + computed columns → promotes to dict        |
+| Dict (named columns)  | View selects all existing columns + computed columns              |
+| Scalar                | **Rejected** — raises `ValueError`                               |
+| View (single field)   | View selects source field + computed columns                      |
+| View (multi field)    | View selects selected fields + computed columns                   |
+| View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
+
+### Column Name Collision
+
+Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
+
+### Implementation Details
+
+**ViewSchema extension**: `ViewSchema` gains a `computed_columns: Optional[Dict[str, Computed]]` field — see `aaiclick/data/models.py`.
+
+**View._build_select()**: When `computed_columns` is set, expands `*` to explicit columns plus `expr AS name` for each computed column — see `aaiclick/data/object.py`.
+
+### Chaining
+
+`with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
+
+### Security: SQL Expression Validation
+
+SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons (prevents statement injection) and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time.
+
+**Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
+
+### Domain Helpers ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/data/object.py` — methods on `Object` class, delegating to `with_columns()`
+
+Each helper auto-names the result column and auto-selects the ClickHouse type. All accept `alias=` to override the default name. All return a `View`.
+
+| Helper                                    | Default Alias         | Type      | Expression                            |
+|-------------------------------------------|-----------------------|-----------|---------------------------------------|
+| `with_year(col)`                          | `{col}_year`          | `UInt16`  | `toYear(col)`                         |
+| `with_month(col)`                         | `{col}_month`         | `UInt8`   | `toMonth(col)`                        |
+| `with_day_of_week(col)`                   | `{col}_dow`           | `UInt8`   | `toDayOfWeek(col)`                    |
+| `with_date_diff(unit, col_a, col_b)`      | `{col_a}_{col_b}_diff`| `Int64`   | `dateDiff('unit', col_a, col_b)`      |
+| `with_lower(col)`                         | `{col}_lower`         | `String`  | `lower(col)`                          |
+| `with_upper(col)`                         | `{col}_upper`         | `String`  | `upper(col)`                          |
+| `with_length(col)`                        | `{col}_length`        | `UInt64`  | `length(col)`                         |
+| `with_trim(col)`                          | `{col}_trimmed`       | `String`  | `trim(col)`                           |
+| `with_abs(col)`                           | `{col}_abs`           | `Float64` | `abs(col)`                            |
+| `with_log2(col)`                          | `{col}_log2`          | `Float64` | `log2(col)`                           |
+| `with_sqrt(col)`                          | `{col}_sqrt`          | `Float64` | `sqrt(col)`                           |
+| `with_bucket(col, size)`                  | `{col}_bucket`        | `Int64`   | `intDiv(col, size)`                   |
+| `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
+| `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
+| `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
+
+`with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
+
+**Tests**: `aaiclick/data/test_with_columns.py`
 
 ## Test Files
 

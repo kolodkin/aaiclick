@@ -46,6 +46,7 @@ from .models import (
     ORIENT_RECORDS,
     ColumnInfo,
     ColumnMeta,
+    Computed,
     ColumnType,
     GroupByInfo,
     ViewSchema,
