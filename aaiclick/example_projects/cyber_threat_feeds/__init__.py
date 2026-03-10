@@ -110,7 +110,7 @@ async def analyze_kev_ransomware(kev: Object) -> dict:
     ransomware_count_val = 0
     for i, label in enumerate(ransomware_data["knownRansomwareCampaignUse"]):
         if label == "Known":
-            ransomware_count_val = ransomware_data["count(cveID)"][i]
+            ransomware_count_val = ransomware_data["cveID"][i]
             break
     ransomware_pct = (ransomware_count_val / total_count) * 100 if total_count > 0 else 0.0
 
@@ -132,7 +132,7 @@ async def generate_kev_report(
 
     vendor_data = await by_vendor.data()
     vendor_counts = sorted(
-        zip(vendor_data["vendorProject"], vendor_data["count(cveID)"]),
+        zip(vendor_data["vendorProject"], vendor_data["cveID"]),
         key=lambda x: x[1],
         reverse=True,
     )
