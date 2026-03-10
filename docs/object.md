@@ -432,6 +432,14 @@ Returns values based on data type: scalar → value, array → list, dict → di
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
+## Supported Data Types
+
+**Auto-detected by `create_object_from_value()`**: Python `int` → `Int64`, `float` → `Float64`, `bool` → `UInt8`, `str` → `LowCardinality(String)`, `datetime` → `DateTime64(3, 'UTC')`.
+
+**Datetime handling**: `create_object_from_value()` auto-detects `datetime` objects (scalars, lists, dicts, records) and maps them to `DateTime64(3, 'UTC')`. For other APIs where data comes from strings (e.g., `create_object()` with explicit schema), use `ColumnInfo("DateTime64(3, 'UTC')")` — otherwise String is the default type.
+
+**Data extraction**: All `DateTime64` UTC values are returned as timezone-aware `datetime` objects with `tzinfo=timezone.utc`.
+
 ## Column Metadata
 
 **Implementation**: `aaiclick/data/object.py` — see `FIELDTYPE_SCALAR`, `FIELDTYPE_ARRAY`, `FIELDTYPE_DICT`
@@ -664,3 +672,4 @@ await consolidated.insert(kev_view)
 | Insert (+ View flavors)         | `test_insert_parametrized.py`    |
 | Concat (+ View flavors)         | `test_concat_parametrized.py`    |
 | Rename + tolerant insert        | `test_rename.py`                 |
+| DateTime Support                | `test_datetime.py`               |

@@ -6,6 +6,7 @@ for automatic schema inference and basic arithmetic operators on Objects.
 """
 
 import asyncio
+from datetime import datetime, timezone
 
 from aaiclick import ORIENT_RECORDS, Object, create_object_from_value
 from aaiclick.data.data_context import data_context
@@ -180,7 +181,38 @@ async def example():
     result_xor = await (obj_m ^ obj_n)
     print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")
 
-    # Example 7: Table name generation with Snowflake IDs
+    # Example 7: UTC datetime support
+    print("\n" + "=" * 50)
+    print("Example 7: UTC datetime support")
+    print("-" * 50)
+
+    # Scalar datetime
+    dt_scalar = await create_object_from_value(
+        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+    )
+    print(f"Created from datetime scalar: {dt_scalar}")
+    print(f"Value: {await dt_scalar.data()}\n")
+
+    # Array of datetimes
+    dt_array = await create_object_from_value([
+        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+    ])
+    print(f"Created from datetime list: {dt_array}")
+    print(f"Values: {await dt_array.data()}\n")
+
+    # Dict with datetime column
+    dt_dict = await create_object_from_value({
+        "event_time": [
+            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+        ],
+        "label": ["start", "end"],
+    })
+    print(f"Created from dict with datetime column: {dt_dict}")
+    print(f"Values: {await dt_dict.data()}")
+
+    # Example 8: Table name generation with Snowflake IDs
     print("\n" + "=" * 50)
     print("Example 7: Automatic table name generation with Snowflake IDs")
     print("-" * 50)
