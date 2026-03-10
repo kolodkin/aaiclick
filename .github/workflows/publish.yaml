@@ -18,16 +18,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install build tools
-        run: pip install build
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Build package
-        run: python -m build
+        run: uv build
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -71,10 +66,11 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+        run: uv python install 3.10
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
@@ -82,11 +78,8 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Install package from wheel
-        run: pip install dist/*.whl
-
-      - name: Install test dependencies
-        run: pip install pytest pytest-asyncio pytest-xdist
+      - name: Install package and test dependencies
+        run: uv pip install --system dist/*.whl pytest pytest-asyncio pytest-xdist
 
       - name: Run database migrations
         env:
