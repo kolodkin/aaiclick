@@ -363,23 +363,23 @@ class Object:
             return meta.fieldtype
         return None
 
-    async def _to_query_info(self, value: Union[Object, ValueScalarType]) -> QueryInfo:
+    @staticmethod
+    async def _ensure_object(value: Union[Object, ValueScalarType]) -> Object:
         """
-        Get QueryInfo for an Object or a Python scalar.
+        Ensure value is an Object, converting Python scalars if needed.
 
         Python scalars are converted to Objects via create_object_from_value,
-        so all data stays in ClickHouse with no special-case SQL generation.
+        so all data stays in ClickHouse with a unified code path.
 
         Args:
             value: An Object or a Python scalar (int, float, bool, str)
 
         Returns:
-            QueryInfo for use in operator SQL
+            Object instance (existing or newly created from scalar)
         """
         if isinstance(value, (int, float, bool, str)):
-            value = await create_object_from_value(value)
-        value.checkstale()
-        return value._get_query_info()
+            return await create_object_from_value(value)
+        return value
 
     async def _apply_operator(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
         """
@@ -396,8 +396,10 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = await self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators._apply_operator_db(
             info_a, info_b, operator, self.ch_client
         )
@@ -416,7 +418,9 @@ class Object:
             Object: New Object instance pointing to result table
         """
         self.checkstale()
-        info_a = await self._to_query_info(other)
+        other = await self._ensure_object(other)
+        other.checkstale()
+        info_a = other._get_query_info()
         info_b = self._get_query_info()
         return await operators._apply_operator_db(
             info_a, info_b, operator, self.ch_client
@@ -1109,8 +1113,10 @@ class Object:
             Self: New Object with coalesced values
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = await self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
 
     # arrayMap Operator
@@ -1147,8 +1153,10 @@ class Object:
             >>> await a.array_map(c, '+')  # Raises DB::Exception
         """
         self.checkstale()
+        other = await self._ensure_object(other)
+        other.checkstale()
         info_a = self._get_query_info()
-        info_b = await self._to_query_info(other)
+        info_b = other._get_query_info()
         return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
 
     def view(

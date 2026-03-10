@@ -60,11 +60,11 @@ See [operators.md](operators.md) for complete function reference. For runnable e
 
 ### Scalar Broadcast
 
-**Implementation**: `aaiclick/data/object.py` — see `_to_query_info()`
+**Implementation**: `aaiclick/data/object.py` — see `_ensure_object()`
 
 All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on either side. The scalar is converted to a scalar Object via `create_object_from_value`, so all data stays in ClickHouse with a unified code path. This works for both `obj + 5` (forward) and `5 + obj` (reverse).
 
-**How it works**: `_to_query_info()` converts scalars to Objects first, then uses `_get_query_info()` for all operands — no special-case SQL generation.
+**How it works**: `_ensure_object()` converts scalars to Objects first, then the caller uses `_get_query_info()` for all operands — no special-case SQL generation.
 
 Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()` which swaps the operand order so the scalar appears on the left in SQL.
 
