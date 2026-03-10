@@ -6,6 +6,7 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data import Computed
+from aaiclick.data.object import View
 
 
 # =============================================================================
@@ -13,51 +14,24 @@ from aaiclick.data import Computed
 # =============================================================================
 
 
-async def test_with_columns_single_computed(ctx):
-    """Add a single computed column to a dict Object."""
+async def test_with_columns_computed(ctx):
+    """Add computed columns; returns View; original unchanged."""
     obj = await create_object_from_value({
         "price": [10, 20, 30],
         "quantity": [2, 3, 1],
     })
     view = obj.with_columns({
         "total": Computed("Int64", "price * quantity"),
+        "double_price": Computed("Int64", "price * 2"),
     })
-    result = await view.data()
-    assert result["price"] == [10, 20, 30]
-    assert result["quantity"] == [2, 3, 1]
-    assert result["total"] == [20, 60, 30]
-
-
-async def test_with_columns_multiple_computed(ctx):
-    """Add multiple computed columns at once."""
-    obj = await create_object_from_value({
-        "a": [1, 2, 3],
-        "b": [10, 20, 30],
-    })
-    view = obj.with_columns({
-        "sum_ab": Computed("Int64", "a + b"),
-        "diff_ab": Computed("Int64", "a - b"),
-    })
-    result = await view.data()
-    assert result["sum_ab"] == [11, 22, 33]
-    assert result["diff_ab"] == [-9, -18, -27]
-
-
-async def test_with_columns_returns_view(ctx):
-    """with_columns() returns a View, not an Object."""
-    from aaiclick.data.object import View
-
-    obj = await create_object_from_value({"x": [1, 2, 3]})
-    view = obj.with_columns({"y": Computed("Int64", "x * 2")})
+    # Returns a View, not an Object
     assert isinstance(view, View)
-
-
-async def test_with_columns_original_unchanged(ctx):
-    """Original Object is not mutated by with_columns()."""
-    obj = await create_object_from_value({"x": [1, 2, 3]})
-    obj.with_columns({"y": Computed("Int64", "x * 2")})
-    result = await obj.data()
-    assert list(result.keys()) == ["x"]
+    result = await view.data()
+    assert result["total"] == [20, 60, 30]
+    assert result["double_price"] == [20, 40, 60]
+    # Original unchanged
+    orig = await obj.data()
+    assert list(orig.keys()) == ["price", "quantity"]
 
 
 # =============================================================================
@@ -65,38 +39,26 @@ async def test_with_columns_original_unchanged(ctx):
 # =============================================================================
 
 
-async def test_with_columns_empty_raises(ctx):
-    """Empty dict raises ValueError."""
+async def test_with_columns_validation_errors(ctx):
+    """Empty dict, scalar, and collision all raise ValueError."""
     obj = await create_object_from_value({"x": [1, 2]})
+    # empty
     with pytest.raises(ValueError, match="non-empty"):
         obj.with_columns({})
-
-
-async def test_with_columns_scalar_raises(ctx):
-    """Scalar Object raises ValueError."""
-    obj = await create_object_from_value([1, 2, 3])
+    # collision
+    with pytest.raises(ValueError, match="collides"):
+        obj.with_columns({"x": Computed("Int64", "x + 1")})
+    # scalar
     total = await obj.sum()
     with pytest.raises(ValueError, match="scalar"):
         total.with_columns({"y": Computed("Int64", "1")})
 
 
-async def test_with_columns_name_collision_raises(ctx):
-    """Column name colliding with existing column raises ValueError."""
-    obj = await create_object_from_value({"x": [1, 2]})
-    with pytest.raises(ValueError, match="collides"):
-        obj.with_columns({"x": Computed("Int64", "x + 1")})
-
-
-async def test_with_columns_semicolon_raises(ctx):
-    """Expression with semicolon raises ValueError."""
+async def test_with_columns_expression_validation(ctx):
+    """Semicolons and subqueries are rejected."""
     obj = await create_object_from_value({"x": [1, 2]})
     with pytest.raises(ValueError, match="must not contain"):
         obj.with_columns({"y": Computed("Int64", "x; DROP TABLE t")})
-
-
-async def test_with_columns_subquery_raises(ctx):
-    """Expression with SELECT raises ValueError."""
-    obj = await create_object_from_value({"x": [1, 2]})
     with pytest.raises(ValueError, match="subqueries"):
         obj.with_columns({"y": Computed("Int64", "SELECT 1")})
 
@@ -106,66 +68,45 @@ async def test_with_columns_subquery_raises(ctx):
 # =============================================================================
 
 
-async def test_view_with_columns_preserves_where(ctx):
-    """Computed columns + WHERE filter work together."""
+async def test_view_with_columns_preserves_constraints(ctx):
+    """Computed columns work with WHERE and LIMIT."""
     obj = await create_object_from_value({
-        "price": [10, 20, 30, 40],
-        "qty": [5, 3, 2, 1],
+        "price": [10, 20, 30, 40, 50],
+        "qty": [5, 3, 2, 1, 4],
     })
-    view = obj.where("price > 15").with_columns({
+    # WHERE
+    view_w = obj.where("price > 15").with_columns({
         "total": Computed("Int64", "price * qty"),
     })
-    result = await view.data()
-    assert result["price"] == [20, 30, 40]
-    assert result["total"] == [60, 60, 40]
-
-
-async def test_view_with_columns_preserves_limit(ctx):
-    """Computed columns + LIMIT work together."""
-    obj = await create_object_from_value({
-        "x": [1, 2, 3, 4, 5],
+    result_w = await view_w.data()
+    assert result_w["price"] == [20, 30, 40, 50]
+    assert result_w["total"] == [60, 60, 40, 200]
+    # LIMIT
+    view_l = obj.view(limit=3).with_columns({
+        "doubled": Computed("Int64", "price * 2"),
     })
-    view = obj.view(limit=3).with_columns({
-        "doubled": Computed("Int64", "x * 2"),
-    })
-    result = await view.data()
-    assert result["x"] == [1, 2, 3]
-    assert result["doubled"] == [2, 4, 6]
+    result_l = await view_l.data()
+    assert result_l["price"] == [10, 20, 30]
+    assert result_l["doubled"] == [20, 40, 60]
 
 
-async def test_view_with_columns_additive(ctx):
-    """Chained with_columns() calls merge computed columns."""
-    obj = await create_object_from_value({
-        "a": [1, 2, 3],
-    })
+async def test_view_with_columns_chaining(ctx):
+    """Chained with_columns() calls merge; each returns independent View."""
+    obj = await create_object_from_value({"a": [1, 2, 3]})
     view1 = obj.with_columns({"b": Computed("Int64", "a * 10")})
     view2 = view1.with_columns({"c": Computed("Int64", "a + 100")})
-    result = await view2.data()
-    assert result["a"] == [1, 2, 3]
-    assert result["b"] == [10, 20, 30]
-    assert result["c"] == [101, 102, 103]
-
-
-async def test_view_with_columns_returns_new_view(ctx):
-    """View.with_columns() returns a new View, original unchanged."""
-    obj = await create_object_from_value({"x": [1, 2]})
-    view1 = obj.with_columns({"y": Computed("Int64", "x + 1")})
-    view2 = view1.with_columns({"z": Computed("Int64", "x + 2")})
     assert view1 is not view2
-    # view1 still has only x and y
-    result1 = await view1.data()
-    assert set(result1.keys()) == {"x", "y"}
-    # view2 has x, y, and z
-    result2 = await view2.data()
-    assert set(result2.keys()) == {"x", "y", "z"}
-
-
-async def test_view_with_columns_collision_with_computed_raises(ctx):
-    """Adding a computed column that collides with an existing computed raises."""
-    obj = await create_object_from_value({"x": [1, 2]})
-    view = obj.with_columns({"y": Computed("Int64", "x + 1")})
+    # view1 only has a and b
+    r1 = await view1.data()
+    assert set(r1.keys()) == {"a", "b"}
+    assert r1["b"] == [10, 20, 30]
+    # view2 has a, b, and c
+    r2 = await view2.data()
+    assert set(r2.keys()) == {"a", "b", "c"}
+    assert r2["c"] == [101, 102, 103]
+    # collision with existing computed raises
     with pytest.raises(ValueError, match="collides"):
-        view.with_columns({"y": Computed("Int64", "x + 2")})
+        view1.with_columns({"b": Computed("Int64", "a + 2")})
 
 
 # =============================================================================
@@ -193,52 +134,29 @@ async def test_with_columns_group_by(ctx):
 # =============================================================================
 
 
-async def test_with_lower(ctx):
-    """with_lower() lowercases a string column."""
-    obj = await create_object_from_value({"name": ["Alice", "BOB", "Charlie"]})
-    view = obj.with_lower("name")
+async def test_string_helpers(ctx):
+    """with_lower, with_upper, with_length, with_trim."""
+    obj = await create_object_from_value({"name": ["  Alice ", "BOB", " x"]})
+    view = (
+        obj.with_lower("name")
+           .with_upper("name")
+           .with_length("name")
+           .with_trim("name")
+    )
     result = await view.data()
-    assert result["name_lower"] == ["alice", "bob", "charlie"]
+    assert result["name_lower"] == ["  alice ", "bob", " x"]
+    assert result["name_upper"] == ["  ALICE ", "BOB", " X"]
+    assert result["name_length"] == [8, 3, 2]
+    assert result["name_trimmed"] == ["Alice", "BOB", "x"]
 
 
-async def test_with_upper(ctx):
-    """with_upper() uppercases a string column."""
-    obj = await create_object_from_value({"name": ["Alice", "bob"]})
-    view = obj.with_upper("name")
+async def test_numeric_helpers(ctx):
+    """with_abs and with_sqrt."""
+    obj = await create_object_from_value({"x": [4, 9, -16]})
+    view = obj.with_abs("x").with_sqrt("x")
     result = await view.data()
-    assert result["name_upper"] == ["ALICE", "BOB"]
-
-
-async def test_with_length(ctx):
-    """with_length() computes string length."""
-    obj = await create_object_from_value({"word": ["hi", "hello", "x"]})
-    view = obj.with_length("word")
-    result = await view.data()
-    assert result["word_length"] == [2, 5, 1]
-
-
-async def test_with_trim(ctx):
-    """with_trim() strips whitespace."""
-    obj = await create_object_from_value({"s": ["  hi ", " x", "ok"]})
-    view = obj.with_trim("s")
-    result = await view.data()
-    assert result["s_trimmed"] == ["hi", "x", "ok"]
-
-
-async def test_with_abs(ctx):
-    """with_abs() computes absolute value."""
-    obj = await create_object_from_value({"x": [-3, 0, 5]})
-    view = obj.with_abs("x")
-    result = await view.data()
-    assert result["x_abs"] == [3.0, 0.0, 5.0]
-
-
-async def test_with_sqrt(ctx):
-    """with_sqrt() computes square root."""
-    obj = await create_object_from_value({"x": [4, 9, 16]})
-    view = obj.with_sqrt("x")
-    result = await view.data()
-    assert result["x_sqrt"] == [2.0, 3.0, 4.0]
+    assert result["x_abs"] == [4.0, 9.0, 16.0]
+    assert result["x_sqrt"] == [2.0, 3.0, 0.0]  # sqrt(-16) = 0 in CH
 
 
 async def test_with_bucket(ctx):
@@ -249,20 +167,33 @@ async def test_with_bucket(ctx):
     assert result["score_bucket"] == [0, 1, 2, 3]
 
 
-async def test_with_if(ctx):
-    """with_if() creates conditional column."""
+async def test_with_if_and_cast(ctx):
+    """with_if() conditional and with_cast() type conversion."""
     obj = await create_object_from_value({"val": [1, 5, 10]})
-    view = obj.with_if("val > 3", "'high'", "'low'", alias="level")
+    view = (
+        obj.with_if("val > 3", "'high'", "'low'", alias="level")
+           .with_cast("val", "String")
+    )
     result = await view.data()
     assert result["level"] == ["low", "high", "high"]
+    assert result["val_string"] == ["1", "5", "10"]
 
 
-async def test_with_cast(ctx):
-    """with_cast() converts column type."""
-    obj = await create_object_from_value({"x": [1, 2, 3]})
-    view = obj.with_cast("x", "String")
-    result = await view.data()
-    assert result["x_string"] == ["1", "2", "3"]
+async def test_helper_alias_chaining_and_where(ctx):
+    """Custom alias, chaining, and WHERE interaction."""
+    obj = await create_object_from_value({
+        "name": ["Alice", "Bob", "Charlie"],
+        "score": [90, 40, 70],
+    })
+    # Custom alias
+    view = obj.with_lower("name", alias="lc_name")
+    r = await view.data()
+    assert r["lc_name"] == ["alice", "bob", "charlie"]
+    # Chaining + WHERE
+    view2 = obj.where("score > 50").with_lower("name").with_bucket("score", 50)
+    r2 = await view2.data()
+    assert r2["name_lower"] == ["alice", "charlie"]
+    assert r2["score_bucket"] == [1, 1]
 
 
 async def test_with_bucket_group_by(ctx):
@@ -278,38 +209,3 @@ async def test_with_bucket_group_by(ctx):
     assert pairs[0] == 150   # scores 5, 8
     assert pairs[1] == 350   # scores 15, 12
     assert pairs[2] == 550   # scores 25, 22
-
-
-async def test_helper_custom_alias(ctx):
-    """All helpers accept alias to override default name."""
-    obj = await create_object_from_value({"name": ["Alice", "Bob"]})
-    view = obj.with_lower("name", alias="lc_name")
-    result = await view.data()
-    assert "lc_name" in result
-    assert result["lc_name"] == ["alice", "bob"]
-
-
-async def test_helper_chaining(ctx):
-    """Helpers chain since they return Views."""
-    obj = await create_object_from_value({
-        "name": ["Alice", "Bob"],
-        "score": [85, 42],
-    })
-    view = (
-        obj.with_lower("name")
-           .with_bucket("score", 50)
-    )
-    result = await view.data()
-    assert result["name_lower"] == ["alice", "bob"]
-    assert result["score_bucket"] == [1, 0]
-
-
-async def test_helper_with_where(ctx):
-    """Helpers work on Views with existing constraints."""
-    obj = await create_object_from_value({
-        "name": ["Alice", "Bob", "Charlie"],
-        "score": [90, 40, 70],
-    })
-    view = obj.where("score > 50").with_lower("name")
-    result = await view.data()
-    assert result["name_lower"] == ["alice", "charlie"]

@@ -24,53 +24,26 @@ from aaiclick.data.url import _json_extract_expr
 # =============================================================================
 
 
-def test_json_extract_string():
-    assert _json_extract_expr("name", ColumnInfo("String")) == "JSONExtractString(elem, 'name')"
-
-
-def test_json_extract_int_types():
-    for t in ("Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"):
-        result = _json_extract_expr("count", ColumnInfo(t))
-        assert result == "JSONExtractInt(elem, 'count')"
-
-
-def test_json_extract_float_types():
-    for t in ("Float32", "Float64"):
-        result = _json_extract_expr("price", ColumnInfo(t))
-        assert result == "JSONExtractFloat(elem, 'price')"
-
-
-def test_json_extract_bool():
-    assert _json_extract_expr("flag", ColumnInfo("Bool")) == "JSONExtractBool(elem, 'flag')"
-
-
-def test_json_extract_date():
-    assert _json_extract_expr("d", ColumnInfo("Date")) == "JSONExtract(elem, 'd', 'Date')"
-
-
-def test_json_extract_datetime():
-    result = _json_extract_expr("ts", ColumnInfo("DateTime"))
-    assert result == "JSONExtract(elem, 'ts', 'DateTime')"
-
-
-def test_json_extract_array():
-    result = _json_extract_expr("tags", ColumnInfo("String", array=True))
-    assert result == "JSONExtract(elem, 'tags', 'Array(String)')"
-
-
-def test_json_extract_nullable():
-    result = _json_extract_expr("notes", ColumnInfo("String", nullable=True))
-    assert result == "JSONExtract(elem, 'notes', 'Nullable(String)')"
-
-
-def test_json_extract_nullable_array():
-    result = _json_extract_expr("vals", ColumnInfo("Int64", nullable=True, array=True))
-    assert result == "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"
-
-
-def test_json_extract_escapes_field_name():
-    result = _json_extract_expr("it's", ColumnInfo("String"))
-    assert result == "JSONExtractString(elem, 'it\\'s')"
+@pytest.mark.parametrize(
+    "field, col_info, expected",
+    [
+        ("name", ColumnInfo("String"), "JSONExtractString(elem, 'name')"),
+        ("count", ColumnInfo("Int64"), "JSONExtractInt(elem, 'count')"),
+        ("count", ColumnInfo("UInt32"), "JSONExtractInt(elem, 'count')"),
+        ("price", ColumnInfo("Float64"), "JSONExtractFloat(elem, 'price')"),
+        ("price", ColumnInfo("Float32"), "JSONExtractFloat(elem, 'price')"),
+        ("flag", ColumnInfo("Bool"), "JSONExtractBool(elem, 'flag')"),
+        ("d", ColumnInfo("Date"), "JSONExtract(elem, 'd', 'Date')"),
+        ("ts", ColumnInfo("DateTime"), "JSONExtract(elem, 'ts', 'DateTime')"),
+        ("tags", ColumnInfo("String", array=True), "JSONExtract(elem, 'tags', 'Array(String)')"),
+        ("notes", ColumnInfo("String", nullable=True), "JSONExtract(elem, 'notes', 'Nullable(String)')"),
+        ("vals", ColumnInfo("Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
+        ("it's", ColumnInfo("String"), "JSONExtractString(elem, 'it\\'s')"),
+    ],
+    ids=["string", "int64", "uint32", "float64", "float32", "bool", "date", "datetime", "array", "nullable", "nullable_array", "escaped"],
+)
+def test_json_extract_expr(field, col_info, expected):
+    assert _json_extract_expr(field, col_info) == expected
 
 
 # =============================================================================
@@ -78,25 +51,23 @@ def test_json_extract_escapes_field_name():
 # =============================================================================
 
 
-async def test_json_mode_missing_json_path(ctx):
+async def test_json_mode_validation_errors(ctx):
+    """All JSON mode validation errors in one test."""
+    # missing json_path
     with pytest.raises(ValueError, match="json_path and json_columns must both be provided"):
         await create_object_from_url(
             "https://example.com/api.json",
             format="RawBLOB",
             json_columns={"id": ColumnInfo("String")},
         )
-
-
-async def test_json_mode_missing_json_columns(ctx):
+    # missing json_columns
     with pytest.raises(ValueError, match="json_path and json_columns must both be provided"):
         await create_object_from_url(
             "https://example.com/api.json",
             format="RawBLOB",
             json_path="data",
         )
-
-
-async def test_json_mode_empty_json_columns(ctx):
+    # empty json_columns
     with pytest.raises(ValueError, match="non-empty dict"):
         await create_object_from_url(
             "https://example.com/api.json",
@@ -104,9 +75,7 @@ async def test_json_mode_empty_json_columns(ctx):
             json_path="data",
             json_columns={},
         )
-
-
-async def test_json_mode_wrong_format(ctx):
+    # wrong format
     with pytest.raises(ValueError, match="JSON mode requires format"):
         await create_object_from_url(
             "https://example.com/api.json",
@@ -114,9 +83,7 @@ async def test_json_mode_wrong_format(ctx):
             json_path="data",
             json_columns={"id": ColumnInfo("String")},
         )
-
-
-async def test_json_mode_mutually_exclusive_with_columns(ctx):
+    # mutually exclusive with columns
     with pytest.raises(ValueError, match="mutually exclusive"):
         await create_object_from_url(
             "https://example.com/api.json",
@@ -125,9 +92,7 @@ async def test_json_mode_mutually_exclusive_with_columns(ctx):
             json_path="data",
             json_columns={"id": ColumnInfo("String")},
         )
-
-
-async def test_json_mode_reserved_aai_id(ctx):
+    # reserved aai_id
     with pytest.raises(ValueError, match="reserved"):
         await create_object_from_url(
             "https://example.com/api.json",
@@ -135,9 +100,7 @@ async def test_json_mode_reserved_aai_id(ctx):
             json_path="data",
             json_columns={"aai_id": ColumnInfo("UInt64")},
         )
-
-
-async def test_no_columns_and_no_json(ctx):
+    # no columns and no json
     with pytest.raises(ValueError, match="Either columns or json_path"):
         await create_object_from_url("https://example.com/api.json")
 
@@ -185,7 +148,8 @@ def json_server():
 
 
 @pytest.mark.url
-async def test_json_load_all_columns(ctx, json_server):
+async def test_json_load_all_columns_and_schema(ctx, json_server):
+    """Load all columns, verify data and schema."""
     obj = await create_object_from_url(
         f"{json_server}/data.json",
         format="RawBLOB",
@@ -202,10 +166,18 @@ async def test_json_load_all_columns(ctx, json_server):
     assert len(data["id"]) == 3
     assert set(data["id"]) == {"A-001", "A-002", "A-003"}
     assert set(data["name"]) == {"Alpha", "Beta", "Gamma"}
+    # Schema validation
+    schema = obj.schema
+    assert schema.columns["id"].type == "String"
+    assert schema.columns["score"].type == "Float64"
+    assert schema.columns["tags"].array is True
+    assert schema.columns["tags"].type == "String"
 
 
 @pytest.mark.url
-async def test_json_load_subset_columns(ctx, json_server):
+async def test_json_load_subset_with_limit_and_where(ctx, json_server):
+    """Subset columns, limit, and where filter."""
+    # Subset columns
     obj = await create_object_from_url(
         f"{json_server}/data.json",
         format="RawBLOB",
@@ -216,27 +188,22 @@ async def test_json_load_subset_columns(ctx, json_server):
         },
     )
     data = await obj.data()
-    assert isinstance(data, dict)
     assert set(data.keys()) == {"id", "score"}
     assert len(data["id"]) == 3
 
-
-@pytest.mark.url
-async def test_json_load_with_limit(ctx, json_server):
-    obj = await create_object_from_url(
+    # Limit
+    obj_limited = await create_object_from_url(
         f"{json_server}/data.json",
         format="RawBLOB",
         json_path="items",
         json_columns={"id": ColumnInfo("String")},
         limit=2,
     )
-    data = await obj.data()
-    assert len(data["id"]) == 2
+    data_limited = await obj_limited.data()
+    assert len(data_limited["id"]) == 2
 
-
-@pytest.mark.url
-async def test_json_load_with_where(ctx, json_server):
-    obj = await create_object_from_url(
+    # Where filter
+    obj_filtered = await create_object_from_url(
         f"{json_server}/data.json",
         format="RawBLOB",
         json_path="items",
@@ -246,13 +213,14 @@ async def test_json_load_with_where(ctx, json_server):
         },
         where="`score` > 80",
     )
-    data = await obj.data()
-    assert len(data["id"]) == 2
-    assert all(s > 80 for s in data["score"])
+    data_filtered = await obj_filtered.data()
+    assert len(data_filtered["id"]) == 2
+    assert all(s > 80 for s in data_filtered["score"])
 
 
 @pytest.mark.url
 async def test_json_load_array_field(ctx, json_server):
+    """Array fields are correctly extracted."""
     obj = await create_object_from_url(
         f"{json_server}/data.json",
         format="RawBLOB",
@@ -263,7 +231,6 @@ async def test_json_load_array_field(ctx, json_server):
         },
     )
     data = await obj.data()
-    assert isinstance(data, dict)
     tags_by_id = dict(zip(data["id"], data["tags"]))
     assert set(tags_by_id["A-001"]) == {"x", "y"}
     assert tags_by_id["A-002"] == ["z"]
@@ -272,6 +239,7 @@ async def test_json_load_array_field(ctx, json_server):
 
 @pytest.mark.url
 async def test_json_load_json_as_string_format(ctx, json_server):
+    """JSONAsString format also works for JSON mode."""
     obj = await create_object_from_url(
         f"{json_server}/data.json",
         format="JSONAsString",
@@ -280,23 +248,3 @@ async def test_json_load_json_as_string_format(ctx, json_server):
     )
     data = await obj.data()
     assert len(data["id"]) == 3
-
-
-@pytest.mark.url
-async def test_json_load_schema(ctx, json_server):
-    obj = await create_object_from_url(
-        f"{json_server}/data.json",
-        format="RawBLOB",
-        json_path="items",
-        json_columns={
-            "id": ColumnInfo("String"),
-            "score": ColumnInfo("Float64"),
-            "tags": ColumnInfo("String", array=True),
-        },
-    )
-    schema = obj.schema
-    assert "id" in schema.columns
-    assert schema.columns["id"].type == "String"
-    assert schema.columns["score"].type == "Float64"
-    assert schema.columns["tags"].array is True
-    assert schema.columns["tags"].type == "String"

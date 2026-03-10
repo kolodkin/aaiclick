@@ -12,7 +12,7 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass
 from typing_extensions import Self
 
-from . import operators, ingest
+from . import operators, ingest, data_extraction
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -320,7 +320,6 @@ class Object:
             - For dict: returns dict or list of dicts based on orient
         """
         self.checkstale()
-        from . import data_extraction
 
         # Query column names and comments
         columns_query = f"""
@@ -1928,12 +1927,6 @@ class View(Object):
                 # Multiple fields: select all specified fields
                 fields_str = ", ".join(quote_identifier(f) for f in self._selected_fields)
                 select_cols = f"aai_id, {fields_str}"
-        elif self._computed_columns:
-            # Expand * to explicit columns + computed aliases
-            real_cols = ", ".join(
-                quote_identifier(c) for c in self._schema.columns
-            )
-            select_cols = real_cols
         else:
             select_cols = columns
 
@@ -1998,8 +1991,6 @@ class View(Object):
         self.checkstale()
 
         if self._selected_fields:
-            from . import data_extraction
-
             if self.is_single_field:
                 # Single field: return as array
                 return await data_extraction.extract_array_data(self)
@@ -2013,8 +2004,6 @@ class View(Object):
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         if self._computed_columns:
-            from . import data_extraction
-
             columns: Dict[str, ColumnMeta] = {}
             # Real columns (excluding aai_id)
             for col_name in self._schema.columns:
