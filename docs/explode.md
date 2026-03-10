@@ -174,7 +174,7 @@ Non-exploded columns keep their original type.
 
 ### View Class Extension
 
-The `View` class needs a new attribute to track exploded columns:
+The `View` class needs new attributes to track exploded columns:
 
 ```python
 class View:
@@ -185,6 +185,11 @@ class View:
 
 The View's source subquery incorporates the `ARRAY JOIN` clause.
 The View's cached schema reflects the post-explode column types.
+
+**ClickHouse constraint**: `ARRAY JOIN` is a single clause per query — you cannot mix
+`ARRAY JOIN col1` with `LEFT ARRAY JOIN col2` in the same SELECT. The `LEFT` modifier
+applies uniformly to all exploded columns. Therefore `left_explode` is a single flag on
+the View, not a per-column setting.
 
 ### Snowflake ID Handling
 

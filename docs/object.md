@@ -169,6 +169,32 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 
 For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_sort`, `max_bytes_in_join`, `join_algorithm`.
 
+## Explode (Array Join)
+
+⚠️ NOT YET IMPLEMENTED
+
+Explode Array column(s) into individual rows for aggregation. Returns a **View** (lazy subquery, no materialization).
+
+See [explode.md](explode.md) for the full specification.
+
+**Method**: `Object.explode(*columns: str, left: bool = False) -> View`
+
+- Flattens `Array(T)` columns into individual rows; scalar columns are duplicated per element
+- Multiple columns are zipped (not Cartesian product)
+- `left=True` uses `LEFT ARRAY JOIN` — preserves rows with empty arrays (emits NULL)
+- **ClickHouse constraint**: `ARRAY JOIN` is a single clause per query — the `LEFT` modifier applies uniformly to all exploded columns. You cannot mix `ARRAY JOIN col1` with `LEFT ARRAY JOIN col2` in the same SELECT. Therefore `left` is a single flag, not per-column.
+
+```python
+obj = await create_object_from_value([
+    {"user": "Alice", "tags": ["python", "rust"]},
+    {"user": "Bob",   "tags": ["python", "go"]},
+])
+
+flat = obj.explode("tags")
+unique_tags = await flat['tags'].unique()
+await unique_tags.data()  # ["go", "python", "rust"]
+```
+
 ## Loading Data from URLs
 
 **Implementation**: `aaiclick/data/url.py` — see `create_object_from_url()`
