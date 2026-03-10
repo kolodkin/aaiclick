@@ -99,21 +99,19 @@ async def analyze_kev_by_vendor(kev: Object) -> Object:
 
 
 @task
-async def analyze_kev_by_year(kev: Object) -> Object:
-    """KEV entries grouped by year added to the catalog."""
-    return await kev.group_by("toYear(dateAdded)").agg({
-        "cveID": "count",
-    })
-
-
-@task
 async def analyze_kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
     total_count = await (await kev["cveID"].count()).data()
 
-    ransomware_col = kev["knownRansomwareCampaignUse"]
-    is_known = await (ransomware_col == "Known")
-    ransomware_count_val = await (await is_known.sum()).data()
+    by_ransomware = await kev.group_by("knownRansomwareCampaignUse").agg({
+        "cveID": "count",
+    })
+    ransomware_data = await by_ransomware.data()
+    ransomware_count_val = 0
+    for i, label in enumerate(ransomware_data["knownRansomwareCampaignUse"]):
+        if label == "Known":
+            ransomware_count_val = ransomware_data["count(cveID)"][i]
+            break
     ransomware_pct = (ransomware_count_val / total_count) * 100 if total_count > 0 else 0.0
 
     return {
@@ -182,11 +180,14 @@ async def analyze_cvss_distribution(cves: Object) -> dict:
     min_cvss = await (await cvss.min()).data()
     max_cvss = await (await cvss.max()).data()
 
-    critical = await (cvss >= 9.0)
-    critical_pct = (await (await critical.mean()).data()) * 100
+    # Comparison operators on Nullable(Float64) produce Float64-typed results,
+    # so we use arithmetic: mean of (cvss >= threshold) gives the fraction.
+    gte9 = await (cvss >= 9.0)
+    critical_pct = (await (await gte9.mean()).data()) * 100
 
-    high = await (await (cvss >= 7.0) & await (cvss < 9.0))
-    high_pct = (await (await high.mean()).data()) * 100
+    gte7 = await (cvss >= 7.0)
+    gte7_pct = (await (await gte7.mean()).data()) * 100
+    high_pct = gte7_pct - critical_pct
 
     return {
         "avg": avg_cvss,
@@ -224,11 +225,16 @@ async def analyze_epss_distribution(cves: Object) -> dict:
 
 
 @task
-async def find_high_risk_cves(cves: Object) -> Object:
-    """Find CVEs with both high CVSS (>=9.0) and high EPSS (>0.5)."""
+async def find_high_risk_cves(cves: Object) -> dict:
+    """Find CVEs with both high CVSS (>=9.0) and high EPSS (>0.5).
+
+    Uses multiplication instead of bitAnd to combine boolean-like results,
+    since comparison on Nullable(Float64) produces Float64-typed Objects.
+    """
     critical_cvss = await (cves["cvss"] >= 9.0)
     high_epss = await (cves["epss"] > 0.5)
-    high_risk = await (critical_cvss & high_epss)
+    # Multiply two 0/1 results: 1*1=1 (both true), otherwise 0
+    high_risk = await (critical_cvss * high_epss)
 
     high_risk_count = await (await high_risk.sum()).data()
     total_count = await (await cves["cve_id"].count()).data()
@@ -357,7 +363,6 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     # Phase 1: CISA KEV
     kev = load_kev_data()
     by_vendor = analyze_kev_by_vendor(kev=kev)
-    by_year = analyze_kev_by_year(kev=kev)
     ransomware = analyze_kev_ransomware(kev=kev)
     kev_report = generate_kev_report(
         kev=kev,
@@ -382,7 +387,6 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     return [
         kev,
         by_vendor,
-        by_year,
         ransomware,
         kev_report,
         cves,
