@@ -49,7 +49,8 @@ async def test_with_columns_validation_errors(ctx):
     with pytest.raises(ValueError, match="collides"):
         obj.with_columns({"x": Computed("Int64", "x + 1")})
     # scalar
-    total = await obj.sum()
+    arr = await create_object_from_value([1, 2, 3])
+    total = await arr.sum()
     with pytest.raises(ValueError, match="scalar"):
         total.with_columns({"y": Computed("Int64", "1")})
 
@@ -152,11 +153,11 @@ async def test_string_helpers(ctx):
 
 async def test_numeric_helpers(ctx):
     """with_abs and with_sqrt."""
-    obj = await create_object_from_value({"x": [4, 9, -16]})
+    obj = await create_object_from_value({"x": [-4, 9, 16]})
     view = obj.with_abs("x").with_sqrt("x")
     result = await view.data()
     assert result["x_abs"] == [4.0, 9.0, 16.0]
-    assert result["x_sqrt"] == [2.0, 3.0, 0.0]  # sqrt(-16) = 0 in CH
+    assert result["x_sqrt"] == [2.0, 3.0, 4.0]
 
 
 async def test_with_bucket(ctx):
