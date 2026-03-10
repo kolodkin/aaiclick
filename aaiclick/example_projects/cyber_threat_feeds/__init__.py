@@ -200,7 +200,7 @@ async def load_shodan_cves(limit: int = 5000) -> Object:
     url = (
         f"{SHODAN_CVEDB_URL}"
         f"?limit={limit}"
-        f"&start_date=2024-01-01&end_date=2025-01-01"
+        f"&start_date=2024-01-01&end_date=2026-01-01"
     )
     return await create_object_from_url(
         url=url,
