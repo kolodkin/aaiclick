@@ -68,15 +68,7 @@ All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on ei
 
 Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()` which swaps the operand order so the scalar appears on the left in SQL.
 
-```python
-# Forward: obj is left operand
-result = await (obj * 2)      # SQL: ... obj.value * 2
-result = await (obj + 100)    # SQL: ... obj.value + 100
-
-# Reverse: obj is right operand
-result = await (10 - obj)     # SQL: ... 10 - obj.value
-result = await (2 ** obj)     # SQL: ... power(2, obj.value)
-```
+For runnable examples, see `examples/basic_operators.py`.
 
 ### Arithmetic Operators
 
@@ -338,74 +330,17 @@ SELECT expressions are the simplest and most composable — they align with how 
 
 ### API
 
-```python
-from aaiclick.data.models import Computed
+**Implementation**: `aaiclick/data/object.py` — see `Object.with_columns()` and `View.with_columns()` methods
 
-# On Object — returns a View with existing columns + computed expressions
-enriched = kev.with_columns({
-    "year": Computed("UInt16", "toYear(dateAdded)"),
-    "vendor_lower": Computed("String", "lower(vendorProject)"),
-    "days_to_fix": Computed("Int32", "dateDiff('day', dateAdded, dueDate)"),
-})
+**Implementation**: `aaiclick/data/models.py` — see `Computed` class (NamedTuple with `type` and `expression` fields)
 
-# On View — preserves existing WHERE/LIMIT/OFFSET/ORDER BY + adds computed columns
-filtered = kev.where("dateAdded >= '2023-01-01'")
-enriched = filtered.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
+`with_columns()` is synchronous — it creates a View, no database call needed. No `await`. Works on both Object and View. On Views, preserves existing constraints (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the SELECT list.
 
-# Result is a View — all View operations work
-by_year = await enriched.group_by("year").agg({"cveID": "count"})
-by_vendor = await enriched.group_by("vendor_lower").agg({"cveID": "count"})
-recent = enriched.where("days_to_fix < 30")
-```
+**Parameters**: `columns: dict[str, Computed]` — mapping of column name to `Computed(type, expression)`. Expression is passed verbatim to ClickHouse.
 
-**Note**: `with_columns()` is synchronous — it just creates a View, no database call needed. No `await`.
+**Returns**: View with original columns + computed expression aliases.
 
-### Computed NamedTuple
-
-**Implementation**: `aaiclick/data/models.py` — see `Computed` class
-
-```python
-class Computed(NamedTuple):
-    """Computed column definition for with_columns()."""
-    type: str        # ClickHouse column type (e.g., "UInt16", "String")
-    expression: str  # SQL expression referencing existing columns
-```
-
-Named fields make call sites self-documenting and enable IDE autocompletion. Being a `NamedTuple`, it's also a tuple — backward-compatible with `("UInt16", "toYear(dateAdded)")` syntax.
-
-### Signature
-
-```python
-def with_columns(
-    self,
-    columns: dict[str, Computed],
-) -> View:
-    """Create a View with all existing columns plus computed expressions.
-
-    Returns a View whose SELECT list includes `expr AS name` for each
-    computed column. No table is created, no data is copied — the
-    expression is evaluated at query time by ClickHouse.
-
-    Works on both Object and View. On Views, preserves existing constraints
-    (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the
-    SELECT list.
-
-    Args:
-        columns: Mapping of column_name -> Computed(type, expression).
-            The expression can reference any existing column by name.
-            Expression is passed verbatim to ClickHouse — supports any
-            ClickHouse function (toYear, lower, dateDiff, if, multiIf, etc.)
-
-    Returns:
-        View with original columns + computed expression aliases.
-
-    Raises:
-        ValueError: If computed column name collides with existing column.
-        ValueError: If called on a scalar Object (fieldtype 's').
-        ValueError: If columns dict is empty.
-        RuntimeError: If Object is stale.
-    """
-```
+**Raises**: `ValueError` if column name collides with existing, if called on scalar Object, or if columns dict is empty. `RuntimeError` if Object is stale.
 
 ### Result Schema Rules
 
@@ -422,153 +357,23 @@ The result is always a **View** with dict-like schema (`fieldtype='d'`):
 
 ### Column Name Collision
 
-Computed column names must not collide with existing column names. This is intentional — `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
+Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
 
-```python
-# Raises ValueError: "year" already exists
-enriched.with_columns({"year": Computed("UInt16", "toYear(dueDate)")})
-```
+### Implementation Details
 
-### Implementation
+**ViewSchema extension**: `ViewSchema` gains a `computed_columns: Optional[Dict[str, Computed]]` field — see `aaiclick/data/models.py`.
 
-**Location**: `aaiclick/data/object.py` — `Object.with_columns()` and `View.with_columns()` methods
-
-The approach differs from the standard operator pattern — no new table, no `INSERT...SELECT`. Instead, it creates a View with computed expressions in the SELECT list.
-
-#### ViewSchema Extension
-
-`ViewSchema` gains a new field to store computed column definitions:
-
-```python
-@dataclass
-class ViewSchema(Schema):
-    where: Optional[str] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    order_by: Optional[str] = None
-    selected_fields: Optional[List[str]] = None
-    computed_columns: Optional[Dict[str, Computed]] = None  # NEW
-```
-
-#### View._build_select() Extension
-
-When `computed_columns` is set, the View's SELECT list includes the expressions:
-
-```python
-def _build_select(self, columns: str = "*", default_order_by=None) -> str:
-    # ... existing field selection logic ...
-
-    # If computed columns exist, expand * to explicit columns + expressions
-    if self._computed_columns:
-        # Get existing column names (from schema, excluding aai_id)
-        existing = [quote_identifier(k) for k in self._schema.columns if k != "aai_id"]
-        computed = [
-            f"{c.expression} AS {quote_identifier(name)}"
-            for name, c in self._computed_columns.items()
-        ]
-        select_cols = "aai_id, " + ", ".join(existing + computed)
-
-    query = f"SELECT {select_cols} FROM {self.table}"
-    # ... existing WHERE/ORDER BY/LIMIT/OFFSET logic ...
-```
-
-#### Object.with_columns()
-
-```python
-def with_columns(self, columns: dict[str, Computed]) -> View:
-    self.checkstale()
-
-    if not columns:
-        raise ValueError("columns must not be empty")
-    if self._schema.fieldtype == FIELDTYPE_SCALAR:
-        raise ValueError("with_columns() not supported on scalar Objects")
-
-    # Detect collisions with existing columns (excluding aai_id)
-    existing_names = {k for k in self._schema.columns if k != "aai_id"}
-    collisions = existing_names & set(columns)
-    if collisions:
-        raise ValueError(
-            f"Computed column names collide with existing: {collisions}"
-        )
-
-    # Validate expressions
-    for name, computed in columns.items():
-        _validate_expression(computed.expression)
-
-    # Build extended schema with computed columns included
-    result_columns = dict(self._schema.columns)
-    for name, computed in columns.items():
-        result_columns[name] = parse_ch_type(computed.type)
-
-    schema = ViewSchema(
-        fieldtype=FIELDTYPE_DICT,
-        columns=result_columns,
-        computed_columns=columns,
-    )
-
-    # Return a View with computed columns in the SELECT list
-    return View(source=self, schema=schema, computed_columns=columns)
-```
-
-### View Integration
-
-`with_columns()` on a View preserves all existing constraints and adds computed columns:
-
-```python
-# View with WHERE + computed columns
-view = kev.where("dateAdded >= '2023-01-01'")
-enriched = view.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
-
-# Generated SQL (when data() is called):
-# SELECT aai_id, vendorProject, cveID, ..., toYear(dateAdded) AS year
-# FROM t_kev
-# WHERE (dateAdded >= '2023-01-01')
-```
-
-For single-field Views (`kev["dateAdded"]`), the source column is selected alongside the computed columns. The result becomes a dict-like View.
+**View._build_select()**: When `computed_columns` is set, expands `*` to explicit columns plus `expr AS name` for each computed column — see `aaiclick/data/object.py`.
 
 ### Chaining
 
-`with_columns()` returns a View, so all View operations work:
-
-```python
-enriched = kev.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
-
-# group_by + agg
-by_year = await enriched.group_by("year").agg({"cveID": "count"})
-
-# where filtering (AND-chains with existing constraints)
-recent = enriched.where("year >= 2023")
-
-# column selection
-years_only = recent["year"]
-
-# further with_columns (additive)
-enriched2 = enriched.with_columns({
-    "month": Computed("UInt8", "toMonth(dateAdded)"),
-})
-
-# operators on selected columns
-year_obj = enriched["year"]
-shifted = await (year_obj - 2000)
-```
+`with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
 
 ### Security: SQL Expression Validation
 
-SQL expressions are passed verbatim to ClickHouse. Basic validation:
+SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons (prevents statement injection) and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time.
 
-1. **Reject semicolons** — prevents statement injection (same as View WHERE clauses)
-2. **Reject subqueries** — disallow `SELECT` keyword in expressions
-3. **Type validated by ClickHouse** — if the expression result type doesn't match the declared `ch_type`, ClickHouse raises a type error at query time
-
-```python
-def _validate_expression(expr: str) -> None:
-    """Validate SQL expression for safety."""
-    if ";" in expr:
-        raise ValueError(f"SQL expression must not contain semicolons: {expr}")
-    if re.search(r"\bSELECT\b", expr, re.IGNORECASE):
-        raise ValueError(f"SQL expression must not contain subqueries: {expr}")
-```
+**Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
 
 ### Test Plan
 

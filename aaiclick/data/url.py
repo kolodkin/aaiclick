@@ -192,7 +192,7 @@ async def create_object_from_url(
         for col_name in json_columns:
             if col_name == "aai_id":
                 raise ValueError("'aai_id' is a reserved column name and cannot be used")
-        return await _create_from_json(url, format, json_path, json_columns, where, limit)
+        return await _create_from_json_path(url, format, json_path, json_columns, where, limit)
 
     if columns is None:
         raise ValueError("Either columns or json_path/json_columns must be provided")
@@ -258,7 +258,7 @@ async def _create_from_tabular(
     return obj
 
 
-async def _create_from_json(
+async def _create_from_json_path(
     url: str,
     format: str,
     json_path: str,
