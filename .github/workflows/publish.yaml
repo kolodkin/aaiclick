@@ -78,8 +78,8 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Install package and test dependencies
-        run: uv pip install --system dist/*.whl pytest pytest-asyncio pytest-xdist
+      - name: Install package with test dependencies
+        run: uv pip install --system "aaiclick[test]" --find-links dist/
 
       - name: Run database migrations
         env:
