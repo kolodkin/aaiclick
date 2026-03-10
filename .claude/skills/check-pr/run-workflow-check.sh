@@ -265,7 +265,12 @@ poll_checks() {
 
     # Watch until all checks complete
     echo -e "${BLUE}⏳ Watching checks until completion...${NC}"
-    if timeout 1200 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch 2>/dev/null; then
+    set +e
+    timeout 1200 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch 2>/dev/null
+    WATCH_EXIT=$?
+    set -e
+
+    if [ "$WATCH_EXIT" -eq 0 ]; then
         echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}STATUS: SUCCESS${NC}"
@@ -277,12 +282,32 @@ poll_checks() {
         exit 0
     fi
 
-    # --watch exited non-zero: could be actual CI failure or just review-required status
-    # Check if any CI checks actually failed
-    FAILED_CHECKS=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null | grep -c "fail" || true)
+    # --watch exited non-zero: could be actual CI failure, pending checks, or review-required status
+    # Check if any CI checks actually failed or are still pending
+    CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true)
+    FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "fail" || true)
+    PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "pending" || true)
+
+    if [ "$PENDING_CHECKS" -gt 0 ]; then
+        # Checks still running - wait for them by polling
+        echo ""
+        echo -e "${YELLOW}⏳ Checks still pending, polling until complete...${NC}"
+        while true; do
+            sleep 15
+            set +e
+            CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null)
+            set -e
+            PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "pending" || true)
+            if [ "$PENDING_CHECKS" -eq 0 ]; then
+                break
+            fi
+            echo -e "${BLUE}  Still waiting on $PENDING_CHECKS pending check(s)...${NC}"
+        done
+        FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "fail" || true)
+    fi
 
     if [ "$FAILED_CHECKS" -eq 0 ]; then
-        # All checks passed - likely review-required or pending status
+        # All checks passed - likely review-required status
         echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}STATUS: ALL CI CHECKS PASSED${NC}"
