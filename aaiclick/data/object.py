@@ -127,14 +127,18 @@ class Object:
             return
 
     @property
-    def table(self) -> str:
-        """Get the table name for this object."""
+    def _table(self) -> str:
+        """Read-write proxy to self._schema.table."""
         return self._schema.table
 
-    @table.setter
-    def table(self, value: str) -> None:
-        """Set the table name for this object."""
+    @_table.setter
+    def _table(self, value: str) -> None:
         self._schema.table = value
+
+    @property
+    def table(self) -> str:
+        """Get the table name for this object (read-only)."""
+        return self._schema.table
 
     @property
     def schema(self) -> Schema:

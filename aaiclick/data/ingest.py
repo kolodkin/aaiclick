@@ -99,7 +99,7 @@ async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:
     type_result = await ch_client.query(type_query)
     if type_result.result_rows:
         return parse_ch_type(type_result.result_rows[0][0])
-    return ColumnInfo("Float64")
+    raise RuntimeError(f"Table '{table}' has no 'value' column")
 
 
 async def _get_fieldtype(table: str, ch_client) -> str:
