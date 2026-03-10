@@ -21,7 +21,7 @@ Array field support is implemented via `Array(T)` ClickHouse columns in the reco
 
 #### Binary Operators (element-wise via `_apply_operator` / row-JOIN)
 
-All binary operators work on array Objects via the standard row-JOIN path. These operators pair elements by row number (inner join) and **silently drop extra elements** on size mismatch.
+All binary operators work on array Objects via the standard row-JOIN path. These operators pair elements by row number (inner join) and **raise `ValueError` on size mismatch** (validated before the join via `_validate_array_lengths`).
 
 | Operator | Python     | ClickHouse               | Array Support |
 |----------|------------|--------------------------|---------------|

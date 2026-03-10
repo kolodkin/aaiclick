@@ -849,8 +849,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     Collects both sources into arrays (preserving Snowflake ID order),
     applies arrayMap with a lambda, then expands back into rows via arrayJoin.
 
-    Unlike _apply_operator_db (which uses INNER JOIN on row_number and silently
-    drops extra elements), arrayMap raises an error when array sizes don't match.
+    Like _apply_operator_db, this raises an error when array sizes don't match.
 
     Args:
         info_a: QueryInfo for first operand (must be FIELDTYPE_ARRAY)
