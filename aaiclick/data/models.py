@@ -4,7 +4,7 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from typing import Optional, Dict, Union, Literal, List
+from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass, field
 
 import yaml
@@ -72,6 +72,22 @@ class ColumnInfo:
         if self.low_cardinality:
             base = f"LowCardinality({base})"
         return f"Array({base})" if self.array else base
+
+
+class Computed(NamedTuple):
+    """Computed column definition for with_columns().
+
+    Pairs a ClickHouse type with a SQL expression that references
+    existing columns. The expression is passed verbatim to ClickHouse.
+
+    Example:
+        Computed("UInt16", "toYear(dateAdded)")
+        Computed("String", "lower(vendorProject)")
+        Computed("Int32", "dateDiff('day', dateAdded, dueDate)")
+    """
+
+    type: str
+    expression: str
 
 
 def parse_ch_type(type_str: str) -> "ColumnInfo":

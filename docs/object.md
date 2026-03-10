@@ -320,16 +320,18 @@ See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_
 ### API
 
 ```python
+from aaiclick.data.models import Computed
+
 # On Object — materializes all existing columns + new computed ones
 enriched = await kev.with_columns({
-    "year": ("UInt16", "toYear(dateAdded)"),
-    "vendor_lower": ("String", "lower(vendorProject)"),
-    "days_to_fix": ("Int32", "dateDiff('day', dateAdded, dueDate)"),
+    "year": Computed("UInt16", "toYear(dateAdded)"),
+    "vendor_lower": Computed("String", "lower(vendorProject)"),
+    "days_to_fix": Computed("Int32", "dateDiff('day', dateAdded, dueDate)"),
 })
 
 # On View — respects WHERE/LIMIT/OFFSET/ORDER BY from the view
 filtered = kev.where("dateAdded >= '2023-01-01'")
-enriched = await filtered.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+enriched = await filtered.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
 # Result is a normal dict Object — all operations work
 by_year = await enriched.group_by("year").agg({"cveID": "count"})
@@ -337,12 +339,25 @@ by_vendor = await enriched.group_by("vendor_lower").agg({"cveID": "count"})
 recent = enriched.where("days_to_fix < 30")
 ```
 
+### Computed NamedTuple
+
+**Implementation**: `aaiclick/data/models.py` — see `Computed` class
+
+```python
+class Computed(NamedTuple):
+    """Computed column definition for with_columns()."""
+    type: str        # ClickHouse column type (e.g., "UInt16", "String")
+    expression: str  # SQL expression referencing existing columns
+```
+
+Named fields make call sites self-documenting and enable IDE autocompletion. Being a `NamedTuple`, it's also a tuple — backward-compatible with `("UInt16", "toYear(dateAdded)")` syntax.
+
 ### Signature
 
 ```python
 async def with_columns(
     self,
-    columns: dict[str, tuple[str, str]],
+    columns: dict[str, Computed],
 ) -> Object:
     """Create a new Object with all existing columns plus computed ones.
 
@@ -353,8 +368,8 @@ async def with_columns(
     OFFSET, ORDER BY) to the source SELECT before computing new columns.
 
     Args:
-        columns: Mapping of column_name -> (ch_type, sql_expression).
-            The sql_expression can reference any existing column by name.
+        columns: Mapping of column_name -> Computed(type, expression).
+            The expression can reference any existing column by name.
             Expression is passed verbatim to ClickHouse — supports any
             ClickHouse function (toYear, lower, dateDiff, if, multiIf, etc.)
 
@@ -388,7 +403,7 @@ Computed column names must not collide with existing column names. This is inten
 
 ```python
 # Raises ValueError: "year" already exists
-await enriched.with_columns({"year": ("UInt16", "toYear(dueDate)")})
+await enriched.with_columns({"year": Computed("UInt16", "toYear(dueDate)")})
 ```
 
 ### Implementation
@@ -404,7 +419,7 @@ Follows the standard operator pattern (`copy_db`, `group_by_agg`):
 5. Return result Object
 
 ```python
-async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
+async def with_columns(self, columns: dict[str, Computed]) -> Object:
     self.checkstale()
 
     if not columns:
@@ -420,13 +435,17 @@ async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
             f"Computed column names collide with existing: {collisions}"
         )
 
-    # Build result schema
+    # Validate expressions
+    for name, computed in columns.items():
+        _validate_expression(computed.expression)
+
+    # Build result schema — parse_ch_type handles Nullable/Array wrappers
     result_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     for name, col_info in self._schema.columns.items():
         if name != "aai_id":
             result_columns[name] = col_info
-    for name, (ch_type, _expr) in columns.items():
-        result_columns[name] = ColumnInfo(ch_type)
+    for name, computed in columns.items():
+        result_columns[name] = parse_ch_type(computed.type)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     result = await create_object(schema)
@@ -436,8 +455,8 @@ async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
         quote_identifier(k) for k in self._schema.columns if k != "aai_id"
     ]
     computed_cols = [
-        f"{expr} AS {quote_identifier(name)}"
-        for name, (_ch_type, expr) in columns.items()
+        f"{computed.expression} AS {quote_identifier(name)}"
+        for name, computed in columns.items()
     ]
     select_str = ", ".join(existing_cols + computed_cols)
 
@@ -461,7 +480,7 @@ async def with_columns(self, columns: dict[str, tuple[str, str]]) -> Object:
 ```python
 # View with WHERE → subquery source
 view = kev.where("dateAdded >= '2023-01-01'")
-enriched = await view.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+enriched = await view.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
 # Generated SQL:
 # INSERT INTO t_new SELECT vendorProject, cveID, ..., toYear(dateAdded) AS year
@@ -475,7 +494,7 @@ For single-field Views (`kev["dateAdded"]`), the source column is selected as it
 `with_columns()` returns a normal dict Object, so all existing operations work:
 
 ```python
-enriched = await kev.with_columns({"year": ("UInt16", "toYear(dateAdded)")})
+enriched = await kev.with_columns({"year": Computed("UInt16", "toYear(dateAdded)")})
 
 # group_by + agg
 by_year = await enriched.group_by("year").agg({"cveID": "count"})
@@ -488,7 +507,7 @@ years_only = recent["year"]
 
 # further with_columns (additive)
 enriched2 = await enriched.with_columns({
-    "month": ("UInt8", "toMonth(dateAdded)"),
+    "month": Computed("UInt8", "toMonth(dateAdded)"),
 })
 
 # operators on selected columns
@@ -504,14 +523,14 @@ The core SQL generation should live in `operators.py` as `with_columns_db()`, fo
 # In operators.py
 async def with_columns_db(
     source_obj: Object,
-    columns: dict[str, tuple[str, str]],
+    columns: dict[str, Computed],
     ch_client,
 ) -> Object:
     """Create a new Object with existing + computed columns.
 
     Args:
         source_obj: Source Object or View
-        columns: name -> (ch_type, sql_expression)
+        columns: name -> Computed(type, expression)
         ch_client: ClickHouse client
 
     Returns:

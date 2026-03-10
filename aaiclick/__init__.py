@@ -26,6 +26,7 @@ from .data import (
 # Import core objects
 from .data import Object, View, DataResult
 from .data import (
+    Computed,
     Schema,
     ColumnInfo,
     ColumnMeta,
