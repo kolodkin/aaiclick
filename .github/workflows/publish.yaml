@@ -72,6 +72,9 @@ jobs:
       - name: Set up Python
         run: uv python install 3.10
 
+      - name: Create virtual environment
+        run: uv venv --python 3.10 /tmp/test-venv
+
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
         with:
@@ -79,7 +82,7 @@ jobs:
           path: dist/
 
       - name: Install package with test dependencies
-        run: uv pip install --system "aaiclick[test]" --find-links dist/
+        run: uv pip install --python /tmp/test-venv/bin/python "aaiclick[test]" --find-links dist/
 
       - name: Run database migrations
         env:
@@ -88,7 +91,7 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
-        run: python -m aaiclick migrate upgrade head
+        run: /tmp/test-venv/bin/python -m aaiclick migrate upgrade head
 
       - name: Run tests against installed package
         env:
@@ -106,7 +109,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          pytest --pyargs aaiclick -v
+          /tmp/test-venv/bin/pytest --pyargs aaiclick -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           --strict-markers
