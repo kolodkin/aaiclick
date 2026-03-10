@@ -71,10 +71,10 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
   - Simply define async test functions with `async def test_*():`
 
-- **Failing tests**: Always prefer fixing the implementation over modifying tests
-  - When a test fails, the implementation is wrong until proven otherwise
-  - Do NOT weaken, skip, or adjust test assertions to make them pass
-  - If you believe a test is genuinely incorrect, ask the user before changing it
+- **Unrelated test failures**: When tests outside the scope of your changes break, fix the implementation — not the tests
+  - These failures indicate your changes have unintended side effects
+  - Do NOT modify, skip, or weaken unrelated tests to make them pass
+  - If unsure whether the test or the implementation is wrong, ask the user
 
 
 # Code Quality
