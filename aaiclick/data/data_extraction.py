@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from . import object as object_mod
 from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
@@ -17,7 +16,7 @@ def _convert_value(value):
     return list(value) if isinstance(value, tuple) else value
 
 
-async def extract_scalar_data(obj: object_mod.Object) -> Any:
+async def extract_scalar_data(obj: Object) -> Any:
     """
     Extract data from a scalar table (single row with aai_id and value).
 
@@ -33,7 +32,7 @@ async def extract_scalar_data(obj: object_mod.Object) -> Any:
     return rows[0][0] if rows else None
 
 
-async def extract_array_data(obj: object_mod.Object) -> List[Any]:
+async def extract_array_data(obj: Object) -> List[Any]:
     """
     Extract data from an array table (multiple rows with aai_id and value).
 
@@ -50,7 +49,7 @@ async def extract_array_data(obj: object_mod.Object) -> List[Any]:
 
 
 async def extract_dict_data(
-    obj: object_mod.Object,
+    obj: Object,
     column_names: List[str],
     columns: Dict[str, ColumnMeta],
     orient: str
