@@ -191,9 +191,19 @@ async def generate_kev_report(
 
 @task
 async def load_shodan_cves(limit: int = 5000) -> Object:
-    """Load CVE data from Shodan CVEDB with EPSS scores."""
+    """Load CVE data from Shodan CVEDB with EPSS scores.
+
+    Uses date range filtering to target CVEs old enough to have EPSS scores
+    computed. The Shodan API returns newest CVEs first by default, and recent
+    CVEs typically have null EPSS values since scoring takes time.
+    """
+    url = (
+        f"{SHODAN_CVEDB_URL}"
+        f"?limit={limit}"
+        f"&start_date=2024-01-01&end_date=2025-01-01"
+    )
     return await create_object_from_url(
-        url=f"{SHODAN_CVEDB_URL}?limit={limit}",
+        url=url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
@@ -286,6 +296,8 @@ async def find_high_risk_cves(cves: Object) -> dict:
 
 @task
 async def generate_threat_report(
+    kev: Object,
+    cves: Object,
     kev_report: dict,
     cvss_stats: dict,
     epss_stats: dict,
@@ -299,7 +311,10 @@ async def generate_threat_report(
         "high_risk": high_risk,
     }
 
-    _print_threat_report(report)
+    kev_sample = await kev.view(limit=10).data()
+    cves_sample = await cves.view(limit=10).data()
+
+    _print_threat_report(report, kev_sample, cves_sample)
     return report
 
 
@@ -336,16 +351,34 @@ def _print_kev_report(report: dict) -> None:
     print("=" * 60)
 
 
-def _print_threat_report(report: dict) -> None:
+def _print_threat_report(
+    report: dict,
+    kev_sample: dict,
+    cves_sample: dict,
+) -> None:
     """Print unified threat intelligence report."""
     print("\n" + "=" * 60)
     print("CYBER THREAT INTELLIGENCE REPORT")
     print("=" * 60)
 
+    print("\n--- Data Sources ---")
+    print(f"  CISA KEV:    {CISA_KEV_URL}")
+    print(f"  Shodan CVEDB: {SHODAN_CVEDB_URL}")
+
     kev = report["kev"]
     print("\n--- CISA KEV Summary ---")
     print(f"  Total KEV entries:     {_fmt(kev['total_vulnerabilities'])}")
     print(f"  Ransomware-linked:     {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
+
+    print("\n--- KEV Sample (first 10 rows) ---")
+    print(f"  {'CVE ID':<20s} {'Vendor':<20s} {'Product':<20s} {'Date Added'}")
+    for i in range(len(kev_sample["cveID"])):
+        print(
+            f"  {str(kev_sample['cveID'][i]):<20s} "
+            f"{str(kev_sample['vendorProject'][i]):<20s} "
+            f"{str(kev_sample['product'][i]):<20s} "
+            f"{kev_sample['dateAdded'][i]}"
+        )
 
     cvss = report["cvss_distribution"]
     print("\n--- CVSS Score Distribution ---")
@@ -364,6 +397,18 @@ def _print_threat_report(report: dict) -> None:
     print(f"  P90:      {_fmt(epss['p90'])}")
     print(f"  P99:      {_fmt(epss['p99'])}")
     print(f"  High probability (>0.5): {_fmt(epss['high_probability_pct'])}%")
+
+    print("\n--- Shodan CVEDB Sample (first 10 rows) ---")
+    print(f"  {'CVE ID':<20s} {'CVSS':>6s} {'EPSS':>8s} {'KEV':>5s}")
+    for i in range(len(cves_sample["cve_id"])):
+        cvss_val = cves_sample["cvss"][i]
+        epss_val = cves_sample["epss"][i]
+        print(
+            f"  {str(cves_sample['cve_id'][i]):<20s} "
+            f"{_fmt(cvss_val) if cvss_val is not None else 'N/A':>6s} "
+            f"{_fmt(epss_val) if epss_val is not None else 'N/A':>8s} "
+            f"{'Yes' if cves_sample['kev'][i] else 'No':>5s}"
+        )
 
     hr = report["high_risk"]
     print("\n--- High Risk CVEs (CVSS>=9 AND EPSS>0.5) ---")
@@ -389,15 +434,16 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     DAG Structure:
                                     +-> analyze_kev_by_vendor ------+
                                     |                               |
-        load_kev_data --------------+-> analyze_kev_by_year --------+-> generate_kev_report --+
-                                    |                               |                         |
-                                    +-> analyze_kev_ransomware -----+                         |
-                                                                                              |
-                                    +-> analyze_cvss_distribution --+                         |
-                                    |                               |                         |
-        load_shodan_cves -----------+-> analyze_epss_distribution --+-> generate_threat_report
-                                    |                               |
-                                    +-> find_high_risk_cves --------+
+        load_kev_data --+-----------+-> analyze_kev_by_year --------+-> generate_kev_report --+
+                        |           |                               |                         |
+                        |           +-> analyze_kev_ransomware -----+                         |
+                        |                                                                     |
+                        +-----------------------------------------------------+               |
+                                    +-> analyze_cvss_distribution --+          |              |
+                                    |                               |          v              v
+        load_shodan_cves --+--------+-> analyze_epss_distribution --+-> generate_threat_report
+                           |        |                               |
+                           +--------+-> find_high_risk_cves --------+
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
@@ -419,6 +465,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
 
     # Phase 3: Combined report
     threat_report = generate_threat_report(
+        kev=kev,
+        cves=cves,
         kev_report=kev_report,
         cvss_stats=cvss_stats,
         epss_stats=epss_stats,
