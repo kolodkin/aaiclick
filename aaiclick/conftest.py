@@ -14,6 +14,13 @@ from aaiclick.data.data_context import data_context
 from aaiclick.orchestration.context import orch_context
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "url: URL integration tests requiring a file server (set AAICLICK_URL_TEST_ENABLE=1)",
+    )
+
+
 def pytest_collection_modifyitems(config, items):
     if os.getenv("AAICLICK_URL_TEST_ENABLE"):
         return
