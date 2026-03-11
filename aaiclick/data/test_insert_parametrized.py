@@ -5,7 +5,9 @@ Tests in-place insertion into arrays with objects, scalar values, and list value
 """
 
 import pytest
-from aaiclick import create_object_from_value, create_object
+
+from aaiclick import create_object, create_object_from_value
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
 
 THRESHOLD = 1e-5
 
@@ -379,3 +381,131 @@ async def test_array_insert_many_arguments(ctx, data_type, arrays, expected_resu
             assert abs(val - expected_result[i]) < THRESHOLD
     else:
         assert data == expected_result
+
+
+# =============================================================================
+# View Insert Tests (with_columns, subset columns, constraints)
+# =============================================================================
+
+
+async def test_insert_view_with_where(ctx):
+    """Insert a WHERE-filtered view into a target object."""
+    src = await create_object_from_value([10, 20, 30, 40, 50])
+    target = await create_object_from_value([1, 2])
+
+    await target.insert(src.where("value > 25"))
+    data = await target.data()
+
+    assert sorted(data) == [1, 2, 30, 40, 50]
+
+
+async def test_insert_view_with_limit(ctx):
+    """Insert a LIMIT-constrained view."""
+    src = await create_object_from_value([10, 20, 30])
+    target = await create_object_from_value([1])
+
+    await target.insert(src.view(limit=2))
+    data = await target.data()
+
+    assert len(data) == 3
+    assert 1 in data
+
+
+async def test_insert_view_field_selection(ctx):
+    """Insert a single-field view from a dict Object."""
+    src = await create_object_from_value({
+        "x": [10, 20, 30],
+        "y": [100, 200, 300],
+    })
+    target = await create_object_from_value([1, 2])
+
+    await target.insert(src["x"])
+    data = await target.data()
+
+    assert sorted(data) == [1, 2, 10, 20, 30]
+
+
+async def test_insert_view_with_computed_columns(ctx):
+    """Insert a view with computed columns into a wider target."""
+    src = await create_object_from_value({
+        "name": ["alice", "bob"],
+    })
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "name": ColumnInfo("String"),
+            "active": ColumnInfo("UInt8"),
+        },
+    )
+    target = await create_object(schema)
+
+    view = src.with_columns({"active": Computed("UInt8", "1")})
+    await target.insert(view)
+
+    data = await target.data()
+    assert data["name"] == ["alice", "bob"]
+    assert data["active"] == [1, 1]
+
+
+async def test_insert_subset_columns_nullable_fill(ctx):
+    """Insert source with fewer columns; missing nullable columns fill NULL."""
+    src = await create_object_from_value({
+        "id": ["A", "B"],
+        "val1": [10, 20],
+    })
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "id": ColumnInfo("String"),
+            "val1": ColumnInfo("Int64", nullable=True),
+            "val2": ColumnInfo("String", nullable=True),
+        },
+    )
+    target = await create_object(schema)
+
+    await target.insert(src)
+    data = await target.data()
+
+    assert data["id"] == ["A", "B"]
+    assert data["val1"] == [10, 20]
+    assert data["val2"] == [None, None]
+
+
+async def test_insert_subset_rejects_non_nullable_missing(ctx):
+    """Insert with missing non-nullable column raises ValueError."""
+    src = await create_object_from_value({
+        "id": ["A"],
+    })
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "id": ColumnInfo("String"),
+            "required_col": ColumnInfo("Int64"),  # not nullable
+        },
+    )
+    target = await create_object(schema)
+
+    with pytest.raises(ValueError, match="not nullable"):
+        await target.insert(src)
+
+
+async def test_insert_rejects_extra_source_columns(ctx):
+    """Insert with source columns not in target raises ValueError."""
+    src = await create_object_from_value({
+        "id": ["A"],
+        "extra": [999],
+    })
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "id": ColumnInfo("String"),
+        },
+    )
+    target = await create_object(schema)
+
+    with pytest.raises(ValueError, match="not in target"):
+        await target.insert(src)

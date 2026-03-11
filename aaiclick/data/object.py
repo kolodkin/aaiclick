@@ -22,6 +22,7 @@ from .models import (
     CopyInfo,
     ColumnMeta,
     ColumnType,
+    parse_ch_type,
     GroupByInfo,
     GroupByOpType,
     GB_ANY,
@@ -2060,6 +2061,15 @@ class View(Object):
             selected_fields=self.selected_fields,
             computed_columns=self.computed_columns,
         )
+
+    def _get_ingest_query_info(self) -> IngestQueryInfo:
+        """Include computed columns in schema for insert/concat validation."""
+        info = self._get_query_info()
+        columns = dict(self._schema.columns)
+        if self._computed_columns:
+            for name, comp in self._computed_columns.items():
+                columns[name] = parse_ch_type(comp.type)
+        return IngestQueryInfo(**vars(info), columns=columns)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""

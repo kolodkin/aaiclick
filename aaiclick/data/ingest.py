@@ -282,6 +282,10 @@ async def insert_objects_db(
     Preserves existing Snowflake IDs. Order is maintained via existing
     Snowflake IDs when data is retrieved.
 
+    Sources may have a subset of target columns. Missing target columns
+    must be nullable and are filled with NULL. Sources may also include
+    computed columns from Views (via with_columns).
+
     Args:
         target_info: QueryInfo for the target (must have array fieldtype)
         source_infos: List of QueryInfo for sources
@@ -289,6 +293,8 @@ async def insert_objects_db(
 
     Raises:
         ValueError: If target does not have array fieldtype
+        ValueError: If any source has columns not in target
+        ValueError: If missing target columns are not nullable
         ValueError: If any source value types are incompatible with target
     """
     if not source_infos:
@@ -300,18 +306,31 @@ async def insert_objects_db(
     target_columns = target_info.columns
     data_col_names = sorted(k for k in target_columns if k != "aai_id")
 
-    # Validate all source schemas are compatible
-    for info in source_infos:
+    # Validate all source schemas and build per-source SELECT expressions
+    union_parts = []
+    for i, info in enumerate(source_infos):
         source_columns = info.columns
-        source_data_cols = sorted(k for k in source_columns if k != "aai_id")
+        source_data_cols = set(k for k in source_columns if k != "aai_id")
 
-        if source_data_cols != data_col_names:
+        # Source must not have columns absent from target
+        extra = source_data_cols - set(data_col_names)
+        if extra:
             raise ValueError(
-                f"Source table {info.base_table} has columns {source_data_cols}, "
-                f"expected {data_col_names}"
+                f"Source table {info.base_table} has columns {sorted(extra)} "
+                f"not in target"
             )
 
-        for col_name in data_col_names:
+        # Missing target columns must be nullable
+        missing = set(data_col_names) - source_data_cols
+        for col_name in missing:
+            if not target_columns[col_name].nullable:
+                raise ValueError(
+                    f"Target column '{col_name}' is not nullable but missing "
+                    f"from source {info.base_table}"
+                )
+
+        # Validate types for present columns
+        for col_name in source_data_cols:
             target_def = target_columns[col_name]
             source_def = source_columns[col_name]
             if not _are_types_castable(target_def.type, source_def.type):
@@ -320,16 +339,25 @@ async def insert_objects_db(
                     f"for column '{col_name}': types are incompatible"
                 )
 
-    # Build CAST expressions for each data column
-    cast_exprs = ", ".join(
-        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
-        for col in data_col_names
-    )
+        # Build SELECT: CAST present columns, NULL for missing
+        col_exprs = []
+        for col in data_col_names:
+            target_def = target_columns[col]
+            if col in source_data_cols:
+                col_exprs.append(
+                    f"CAST({col} AS {target_def.ch_type()}) AS {col}"
+                )
+            else:
+                col_exprs.append(
+                    f"CAST(NULL AS {target_def.ch_type()}) AS {col}"
+                )
 
-    union_parts = [
-        f"SELECT aai_id, {cast_exprs} FROM {info.base_table}"
-        for info in source_infos
-    ]
+        select_cols = ", ".join(["aai_id"] + col_exprs)
+        if info.source.startswith('('):
+            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
+        else:
+            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
+
     insert_query = f"""
     INSERT INTO {target_info.base_table}
     {' UNION ALL '.join(union_parts)}

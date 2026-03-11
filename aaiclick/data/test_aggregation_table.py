@@ -1,14 +1,13 @@
 """
 Tests for the aggregation table pattern: multi-source INSERT + GROUP BY collapse.
 
-Validates the pattern where multiple data sources INSERT into a shared table
-keyed by a common identifier, then collapse via group_by().agg() with any()
-to merge columns from different sources into a single row per key.
+Validates the pattern where multiple data sources with different schemas
+insert() into a shared table (missing nullable columns auto-fill with NULL),
+then collapse via group_by().agg() with any() to merge into one row per key.
 """
 
 from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
 
 
 async def test_aggregation_table_two_sources(ctx):
@@ -40,21 +39,20 @@ async def test_aggregation_table_two_sources(ctx):
         },
     )
     agg = await create_object(schema)
-    ch = get_ch_client()
 
-    # INSERT from source A (label defaults to NULL)
-    await ch.command(f"""
-        INSERT INTO {agg.table} (key, in_a, in_b, name, score)
-        SELECT key, 1, 0, name, score
-        FROM {source_a.table}
-    """)
+    # Insert source A with computed flag columns; label auto-fills NULL
+    view_a = source_a.with_columns({
+        "in_a": Computed("UInt8", "1"),
+        "in_b": Computed("UInt8", "0"),
+    })
+    await agg.insert(view_a)
 
-    # INSERT from source B (name and score default to NULL)
-    await ch.command(f"""
-        INSERT INTO {agg.table} (key, in_a, in_b, label)
-        SELECT key, 0, 1, label
-        FROM {source_b.table}
-    """)
+    # Insert source B with computed flag columns; name/score auto-fill NULL
+    view_b = source_b.with_columns({
+        "in_a": Computed("UInt8", "0"),
+        "in_b": Computed("UInt8", "1"),
+    })
+    await agg.insert(view_b)
 
     # Collapse: GROUP BY key, merge with max/any
     result = await agg.group_by("key").agg({
@@ -91,7 +89,7 @@ async def test_aggregation_table_two_sources(ctx):
 
 
 async def test_aggregation_table_three_sources(ctx):
-    """Three sources merging into one aggregation table."""
+    """Three sources merging via subset insert, no with_columns needed."""
     src1 = await create_object_from_value({
         "id": ["A", "B"],
         "val1": [10, 20],
@@ -116,11 +114,11 @@ async def test_aggregation_table_three_sources(ctx):
         },
     )
     agg = await create_object(schema)
-    ch = get_ch_client()
 
-    await ch.command(f"INSERT INTO {agg.table} (id, val1) SELECT id, val1 FROM {src1.table}")
-    await ch.command(f"INSERT INTO {agg.table} (id, val2) SELECT id, val2 FROM {src2.table}")
-    await ch.command(f"INSERT INTO {agg.table} (id, val3) SELECT id, val3 FROM {src3.table}")
+    # Subset insert: each source only has id + one val column
+    await agg.insert(src1)
+    await agg.insert(src2)
+    await agg.insert(src3)
 
     result = await agg.group_by("id").agg({
         "val1": "any",
@@ -158,9 +156,9 @@ async def test_aggregation_table_duplicate_key_same_source(ctx):
         },
     )
     agg = await create_object(schema)
-    ch = get_ch_client()
 
-    await ch.command(f"INSERT INTO {agg.table} (key, value) SELECT key, value FROM {src.table}")
+    # Direct insert — same schema, no subset needed
+    await agg.insert(src)
 
     result = await agg.group_by("key").agg({"value": "any"})
     data = await result.data()

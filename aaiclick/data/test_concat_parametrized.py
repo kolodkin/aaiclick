@@ -5,7 +5,8 @@ Tests array concatenation with objects, scalar values, and list values.
 """
 
 import pytest
-from aaiclick import create_object_from_value, create_object
+
+from aaiclick import create_object, create_object_from_value
 
 THRESHOLD = 1e-5
 
@@ -305,3 +306,45 @@ async def test_array_concat_many_arguments(ctx, data_type, arrays, expected_resu
             assert abs(val - expected_result[i]) < THRESHOLD
     else:
         assert data == expected_result
+
+
+# =============================================================================
+# View Concat Tests
+# =============================================================================
+
+
+async def test_concat_view_with_where(ctx):
+    """Concat a WHERE-filtered view."""
+    obj_a = await create_object_from_value([1, 2, 3])
+    obj_b = await create_object_from_value([10, 20, 30, 40])
+
+    result = await obj_a.concat(obj_b.where("value > 25"))
+    data = await result.data()
+
+    assert sorted(data) == [1, 2, 3, 30, 40]
+
+
+async def test_concat_view_with_limit(ctx):
+    """Concat a LIMIT-constrained view."""
+    obj_a = await create_object_from_value([1, 2])
+    obj_b = await create_object_from_value([10, 20, 30])
+
+    result = await obj_a.concat(obj_b.view(limit=2))
+    data = await result.data()
+
+    assert len(data) == 4
+    assert 1 in data and 2 in data
+
+
+async def test_concat_view_field_selection(ctx):
+    """Concat a single-field view from a dict Object."""
+    obj_a = await create_object_from_value([1, 2])
+    obj_b = await create_object_from_value({
+        "x": [10, 20],
+        "y": [100, 200],
+    })
+
+    result = await obj_a.concat(obj_b["x"])
+    data = await result.data()
+
+    assert sorted(data) == [1, 2, 10, 20]

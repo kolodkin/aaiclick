@@ -2,9 +2,9 @@
 Aggregation Table example for aaiclick.
 
 Demonstrates the multi-source aggregation pattern: multiple data sources
-INSERT into a shared table keyed by a common identifier, then collapse via
-group_by().agg() with any() to merge columns from different sources into
-a single row per key.
+with different schemas insert() into a shared table (missing nullable
+columns auto-fill with NULL), then collapse via group_by().agg() with
+any() to merge columns from different sources into a single row per key.
 
 This pattern is used in the Cyber Threat Feeds pipeline to merge CVE data
 from CISA KEV, Shodan CVEDB, and other sources into one unified table.
@@ -13,8 +13,8 @@ from CISA KEV, Shodan CVEDB, and other sources into one unified table.
 import asyncio
 
 from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+from aaiclick.data.data_context import data_context
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
 
 
 async def example():
@@ -43,7 +43,7 @@ async def example():
     print()
 
     # ---------------------------------------------------------------
-    # Step 2: Create aggregation table with all columns
+    # Step 2: Create aggregation table and insert from each source
     # ---------------------------------------------------------------
     print("Step 2: Create aggregation table and insert from each source")
     print("-" * 50)
@@ -62,23 +62,22 @@ async def example():
         },
     )
     agg = await create_object(schema)
-    ch = get_ch_client()
 
-    # INSERT from catalog (score columns default to NULL)
-    await ch.command(f"""
-        INSERT INTO {agg.table} (cve_id, in_catalog, in_scores, vendor, severity)
-        SELECT cve_id, 1, 0, vendor, severity
-        FROM {catalog.table}
-    """)
-    print("  Inserted catalog data (3 rows)")
+    # Insert catalog with computed flag columns; score columns auto-fill NULL
+    view_catalog = catalog.with_columns({
+        "in_catalog": Computed("UInt8", "1"),
+        "in_scores": Computed("UInt8", "0"),
+    })
+    await agg.insert(view_catalog)
+    print("  Inserted catalog data (3 rows) — cvss/epss auto-filled with NULL")
 
-    # INSERT from scores (catalog columns default to NULL)
-    await ch.command(f"""
-        INSERT INTO {agg.table} (cve_id, in_catalog, in_scores, cvss, epss)
-        SELECT cve_id, 0, 1, cvss, epss
-        FROM {scores.table}
-    """)
-    print("  Inserted scores data (3 rows)")
+    # Insert scores with computed flag columns; vendor/severity auto-fill NULL
+    view_scores = scores.with_columns({
+        "in_catalog": Computed("UInt8", "0"),
+        "in_scores": Computed("UInt8", "1"),
+    })
+    await agg.insert(view_scores)
+    print("  Inserted scores data (3 rows) — vendor/severity auto-filled with NULL")
     print(f"  Raw table has {await (await agg.count()).data()} rows (before collapse)")
     print()
 
