@@ -6,6 +6,9 @@
 
 set -e
 
+REPORT_LOG="tmp/cyber_threat_report.log"
+mkdir -p tmp
+
 echo "=== Cyber Threat Feeds Pipeline ==="
 echo
 
@@ -23,9 +26,9 @@ BACKGROUND_PID=$!
 echo "Background worker started (PID: $BACKGROUND_PID)"
 echo
 
-# Step 3: Start worker in background
+# Step 3: Start worker in background, capturing output to log file
 echo "Starting worker..."
-uv run python -m aaiclick worker start &
+uv run python -m aaiclick worker start > "$REPORT_LOG" 2>&1 &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
@@ -55,6 +58,16 @@ kill $WORKER_PID 2>/dev/null || true
 kill $BACKGROUND_PID 2>/dev/null || true
 wait $WORKER_PID 2>/dev/null || true
 wait $BACKGROUND_PID 2>/dev/null || true
+
+# Step 7: Display report from log
+echo
+echo "=== Threat Report Output ==="
+cat "$REPORT_LOG"
+
+# Step 8: Write to GitHub Actions step summary if available
+if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+    cat "$REPORT_LOG" >> "$GITHUB_STEP_SUMMARY"
+fi
 
 echo
 if [ "$JOB_STATUS" = "COMPLETED" ]; then
