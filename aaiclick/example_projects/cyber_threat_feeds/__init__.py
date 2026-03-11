@@ -2,7 +2,8 @@
 Cyber Threat Feeds Pipeline - Multi-Source Security Data Example
 
 Demonstrates loading multiple cybersecurity data feeds into ClickHouse
-Objects via JSON URL ingestion, then analyzing and correlating them:
+Objects via JSON URL ingestion, consolidating them into an AggregatingMergeTree
+table keyed by CVE ID, then analyzing and correlating them:
 
 - CISA KEV (Known Exploited Vulnerabilities) — JSON API
 - Shodan CVEDB (CVE Database with EPSS scores) — JSON API
@@ -27,7 +28,13 @@ import asyncio
 
 from aaiclick import create_object_from_url
 from aaiclick.data.data_context import create_object, get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+from aaiclick.data.models import (
+    ENGINE_AGGREGATING_MERGE_TREE,
+    FIELDTYPE_ARRAY,
+    ColumnInfo,
+    Computed,
+    Schema,
+)
 from aaiclick.data.object import Object
 from aaiclick.orchestration import job, task
 
@@ -290,7 +297,163 @@ async def find_high_risk_cves(cves: Object) -> dict:
 
 
 # =============================================================================
-# Phase 3: Combined report
+# Phase 3: Consolidated AggregatingMergeTree table
+# =============================================================================
+
+CONSOLIDATED_COLUMNS = {
+    "aai_id": ColumnInfo("UInt64"),
+    "cve_id": ColumnInfo("String"),
+    "source": ColumnInfo("String"),
+    "vendor": ColumnInfo("String", nullable=True),
+    "product": ColumnInfo("String", nullable=True),
+    "vulnerability_name": ColumnInfo("String", nullable=True),
+    "short_description": ColumnInfo("String", nullable=True),
+    "date_added": ColumnInfo("Date", nullable=True),
+    "known_ransomware": ColumnInfo("String", nullable=True),
+    "cvss": ColumnInfo("Float64", nullable=True),
+    "cvss_v2": ColumnInfo("Float64", nullable=True),
+    "cvss_v3": ColumnInfo("Float64", nullable=True),
+    "epss": ColumnInfo("Float64", nullable=True),
+    "ranking_epss": ColumnInfo("Float64", nullable=True),
+    "summary": ColumnInfo("String", nullable=True),
+}
+
+MERGED_COLUMNS = {
+    "aai_id": ColumnInfo("UInt64"),
+    "cve_id": ColumnInfo("String"),
+    "sources": ColumnInfo("String", array=True),
+    "vendor": ColumnInfo("String", nullable=True),
+    "product": ColumnInfo("String", nullable=True),
+    "vulnerability_name": ColumnInfo("String", nullable=True),
+    "short_description": ColumnInfo("String", nullable=True),
+    "date_added": ColumnInfo("Date", nullable=True),
+    "known_ransomware": ColumnInfo("String", nullable=True),
+    "cvss": ColumnInfo("Float64", nullable=True),
+    "cvss_v2": ColumnInfo("Float64", nullable=True),
+    "cvss_v3": ColumnInfo("Float64", nullable=True),
+    "epss": ColumnInfo("Float64", nullable=True),
+    "ranking_epss": ColumnInfo("Float64", nullable=True),
+    "summary": ColumnInfo("String", nullable=True),
+}
+
+
+@task
+async def build_consolidated_table(kev: Object, cves: Object) -> Object:
+    """Build a consolidated AggregatingMergeTree table from all sources.
+
+    Uses rename() + with_columns() to map each source's columns to the
+    consolidated schema, then insert() to load them into a shared
+    AggregatingMergeTree table keyed by cve_id. Extra source columns
+    are silently skipped by insert(). Finally collapses via GROUP BY
+    with groupArrayDistinct(source) to produce one row per CVE with
+    an Array(String) 'sources' column tracking which feeds contributed.
+    """
+    schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=CONSOLIDATED_COLUMNS,
+        engine=ENGINE_AGGREGATING_MERGE_TREE,
+        order_by="cve_id",
+    )
+    agg = await create_object(schema)
+
+    # KEV: rename camelCase columns to snake_case, add source tag
+    kev_view = kev.rename({
+        "cveID": "cve_id",
+        "vendorProject": "vendor",
+        "vulnerabilityName": "vulnerability_name",
+        "shortDescription": "short_description",
+        "dateAdded": "date_added",
+        "knownRansomwareCampaignUse": "known_ransomware",
+    }).with_columns({
+        "source": Computed("String", "'kev'"),
+    })
+    await agg.insert(kev_view)
+
+    # Shodan: already snake_case, just add source tag
+    shodan_view = cves.with_columns({
+        "source": Computed("String", "'shodan'"),
+    })
+    await agg.insert(shodan_view)
+
+    # Collapse: merge rows per CVE with groupArrayDistinct for sources
+    merged_schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=MERGED_COLUMNS,
+    )
+    merged = await create_object(merged_schema)
+    ch = get_ch_client()
+    await ch.command(
+        f"INSERT INTO {merged.table} "
+        f"(cve_id, sources, vendor, product, vulnerability_name, "
+        f"short_description, date_added, known_ransomware, "
+        f"cvss, cvss_v2, cvss_v3, epss, ranking_epss, summary) "
+        f"SELECT cve_id, groupArrayDistinct(source), "
+        f"any(vendor), any(product), any(vulnerability_name), "
+        f"any(short_description), any(date_added), any(known_ransomware), "
+        f"any(cvss), any(cvss_v2), any(cvss_v3), "
+        f"any(epss), any(ranking_epss), any(summary) "
+        f"FROM {agg.table} GROUP BY cve_id"
+    )
+
+    return merged
+
+
+@task
+async def analyze_consolidated(consolidated: Object) -> dict:
+    """Analyze the consolidated table for cross-source coverage stats."""
+    ch = get_ch_client()
+    total = await (await consolidated["cve_id"].count()).data()
+
+    # Count CVEs by source presence using has() on the sources array
+    both_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND has(sources, 'shodan')"
+    )
+    both_count = both_q.result_rows[0][0]
+
+    kev_only_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND NOT has(sources, 'shodan')"
+    )
+    kev_only_count = kev_only_q.result_rows[0][0]
+
+    shodan_only_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'shodan') AND NOT has(sources, 'kev')"
+    )
+    shodan_only_count = shodan_only_q.result_rows[0][0]
+
+    # High-risk from consolidated: in KEV + high EPSS
+    kev_high_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND epss > 0.5"
+    )
+    kev_high_epss = kev_high_q.result_rows[0][0]
+
+    stats = {
+        "total_unique_cves": total,
+        "in_both_sources": both_count,
+        "kev_only": kev_only_count,
+        "shodan_only": shodan_only_count,
+        "kev_with_high_epss": kev_high_epss,
+    }
+
+    _print_consolidated_stats(stats)
+    return stats
+
+
+def _print_consolidated_stats(stats: dict) -> None:
+    """Print consolidated table statistics."""
+    print("\n--- Consolidated Table Coverage ---")
+    print(f"  Total unique CVEs:     {_fmt(stats['total_unique_cves'])}")
+    print(f"  In both sources:       {_fmt(stats['in_both_sources'])}")
+    print(f"  KEV only:              {_fmt(stats['kev_only'])}")
+    print(f"  Shodan only:           {_fmt(stats['shodan_only'])}")
+    print(f"  KEV + high EPSS (>0.5): {_fmt(stats['kev_with_high_epss'])}")
+
+
+# =============================================================================
+# Phase 4: Combined report
 # =============================================================================
 
 
@@ -302,6 +465,7 @@ async def generate_threat_report(
     cvss_stats: dict,
     epss_stats: dict,
     high_risk: dict,
+    consolidated_stats: dict,
 ) -> dict:
     """Combine all source analyses into a unified threat intelligence report."""
     report = {
@@ -309,6 +473,7 @@ async def generate_threat_report(
         "cvss_distribution": cvss_stats,
         "epss_distribution": epss_stats,
         "high_risk": high_risk,
+        "consolidated": consolidated_stats,
     }
 
     kev_sample = await kev.view(limit=10).data()
@@ -417,6 +582,14 @@ def _print_threat_report(
     print(f"  Count:    {_fmt(hr['high_risk_count'])}")
     print(f"  Of total: {_fmt(hr['high_risk_pct'])}%")
 
+    cons = report["consolidated"]
+    print("\n--- Consolidated Table (AggregatingMergeTree, sources: Array(String)) ---")
+    print(f"  Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")
+    print(f"  In both sources:        {_fmt(cons['in_both_sources'])}")
+    print(f"  KEV only:               {_fmt(cons['kev_only'])}")
+    print(f"  Shodan only:            {_fmt(cons['shodan_only'])}")
+    print(f"  KEV + high EPSS (>0.5): {_fmt(cons['kev_with_high_epss'])}")
+
     print("\n" + "=" * 60)
 
 
@@ -431,7 +604,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     Cyber Threat Feeds Pipeline.
 
     Loads CISA KEV and Shodan CVEDB data directly into ClickHouse via
-    JSON URL ingestion, then performs multi-source threat analysis.
+    JSON URL ingestion, then consolidates into an AggregatingMergeTree
+    table and performs multi-source threat analysis.
 
     DAG Structure:
                                     +-> analyze_kev_by_vendor ------+
@@ -440,12 +614,13 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
                         |           |                               |                         |
                         |           +-> analyze_kev_ransomware -----+                         |
                         |                                                                     |
-                        +-----------------------------------------------------+               |
-                                    +-> analyze_cvss_distribution --+          |              |
-                                    |                               |          v              v
-        load_shodan_cves --+--------+-> analyze_epss_distribution --+-> generate_threat_report
-                           |        |                               |
-                           +--------+-> find_high_risk_cves --------+
+                        +---> build_consolidated_table --> analyze_consolidated --+            |
+                        |                                                        v            v
+        load_shodan_cves --+---> analyze_cvss_distribution ------+-----> generate_threat_report
+                           |                                     |
+                           +--> analyze_epss_distribution -------+
+                           |                                     |
+                           +--> find_high_risk_cves -------------+
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
@@ -465,7 +640,11 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     epss_stats = analyze_epss_distribution(cves=cves)
     high_risk = find_high_risk_cves(cves=cves)
 
-    # Phase 3: Combined report
+    # Phase 3: Consolidated AggregatingMergeTree table
+    consolidated = build_consolidated_table(kev=kev, cves=cves)
+    consolidated_stats = analyze_consolidated(consolidated=consolidated)
+
+    # Phase 4: Combined report
     threat_report = generate_threat_report(
         kev=kev,
         cves=cves,
@@ -473,6 +652,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         cvss_stats=cvss_stats,
         epss_stats=epss_stats,
         high_risk=high_risk,
+        consolidated_stats=consolidated_stats,
     )
 
     return [
@@ -485,6 +665,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         cvss_stats,
         epss_stats,
         high_risk,
+        consolidated,
+        consolidated_stats,
         threat_report,
     ]
 

@@ -329,17 +329,12 @@ async def insert_objects_db(
 
     for i, info in enumerate(source_infos):
         source_columns = info.columns
-        col_names = sorted(k for k in source_columns if k != "aai_id")
+        all_source_cols = sorted(k for k in source_columns if k != "aai_id")
 
-        # Source must not have columns absent from target
-        extra = set(col_names) - target_data_cols
-        if extra:
-            raise ValueError(
-                f"Source table {info.base_table} has columns {sorted(extra)} "
-                f"not in target"
-            )
+        # Skip extra source columns not in target (intersection semantics)
+        col_names = [c for c in all_source_cols if c in target_data_cols]
 
-        # Validate types for present columns
+        # Validate types for matched columns
         for col_name in col_names:
             target_def = target_columns[col_name]
             source_def = source_columns[col_name]
