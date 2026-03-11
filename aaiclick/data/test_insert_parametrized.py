@@ -473,23 +473,26 @@ async def test_insert_subset_columns_nullable_fill(ctx):
     assert data["val2"] == [None, None]
 
 
-async def test_insert_subset_rejects_non_nullable_missing(ctx):
-    """Insert with missing non-nullable column raises ValueError."""
+async def test_insert_subset_non_nullable_gets_default(ctx):
+    """Insert with missing non-nullable column uses ClickHouse default."""
     src = await create_object_from_value({
-        "id": ["A"],
+        "id": ["A", "B"],
     })
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
             "aai_id": ColumnInfo("UInt64"),
             "id": ColumnInfo("String"),
-            "required_col": ColumnInfo("Int64"),  # not nullable
+            "count": ColumnInfo("Int64"),
         },
     )
     target = await create_object(schema)
 
-    with pytest.raises(ValueError, match="not nullable"):
-        await target.insert(src)
+    await target.insert(src)
+    data = await target.data()
+
+    assert data["id"] == ["A", "B"]
+    assert data["count"] == [0, 0]  # Int64 default is 0
 
 
 async def test_insert_rejects_extra_source_columns(ctx):

@@ -282,9 +282,12 @@ async def insert_objects_db(
     Preserves existing Snowflake IDs. Order is maintained via existing
     Snowflake IDs when data is retrieved.
 
-    Sources may have a subset of target columns. Missing target columns
-    must be nullable and are filled with NULL. Sources may also include
-    computed columns from Views (via with_columns).
+    Sources may have a subset of target columns. Missing columns get
+    their ClickHouse default values. Sources may also include computed
+    columns from Views (via with_columns).
+
+    When all sources share the same columns, a single INSERT...UNION ALL
+    is used. Otherwise, each source is inserted separately.
 
     Args:
         target_info: QueryInfo for the target (must have array fieldtype)
@@ -294,7 +297,6 @@ async def insert_objects_db(
     Raises:
         ValueError: If target does not have array fieldtype
         ValueError: If any source has columns not in target
-        ValueError: If missing target columns are not nullable
         ValueError: If any source value types are incompatible with target
     """
     if not source_infos:
@@ -304,30 +306,21 @@ async def insert_objects_db(
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
-    data_col_names = sorted(k for k in target_columns if k != "aai_id")
+    target_data_cols = set(k for k in target_columns if k != "aai_id")
 
-    # Validate all source schemas and build per-source SELECT expressions
-    union_parts = []
-    for i, info in enumerate(source_infos):
+    # Validate all sources and collect their column sets
+    source_col_sets: list[list[str]] = []
+    for info in source_infos:
         source_columns = info.columns
-        source_data_cols = set(k for k in source_columns if k != "aai_id")
+        source_data_cols = sorted(k for k in source_columns if k != "aai_id")
 
         # Source must not have columns absent from target
-        extra = source_data_cols - set(data_col_names)
+        extra = set(source_data_cols) - target_data_cols
         if extra:
             raise ValueError(
                 f"Source table {info.base_table} has columns {sorted(extra)} "
                 f"not in target"
             )
-
-        # Missing target columns must be nullable
-        missing = set(data_col_names) - source_data_cols
-        for col_name in missing:
-            if not target_columns[col_name].nullable:
-                raise ValueError(
-                    f"Target column '{col_name}' is not nullable but missing "
-                    f"from source {info.base_table}"
-                )
 
         # Validate types for present columns
         for col_name in source_data_cols:
@@ -339,30 +332,48 @@ async def insert_objects_db(
                     f"for column '{col_name}': types are incompatible"
                 )
 
-        # Build SELECT: CAST present columns, NULL for missing
-        col_exprs = []
-        for col in data_col_names:
-            target_def = target_columns[col]
-            if col in source_data_cols:
-                col_exprs.append(
-                    f"CAST({col} AS {target_def.ch_type()}) AS {col}"
-                )
+        source_col_sets.append(source_data_cols)
+
+    # Check if all sources share the same column set
+    all_same = all(cols == source_col_sets[0] for cols in source_col_sets)
+
+    if all_same:
+        # Single INSERT with UNION ALL
+        col_names = source_col_sets[0]
+        cast_exprs = ", ".join(
+            f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+            for col in col_names
+        )
+        union_parts = []
+        for i, info in enumerate(source_infos):
+            if info.source.startswith('('):
+                union_parts.append(f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{i}")
             else:
-                col_exprs.append(
-                    f"CAST(NULL AS {target_def.ch_type()}) AS {col}"
-                )
+                union_parts.append(f"SELECT aai_id, {cast_exprs} FROM {info.source}")
 
-        select_cols = ", ".join(["aai_id"] + col_exprs)
-        if info.source.startswith('('):
-            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
-        else:
-            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
+        insert_cols = ", ".join(["aai_id"] + col_names)
+        insert_query = f"""
+        INSERT INTO {target_info.base_table} ({insert_cols})
+        {' UNION ALL '.join(union_parts)}
+        """
+        await ch_client.command(insert_query)
+    else:
+        # Different column sets — one INSERT per source
+        for i, (info, col_names) in enumerate(zip(source_infos, source_col_sets)):
+            cast_exprs = ", ".join(
+                f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+                for col in col_names
+            )
+            if info.source.startswith('('):
+                select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{i}"
+            else:
+                select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
 
-    insert_cols = ", ".join(["aai_id"] + data_col_names)
-    insert_query = f"""
-    INSERT INTO {target_info.base_table} ({insert_cols})
-    {' UNION ALL '.join(union_parts)}
-    """
-    await ch_client.command(insert_query)
+            insert_cols = ", ".join(["aai_id"] + col_names)
+            insert_query = f"""
+            INSERT INTO {target_info.base_table} ({insert_cols})
+            {select}
+            """
+            await ch_client.command(insert_query)
 
 

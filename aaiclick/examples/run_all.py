@@ -55,18 +55,13 @@ async def main():
         ("Group By", group_by_example),
         ("Nullable Columns", nullable_example),
         ("Dict Selectors", selectors_example),
+        ("Aggregation Table", aggregation_table_example),
     ]
 
     async with data_context():
         for title, func in context_examples:
             output = await _run_and_capture(func)
             _print_collapsible(title, output)
-
-        print("\n" * 2)
-        print("=" * 60)
-        print("RUNNING: Aggregation Table Example")
-        print("=" * 60)
-        await aggregation_table_example()
 
     # Orchestration examples manage their own contexts (OrchContext + data_context())
     orchestration_examples = [
