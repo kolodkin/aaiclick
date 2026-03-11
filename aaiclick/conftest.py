@@ -10,7 +10,6 @@ import asyncio
 import pytest
 
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration.context import orch_context
 
 
 @pytest.fixture(scope="session")
@@ -32,16 +31,4 @@ async def ctx():
     so table accumulation is not a concern.
     """
     async with data_context():
-        yield
-
-
-@pytest.fixture
-async def orch_ctx():
-    """
-    Function-scoped orch context for orchestration tests.
-
-    Cannot be session-scoped: SQLAlchemy async sessions don't safely
-    share across tests (concurrent operation and event loop issues).
-    """
-    async with orch_context():
         yield
