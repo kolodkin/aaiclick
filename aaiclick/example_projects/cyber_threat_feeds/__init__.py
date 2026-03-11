@@ -53,61 +53,32 @@ SHODAN_CVEDB_URL = "https://cvedb.shodan.io/cves"
 # =============================================================================
 
 KEV_COLUMNS = {
-    "cveID": ColumnInfo("String"),
-    "vendorProject": ColumnInfo("String"),
-    "product": ColumnInfo("String"),
-    "vulnerabilityName": ColumnInfo("String"),
-    "dateAdded": ColumnInfo("Date"),
-    "shortDescription": ColumnInfo("String"),
-    "requiredAction": ColumnInfo("String"),
-    "dueDate": ColumnInfo("Date"),
-    "knownRansomwareCampaignUse": ColumnInfo("String"),
-    "notes": ColumnInfo("String", nullable=True),
-    "cwes": ColumnInfo("String", array=True),
-}
-
-KEV_FIELD_DESCRIPTIONS = {
-    "cveID": "CVE identifier (e.g. CVE-2024-1234)",
-    "vendorProject": "Vendor or project name",
-    "product": "Affected product name",
-    "vulnerabilityName": "Human-readable vulnerability title",
-    "dateAdded": "Date added to KEV catalog",
-    "shortDescription": "Brief vulnerability description",
-    "requiredAction": "Required remediation action",
-    "dueDate": "Deadline for required action",
-    "knownRansomwareCampaignUse": "'Known' if linked to ransomware, else 'Unknown'",
-    "notes": "Additional notes (nullable)",
-    "cwes": "Associated CWE identifiers (array)",
+    "cveID": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "vendorProject": ColumnInfo("String", description="Vendor or project name"),
+    "product": ColumnInfo("String", description="Affected product name"),
+    "vulnerabilityName": ColumnInfo("String", description="Human-readable vulnerability title"),
+    "dateAdded": ColumnInfo("Date", description="Date added to KEV catalog"),
+    "shortDescription": ColumnInfo("String", description="Brief vulnerability description"),
+    "requiredAction": ColumnInfo("String", description="Required remediation action"),
+    "dueDate": ColumnInfo("Date", description="Deadline for required action"),
+    "knownRansomwareCampaignUse": ColumnInfo("String", description="'Known' if linked to ransomware, else 'Unknown'"),
+    "notes": ColumnInfo("String", nullable=True, description="Additional notes"),
+    "cwes": ColumnInfo("String", array=True, description="Associated CWE identifiers"),
 }
 
 SHODAN_COLUMNS = {
-    "cve_id": ColumnInfo("String"),
-    "summary": ColumnInfo("String"),
-    "cvss": ColumnInfo("Float64", nullable=True),
-    "cvss_v2": ColumnInfo("Float64", nullable=True),
-    "cvss_v3": ColumnInfo("Float64", nullable=True),
-    "epss": ColumnInfo("Float64", nullable=True),
-    "ranking_epss": ColumnInfo("Float64", nullable=True),
-    "kev": ColumnInfo("Bool"),
-    "published_time": ColumnInfo("String"),
-    "vendor": ColumnInfo("String", nullable=True),
-    "product": ColumnInfo("String", nullable=True),
-    "references": ColumnInfo("String", array=True),
-}
-
-SHODAN_FIELD_DESCRIPTIONS = {
-    "cve_id": "CVE identifier (e.g. CVE-2024-1234)",
-    "summary": "Vulnerability description text",
-    "cvss": "Combined CVSS score (nullable)",
-    "cvss_v2": "CVSS v2.0 base score (nullable)",
-    "cvss_v3": "CVSS v3.x base score (nullable)",
-    "epss": "EPSS exploitation probability 0-1 (nullable)",
-    "ranking_epss": "EPSS percentile ranking 0-1 (nullable)",
-    "kev": "Whether CVE is in CISA KEV catalog",
-    "published_time": "CVE publication datetime (ISO 8601)",
-    "vendor": "Vendor name (nullable)",
-    "product": "Product name (nullable)",
-    "references": "Reference URLs (array)",
+    "cve_id": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "summary": ColumnInfo("String", description="Vulnerability description text"),
+    "cvss": ColumnInfo("Float64", nullable=True, description="Combined CVSS score"),
+    "cvss_v2": ColumnInfo("Float64", nullable=True, description="CVSS v2.0 base score"),
+    "cvss_v3": ColumnInfo("Float64", nullable=True, description="CVSS v3.x base score"),
+    "epss": ColumnInfo("Float64", nullable=True, description="EPSS exploitation probability 0-1"),
+    "ranking_epss": ColumnInfo("Float64", nullable=True, description="EPSS percentile ranking 0-1"),
+    "kev": ColumnInfo("Bool", description="Whether CVE is in CISA KEV catalog"),
+    "published_time": ColumnInfo("String", description="CVE publication datetime (ISO 8601)"),
+    "vendor": ColumnInfo("String", nullable=True, description="Vendor name"),
+    "product": ColumnInfo("String", nullable=True, description="Product name"),
+    "references": ColumnInfo("String", array=True, description="Reference URLs"),
 }
 
 
@@ -349,37 +320,20 @@ CONSOLIDATED_COLUMNS = {
 
 MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
-    "cve_id": ColumnInfo("String"),
-    "sources": ColumnInfo("String", array=True),
-    "vendor": ColumnInfo("String", nullable=True),
-    "product": ColumnInfo("String", nullable=True),
-    "vulnerability_name": ColumnInfo("String", nullable=True),
-    "short_description": ColumnInfo("String", nullable=True),
-    "date_added": ColumnInfo("Date", nullable=True),
-    "known_ransomware": ColumnInfo("String", nullable=True),
-    "cvss": ColumnInfo("Float64", nullable=True),
-    "cvss_v2": ColumnInfo("Float64", nullable=True),
-    "cvss_v3": ColumnInfo("Float64", nullable=True),
-    "epss": ColumnInfo("Float64", nullable=True),
-    "ranking_epss": ColumnInfo("Float64", nullable=True),
-    "summary": ColumnInfo("String", nullable=True),
-}
-
-MERGED_FIELD_DESCRIPTIONS = {
-    "cve_id": "CVE identifier (GROUP BY key)",
-    "sources": "Contributing feeds, e.g. ['kev','shodan'] (array)",
-    "vendor": "Vendor name (any() aggregated, nullable)",
-    "product": "Product name (any() aggregated, nullable)",
-    "vulnerability_name": "Vulnerability title from KEV (nullable)",
-    "short_description": "Brief description from KEV (nullable)",
-    "date_added": "Date added to KEV catalog (nullable)",
-    "known_ransomware": "Ransomware campaign linkage (nullable)",
-    "cvss": "Combined CVSS score (nullable)",
-    "cvss_v2": "CVSS v2.0 base score (nullable)",
-    "cvss_v3": "CVSS v3.x base score (nullable)",
-    "epss": "EPSS exploitation probability 0-1 (nullable)",
-    "ranking_epss": "EPSS percentile ranking 0-1 (nullable)",
-    "summary": "Vulnerability description from Shodan (nullable)",
+    "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
+    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan']"),
+    "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
+    "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
+    "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
+    "short_description": ColumnInfo("String", nullable=True, description="Brief description from KEV"),
+    "date_added": ColumnInfo("Date", nullable=True, description="Date added to KEV catalog"),
+    "known_ransomware": ColumnInfo("String", nullable=True, description="Ransomware campaign linkage"),
+    "cvss": ColumnInfo("Float64", nullable=True, description="Combined CVSS score"),
+    "cvss_v2": ColumnInfo("Float64", nullable=True, description="CVSS v2.0 base score"),
+    "cvss_v3": ColumnInfo("Float64", nullable=True, description="CVSS v3.x base score"),
+    "epss": ColumnInfo("Float64", nullable=True, description="EPSS exploitation probability 0-1"),
+    "ranking_epss": ColumnInfo("Float64", nullable=True, description="EPSS percentile ranking 0-1"),
+    "summary": ColumnInfo("String", nullable=True, description="Vulnerability description from Shodan"),
 }
 
 
@@ -564,18 +518,22 @@ def _print_kev_report(report: dict) -> None:
     print("=" * 60)
 
 
-def _print_field_table(field_descriptions: dict[str, str], columns: dict[str, ColumnInfo]) -> None:
-    """Print a markdown table of field names, types, and descriptions."""
-    type_strs = {f: columns[f].ch_type() for f in field_descriptions if f in columns}
-    name_w = max(len("Field"), max(len(f) for f in field_descriptions))
-    type_w = max(len("Type"), max((len(t) for t in type_strs.values()), default=4))
-    desc_w = max(len("Description"), max(len(d) for d in field_descriptions.values()))
+def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
+    """Print a markdown table of field names, types, and descriptions.
+
+    Skips columns without a description (e.g. internal aai_id).
+    """
+    described = {f: c for f, c in columns.items() if c.description}
+    if not described:
+        return
+    name_w = max(len("Field"), max(len(f) for f in described))
+    type_w = max(len("Type"), max(len(c.ch_type()) for c in described.values()))
+    desc_w = max(len("Description"), max(len(c.description) for c in described.values()))
 
     print(f"  | {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s} |")
     print(f"  |{'-' * (name_w + 2)}|{'-' * (type_w + 2)}|{'-' * (desc_w + 2)}|")
-    for field, desc in field_descriptions.items():
-        col_type = type_strs.get(field, "—")
-        print(f"  | {field:<{name_w}s} | {col_type:<{type_w}s} | {desc:<{desc_w}s} |")
+    for field, col in described.items():
+        print(f"  | {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
 
 
 def _print_sample_table(sample: dict, display_columns: list[str], col_widths: dict[str, int]) -> None:
@@ -630,7 +588,7 @@ def _print_threat_report(
     print(f"  Total rows: {_fmt(kev['total_vulnerabilities'])}")
 
     print("\n  Field Schema:")
-    _print_field_table(KEV_FIELD_DESCRIPTIONS, KEV_COLUMNS)
+    _print_field_table(KEV_COLUMNS)
 
     print(f"\n  Sample (first {len(kev_sample['cveID'])} rows):")
     _print_sample_table(
@@ -659,7 +617,7 @@ def _print_threat_report(
     print(f"  Total rows: {_fmt(hr['total_cves'])}")
 
     print("\n  Field Schema:")
-    _print_field_table(SHODAN_FIELD_DESCRIPTIONS, SHODAN_COLUMNS)
+    _print_field_table(SHODAN_COLUMNS)
 
     print(f"\n  Sample (first {len(cves_sample['cve_id'])} rows):")
     _print_sample_table(
@@ -685,7 +643,7 @@ def _print_threat_report(
     print("=" * 70)
 
     print("\n  Field Schema:")
-    _print_field_table(MERGED_FIELD_DESCRIPTIONS, MERGED_COLUMNS)
+    _print_field_table(MERGED_COLUMNS)
 
     print(f"\n  Sample (first {len(consolidated_sample['cve_id'])} rows):")
     _print_sample_table(
