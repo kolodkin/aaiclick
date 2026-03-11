@@ -1870,6 +1870,41 @@ class View(Object):
         """Get renamed columns mapping old->new."""
         return self._renamed_columns
 
+    @property
+    def _effective_columns(self) -> Dict[str, ColumnInfo]:
+        """Column schema with renames, field selection, and computed columns applied.
+
+        Returns the effective column names and types as seen by consumers
+        (data(), insert(), concat). Accounts for:
+        - Field selection (narrows to selected fields)
+        - Renamed columns (old_name -> new_name)
+        - Computed columns (added as new columns)
+
+        Always includes aai_id.
+        """
+        orig = self._schema.columns
+        renames = self._renamed_columns or {}
+
+        if self._selected_fields and self.is_single_field:
+            field = self._selected_fields[0]
+            col_def = orig.get(field, ColumnInfo("Float64"))
+            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        elif self._selected_fields:
+            columns = {"aai_id": ColumnInfo("UInt64")}
+            for f in self._selected_fields:
+                columns[f] = orig[f]
+        else:
+            columns = {
+                renames.get(name, name): info
+                for name, info in orig.items()
+            }
+
+        if self._computed_columns:
+            for name, comp in self._computed_columns.items():
+                columns[name] = parse_ch_type(comp.type)
+
+        return columns
+
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
         ref = {
@@ -1960,15 +1995,8 @@ class View(Object):
         if not columns:
             raise ValueError("columns must be a non-empty dict")
 
-        # Check collision with effective column names (after renames)
-        existing = set(self._schema.columns.keys())
-        if self._renamed_columns:
-            existing = (existing - set(self._renamed_columns.keys())) | set(
-                self._renamed_columns.values()
-            )
-        # Also check collision with already-computed columns
-        if self.computed_columns:
-            existing |= set(self.computed_columns.keys())
+        # Check collision with effective column names (renames + computed applied)
+        existing = set(self._effective_columns.keys())
         for name, computed in columns.items():
             if name in existing:
                 raise ValueError(
@@ -2110,25 +2138,12 @@ class View(Object):
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         if self.computed_columns or self._renamed_columns:
-            renames = self._renamed_columns or {}
-            columns: Dict[str, ColumnMeta] = {}
-            # Real columns (excluding aai_id), with renames applied
-            for col_name in self._schema.columns:
-                if col_name != "aai_id":
-                    effective_name = renames.get(col_name, col_name)
-                    columns[effective_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-            # Computed columns
-            if self.computed_columns:
-                for col_name in self.computed_columns:
-                    columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-
-            # Build column_names for the SELECT: schema cols (renamed) + computed
-            column_names = ["aai_id"]
-            for col_name in self._schema.columns:
-                if col_name != "aai_id":
-                    column_names.append(renames.get(col_name, col_name))
-            if self.computed_columns:
-                column_names.extend(self.computed_columns.keys())
+            eff = self._effective_columns
+            columns: Dict[str, ColumnMeta] = {
+                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+                for name in eff if name != "aai_id"
+            }
+            column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         # Delegate to parent for normal views
@@ -2152,36 +2167,10 @@ class View(Object):
     def _get_ingest_query_info(self) -> IngestQueryInfo:
         """Build effective column schema for insert/concat validation.
 
-        Accounts for field selection (narrows columns), computed
-        columns (adds new columns), and renamed columns (remaps names).
+        Delegates to effective_columns property for column resolution.
         """
         info = self._get_query_info()
-        orig = self._schema.columns
-
-        if self._selected_fields and self.is_single_field:
-            # Single-field view: renamed to "value"
-            field = self._selected_fields[0]
-            col_def = orig.get(field, ColumnInfo("Float64"))
-            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
-        elif self._selected_fields:
-            # Multi-field view: only selected fields
-            columns = {"aai_id": ColumnInfo("UInt64")}
-            for f in self._selected_fields:
-                columns[f] = orig[f]
-        else:
-            columns = dict(orig)
-
-        # Apply renames: replace old keys with new keys
-        if self._renamed_columns:
-            for old_name, new_name in self._renamed_columns.items():
-                if old_name in columns:
-                    columns[new_name] = columns.pop(old_name)
-
-        if self._computed_columns:
-            for name, comp in self._computed_columns.items():
-                columns[name] = parse_ch_type(comp.type)
-
-        return IngestQueryInfo(**vars(info), columns=columns)
+        return IngestQueryInfo(**vars(info), columns=self._effective_columns)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
