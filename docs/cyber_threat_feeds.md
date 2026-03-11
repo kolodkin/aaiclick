@@ -169,39 +169,48 @@ load_shodan_cves -+
 - `find_high_risk_cves()` — Filter: CVSS >= 9.0 AND EPSS > 0.5
 - `correlate_kev_cvedb()` — Cross-reference KEV with CVEDB for EPSS enrichment
 
-### Phase 3: Multi-source report (combine all)
+### Phase 3: Consolidated AggregatingMergeTree table
 
 ```
 load_kev --------+
-                  +-> correlate -> analyze_risk_tiers -> generate_report
+                  +-> build_consolidated_table -> analyze_consolidated -> generate_report
 load_shodan_cves -+
 ```
 
 **Tasks**:
-- `analyze_risk_tiers()` — Categorize CVEs by risk level (Critical/High/Medium/Low)
-  using combined CVSS + EPSS + KEV status
+- `build_consolidated_table(kev, cves)` — Create AggregatingMergeTree table keyed by `cve_id`,
+  insert data from both KEV and Shodan with source-tracking flag columns (`in_kev`, `in_shodan`),
+  then collapse via `group_by('cve_id').agg()` with `any()`/`max()` to merge columns from
+  different sources into a single row per CVE.
+- `analyze_consolidated(consolidated)` — Compute cross-source coverage stats:
+  total unique CVEs, CVEs in both sources, KEV-only, Shodan-only, KEV with high EPSS.
+
+### Phase 4: Combined report
+
+**Tasks**:
 - `generate_threat_report()` — Final report combining all sources:
   - KEV summary (count, top vendors, ransomware %)
   - CVSS distribution across all CVEs
   - EPSS high-probability threats
   - Cross-referenced high-risk findings
+  - Consolidated table coverage stats
 
 ## Job DAG (Final)
 
 ```
-                                +-> analyze_kev_by_vendor ------+
-                                |                               |
-load_kev_data ------------------+-> analyze_kev_by_year --------+
-                                |                               |
-                                +-> analyze_kev_ransomware -----+---> generate_threat_report
-                                |                               |
-                                +-------------------------------+
-                                                                |
-load_shodan_cves ------+-> analyze_cvss_distribution -----------+
-                       |                                        |
-                       +-> analyze_epss_distribution -----------+
-                       |                                        |
-                       +-> find_high_risk_cves -----------------+
+                                    +-> analyze_kev_by_vendor ------+
+                                    |                               |
+    load_kev_data --+-----------+-> analyze_kev_by_year --------+-> generate_kev_report --+
+                    |           |                               |                         |
+                    |           +-> analyze_kev_ransomware -----+                         |
+                    |                                                                     |
+                    +---> build_consolidated_table --> analyze_consolidated --+            |
+                    |                                                        v            v
+    load_shodan_cves --+---> analyze_cvss_distribution ------+-----> generate_threat_report
+                       |                                     |
+                       +--> analyze_epss_distribution -------+
+                       |                                     |
+                       +--> find_high_risk_cves -------------+
 ```
 
 ## Implementation Phases
@@ -232,12 +241,22 @@ load_shodan_cves ------+-> analyze_cvss_distribution -----------+
 | Update job DAG with new source                           |        |
 | Push and verify CI                                       |        |
 
-### Phase 3: Cross-source correlation + final report
+### Phase 3: Consolidated AggregatingMergeTree table
 
 | Task                                                     | Status |
 |----------------------------------------------------------|--------|
-| Implement `analyze_risk_tiers` task                      |        |
+| Define `CONSOLIDATED_COLUMNS` schema                     |        |
+| Implement `build_consolidated_table` task                |        |
+| Implement `analyze_consolidated` task                    |        |
+| Wire into job DAG                                        |        |
+| Push and verify CI                                       |        |
+
+### Phase 4: Combined report
+
+| Task                                                     | Status |
+|----------------------------------------------------------|--------|
 | Implement `generate_threat_report` task (combined)       |        |
+| Include consolidated stats in report                     |        |
 | Print formatted report to stdout                         |        |
 | Update documentation                                     |        |
 | Push and verify CI                                       |        |
