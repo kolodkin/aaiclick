@@ -26,6 +26,7 @@ from .data_context import (
 from .url import create_object_from_url
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
+    ENGINE_AGGREGATING_MERGE_TREE,
     ENGINE_DEFAULT,
     ENGINE_MEMORY,
     ENGINE_MERGE_TREE,
