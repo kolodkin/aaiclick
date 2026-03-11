@@ -29,7 +29,7 @@ jobs:
             title: Orchestration Tests
             install: ".[orch,test]"
             test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
+            pytest-args: "-n 1 -v"
             needs-postgres: true
 
     services:
