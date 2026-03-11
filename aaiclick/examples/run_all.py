@@ -13,6 +13,7 @@ import io
 
 from aaiclick.data.data_context import data_context
 
+from .aggregation_table import example as aggregation_table_example
 from .array_operators import example as array_operators_example
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
@@ -60,6 +61,12 @@ async def main():
         for title, func in context_examples:
             output = await _run_and_capture(func)
             _print_collapsible(title, output)
+
+        print("\n" * 2)
+        print("=" * 60)
+        print("RUNNING: Aggregation Table Example")
+        print("=" * 60)
+        await aggregation_table_example()
 
     # Orchestration examples manage their own contexts (OrchContext + data_context())
     orchestration_examples = [

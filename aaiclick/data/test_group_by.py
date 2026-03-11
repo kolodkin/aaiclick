@@ -119,6 +119,41 @@ async def test_group_by_std_var(ctx):
     assert abs(var_data["value"][0] - 5.0) < THRESHOLD
 
 
+async def test_group_by_any(ctx):
+    """any() picks an arbitrary non-NULL value per group."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B"],
+        "label": ["hello", "hello", "world", "world"],
+    })
+    result = await obj.group_by("category").any("label")
+    data = await result.data()
+
+    pairs = dict(zip(data["category"], data["label"]))
+    assert pairs["A"] == "hello"
+    assert pairs["B"] == "world"
+
+
+async def test_group_by_any_via_agg(ctx):
+    """any() works through the agg() interface for multi-column collapse."""
+    obj = await create_object_from_value({
+        "key": ["x", "x", "y"],
+        "val_int": [10, 10, 20],
+        "val_str": ["foo", "foo", "bar"],
+    })
+    result = await obj.group_by("key").agg({
+        "val_int": "any",
+        "val_str": "any",
+    })
+    data = await result.data()
+
+    pairs_int = dict(zip(data["key"], data["val_int"]))
+    pairs_str = dict(zip(data["key"], data["val_str"]))
+    assert pairs_int["x"] == 10
+    assert pairs_int["y"] == 20
+    assert pairs_str["x"] == "foo"
+    assert pairs_str["y"] == "bar"
+
+
 # =============================================================================
 # Multi-aggregation tests
 # =============================================================================

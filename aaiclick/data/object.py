@@ -24,6 +24,7 @@ from .models import (
     ColumnType,
     GroupByInfo,
     GroupByOpType,
+    GB_ANY,
     GB_COUNT,
     GB_MAX,
     GB_MEAN,
@@ -1717,6 +1718,10 @@ class GroupByQuery:
     async def var(self, column: str) -> Object:
         """Convenience: var per group. Delegates to agg()."""
         return await self.agg({column: GB_VAR})
+
+    async def any(self, column: str) -> Object:
+        """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
+        return await self.agg({column: GB_ANY})
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
