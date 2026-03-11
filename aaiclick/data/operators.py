@@ -304,6 +304,7 @@ AGGREGATION_FUNCTIONS = {
     "std": "stddevPop",
     "var": "varPop",
     "count": "count",
+    "any": "any",
 }
 
 
@@ -331,7 +332,7 @@ def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo
         ClickHouse base type string for the result (never Nullable)
     """
     base_type = source_type.type if isinstance(source_type, ColumnInfo) else parse_ch_type(source_type).type
-    if agg_func in ("min", "max"):
+    if agg_func in ("min", "max", "any"):
         return base_type
     elif agg_func == "sum":
         return base_type if base_type in INT_TYPES else "Float64"

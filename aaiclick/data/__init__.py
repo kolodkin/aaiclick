@@ -34,6 +34,7 @@ from .models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
+    GB_ANY,
     GB_COUNT,
     GB_MAX,
     GB_MEAN,
