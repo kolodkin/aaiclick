@@ -392,15 +392,32 @@ Loads data from HTTP URLs directly into ClickHouse using the `url()` table funct
 
 Insert data from a URL into an existing Object. Schema created once, multiple workers can insert.
 
+## The insert() Method
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.insert()`, `aaiclick/data/ingest.py` — see `insert_objects_db()`
+
+Inserts data from one or more sources into an existing Object. Target must be array; sources can be Objects (array or scalar), Python scalars, or lists. Sources may have a subset of target columns — missing columns get their ClickHouse default values.
+
+- **Variadic**: `obj.insert(a, b, c)` — any number of sources in one call
+- **Subset columns**: sources don't need all target columns
+- **View support**: sources can be Views with `where()`, `with_columns()`, field selection, etc.
+- **Type casting**: source column types are `CAST` to target column types
+
 ## The concat() Method
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.concat()`, `aaiclick/data/ingest.py` — see `concat_objects_db()`
 
-Concatenates multiple sources into a new Object via a single `UNION ALL`. Self must be array; args can be Objects (array or scalar), Python scalars, or lists. Also available as standalone function `concat(obj_a, obj_b, ...)`.
+Concatenates multiple sources into a new Object. Self must be array; args can be Objects (array or scalar), Python scalars, or lists. Also available as standalone function `concat(obj_a, obj_b, ...)`.
 
 - **Variadic**: `obj.concat(a, b, c)` — any number of sources in one call
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types
+
+## Shared Insert Mechanics
+
+**Implementation**: `aaiclick/data/ingest.py` — see `_insert_source()`
+
+Both `insert()` and `concat()` delegate to `_insert_source()` which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. This shared helper takes a `dict[str, ColumnInfo]` mapping data column names to their target types. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()` — the computed SQL expressions are embedded in the View's subquery.
 
 ## The data() Method
 
@@ -616,3 +633,5 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 | Set Operators                   | `test_unique_parametrized.py`    |
 | URL Loading                     | `test_url.py`                    |
 | String/Regex Operators          | `test_regex_operators.py`        |
+| Insert (+ View flavors)         | `test_insert_parametrized.py`    |
+| Concat (+ View flavors)         | `test_concat_parametrized.py`    |

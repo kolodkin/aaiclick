@@ -210,11 +210,11 @@ async def data_context(
         _data_contexts.reset(token)
 
 
-def get_engine_clause(engine: EngineType) -> str:
+def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     """Get the ENGINE clause for table creation."""
     if engine == "Memory":
         return "ENGINE = Memory"
-    return "ENGINE = MergeTree ORDER BY tuple()"
+    return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
 _VALID_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
@@ -241,8 +241,9 @@ async def create_object(
     """Create a new Object with a ClickHouse table using the specified schema.
 
     Args:
-        schema: Schema dataclass with fieldtype and columns dict.
-        engine: ClickHouse table engine. If None, uses context's engine setting.
+        schema: Schema dataclass with fieldtype, columns, engine, and order_by.
+        engine: Deprecated — use schema.engine instead. If both are set,
+                this parameter takes precedence for backward compatibility.
         name: Optional persistent name. When provided, creates a persistent
               table with prefix ``p_`` that survives context exit. Uses
               ``CREATE TABLE IF NOT EXISTS`` so subsequent calls with the same
@@ -279,12 +280,14 @@ async def create_object(
             ddl += f" COMMENT '{comment}'"
         column_defs.append(ddl)
 
+    # Engine priority: persistent forces MergeTree > engine param > schema.engine > context default
     if obj.persistent:
         effective_engine = "MergeTree"
     else:
-        effective_engine = engine if engine is not None else state.engine
+        effective_engine = engine or schema.engine or state.engine
 
-    engine_clause = get_engine_clause(effective_engine)
+    order_by = schema.order_by or "tuple()"
+    engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
     create_query = f"""

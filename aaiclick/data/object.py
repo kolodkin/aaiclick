@@ -22,8 +22,10 @@ from .models import (
     CopyInfo,
     ColumnMeta,
     ColumnType,
+    parse_ch_type,
     GroupByInfo,
     GroupByOpType,
+    GB_ANY,
     GB_COUNT,
     GB_MAX,
     GB_MEAN,
@@ -1718,6 +1720,10 @@ class GroupByQuery:
         """Convenience: var per group. Delegates to agg()."""
         return await self.agg({column: GB_VAR})
 
+    async def any(self, column: str) -> Object:
+        """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
+        return await self.agg({column: GB_ANY})
+
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
         keys_str = ", ".join(f"'{k}'" for k in self._keys)
@@ -2055,6 +2061,34 @@ class View(Object):
             selected_fields=self.selected_fields,
             computed_columns=self.computed_columns,
         )
+
+    def _get_ingest_query_info(self) -> IngestQueryInfo:
+        """Build effective column schema for insert/concat validation.
+
+        Accounts for field selection (narrows columns) and computed
+        columns (adds new columns to the schema).
+        """
+        info = self._get_query_info()
+        orig = self._schema.columns
+
+        if self._selected_fields and self.is_single_field:
+            # Single-field view: renamed to "value"
+            field = self._selected_fields[0]
+            col_def = orig.get(field, ColumnInfo("Float64"))
+            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        elif self._selected_fields:
+            # Multi-field view: only selected fields
+            columns = {"aai_id": ColumnInfo("UInt64")}
+            for f in self._selected_fields:
+                columns[f] = orig[f]
+        else:
+            columns = dict(orig)
+
+        if self._computed_columns:
+            for name, comp in self._computed_columns.items():
+                columns[name] = parse_ch_type(comp.type)
+
+        return IngestQueryInfo(**vars(info), columns=columns)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""

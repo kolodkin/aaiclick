@@ -120,9 +120,10 @@ FIELDTYPE_DICT = "d"
 
 # ClickHouse engine constants
 ENGINE_MERGE_TREE = "MergeTree"
+ENGINE_AGGREGATING_MERGE_TREE = "AggregatingMergeTree"
 ENGINE_MEMORY = "Memory"
-ENGINES = [ENGINE_MERGE_TREE, ENGINE_MEMORY]
-EngineType = Literal["MergeTree", "Memory"]
+ENGINES = [ENGINE_MERGE_TREE, ENGINE_AGGREGATING_MERGE_TREE, ENGINE_MEMORY]
+EngineType = Literal["MergeTree", "AggregatingMergeTree", "Memory"]
 ENGINE_DEFAULT = ENGINE_MERGE_TREE
 
 # Orient constants for data() method
@@ -137,7 +138,8 @@ GB_MAX = "max"
 GB_COUNT = "count"
 GB_STD = "std"
 GB_VAR = "var"
-GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var"]
+GB_ANY = "any"
+GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any"]
 
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str]
@@ -214,12 +216,16 @@ class Schema:
         table: ClickHouse table name (empty for blueprints, set for realized objects)
         col_fieldtype: Per-column fieldtype for ClickHouse COMMENT. Defaults to fieldtype.
                        For dict schemas, distinguishes array data ('a') from scalar data ('s').
+        engine: ClickHouse table engine. If None, uses context's engine setting.
+        order_by: ORDER BY key for MergeTree-family engines. If None, defaults to tuple().
     """
 
     fieldtype: str
     columns: Dict[str, "ColumnInfo"]
     table: Optional[str] = None
     col_fieldtype: Optional[str] = None
+    engine: Optional["EngineType"] = None
+    order_by: Optional[str] = None
 
 
 @dataclass

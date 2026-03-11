@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
 
 
@@ -190,12 +190,46 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     return result
 
 
+async def _insert_source(
+    target_table: str,
+    info: IngestQueryInfo,
+    target_types: dict[str, ColumnInfo],
+    alias_index: int,
+    ch_client,
+) -> None:
+    """Insert a single source into a target table.
+
+    Args:
+        target_table: Destination table name.
+        info: Source query info.
+        target_types: Mapping of data column name to target ColumnInfo
+            (excludes ``aai_id``).  Column names are derived from the keys.
+        alias_index: Index used to alias subquery sources.
+        ch_client: ClickHouse client instance.
+    """
+    col_names = sorted(target_types)
+    cast_exprs = ", ".join(
+        f"CAST({col} AS {target_types[col].ch_type()}) AS {col}"
+        for col in col_names
+    )
+    insert_cols = ", ".join(["aai_id"] + col_names)
+    if info.source.startswith('('):
+        select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{alias_index}"
+    else:
+        select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
+
+    await ch_client.command(f"""
+    INSERT INTO {target_table} ({insert_cols})
+    {select}
+    """)
+
+
 async def concat_objects_db(
     query_infos: list[IngestQueryInfo],
     ch_client,
 ):
     """
-    Concatenate multiple sources at database level via single UNION ALL.
+    Concatenate multiple sources into a new Object, one INSERT per source.
 
     Preserves existing Snowflake IDs from all sources.
     Order is maintained via existing Snowflake IDs when data is retrieved.
@@ -215,7 +249,7 @@ async def concat_objects_db(
         raise ValueError("concat requires at least 2 sources")
 
     first_info = query_infos[0]
-    if first_info.fieldtype != FIELDTYPE_ARRAY:
+    if first_info.fieldtype not in (FIELDTYPE_ARRAY, FIELDTYPE_DICT):
         raise ValueError("concat requires first source to have array fieldtype")
 
     # Validate all sources have compatible schemas and promote nullable
@@ -253,20 +287,11 @@ async def concat_objects_db(
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    # Build UNION ALL with all data columns
-    select_cols = ", ".join(["aai_id"] + data_col_names)
-    union_parts = []
+    data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
     for i, info in enumerate(query_infos):
-        if info.source.startswith('('):
-            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
-        else:
-            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
-
-    insert_query = f"""
-    INSERT INTO {result.table}
-    {' UNION ALL '.join(union_parts)}
-    """
-    await ch_client.command(insert_query)
+        await _insert_source(
+            result.table, info, data_columns, i, ch_client,
+        )
 
     return result
 
@@ -277,10 +302,11 @@ async def insert_objects_db(
     ch_client,
 ) -> None:
     """
-    Insert data from multiple sources into target via single operation.
+    Insert data from multiple sources into target, one INSERT per source.
 
-    Preserves existing Snowflake IDs. Order is maintained via existing
-    Snowflake IDs when data is retrieved.
+    Preserves existing Snowflake IDs. Sources may have a subset of target
+    columns — missing columns get their ClickHouse default values. Sources
+    may also include computed columns from Views (via with_columns).
 
     Args:
         target_info: QueryInfo for the target (must have array fieldtype)
@@ -289,29 +315,32 @@ async def insert_objects_db(
 
     Raises:
         ValueError: If target does not have array fieldtype
+        ValueError: If any source has columns not in target
         ValueError: If any source value types are incompatible with target
     """
     if not source_infos:
         return
 
-    if target_info.fieldtype != FIELDTYPE_ARRAY:
+    if target_info.fieldtype not in (FIELDTYPE_ARRAY, FIELDTYPE_DICT):
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
-    data_col_names = sorted(k for k in target_columns if k != "aai_id")
+    target_data_cols = set(k for k in target_columns if k != "aai_id")
 
-    # Validate all source schemas are compatible
-    for info in source_infos:
+    for i, info in enumerate(source_infos):
         source_columns = info.columns
-        source_data_cols = sorted(k for k in source_columns if k != "aai_id")
+        col_names = sorted(k for k in source_columns if k != "aai_id")
 
-        if source_data_cols != data_col_names:
+        # Source must not have columns absent from target
+        extra = set(col_names) - target_data_cols
+        if extra:
             raise ValueError(
-                f"Source table {info.base_table} has columns {source_data_cols}, "
-                f"expected {data_col_names}"
+                f"Source table {info.base_table} has columns {sorted(extra)} "
+                f"not in target"
             )
 
-        for col_name in data_col_names:
+        # Validate types for present columns
+        for col_name in col_names:
             target_def = target_columns[col_name]
             source_def = source_columns[col_name]
             if not _are_types_castable(target_def.type, source_def.type):
@@ -320,20 +349,9 @@ async def insert_objects_db(
                     f"for column '{col_name}': types are incompatible"
                 )
 
-    # Build CAST expressions for each data column
-    cast_exprs = ", ".join(
-        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
-        for col in data_col_names
-    )
-
-    union_parts = [
-        f"SELECT aai_id, {cast_exprs} FROM {info.base_table}"
-        for info in source_infos
-    ]
-    insert_query = f"""
-    INSERT INTO {target_info.base_table}
-    {' UNION ALL '.join(union_parts)}
-    """
-    await ch_client.command(insert_query)
+        source_target_types = {col: target_columns[col] for col in col_names}
+        await _insert_source(
+            target_info.base_table, info, source_target_types, i, ch_client,
+        )
 
 

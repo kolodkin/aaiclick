@@ -13,6 +13,7 @@ import io
 
 from aaiclick.data.data_context import data_context
 
+from .aggregation_table import example as aggregation_table_example
 from .array_operators import example as array_operators_example
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
@@ -54,6 +55,7 @@ async def main():
         ("Group By", group_by_example),
         ("Nullable Columns", nullable_example),
         ("Dict Selectors", selectors_example),
+        ("Aggregation Table", aggregation_table_example),
     ]
 
     async with data_context():
