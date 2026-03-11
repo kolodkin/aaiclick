@@ -2109,17 +2109,26 @@ class View(Object):
                 column_names = ["aai_id"] + list(self.selected_fields)
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
-        if self.computed_columns:
+        if self.computed_columns or self._renamed_columns:
+            renames = self._renamed_columns or {}
             columns: Dict[str, ColumnMeta] = {}
-            # Real columns (excluding aai_id)
+            # Real columns (excluding aai_id), with renames applied
             for col_name in self._schema.columns:
                 if col_name != "aai_id":
-                    columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+                    effective_name = renames.get(col_name, col_name)
+                    columns[effective_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
             # Computed columns
-            for col_name in self.computed_columns:
-                columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
+            if self.computed_columns:
+                for col_name in self.computed_columns:
+                    columns[col_name] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
 
-            column_names = list(self._schema.columns.keys()) + list(self.computed_columns.keys())
+            # Build column_names for the SELECT: schema cols (renamed) + computed
+            column_names = ["aai_id"]
+            for col_name in self._schema.columns:
+                if col_name != "aai_id":
+                    column_names.append(renames.get(col_name, col_name))
+            if self.computed_columns:
+                column_names.extend(self.computed_columns.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         # Delegate to parent for normal views

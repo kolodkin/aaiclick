@@ -348,8 +348,8 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
     assert data["count"] == [0, 0]  # Int64 default is 0
 
 
-async def test_insert_rejects_extra_source_columns(ctx):
-    """Insert with source columns not in target raises ValueError."""
+async def test_insert_skips_extra_source_columns(ctx):
+    """Insert with extra source columns silently skips them."""
     src = await create_object_from_value({
         "id": ["A"],
         "extra": [999],
@@ -363,8 +363,9 @@ async def test_insert_rejects_extra_source_columns(ctx):
     )
     target = await create_object(schema)
 
-    with pytest.raises(ValueError, match="not in target"):
-        await target.insert(src)
+    await target.insert(src)
+    data = await target.data()
+    assert data["id"] == ["A"]
 
 
 async def test_insert_view_with_offset(ctx):
