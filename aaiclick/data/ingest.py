@@ -358,8 +358,9 @@ async def insert_objects_db(
         else:
             union_parts.append(f"SELECT {select_cols} FROM {info.source}")
 
+    insert_cols = ", ".join(["aai_id"] + data_col_names)
     insert_query = f"""
-    INSERT INTO {target_info.base_table}
+    INSERT INTO {target_info.base_table} ({insert_cols})
     {' UNION ALL '.join(union_parts)}
     """
     await ch_client.command(insert_query)

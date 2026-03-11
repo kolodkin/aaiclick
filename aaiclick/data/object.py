@@ -2063,12 +2063,31 @@ class View(Object):
         )
 
     def _get_ingest_query_info(self) -> IngestQueryInfo:
-        """Include computed columns in schema for insert/concat validation."""
+        """Build effective column schema for insert/concat validation.
+
+        Accounts for field selection (narrows columns) and computed
+        columns (adds new columns to the schema).
+        """
         info = self._get_query_info()
-        columns = dict(self._schema.columns)
+        orig = self._schema.columns
+
+        if self._selected_fields and self.is_single_field:
+            # Single-field view: renamed to "value"
+            field = self._selected_fields[0]
+            col_def = orig.get(field, ColumnInfo("Float64"))
+            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        elif self._selected_fields:
+            # Multi-field view: only selected fields
+            columns = {"aai_id": ColumnInfo("UInt64")}
+            for f in self._selected_fields:
+                columns[f] = orig[f]
+        else:
+            columns = dict(orig)
+
         if self._computed_columns:
             for name, comp in self._computed_columns.items():
                 columns[name] = parse_ch_type(comp.type)
+
         return IngestQueryInfo(**vars(info), columns=columns)
 
     async def insert(self, *args) -> None:
