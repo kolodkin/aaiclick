@@ -302,8 +302,25 @@ async def find_high_risk_cves(cves: Object) -> dict:
 CONSOLIDATED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String"),
-    "in_kev": ColumnInfo("UInt8"),
-    "in_shodan": ColumnInfo("UInt8"),
+    "source": ColumnInfo("String"),
+    "vendor": ColumnInfo("String", nullable=True),
+    "product": ColumnInfo("String", nullable=True),
+    "vulnerability_name": ColumnInfo("String", nullable=True),
+    "short_description": ColumnInfo("String", nullable=True),
+    "date_added": ColumnInfo("Date", nullable=True),
+    "known_ransomware": ColumnInfo("String", nullable=True),
+    "cvss": ColumnInfo("Float64", nullable=True),
+    "cvss_v2": ColumnInfo("Float64", nullable=True),
+    "cvss_v3": ColumnInfo("Float64", nullable=True),
+    "epss": ColumnInfo("Float64", nullable=True),
+    "ranking_epss": ColumnInfo("Float64", nullable=True),
+    "summary": ColumnInfo("String", nullable=True),
+}
+
+MERGED_COLUMNS = {
+    "aai_id": ColumnInfo("UInt64"),
+    "cve_id": ColumnInfo("String"),
+    "sources": ColumnInfo("String", array=True),
     "vendor": ColumnInfo("String", nullable=True),
     "product": ColumnInfo("String", nullable=True),
     "vulnerability_name": ColumnInfo("String", nullable=True),
@@ -323,9 +340,10 @@ CONSOLIDATED_COLUMNS = {
 async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     """Build a consolidated AggregatingMergeTree table from all sources.
 
-    Inserts KEV and Shodan data into a shared table keyed by cve_id,
-    then collapses via group_by().agg() to merge columns from both
-    sources into a single row per CVE.
+    Inserts KEV and Shodan data into a shared table keyed by cve_id
+    with a 'source' tag per row, then collapses via GROUP BY with
+    groupArrayDistinct(source) to produce an Array(String) 'sources'
+    column tracking which feeds contributed each CVE.
     """
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -339,9 +357,9 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     # Insert KEV data — map KEV column names to consolidated schema
     await ch.command(
         f"INSERT INTO {agg.table} "
-        f"(cve_id, in_kev, in_shodan, vendor, product, "
+        f"(cve_id, source, vendor, product, "
         f"vulnerability_name, short_description, date_added, known_ransomware) "
-        f"SELECT cveID, 1, 0, vendorProject, product, "
+        f"SELECT cveID, 'kev', vendorProject, product, "
         f"vulnerabilityName, shortDescription, dateAdded, knownRansomwareCampaignUse "
         f"FROM {kev.table}"
     )
@@ -349,30 +367,31 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     # Insert Shodan data — score columns; vendor/product come from Shodan too
     await ch.command(
         f"INSERT INTO {agg.table} "
-        f"(cve_id, in_kev, in_shodan, vendor, product, summary, "
+        f"(cve_id, source, vendor, product, summary, "
         f"cvss, cvss_v2, cvss_v3, epss, ranking_epss) "
-        f"SELECT cve_id, 0, 1, vendor, product, summary, "
+        f"SELECT cve_id, 'shodan', vendor, product, summary, "
         f"cvss, cvss_v2, cvss_v3, epss, ranking_epss "
         f"FROM {cves.table}"
     )
 
-    # Collapse: merge rows from different sources into one row per CVE
-    merged = await agg.group_by("cve_id").agg({
-        "in_kev": "max",
-        "in_shodan": "max",
-        "vendor": "any",
-        "product": "any",
-        "vulnerability_name": "any",
-        "short_description": "any",
-        "date_added": "any",
-        "known_ransomware": "any",
-        "cvss": "any",
-        "cvss_v2": "any",
-        "cvss_v3": "any",
-        "epss": "any",
-        "ranking_epss": "any",
-        "summary": "any",
-    })
+    # Collapse: merge rows per CVE with groupArrayDistinct for sources
+    merged_schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=MERGED_COLUMNS,
+    )
+    merged = await create_object(merged_schema)
+    await ch.command(
+        f"INSERT INTO {merged.table} "
+        f"(cve_id, sources, vendor, product, vulnerability_name, "
+        f"short_description, date_added, known_ransomware, "
+        f"cvss, cvss_v2, cvss_v3, epss, ranking_epss, summary) "
+        f"SELECT cve_id, groupArrayDistinct(source), "
+        f"any(vendor), any(product), any(vulnerability_name), "
+        f"any(short_description), any(date_added), any(known_ransomware), "
+        f"any(cvss), any(cvss_v2), any(cvss_v3), "
+        f"any(epss), any(ranking_epss), any(summary) "
+        f"FROM {agg.table} GROUP BY cve_id"
+    )
 
     return merged
 
@@ -380,21 +399,34 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
 @task
 async def analyze_consolidated(consolidated: Object) -> dict:
     """Analyze the consolidated table for cross-source coverage stats."""
+    ch = get_ch_client()
     total = await (await consolidated["cve_id"].count()).data()
 
-    # Count CVEs by source presence
-    both_sources = consolidated.where("in_kev = 1").where("in_shodan = 1")
-    both_count = await (await both_sources["cve_id"].count()).data()
+    # Count CVEs by source presence using has() on the sources array
+    both_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND has(sources, 'shodan')"
+    )
+    both_count = both_q.result_rows[0][0]
 
-    kev_only = consolidated.where("in_kev = 1").where("in_shodan = 0")
-    kev_only_count = await (await kev_only["cve_id"].count()).data()
+    kev_only_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND NOT has(sources, 'shodan')"
+    )
+    kev_only_count = kev_only_q.result_rows[0][0]
 
-    shodan_only = consolidated.where("in_kev = 0").where("in_shodan = 1")
-    shodan_only_count = await (await shodan_only["cve_id"].count()).data()
+    shodan_only_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'shodan') AND NOT has(sources, 'kev')"
+    )
+    shodan_only_count = shodan_only_q.result_rows[0][0]
 
     # High-risk from consolidated: in KEV + high EPSS
-    kev_with_epss = consolidated.where("in_kev = 1").where("epss > 0.5")
-    kev_high_epss = await (await kev_with_epss["cve_id"].count()).data()
+    kev_high_q = await ch.query(
+        f"SELECT count() FROM {consolidated.table} "
+        f"WHERE has(sources, 'kev') AND epss > 0.5"
+    )
+    kev_high_epss = kev_high_q.result_rows[0][0]
 
     stats = {
         "total_unique_cves": total,
@@ -549,7 +581,7 @@ def _print_threat_report(
     print(f"  Of total: {_fmt(hr['high_risk_pct'])}%")
 
     cons = report["consolidated"]
-    print("\n--- Consolidated Table (AggregatingMergeTree) ---")
+    print("\n--- Consolidated Table (AggregatingMergeTree, sources: Array(String)) ---")
     print(f"  Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")
     print(f"  In both sources:        {_fmt(cons['in_both_sources'])}")
     print(f"  KEV only:               {_fmt(cons['kev_only'])}")
