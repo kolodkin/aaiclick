@@ -2,8 +2,8 @@
 """
 Generate GitHub Actions summary from example outputs.
 
-This script automatically discovers example output files and generates
-a markdown summary for GitHub Actions.
+run_all.py already outputs markdown with collapsible <details> sections,
+so this script just passes the content through to GITHUB_STEP_SUMMARY.
 """
 
 import os
@@ -11,93 +11,22 @@ import sys
 from pathlib import Path
 
 
-# Display order and titles for examples
-# If an example is not listed here, it will be auto-discovered and displayed
-# with a title derived from the filename
-EXAMPLE_METADATA = {
-    "basic_operators": "Basic Operators Example",
-    "data_manipulation": "Data Manipulation Example",
-    "statistics": "Statistics Example",
-    "views": "Views Example",
-    "group_by": "Group By Example",
-    "selectors": "Dict Selectors Example",
-    "orchestration_basic": "Orchestration Basic Example",
-}
-
-# Preferred display order (examples not in this list appear at the end)
-DISPLAY_ORDER = [
-    "basic_operators",
-    "data_manipulation",
-    "statistics",
-    "views",
-    "group_by",
-    "selectors",
-    "orchestration_basic",
-]
-
-
-def get_example_title(module_name):
-    """Get display title for an example."""
-    if module_name in EXAMPLE_METADATA:
-        return EXAMPLE_METADATA[module_name]
-    # Auto-generate title from module name
-    return " ".join(word.capitalize() for word in module_name.split("_")) + " Example"
-
-
-def discover_example_outputs():
-    """Discover all example output files."""
-    output_files = sorted(Path("tmp").glob("*_output.txt"))
-
-    # Extract module names
-    examples = []
-    for output_file in output_files:
-        module_name = output_file.stem.replace("_output", "")
-        examples.append(module_name)
-
-    # Sort by display order
-    def sort_key(module_name):
-        try:
-            return (0, DISPLAY_ORDER.index(module_name))
-        except ValueError:
-            return (1, module_name)  # Not in order list, sort alphabetically
-
-    return sorted(examples, key=sort_key)
-
-
 def generate_summary():
-    """Generate markdown summary from example outputs."""
+    """Generate markdown summary from example output."""
     summary_parts = []
+    summary_parts.append("## Examples Output\n")
 
-    # Header
-    summary_parts.append("## 📊 Example Outputs\n")
-
-    # Discover and process all examples
-    examples = discover_example_outputs()
-
-    if not examples:
-        summary_parts.append("\n⚠️ No example output files found\n")
+    output_file = Path("tmp/examples_output.txt")
+    if not output_file.exists():
+        summary_parts.append("\nNo example output file found\n")
         return "".join(summary_parts)
 
-    # Add each example output
-    for module_name in examples:
-        output_file = f"tmp/{module_name}_output.txt"
-        display_title = get_example_title(module_name)
+    content = output_file.read_text()
+    if not content.strip():
+        summary_parts.append("\nExample output file is empty\n")
+        return "".join(summary_parts)
 
-        summary_parts.append(f"\n### {display_title}\n")
-        summary_parts.append("```\n")
-
-        # Read output file
-        try:
-            with open(output_file, 'r') as f:
-                content = f.read()
-                summary_parts.append(content)
-        except FileNotFoundError:
-            summary_parts.append(f"Error: Output file '{output_file}' not found\n")
-        except Exception as e:
-            summary_parts.append(f"Error reading '{output_file}': {e}\n")
-
-        summary_parts.append("```\n")
-
+    summary_parts.append(content)
     return "".join(summary_parts)
 
 
@@ -105,16 +34,13 @@ def main():
     """Main entry point."""
     summary = generate_summary()
 
-    # Get GITHUB_STEP_SUMMARY path from environment
     summary_file = os.getenv('GITHUB_STEP_SUMMARY')
 
     if summary_file:
-        # Write to GitHub Actions summary file
         with open(summary_file, 'a') as f:
             f.write(summary)
-        print("✓ Summary written to GITHUB_STEP_SUMMARY")
+        print("Summary written to GITHUB_STEP_SUMMARY")
     else:
-        # If not in GitHub Actions, print to stdout
         print(summary)
 
     return 0
