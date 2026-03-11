@@ -190,12 +190,41 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     return result
 
 
+async def _insert_source(
+    target_table: str,
+    info: IngestQueryInfo,
+    target_columns: dict,
+    col_names: list[str],
+    alias_index: int,
+    ch_client,
+) -> None:
+    """Insert a single source into a target table.
+
+    Builds ``INSERT INTO target (cols) SELECT aai_id, CAST(...)
+    FROM source`` and executes it.
+    """
+    cast_exprs = ", ".join(
+        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+        for col in col_names
+    )
+    insert_cols = ", ".join(["aai_id"] + col_names)
+    if info.source.startswith('('):
+        select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{alias_index}"
+    else:
+        select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
+
+    await ch_client.command(f"""
+    INSERT INTO {target_table} ({insert_cols})
+    {select}
+    """)
+
+
 async def concat_objects_db(
     query_infos: list[IngestQueryInfo],
     ch_client,
 ):
     """
-    Concatenate multiple sources at database level via single UNION ALL.
+    Concatenate multiple sources into a new Object, one INSERT per source.
 
     Preserves existing Snowflake IDs from all sources.
     Order is maintained via existing Snowflake IDs when data is retrieved.
@@ -253,20 +282,10 @@ async def concat_objects_db(
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    # Build UNION ALL with all data columns
-    select_cols = ", ".join(["aai_id"] + data_col_names)
-    union_parts = []
     for i, info in enumerate(query_infos):
-        if info.source.startswith('('):
-            union_parts.append(f"SELECT {select_cols} FROM {info.source} AS s{i}")
-        else:
-            union_parts.append(f"SELECT {select_cols} FROM {info.source}")
-
-    insert_query = f"""
-    INSERT INTO {result.table}
-    {' UNION ALL '.join(union_parts)}
-    """
-    await ch_client.command(insert_query)
+        await _insert_source(
+            result.table, info, result_columns, data_col_names, i, ch_client,
+        )
 
     return result
 
@@ -324,19 +343,8 @@ async def insert_objects_db(
                     f"for column '{col_name}': types are incompatible"
                 )
 
-        cast_exprs = ", ".join(
-            f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
-            for col in col_names
+        await _insert_source(
+            target_info.base_table, info, target_columns, col_names, i, ch_client,
         )
-        insert_cols = ", ".join(["aai_id"] + col_names)
-        if info.source.startswith('('):
-            select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{i}"
-        else:
-            select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
-
-        await ch_client.command(f"""
-        INSERT INTO {target_info.base_table} ({insert_cols})
-        {select}
-        """)
 
 
