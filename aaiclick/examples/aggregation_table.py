@@ -70,9 +70,10 @@ async def example():
             "cvss": ColumnInfo("Float64", nullable=True),
             "epss": ColumnInfo("Float64", nullable=True),
         },
+        engine=ENGINE_AGGREGATING_MERGE_TREE,
         order_by="cve_id",
     )
-    agg = await create_object(schema, engine=ENGINE_AGGREGATING_MERGE_TREE)
+    agg = await create_object(schema)
 
     # Verify engine and ORDER BY
     ch = get_ch_client()

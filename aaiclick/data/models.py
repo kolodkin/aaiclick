@@ -216,6 +216,7 @@ class Schema:
         table: ClickHouse table name (empty for blueprints, set for realized objects)
         col_fieldtype: Per-column fieldtype for ClickHouse COMMENT. Defaults to fieldtype.
                        For dict schemas, distinguishes array data ('a') from scalar data ('s').
+        engine: ClickHouse table engine. If None, uses context's engine setting.
         order_by: ORDER BY key for MergeTree-family engines. If None, defaults to tuple().
     """
 
@@ -223,6 +224,7 @@ class Schema:
     columns: Dict[str, "ColumnInfo"]
     table: Optional[str] = None
     col_fieldtype: Optional[str] = None
+    engine: Optional["EngineType"] = None
     order_by: Optional[str] = None
 
 
