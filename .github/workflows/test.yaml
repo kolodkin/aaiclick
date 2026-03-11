@@ -15,6 +15,22 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: data
+            title: Data Tests
+            install: ".[test]"
+            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py aaiclick/benchmarks/"
+            pytest-args: "-n auto -v"
+            needs-postgres: false
+          - group: orch
+            title: Orchestration Tests
+            install: ".[orch,test]"
+            test-paths: "aaiclick/orchestration/"
+            pytest-args: "-n auto -v"
+            needs-postgres: true
 
     services:
       clickhouse:
@@ -60,9 +76,10 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv --python 3.10
-          uv pip install -e ".[dev]"
+          uv pip install -e "${{ matrix.install }}"
 
       - name: Run database migrations
+        if: matrix.needs-postgres
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -73,7 +90,7 @@ jobs:
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
-      - name: Run tests
+      - name: "Run tests: ${{ matrix.title }}"
         env:
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
@@ -88,13 +105,13 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
-          uv run pytest aaiclick/ -n auto --dist loadgroup -v --junitxml=tmp/pytest-report.xml
+          uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v1
         if: always()
         with:
-          name: Pytest Results
+          name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
 

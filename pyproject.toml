@@ -31,21 +31,23 @@ dependencies = [
     "numpy>=1.24.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+orch = [
     "sqlmodel>=0.0.14",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
     "psycopg2-binary>=2.9.9",
 ]
-
-[project.optional-dependencies]
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-]
-dev = [
-    "aaiclick[test]",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.5.0",
+]
+dev = [
+    "aaiclick[orch,test]",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
