@@ -536,36 +536,37 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
         print(f"  | {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
 
 
-def _print_sample_table(sample: dict, display_columns: list[str], col_widths: dict[str, int]) -> None:
-    """Print first N rows of a sample dict as a markdown table."""
-    if not sample or not display_columns:
+def _print_sample_table(sample: dict) -> None:
+    """Print first N rows of a sample dict as a markdown table.
+
+    Shows all columns from the sample, auto-sizing widths.
+    Skips the internal 'aai_id' column.
+    """
+    columns = [c for c in sample if c != "aai_id"]
+    if not columns:
         return
-    first_col = display_columns[0]
-    n_rows = len(sample[first_col])
+    n_rows = len(sample[columns[0]])
 
-    # Header row
-    header_cells = []
-    for col in display_columns:
-        w = abs(col_widths.get(col, 20))
-        header_cells.append(f" {col:<{w}s} ")
-    print("  |" + "|".join(header_cells) + "|")
+    def _cell(val: object) -> str:
+        if val is None:
+            return "N/A"
+        if isinstance(val, float):
+            return f"{val:.2f}"
+        return str(val)
 
-    # Separator row
-    sep_cells = []
-    for col in display_columns:
-        w = abs(col_widths.get(col, 20))
-        sep_cells.append("-" * (w + 2))
-    print("  |" + "|".join(sep_cells) + "|")
+    # Compute column widths from header + all data values
+    widths: dict[str, int] = {}
+    for col in columns:
+        max_val = max((len(_cell(sample[col][i])) for i in range(n_rows)), default=0)
+        widths[col] = max(len(col), max_val)
 
-    # Data rows
+    header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
+    sep = "|" + "|".join("-" * (widths[col] + 2) for col in columns) + "|"
+    print(f"  {header}")
+    print(f"  {sep}")
     for i in range(n_rows):
-        cells = []
-        for col in display_columns:
-            w = abs(col_widths.get(col, 20))
-            val = sample[col][i]
-            s = _fmt(val) if isinstance(val, (int, float)) and val is not None else str(val) if val is not None else "N/A"
-            cells.append(f" {s:<{w}s} ")
-        print("  |" + "|".join(cells) + "|")
+        row = "| " + " | ".join(f"{_cell(sample[col][i]):<{widths[col]}s}" for col in columns) + " |"
+        print(f"  {row}")
 
 
 def _print_threat_report(
@@ -591,11 +592,7 @@ def _print_threat_report(
     _print_field_table(KEV_COLUMNS)
 
     print(f"\n  Sample (first {len(kev_sample['cveID'])} rows):")
-    _print_sample_table(
-        kev_sample,
-        ["cveID", "vendorProject", "product", "dateAdded", "knownRansomwareCampaignUse"],
-        {"cveID": 20, "vendorProject": 20, "product": 20, "dateAdded": 12, "knownRansomwareCampaignUse": 12},
-    )
+    _print_sample_table(kev_sample)
 
     print("\n  Statistics:")
     print(f"    Total KEV entries:  {_fmt(kev['total_vulnerabilities'])}")
@@ -620,11 +617,7 @@ def _print_threat_report(
     _print_field_table(SHODAN_COLUMNS)
 
     print(f"\n  Sample (first {len(cves_sample['cve_id'])} rows):")
-    _print_sample_table(
-        cves_sample,
-        ["cve_id", "cvss", "epss", "kev", "vendor", "published_time"],
-        {"cve_id": 20, "cvss": 6, "epss": 8, "kev": 5, "vendor": 18, "published_time": 22},
-    )
+    _print_sample_table(cves_sample)
 
     print("\n  Statistics:")
     print(f"    CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
@@ -646,11 +639,7 @@ def _print_threat_report(
     _print_field_table(MERGED_COLUMNS)
 
     print(f"\n  Sample (first {len(consolidated_sample['cve_id'])} rows):")
-    _print_sample_table(
-        consolidated_sample,
-        ["cve_id", "sources", "vendor", "cvss", "epss", "known_ransomware"],
-        {"cve_id": 20, "sources": 20, "vendor": 18, "cvss": 6, "epss": 8, "known_ransomware": 12},
-    )
+    _print_sample_table(consolidated_sample)
 
     print("\n  Statistics:")
     print(f"    Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")
