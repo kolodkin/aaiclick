@@ -193,18 +193,23 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
 async def _insert_source(
     target_table: str,
     info: IngestQueryInfo,
-    target_columns: dict,
-    col_names: list[str],
+    target_types: dict[str, ColumnInfo],
     alias_index: int,
     ch_client,
 ) -> None:
     """Insert a single source into a target table.
 
-    Builds ``INSERT INTO target (cols) SELECT aai_id, CAST(...)
-    FROM source`` and executes it.
+    Args:
+        target_table: Destination table name.
+        info: Source query info.
+        target_types: Mapping of data column name to target ColumnInfo
+            (excludes ``aai_id``).  Column names are derived from the keys.
+        alias_index: Index used to alias subquery sources.
+        ch_client: ClickHouse client instance.
     """
+    col_names = sorted(target_types)
     cast_exprs = ", ".join(
-        f"CAST({col} AS {target_columns[col].ch_type()}) AS {col}"
+        f"CAST({col} AS {target_types[col].ch_type()}) AS {col}"
         for col in col_names
     )
     insert_cols = ", ".join(["aai_id"] + col_names)
@@ -282,9 +287,10 @@ async def concat_objects_db(
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
+    data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
     for i, info in enumerate(query_infos):
         await _insert_source(
-            result.table, info, result_columns, data_col_names, i, ch_client,
+            result.table, info, data_columns, i, ch_client,
         )
 
     return result
@@ -343,8 +349,9 @@ async def insert_objects_db(
                     f"for column '{col_name}': types are incompatible"
                 )
 
+        source_target_types = {col: target_columns[col] for col in col_names}
         await _insert_source(
-            target_info.base_table, info, target_columns, col_names, i, ch_client,
+            target_info.base_table, info, source_target_types, i, ch_client,
         )
 
 
