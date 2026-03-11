@@ -2,9 +2,13 @@
 Aggregation Table example for aaiclick.
 
 Demonstrates the multi-source aggregation pattern: multiple data sources
-with different schemas insert() into a shared table (missing nullable
-columns auto-fill with NULL), then collapse via group_by().agg() with
-any() to merge columns from different sources into a single row per key.
+with different schemas insert() into a shared AggregatingMergeTree table
+(missing nullable columns auto-fill with NULL), then collapse via
+group_by().agg() with any() to merge columns from different sources into
+a single row per key.
+
+Uses AggregatingMergeTree with ORDER BY on the key column so ClickHouse
+can optimize reads by key and merge parts efficiently.
 
 This pattern is used in the Cyber Threat Feeds pipeline to merge CVE data
 from CISA KEV, Shodan CVEDB, and other sources into one unified table.
@@ -13,8 +17,14 @@ from CISA KEV, Shodan CVEDB, and other sources into one unified table.
 import asyncio
 
 from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import data_context
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
+from aaiclick.data.data_context import data_context, get_ch_client
+from aaiclick.data.models import (
+    ENGINE_AGGREGATING_MERGE_TREE,
+    FIELDTYPE_ARRAY,
+    ColumnInfo,
+    Computed,
+    Schema,
+)
 
 
 async def example():
@@ -43,9 +53,9 @@ async def example():
     print()
 
     # ---------------------------------------------------------------
-    # Step 2: Create aggregation table and insert from each source
+    # Step 2: Create AggregatingMergeTree table with ORDER BY cve_id
     # ---------------------------------------------------------------
-    print("Step 2: Create aggregation table and insert from each source")
+    print("Step 2: Create AggregatingMergeTree table and insert from each source")
     print("-" * 50)
 
     schema = Schema(
@@ -60,8 +70,17 @@ async def example():
             "cvss": ColumnInfo("Float64", nullable=True),
             "epss": ColumnInfo("Float64", nullable=True),
         },
+        order_by="cve_id",
     )
-    agg = await create_object(schema)
+    agg = await create_object(schema, engine=ENGINE_AGGREGATING_MERGE_TREE)
+
+    # Verify engine and ORDER BY
+    ch = get_ch_client()
+    result = await ch.query(
+        f"SELECT engine, sorting_key FROM system.tables WHERE name = '{agg.table}'"
+    )
+    engine_name, sorting_key = result.result_rows[0]
+    print(f"  Engine: {engine_name}, ORDER BY: {sorting_key}")
 
     # Insert catalog with computed flag columns; score columns auto-fill NULL
     view_catalog = catalog.with_columns({
