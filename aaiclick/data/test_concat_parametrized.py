@@ -7,6 +7,7 @@ Tests array concatenation with objects, scalar values, and list values.
 import pytest
 
 from aaiclick import create_object, create_object_from_value
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
 
 THRESHOLD = 1e-5
 
@@ -348,3 +349,55 @@ async def test_concat_view_field_selection(ctx):
     data = await result.data()
 
     assert sorted(data) == [1, 2, 10, 20]
+
+
+async def test_concat_view_with_computed_columns(ctx):
+    """Concat a view with computed columns."""
+    obj_a = await create_object_from_value({
+        "name": ["alice"],
+        "active": [1],
+    })
+    obj_b = await create_object_from_value({
+        "name": ["bob", "carol"],
+    })
+
+    result = await obj_a.concat(obj_b.with_columns({
+        "active": Computed("UInt8", "1"),
+    }))
+    data = await result.data()
+
+    assert sorted(data["name"]) == ["alice", "bob", "carol"]
+    assert data["active"] == [1, 1, 1]
+
+
+async def test_concat_view_with_offset(ctx):
+    """Concat a view with OFFSET."""
+    obj_a = await create_object_from_value([1, 2])
+    obj_b = await create_object_from_value([10, 20, 30])
+
+    result = await obj_a.concat(obj_b.view(offset=1))
+    data = await result.data()
+
+    assert sorted(data) == [1, 2, 20, 30]
+
+
+async def test_concat_view_with_order_by(ctx):
+    """Concat a view with ORDER BY + LIMIT picks specific rows."""
+    obj_a = await create_object_from_value([100])
+    obj_b = await create_object_from_value([30, 10, 20])
+
+    result = await obj_a.concat(obj_b.view(order_by="value ASC", limit=2))
+    data = await result.data()
+
+    assert sorted(data) == [10, 20, 100]
+
+
+async def test_concat_view_chained_where(ctx):
+    """Concat a view with chained WHERE conditions."""
+    obj_a = await create_object_from_value([1])
+    obj_b = await create_object_from_value([5, 10, 15, 20, 25])
+
+    result = await obj_a.concat(obj_b.where("value > 5").where("value < 25"))
+    data = await result.data()
+
+    assert sorted(data) == [1, 10, 15, 20]

@@ -512,3 +512,36 @@ async def test_insert_rejects_extra_source_columns(ctx):
 
     with pytest.raises(ValueError, match="not in target"):
         await target.insert(src)
+
+
+async def test_insert_view_with_offset(ctx):
+    """Insert a view with OFFSET."""
+    src = await create_object_from_value([10, 20, 30])
+    target = await create_object_from_value([1, 2])
+
+    await target.insert(src.view(offset=1))
+    data = await target.data()
+
+    assert sorted(data) == [1, 2, 20, 30]
+
+
+async def test_insert_view_with_order_by(ctx):
+    """Insert a view with ORDER BY + LIMIT picks specific rows."""
+    src = await create_object_from_value([30, 10, 20])
+    target = await create_object_from_value([100])
+
+    await target.insert(src.view(order_by="value ASC", limit=2))
+    data = await target.data()
+
+    assert sorted(data) == [10, 20, 100]
+
+
+async def test_insert_view_chained_where(ctx):
+    """Insert a view with chained WHERE conditions."""
+    src = await create_object_from_value([5, 10, 15, 20, 25])
+    target = await create_object_from_value([1])
+
+    await target.insert(src.where("value > 5").where("value < 25"))
+    data = await target.data()
+
+    assert sorted(data) == [1, 10, 15, 20]
