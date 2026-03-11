@@ -284,7 +284,7 @@ async def concat_objects_db(
                     low_cardinality=target_def.low_cardinality,
                 )
 
-    schema = Schema(fieldtype=first_info.fieldtype, columns=result_columns)
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
     data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
