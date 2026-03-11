@@ -565,42 +565,49 @@ def _print_kev_report(report: dict) -> None:
 
 
 def _print_field_table(field_descriptions: dict[str, str], columns: dict[str, ColumnInfo]) -> None:
-    """Print a markdown-style table of field names, types, and descriptions."""
-    name_w = max(len(f) for f in field_descriptions)
+    """Print a markdown table of field names, types, and descriptions."""
     type_strs = {f: columns[f].ch_type() for f in field_descriptions if f in columns}
-    type_w = max(len(t) for t in type_strs.values()) if type_strs else 10
-    desc_w = max(len(d) for d in field_descriptions.values())
+    name_w = max(len("Field"), max(len(f) for f in field_descriptions))
+    type_w = max(len("Type"), max((len(t) for t in type_strs.values()), default=4))
+    desc_w = max(len("Description"), max(len(d) for d in field_descriptions.values()))
 
-    header = f"  {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s}"
-    sep = f"  {'-' * name_w}-+-{'-' * type_w}-+-{'-' * desc_w}"
-    print(header)
-    print(sep)
+    print(f"  | {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s} |")
+    print(f"  |{'-' * (name_w + 2)}|{'-' * (type_w + 2)}|{'-' * (desc_w + 2)}|")
     for field, desc in field_descriptions.items():
         col_type = type_strs.get(field, "—")
-        print(f"  {field:<{name_w}s} | {col_type:<{type_w}s} | {desc}")
+        print(f"  | {field:<{name_w}s} | {col_type:<{type_w}s} | {desc:<{desc_w}s} |")
 
 
 def _print_sample_table(sample: dict, display_columns: list[str], col_widths: dict[str, int]) -> None:
-    """Print first N rows of a sample dict as a formatted table."""
+    """Print first N rows of a sample dict as a markdown table."""
     if not sample or not display_columns:
         return
     first_col = display_columns[0]
     n_rows = len(sample[first_col])
 
-    header_parts = []
+    # Header row
+    header_cells = []
     for col in display_columns:
-        w = col_widths.get(col, 20)
-        header_parts.append(f"{col:<{w}s}" if w > 0 else f"{col:>{-w}s}")
-    print("  " + " ".join(header_parts))
+        w = abs(col_widths.get(col, 20))
+        header_cells.append(f" {col:<{w}s} ")
+    print("  |" + "|".join(header_cells) + "|")
 
+    # Separator row
+    sep_cells = []
+    for col in display_columns:
+        w = abs(col_widths.get(col, 20))
+        sep_cells.append("-" * (w + 2))
+    print("  |" + "|".join(sep_cells) + "|")
+
+    # Data rows
     for i in range(n_rows):
-        parts = []
+        cells = []
         for col in display_columns:
-            w = col_widths.get(col, 20)
+            w = abs(col_widths.get(col, 20))
             val = sample[col][i]
             s = _fmt(val) if isinstance(val, (int, float)) and val is not None else str(val) if val is not None else "N/A"
-            parts.append(f"{s:<{w}s}" if w > 0 else f"{s:>{-w}s}")
-        print("  " + " ".join(parts))
+            cells.append(f" {s:<{w}s} ")
+        print("  |" + "|".join(cells) + "|")
 
 
 def _print_threat_report(
