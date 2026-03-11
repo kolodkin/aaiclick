@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from .data_context import create_object
-from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
 
 
@@ -249,7 +249,7 @@ async def concat_objects_db(
         raise ValueError("concat requires at least 2 sources")
 
     first_info = query_infos[0]
-    if first_info.fieldtype != FIELDTYPE_ARRAY:
+    if first_info.fieldtype not in (FIELDTYPE_ARRAY, FIELDTYPE_DICT):
         raise ValueError("concat requires first source to have array fieldtype")
 
     # Validate all sources have compatible schemas and promote nullable
@@ -284,7 +284,7 @@ async def concat_objects_db(
                     low_cardinality=target_def.low_cardinality,
                 )
 
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
+    schema = Schema(fieldtype=first_info.fieldtype, columns=result_columns)
     result = await create_object(schema)
 
     data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
@@ -321,7 +321,7 @@ async def insert_objects_db(
     if not source_infos:
         return
 
-    if target_info.fieldtype != FIELDTYPE_ARRAY:
+    if target_info.fieldtype not in (FIELDTYPE_ARRAY, FIELDTYPE_DICT):
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
