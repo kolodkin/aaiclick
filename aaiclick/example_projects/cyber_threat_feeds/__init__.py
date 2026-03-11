@@ -32,6 +32,7 @@ from aaiclick.data.models import (
     ENGINE_AGGREGATING_MERGE_TREE,
     FIELDTYPE_ARRAY,
     ColumnInfo,
+    Computed,
     Schema,
 )
 from aaiclick.data.object import Object
@@ -340,10 +341,12 @@ MERGED_COLUMNS = {
 async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     """Build a consolidated AggregatingMergeTree table from all sources.
 
-    Inserts KEV and Shodan data into a shared table keyed by cve_id
-    with a 'source' tag per row, then collapses via GROUP BY with
-    groupArrayDistinct(source) to produce an Array(String) 'sources'
-    column tracking which feeds contributed each CVE.
+    Uses rename() + with_columns() to map each source's columns to the
+    consolidated schema, then insert() to load them into a shared
+    AggregatingMergeTree table keyed by cve_id. Extra source columns
+    are silently skipped by insert(). Finally collapses via GROUP BY
+    with groupArrayDistinct(source) to produce one row per CVE with
+    an Array(String) 'sources' column tracking which feeds contributed.
     """
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -352,27 +355,25 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
         order_by="cve_id",
     )
     agg = await create_object(schema)
-    ch = get_ch_client()
 
-    # Insert KEV data — map KEV column names to consolidated schema
-    await ch.command(
-        f"INSERT INTO {agg.table} "
-        f"(cve_id, source, vendor, product, "
-        f"vulnerability_name, short_description, date_added, known_ransomware) "
-        f"SELECT cveID, 'kev', vendorProject, product, "
-        f"vulnerabilityName, shortDescription, dateAdded, knownRansomwareCampaignUse "
-        f"FROM {kev.table}"
-    )
+    # KEV: rename camelCase columns to snake_case, add source tag
+    kev_view = kev.rename({
+        "cveID": "cve_id",
+        "vendorProject": "vendor",
+        "vulnerabilityName": "vulnerability_name",
+        "shortDescription": "short_description",
+        "dateAdded": "date_added",
+        "knownRansomwareCampaignUse": "known_ransomware",
+    }).with_columns({
+        "source": Computed("String", "'kev'"),
+    })
+    await agg.insert(kev_view)
 
-    # Insert Shodan data — score columns; vendor/product come from Shodan too
-    await ch.command(
-        f"INSERT INTO {agg.table} "
-        f"(cve_id, source, vendor, product, summary, "
-        f"cvss, cvss_v2, cvss_v3, epss, ranking_epss) "
-        f"SELECT cve_id, 'shodan', vendor, product, summary, "
-        f"cvss, cvss_v2, cvss_v3, epss, ranking_epss "
-        f"FROM {cves.table}"
-    )
+    # Shodan: already snake_case, just add source tag
+    shodan_view = cves.with_columns({
+        "source": Computed("String", "'shodan'"),
+    })
+    await agg.insert(shodan_view)
 
     # Collapse: merge rows per CVE with groupArrayDistinct for sources
     merged_schema = Schema(
@@ -380,6 +381,7 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
         columns=MERGED_COLUMNS,
     )
     merged = await create_object(merged_schema)
+    ch = get_ch_client()
     await ch.command(
         f"INSERT INTO {merged.table} "
         f"(cve_id, sources, vendor, product, vulnerability_name, "

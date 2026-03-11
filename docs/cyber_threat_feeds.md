@@ -178,10 +178,10 @@ load_shodan_cves -+
 ```
 
 **Tasks**:
-- `build_consolidated_table(kev, cves)` — Create AggregatingMergeTree table keyed by `cve_id`,
-  insert data from both KEV and Shodan with source-tracking flag columns (`in_kev`, `in_shodan`),
-  then collapse via `group_by('cve_id').agg()` with `any()`/`max()` to merge columns from
-  different sources into a single row per CVE.
+- `build_consolidated_table(kev, cves)` — Create AggregatingMergeTree table keyed by `cve_id`.
+  Uses `rename()` to map KEV camelCase columns to snake_case, `with_columns()` to add a `source`
+  tag per row, and `insert()` to load both sources (extra columns silently skipped). Collapses
+  via `groupArrayDistinct(source)` to produce one row per CVE with `Array(String)` sources column.
 - `analyze_consolidated(consolidated)` — Compute cross-source coverage stats:
   total unique CVEs, CVEs in both sources, KEV-only, Shodan-only, KEV with high EPSS.
 

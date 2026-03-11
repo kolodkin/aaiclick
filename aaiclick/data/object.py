@@ -168,6 +168,11 @@ class Object:
         """Get computed columns (None for base Object)."""
         return None
 
+    @property
+    def renamed_columns(self) -> Optional[Dict[str, str]]:
+        """Get renamed columns mapping old->new (None for base Object)."""
+        return None
+
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
         ref = {"object_type": "object", "table": self.table}
@@ -201,6 +206,7 @@ class Object:
             or self.order_by
             or self.selected_fields
             or self.computed_columns
+            or self.renamed_columns
         )
 
     def checkstale(self):
@@ -1210,6 +1216,52 @@ class Object:
             self._validate_expression(computed.expression)
         return View(self, computed_columns=columns)
 
+    def rename(self, columns: Dict[str, str]) -> "View":
+        """Rename columns, returning a View with aliased column names.
+
+        Synchronous — no database call. The renamed columns exist only
+        in the View's SELECT list as ``old_name AS new_name`` aliases.
+        The original Object column names are mapped to new names in the
+        View's schema, so insert() and other operations see the new names.
+
+        Args:
+            columns: Mapping of old_name -> new_name.
+
+        Returns:
+            View with renamed columns.
+
+        Raises:
+            ValueError: If columns is empty, old_name doesn't exist,
+                or new_name collides with an existing column.
+        """
+        self.checkstale()
+        if not columns:
+            raise ValueError("columns must be a non-empty dict")
+        if self._schema.fieldtype == FIELDTYPE_SCALAR:
+            raise ValueError("rename() cannot be used on scalar Objects")
+        existing = set(self._schema.columns.keys())
+        renamed_away = set(columns.keys())
+        effective = (existing - renamed_away) | set(columns.values())
+        for old_name, new_name in columns.items():
+            if old_name not in existing:
+                raise ValueError(
+                    f"Column '{old_name}' does not exist in schema"
+                )
+            if old_name == "aai_id":
+                raise ValueError("Cannot rename 'aai_id' column")
+        # Check for duplicate new names
+        new_names = list(columns.values())
+        if len(new_names) != len(set(new_names)):
+            raise ValueError("Duplicate new column names in rename mapping")
+        # Check collision: new names must not collide with non-renamed columns
+        kept = existing - renamed_away - {"aai_id"}
+        for new_name in new_names:
+            if new_name in kept:
+                raise ValueError(
+                    f"Renamed column '{new_name}' collides with existing column"
+                )
+        return View(self, renamed_columns=columns)
+
     # -----------------------------------------------------------------
     # Domain helpers — each delegates to with_columns()
     # -----------------------------------------------------------------
@@ -1750,6 +1802,7 @@ class View(Object):
         order_by: Optional[str] = None,
         selected_fields: Optional[List[str]] = None,
         computed_columns: Optional[Dict[str, Computed]] = None,
+        renamed_columns: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize a View.
@@ -1764,6 +1817,7 @@ class View(Object):
                              Single field [name] returns array-like view
                              Multiple fields returns dict-like view
             computed_columns: Optional dict of computed column definitions
+            renamed_columns: Optional dict mapping old_name -> new_name
         """
         super().__init__(table=source.table, schema=source._schema)
         self._where_clauses: List[Tuple[str, str]] = []
@@ -1774,6 +1828,7 @@ class View(Object):
         self._order_by = order_by
         self._selected_fields = selected_fields
         self._computed_columns: Optional[Dict[str, Computed]] = computed_columns
+        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns
 
         # Register with context for lifecycle tracking and stale marking
         if source._ctx is not None:
@@ -1810,6 +1865,11 @@ class View(Object):
         """Get computed columns."""
         return self._computed_columns
 
+    @property
+    def renamed_columns(self) -> Optional[Dict[str, str]]:
+        """Get renamed columns mapping old->new."""
+        return self._renamed_columns
+
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
         ref = {
@@ -1836,6 +1896,7 @@ class View(Object):
         new_view._order_by = self._order_by
         new_view._selected_fields = self.selected_fields
         new_view._computed_columns = self.computed_columns
+        new_view._renamed_columns = self._renamed_columns
         if self._ctx is not None:
             new_view._register(self._ctx)
             register_object(new_view, ctx=self._ctx)
@@ -1899,8 +1960,12 @@ class View(Object):
         if not columns:
             raise ValueError("columns must be a non-empty dict")
 
-        # Check collision with source schema columns
+        # Check collision with effective column names (after renames)
         existing = set(self._schema.columns.keys())
+        if self._renamed_columns:
+            existing = (existing - set(self._renamed_columns.keys())) | set(
+                self._renamed_columns.values()
+            )
         # Also check collision with already-computed columns
         if self.computed_columns:
             existing |= set(self.computed_columns.keys())
@@ -1922,6 +1987,7 @@ class View(Object):
         new_view._order_by = self._order_by
         new_view._selected_fields = self.selected_fields
         new_view._computed_columns = merged
+        new_view._renamed_columns = self._renamed_columns
         if self._ctx is not None:
             new_view._register(self._ctx)
             register_object(new_view, ctx=self._ctx)
@@ -1935,6 +2001,7 @@ class View(Object):
         For multi-field selection, selects all specified fields.
         If columns="value" is requested, only the value column is selected.
         Computed columns are appended as ``expr AS name`` aliases.
+        Renamed columns are emitted as ``old_name AS new_name`` aliases.
 
         Args:
             columns: Column specification (default "*", respected for field selection views)
@@ -1955,6 +2022,17 @@ class View(Object):
                 # Multiple fields: select all specified fields
                 fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
                 select_cols = f"aai_id, {fields_str}"
+        elif self._renamed_columns and columns == "*":
+            # Expand * into explicit columns with renames applied
+            renames = self._renamed_columns
+            col_parts = []
+            for col_name in self._schema.columns:
+                qname = quote_identifier(col_name)
+                if col_name in renames:
+                    col_parts.append(f"{qname} AS {quote_identifier(renames[col_name])}")
+                else:
+                    col_parts.append(qname)
+            select_cols = ", ".join(col_parts)
         else:
             select_cols = columns
 
@@ -2065,8 +2143,8 @@ class View(Object):
     def _get_ingest_query_info(self) -> IngestQueryInfo:
         """Build effective column schema for insert/concat validation.
 
-        Accounts for field selection (narrows columns) and computed
-        columns (adds new columns to the schema).
+        Accounts for field selection (narrows columns), computed
+        columns (adds new columns), and renamed columns (remaps names).
         """
         info = self._get_query_info()
         orig = self._schema.columns
@@ -2083,6 +2161,12 @@ class View(Object):
                 columns[f] = orig[f]
         else:
             columns = dict(orig)
+
+        # Apply renames: replace old keys with new keys
+        if self._renamed_columns:
+            for old_name, new_name in self._renamed_columns.items():
+                if old_name in columns:
+                    columns[new_name] = columns.pop(old_name)
 
         if self._computed_columns:
             for name, comp in self._computed_columns.items():

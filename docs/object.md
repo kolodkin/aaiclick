@@ -623,6 +623,34 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Tests**: `aaiclick/data/test_with_columns.py`
 
+## Column Renaming: `rename()` ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
+
+`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). No new table, no data copy — the rename exists only in the View's query. This enables inserting data from sources with different column naming conventions into a shared target table.
+
+```python
+# Rename camelCase columns to snake_case for a consolidated table
+kev_view = kev.rename({
+    "cveID": "cve_id",
+    "vendorProject": "vendor",
+    "vulnerabilityName": "vulnerability_name",
+}).with_columns({
+    "source": Computed("String", "'kev'"),
+})
+await consolidated.insert(kev_view)
+```
+
+**Key behaviors**:
+
+- Synchronous — creates a View, no database call needed. No `await`.
+- Chainable with `with_columns()`, `where()`, `select()`, and other View operations.
+- `aai_id` cannot be renamed.
+- New names must not collide with non-renamed column names.
+- `insert()` skips extra source columns not present in the target — no need to `select()` away unwanted columns.
+
+**Tests**: `aaiclick/data/test_rename.py`
+
 ## Test Files
 
 | Operator Group                  | Test File                        |
@@ -635,3 +663,4 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 | String/Regex Operators          | `test_regex_operators.py`        |
 | Insert (+ View flavors)         | `test_insert_parametrized.py`    |
 | Concat (+ View flavors)         | `test_concat_parametrized.py`    |
+| Rename + tolerant insert        | `test_rename.py`                 |
