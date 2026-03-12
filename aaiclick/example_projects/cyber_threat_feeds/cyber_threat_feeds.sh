@@ -9,7 +9,7 @@ set -e
 REPORT_LOG="tmp/cyber_threat_report.log"
 mkdir -p tmp
 
-echo "=== Cyber Threat Feeds Pipeline ==="
+echo "## Cyber Threat Feeds Pipeline"
 echo
 
 # Step 1: Register the job and capture its ID
@@ -61,16 +61,17 @@ wait $BACKGROUND_PID 2>/dev/null || true
 
 # Step 7: Display report from log
 echo
-echo "=== Threat Report Output ==="
+echo "### Threat Report Output"
+echo
 cat "$REPORT_LOG"
 
 echo
 if [ "$JOB_STATUS" = "COMPLETED" ]; then
-    echo "=== Pipeline completed successfully ==="
+    echo "Pipeline completed successfully."
 elif [ "$JOB_STATUS" = "FAILED" ]; then
-    echo "=== Pipeline FAILED ==="
+    echo "Pipeline FAILED."
     exit 1
 else
-    echo "=== Pipeline timed out (status: ${JOB_STATUS:-unknown}) ==="
+    echo "Pipeline timed out (status: ${JOB_STATUS:-unknown})."
     exit 1
 fi
