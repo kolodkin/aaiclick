@@ -629,16 +629,19 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     table and performs multi-source threat analysis.
 
     DAG Structure:
-        load_kev_data --+---> analyze_kev --> generate_kev_report -------------------------+
-                        |                                                                  |
-                        +---> build_consolidated_table --> analyze_consolidated --+         |
-                        |                                                        v         v
-        load_shodan_kev_cves ---+                                         generate_threat_report
-                                +--> combine_shodan_cves --+---> analyze_cvss_distribution --+
-        load_shodan_general_cves --+                       |                                 |
-                                                           +--> analyze_epss_distribution ---+
-                                                           |                                 |
-                                                           +--> find_high_risk_cves ---------+
+        load_kev_data ------+---> analyze_kev --> generate_kev_report ---------+
+                            |                                                  |
+                            +---------------------------+                      |
+                                                        v                      |
+        load_shodan_kev_cves ---+                 build_consolidated_table      |
+                                |                       |                      |
+                                +--> combine_shodan_cves +-> analyze_consolidated ---+
+                                |       |                                            v
+        load_shodan_general_cves +      +---> analyze_cvss_distribution ---> generate_threat_report
+                                        |                                   ^  ^
+                                        +--> analyze_epss_distribution -----+  |
+                                        |                                      |
+                                        +--> find_high_risk_cves --------------+
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
