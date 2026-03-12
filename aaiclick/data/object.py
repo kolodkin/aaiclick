@@ -368,21 +368,24 @@ class Object:
             # Array: return list of values
             return await data_extraction.extract_array_data(self)
 
-    async def markdown(self, max_width: int = 40) -> str:
+    async def markdown(self, truncate: Optional[Dict[str, int]] = None) -> str:
         """Return the object's data formatted as a markdown table.
 
         Fetches data via ``.data()`` and renders it as a plain-text markdown
-        table with auto-sized, capped column widths.  The internal ``aai_id``
-        column is omitted.
+        table with auto-sized column widths.  The internal ``aai_id`` column
+        is omitted.
 
         Args:
-            max_width: Maximum character width for any cell value.  Longer
-                values are truncated with an ellipsis (``…``).
+            truncate: Optional mapping of column name to maximum character
+                width.  Values longer than the limit are truncated with an
+                ellipsis (``…``).  Columns not present in the mapping are
+                never truncated.
 
         Returns:
             Multi-line string containing the markdown table.
         """
         raw = await self.data()
+        trunc = truncate or {}
 
         # For scalar / array data wrap into a single-column dict
         if not isinstance(raw, dict):
@@ -393,7 +396,7 @@ class Object:
             return ""
         n_rows = len(raw[columns[0]]) if isinstance(raw[columns[0]], list) else 1
 
-        def _cell(val: object) -> str:
+        def _cell(val: object, col: str) -> str:
             if val is None:
                 return "N/A"
             if isinstance(val, float):
@@ -402,8 +405,9 @@ class Object:
             # Sanitize: collapse newlines/tabs and escape pipes
             s = s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
             s = s.replace("\t", " ").replace("|", "\\|")
-            if len(s) > max_width:
-                return s[: max_width - 1] + "…"
+            limit = trunc.get(col)
+            if limit is not None and len(s) > limit:
+                return s[: limit - 1] + "…"
             return s
 
         # Ensure we can iterate rows uniformly
@@ -413,8 +417,10 @@ class Object:
 
         widths: Dict[str, int] = {}
         for col in columns:
-            max_val = max((len(_cell(_get(col, i))) for i in range(n_rows)), default=0)
-            widths[col] = min(max(len(col), max_val), max_width)
+            max_val = max((len(_cell(_get(col, i), col)) for i in range(n_rows)), default=0)
+            cap = trunc.get(col)
+            w = max(len(col), max_val)
+            widths[col] = min(w, cap) if cap is not None else w
 
         lines: List[str] = []
         header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
@@ -423,7 +429,7 @@ class Object:
         lines.append(sep)
         for i in range(n_rows):
             row = "| " + " | ".join(
-                f"{_cell(_get(col, i)):<{widths[col]}s}" for col in columns
+                f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns
             ) + " |"
             lines.append(row)
         return "\n".join(lines)
