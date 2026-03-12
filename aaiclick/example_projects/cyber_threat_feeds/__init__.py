@@ -113,26 +113,11 @@ async def analyze_kev_by_vendor(kev: Object) -> Object:
 
 @task
 async def analyze_kev_by_year(kev: Object) -> Object:
-    """KEV entries grouped by year added to the catalog.
-
-    Materializes toYear(dateAdded) into a 'year' column since group_by()
-    only accepts column names, not SQL expressions.
-    """
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "year": ColumnInfo("UInt16"),
-            "cveID": ColumnInfo("String"),
-        },
-    )
-    year_obj = await create_object(schema)
-    ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {year_obj.table} (year, cveID) "
-        f"SELECT toYear(dateAdded) AS year, cveID FROM {kev.table}"
-    )
-    return await year_obj.group_by("year").agg({"cveID": "count"})
+    """KEV entries grouped by year added to the catalog."""
+    kev_with_year = kev.with_columns({
+        "year": Computed("UInt16", "toYear(dateAdded)"),
+    })
+    return await kev_with_year.group_by("year").agg({"cveID": "count"})
 
 
 @task
@@ -391,16 +376,20 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     agg = await create_object(schema)
 
     # KEV: rename camelCase → snake_case, filter to date window, add source tag
-    ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {agg.table} "
-        f"(cve_id, source, vendor, product, vulnerability_name, "
-        f"short_description, date_added, known_ransomware) "
-        f"SELECT cveID, 'kev', vendorProject, product, vulnerabilityName, "
-        f"shortDescription, dateAdded, knownRansomwareCampaignUse "
-        f"FROM {kev.table} "
-        f"WHERE dateAdded >= '{START_DATE}' AND dateAdded < '{END_DATE}'"
+    kev_view = (
+        kev
+        .rename({
+            "cveID": "cve_id",
+            "vendorProject": "vendor",
+            "vulnerabilityName": "vulnerability_name",
+            "shortDescription": "short_description",
+            "dateAdded": "date_added",
+            "knownRansomwareCampaignUse": "known_ransomware",
+        })
+        .with_columns({"source": Computed("String", "'kev'")})
+        .where(f"dateAdded >= '{START_DATE}' AND dateAdded < '{END_DATE}'")
     )
+    await agg.insert(kev_view)
 
     # Shodan: already snake_case, just add source tag
     shodan_view = cves.with_columns({
@@ -409,6 +398,8 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     await agg.insert(shodan_view)
 
     # Collapse: merge rows per CVE with groupArrayDistinct for sources
+    # TODO: replace with agg API once groupArrayDistinct is supported
+    ch = get_ch_client()
     merged_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns=MERGED_COLUMNS,
@@ -433,34 +424,18 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
 @task
 async def analyze_consolidated(consolidated: Object) -> dict:
     """Analyze the consolidated table for cross-source coverage stats."""
-    ch = get_ch_client()
     total = await (await consolidated["cve_id"].count()).data()
 
-    # Count CVEs by source presence using has() on the sources array
-    both_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND has(sources, 'shodan')"
-    )
-    both_count = both_q.result_rows[0][0]
+    # Add computed boolean columns for source presence
+    tagged = consolidated.with_columns({
+        "has_kev": Computed("UInt8", "has(sources, 'kev')"),
+        "has_shodan": Computed("UInt8", "has(sources, 'shodan')"),
+    })
 
-    kev_only_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND NOT has(sources, 'shodan')"
-    )
-    kev_only_count = kev_only_q.result_rows[0][0]
-
-    shodan_only_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'shodan') AND NOT has(sources, 'kev')"
-    )
-    shodan_only_count = shodan_only_q.result_rows[0][0]
-
-    # High-risk from consolidated: in KEV + high EPSS
-    kev_high_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND epss > 0.5"
-    )
-    kev_high_epss = kev_high_q.result_rows[0][0]
+    both_count = await (await tagged.where("has_kev AND has_shodan")["cve_id"].count()).data()
+    kev_only_count = await (await tagged.where("has_kev AND NOT has_shodan")["cve_id"].count()).data()
+    shodan_only_count = await (await tagged.where("has_shodan AND NOT has_kev")["cve_id"].count()).data()
+    kev_high_epss = await (await tagged.where("has_kev AND epss > 0.5")["cve_id"].count()).data()
 
     stats = {
         "total_unique_cves": total,
