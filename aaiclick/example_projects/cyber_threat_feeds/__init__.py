@@ -216,7 +216,7 @@ async def load_shodan_cves(limit: int = 5000) -> Object:
     """
     kev_url = (
         f"{SHODAN_CVEDB_URL}"
-        f"?is_kev=true"
+        f"?is_kev=true&limit=5000"
         f"&start_date={START_DATE}&end_date={END_DATE}"
     )
     kev_cves = await create_object_from_url(
