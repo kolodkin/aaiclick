@@ -477,15 +477,9 @@ async def generate_threat_report(
         "consolidated": consolidated_stats,
     }
 
-    kev_md = await kev.view(limit=5).markdown(truncate={
-        "vulnerabilityName": 40, "shortDescription": 40, "requiredAction": 40, "notes": 30,
-    })
-    cves_md = await cves.view(limit=5).markdown(truncate={
-        "summary": 40, "references": 30,
-    })
-    consolidated_md = await consolidated.view(limit=5).markdown(truncate={
-        "vulnerability_name": 40, "short_description": 40, "summary": 40,
-    })
+    kev_md = await kev.view(limit=5).markdown()
+    cves_md = await cves.view(limit=5).markdown(truncate={"summary": 40})
+    consolidated_md = await consolidated.view(limit=5).markdown(truncate={"summary": 40})
 
     _print_threat_report(report, kev_md, cves_md, consolidated_md)
     return report
