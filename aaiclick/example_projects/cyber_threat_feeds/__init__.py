@@ -477,11 +477,11 @@ async def generate_threat_report(
         "consolidated": consolidated_stats,
     }
 
-    kev_sample = await kev.view(limit=5).data()
-    cves_sample = await cves.view(limit=5).data()
-    consolidated_sample = await consolidated.view(limit=5).data()
+    kev_md = await kev.view(limit=5).markdown()
+    cves_md = await cves.view(limit=5).markdown()
+    consolidated_md = await consolidated.view(limit=5).markdown()
 
-    _print_threat_report(report, kev_sample, cves_sample, consolidated_sample)
+    _print_threat_report(report, kev_md, cves_md, consolidated_md)
     return report
 
 
@@ -536,44 +536,18 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
         print(f"  | {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
 
 
-def _print_sample_table(sample: dict) -> None:
-    """Print first N rows of a sample dict as a markdown table.
 
-    Shows all columns from the sample, auto-sizing widths.
-    Skips the internal 'aai_id' column.
-    """
-    columns = [c for c in sample if c != "aai_id"]
-    if not columns:
-        return
-    n_rows = len(sample[columns[0]])
-
-    def _cell(val: object) -> str:
-        if val is None:
-            return "N/A"
-        if isinstance(val, float):
-            return f"{val:.2f}"
-        return str(val)
-
-    # Compute column widths from header + all data values
-    widths: dict[str, int] = {}
-    for col in columns:
-        max_val = max((len(_cell(sample[col][i])) for i in range(n_rows)), default=0)
-        widths[col] = max(len(col), max_val)
-
-    header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
-    sep = "|" + "|".join("-" * (widths[col] + 2) for col in columns) + "|"
-    print(f"  {header}")
-    print(f"  {sep}")
-    for i in range(n_rows):
-        row = "| " + " | ".join(f"{_cell(sample[col][i]):<{widths[col]}s}" for col in columns) + " |"
-        print(f"  {row}")
+def _print_md_table(md: str) -> None:
+    """Print a pre-rendered markdown table with 2-space indent."""
+    for line in md.splitlines():
+        print(f"  {line}")
 
 
 def _print_threat_report(
     report: dict,
-    kev_sample: dict,
-    cves_sample: dict,
-    consolidated_sample: dict,
+    kev_md: str,
+    cves_md: str,
+    consolidated_md: str,
 ) -> None:
     """Print unified threat intelligence report."""
     print("\n" + "=" * 70)
@@ -591,8 +565,8 @@ def _print_threat_report(
     print("\n  Field Schema:")
     _print_field_table(KEV_COLUMNS)
 
-    print(f"\n  Sample (first {len(kev_sample['cveID'])} rows):")
-    _print_sample_table(kev_sample)
+    print("\n  Sample (first 5 rows):")
+    _print_md_table(kev_md)
 
     print("\n  Statistics:")
     print(f"    Total KEV entries:  {_fmt(kev['total_vulnerabilities'])}")
@@ -616,8 +590,8 @@ def _print_threat_report(
     print("\n  Field Schema:")
     _print_field_table(SHODAN_COLUMNS)
 
-    print(f"\n  Sample (first {len(cves_sample['cve_id'])} rows):")
-    _print_sample_table(cves_sample)
+    print("\n  Sample (first 5 rows):")
+    _print_md_table(cves_md)
 
     print("\n  Statistics:")
     print(f"    CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
@@ -638,8 +612,8 @@ def _print_threat_report(
     print("\n  Field Schema:")
     _print_field_table(MERGED_COLUMNS)
 
-    print(f"\n  Sample (first {len(consolidated_sample['cve_id'])} rows):")
-    _print_sample_table(consolidated_sample)
+    print("\n  Sample (first 5 rows):")
+    _print_md_table(consolidated_md)
 
     print("\n  Statistics:")
     print(f"    Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")

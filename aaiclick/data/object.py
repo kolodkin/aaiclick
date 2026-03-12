@@ -368,6 +368,66 @@ class Object:
             # Array: return list of values
             return await data_extraction.extract_array_data(self)
 
+    async def markdown(self, max_width: int = 40) -> str:
+        """Return the object's data formatted as a markdown table.
+
+        Fetches data via ``.data()`` and renders it as a plain-text markdown
+        table with auto-sized, capped column widths.  The internal ``aai_id``
+        column is omitted.
+
+        Args:
+            max_width: Maximum character width for any cell value.  Longer
+                values are truncated with an ellipsis (``…``).
+
+        Returns:
+            Multi-line string containing the markdown table.
+        """
+        raw = await self.data()
+
+        # For scalar / array data wrap into a single-column dict
+        if not isinstance(raw, dict):
+            raw = {"value": raw if isinstance(raw, list) else [raw]}
+
+        columns = [c for c in raw if c != "aai_id"]
+        if not columns:
+            return ""
+        n_rows = len(raw[columns[0]]) if isinstance(raw[columns[0]], list) else 1
+
+        def _cell(val: object) -> str:
+            if val is None:
+                return "N/A"
+            if isinstance(val, float):
+                return f"{val:.2f}"
+            s = str(val)
+            # Sanitize: collapse newlines/tabs and escape pipes
+            s = s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+            s = s.replace("\t", " ").replace("|", "\\|")
+            if len(s) > max_width:
+                return s[: max_width - 1] + "…"
+            return s
+
+        # Ensure we can iterate rows uniformly
+        def _get(col: str, i: int) -> object:
+            v = raw[col]
+            return v[i] if isinstance(v, list) else v
+
+        widths: Dict[str, int] = {}
+        for col in columns:
+            max_val = max((len(_cell(_get(col, i))) for i in range(n_rows)), default=0)
+            widths[col] = min(max(len(col), max_val), max_width)
+
+        lines: List[str] = []
+        header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
+        sep = "|" + "|".join("-" * (w + 2) for w in (widths[col] for col in columns)) + "|"
+        lines.append(header)
+        lines.append(sep)
+        for i in range(n_rows):
+            row = "| " + " | ".join(
+                f"{_cell(_get(col, i)):<{widths[col]}s}" for col in columns
+            ) + " |"
+            lines.append(row)
+        return "\n".join(lines)
+
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
         self.checkstale()
