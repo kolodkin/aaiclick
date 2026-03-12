@@ -50,7 +50,7 @@ SHODAN_CVEDB_URL = "https://cvedb.shodan.io/cves"
 
 # Shared date window — both sources are filtered to this range so the
 # consolidated table has meaningful cross-source overlap.
-START_DATE = "2023-01-01"
+START_DATE = "2025-01-01"
 END_DATE = "2026-01-01"
 
 # =============================================================================
