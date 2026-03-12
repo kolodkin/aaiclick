@@ -200,21 +200,49 @@ async def generate_kev_report(
 async def load_shodan_cves(limit: int = 5000) -> Object:
     """Load CVE data from Shodan CVEDB with EPSS scores.
 
-    Uses date range filtering to target CVEs old enough to have EPSS scores
-    computed. The Shodan API returns newest CVEs first by default, and recent
-    CVEs typically have null EPSS values since scoring takes time.
+    Fetches two batches and deduplicates by cve_id:
+    1. All KEV-flagged CVEs (is_kev=true) — ensures overlap with CISA KEV
+    2. General recent CVEs up to ``limit`` — broader coverage
+
+    The Shodan API returns newest CVEs first, so the general batch covers
+    recent entries while the KEV batch ensures cross-source matches.
     """
-    url = (
-        f"{SHODAN_CVEDB_URL}"
-        f"?limit={limit}"
-        f"&start_date=2024-01-01&end_date=2026-01-01"
-    )
-    return await create_object_from_url(
-        url=url,
+    kev_url = f"{SHODAN_CVEDB_URL}?is_kev=true"
+    kev_cves = await create_object_from_url(
+        url=kev_url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
+
+    general_url = f"{SHODAN_CVEDB_URL}?limit={limit}"
+    general_cves = await create_object_from_url(
+        url=general_url,
+        format="RawBLOB",
+        json_path="cves",
+        json_columns=SHODAN_COLUMNS,
+    )
+
+    # Merge both batches and deduplicate by cve_id
+    combined_schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=SHODAN_COLUMNS,
+    )
+    combined = await create_object(combined_schema)
+    ch = get_ch_client()
+    col_list = ", ".join(c for c in SHODAN_COLUMNS if c != "aai_id")
+    await ch.command(
+        f"INSERT INTO {combined.table} ({col_list}) "
+        f"SELECT {col_list} FROM ("
+        f"  SELECT *, row_number() OVER (PARTITION BY cve_id ORDER BY cve_id) AS rn "
+        f"  FROM ("
+        f"    SELECT {col_list} FROM {kev_cves.table} "
+        f"    UNION ALL "
+        f"    SELECT {col_list} FROM {general_cves.table}"
+        f"  )"
+        f") WHERE rn = 1"
+    )
+    return combined
 
 
 @task
