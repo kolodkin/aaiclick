@@ -5,6 +5,7 @@ Tests for Object view functionality.
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.data.models import Computed
 
 
 async def test_view_where_limit(ctx):
@@ -158,6 +159,56 @@ async def test_view_where_with_dict_object(ctx):
     result = await view.data()
     assert result["category"] == ["B", "C", "A"]
     assert result["amount"] == [20, 30, 40]
+
+
+async def test_view_getitem_preserves_where(ctx):
+    """__getitem__ on a filtered View preserves the WHERE clause."""
+    obj = await create_object_from_value({
+        "category": ["A", "B", "C", "A", "B"],
+        "amount": [10, 20, 30, 40, 50],
+    })
+    filtered = obj.where("amount > 25")
+    # Without the fix, ["category"] would create a fresh View losing the WHERE
+    col_view = filtered["category"]
+    result = await col_view.data()
+    assert result == ["C", "A", "B"]
+
+
+async def test_view_getitem_preserves_computed_columns(ctx):
+    """__getitem__ on a View with computed columns preserves them."""
+    obj = await create_object_from_value({
+        "x": [1, 2, 3, 4, 5],
+        "y": [10, 20, 30, 40, 50],
+    })
+    tagged = obj.with_columns({"big": Computed("UInt8", "y > 25")})
+    filtered = tagged.where("big")
+    col = filtered["x"]
+    result = await col.data()
+    assert result == [3, 4, 5]
+
+
+async def test_view_where_getitem_count(ctx):
+    """Chaining where() + __getitem__ + count() returns filtered count."""
+    obj = await create_object_from_value({
+        "name": ["a", "b", "c", "d", "e"],
+        "score": [10, 20, 30, 40, 50],
+    })
+    high = obj.where("score >= 30")
+    count = await (await high["name"].count()).data()
+    assert count == 3
+
+
+async def test_view_rename_preserves_where(ctx):
+    """rename() on a filtered View preserves the WHERE clause."""
+    obj = await create_object_from_value({
+        "category": ["A", "B", "C"],
+        "amount": [10, 20, 30],
+    })
+    filtered = obj.where("amount > 15")
+    renamed = filtered.rename({"category": "cat"})
+    result = await renamed.data()
+    assert result["cat"] == ["B", "C"]
+    assert result["amount"] == [20, 30]
 
 
 async def test_view_or_where_with_group_by(ctx):

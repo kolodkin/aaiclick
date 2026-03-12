@@ -48,37 +48,42 @@ CISA_KEV_URL = (
 
 SHODAN_CVEDB_URL = "https://cvedb.shodan.io/cves"
 
+# Shared date window — both sources are filtered to this range so the
+# consolidated table has meaningful cross-source overlap.
+START_DATE = "2025-01-01"
+END_DATE = "2026-01-01"
+
 # =============================================================================
 # Column definitions
 # =============================================================================
 
 KEV_COLUMNS = {
-    "cveID": ColumnInfo("String"),
-    "vendorProject": ColumnInfo("String"),
-    "product": ColumnInfo("String"),
-    "vulnerabilityName": ColumnInfo("String"),
-    "dateAdded": ColumnInfo("Date"),
-    "shortDescription": ColumnInfo("String"),
-    "requiredAction": ColumnInfo("String"),
-    "dueDate": ColumnInfo("Date"),
-    "knownRansomwareCampaignUse": ColumnInfo("String"),
-    "notes": ColumnInfo("String", nullable=True),
-    "cwes": ColumnInfo("String", array=True),
+    "cveID": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "vendorProject": ColumnInfo("String", description="Vendor or project name"),
+    "product": ColumnInfo("String", description="Affected product name"),
+    "vulnerabilityName": ColumnInfo("String", description="Human-readable vulnerability title"),
+    "dateAdded": ColumnInfo("Date", description="Date added to KEV catalog"),
+    "shortDescription": ColumnInfo("String", description="Brief vulnerability description"),
+    "requiredAction": ColumnInfo("String", description="Required remediation action"),
+    "dueDate": ColumnInfo("Date", description="Deadline for required action"),
+    "knownRansomwareCampaignUse": ColumnInfo("String", description="'Known' if linked to ransomware, else 'Unknown'"),
+    "notes": ColumnInfo("String", nullable=True, description="Additional notes"),
+    "cwes": ColumnInfo("String", array=True, description="Associated CWE identifiers"),
 }
 
 SHODAN_COLUMNS = {
-    "cve_id": ColumnInfo("String"),
-    "summary": ColumnInfo("String"),
-    "cvss": ColumnInfo("Float64", nullable=True),
-    "cvss_v2": ColumnInfo("Float64", nullable=True),
-    "cvss_v3": ColumnInfo("Float64", nullable=True),
-    "epss": ColumnInfo("Float64", nullable=True),
-    "ranking_epss": ColumnInfo("Float64", nullable=True),
-    "kev": ColumnInfo("Bool"),
-    "published_time": ColumnInfo("String"),
-    "vendor": ColumnInfo("String", nullable=True),
-    "product": ColumnInfo("String", nullable=True),
-    "references": ColumnInfo("String", array=True),
+    "cve_id": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "summary": ColumnInfo("String", description="Vulnerability description text"),
+    "cvss": ColumnInfo("Float64", nullable=True, description="Combined CVSS score"),
+    "cvss_v2": ColumnInfo("Float64", nullable=True, description="CVSS v2.0 base score"),
+    "cvss_v3": ColumnInfo("Float64", nullable=True, description="CVSS v3.x base score"),
+    "epss": ColumnInfo("Float64", nullable=True, description="EPSS exploitation probability 0-1"),
+    "ranking_epss": ColumnInfo("Float64", nullable=True, description="EPSS percentile ranking 0-1"),
+    "kev": ColumnInfo("Bool", description="Whether CVE is in CISA KEV catalog"),
+    "published_time": ColumnInfo("String", description="CVE publication datetime (ISO 8601)"),
+    "vendor": ColumnInfo("String", nullable=True, description="Vendor name"),
+    "product": ColumnInfo("String", nullable=True, description="Product name"),
+    "references": ColumnInfo("String", array=True, description="Reference URLs"),
 }
 
 
@@ -108,26 +113,11 @@ async def analyze_kev_by_vendor(kev: Object) -> Object:
 
 @task
 async def analyze_kev_by_year(kev: Object) -> Object:
-    """KEV entries grouped by year added to the catalog.
-
-    Materializes toYear(dateAdded) into a 'year' column since group_by()
-    only accepts column names, not SQL expressions.
-    """
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "year": ColumnInfo("UInt16"),
-            "cveID": ColumnInfo("String"),
-        },
-    )
-    year_obj = await create_object(schema)
-    ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {year_obj.table} (year, cveID) "
-        f"SELECT toYear(dateAdded) AS year, cveID FROM {kev.table}"
-    )
-    return await year_obj.group_by("year").agg({"cveID": "count"})
+    """KEV entries grouped by year added to the catalog."""
+    kev_with_year = kev.with_columns({
+        "year": Computed("UInt16", "toYear(dateAdded)"),
+    })
+    return await kev_with_year.group_by("year").agg({"cveID": "count"})
 
 
 @task
@@ -197,17 +187,16 @@ async def generate_kev_report(
 
 
 @task
-async def load_shodan_cves(limit: int = 5000) -> Object:
-    """Load CVE data from Shodan CVEDB with EPSS scores.
+async def load_shodan_kev_cves() -> Object:
+    """Load KEV-flagged CVEs from Shodan CVEDB.
 
-    Uses date range filtering to target CVEs old enough to have EPSS scores
-    computed. The Shodan API returns newest CVEs first by default, and recent
-    CVEs typically have null EPSS values since scoring takes time.
+    Uses is_kev=true to fetch CVEs that Shodan knows are in the CISA KEV
+    catalog, ensuring cross-source overlap in the consolidated table.
     """
     url = (
         f"{SHODAN_CVEDB_URL}"
-        f"?limit={limit}"
-        f"&start_date=2024-01-01&end_date=2026-01-01"
+        f"?is_kev=true&limit=5000"
+        f"&start_date={START_DATE}&end_date={END_DATE}"
     )
     return await create_object_from_url(
         url=url,
@@ -215,6 +204,36 @@ async def load_shodan_cves(limit: int = 5000) -> Object:
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
+
+
+@task
+async def load_shodan_general_cves(limit: int = 5000) -> Object:
+    """Load non-KEV CVEs from Shodan CVEDB.
+
+    Uses is_kev=false to fetch general CVEs that are not in CISA KEV,
+    providing broader vulnerability coverage with EPSS scores.
+    """
+    url = (
+        f"{SHODAN_CVEDB_URL}"
+        f"?is_kev=false&limit={limit}"
+        f"&start_date={START_DATE}&end_date={END_DATE}"
+    )
+    return await create_object_from_url(
+        url=url,
+        format="RawBLOB",
+        json_path="cves",
+        json_columns=SHODAN_COLUMNS,
+    )
+
+
+@task
+async def combine_shodan_cves(kev_cves: Object, general_cves: Object) -> Object:
+    """Combine KEV-flagged and general Shodan CVEs into a single Object.
+
+    Since is_kev=true and is_kev=false return disjoint sets, no
+    deduplication is needed.
+    """
+    return await kev_cves.concat(general_cves)
 
 
 @task
@@ -320,20 +339,20 @@ CONSOLIDATED_COLUMNS = {
 
 MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
-    "cve_id": ColumnInfo("String"),
-    "sources": ColumnInfo("String", array=True),
-    "vendor": ColumnInfo("String", nullable=True),
-    "product": ColumnInfo("String", nullable=True),
-    "vulnerability_name": ColumnInfo("String", nullable=True),
-    "short_description": ColumnInfo("String", nullable=True),
-    "date_added": ColumnInfo("Date", nullable=True),
-    "known_ransomware": ColumnInfo("String", nullable=True),
-    "cvss": ColumnInfo("Float64", nullable=True),
-    "cvss_v2": ColumnInfo("Float64", nullable=True),
-    "cvss_v3": ColumnInfo("Float64", nullable=True),
-    "epss": ColumnInfo("Float64", nullable=True),
-    "ranking_epss": ColumnInfo("Float64", nullable=True),
-    "summary": ColumnInfo("String", nullable=True),
+    "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
+    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan']"),
+    "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
+    "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
+    "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
+    "short_description": ColumnInfo("String", nullable=True, description="Brief description from KEV"),
+    "date_added": ColumnInfo("Date", nullable=True, description="Date added to KEV catalog"),
+    "known_ransomware": ColumnInfo("String", nullable=True, description="Ransomware campaign linkage"),
+    "cvss": ColumnInfo("Float64", nullable=True, description="Combined CVSS score"),
+    "cvss_v2": ColumnInfo("Float64", nullable=True, description="CVSS v2.0 base score"),
+    "cvss_v3": ColumnInfo("Float64", nullable=True, description="CVSS v3.x base score"),
+    "epss": ColumnInfo("Float64", nullable=True, description="EPSS exploitation probability 0-1"),
+    "ranking_epss": ColumnInfo("Float64", nullable=True, description="EPSS percentile ranking 0-1"),
+    "summary": ColumnInfo("String", nullable=True, description="Vulnerability description from Shodan"),
 }
 
 
@@ -356,17 +375,20 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     )
     agg = await create_object(schema)
 
-    # KEV: rename camelCase columns to snake_case, add source tag
-    kev_view = kev.rename({
-        "cveID": "cve_id",
-        "vendorProject": "vendor",
-        "vulnerabilityName": "vulnerability_name",
-        "shortDescription": "short_description",
-        "dateAdded": "date_added",
-        "knownRansomwareCampaignUse": "known_ransomware",
-    }).with_columns({
-        "source": Computed("String", "'kev'"),
-    })
+    # KEV: rename camelCase → snake_case, filter to date window, add source tag
+    kev_view = (
+        kev
+        .rename({
+            "cveID": "cve_id",
+            "vendorProject": "vendor",
+            "vulnerabilityName": "vulnerability_name",
+            "shortDescription": "short_description",
+            "dateAdded": "date_added",
+            "knownRansomwareCampaignUse": "known_ransomware",
+        })
+        .with_columns({"source": Computed("String", "'kev'")})
+        .where(f"dateAdded >= '{START_DATE}' AND dateAdded < '{END_DATE}'")
+    )
     await agg.insert(kev_view)
 
     # Shodan: already snake_case, just add source tag
@@ -376,12 +398,13 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     await agg.insert(shodan_view)
 
     # Collapse: merge rows per CVE with groupArrayDistinct for sources
+    # TODO: replace with agg API once groupArrayDistinct is supported
+    ch = get_ch_client()
     merged_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns=MERGED_COLUMNS,
     )
     merged = await create_object(merged_schema)
-    ch = get_ch_client()
     await ch.command(
         f"INSERT INTO {merged.table} "
         f"(cve_id, sources, vendor, product, vulnerability_name, "
@@ -401,34 +424,18 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
 @task
 async def analyze_consolidated(consolidated: Object) -> dict:
     """Analyze the consolidated table for cross-source coverage stats."""
-    ch = get_ch_client()
     total = await (await consolidated["cve_id"].count()).data()
 
-    # Count CVEs by source presence using has() on the sources array
-    both_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND has(sources, 'shodan')"
-    )
-    both_count = both_q.result_rows[0][0]
+    # Add computed boolean columns for source presence
+    tagged = consolidated.with_columns({
+        "has_kev": Computed("UInt8", "has(sources, 'kev')"),
+        "has_shodan": Computed("UInt8", "has(sources, 'shodan')"),
+    })
 
-    kev_only_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND NOT has(sources, 'shodan')"
-    )
-    kev_only_count = kev_only_q.result_rows[0][0]
-
-    shodan_only_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'shodan') AND NOT has(sources, 'kev')"
-    )
-    shodan_only_count = shodan_only_q.result_rows[0][0]
-
-    # High-risk from consolidated: in KEV + high EPSS
-    kev_high_q = await ch.query(
-        f"SELECT count() FROM {consolidated.table} "
-        f"WHERE has(sources, 'kev') AND epss > 0.5"
-    )
-    kev_high_epss = kev_high_q.result_rows[0][0]
+    both_count = await (await tagged.where("has_kev AND has_shodan")["cve_id"].count()).data()
+    kev_only_count = await (await tagged.where("has_kev AND NOT has_shodan")["cve_id"].count()).data()
+    shodan_only_count = await (await tagged.where("has_shodan AND NOT has_kev")["cve_id"].count()).data()
+    kev_high_epss = await (await tagged.where("has_kev AND epss > 0.5")["cve_id"].count()).data()
 
     stats = {
         "total_unique_cves": total,
@@ -461,6 +468,7 @@ def _print_consolidated_stats(stats: dict) -> None:
 async def generate_threat_report(
     kev: Object,
     cves: Object,
+    consolidated: Object,
     kev_report: dict,
     cvss_stats: dict,
     epss_stats: dict,
@@ -476,10 +484,11 @@ async def generate_threat_report(
         "consolidated": consolidated_stats,
     }
 
-    kev_sample = await kev.view(limit=10).data()
-    cves_sample = await cves.view(limit=10).data()
+    kev_md = await kev.view(limit=5).markdown()
+    cves_md = await cves.view(limit=5).markdown(truncate={"summary": 40})
+    consolidated_md = await consolidated.view(limit=5).markdown(truncate={"summary": 40})
 
-    _print_threat_report(report, kev_sample, cves_sample)
+    _print_threat_report(report, kev_md, cves_md, consolidated_md)
     return report
 
 
@@ -498,99 +507,114 @@ def _fmt(value: object) -> str:
 def _print_kev_report(report: dict) -> None:
     """Print CISA KEV analysis report."""
     kev = report["kev_summary"]
-    print("\n" + "=" * 60)
-    print("CISA KEV ANALYSIS REPORT")
-    print("=" * 60)
+    print("\n### CISA KEV Analysis Report\n")
+    print(f"- Total KEV entries: {_fmt(kev['total_vulnerabilities'])}")
+    print(f"- Ransomware-linked: {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
 
-    print(f"\n  Total KEV entries:        {_fmt(kev['total_vulnerabilities'])}")
-    print(f"  Ransomware-linked:        {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
-
-    print("\n--- Top 10 Vendors by KEV Count ---")
+    print("\n#### Top 10 Vendors by KEV Count\n")
     for vendor, count in kev["top_vendors"].items():
-        print(f"  {vendor:<30s} {count:>5}")
+        print(f"- {vendor}: {count}")
 
-    print("\n--- KEV Entries by Year ---")
+    print("\n#### KEV Entries by Year\n")
     for year, count in kev["by_year"].items():
-        print(f"  {year}  {count:>5}")
+        print(f"- {year}: {count}")
 
-    print("=" * 60)
+
+def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
+    """Print a markdown table of field names, types, and descriptions.
+
+    Skips columns without a description (e.g. internal aai_id).
+    """
+    described = {f: c for f, c in columns.items() if c.description}
+    if not described:
+        return
+    name_w = max(len("Field"), max(len(f) for f in described))
+    type_w = max(len("Type"), max(len(c.ch_type()) for c in described.values()))
+    desc_w = max(len("Description"), max(len(c.description) for c in described.values()))
+
+    print(f"| {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s} |")
+    print(f"|{'-' * (name_w + 2)}|{'-' * (type_w + 2)}|{'-' * (desc_w + 2)}|")
+    for field, col in described.items():
+        print(f"| {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
+
+
+
+def _print_md_table(md: str) -> None:
+    """Print a pre-rendered markdown table."""
+    for line in md.splitlines():
+        print(line)
 
 
 def _print_threat_report(
     report: dict,
-    kev_sample: dict,
-    cves_sample: dict,
+    kev_md: str,
+    cves_md: str,
+    consolidated_md: str,
 ) -> None:
     """Print unified threat intelligence report."""
-    print("\n" + "=" * 60)
-    print("CYBER THREAT INTELLIGENCE REPORT")
-    print("=" * 60)
+    print("\n## Cyber Threat Intelligence Report\n")
 
-    print("\n--- Data Sources ---")
-    print(f"  CISA KEV:     {CISA_KEV_URL}")
-    print(f"    Total rows: {_fmt(report['kev']['total_vulnerabilities'])}")
-    print(f"  Shodan CVEDB: {SHODAN_CVEDB_URL}")
-    print(f"    Total rows: {_fmt(report['high_risk']['total_cves'])}")
-
+    # ---- Source 1: CISA KEV ----
     kev = report["kev"]
-    print("\n--- CISA KEV Summary ---")
-    print(f"  Total KEV entries:     {_fmt(kev['total_vulnerabilities'])}")
-    print(f"  Ransomware-linked:     {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
+    print("### Source 1: CISA KEV (Known Exploited Vulnerabilities)\n")
+    print(f"URL: {CISA_KEV_URL}")
+    print(f"Total rows: {_fmt(kev['total_vulnerabilities'])}\n")
 
-    print("\n--- KEV Sample (first 10 rows) ---")
-    print(f"  {'CVE ID':<20s} {'Vendor':<20s} {'Product':<20s} {'Date Added'}")
-    for i in range(len(kev_sample["cveID"])):
-        print(
-            f"  {str(kev_sample['cveID'][i]):<20s} "
-            f"{str(kev_sample['vendorProject'][i]):<20s} "
-            f"{str(kev_sample['product'][i]):<20s} "
-            f"{kev_sample['dateAdded'][i]}"
-        )
+    print("#### Field Schema\n")
+    _print_field_table(KEV_COLUMNS)
 
+    print("\n#### Sample (first 5 rows)\n")
+    _print_md_table(kev_md)
+
+    print("\n#### Statistics\n")
+    print(f"- Total KEV entries: {_fmt(kev['total_vulnerabilities'])}")
+    print(f"- Ransomware-linked: {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
+    print("- Top 5 vendors:")
+    for i, (vendor, count) in enumerate(kev["top_vendors"].items()):
+        if i >= 5:
+            break
+        print(f"  - {vendor}: {count}")
+
+    # ---- Source 2: Shodan CVEDB ----
     cvss = report["cvss_distribution"]
-    print("\n--- CVSS Score Distribution ---")
-    print(f"  Mean:     {_fmt(cvss['avg'])}")
-    print(f"  Std:      {_fmt(cvss['std'])}")
-    print(f"  Median:   {_fmt(cvss['median'])}")
-    print(f"  P90:      {_fmt(cvss['p90'])}")
-    print(f"  P99:      {_fmt(cvss['p99'])}")
-    print(f"  Critical (>=9.0): {_fmt(cvss['critical_pct'])}%")
-    print(f"  High (7.0-8.9):   {_fmt(cvss['high_pct'])}%")
-
     epss = report["epss_distribution"]
-    print("\n--- EPSS Score Distribution ---")
-    print(f"  Mean:     {_fmt(epss['avg'])}")
-    print(f"  Median:   {_fmt(epss['median'])}")
-    print(f"  P90:      {_fmt(epss['p90'])}")
-    print(f"  P99:      {_fmt(epss['p99'])}")
-    print(f"  High probability (>0.5): {_fmt(epss['high_probability_pct'])}%")
-
-    print("\n--- Shodan CVEDB Sample (first 10 rows) ---")
-    print(f"  {'CVE ID':<20s} {'CVSS':>6s} {'EPSS':>8s} {'KEV':>5s}")
-    for i in range(len(cves_sample["cve_id"])):
-        cvss_val = cves_sample["cvss"][i]
-        epss_val = cves_sample["epss"][i]
-        print(
-            f"  {str(cves_sample['cve_id'][i]):<20s} "
-            f"{_fmt(cvss_val) if cvss_val is not None else 'N/A':>6s} "
-            f"{_fmt(epss_val) if epss_val is not None else 'N/A':>8s} "
-            f"{'Yes' if cves_sample['kev'][i] else 'No':>5s}"
-        )
-
     hr = report["high_risk"]
-    print("\n--- High Risk CVEs (CVSS>=9 AND EPSS>0.5) ---")
-    print(f"  Count:    {_fmt(hr['high_risk_count'])}")
-    print(f"  Of total: {_fmt(hr['high_risk_pct'])}%")
+    print("\n### Source 2: Shodan CVEDB (CVE Database with EPSS)\n")
+    print(f"URL: {SHODAN_CVEDB_URL}")
+    print(f"Total rows: {_fmt(hr['total_cves'])}\n")
 
+    print("#### Field Schema\n")
+    _print_field_table(SHODAN_COLUMNS)
+
+    print("\n#### Sample (first 5 rows)\n")
+    _print_md_table(cves_md)
+
+    print("\n#### Statistics\n")
+    print(f"- CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
+          f"median: {_fmt(cvss['median'])}, p90: {_fmt(cvss['p90'])}, p99: {_fmt(cvss['p99'])}")
+    print(f"- CVSS — critical (>=9.0): {_fmt(cvss['critical_pct'])}%, "
+          f"high (7.0-8.9): {_fmt(cvss['high_pct'])}%")
+    print(f"- EPSS — mean: {_fmt(epss['avg'])}, median: {_fmt(epss['median'])}, "
+          f"p90: {_fmt(epss['p90'])}, p99: {_fmt(epss['p99'])}")
+    print(f"- EPSS — high probability (>0.5): {_fmt(epss['high_probability_pct'])}%")
+    print(f"- High risk (CVSS>=9 AND EPSS>0.5): {_fmt(hr['high_risk_count'])} ({_fmt(hr['high_risk_pct'])}%)")
+
+    # ---- Consolidated Table ----
     cons = report["consolidated"]
-    print("\n--- Consolidated Table (AggregatingMergeTree, sources: Array(String)) ---")
-    print(f"  Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")
-    print(f"  In both sources:        {_fmt(cons['in_both_sources'])}")
-    print(f"  KEV only:               {_fmt(cons['kev_only'])}")
-    print(f"  Shodan only:            {_fmt(cons['shodan_only'])}")
-    print(f"  KEV + high EPSS (>0.5): {_fmt(cons['kev_with_high_epss'])}")
+    print(f"\n### Consolidated Table ({START_DATE} — {END_DATE})\n")
 
-    print("\n" + "=" * 60)
+    print("#### Field Schema\n")
+    _print_field_table(MERGED_COLUMNS)
+
+    print("\n#### Sample (first 5 rows)\n")
+    _print_md_table(consolidated_md)
+
+    print("\n#### Statistics\n")
+    print(f"- Total unique CVEs: {_fmt(cons['total_unique_cves'])}")
+    print(f"- In both sources: {_fmt(cons['in_both_sources'])}")
+    print(f"- KEV only: {_fmt(cons['kev_only'])}")
+    print(f"- Shodan only: {_fmt(cons['shodan_only'])}")
+    print(f"- KEV + high EPSS (>0.5): {_fmt(cons['kev_with_high_epss'])}")
 
 
 # =============================================================================
@@ -616,11 +640,12 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
                         |                                                                     |
                         +---> build_consolidated_table --> analyze_consolidated --+            |
                         |                                                        v            v
-        load_shodan_cves --+---> analyze_cvss_distribution ------+-----> generate_threat_report
-                           |                                     |
-                           +--> analyze_epss_distribution -------+
-                           |                                     |
-                           +--> find_high_risk_cves -------------+
+        load_shodan_kev_cves ---+                                         generate_threat_report
+                                +--> combine_shodan_cves --+---> analyze_cvss_distribution --+
+        load_shodan_general_cves --+                       |                                 |
+                                                           +--> analyze_epss_distribution ---+
+                                                           |                                 |
+                                                           +--> find_high_risk_cves ---------+
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
@@ -634,8 +659,10 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         ransomware_stats=ransomware,
     )
 
-    # Phase 2: Shodan CVEDB
-    cves = load_shodan_cves(limit=shodan_limit)
+    # Phase 2: Shodan CVEDB (two parallel loads + combine)
+    shodan_kev = load_shodan_kev_cves()
+    shodan_general = load_shodan_general_cves(limit=shodan_limit)
+    cves = combine_shodan_cves(kev_cves=shodan_kev, general_cves=shodan_general)
     cvss_stats = analyze_cvss_distribution(cves=cves)
     epss_stats = analyze_epss_distribution(cves=cves)
     high_risk = find_high_risk_cves(cves=cves)
@@ -648,6 +675,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     threat_report = generate_threat_report(
         kev=kev,
         cves=cves,
+        consolidated=consolidated,
         kev_report=kev_report,
         cvss_stats=cvss_stats,
         epss_stats=epss_stats,
@@ -661,6 +689,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         by_year,
         ransomware,
         kev_report,
+        shodan_kev,
+        shodan_general,
         cves,
         cvss_stats,
         epss_stats,

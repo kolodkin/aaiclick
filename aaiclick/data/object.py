@@ -368,6 +368,72 @@ class Object:
             # Array: return list of values
             return await data_extraction.extract_array_data(self)
 
+    async def markdown(self, truncate: Optional[Dict[str, int]] = None) -> str:
+        """Return the object's data formatted as a markdown table.
+
+        Fetches data via ``.data()`` and renders it as a plain-text markdown
+        table with auto-sized column widths.  The internal ``aai_id`` column
+        is omitted.
+
+        Args:
+            truncate: Optional mapping of column name to maximum character
+                width.  Values longer than the limit are truncated with an
+                ellipsis (``…``).  Columns not present in the mapping are
+                never truncated.
+
+        Returns:
+            Multi-line string containing the markdown table.
+        """
+        raw = await self.data()
+        trunc = truncate or {}
+
+        # For scalar / array data wrap into a single-column dict
+        if not isinstance(raw, dict):
+            raw = {"value": raw if isinstance(raw, list) else [raw]}
+
+        columns = [c for c in raw if c != "aai_id"]
+        if not columns:
+            return ""
+        n_rows = len(raw[columns[0]]) if isinstance(raw[columns[0]], list) else 1
+
+        def _cell(val: object, col: str) -> str:
+            if val is None:
+                return "N/A"
+            if isinstance(val, float):
+                return f"{val:.2f}"
+            s = str(val)
+            # Sanitize: collapse newlines/tabs and escape pipes
+            s = s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+            s = s.replace("\t", " ").replace("|", "\\|")
+            limit = trunc.get(col)
+            if limit is not None and len(s) > limit:
+                return s[: limit - 1] + "…"
+            return s
+
+        # Ensure we can iterate rows uniformly
+        def _get(col: str, i: int) -> object:
+            v = raw[col]
+            return v[i] if isinstance(v, list) else v
+
+        widths: Dict[str, int] = {}
+        for col in columns:
+            max_val = max((len(_cell(_get(col, i), col)) for i in range(n_rows)), default=0)
+            cap = trunc.get(col)
+            w = max(len(col), max_val)
+            widths[col] = min(w, cap) if cap is not None else w
+
+        lines: List[str] = []
+        header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
+        sep = "|" + "|".join("-" * (w + 2) for w in (widths[col] for col in columns)) + "|"
+        lines.append(header)
+        lines.append(sep)
+        for i in range(n_rows):
+            row = "| " + " | ".join(
+                f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns
+            ) + " |"
+            lines.append(row)
+        return "\n".join(lines)
+
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
         self.checkstale()
@@ -1803,6 +1869,7 @@ class View(Object):
         selected_fields: Optional[List[str]] = None,
         computed_columns: Optional[Dict[str, Computed]] = None,
         renamed_columns: Optional[Dict[str, str]] = None,
+        where_connector: str = "AND",
     ):
         """
         Initialize a View.
@@ -1818,17 +1885,29 @@ class View(Object):
                              Multiple fields returns dict-like view
             computed_columns: Optional dict of computed column definitions
             renamed_columns: Optional dict mapping old_name -> new_name
+            where_connector: Connector for the where clause ("AND" or "OR")
         """
         super().__init__(table=source.table, schema=source._schema)
-        self._where_clauses: List[Tuple[str, str]] = []
+
+        # Inherit existing constraints when source is already a View
+        is_view = isinstance(source, View)
+        self._where_clauses: List[Tuple[str, str]] = (
+            list(source._where_clauses) if is_view else []
+        )
         if where:
-            self._where_clauses.append((where.strip(), "AND"))
-        self._limit = limit
-        self._offset = offset
-        self._order_by = order_by
-        self._selected_fields = selected_fields
-        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns
-        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns
+            self._where_clauses.append((where.strip(), where_connector))
+        self._limit = limit if limit is not None else (source._limit if is_view else None)
+        self._offset = offset if offset is not None else (source._offset if is_view else None)
+        self._order_by = order_by if order_by is not None else (source._order_by if is_view else None)
+        self._selected_fields = selected_fields if selected_fields is not None else (
+            source._selected_fields if is_view else None
+        )
+        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns if computed_columns is not None else (
+            source._computed_columns if is_view else None
+        )
+        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns if renamed_columns is not None else (
+            source._renamed_columns if is_view else None
+        )
 
         # Register with context for lifecycle tracking and stale marking
         if source._ctx is not None:
@@ -1920,24 +1999,7 @@ class View(Object):
             ref["persistent"] = True
         return ref
 
-    def _clone_with_clause(self, condition: str, connector: str) -> View:
-        """Create a new View with all current constraints plus an additional WHERE clause."""
-        new_view = View.__new__(View)
-        Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self.where_clauses)
-        new_view._where_clauses.append((condition, connector))
-        new_view._limit = self._limit
-        new_view._offset = self._offset
-        new_view._order_by = self._order_by
-        new_view._selected_fields = self.selected_fields
-        new_view._computed_columns = self.computed_columns
-        new_view._renamed_columns = self._renamed_columns
-        if self._ctx is not None:
-            new_view._register(self._ctx)
-            register_object(new_view, ctx=self._ctx)
-        return new_view
-
-    def where(self, condition: str) -> View:
+    def where(self, condition: str) -> "View":
         """
         Return a new View with an AND-chained WHERE condition.
 
@@ -1958,9 +2020,9 @@ class View(Object):
         """
         if not condition or not condition.strip():
             raise ValueError("WHERE condition must be a non-empty string")
-        return self._clone_with_clause(condition.strip(), "AND")
+        return View(self, where=condition.strip())
 
-    def or_where(self, condition: str) -> View:
+    def or_where(self, condition: str) -> "View":
         """
         Return a new View with an OR-chained WHERE condition.
 
@@ -1983,7 +2045,7 @@ class View(Object):
             raise ValueError("WHERE condition must be a non-empty string")
         if not self.where_clauses:
             raise ValueError("or_where() requires a prior where condition")
-        return self._clone_with_clause(condition.strip(), "OR")
+        return View(self, where=condition.strip(), where_connector="OR")
 
     def with_columns(self, columns: Dict[str, Computed]) -> "View":
         """Add computed columns to this View, returning a new View.
@@ -2006,20 +2068,7 @@ class View(Object):
 
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
-
-        new_view = View.__new__(View)
-        Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self.where_clauses)
-        new_view._limit = self._limit
-        new_view._offset = self._offset
-        new_view._order_by = self._order_by
-        new_view._selected_fields = self.selected_fields
-        new_view._computed_columns = merged
-        new_view._renamed_columns = self._renamed_columns
-        if self._ctx is not None:
-            new_view._register(self._ctx)
-            register_object(new_view, ctx=self._ctx)
-        return new_view
+        return View(self, computed_columns=merged)
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """

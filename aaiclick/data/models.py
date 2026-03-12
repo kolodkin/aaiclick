@@ -53,6 +53,7 @@ class ColumnInfo:
     nullable: bool = False
     array: bool = False
     low_cardinality: bool = False
+    description: str = ""
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
