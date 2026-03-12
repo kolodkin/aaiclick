@@ -500,22 +500,17 @@ def _fmt(value: object) -> str:
 def _print_kev_report(report: dict) -> None:
     """Print CISA KEV analysis report."""
     kev = report["kev_summary"]
-    print("\n" + "=" * 60)
-    print("CISA KEV ANALYSIS REPORT")
-    print("=" * 60)
+    print("\n### CISA KEV Analysis Report\n")
+    print(f"- Total KEV entries: {_fmt(kev['total_vulnerabilities'])}")
+    print(f"- Ransomware-linked: {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
 
-    print(f"\n  Total KEV entries:        {_fmt(kev['total_vulnerabilities'])}")
-    print(f"  Ransomware-linked:        {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
-
-    print("\n--- Top 10 Vendors by KEV Count ---")
+    print("\n#### Top 10 Vendors by KEV Count\n")
     for vendor, count in kev["top_vendors"].items():
-        print(f"  {vendor:<30s} {count:>5}")
+        print(f"- {vendor}: {count}")
 
-    print("\n--- KEV Entries by Year ---")
+    print("\n#### KEV Entries by Year\n")
     for year, count in kev["by_year"].items():
-        print(f"  {year}  {count:>5}")
-
-    print("=" * 60)
+        print(f"- {year}: {count}")
 
 
 def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
@@ -550,79 +545,69 @@ def _print_threat_report(
     consolidated_md: str,
 ) -> None:
     """Print unified threat intelligence report."""
-    print("\n" + "=" * 70)
-    print("CYBER THREAT INTELLIGENCE REPORT")
-    print("=" * 70)
+    print("\n## Cyber Threat Intelligence Report\n")
 
     # ---- Source 1: CISA KEV ----
     kev = report["kev"]
-    print("\n" + "=" * 70)
-    print("SOURCE 1: CISA KEV (Known Exploited Vulnerabilities)")
-    print("=" * 70)
-    print(f"  URL: {CISA_KEV_URL}")
-    print(f"  Total rows: {_fmt(kev['total_vulnerabilities'])}")
+    print("### Source 1: CISA KEV (Known Exploited Vulnerabilities)\n")
+    print(f"URL: {CISA_KEV_URL}")
+    print(f"Total rows: {_fmt(kev['total_vulnerabilities'])}\n")
 
-    print("\n  Field Schema:")
+    print("#### Field Schema\n")
     _print_field_table(KEV_COLUMNS)
 
-    print("\n  Sample (first 5 rows):")
+    print("\n#### Sample (first 5 rows)\n")
     _print_md_table(kev_md)
 
-    print("\n  Statistics:")
-    print(f"    Total KEV entries:  {_fmt(kev['total_vulnerabilities'])}")
-    print(f"    Ransomware-linked:  {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
-    print(f"    Top 5 vendors:")
+    print("\n#### Statistics\n")
+    print(f"- Total KEV entries: {_fmt(kev['total_vulnerabilities'])}")
+    print(f"- Ransomware-linked: {_fmt(kev['ransomware_linked'])} ({_fmt(kev['ransomware_pct'])}%)")
+    print("- Top 5 vendors:")
     for i, (vendor, count) in enumerate(kev["top_vendors"].items()):
         if i >= 5:
             break
-        print(f"      {vendor:<30s} {count:>5}")
+        print(f"  - {vendor}: {count}")
 
     # ---- Source 2: Shodan CVEDB ----
     cvss = report["cvss_distribution"]
     epss = report["epss_distribution"]
     hr = report["high_risk"]
-    print("\n" + "=" * 70)
-    print("SOURCE 2: Shodan CVEDB (CVE Database with EPSS)")
-    print("=" * 70)
-    print(f"  URL: {SHODAN_CVEDB_URL}")
-    print(f"  Total rows: {_fmt(hr['total_cves'])}")
+    print("\n### Source 2: Shodan CVEDB (CVE Database with EPSS)\n")
+    print(f"URL: {SHODAN_CVEDB_URL}")
+    print(f"Total rows: {_fmt(hr['total_cves'])}\n")
 
-    print("\n  Field Schema:")
+    print("#### Field Schema\n")
     _print_field_table(SHODAN_COLUMNS)
 
-    print("\n  Sample (first 5 rows):")
+    print("\n#### Sample (first 5 rows)\n")
     _print_md_table(cves_md)
 
-    print("\n  Statistics:")
-    print(f"    CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
+    print("\n#### Statistics\n")
+    print(f"- CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
           f"median: {_fmt(cvss['median'])}, p90: {_fmt(cvss['p90'])}, p99: {_fmt(cvss['p99'])}")
-    print(f"    CVSS — critical (>=9.0): {_fmt(cvss['critical_pct'])}%, "
+    print(f"- CVSS — critical (>=9.0): {_fmt(cvss['critical_pct'])}%, "
           f"high (7.0-8.9): {_fmt(cvss['high_pct'])}%")
-    print(f"    EPSS — mean: {_fmt(epss['avg'])}, median: {_fmt(epss['median'])}, "
+    print(f"- EPSS — mean: {_fmt(epss['avg'])}, median: {_fmt(epss['median'])}, "
           f"p90: {_fmt(epss['p90'])}, p99: {_fmt(epss['p99'])}")
-    print(f"    EPSS — high probability (>0.5): {_fmt(epss['high_probability_pct'])}%")
-    print(f"    High risk (CVSS>=9 AND EPSS>0.5): {_fmt(hr['high_risk_count'])} ({_fmt(hr['high_risk_pct'])}%)")
+    print(f"- EPSS — high probability (>0.5): {_fmt(epss['high_probability_pct'])}%")
+    print(f"- High risk (CVSS>=9 AND EPSS>0.5): {_fmt(hr['high_risk_count'])} ({_fmt(hr['high_risk_pct'])}%)")
 
     # ---- Consolidated Table ----
     cons = report["consolidated"]
-    print("\n" + "=" * 70)
-    print("CONSOLIDATED TABLE (AggregatingMergeTree, merged by cve_id)")
-    print("=" * 70)
+    print("\n### Consolidated Table (AggregatingMergeTree, merged by cve_id)\n")
 
-    print("\n  Field Schema:")
+    print("#### Field Schema\n")
     _print_field_table(MERGED_COLUMNS)
 
-    print("\n  Sample (first 5 rows):")
+    print("\n#### Sample (first 5 rows)\n")
     _print_md_table(consolidated_md)
 
-    print("\n  Statistics:")
-    print(f"    Total unique CVEs:      {_fmt(cons['total_unique_cves'])}")
-    print(f"    In both sources:        {_fmt(cons['in_both_sources'])}")
-    print(f"    KEV only:               {_fmt(cons['kev_only'])}")
-    print(f"    Shodan only:            {_fmt(cons['shodan_only'])}")
-    print(f"    KEV + high EPSS (>0.5): {_fmt(cons['kev_with_high_epss'])}")
-
-    print("\n" + "=" * 70)
+    print("\n#### Statistics\n")
+    print(f"- Total unique CVEs: {_fmt(cons['total_unique_cves'])}")
+    print(f"- In both sources: {_fmt(cons['in_both_sources'])}")
+    print(f"- KEV only: {_fmt(cons['kev_only'])}")
+    print(f"- Shodan only: {_fmt(cons['shodan_only'])}")
+    print(f"- KEV + high EPSS (>0.5): {_fmt(cons['kev_with_high_epss'])}")
 
 
 # =============================================================================
