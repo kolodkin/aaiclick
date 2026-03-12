@@ -64,11 +64,6 @@ echo
 echo "=== Threat Report Output ==="
 cat "$REPORT_LOG"
 
-# Step 8: Write to GitHub Actions step summary if available
-if [ -n "$GITHUB_STEP_SUMMARY" ]; then
-    cat "$REPORT_LOG" >> "$GITHUB_STEP_SUMMARY"
-fi
-
 echo
 if [ "$JOB_STATUS" = "COMPLETED" ]; then
     echo "=== Pipeline completed successfully ==="
