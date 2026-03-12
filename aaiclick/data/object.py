@@ -1886,15 +1886,26 @@ class View(Object):
             renamed_columns: Optional dict mapping old_name -> new_name
         """
         super().__init__(table=source.table, schema=source._schema)
-        self._where_clauses: List[Tuple[str, str]] = []
+
+        # Inherit existing constraints when source is already a View
+        is_view = isinstance(source, View)
+        self._where_clauses: List[Tuple[str, str]] = (
+            list(source._where_clauses) if is_view else []
+        )
         if where:
             self._where_clauses.append((where.strip(), "AND"))
-        self._limit = limit
-        self._offset = offset
-        self._order_by = order_by
-        self._selected_fields = selected_fields
-        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns
-        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns
+        self._limit = limit if limit is not None else (source._limit if is_view else None)
+        self._offset = offset if offset is not None else (source._offset if is_view else None)
+        self._order_by = order_by if order_by is not None else (source._order_by if is_view else None)
+        self._selected_fields = selected_fields if selected_fields is not None else (
+            source._selected_fields if is_view else None
+        )
+        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns if computed_columns is not None else (
+            source._computed_columns if is_view else None
+        )
+        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns if renamed_columns is not None else (
+            source._renamed_columns if is_view else None
+        )
 
         # Register with context for lifecycle tracking and stale marking
         if source._ctx is not None:
@@ -1986,22 +1997,35 @@ class View(Object):
             ref["persistent"] = True
         return ref
 
-    def _clone_with_clause(self, condition: str, connector: str) -> View:
-        """Create a new View with all current constraints plus an additional WHERE clause."""
+    def _clone(self, **overrides: object) -> "View":
+        """Create a shallow clone of this View, applying keyword overrides."""
         new_view = View.__new__(View)
         Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self.where_clauses)
-        new_view._where_clauses.append((condition, connector))
-        new_view._limit = self._limit
-        new_view._offset = self._offset
-        new_view._order_by = self._order_by
-        new_view._selected_fields = self.selected_fields
-        new_view._computed_columns = self.computed_columns
-        new_view._renamed_columns = self._renamed_columns
+        new_view._where_clauses = list(
+            overrides.get("where_clauses", self._where_clauses)  # type: ignore[arg-type]
+        )
+        new_view._limit = overrides.get("limit", self._limit)
+        new_view._offset = overrides.get("offset", self._offset)
+        new_view._order_by = overrides.get("order_by", self._order_by)
+        new_view._selected_fields = overrides.get(
+            "selected_fields", self._selected_fields
+        )
+        new_view._computed_columns = overrides.get(
+            "computed_columns", self._computed_columns
+        )
+        new_view._renamed_columns = overrides.get(
+            "renamed_columns", self._renamed_columns
+        )
         if self._ctx is not None:
             new_view._register(self._ctx)
             register_object(new_view, ctx=self._ctx)
         return new_view
+
+    def _clone_with_clause(self, condition: str, connector: str) -> View:
+        """Create a new View with all current constraints plus an additional WHERE clause."""
+        clauses = list(self._where_clauses)
+        clauses.append((condition, connector))
+        return self._clone(where_clauses=clauses)
 
     def where(self, condition: str) -> View:
         """
@@ -2060,19 +2084,7 @@ class View(Object):
         """
         self.checkstale()
         fields = key if isinstance(key, list) else [key]
-        new_view = View.__new__(View)
-        Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self._where_clauses)
-        new_view._limit = self._limit
-        new_view._offset = self._offset
-        new_view._order_by = self._order_by
-        new_view._selected_fields = fields
-        new_view._computed_columns = self._computed_columns
-        new_view._renamed_columns = self._renamed_columns
-        if self._ctx is not None:
-            new_view._register(self._ctx)
-            register_object(new_view, ctx=self._ctx)
-        return new_view
+        return self._clone(selected_fields=fields)
 
     def with_columns(self, columns: Dict[str, Computed]) -> "View":
         """Add computed columns to this View, returning a new View.
@@ -2095,20 +2107,7 @@ class View(Object):
 
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
-
-        new_view = View.__new__(View)
-        Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(self.where_clauses)
-        new_view._limit = self._limit
-        new_view._offset = self._offset
-        new_view._order_by = self._order_by
-        new_view._selected_fields = self.selected_fields
-        new_view._computed_columns = merged
-        new_view._renamed_columns = self._renamed_columns
-        if self._ctx is not None:
-            new_view._register(self._ctx)
-            register_object(new_view, ctx=self._ctx)
-        return new_view
+        return self._clone(computed_columns=merged)
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
