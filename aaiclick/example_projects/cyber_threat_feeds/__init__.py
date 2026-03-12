@@ -103,16 +103,14 @@ async def load_kev_data() -> Object:
     )
 
 
-@task
-async def analyze_kev_by_vendor(kev: Object) -> Object:
+async def _kev_by_vendor(kev: Object) -> Object:
     """Top vendors by number of known exploited vulnerabilities."""
     return await kev.group_by("vendorProject").agg({
         "cveID": "count",
     })
 
 
-@task
-async def analyze_kev_by_year(kev: Object) -> Object:
+async def _kev_by_year(kev: Object) -> Object:
     """KEV entries grouped by year added to the catalog."""
     kev_with_year = kev.with_columns({
         "year": Computed("UInt16", "toYear(dateAdded)"),
@@ -120,8 +118,7 @@ async def analyze_kev_by_year(kev: Object) -> Object:
     return await kev_with_year.group_by("year").agg({"cveID": "count"})
 
 
-@task
-async def analyze_kev_ransomware(kev: Object) -> dict:
+async def _kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
     total_count = await (await kev["cveID"].count()).data()
 
@@ -144,14 +141,11 @@ async def analyze_kev_ransomware(kev: Object) -> dict:
 
 
 @task
-async def generate_kev_report(
-    kev: Object,
-    by_vendor: Object,
-    by_year: Object,
-    ransomware_stats: dict,
-) -> dict:
-    """Combine KEV analyses into a summary report."""
-    total_kev = ransomware_stats["total_kev"]
+async def analyze_kev(kev: Object) -> dict:
+    """Analyze KEV: top vendors, yearly trends, and ransomware linkage."""
+    by_vendor = await _kev_by_vendor(kev)
+    by_year = await _kev_by_year(kev)
+    ransomware = await _kev_ransomware(kev)
 
     vendor_data = await by_vendor.data()
     vendor_counts = sorted(
@@ -159,7 +153,6 @@ async def generate_kev_report(
         key=lambda x: x[1],
         reverse=True,
     )
-    top_vendors = vendor_counts[:10]
 
     year_data = await by_year.data()
     year_counts = sorted(
@@ -167,18 +160,22 @@ async def generate_kev_report(
         key=lambda x: x[0],
     )
 
-    report = {
+    return {
         "kev_summary": {
-            "total_vulnerabilities": total_kev,
-            "ransomware_linked": ransomware_stats["ransomware_linked"],
-            "ransomware_pct": ransomware_stats["ransomware_pct"],
-            "top_vendors": {name: count for name, count in top_vendors},
+            "total_vulnerabilities": ransomware["total_kev"],
+            "ransomware_linked": ransomware["ransomware_linked"],
+            "ransomware_pct": ransomware["ransomware_pct"],
+            "top_vendors": {name: count for name, count in vendor_counts[:10]},
             "by_year": {year: count for year, count in year_counts},
         },
     }
 
-    _print_kev_report(report)
-    return report
+
+@task
+async def generate_kev_report(kev_analysis: dict) -> dict:
+    """Format and print KEV analysis report."""
+    _print_kev_report(kev_analysis)
+    return kev_analysis
 
 
 # =============================================================================
@@ -632,14 +629,10 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     table and performs multi-source threat analysis.
 
     DAG Structure:
-                                    +-> analyze_kev_by_vendor ------+
-                                    |                               |
-        load_kev_data --+-----------+-> analyze_kev_by_year --------+-> generate_kev_report --+
-                        |           |                               |                         |
-                        |           +-> analyze_kev_ransomware -----+                         |
-                        |                                                                     |
-                        +---> build_consolidated_table --> analyze_consolidated --+            |
-                        |                                                        v            v
+        load_kev_data --+---> analyze_kev --> generate_kev_report -------------------------+
+                        |                                                                  |
+                        +---> build_consolidated_table --> analyze_consolidated --+         |
+                        |                                                        v         v
         load_shodan_kev_cves ---+                                         generate_threat_report
                                 +--> combine_shodan_cves --+---> analyze_cvss_distribution --+
         load_shodan_general_cves --+                       |                                 |
@@ -649,15 +642,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
-    by_vendor = analyze_kev_by_vendor(kev=kev)
-    by_year = analyze_kev_by_year(kev=kev)
-    ransomware = analyze_kev_ransomware(kev=kev)
-    kev_report = generate_kev_report(
-        kev=kev,
-        by_vendor=by_vendor,
-        by_year=by_year,
-        ransomware_stats=ransomware,
-    )
+    kev_analysis = analyze_kev(kev=kev)
+    kev_report = generate_kev_report(kev_analysis=kev_analysis)
 
     # Phase 2: Shodan CVEDB (two parallel loads + combine)
     shodan_kev = load_shodan_kev_cves()
@@ -685,9 +671,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
 
     return [
         kev,
-        by_vendor,
-        by_year,
-        ransomware,
+        kev_analysis,
         kev_report,
         shodan_kev,
         shodan_general,
