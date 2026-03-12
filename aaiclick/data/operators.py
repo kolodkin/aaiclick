@@ -62,7 +62,7 @@ from typing import Union
 
 from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
-from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, parse_ch_type, INT_TYPES, FLOAT_TYPES
+from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
 from .sql_utils import quote_identifier
 
 
@@ -539,7 +539,11 @@ async def count_if_agg(info: QueryInfo, condition: Union[str, dict[str, str]], c
         columns[name] = ColumnInfo("UInt64")
         select_exprs.append(f"countIf({cond}) AS {name}")
 
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns=columns,
+        col_fieldtype=FIELDTYPE_SCALAR,
+    )
     result = await create_object(schema)
     insert_cols = ", ".join(condition.keys())
     select_str = ", ".join(select_exprs)
