@@ -246,23 +246,9 @@ async def combine_shodan_cves(kev_cves: Object, general_cves: Object) -> Object:
     """Combine KEV-flagged and general Shodan CVEs into a single Object.
 
     Since is_kev=true and is_kev=false return disjoint sets, no
-    deduplication is needed — just a simple UNION ALL.
+    deduplication is needed.
     """
-    combined_columns = {"aai_id": ColumnInfo("UInt64"), **SHODAN_COLUMNS}
-    combined_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns=combined_columns,
-    )
-    combined = await create_object(combined_schema)
-    ch = get_ch_client()
-    col_list = ", ".join(c for c in SHODAN_COLUMNS)
-    await ch.command(
-        f"INSERT INTO {combined.table} ({col_list}) "
-        f"SELECT {col_list} FROM {kev_cves.table} "
-        f"UNION ALL "
-        f"SELECT {col_list} FROM {general_cves.table}"
-    )
-    return combined
+    return await kev_cves.concat(general_cves)
 
 
 @task
