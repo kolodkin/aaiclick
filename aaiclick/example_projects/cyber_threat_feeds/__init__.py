@@ -530,17 +530,17 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
     type_w = max(len("Type"), max(len(c.ch_type()) for c in described.values()))
     desc_w = max(len("Description"), max(len(c.description) for c in described.values()))
 
-    print(f"  | {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s} |")
-    print(f"  |{'-' * (name_w + 2)}|{'-' * (type_w + 2)}|{'-' * (desc_w + 2)}|")
+    print(f"| {'Field':<{name_w}s} | {'Type':<{type_w}s} | {'Description':<{desc_w}s} |")
+    print(f"|{'-' * (name_w + 2)}|{'-' * (type_w + 2)}|{'-' * (desc_w + 2)}|")
     for field, col in described.items():
-        print(f"  | {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
+        print(f"| {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
 
 
 
 def _print_md_table(md: str) -> None:
-    """Print a pre-rendered markdown table with 2-space indent."""
+    """Print a pre-rendered markdown table."""
     for line in md.splitlines():
-        print(f"  {line}")
+        print(line)
 
 
 def _print_threat_report(
