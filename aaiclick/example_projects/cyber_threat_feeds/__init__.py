@@ -160,7 +160,7 @@ async def analyze_kev(kev: Object) -> dict:
         key=lambda x: x[0],
     )
 
-    return {
+    report = {
         "kev_summary": {
             "total_vulnerabilities": ransomware["total_kev"],
             "ransomware_linked": ransomware["ransomware_linked"],
@@ -170,12 +170,8 @@ async def analyze_kev(kev: Object) -> dict:
         },
     }
 
-
-@task
-async def generate_kev_report(kev_analysis: dict) -> dict:
-    """Format and print KEV analysis report."""
-    _print_kev_report(kev_analysis)
-    return kev_analysis
+    _print_kev_report(report)
+    return report
 
 
 # =============================================================================
@@ -629,7 +625,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     table and performs multi-source threat analysis.
 
     DAG Structure:
-        load_kev_data ------+---> analyze_kev --> generate_kev_report ---------+
+        load_kev_data ------+---> analyze_kev ---------------------------------+
                             |                                                  |
                             +---------------------------+                      |
                                                         v                      |
@@ -645,8 +641,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
-    kev_analysis = analyze_kev(kev=kev)
-    kev_report = generate_kev_report(kev_analysis=kev_analysis)
+    kev_report = analyze_kev(kev=kev)
 
     # Phase 2: Shodan CVEDB (two parallel loads + combine)
     shodan_kev = load_shodan_kev_cves()
@@ -674,7 +669,6 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
 
     return [
         kev,
-        kev_analysis,
         kev_report,
         shodan_kev,
         shodan_general,
