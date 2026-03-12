@@ -1009,6 +1009,37 @@ class Object:
         info = self._get_query_info()
         return await operators.count_agg(info, self.ch_client)
 
+    async def count_if(self, condition: Union[str, Dict[str, str]]) -> Self:
+        """
+        Count rows matching condition(s) using countIf().
+
+        When condition is a str, returns a scalar Object (single countIf).
+        When condition is a dict {name: condition_str}, returns a dict Object
+        with one UInt64 column per entry, computed in a single table scan.
+
+        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/combinators#-if
+
+        Args:
+            condition: SQL condition string, or dict mapping result names to conditions
+
+        Returns:
+            Self: Scalar Object (str) or dict Object (dict)
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
+            >>> result = await obj.count_if("value > 3")
+            >>> await result.data()  # Returns 2
+
+            >>> stats = await obj.count_if({
+            ...     "small": "value <= 2",
+            ...     "large": "value >= 4",
+            ... })
+            >>> await stats.data()  # {"small": 2, "large": 2}
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.count_if_agg(info, condition, self.ch_client)
+
     async def quantile(self, q: float) -> Self:
         """
         Calculate the quantile of values from the object's table.

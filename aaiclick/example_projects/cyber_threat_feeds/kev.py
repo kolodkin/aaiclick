@@ -52,23 +52,17 @@ async def _kev_by_year(kev: Object) -> Object:
 
 async def _kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
-    total_count = await (await kev["cveID"].count()).data()
-
-    by_ransomware = await kev.group_by("knownRansomwareCampaignUse").agg({
-        "cveID": "count",
+    counts = await kev.count_if({
+        "total_kev": "1",
+        "ransomware_linked": "knownRansomwareCampaignUse = 'Known'",
     })
-    ransomware_data = await by_ransomware.data()
-    ransomware_count_val = 0
-    for i, label in enumerate(ransomware_data["knownRansomwareCampaignUse"]):
-        if label == "Known":
-            ransomware_count_val = ransomware_data["cveID"][i]
-            break
-    ransomware_pct = (ransomware_count_val / total_count) * 100 if total_count > 0 else 0.0
-
+    data = await counts.data()
+    total = data["total_kev"]
+    linked = data["ransomware_linked"]
     return {
-        "total_kev": total_count,
-        "ransomware_linked": ransomware_count_val,
-        "ransomware_pct": ransomware_pct,
+        "total_kev": total,
+        "ransomware_linked": linked,
+        "ransomware_pct": (linked / total) * 100 if total > 0 else 0.0,
     }
 
 

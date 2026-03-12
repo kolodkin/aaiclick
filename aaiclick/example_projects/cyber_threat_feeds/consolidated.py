@@ -11,6 +11,9 @@ from aaiclick.data.models import (
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
+_HAS_KEV = "has(sources, 'kev')"
+_HAS_SHODAN = "has(sources, 'shodan')"
+
 CONSOLIDATED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String"),
@@ -121,23 +124,11 @@ async def build_consolidated_table(
 @task
 async def analyze_consolidated(consolidated: Object) -> dict:
     """Analyze the consolidated table for cross-source coverage stats."""
-    total = await (await consolidated["cve_id"].count()).data()
-
-    # Add computed boolean columns for source presence
-    tagged = consolidated.with_columns({
-        "has_kev": Computed("UInt8", "has(sources, 'kev')"),
-        "has_shodan": Computed("UInt8", "has(sources, 'shodan')"),
+    stats = await consolidated.count_if({
+        "total_unique_cves":  "1",
+        "in_both_sources":    f"{_HAS_KEV} AND {_HAS_SHODAN}",
+        "kev_only":           f"{_HAS_KEV} AND NOT {_HAS_SHODAN}",
+        "shodan_only":        f"{_HAS_SHODAN} AND NOT {_HAS_KEV}",
+        "kev_with_high_epss": f"{_HAS_KEV} AND epss > 0.5",
     })
-
-    both_count = await (await tagged.where("has_kev AND has_shodan")["cve_id"].count()).data()
-    kev_only_count = await (await tagged.where("has_kev AND NOT has_shodan")["cve_id"].count()).data()
-    shodan_only_count = await (await tagged.where("has_shodan AND NOT has_kev")["cve_id"].count()).data()
-    kev_high_epss = await (await tagged.where("has_kev AND epss > 0.5")["cve_id"].count()).data()
-
-    return {
-        "total_unique_cves": total,
-        "in_both_sources": both_count,
-        "kev_only": kev_only_count,
-        "shodan_only": shodan_only_count,
-        "kev_with_high_epss": kev_high_epss,
-    }
+    return await stats.data()

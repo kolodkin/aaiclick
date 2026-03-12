@@ -501,6 +501,56 @@ async def count_agg(info: QueryInfo, ch_client):
     return await _apply_aggregation(info, "count", ch_client)
 
 
+async def count_if_agg(info: QueryInfo, condition: Union[str, dict[str, str]], ch_client):
+    """
+    Count rows matching condition(s) at database level using countIf().
+
+    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/combinators#-if
+
+    When condition is a str, returns a scalar Object (single countIf).
+    When condition is a dict {name: condition}, returns a dict Object with
+    one UInt64 column per entry, computed in a single table scan.
+
+    Args:
+        info: QueryInfo for source
+        condition: Either a single SQL condition string, or a dict mapping
+                   result column names to SQL condition strings
+        ch_client: ClickHouse client instance
+
+    Returns:
+        Scalar Object (str condition) or dict Object (dict condition)
+    """
+    if isinstance(condition, str):
+        schema = Schema(
+            fieldtype=FIELDTYPE_SCALAR,
+            columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+        )
+        result = await create_object(schema)
+        query = (
+            f"INSERT INTO {result.table} (value) "
+            f"SELECT countIf({condition}) AS value FROM {info.source}"
+        )
+        await ch_client.command(query)
+        return result
+
+    columns = {"aai_id": ColumnInfo("UInt64")}
+    select_exprs = []
+    for name, cond in condition.items():
+        columns[name] = ColumnInfo("UInt64")
+        select_exprs.append(f"countIf({cond}) AS {name}")
+
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+    result = await create_object(schema)
+    insert_cols = ", ".join(condition.keys())
+    select_str = ", ".join(select_exprs)
+    query = (
+        f"INSERT INTO {result.table} ({insert_cols}) "
+        f"SELECT {select_str} FROM {info.source}"
+    )
+    await ch_client.command(query)
+    return result
+
+
 async def quantile_agg(info: QueryInfo, q: float, ch_client):
     """
     Calculate quantile at database level.
