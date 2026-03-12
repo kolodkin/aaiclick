@@ -239,9 +239,10 @@ async def load_shodan_cves(limit: int = 5000) -> Object:
     )
 
     # Merge both batches and deduplicate by cve_id
+    combined_columns = {"aai_id": ColumnInfo("UInt64"), **SHODAN_COLUMNS}
     combined_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns=SHODAN_COLUMNS,
+        columns=combined_columns,
     )
     combined = await create_object(combined_schema)
     ch = get_ch_client()
