@@ -202,43 +202,52 @@ async def generate_kev_report(
 
 
 @task
-async def load_shodan_cves(limit: int = 5000) -> Object:
-    """Load CVE data from Shodan CVEDB with EPSS scores.
+async def load_shodan_kev_cves() -> Object:
+    """Load KEV-flagged CVEs from Shodan CVEDB.
 
-    Fetches two batches and deduplicates by cve_id:
-    1. KEV-flagged CVEs (is_kev=true) within the date window — ensures
-       overlap with CISA KEV entries
-    2. General recent CVEs up to ``limit`` within the same date window —
-       broader coverage
-
-    Without the KEV-specific batch, the general query's 5 000 CVEs rarely
-    overlap with the ~245 KEV entries, resulting in zero cross-source matches.
+    Uses is_kev=true to fetch CVEs that Shodan knows are in the CISA KEV
+    catalog, ensuring cross-source overlap in the consolidated table.
     """
-    kev_url = (
+    url = (
         f"{SHODAN_CVEDB_URL}"
         f"?is_kev=true&limit=5000"
         f"&start_date={START_DATE}&end_date={END_DATE}"
     )
-    kev_cves = await create_object_from_url(
-        url=kev_url,
+    return await create_object_from_url(
+        url=url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
 
-    general_url = (
+
+@task
+async def load_shodan_general_cves(limit: int = 5000) -> Object:
+    """Load non-KEV CVEs from Shodan CVEDB.
+
+    Uses is_kev=false to fetch general CVEs that are not in CISA KEV,
+    providing broader vulnerability coverage with EPSS scores.
+    """
+    url = (
         f"{SHODAN_CVEDB_URL}"
-        f"?limit={limit}"
+        f"?is_kev=false&limit={limit}"
         f"&start_date={START_DATE}&end_date={END_DATE}"
     )
-    general_cves = await create_object_from_url(
-        url=general_url,
+    return await create_object_from_url(
+        url=url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
 
-    # Merge both batches and deduplicate by cve_id
+
+@task
+async def combine_shodan_cves(kev_cves: Object, general_cves: Object) -> Object:
+    """Combine KEV-flagged and general Shodan CVEs into a single Object.
+
+    Since is_kev=true and is_kev=false return disjoint sets, no
+    deduplication is needed — just a simple UNION ALL.
+    """
     combined_columns = {"aai_id": ColumnInfo("UInt64"), **SHODAN_COLUMNS}
     combined_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -246,17 +255,12 @@ async def load_shodan_cves(limit: int = 5000) -> Object:
     )
     combined = await create_object(combined_schema)
     ch = get_ch_client()
-    col_list = ", ".join(c for c in SHODAN_COLUMNS if c != "aai_id")
+    col_list = ", ".join(c for c in SHODAN_COLUMNS)
     await ch.command(
         f"INSERT INTO {combined.table} ({col_list}) "
-        f"SELECT {col_list} FROM ("
-        f"  SELECT *, row_number() OVER (PARTITION BY cve_id ORDER BY cve_id) AS rn "
-        f"  FROM ("
-        f"    SELECT {col_list} FROM {kev_cves.table} "
-        f"    UNION ALL "
-        f"    SELECT {col_list} FROM {general_cves.table}"
-        f"  )"
-        f") WHERE rn = 1"
+        f"SELECT {col_list} FROM {kev_cves.table} "
+        f"UNION ALL "
+        f"SELECT {col_list} FROM {general_cves.table}"
     )
     return combined
 
@@ -675,11 +679,12 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
                         |                                                                     |
                         +---> build_consolidated_table --> analyze_consolidated --+            |
                         |                                                        v            v
-        load_shodan_cves --+---> analyze_cvss_distribution ------+-----> generate_threat_report
-                           |                                     |
-                           +--> analyze_epss_distribution -------+
-                           |                                     |
-                           +--> find_high_risk_cves -------------+
+        load_shodan_kev_cves ---+                                         generate_threat_report
+                                +--> combine_shodan_cves --+---> analyze_cvss_distribution --+
+        load_shodan_general_cves --+                       |                                 |
+                                                           +--> analyze_epss_distribution ---+
+                                                           |                                 |
+                                                           +--> find_high_risk_cves ---------+
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
@@ -693,8 +698,10 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         ransomware_stats=ransomware,
     )
 
-    # Phase 2: Shodan CVEDB
-    cves = load_shodan_cves(limit=shodan_limit)
+    # Phase 2: Shodan CVEDB (two parallel loads + combine)
+    shodan_kev = load_shodan_kev_cves()
+    shodan_general = load_shodan_general_cves(limit=shodan_limit)
+    cves = combine_shodan_cves(kev_cves=shodan_kev, general_cves=shodan_general)
     cvss_stats = analyze_cvss_distribution(cves=cves)
     epss_stats = analyze_epss_distribution(cves=cves)
     high_risk = find_high_risk_cves(cves=cves)
@@ -721,6 +728,8 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         by_year,
         ransomware,
         kev_report,
+        shodan_kev,
+        shodan_general,
         cves,
         cvss_stats,
         epss_stats,
