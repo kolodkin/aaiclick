@@ -94,7 +94,17 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         end_date=END_DATE,
     )
 
-    return threat_report
+    return [
+        kev,
+        kev_report,
+        shodan_kev,
+        shodan_general,
+        cves,
+        shodan_analysis,
+        consolidated,
+        consolidated_stats,
+        threat_report,
+    ]
 
 
 async def main():
