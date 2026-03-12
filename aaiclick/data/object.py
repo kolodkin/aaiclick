@@ -1869,6 +1869,7 @@ class View(Object):
         selected_fields: Optional[List[str]] = None,
         computed_columns: Optional[Dict[str, Computed]] = None,
         renamed_columns: Optional[Dict[str, str]] = None,
+        where_connector: str = "AND",
     ):
         """
         Initialize a View.
@@ -1884,6 +1885,7 @@ class View(Object):
                              Multiple fields returns dict-like view
             computed_columns: Optional dict of computed column definitions
             renamed_columns: Optional dict mapping old_name -> new_name
+            where_connector: Connector for the where clause ("AND" or "OR")
         """
         super().__init__(table=source.table, schema=source._schema)
 
@@ -1893,7 +1895,7 @@ class View(Object):
             list(source._where_clauses) if is_view else []
         )
         if where:
-            self._where_clauses.append((where.strip(), "AND"))
+            self._where_clauses.append((where.strip(), where_connector))
         self._limit = limit if limit is not None else (source._limit if is_view else None)
         self._offset = offset if offset is not None else (source._offset if is_view else None)
         self._order_by = order_by if order_by is not None else (source._order_by if is_view else None)
@@ -1997,37 +1999,7 @@ class View(Object):
             ref["persistent"] = True
         return ref
 
-    def _clone(self, **overrides: object) -> "View":
-        """Create a shallow clone of this View, applying keyword overrides."""
-        new_view = View.__new__(View)
-        Object.__init__(new_view, table=self.table, schema=self._schema)
-        new_view._where_clauses = list(
-            overrides.get("where_clauses", self._where_clauses)  # type: ignore[arg-type]
-        )
-        new_view._limit = overrides.get("limit", self._limit)
-        new_view._offset = overrides.get("offset", self._offset)
-        new_view._order_by = overrides.get("order_by", self._order_by)
-        new_view._selected_fields = overrides.get(
-            "selected_fields", self._selected_fields
-        )
-        new_view._computed_columns = overrides.get(
-            "computed_columns", self._computed_columns
-        )
-        new_view._renamed_columns = overrides.get(
-            "renamed_columns", self._renamed_columns
-        )
-        if self._ctx is not None:
-            new_view._register(self._ctx)
-            register_object(new_view, ctx=self._ctx)
-        return new_view
-
-    def _clone_with_clause(self, condition: str, connector: str) -> View:
-        """Create a new View with all current constraints plus an additional WHERE clause."""
-        clauses = list(self._where_clauses)
-        clauses.append((condition, connector))
-        return self._clone(where_clauses=clauses)
-
-    def where(self, condition: str) -> View:
+    def where(self, condition: str) -> "View":
         """
         Return a new View with an AND-chained WHERE condition.
 
@@ -2048,9 +2020,9 @@ class View(Object):
         """
         if not condition or not condition.strip():
             raise ValueError("WHERE condition must be a non-empty string")
-        return self._clone_with_clause(condition.strip(), "AND")
+        return View(self, where=condition.strip())
 
-    def or_where(self, condition: str) -> View:
+    def or_where(self, condition: str) -> "View":
         """
         Return a new View with an OR-chained WHERE condition.
 
@@ -2073,18 +2045,7 @@ class View(Object):
             raise ValueError("WHERE condition must be a non-empty string")
         if not self.where_clauses:
             raise ValueError("or_where() requires a prior where condition")
-        return self._clone_with_clause(condition.strip(), "OR")
-
-    def __getitem__(self, key: Union[str, List[str]]) -> "View":
-        """Select field(s), preserving existing View constraints.
-
-        Unlike Object.__getitem__, this override carries forward WHERE clauses,
-        computed columns, renamed columns, LIMIT, OFFSET, and ORDER BY from the
-        current View so that chaining like ``view.where(...)[col]`` works.
-        """
-        self.checkstale()
-        fields = key if isinstance(key, list) else [key]
-        return self._clone(selected_fields=fields)
+        return View(self, where=condition.strip(), where_connector="OR")
 
     def with_columns(self, columns: Dict[str, Computed]) -> "View":
         """Add computed columns to this View, returning a new View.
@@ -2107,7 +2068,7 @@ class View(Object):
 
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
-        return self._clone(computed_columns=merged)
+        return View(self, computed_columns=merged)
 
     def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
         """
