@@ -229,8 +229,7 @@ async def combine_shodan_cves(kev_cves: Object, general_cves: Object) -> Object:
     return await kev_cves.concat(general_cves)
 
 
-@task
-async def analyze_cvss_distribution(cves: Object) -> dict:
+async def _cvss_distribution(cves: Object) -> dict:
     """Compute CVSS score distribution statistics."""
     cvss = cves["cvss"]
 
@@ -264,8 +263,7 @@ async def analyze_cvss_distribution(cves: Object) -> dict:
     }
 
 
-@task
-async def analyze_epss_distribution(cves: Object) -> dict:
+async def _epss_distribution(cves: Object) -> dict:
     """Compute EPSS score distribution statistics."""
     epss = cves["epss"]
 
@@ -286,8 +284,7 @@ async def analyze_epss_distribution(cves: Object) -> dict:
     }
 
 
-@task
-async def find_high_risk_cves(cves: Object) -> dict:
+async def _high_risk_cves(cves: Object) -> dict:
     """Find CVEs with both high CVSS (>=9.0) and high EPSS (>0.5).
 
     Uses multiplication instead of bitAnd to combine boolean-like results,
@@ -305,6 +302,20 @@ async def find_high_risk_cves(cves: Object) -> dict:
         "high_risk_count": high_risk_count,
         "total_cves": total_count,
         "high_risk_pct": (high_risk_count / total_count) * 100 if total_count > 0 else 0.0,
+    }
+
+
+@task
+async def analyze_shodan_cves(cves: Object) -> dict:
+    """Analyze Shodan CVEs: CVSS/EPSS distributions and high-risk identification."""
+    cvss_stats = await _cvss_distribution(cves)
+    epss_stats = await _epss_distribution(cves)
+    high_risk = await _high_risk_cves(cves)
+
+    return {
+        "cvss_distribution": cvss_stats,
+        "epss_distribution": epss_stats,
+        "high_risk": high_risk,
     }
 
 
@@ -463,17 +474,15 @@ async def generate_threat_report(
     cves: Object,
     consolidated: Object,
     kev_report: dict,
-    cvss_stats: dict,
-    epss_stats: dict,
-    high_risk: dict,
+    shodan_analysis: dict,
     consolidated_stats: dict,
 ) -> dict:
     """Combine all source analyses into a unified threat intelligence report."""
     report = {
         "kev": kev_report["kev_summary"],
-        "cvss_distribution": cvss_stats,
-        "epss_distribution": epss_stats,
-        "high_risk": high_risk,
+        "cvss_distribution": shodan_analysis["cvss_distribution"],
+        "epss_distribution": shodan_analysis["epss_distribution"],
+        "high_risk": shodan_analysis["high_risk"],
         "consolidated": consolidated_stats,
     }
 
@@ -633,11 +642,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
                                 |                       |                      |
                                 +--> combine_shodan_cves +-> analyze_consolidated ---+
                                 |       |                                            v
-        load_shodan_general_cves +      +---> analyze_cvss_distribution ---> generate_threat_report
-                                        |                                   ^  ^
-                                        +--> analyze_epss_distribution -----+  |
-                                        |                                      |
-                                        +--> find_high_risk_cves --------------+
+        load_shodan_general_cves +      +---> analyze_shodan_cves -------> generate_threat_report
     """
     # Phase 1: CISA KEV
     kev = load_kev_data()
@@ -647,9 +652,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     shodan_kev = load_shodan_kev_cves()
     shodan_general = load_shodan_general_cves(limit=shodan_limit)
     cves = combine_shodan_cves(kev_cves=shodan_kev, general_cves=shodan_general)
-    cvss_stats = analyze_cvss_distribution(cves=cves)
-    epss_stats = analyze_epss_distribution(cves=cves)
-    high_risk = find_high_risk_cves(cves=cves)
+    shodan_analysis = analyze_shodan_cves(cves=cves)
 
     # Phase 3: Consolidated AggregatingMergeTree table
     consolidated = build_consolidated_table(kev=kev, cves=cves)
@@ -661,9 +664,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         cves=cves,
         consolidated=consolidated,
         kev_report=kev_report,
-        cvss_stats=cvss_stats,
-        epss_stats=epss_stats,
-        high_risk=high_risk,
+        shodan_analysis=shodan_analysis,
         consolidated_stats=consolidated_stats,
     )
 
@@ -673,9 +674,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         shodan_kev,
         shodan_general,
         cves,
-        cvss_stats,
-        epss_stats,
-        high_risk,
+        shodan_analysis,
         consolidated,
         consolidated_stats,
         threat_report,
