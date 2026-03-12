@@ -48,6 +48,11 @@ CISA_KEV_URL = (
 
 SHODAN_CVEDB_URL = "https://cvedb.shodan.io/cves"
 
+# Shared date window — both sources are filtered to this range so the
+# consolidated table has meaningful cross-source overlap.
+START_DATE = "2023-01-01"
+END_DATE = "2026-01-01"
+
 # =============================================================================
 # Column definitions
 # =============================================================================
@@ -200,49 +205,21 @@ async def generate_kev_report(
 async def load_shodan_cves(limit: int = 5000) -> Object:
     """Load CVE data from Shodan CVEDB with EPSS scores.
 
-    Fetches two batches and deduplicates by cve_id:
-    1. All KEV-flagged CVEs (is_kev=true) — ensures overlap with CISA KEV
-    2. General recent CVEs up to ``limit`` — broader coverage
-
-    The Shodan API returns newest CVEs first, so the general batch covers
-    recent entries while the KEV batch ensures cross-source matches.
+    Uses date range filtering matching the KEV filter window so the two
+    sources cover the same period, maximising cross-source overlap in
+    the consolidated table.
     """
-    kev_url = f"{SHODAN_CVEDB_URL}?is_kev=true"
-    kev_cves = await create_object_from_url(
-        url=kev_url,
+    url = (
+        f"{SHODAN_CVEDB_URL}"
+        f"?limit={limit}"
+        f"&start_date={START_DATE}&end_date={END_DATE}"
+    )
+    return await create_object_from_url(
+        url=url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
-
-    general_url = f"{SHODAN_CVEDB_URL}?limit={limit}"
-    general_cves = await create_object_from_url(
-        url=general_url,
-        format="RawBLOB",
-        json_path="cves",
-        json_columns=SHODAN_COLUMNS,
-    )
-
-    # Merge both batches and deduplicate by cve_id
-    combined_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns=SHODAN_COLUMNS,
-    )
-    combined = await create_object(combined_schema)
-    ch = get_ch_client()
-    col_list = ", ".join(c for c in SHODAN_COLUMNS if c != "aai_id")
-    await ch.command(
-        f"INSERT INTO {combined.table} ({col_list}) "
-        f"SELECT {col_list} FROM ("
-        f"  SELECT *, row_number() OVER (PARTITION BY cve_id ORDER BY cve_id) AS rn "
-        f"  FROM ("
-        f"    SELECT {col_list} FROM {kev_cves.table} "
-        f"    UNION ALL "
-        f"    SELECT {col_list} FROM {general_cves.table}"
-        f"  )"
-        f") WHERE rn = 1"
-    )
-    return combined
 
 
 @task
@@ -384,18 +361,17 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
     )
     agg = await create_object(schema)
 
-    # KEV: rename camelCase columns to snake_case, add source tag
-    kev_view = kev.rename({
-        "cveID": "cve_id",
-        "vendorProject": "vendor",
-        "vulnerabilityName": "vulnerability_name",
-        "shortDescription": "short_description",
-        "dateAdded": "date_added",
-        "knownRansomwareCampaignUse": "known_ransomware",
-    }).with_columns({
-        "source": Computed("String", "'kev'"),
-    })
-    await agg.insert(kev_view)
+    # KEV: rename camelCase → snake_case, filter to date window, add source tag
+    ch = get_ch_client()
+    await ch.command(
+        f"INSERT INTO {agg.table} "
+        f"(cve_id, source, vendor, product, vulnerability_name, "
+        f"short_description, date_added, known_ransomware) "
+        f"SELECT cveID, 'kev', vendorProject, product, vulnerabilityName, "
+        f"shortDescription, dateAdded, knownRansomwareCampaignUse "
+        f"FROM {kev.table} "
+        f"WHERE dateAdded >= '{START_DATE}' AND dateAdded < '{END_DATE}'"
+    )
 
     # Shodan: already snake_case, just add source tag
     shodan_view = cves.with_columns({
@@ -409,7 +385,6 @@ async def build_consolidated_table(kev: Object, cves: Object) -> Object:
         columns=MERGED_COLUMNS,
     )
     merged = await create_object(merged_schema)
-    ch = get_ch_client()
     await ch.command(
         f"INSERT INTO {merged.table} "
         f"(cve_id, sources, vendor, product, vulnerability_name, "
@@ -622,7 +597,7 @@ def _print_threat_report(
 
     # ---- Consolidated Table ----
     cons = report["consolidated"]
-    print("\n### Consolidated Table (AggregatingMergeTree, merged by cve_id)\n")
+    print(f"\n### Consolidated Table ({START_DATE} — {END_DATE})\n")
 
     print("#### Field Schema\n")
     _print_field_table(MERGED_COLUMNS)
