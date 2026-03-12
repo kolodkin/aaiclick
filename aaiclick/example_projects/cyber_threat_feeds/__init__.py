@@ -205,21 +205,59 @@ async def generate_kev_report(
 async def load_shodan_cves(limit: int = 5000) -> Object:
     """Load CVE data from Shodan CVEDB with EPSS scores.
 
-    Uses date range filtering matching the KEV filter window so the two
-    sources cover the same period, maximising cross-source overlap in
-    the consolidated table.
+    Fetches two batches and deduplicates by cve_id:
+    1. KEV-flagged CVEs (is_kev=true) within the date window — ensures
+       overlap with CISA KEV entries
+    2. General recent CVEs up to ``limit`` within the same date window —
+       broader coverage
+
+    Without the KEV-specific batch, the general query's 5 000 CVEs rarely
+    overlap with the ~245 KEV entries, resulting in zero cross-source matches.
     """
-    url = (
+    kev_url = (
         f"{SHODAN_CVEDB_URL}"
-        f"?limit={limit}"
+        f"?is_kev=true"
         f"&start_date={START_DATE}&end_date={END_DATE}"
     )
-    return await create_object_from_url(
-        url=url,
+    kev_cves = await create_object_from_url(
+        url=kev_url,
         format="RawBLOB",
         json_path="cves",
         json_columns=SHODAN_COLUMNS,
     )
+
+    general_url = (
+        f"{SHODAN_CVEDB_URL}"
+        f"?limit={limit}"
+        f"&start_date={START_DATE}&end_date={END_DATE}"
+    )
+    general_cves = await create_object_from_url(
+        url=general_url,
+        format="RawBLOB",
+        json_path="cves",
+        json_columns=SHODAN_COLUMNS,
+    )
+
+    # Merge both batches and deduplicate by cve_id
+    combined_schema = Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=SHODAN_COLUMNS,
+    )
+    combined = await create_object(combined_schema)
+    ch = get_ch_client()
+    col_list = ", ".join(c for c in SHODAN_COLUMNS if c != "aai_id")
+    await ch.command(
+        f"INSERT INTO {combined.table} ({col_list}) "
+        f"SELECT {col_list} FROM ("
+        f"  SELECT *, row_number() OVER (PARTITION BY cve_id ORDER BY cve_id) AS rn "
+        f"  FROM ("
+        f"    SELECT {col_list} FROM {kev_cves.table} "
+        f"    UNION ALL "
+        f"    SELECT {col_list} FROM {general_cves.table}"
+        f"  )"
+        f") WHERE rn = 1"
+    )
+    return combined
 
 
 @task
