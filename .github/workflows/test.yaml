@@ -229,6 +229,7 @@ jobs:
 
       - name: Run examples
         env:
+          AAICLICK_BACKEND: distributed
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -323,6 +324,7 @@ jobs:
 
       - name: "Run: ${{ matrix.title }}"
         env:
+          AAICLICK_BACKEND: distributed
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
