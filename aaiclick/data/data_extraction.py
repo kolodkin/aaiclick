@@ -6,14 +6,27 @@ This module provides specialized extraction functions for different table types.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
 def _convert_value(value):
-    """Convert tuples from ClickHouse Array columns to lists."""
-    return list(value) if isinstance(value, tuple) else value
+    """Convert ClickHouse result values to Python types.
+
+    - Naive datetimes (from DateTime64 UTC columns) get UTC timezone attached.
+    - Lists containing naive datetimes (from Array(DateTime64) columns)
+      get UTC timezone attached to each element.
+    """
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    if isinstance(value, list) and value and isinstance(value[0], datetime):
+        return [
+            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
+            for v in value
+        ]
+    return value
 
 
 async def extract_scalar_data(obj: Object) -> Any:
@@ -29,7 +42,7 @@ async def extract_scalar_data(obj: Object) -> Any:
     query = obj._build_select(columns="value", default_order_by="aai_id")
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
-    return rows[0][0] if rows else None
+    return _convert_value(rows[0][0]) if rows else None
 
 
 async def extract_array_data(obj: Object) -> List[Any]:
@@ -45,7 +58,7 @@ async def extract_array_data(obj: Object) -> List[Any]:
     query = obj._build_select(columns="value", default_order_by="aai_id")
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
-    return [row[0] for row in rows]
+    return [_convert_value(row[0]) for row in rows]
 
 
 async def extract_dict_data(

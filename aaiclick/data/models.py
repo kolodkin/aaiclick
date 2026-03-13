@@ -4,6 +4,7 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
+from datetime import datetime
 from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass, field
 
@@ -35,6 +36,7 @@ ColumnType = Literal[
 # Type category sets for runtime type checking
 INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
 FLOAT_TYPES = frozenset({"Float32", "Float64"})
+DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
 
@@ -143,8 +145,8 @@ GB_ANY = "any"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any"]
 
 # Value type aliases for factory functions
-ValueScalarType = Union[int, float, bool, str]
-ValueListType = Union[List[int], List[float], List[bool], List[str]]
+ValueScalarType = Union[int, float, bool, str, datetime]
+ValueListType = Union[List[int], List[float], List[bool], List[str], List[datetime]]
 ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
 ValueRecordType = List[ValueDictType]
 ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
