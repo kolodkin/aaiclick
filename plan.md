@@ -109,6 +109,23 @@ All sync under the hood (chdb is embedded), wrapped in async interface.
 
 ---
 
+## Phase 4.5: Pull Main & Run Local Tests
+
+Before moving to CI/CD, ensure everything integrates cleanly with the latest main branch.
+
+### 4.5a. Pull latest main
+
+- `git pull origin main` to merge any upstream changes
+- Resolve conflicts if any
+
+### 4.5b. Run local tests
+
+- `python -m aaiclick setup` (ensure local backend is initialized)
+- `AAICLICK_BACKEND=local pytest aaiclick/` — run full test suite with local backend
+- Fix any failures before proceeding to CI/CD phase
+
+---
+
 ## Phase 5: CI/CD Matrix
 
 ### 5a. Update `.github/workflows/test.yaml`
