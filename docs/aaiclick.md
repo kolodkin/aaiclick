@@ -36,10 +36,7 @@ async def process_data(input_data, threshold):
 
 Each parameter (both positional args and keyword args) is wrapped in an Object class that manages ClickHouse table operations.
 
-See [Object Class](object.md) for detailed documentation on:
-- Table naming conventions
-- Operator overloading and immutability
-- Column metadata with datatype/fieldtype
+See [DataContext](data_context.md) for context management, deployment modes, table schemas, data types, and lifecycle tracking. See [Object Class](object.md) for operator overloading, Views, aggregations, and data operations.
 
 ### 3. Flow Management
 

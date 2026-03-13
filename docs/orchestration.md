@@ -404,7 +404,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ### Local Mode (chdb + SQLite)
 
-Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [Object documentation](object.md) — "Table Lifecycle Tracking".
+Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [DataContext documentation](data_context.md) — "Table Lifecycle Tracking".
 
 ## Configuration
 
