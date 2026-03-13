@@ -5,6 +5,7 @@ This module provides the core data management capabilities for aaiclick,
 including context management, object creation, and database operations.
 """
 
+from .ch_client import ChClient
 from .data_context import (
     DataCtxState,
     _get_data_state,
@@ -17,7 +18,6 @@ from .data_context import (
     delete_persistent_objects,
     get_ch_client,
     get_engine,
-    get_pool,
     incref,
     list_persistent_objects,
     open_object,

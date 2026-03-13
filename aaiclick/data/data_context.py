@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 import warnings
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,13 +17,10 @@ from typing import AsyncIterator, Dict, List, Optional, Union
 import weakref
 
 import numpy as np
-from urllib3 import PoolManager
-
-from clickhouse_connect.driver.asyncclient import AsyncClient
 
 from aaiclick.backend import get_ch_url, is_chdb
 
-from .chdb_client import ChdbClient, create_chdb_client, get_chdb_data_path
+from .ch_client import ChClient, create_ch_client
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ColumnInfo,
@@ -53,7 +49,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 class DataCtxState:
     """State bundle for a named data context."""
 
-    ch_client: Union[ChdbClient, AsyncClient]
+    ch_client: ChClient
     lifecycle: Optional[LifecycleHandler]
     owns_lifecycle: bool
     engine: EngineType
@@ -83,7 +79,7 @@ def _get_data_state(ctx: str = "default") -> DataCtxState:
     return contexts[ctx]
 
 
-def get_ch_client(ctx: str = "default") -> Union[ChdbClient, AsyncClient]:
+def get_ch_client(ctx: str = "default") -> ChClient:
     """Get the ClickHouse client from the active context."""
     return _get_data_state(ctx).ch_client
 
@@ -124,39 +120,6 @@ async def delete_object(obj: object, ctx: str = "default") -> None:
         state.lifecycle.decref(obj.table)
 
 
-# Global connection pool shared across all contexts (distributed mode only)
-_pool: list = [None]
-
-
-def get_pool():
-    """Get or create the global urllib3 connection pool."""
-    if _pool[0] is None:
-        _pool[0] = PoolManager(num_pools=10, maxsize=10)
-    return _pool[0]
-
-
-async def _create_ch_client() -> Union[ChdbClient, AsyncClient]:
-    """Create a ClickHouse client.
-
-    chdb URL (chdb:///path): returns ChdbClient wrapping a chdb Session.
-    clickhouse URL: returns clickhouse-connect AsyncClient.
-    """
-    if is_chdb():
-        return create_chdb_client(get_chdb_data_path())
-
-    from clickhouse_connect import get_async_client
-
-    parsed = urlparse(get_ch_url())
-    return await get_async_client(
-        pool_mgr=get_pool(),
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 8123,
-        username=parsed.username or "default",
-        password=parsed.password or "",
-        database=parsed.path.lstrip("/") or "default",
-    )
-
-
 @asynccontextmanager
 async def data_context(
     ctx: str = "default",
@@ -171,7 +134,7 @@ async def data_context(
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
     """
-    ch_client = await _create_ch_client()
+    ch_client = await create_ch_client()
 
     owns_lifecycle = lifecycle is None
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
