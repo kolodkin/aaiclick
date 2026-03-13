@@ -10,7 +10,8 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from ..snowflake_id import get_snowflake_id
-from .env import get_pg_url
+from .db_handler import DbHandler, create_db_handler
+from .env import get_db_url
 from .models import Group, Task, TasksType
 
 
@@ -19,6 +20,7 @@ class OrchCtxState:
     """State bundle for a named orchestration context."""
 
     engine: AsyncEngine
+    db_handler: DbHandler
 
 
 # ContextVar holding dict[name -> OrchCtxState]
@@ -53,9 +55,10 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
     Args:
         ctx: Named context key (default "default").
     """
-    engine = create_async_engine(get_pg_url(), echo=False)
+    engine = create_async_engine(get_db_url(), echo=False)
+    handler = create_db_handler()
 
-    state = OrchCtxState(engine=engine)
+    state = OrchCtxState(engine=engine, db_handler=handler)
 
     # Copy-on-write
     try:
@@ -71,6 +74,11 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
     finally:
         _orch_contexts.reset(token)
         await engine.dispose()
+
+
+def get_db_handler(ctx: str = "default") -> DbHandler:
+    """Get the database handler from the active orchestration context."""
+    return _get_orch_state(ctx).db_handler
 
 
 @asynccontextmanager

@@ -13,6 +13,55 @@ permissions:
   checks: write
 
 jobs:
+  test-local:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: data-local
+            title: Data Tests (Local/chdb)
+            install: ".[test,local]"
+            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
+            pytest-args: "-n auto -v"
+          - group: orch-local
+            title: Orchestration Tests (Local/SQLite)
+            install: ".[orch,test,local]"
+            test-paths: "aaiclick/orchestration/"
+            pytest-args: "-n auto -v"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.10
+          uv pip install -e "${{ matrix.install }}"
+
+      - name: Setup local backend
+        run: |
+          uv run python -m aaiclick setup
+
+      - name: "Run tests: ${{ matrix.title }}"
+        run: |
+          mkdir -p tmp
+          uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Pytest Results (${{ matrix.group }})"
+          path: tmp/pytest-report.xml
+          reporter: java-junit
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -20,13 +69,13 @@ jobs:
       matrix:
         include:
           - group: data
-            title: Data Tests
+            title: Data Tests (Distributed)
             install: ".[test]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py aaiclick/benchmarks/"
             pytest-args: "-n auto -v"
             needs-postgres: false
           - group: orch
-            title: Orchestration Tests
+            title: Orchestration Tests (Distributed)
             install: ".[orch,test]"
             test-paths: "aaiclick/orchestration/"
             pytest-args: "-n auto -v"
@@ -81,17 +130,15 @@ jobs:
       - name: Run database migrations
         if: matrix.needs-postgres
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
       - name: "Run tests: ${{ matrix.title }}"
         env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -165,16 +212,14 @@ jobs:
 
       - name: Run database migrations
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           uv run python -m aaiclick migrate upgrade head
 
       - name: Run examples
         env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -259,16 +304,14 @@ jobs:
 
       - name: Run database migrations
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           uv run python -m aaiclick migrate upgrade head
 
       - name: "Run: ${{ matrix.title }}"
         env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default

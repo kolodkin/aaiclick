@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import ClickHouseCreds
 from .table_worker import TableWorker
 
 
@@ -65,10 +64,13 @@ class LocalLifecycleHandler(LifecycleHandler):
     Wraps the existing TableWorker — background thread with queue-based
     refcounting and automatic DROP TABLE when refcount reaches 0.
     This is the default when no lifecycle handler is injected.
+
+    Args:
+        connection_string: ClickHouse or chdb connection URL.
     """
 
-    def __init__(self, creds: ClickHouseCreds):
-        self._worker = TableWorker(creds)
+    def __init__(self, connection_string: str):
+        self._worker = TableWorker(connection_string)
 
     async def start(self) -> None:
         self._worker.start()

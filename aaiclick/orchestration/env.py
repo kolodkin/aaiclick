@@ -1,21 +1,15 @@
 """
 aaiclick.orchestration.env - Environment variable configuration for orchestration.
 
-This module centralizes PostgreSQL environment variable reading with sensible defaults.
+Delegates to aaiclick.backend for the SQL URL.
 """
 
-import os
+from aaiclick.backend import get_sql_url
 
 
-def get_pg_url() -> str:
-    """Build PostgreSQL async connection URL from environment variables.
+def get_db_url() -> str:
+    """Return the async SQL URL for orchestration.
 
-    Returns:
-        Async SQLAlchemy database URL string
+    Delegates to backend.get_sql_url() which reads AAICLICK_SQL_URL.
     """
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    user = os.getenv("POSTGRES_USER", "aaiclick")
-    password = os.getenv("POSTGRES_PASSWORD", "secret")
-    database = os.getenv("POSTGRES_DB", "aaiclick")
-    return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+    return get_sql_url()

@@ -17,15 +17,12 @@ from typing import AsyncIterator, Dict, List, Optional, Union
 import weakref
 
 import numpy as np
-from clickhouse_connect import get_async_client
 
-from clickhouse_connect.driver.asyncclient import AsyncClient
-from urllib3 import PoolManager
+from aaiclick.backend import get_ch_url, is_chdb
 
-from .env import get_ch_creds
+from .ch_client import ChClient, create_ch_client
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
-    ClickHouseCreds,
     ColumnInfo,
     ValueScalarType,
     ValueListType,
@@ -52,11 +49,10 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 class DataCtxState:
     """State bundle for a named data context."""
 
-    ch_client: AsyncClient
+    ch_client: ChClient
     lifecycle: Optional[LifecycleHandler]
     owns_lifecycle: bool
     engine: EngineType
-    creds: ClickHouseCreds
     objects: Dict[int, weakref.ref] = field(default_factory=dict)
 
 
@@ -83,7 +79,7 @@ def _get_data_state(ctx: str = "default") -> DataCtxState:
     return contexts[ctx]
 
 
-def get_ch_client(ctx: str = "default") -> AsyncClient:
+def get_ch_client(ctx: str = "default") -> ChClient:
     """Get the ClickHouse client from the active context."""
     return _get_data_state(ctx).ch_client
 
@@ -124,36 +120,9 @@ async def delete_object(obj: object, ctx: str = "default") -> None:
         state.lifecycle.decref(obj.table)
 
 
-# Global connection pool shared across all contexts
-_pool: list = [None]
-
-
-def get_pool() -> PoolManager:
-    """Get or create the global urllib3 connection pool."""
-    if _pool[0] is None:
-        _pool[0] = PoolManager(num_pools=10, maxsize=10)
-    return _pool[0]
-
-
-async def _create_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
-    """Create a ClickHouse client using the shared connection pool."""
-    if creds is None:
-        creds = get_ch_creds()
-
-    return await get_async_client(
-        host=creds.host,
-        port=creds.port,
-        username=creds.user,
-        password=creds.password,
-        database=creds.database,
-        pool_mgr=get_pool(),
-    )
-
-
 @asynccontextmanager
 async def data_context(
     ctx: str = "default",
-    creds: ClickHouseCreds | None = None,
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
 ) -> AsyncIterator[None]:
@@ -161,18 +130,17 @@ async def data_context(
 
     Args:
         ctx: Named context key (default "default").
-        creds: ClickHouse credentials. If None, reads from environment.
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
     """
-    creds = creds or get_ch_creds()
-    ch_client = await _create_ch_client(creds)
+    ch_client = await create_ch_client()
+
     owns_lifecycle = lifecycle is None
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
     if owns_lifecycle:
-        lifecycle = LocalLifecycleHandler(creds)
+        lifecycle = LocalLifecycleHandler(get_ch_url())
         await lifecycle.start()
 
     state = DataCtxState(
@@ -180,7 +148,6 @@ async def data_context(
         lifecycle=lifecycle,
         owns_lifecycle=owns_lifecycle,
         engine=effective_engine,
-        creds=creds,
     )
 
     # Copy-on-write: copy existing dict before mutation
@@ -444,7 +411,7 @@ def _find_non_empty_nested_sample(records: list, key: str) -> dict:
 
 async def _create_nested_object(
     val: dict,
-    ch: AsyncClient,
+    ch: ChClient,
     name: str | None,
 ) -> Object:
     """Create an Object from a single dict with nested list-of-dicts values.
@@ -473,7 +440,7 @@ async def _create_nested_object(
 
 async def _create_nested_records_object(
     val: list,
-    ch: AsyncClient,
+    ch: ChClient,
     name: str | None,
 ) -> Object:
     """Create an Object from a list of dicts with nested list-of-dicts values.
@@ -748,7 +715,7 @@ async def delete_persistent_objects(
         )
     state = _get_data_state()
     conditions = [
-        f"database = '{state.creds.database}'",
+        "database = currentDatabase()",
         r"name LIKE 'p\_%'",
     ]
     if after is not None:
@@ -779,7 +746,7 @@ async def list_persistent_objects() -> list[str]:
     state = _get_data_state()
     result = await state.ch_client.query(
         "SELECT name FROM system.tables "
-        f"WHERE database = '{state.creds.database}' "
+        "WHERE database = currentDatabase() "
         r"AND name LIKE 'p\_%'"
     )
     return [row[0][2:] for row in result.result_rows]

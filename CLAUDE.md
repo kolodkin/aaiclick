@@ -49,11 +49,12 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Test Execution Strategy
 
-**IMPORTANT: Do NOT run tests in the Claude cloud environment.**
+**Local testing is supported with the default backend (chdb + SQLite).**
 
-- All tests run automatically in GitHub Actions when code is pushed
-- Local test execution is unnecessary and should be avoided
-- CI/CD pipeline handles all testing and validation
+- Run `python -m aaiclick setup` before first test run
+- Default URLs use chdb + SQLite — no infrastructure needed
+- Tests also run in GitHub Actions with both local and distributed backends
+- For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
 # Testing Guidelines
 
@@ -215,19 +216,20 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Environment Variables
 
-ClickHouse connection (all optional with sensible defaults):
-- `CLICKHOUSE_HOST` (default: "localhost")
-- `CLICKHOUSE_PORT` (default: 8123)
-- `CLICKHOUSE_USER` (default: "default")
-- `CLICKHOUSE_PASSWORD` (default: "")
-- `CLICKHOUSE_DB` (default: "default")
+Connection URLs:
+- `AAICLICK_CH_URL` (default: `chdb:///~/.aaiclick/chdb_data`) — ClickHouse data connection
+  - chdb (embedded): `chdb:///path/to/data`
+  - Remote server: `clickhouse://user:pass@host:8123/database`
+- `AAICLICK_SQL_URL` (default: `sqlite+aiosqlite:///~/.aaiclick/local.db`) — Orchestration SQL database
+  - SQLite: `sqlite+aiosqlite:///path/to/file.db`
+  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/database`
 
-PostgreSQL connection for orchestration backend (required when using orchestration):
-- `POSTGRES_HOST` (default: "localhost")
-- `POSTGRES_PORT` (default: 5432)
-- `POSTGRES_USER` (default: "aaiclick")
-- `POSTGRES_PASSWORD` (default: "secret")
-- `POSTGRES_DB` (default: "aaiclick")
+Helper functions:
+- `is_chdb()` — True when `AAICLICK_CH_URL` starts with `chdb://`
+- `is_sqlite()` — True when `AAICLICK_SQL_URL` starts with `sqlite`
+
+Legacy env vars (read by Alembic migrations as fallback when `AAICLICK_SQL_URL` is not set):
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 
 Orchestration logging (optional):
 - `AAICLICK_LOG_DIR` - Override default OS-dependent log directory

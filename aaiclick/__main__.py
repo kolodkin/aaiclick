@@ -1,6 +1,7 @@
 """CLI entry point for aaiclick package.
 
 Usage:
+    python -m aaiclick setup              # Initialize local dev environment
     python -m aaiclick migrate            # Run database migrations
     python -m aaiclick migrate --help     # Show migration help
     python -m aaiclick worker start       # Start a worker process
@@ -24,16 +25,64 @@ from aaiclick.data.cli import (
     list_objects_cmd,
     show_object_cmd,
 )
-from aaiclick.orchestration.cli import (
-    cancel_job_cmd,
-    show_job,
-    show_job_stats,
-    show_jobs,
-    show_workers,
-    start_background,
-    start_worker,
-)
-from aaiclick.orchestration.migrate import run_migrations
+
+
+def _run_setup():
+    """Initialize local dev environment."""
+    from pathlib import Path
+
+    from aaiclick.backend import get_ch_url, get_sql_url, is_chdb, is_sqlite
+
+    print(f"CH URL:  {get_ch_url()}")
+    print(f"SQL URL: {get_sql_url()}")
+
+    if is_chdb():
+        try:
+            from chdb.session import Session
+
+            print("  chdb: OK")
+        except ImportError:
+            print("  chdb: MISSING - install with: pip install chdb")
+            return
+
+        from aaiclick.data.chdb_client import get_chdb_data_path
+
+        chdb_path = get_chdb_data_path()
+        Path(chdb_path).mkdir(parents=True, exist_ok=True)
+        sess = Session(chdb_path)
+        sess.query("SELECT 1")
+        sess.cleanup()
+        print(f"  chdb data: {chdb_path}")
+    else:
+        print("  ClickHouse: remote server (no local setup needed)")
+
+    if is_sqlite():
+        try:
+            import aiosqlite  # noqa: F401
+
+            print("  aiosqlite: OK")
+        except ImportError:
+            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
+            return
+
+        try:
+            from sqlalchemy import create_engine
+
+            from aaiclick.orchestration.env import get_db_url
+            from aaiclick.orchestration.models import SQLModel
+
+            db_url = get_db_url()
+            sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
+            engine = create_engine(sync_url)
+            SQLModel.metadata.create_all(engine)
+            engine.dispose()
+            print(f"  SQLite DB: {db_url}")
+        except ImportError:
+            print("  SQLite DB: skipped (orchestration extras not installed)")
+    else:
+        print("  PostgreSQL: use 'python -m aaiclick migrate upgrade head' for database setup")
+
+    print("Setup complete.")
 
 
 def main():
@@ -43,6 +92,12 @@ def main():
         description="aaiclick command-line interface",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Add setup subcommand
+    subparsers.add_parser(
+        "setup",
+        help="Initialize local dev environment (SQLite + chdb)",
+    )
 
     # Add migrate subcommand
     migrate_parser = subparsers.add_parser(
@@ -213,10 +268,17 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "migrate":
+    if args.command == "setup":
+        _run_setup()
+
+    elif args.command == "migrate":
+        from aaiclick.orchestration.migrate import run_migrations
+
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":
+        from aaiclick.orchestration.cli import show_workers, start_worker
+
         if args.worker_command == "start":
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
@@ -227,6 +289,8 @@ def main():
             worker_parser.print_help()
 
     elif args.command == "job":
+        from aaiclick.orchestration.cli import cancel_job_cmd, show_job, show_job_stats
+
         if args.job_command == "get":
             asyncio.run(show_job(args.ref))
 
@@ -237,6 +301,8 @@ def main():
             asyncio.run(cancel_job_cmd(args.ref))
 
         elif args.job_command == "list":
+            from aaiclick.orchestration.cli import show_jobs
+
             asyncio.run(show_jobs(
                 status=args.status,
                 name_like=args.like,
@@ -267,6 +333,8 @@ def main():
             data_parser.print_help()
 
     elif args.command == "background":
+        from aaiclick.orchestration.cli import start_background
+
         if args.background_command == "start":
             asyncio.run(start_background(poll_interval=args.poll_interval))
 

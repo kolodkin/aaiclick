@@ -2,6 +2,9 @@
 
 import asyncio
 
+import pytest
+
+from aaiclick.backend import is_sqlite
 from sqlalchemy import text
 from sqlmodel import select
 
@@ -238,6 +241,10 @@ async def test_claim_next_task_basic(orch_ctx):
         assert db_job.started_at is not None
 
 
+@pytest.mark.skipif(
+    is_sqlite(),
+    reason="FOR UPDATE SKIP LOCKED requires PostgreSQL",
+)
 async def test_claim_next_task_skip_locked(orch_ctx):
     """Test that concurrent workers don't claim the same task."""
     # Register workers first

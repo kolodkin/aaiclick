@@ -12,9 +12,7 @@ import threading
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from clickhouse_connect import get_client
-
-from .models import ClickHouseCreds
+from .ch_client import create_sync_client
 
 
 class TableOp(Enum):
@@ -34,12 +32,19 @@ class TableMessage:
 
 
 class TableWorker:
-    """Background worker that manages table lifecycle via refcounting."""
+    """Background worker that manages table lifecycle via refcounting.
 
-    def __init__(self, creds: ClickHouseCreds):
-        """Initialize worker with ClickHouse credentials."""
-        self._creds = creds
-        self._ch_client = None  # Created in thread
+    Creates its own sync client from a connection string.
+    """
+
+    def __init__(self, connection_string: str):
+        """Initialize worker with a connection string.
+
+        Args:
+            connection_string: ClickHouse or chdb connection URL.
+        """
+        self._connection_string = connection_string
+        self._ch_client: object = None
         self._queue: queue.Queue[TableMessage] = queue.Queue()
         self._refcounts: dict[str, int] = {}
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -63,14 +68,7 @@ class TableWorker:
 
     def _run(self) -> None:
         """Worker loop - runs in background thread."""
-        # Create sync client in worker thread
-        self._ch_client = get_client(
-            host=self._creds.host,
-            port=self._creds.port,
-            username=self._creds.user,
-            password=self._creds.password,
-            database=self._creds.database,
-        )
+        self._ch_client = create_sync_client(self._connection_string)
 
         try:
             while True:
