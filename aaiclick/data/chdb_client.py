@@ -10,7 +10,6 @@ Thread-safe for concurrent access from background workers.
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -71,32 +70,19 @@ class ChdbClient:
         """Execute SELECT query, return result with .result_rows.
 
         Matches AsyncClient.query() — returns object with result_rows attribute.
-        Uses JSON format to get typed data from chdb.
+        Uses ArrowTable format for efficient, typed data from chdb.
         """
-        result = self._session.query(query, "JSON")
-        raw = result.bytes()
-        if not raw:
+        table = self._session.query(query, "Arrowtable")
+        if table is None or table.num_rows == 0:
             return ChdbQueryResult()
 
-        parsed = json.loads(raw)
-        meta = parsed.get("meta", [])
-        data = parsed.get("data", [])
-
-        if not data:
-            return ChdbQueryResult()
-
-        # Convert JSON rows (list of dicts) to list of tuples in column order
-        col_names = [m["name"] for m in meta]
-        col_types = [m["type"] for m in meta]
-        rows = []
-        for row_dict in data:
-            row = []
-            for name, col_type in zip(col_names, col_types):
-                val = row_dict[name]
-                val = _coerce_value(val, col_type)
-                row.append(val)
-            rows.append(tuple(row))
-
+        columns = table.to_pydict()
+        col_names = table.column_names
+        n_rows = table.num_rows
+        rows = [
+            tuple(columns[name][i] for name in col_names)
+            for i in range(n_rows)
+        ]
         return ChdbQueryResult(result_rows=rows)
 
     async def insert(
@@ -170,30 +156,6 @@ def _format_value(val: object) -> str:
         inner = ", ".join(_format_value(v) for v in val)
         return f"[{inner}]"
     return str(val)
-
-
-def _coerce_value(val: object, col_type: str) -> object:
-    """Coerce a JSON-parsed value to the appropriate Python type."""
-    if col_type.startswith("Array("):
-        if val is None:
-            return []
-        inner_type = col_type[6:-1]  # Strip "Array(" and ")"
-        items = val if isinstance(val, list) else list(val)
-        return [_coerce_value(item, inner_type) for item in items]
-    if val is None:
-        if "Float" in col_type and not col_type.startswith("Nullable("):
-            return float("nan")
-        return None
-    if "Int" in col_type or col_type == "UInt64" or col_type == "UInt8":
-        return int(val) if not isinstance(val, int) else val
-    if "Float" in col_type:
-        return float(val) if not isinstance(val, float) else val
-    if "DateTime64" in col_type:
-        s = str(val)
-        if "." in s:
-            return datetime.strptime(s, "%Y-%m-%d %H:%M:%S.%f")
-        return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-    return val
 
 
 def get_chdb_data_path() -> str:
