@@ -23,11 +23,15 @@ target_metadata = SQLModel.metadata
 
 def get_url() -> str:
     """
-    Get PostgreSQL connection URL from environment variables.
+    Get sync PostgreSQL connection URL for Alembic.
 
-    Returns:
-        str: PostgreSQL connection URL
+    Reads AAICLICK_SQL_URL first (stripping async driver prefix),
+    falls back to individual POSTGRES_* env vars.
     """
+    sql_url = os.getenv("AAICLICK_SQL_URL")
+    if sql_url:
+        return sql_url.replace("postgresql+asyncpg://", "postgresql://")
+
     host = os.getenv("POSTGRES_HOST", "localhost")
     port = os.getenv("POSTGRES_PORT", "5432")
     user = os.getenv("POSTGRES_USER", "aaiclick")

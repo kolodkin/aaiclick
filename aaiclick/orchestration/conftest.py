@@ -11,7 +11,7 @@ import tempfile
 
 import pytest
 
-from aaiclick.backend import is_local
+from aaiclick.backend import is_sqlite
 from aaiclick.orchestration.context import orch_context
 
 # Capture the original database name before any fixture modifies it
@@ -34,7 +34,7 @@ def _pg_connect(dbname: str):
 @pytest.fixture(scope="session")
 def _isolated_db():
     """Create and drop an isolated database for this xdist worker."""
-    if is_local():
+    if is_sqlite():
         yield from _setup_sqlite_db()
     else:
         yield from _setup_pg_db()
@@ -46,7 +46,7 @@ def _setup_sqlite_db():
     suffix = f"_{worker}" if worker else ""
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_test_")
     db_path = os.path.join(tmp_dir, f"test{suffix}.db")
-    os.environ["AAICLICK_SQLITE_PATH"] = db_path
+    os.environ["AAICLICK_SQL_URL"] = f"sqlite+aiosqlite:///{db_path}"
 
     # Create tables via SQLModel metadata
     from sqlalchemy import create_engine

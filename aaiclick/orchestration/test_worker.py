@@ -1,9 +1,10 @@
 """Tests for worker management and task claiming."""
 
 import asyncio
-import os
 
 import pytest
+
+from aaiclick.backend import is_sqlite
 from sqlalchemy import text
 from sqlmodel import select
 
@@ -241,7 +242,7 @@ async def test_claim_next_task_basic(orch_ctx):
 
 
 @pytest.mark.skipif(
-    os.getenv("AAICLICK_BACKEND", "local") == "local",
+    is_sqlite(),
     reason="FOR UPDATE SKIP LOCKED requires PostgreSQL",
 )
 async def test_claim_next_task_skip_locked(orch_ctx):

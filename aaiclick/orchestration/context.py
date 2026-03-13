@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from ..backend import is_local
+from ..backend import is_sqlite
 from ..snowflake_id import get_snowflake_id
 from .db_handler import PgDbHandler, SqliteDbHandler
 from .env import get_db_url
@@ -57,7 +57,7 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
         ctx: Named context key (default "default").
     """
     engine = create_async_engine(get_db_url(), echo=False)
-    handler = SqliteDbHandler() if is_local() else PgDbHandler()
+    handler = SqliteDbHandler() if is_sqlite() else PgDbHandler()
 
     state = OrchCtxState(engine=engine, db_handler=handler)
 

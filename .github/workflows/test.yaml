@@ -46,14 +46,10 @@ jobs:
           uv pip install -e "${{ matrix.install }}"
 
       - name: Setup local backend
-        env:
-          AAICLICK_BACKEND: local
         run: |
           uv run python -m aaiclick setup
 
       - name: "Run tests: ${{ matrix.title }}"
-        env:
-          AAICLICK_BACKEND: local
         run: |
           mkdir -p tmp
           uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
@@ -134,18 +130,15 @@ jobs:
       - name: Run database migrations
         if: matrix.needs-postgres
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
       - name: "Run tests: ${{ matrix.title }}"
         env:
-          AAICLICK_BACKEND: distributed
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -219,17 +212,14 @@ jobs:
 
       - name: Run database migrations
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           uv run python -m aaiclick migrate upgrade head
 
       - name: Run examples
         env:
-          AAICLICK_BACKEND: distributed
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -314,17 +304,14 @@ jobs:
 
       - name: Run database migrations
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           uv run python -m aaiclick migrate upgrade head
 
       - name: "Run: ${{ matrix.title }}"
         env:
-          AAICLICK_BACKEND: distributed
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default

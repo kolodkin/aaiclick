@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.backend import is_local
+from aaiclick.backend import is_chdb, is_sqlite
 
 from .env import get_db_url
 
@@ -55,7 +55,7 @@ class PgCleanupWorker:
     async def start(self) -> None:
         self._engine = create_async_engine(get_db_url(), echo=False)
 
-        if is_local():
+        if is_chdb():
             from aaiclick.data.chdb_client import create_chdb_client
 
             self._ch_client = create_chdb_client()
@@ -116,7 +116,7 @@ class PgCleanupWorker:
             if not job_ids:
                 return
 
-            if is_local():
+            if is_sqlite():
                 for jid in job_ids:
                     await session.execute(
                         text("DELETE FROM table_context_refs WHERE context_id = :jid"),
@@ -181,7 +181,7 @@ class PgCleanupWorker:
 
             now = datetime.utcnow()
 
-            if is_local():
+            if is_sqlite():
                 for wid in dead_worker_ids:
                     await session.execute(
                         text("UPDATE workers SET status = 'STOPPED' WHERE id = :wid"),

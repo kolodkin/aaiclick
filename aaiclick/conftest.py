@@ -11,6 +11,7 @@ import tempfile
 
 import pytest
 
+from aaiclick.backend import is_chdb
 from aaiclick.data.data_context import data_context
 
 
@@ -22,7 +23,7 @@ def pytest_configure(config):
     worker gets a unique temp directory via AAICLICK_CHDB_PATH.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER")
-    if worker_id is not None and os.environ.get("AAICLICK_BACKEND", "local") == "local":
+    if worker_id is not None and is_chdb():
         chdb_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker_id}_")
         os.environ["AAICLICK_CHDB_PATH"] = chdb_dir
 

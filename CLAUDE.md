@@ -49,12 +49,12 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Test Execution Strategy
 
-**Local testing is supported with the `local` backend (chdb + SQLite).**
+**Local testing is supported with the default backend (chdb + SQLite).**
 
 - Run `python -m aaiclick setup` before first test run
-- Set `AAICLICK_BACKEND=local` (default) for local dev
-- Tests also run in GitHub Actions with both `local` and `distributed` backends
-- For distributed testing, PostgreSQL and ClickHouse services are required
+- Default URLs use chdb + SQLite — no infrastructure needed
+- Tests also run in GitHub Actions with both local and distributed backends
+- For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
 # Testing Guidelines
 
@@ -216,26 +216,24 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Environment Variables
 
-Backend selection:
-- `AAICLICK_BACKEND` (default: `"local"`) — `"local"` for chdb+SQLite, `"distributed"` for ClickHouse+PostgreSQL
+Connection URLs:
+- `AAICLICK_CH_URL` (default: `chdb:///~/.aaiclick/chdb_data`) — ClickHouse data connection
+  - chdb (embedded): `chdb:///path/to/data`
+  - Remote server: `clickhouse://user:pass@host:8123/database`
+- `AAICLICK_SQL_URL` (default: `sqlite+aiosqlite:///~/.aaiclick/local.db`) — Orchestration SQL database
+  - SQLite: `sqlite+aiosqlite:///path/to/file.db`
+  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/database`
 
-Local backend paths (only when `AAICLICK_BACKEND=local`):
-- `AAICLICK_CHDB_PATH` (default: `~/.aaiclick/chdb_data`) — chdb data directory
-- `AAICLICK_SQLITE_PATH` (default: `~/.aaiclick/local.db`) — SQLite database file
+Helper functions:
+- `is_chdb()` — True when `AAICLICK_CH_URL` starts with `chdb://`
+- `is_sqlite()` — True when `AAICLICK_SQL_URL` starts with `sqlite`
 
-ClickHouse connection (only when `AAICLICK_BACKEND=distributed`):
-- `CLICKHOUSE_HOST` (default: "localhost")
-- `CLICKHOUSE_PORT` (default: 8123)
-- `CLICKHOUSE_USER` (default: "default")
-- `CLICKHOUSE_PASSWORD` (default: "")
-- `CLICKHOUSE_DB` (default: "default")
+Legacy env vars (still read by `data/env.py` and Alembic migrations as fallback):
+- `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DB`
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 
-PostgreSQL connection (only when `AAICLICK_BACKEND=distributed`):
-- `POSTGRES_HOST` (default: "localhost")
-- `POSTGRES_PORT` (default: 5432)
-- `POSTGRES_USER` (default: "aaiclick")
-- `POSTGRES_PASSWORD` (default: "secret")
-- `POSTGRES_DB` (default: "aaiclick")
+Test isolation:
+- `AAICLICK_CHDB_PATH` — Override chdb data dir (used by xdist workers for isolation)
 
 Orchestration logging (optional):
 - `AAICLICK_LOG_DIR` - Override default OS-dependent log directory

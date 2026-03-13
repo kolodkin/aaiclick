@@ -31,13 +31,12 @@ def _run_setup():
     """Initialize local dev environment."""
     from pathlib import Path
 
-    from aaiclick.backend import get_backend, is_local
+    from aaiclick.backend import get_ch_url, get_sql_url, is_chdb, is_sqlite
 
-    backend = get_backend()
-    print(f"Backend: {backend}")
+    print(f"CH URL:  {get_ch_url()}")
+    print(f"SQL URL: {get_sql_url()}")
 
-    if is_local():
-        # Verify chdb is available
+    if is_chdb():
         try:
             from chdb.session import Session
 
@@ -46,16 +45,6 @@ def _run_setup():
             print("  chdb: MISSING - install with: pip install chdb")
             return
 
-        # Verify aiosqlite is available
-        try:
-            import aiosqlite  # noqa: F401
-
-            print("  aiosqlite: OK")
-        except ImportError:
-            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
-            return
-
-        # Initialize chdb data directory
         from aaiclick.data.chdb_client import get_chdb_data_path
 
         chdb_path = get_chdb_data_path()
@@ -64,8 +53,18 @@ def _run_setup():
         sess.query("SELECT 1")
         sess.cleanup()
         print(f"  chdb data: {chdb_path}")
+    else:
+        print("  ClickHouse: remote server (no local setup needed)")
 
-        # Initialize SQLite database (requires orch extras)
+    if is_sqlite():
+        try:
+            import aiosqlite  # noqa: F401
+
+            print("  aiosqlite: OK")
+        except ImportError:
+            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
+            return
+
         try:
             from sqlalchemy import create_engine
 
@@ -80,10 +79,10 @@ def _run_setup():
             print(f"  SQLite DB: {db_url}")
         except ImportError:
             print("  SQLite DB: skipped (orchestration extras not installed)")
-
-        print("Local dev environment ready.")
     else:
-        print("Distributed mode — use 'python -m aaiclick migrate upgrade head' for database setup.")
+        print("  PostgreSQL: use 'python -m aaiclick migrate upgrade head' for database setup")
+
+    print("Setup complete.")
 
 
 def main():

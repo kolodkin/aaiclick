@@ -18,7 +18,7 @@ import weakref
 
 import numpy as np
 
-from aaiclick.backend import is_local
+from aaiclick.backend import get_ch_url, is_chdb
 
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
@@ -137,13 +137,14 @@ def get_pool():
 async def _create_ch_client(creds: ClickHouseCreds | None = None) -> object:
     """Create a ClickHouse client.
 
-    Local mode: returns ChdbClient wrapping a chdb Session.
-    Distributed mode: returns clickhouse-connect AsyncClient.
+    chdb URL (chdb:///path): returns ChdbClient wrapping a chdb Session.
+    clickhouse URL: returns clickhouse-connect AsyncClient.
     """
-    if is_local():
+    if is_chdb():
         from .chdb_client import create_chdb_client
 
-        return create_chdb_client()
+        path = get_ch_url().removeprefix("chdb://")
+        return create_chdb_client(path)
 
     from clickhouse_connect import get_async_client
 
@@ -178,7 +179,7 @@ async def data_context(
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
     """
-    if is_local():
+    if is_chdb():
         ch_client = await _create_ch_client()
         creds = None
     else:
@@ -191,13 +192,7 @@ async def data_context(
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
     if owns_lifecycle:
-        if is_local():
-            from .chdb_client import get_chdb_data_path
-
-            conn_str = f"chdb://{get_chdb_data_path()}"
-        else:
-            conn_str = f"clickhouse://{creds.user}:{creds.password}@{creds.host}:{creds.port}/{creds.database}"
-        lifecycle = LocalLifecycleHandler(conn_str)
+        lifecycle = LocalLifecycleHandler(get_ch_url())
         await lifecycle.start()
 
     state = DataCtxState(

@@ -17,7 +17,7 @@ Snowflake ID format (64 bits):
 
 from collections import deque
 
-from .backend import is_local
+from .backend import is_chdb
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
@@ -52,7 +52,7 @@ class SnowflakeGenerator:
     def _get_client(self):
         """Lazily create a sync ClickHouse client (chdb or remote)."""
         if self._client is None:
-            if is_local():
+            if is_chdb():
                 from .data.chdb_client import ChdbSyncClient, create_chdb_session
 
                 session = create_chdb_session()
@@ -75,7 +75,7 @@ class SnowflakeGenerator:
     def _fetch_ids(self, count: int) -> list[int]:
         """Fetch a batch of Snowflake IDs from ClickHouse."""
         client = self._get_client()
-        if is_local():
+        if is_chdb():
             # ChdbSyncClient.command() returns a scalar; use query for multiple rows
             result = client.command(
                 f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})"

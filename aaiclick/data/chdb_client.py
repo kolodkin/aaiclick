@@ -159,18 +159,27 @@ def _format_value(val: object) -> str:
 
 
 def get_chdb_data_path() -> str:
-    """Return the chdb data directory path."""
-    return os.getenv(
-        "AAICLICK_CHDB_PATH",
-        str(Path.home() / ".aaiclick" / "chdb_data"),
-    )
+    """Return the chdb data directory path from AAICLICK_CH_URL.
+
+    Parses the path component of the chdb:///path URL.
+    Falls back to AAICLICK_CHDB_PATH env var for xdist worker isolation.
+    """
+    chdb_override = os.getenv("AAICLICK_CHDB_PATH")
+    if chdb_override:
+        return chdb_override
+    from aaiclick.backend import get_ch_url
+
+    url = get_ch_url()
+    if url.startswith("chdb://"):
+        return url.removeprefix("chdb://")
+    return str(Path.home() / ".aaiclick" / "chdb_data")
 
 
 def create_chdb_session(path: Optional[str] = None) -> Session:
     """Create a disk-backed chdb Session.
 
     Args:
-        path: Directory for chdb data. If None, uses default (~/.aaiclick/chdb_data).
+        path: Directory for chdb data. If None, uses get_chdb_data_path().
     """
     data_path = path or get_chdb_data_path()
     Path(data_path).mkdir(parents=True, exist_ok=True)
