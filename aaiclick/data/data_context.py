@@ -18,11 +18,10 @@ import weakref
 
 import numpy as np
 
-from aaiclick.backend import get_ch_url, is_chdb
+from aaiclick.backend import get_ch_url, is_chdb, parse_ch_url
 
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
-    ClickHouseCreds,
     ColumnInfo,
     ValueScalarType,
     ValueListType,
@@ -53,7 +52,6 @@ class DataCtxState:
     lifecycle: Optional[LifecycleHandler]
     owns_lifecycle: bool
     engine: EngineType
-    creds: Optional[ClickHouseCreds]
     objects: Dict[int, weakref.ref] = field(default_factory=dict)
 
 
@@ -134,7 +132,7 @@ def get_pool():
     return _pool[0]
 
 
-async def _create_ch_client(creds: ClickHouseCreds | None = None) -> object:
+async def _create_ch_client() -> object:
     """Create a ClickHouse client.
 
     chdb URL (chdb:///path): returns ChdbClient wrapping a chdb Session.
@@ -147,25 +145,16 @@ async def _create_ch_client(creds: ClickHouseCreds | None = None) -> object:
 
     from clickhouse_connect import get_async_client
 
-    from .env import get_ch_creds
-
-    if creds is None:
-        creds = get_ch_creds()
-
+    params = parse_ch_url()
     return await get_async_client(
-        host=creds.host,
-        port=creds.port,
-        username=creds.user,
-        password=creds.password,
-        database=creds.database,
         pool_mgr=get_pool(),
+        **params,
     )
 
 
 @asynccontextmanager
 async def data_context(
     ctx: str = "default",
-    creds: ClickHouseCreds | None = None,
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
 ) -> AsyncIterator[None]:
@@ -173,19 +162,11 @@ async def data_context(
 
     Args:
         ctx: Named context key (default "default").
-        creds: ClickHouse credentials. If None, reads from environment.
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
     """
-    if is_chdb():
-        ch_client = await _create_ch_client()
-        creds = None
-    else:
-        from .env import get_ch_creds
-
-        creds = creds or get_ch_creds()
-        ch_client = await _create_ch_client(creds)
+    ch_client = await _create_ch_client()
 
     owns_lifecycle = lifecycle is None
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
@@ -199,7 +180,6 @@ async def data_context(
         lifecycle=lifecycle,
         owns_lifecycle=owns_lifecycle,
         engine=effective_engine,
-        creds=creds,
     )
 
     # Copy-on-write: copy existing dict before mutation

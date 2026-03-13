@@ -17,7 +17,7 @@ Snowflake ID format (64 bits):
 
 from collections import deque
 
-from .backend import is_chdb
+from .backend import is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
@@ -60,16 +60,7 @@ class SnowflakeGenerator:
             else:
                 from clickhouse_connect import get_client
 
-                from .data.env import get_ch_creds
-
-                creds = get_ch_creds()
-                self._client = get_client(
-                    host=creds.host,
-                    port=creds.port,
-                    username=creds.user,
-                    password=creds.password,
-                    database=creds.database,
-                )
+                self._client = get_client(**parse_ch_url())
         return self._client
 
     def _fetch_ids(self, count: int) -> list[int]:

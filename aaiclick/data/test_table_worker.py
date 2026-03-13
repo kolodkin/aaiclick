@@ -6,13 +6,11 @@ import time
 from unittest.mock import MagicMock, patch
 
 from aaiclick.data.table_worker import TableWorker, TableOp, TableMessage
-from aaiclick.data.models import ClickHouseCreds
 
 
 def test_worker_incref_queues_message():
     """Test that incref queues an INCREF message."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     # Don't start the worker - just test queue behavior
     worker.incref("table_123")
@@ -24,8 +22,7 @@ def test_worker_incref_queues_message():
 
 def test_worker_decref_queues_message():
     """Test that decref queues a DECREF message."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     worker.decref("table_456")
 
@@ -36,8 +33,7 @@ def test_worker_decref_queues_message():
 
 def test_worker_stop_queues_shutdown():
     """Test that stop queues a SHUTDOWN message and joins thread."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     # Mock the thread join to avoid blocking
     worker._thread = MagicMock()
@@ -51,8 +47,7 @@ def test_worker_stop_queues_shutdown():
 
 def test_worker_refcount_tracking():
     """Test refcount tracking logic without actual ClickHouse."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     # Simulate what _run does for INCREF
     worker._refcounts["table_a"] = 0
@@ -72,8 +67,7 @@ def test_worker_refcount_tracking():
 
 def test_worker_cleanup_all():
     """Test cleanup_all drops all tracked tables."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     # Mock the client
     worker._ch_client = MagicMock()
@@ -93,8 +87,7 @@ def test_worker_cleanup_all():
 
 def test_worker_drop_table_handles_exception():
     """Test _drop_table handles exceptions gracefully."""
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     # Mock client that raises exception
     worker._ch_client = MagicMock()
@@ -110,8 +103,7 @@ def test_worker_full_lifecycle(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
 
-    creds = ClickHouseCreds(host="testhost", port=9000, database="testdb")
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@testhost:9000/testdb")
 
     # Start worker
     worker.start()
@@ -140,8 +132,7 @@ def test_worker_drops_table_when_refcount_zero(mock_get_client):
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
 
-    creds = ClickHouseCreds()
-    worker = TableWorker(creds)
+    worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
     worker.start()
 

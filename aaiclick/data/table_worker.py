@@ -11,12 +11,9 @@ import queue
 import threading
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Union
 from urllib.parse import urlparse
 
 from clickhouse_connect import get_client
-
-from .models import ClickHouseCreds
 
 
 class TableOp(Enum):
@@ -65,19 +62,13 @@ class TableWorker:
     Creates its own sync client from a connection string.
     """
 
-    def __init__(self, connection_string: Union[str, ClickHouseCreds]):
-        """Initialize worker with a connection string or ClickHouseCreds.
+    def __init__(self, connection_string: str):
+        """Initialize worker with a connection string.
 
         Args:
-            connection_string: ClickHouse/chdb connection URL or ClickHouseCreds.
+            connection_string: ClickHouse or chdb connection URL.
         """
-        if isinstance(connection_string, ClickHouseCreds):
-            c = connection_string
-            self._connection_string = (
-                f"clickhouse://{c.user}:{c.password}@{c.host}:{c.port}/{c.database}"
-            )
-        else:
-            self._connection_string = connection_string
+        self._connection_string = connection_string
         self._ch_client: object = None
         self._queue: queue.Queue[TableMessage] = queue.Queue()
         self._refcounts: dict[str, int] = {}

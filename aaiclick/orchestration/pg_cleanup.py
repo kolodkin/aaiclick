@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.backend import is_chdb, is_sqlite
+from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
 
 from .env import get_db_url
 
@@ -62,16 +62,7 @@ class PgCleanupWorker:
         else:
             from clickhouse_connect import get_async_client
 
-            from aaiclick.data.env import get_ch_creds
-
-            creds = get_ch_creds()
-            self._ch_client = await get_async_client(
-                host=creds.host,
-                port=creds.port,
-                username=creds.user,
-                password=creds.password,
-                database=creds.database,
-            )
+            self._ch_client = await get_async_client(**parse_ch_url())
         self._shutdown = asyncio.Event()
         self._task = asyncio.create_task(self._cleanup_loop())
 

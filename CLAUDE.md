@@ -228,12 +228,8 @@ Helper functions:
 - `is_chdb()` — True when `AAICLICK_CH_URL` starts with `chdb://`
 - `is_sqlite()` — True when `AAICLICK_SQL_URL` starts with `sqlite`
 
-Legacy env vars (still read by `data/env.py` and Alembic migrations as fallback):
-- `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DB`
+Legacy env vars (read by Alembic migrations as fallback when `AAICLICK_SQL_URL` is not set):
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-
-Test isolation:
-- `AAICLICK_CHDB_PATH` — Override chdb data dir (used by xdist workers for isolation)
 
 Orchestration logging (optional):
 - `AAICLICK_LOG_DIR` - Override default OS-dependent log directory

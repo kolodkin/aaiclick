@@ -16,6 +16,7 @@ Helper functions detect the backend type from the URL scheme.
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def get_sql_url() -> str:
@@ -45,3 +46,19 @@ def is_sqlite() -> bool:
 def is_chdb() -> bool:
     """True when data operations use embedded chdb."""
     return get_ch_url().startswith("chdb://")
+
+
+def parse_ch_url() -> dict:
+    """Parse AAICLICK_CH_URL into clickhouse-connect connection parameters.
+
+    Returns dict with keys: host, port, username, password, database.
+    Only meaningful for non-chdb URLs (clickhouse://user:pass@host:port/db).
+    """
+    parsed = urlparse(get_ch_url())
+    return {
+        "host": parsed.hostname or "localhost",
+        "port": parsed.port or 8123,
+        "username": parsed.username or "default",
+        "password": parsed.password or "",
+        "database": parsed.path.lstrip("/") or "default",
+    }
