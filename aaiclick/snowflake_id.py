@@ -6,6 +6,8 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
+In local mode, uses chdb (embedded ClickHouse) instead of a remote server.
+
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
 - Bits 62-22: Timestamp in milliseconds (41 bits)
@@ -15,9 +17,7 @@ Snowflake ID format (64 bits):
 
 from collections import deque
 
-from clickhouse_connect import get_client
-
-from .data.env import get_ch_creds
+from .backend import is_local
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
@@ -40,6 +40,8 @@ class SnowflakeGenerator:
     Pre-fetches batches of IDs from ClickHouse's generateSnowflakeID(),
     serving them from an in-memory buffer for efficiency. When the buffer
     is exhausted, a new batch is fetched automatically.
+
+    Uses chdb (embedded) in local mode, clickhouse-connect in distributed mode.
     """
 
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
@@ -48,25 +50,46 @@ class SnowflakeGenerator:
         self._client = None
 
     def _get_client(self):
-        """Lazily create a sync ClickHouse client."""
+        """Lazily create a sync ClickHouse client (chdb or remote)."""
         if self._client is None:
-            creds = get_ch_creds()
-            self._client = get_client(
-                host=creds.host,
-                port=creds.port,
-                username=creds.user,
-                password=creds.password,
-                database=creds.database,
-            )
+            if is_local():
+                from .data.chdb_client import ChdbSyncClient, create_chdb_session
+
+                session = create_chdb_session()
+                self._client = ChdbSyncClient(session)
+            else:
+                from clickhouse_connect import get_client
+
+                from .data.env import get_ch_creds
+
+                creds = get_ch_creds()
+                self._client = get_client(
+                    host=creds.host,
+                    port=creds.port,
+                    username=creds.user,
+                    password=creds.password,
+                    database=creds.database,
+                )
         return self._client
 
     def _fetch_ids(self, count: int) -> list[int]:
         """Fetch a batch of Snowflake IDs from ClickHouse."""
         client = self._get_client()
-        result = client.query(
-            f"SELECT generateSnowflakeID() FROM numbers({count})"
-        )
-        return [row[0] for row in result.result_rows]
+        if is_local():
+            # ChdbSyncClient.command() returns a scalar; use query for multiple rows
+            result = client.command(
+                f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})"
+            )
+            # chdb returns a string like "[123,456,789]" — parse it
+            if isinstance(result, str):
+                result = result.strip("[]")
+                return [int(x) for x in result.split(",") if x.strip()]
+            return [int(result)]
+        else:
+            result = client.query(
+                f"SELECT generateSnowflakeID() FROM numbers({count})"
+            )
+            return [row[0] for row in result.result_rows]
 
     def generate(self) -> int:
         """Generate a single Snowflake ID."""

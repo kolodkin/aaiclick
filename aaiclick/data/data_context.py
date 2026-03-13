@@ -773,7 +773,7 @@ async def delete_persistent_objects(
         )
     state = _get_data_state()
     conditions = [
-        f"database = '{state.creds.database}'",
+        "database = currentDatabase()",
         r"name LIKE 'p\_%'",
     ]
     if after is not None:
@@ -804,7 +804,7 @@ async def list_persistent_objects() -> list[str]:
     state = _get_data_state()
     result = await state.ch_client.query(
         "SELECT name FROM system.tables "
-        f"WHERE database = '{state.creds.database}' "
+        "WHERE database = currentDatabase() "
         r"AND name LIKE 'p\_%'"
     )
     return [row[0][2:] for row in result.result_rows]

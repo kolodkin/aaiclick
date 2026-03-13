@@ -22,9 +22,14 @@ from chdb.session import Session
 
 @dataclass
 class ChdbQueryResult:
-    """Mimics clickhouse-connect QueryResult with .result_rows attribute."""
+    """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
 
     result_rows: List[tuple] = field(default_factory=list)
+
+    @property
+    def first_row(self) -> tuple:
+        """Return the first row, matching clickhouse-connect QueryResult."""
+        return self.result_rows[0]
 
 
 class ChdbClient:
@@ -107,7 +112,7 @@ class ChdbClient:
         if not data:
             return
 
-        cols = f" ({', '.join(column_names)})" if column_names else ""
+        cols = f" ({', '.join(f'`{c}`' for c in column_names)})" if column_names else ""
         value_rows = []
         for row in data:
             formatted = []
@@ -169,7 +174,15 @@ def _format_value(val: object) -> str:
 
 def _coerce_value(val: object, col_type: str) -> object:
     """Coerce a JSON-parsed value to the appropriate Python type."""
+    if col_type.startswith("Array("):
+        if val is None:
+            return []
+        inner_type = col_type[6:-1]  # Strip "Array(" and ")"
+        items = val if isinstance(val, list) else list(val)
+        return [_coerce_value(item, inner_type) for item in items]
     if val is None:
+        if "Float" in col_type and not col_type.startswith("Nullable("):
+            return float("nan")
         return None
     if "Int" in col_type or col_type == "UInt64" or col_type == "UInt8":
         return int(val) if not isinstance(val, int) else val
@@ -180,8 +193,6 @@ def _coerce_value(val: object, col_type: str) -> object:
         if "." in s:
             return datetime.strptime(s, "%Y-%m-%d %H:%M:%S.%f")
         return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-    if col_type.startswith("Array("):
-        return val if isinstance(val, list) else list(val)
     return val
 
 
