@@ -132,6 +132,44 @@ async def test_records_with_datetime(ctx):
 
 
 # =============================================================================
+# Array(DateTime64) Column Tests
+# =============================================================================
+
+
+async def test_records_with_array_datetime(ctx):
+    """Records with nested datetime lists infer Array(DateTime64) type."""
+    val = [
+        {"user": "Alice", "logins": [DT_2024, DT_2025]},
+        {"user": "Bob", "logins": [DT_EPOCH, DT_MILLIS]},
+    ]
+    obj = await create_object_from_value(val)
+    data = await obj.data()
+    assert data["logins"] == [(DT_2024, DT_2025), (DT_EPOCH, DT_MILLIS)]
+    assert data["user"] == ["Alice", "Bob"]
+
+
+async def test_dict_with_array_datetime_column(ctx):
+    """Dict with Array(DateTime64) column via explicit schema."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "aai_id": ColumnInfo("UInt64"),
+            "timestamps": ColumnInfo("DateTime64(3, 'UTC')", array=True),
+            "label": ColumnInfo("String", low_cardinality=True),
+        },
+        col_fieldtype=FIELDTYPE_ARRAY,
+    )
+    obj = await create_object(schema)
+    ch = get_ch_client()
+    data = [[[DT_2024, DT_2025], "batch1"], [[DT_EPOCH], "batch2"]]
+    await ch.insert(obj.table, data, column_names=["timestamps", "label"])
+
+    result = await obj.data()
+    assert result["timestamps"] == [(DT_2024, DT_2025), (DT_EPOCH,)]
+    assert result["label"] == ["batch1", "batch2"]
+
+
+# =============================================================================
 # Explicit Schema Tests (create_object with DateTime64 type)
 # =============================================================================
 

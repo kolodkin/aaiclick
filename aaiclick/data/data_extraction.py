@@ -15,13 +15,17 @@ from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 def _convert_value(value):
     """Convert ClickHouse result values to Python types.
 
-    - Tuples (from Array columns) are converted to lists.
     - Naive datetimes (from DateTime64 UTC columns) get UTC timezone attached.
+    - Tuples containing naive datetimes (from Array(DateTime64) columns)
+      get UTC timezone attached to each element.
     """
-    if isinstance(value, tuple):
-        return list(value)
     if isinstance(value, datetime) and value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
+    if isinstance(value, tuple) and value and isinstance(value[0], datetime):
+        return tuple(
+            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
+            for v in value
+        )
     return value
 
 
