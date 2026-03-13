@@ -27,7 +27,7 @@ from .context import commit_tasks, get_orch_session
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
-from .pg_lifecycle import PgLifecycleHandler
+from .db_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
 
 

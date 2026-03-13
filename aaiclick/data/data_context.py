@@ -17,12 +17,9 @@ from typing import AsyncIterator, Dict, List, Optional, Union
 import weakref
 
 import numpy as np
-from clickhouse_connect import get_async_client
 
-from clickhouse_connect.driver.asyncclient import AsyncClient
-from urllib3 import PoolManager
+from aaiclick.backend import is_local
 
-from .env import get_ch_creds
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler
 from .models import (
     ClickHouseCreds,
@@ -52,11 +49,11 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 class DataCtxState:
     """State bundle for a named data context."""
 
-    ch_client: AsyncClient
+    ch_client: object  # AsyncClient (distributed) or ChdbClient (local)
     lifecycle: Optional[LifecycleHandler]
     owns_lifecycle: bool
     engine: EngineType
-    creds: ClickHouseCreds
+    creds: Optional[ClickHouseCreds]
     objects: Dict[int, weakref.ref] = field(default_factory=dict)
 
 
@@ -83,7 +80,7 @@ def _get_data_state(ctx: str = "default") -> DataCtxState:
     return contexts[ctx]
 
 
-def get_ch_client(ctx: str = "default") -> AsyncClient:
+def get_ch_client(ctx: str = "default") -> object:
     """Get the ClickHouse client from the active context."""
     return _get_data_state(ctx).ch_client
 
@@ -124,19 +121,34 @@ async def delete_object(obj: object, ctx: str = "default") -> None:
         state.lifecycle.decref(obj.table)
 
 
-# Global connection pool shared across all contexts
+# Global connection pool shared across all contexts (distributed mode only)
 _pool: list = [None]
 
 
-def get_pool() -> PoolManager:
+def get_pool():
     """Get or create the global urllib3 connection pool."""
+    from urllib3 import PoolManager
+
     if _pool[0] is None:
         _pool[0] = PoolManager(num_pools=10, maxsize=10)
     return _pool[0]
 
 
-async def _create_ch_client(creds: ClickHouseCreds | None = None) -> AsyncClient:
-    """Create a ClickHouse client using the shared connection pool."""
+async def _create_ch_client(creds: ClickHouseCreds | None = None) -> object:
+    """Create a ClickHouse client.
+
+    Local mode: returns ChdbClient wrapping a chdb Session.
+    Distributed mode: returns clickhouse-connect AsyncClient.
+    """
+    if is_local():
+        from .chdb_client import create_chdb_client
+
+        return create_chdb_client()
+
+    from clickhouse_connect import get_async_client
+
+    from .env import get_ch_creds
+
     if creds is None:
         creds = get_ch_creds()
 
@@ -166,13 +178,26 @@ async def data_context(
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
     """
-    creds = creds or get_ch_creds()
-    ch_client = await _create_ch_client(creds)
+    if is_local():
+        ch_client = await _create_ch_client()
+        creds = None
+    else:
+        from .env import get_ch_creds
+
+        creds = creds or get_ch_creds()
+        ch_client = await _create_ch_client(creds)
+
     owns_lifecycle = lifecycle is None
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
     if owns_lifecycle:
-        lifecycle = LocalLifecycleHandler(creds)
+        if is_local():
+            from .chdb_client import get_chdb_data_path
+
+            conn_str = f"chdb://{get_chdb_data_path()}"
+        else:
+            conn_str = f"clickhouse://{creds.user}:{creds.password}@{creds.host}:{creds.port}/{creds.database}"
+        lifecycle = LocalLifecycleHandler(conn_str)
         await lifecycle.start()
 
     state = DataCtxState(

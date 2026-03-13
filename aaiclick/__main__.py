@@ -1,6 +1,7 @@
 """CLI entry point for aaiclick package.
 
 Usage:
+    python -m aaiclick setup              # Initialize local dev environment
     python -m aaiclick migrate            # Run database migrations
     python -m aaiclick migrate --help     # Show migration help
     python -m aaiclick worker start       # Start a worker process
@@ -36,6 +37,62 @@ from aaiclick.orchestration.cli import (
 from aaiclick.orchestration.migrate import run_migrations
 
 
+def _run_setup():
+    """Initialize local dev environment."""
+    from pathlib import Path
+
+    from aaiclick.backend import get_backend, is_local
+
+    backend = get_backend()
+    print(f"Backend: {backend}")
+
+    if is_local():
+        # Verify chdb is available
+        try:
+            from chdb.session import Session
+
+            print("  chdb: OK")
+        except ImportError:
+            print("  chdb: MISSING - install with: pip install chdb")
+            return
+
+        # Verify aiosqlite is available
+        try:
+            import aiosqlite  # noqa: F401
+
+            print("  aiosqlite: OK")
+        except ImportError:
+            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
+            return
+
+        # Initialize chdb data directory
+        from aaiclick.data.chdb_client import get_chdb_data_path
+
+        chdb_path = get_chdb_data_path()
+        Path(chdb_path).mkdir(parents=True, exist_ok=True)
+        sess = Session(chdb_path)
+        sess.query("SELECT 1")
+        sess.cleanup()
+        print(f"  chdb data: {chdb_path}")
+
+        # Initialize SQLite database
+        from sqlalchemy import create_engine
+
+        from aaiclick.orchestration.env import get_db_url
+        from aaiclick.orchestration.models import SQLModel
+
+        db_url = get_db_url()
+        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
+        engine = create_engine(sync_url)
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+        print(f"  SQLite DB: {db_url}")
+
+        print("Local dev environment ready.")
+    else:
+        print("Distributed mode — use 'python -m aaiclick migrate upgrade head' for database setup.")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -43,6 +100,12 @@ def main():
         description="aaiclick command-line interface",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Add setup subcommand
+    subparsers.add_parser(
+        "setup",
+        help="Initialize local dev environment (SQLite + chdb)",
+    )
 
     # Add migrate subcommand
     migrate_parser = subparsers.add_parser(
@@ -213,7 +276,10 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "migrate":
+    if args.command == "setup":
+        _run_setup()
+
+    elif args.command == "migrate":
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":

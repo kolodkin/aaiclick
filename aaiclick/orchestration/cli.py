@@ -16,7 +16,7 @@ from .job_queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
 from .job_stats import compute_job_stats, print_job_stats
 from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
-from .pg_lifecycle import PgLifecycleHandler
+from .db_lifecycle import PgLifecycleHandler
 from .worker import list_workers, worker_main_loop
 
 

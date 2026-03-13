@@ -1,7 +1,7 @@
 """
-aaiclick.orchestration.pg_lifecycle - Distributed lifecycle handler via PostgreSQL.
+aaiclick.orchestration.db_lifecycle - Distributed lifecycle handler via database.
 
-PgLifecycleHandler tracks Object table reference counts in PostgreSQL using
+PgLifecycleHandler tracks Object table reference counts in PostgreSQL/SQLite using
 context-scoped refs. Each handler instance gets a unique context_id (snowflake)
 for grouping its refs. Pin operations use the job_id as context_id, so pinned
 results survive stop() which only deletes refs for the handler's own context_id.
@@ -23,7 +23,7 @@ from sqlmodel import Field, SQLModel
 from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .env import get_pg_url
+from .env import get_db_url
 
 
 class PgLifecycleOp(Enum):
@@ -81,7 +81,7 @@ class PgLifecycleHandler(LifecycleHandler):
         self._engine: AsyncEngine | None = None
 
     async def start(self) -> None:
-        self._engine = create_async_engine(get_pg_url(), echo=False)
+        self._engine = create_async_engine(get_db_url(), echo=False)
         self._task = asyncio.create_task(self._process_loop())
 
     async def stop(self) -> None:

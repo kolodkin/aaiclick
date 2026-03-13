@@ -49,11 +49,12 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Test Execution Strategy
 
-**IMPORTANT: Do NOT run tests in the Claude cloud environment.**
+**Local testing is supported with the `local` backend (chdb + SQLite).**
 
-- All tests run automatically in GitHub Actions when code is pushed
-- Local test execution is unnecessary and should be avoided
-- CI/CD pipeline handles all testing and validation
+- Run `python -m aaiclick setup` before first test run
+- Set `AAICLICK_BACKEND=local` (default) for local dev
+- Tests also run in GitHub Actions with both `local` and `distributed` backends
+- For distributed testing, PostgreSQL and ClickHouse services are required
 
 # Testing Guidelines
 
@@ -215,14 +216,21 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Environment Variables
 
-ClickHouse connection (all optional with sensible defaults):
+Backend selection:
+- `AAICLICK_BACKEND` (default: `"local"`) — `"local"` for chdb+SQLite, `"distributed"` for ClickHouse+PostgreSQL
+
+Local backend paths (only when `AAICLICK_BACKEND=local`):
+- `AAICLICK_CHDB_PATH` (default: `~/.aaiclick/chdb_data`) — chdb data directory
+- `AAICLICK_SQLITE_PATH` (default: `~/.aaiclick/local.db`) — SQLite database file
+
+ClickHouse connection (only when `AAICLICK_BACKEND=distributed`):
 - `CLICKHOUSE_HOST` (default: "localhost")
 - `CLICKHOUSE_PORT` (default: 8123)
 - `CLICKHOUSE_USER` (default: "default")
 - `CLICKHOUSE_PASSWORD` (default: "")
 - `CLICKHOUSE_DB` (default: "default")
 
-PostgreSQL connection for orchestration backend (required when using orchestration):
+PostgreSQL connection (only when `AAICLICK_BACKEND=distributed`):
 - `POSTGRES_HOST` (default: "localhost")
 - `POSTGRES_PORT` (default: 5432)
 - `POSTGRES_USER` (default: "aaiclick")

@@ -10,7 +10,7 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from ..snowflake_id import get_snowflake_id
-from .env import get_pg_url
+from .env import get_db_url
 from .models import Group, Task, TasksType
 
 
@@ -53,7 +53,7 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
     Args:
         ctx: Named context key (default "default").
     """
-    engine = create_async_engine(get_pg_url(), echo=False)
+    engine = create_async_engine(get_db_url(), echo=False)
 
     state = OrchCtxState(engine=engine)
 
