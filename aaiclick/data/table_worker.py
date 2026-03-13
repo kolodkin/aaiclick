@@ -40,11 +40,9 @@ def _create_sync_client(connection_string: str) -> object:
     - clickhouse://user:pass@host:port/db → clickhouse-connect sync client
     """
     if connection_string.startswith("chdb://"):
-        from .chdb_client import ChdbSyncClient, create_chdb_session
+        from .chdb_client import create_chdb_sync_client
 
-        path = connection_string[len("chdb://"):]
-        session = create_chdb_session(path)
-        return ChdbSyncClient(session)
+        return create_chdb_sync_client(connection_string)
 
     parsed = urlparse(connection_string)
     return get_client(

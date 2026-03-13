@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.backend import get_ch_url
 from aaiclick.data.data_context import _get_data_state, data_context, incref, decref
 from aaiclick.data.lifecycle import LifecycleHandler, LocalLifecycleHandler
 
@@ -19,7 +20,7 @@ def test_lifecycle_handler_is_abstract():
 
 def test_local_lifecycle_delegates_incref():
     """LocalLifecycleHandler.incref delegates to TableWorker."""
-    handler = LocalLifecycleHandler("clickhouse://default:@localhost:8123/default")
+    handler = LocalLifecycleHandler(get_ch_url())
     handler._worker = MagicMock()
 
     handler.incref("table_123")
@@ -29,7 +30,7 @@ def test_local_lifecycle_delegates_incref():
 
 def test_local_lifecycle_delegates_decref():
     """LocalLifecycleHandler.decref delegates to TableWorker."""
-    handler = LocalLifecycleHandler("clickhouse://default:@localhost:8123/default")
+    handler = LocalLifecycleHandler(get_ch_url())
     handler._worker = MagicMock()
 
     handler.decref("table_456")
@@ -39,7 +40,7 @@ def test_local_lifecycle_delegates_decref():
 
 async def test_local_lifecycle_start_delegates():
     """LocalLifecycleHandler.start delegates to TableWorker.start."""
-    handler = LocalLifecycleHandler("clickhouse://default:@localhost:8123/default")
+    handler = LocalLifecycleHandler(get_ch_url())
     handler._worker = MagicMock()
 
     await handler.start()
@@ -49,7 +50,7 @@ async def test_local_lifecycle_start_delegates():
 
 async def test_local_lifecycle_stop_delegates():
     """LocalLifecycleHandler.stop delegates to TableWorker.stop."""
-    handler = LocalLifecycleHandler("clickhouse://default:@localhost:8123/default")
+    handler = LocalLifecycleHandler(get_ch_url())
     handler._worker = MagicMock()
 
     await handler.stop()

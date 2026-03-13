@@ -190,3 +190,14 @@ def create_chdb_client(path: Optional[str] = None) -> ChdbClient:
     """
     session = create_chdb_session(path)
     return ChdbClient(session)
+
+
+def create_chdb_sync_client(connection_string: str) -> ChdbSyncClient:
+    """Create a ChdbSyncClient from a chdb:// connection string.
+
+    Args:
+        connection_string: chdb://path/to/data URL.
+    """
+    path = connection_string[len("chdb://"):]
+    session = create_chdb_session(path)
+    return ChdbSyncClient(session)
