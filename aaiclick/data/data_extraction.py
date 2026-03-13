@@ -16,17 +16,16 @@ def _convert_value(value):
     """Convert ClickHouse result values to Python types.
 
     - Naive datetimes (from DateTime64 UTC columns) get UTC timezone attached.
-    - Sequences containing naive datetimes (from Array(DateTime64) columns)
+    - Lists containing naive datetimes (from Array(DateTime64) columns)
       get UTC timezone attached to each element.
     """
     if isinstance(value, datetime) and value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
-    if isinstance(value, (tuple, list)) and value and isinstance(value[0], datetime):
-        converted = [
+    if isinstance(value, list) and value and isinstance(value[0], datetime):
+        return [
             v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
             for v in value
         ]
-        return type(value)(converted)
     return value
 
 
