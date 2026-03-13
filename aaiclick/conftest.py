@@ -6,10 +6,25 @@ scripts/setup_and_test.py or manually via docker-compose.
 """
 
 import asyncio
+import os
+import tempfile
 
 import pytest
 
 from aaiclick.data.data_context import data_context
+
+
+def pytest_configure(config):
+    """Give each xdist worker its own chdb data directory.
+
+    chdb (embedded ClickHouse) is single-process — multiple workers cannot
+    share the same data directory. When running under pytest-xdist, each
+    worker gets a unique temp directory via AAICLICK_CHDB_PATH.
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker_id is not None and os.environ.get("AAICLICK_BACKEND", "local") == "local":
+        chdb_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker_id}_")
+        os.environ["AAICLICK_CHDB_PATH"] = chdb_dir
 
 
 @pytest.fixture(scope="session")
