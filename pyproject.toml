@@ -46,8 +46,12 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.5.0",
 ]
+local = [
+    "chdb>=4.0.0",
+    "aiosqlite>=0.19.0",
+]
 dev = [
-    "aaiclick[orch,test]",
+    "aaiclick[orch,test,local]",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
