@@ -2,7 +2,10 @@
 
 ## Overview
 
-The aaiclick orchestration backend enables distributed execution of data processing workflows across multiple workers. It manages job scheduling, task distribution, and execution coordination using PostgreSQL as the state store.
+The aaiclick orchestration backend manages job scheduling, task distribution, and execution coordination. It supports two deployment modes:
+
+- **Local mode** (default): SQLite + chdb — zero infrastructure, single-process execution for development and testing
+- **Distributed mode**: PostgreSQL + ClickHouse server — multi-worker execution across processes and machines
 
 ### Motivation
 
@@ -11,6 +14,44 @@ As aaiclick scales to handle large-scale data processing, we need:
 - **Dynamic task generation**: Create new tasks during execution (e.g., via `map()` operations)
 - **Reliable state management**: Track job progress with crash recovery
 - **Ordered execution**: Preserve temporal causality via creation timestamps
+- **Zero-setup development**: Run everything locally without external services
+
+## Deployment Modes
+
+The orchestration layer supports two deployment modes, controlled by two independent environment variables:
+
+| Aspect              | Local (default)                              | Distributed                                         |
+|---------------------|----------------------------------------------|-----------------------------------------------------|
+| **Data backend**    | chdb (embedded ClickHouse)                   | ClickHouse server                                   |
+| **Data URL**        | `chdb://~/.aaiclick/chdb_data`               | `clickhouse://user:pass@host:8123/database`         |
+| **SQL backend**     | SQLite via aiosqlite                         | PostgreSQL via asyncpg                              |
+| **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
+| **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
+| **Task claiming**   | Sequential SELECT + UPDATE (no row locking)  | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
+| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `PgLifecycleHandler` (PostgreSQL refcounts)         |
+| **Concurrency**     | Single process                               | Multiple workers across processes/machines          |
+| **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
+
+**Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
+
+### Mixing Backends
+
+The two URL variables are independent — you can mix backends (e.g., remote ClickHouse server + SQLite for orchestration). However, the typical combinations are:
+
+| Combination                        | Use Case                                            |
+|------------------------------------|-----------------------------------------------------|
+| chdb + SQLite                      | Local development, testing, single-machine scripts  |
+| ClickHouse server + PostgreSQL     | Production distributed execution                    |
+| ClickHouse server + SQLite         | Single-worker with remote data storage              |
+
+### Task Claiming: SQLite vs PostgreSQL
+
+**Implementation**: `aaiclick/orchestration/db_handler.py` (factory), `sqlite_handler.py`, `pg_handler.py`
+
+Both handlers implement `DbHandler` with identical dependency-checking SQL (`DEPENDENCY_WHERE`). The difference is concurrency control:
+
+- **`SqliteDbHandler`**: Sequential SELECT then UPDATE — safe for single-worker mode since SQLite doesn't support `FOR UPDATE`. Created when `is_sqlite()` is `True`.
+- **`PgDbHandler`**: Single atomic CTE with `FOR UPDATE SKIP LOCKED` — enables multiple workers to claim tasks concurrently without conflicts. Created when `is_sqlite()` is `False`.
 
 ## Architecture
 
@@ -18,8 +59,8 @@ As aaiclick scales to handle large-scale data processing, we need:
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Global Resources                           │
 │  ┌─────────────────────┐                                         │
-│  │  ClickHouse Pool    │                                         │
-│  │  (urllib3 Pool)     │                                         │
+│  │  ClickHouse Pool    │  chdb Session (local)                   │
+│  │  (urllib3 Pool)     │  OR urllib3 Pool (distributed)          │
 │  └─────────────────────┘                                         │
 └──────────────────────────────────────────────────────────────────┘
            │
@@ -29,8 +70,9 @@ As aaiclick scales to handle large-scale data processing, we need:
 │   data_context()     │           │    orch_context()        │
 │  (ClickHouse data)   │           │  (Orchestration state)   │
 │  ┌────────────────┐  │           │  ┌────────────────────┐ │
-│  │ ClickHouse     │  │           │  │ AsyncEngine        │ │
-│  │ Client         │  │           │  │ (per-context)      │ │
+│  │ ChClient       │  │           │  │ AsyncEngine        │ │
+│  │ (chdb or       │  │           │  │ (SQLite or         │ │
+│  │  clickhouse)   │  │           │  │  PostgreSQL)       │ │
 │  └────────────────┘  │           │  └────────────────────┘ │
 │                      │           │  Creates/disposes on   │
 │                      │           │  enter/exit            │
@@ -39,7 +81,8 @@ As aaiclick scales to handle large-scale data processing, we need:
            │ Objects/Views                        │ Jobs/Tasks/Groups
            ▼                                      ▼
 ┌────────────────────┐           ┌──────────────────────────────┐
-│   ClickHouse DB    │           │      PostgreSQL Database     │
+│   ClickHouse       │           │   SQL Database               │
+│   (chdb or server) │           │   (SQLite or PostgreSQL)     │
 │   (Object data)    │           │  ┌────┐ ┌──────┐ ┌────────┐ │
 └────────────────────┘           │  │Jobs│─│Tasks │ │Workers │ │
                                  │  └────┘ └──────┘ └────────┘ │
@@ -61,23 +104,25 @@ As aaiclick scales to handle large-scale data processing, we need:
 Both contexts are async context managers using `ContextVar` for async-safe global access:
 
 - **data_context()** (`aaiclick/data/data_context.py`): ClickHouse data operations
-  - Connection (AsyncClient via shared urllib3 pool)
+  - Connection (`ChClient` — chdb Session or clickhouse-connect AsyncClient)
   - Object tracking (weakref dict — marks Objects stale on exit)
   - Lifecycle/refcounting (`incref`/`decref` for table cleanup)
   - Public API — used directly by user code
 
-- **orch_context()** (`aaiclick/orchestration/context.py`): PostgreSQL orchestration state
-  - Connection (SQLAlchemy AsyncEngine, created/disposed per context)
-  - `commit_tasks()` — persists task/group DAGs to PostgreSQL
+- **orch_context()** (`aaiclick/orchestration/context.py`): SQL orchestration state
+  - Connection (SQLAlchemy AsyncEngine — aiosqlite or asyncpg, created/disposed per context)
+  - `commit_tasks()` — persists task/group DAGs to the SQL database
   - **Not public API** — `@job` decorator manages it automatically (see `JobFactory.__call__()`)
 
 Workers use **both** contexts internally: `data_context()` for data, `orch_context()` for state.
 
 ### Why Dual-Database?
 
-**PostgreSQL for orchestration**: ACID consistency, row-level locking (`FOR UPDATE SKIP LOCKED`), JSONB for task params, Alembic migrations, foreign keys.
+**SQL database for orchestration**: ACID consistency, row-level locking (PostgreSQL: `FOR UPDATE SKIP LOCKED`), JSON for task params, Alembic migrations, foreign keys.
 
 **ClickHouse for data**: Columnar storage, fast aggregations, scalability for large datasets.
+
+In local mode, SQLite provides the same ACID guarantees for single-process use, while chdb gives full ClickHouse SQL compatibility without a running server.
 
 ## Data Models
 
@@ -251,14 +296,14 @@ Workers continuously poll for tasks, execute them, and update status. Handles au
 
 ### Task Claiming
 
-**Implementation**: `aaiclick/orchestration/claiming.py` — see `claim_next_task()`
+**Implementation**: `aaiclick/orchestration/claiming.py` — see `claim_next_task()`, `aaiclick/orchestration/pg_handler.py`, `aaiclick/orchestration/sqlite_handler.py`
 
-Uses PostgreSQL CTE with `FOR UPDATE SKIP LOCKED` for atomic concurrent task claiming:
+Finds the oldest pending task whose dependencies are all satisfied, atomically claims it, and transitions the parent job PENDING→RUNNING on first claim.
 
-- Finds oldest pending task whose dependencies are all satisfied
 - Checks all four dependency types (task→task, group→task, task→group, group→group)
-- Atomically transitions job PENDING→RUNNING on first claim
 - Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
+- **PostgreSQL**: Single atomic CTE with `FOR UPDATE SKIP LOCKED` — safe for concurrent multi-worker claiming
+- **SQLite**: Sequential SELECT + UPDATE — sufficient for single-worker local mode
 
 ### CLI
 
@@ -357,16 +402,24 @@ Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row. Complements PgCleanupWorker (catches tables refcount system missed entirely).
 
-### Local Mode
+### Local Mode (chdb + SQLite)
 
-Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [Object documentation](object.md) — "Table Lifecycle Tracking".
+Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [Object documentation](object.md) — "Table Lifecycle Tracking".
 
 ## Configuration
 
 See CLAUDE.md for environment variables. Orchestration-specific:
 
+- **`AAICLICK_SQL_URL`**: SQL database connection (default: `sqlite+aiosqlite:///~/.aaiclick/local.db`)
+  - SQLite: `sqlite+aiosqlite:///path/to/file.db`
+  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/database`
+- **`AAICLICK_CH_URL`**: ClickHouse data connection (default: `chdb://~/.aaiclick/chdb_data`)
+  - chdb: `chdb:///path/to/data`
+  - Remote: `clickhouse://user:pass@host:8123/database`
 - **Log directory**: `AAICLICK_LOG_DIR` env var, or OS defaults (macOS: `~/.aaiclick/logs`, Linux: `/var/log/aaiclick`). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
-- **Migrations**: `python -m aaiclick migrate` — see `aaiclick/orchestration/migrate.py`
+- **Setup (local)**: `python -m aaiclick setup` — creates chdb data dir and SQLite database with tables
+- **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
+- Legacy env vars (`POSTGRES_HOST`, etc.) are read by Alembic as fallback when `AAICLICK_SQL_URL` is not set
 
 ## References
 

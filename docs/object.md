@@ -14,6 +14,25 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 - Element-wise operations on arrays
 - Automatic lifecycle management and staleness detection
 
+## Deployment Modes
+
+The Object layer runs on two interchangeable ClickHouse backends, selected via the `AAICLICK_CH_URL` environment variable:
+
+| Aspect            | Local (default)                            | Distributed                                        |
+|-------------------|--------------------------------------------|----------------------------------------------------|
+| **Backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                  |
+| **URL scheme**    | `chdb:///path/to/data`                     | `clickhouse://user:pass@host:8123/database`        |
+| **Default URL**   | `chdb://~/.aaiclick/chdb_data`             | —                                                  |
+| **Setup**         | `python -m aaiclick setup` creates the dir | Server must be provisioned separately              |
+| **Concurrency**   | Single process                             | Multi-process / multi-machine                      |
+| **Connection**    | In-process `chdb.Session`                  | `clickhouse-connect` AsyncClient + urllib3 pool    |
+| **Lifecycle**     | `LocalLifecycleHandler` (background thread)| `PgLifecycleHandler` (PostgreSQL refcounts)        |
+| **Detection**     | `is_chdb()` returns `True`                 | `is_chdb()` returns `False`                        |
+
+Both backends satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations — creation, operators, aggregations, Views — work identically regardless of backend. The factory function `create_ch_client()` dispatches based on `is_chdb()`.
+
+**Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
+
 ## Object Lifecycle and Staleness
 
 Objects are managed by a `data_context()` and become **stale** when the context exits. All async methods call `self.checkstale()` — using a stale Object raises `RuntimeError`.
@@ -498,17 +517,21 @@ Tables are tracked via reference counting and dropped when no Objects reference 
 
 Abstract interface: `start()`, `stop()`, `incref()`, `decref()`, `pin()` (no-op default), `claim()` (raises NotImplementedError default).
 
-### Local Mode
+### Local Mode (chdb or ClickHouse server, no orchestration)
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LocalLifecycleHandler` class
 
-Default handler. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. `data_context()` creates this when no handler is injected.
+Default handler when no lifecycle is injected. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. Works with both chdb and remote ClickHouse — the handler only needs a connection URL, not a specific backend.
 
-### Distributed Mode
+Used when: running standalone scripts, interactive sessions, or tests without the orchestration layer.
+
+### Distributed Mode (ClickHouse server + PostgreSQL)
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
-Writes refcounts to PostgreSQL. Implements pin/claim for ownership transfer. Does NOT drop tables — cleanup by `PgCleanupWorker`.
+Writes refcounts to PostgreSQL. Implements pin/claim for ownership transfer across workers. Does NOT drop tables — cleanup by `PgCleanupWorker`.
+
+Used when: orchestration workers execute tasks across multiple processes/machines. The worker injects `PgLifecycleHandler` into `data_context()`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
 
