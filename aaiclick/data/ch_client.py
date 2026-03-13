@@ -1,20 +1,38 @@
 """
-aaiclick.data.client - ClickHouse client factory dispatch.
+aaiclick.data.ch_client - ClickHouse client protocol and factory dispatch.
 
-Single entry point that lazy-imports the appropriate client getter
-based on the AAICLICK_CH_URL connection string.
+Defines ChClient Protocol for type-safe usage across the codebase,
+and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 """
 
 from __future__ import annotations
 
-from typing import Union
+from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
 
-# Type alias — concrete types are conditionally available,
-# string literals deferred by `from __future__ import annotations`.
-ChClient = Union["ChdbClient", "AsyncClient"]
+
+class QueryResult(Protocol):
+    """Protocol for ClickHouse query results."""
+
+    result_rows: list[tuple]
+
+
+class ChClient(Protocol):
+    """Protocol for async ClickHouse client operations.
+
+    Both ChdbClient and clickhouse-connect AsyncClient satisfy this protocol.
+    """
+
+    async def command(self, query: str) -> object: ...
+    async def query(self, query: str) -> QueryResult: ...
+    async def insert(
+        self,
+        table: str,
+        data: Sequence[Sequence],
+        column_names: Optional[Sequence[str]] = None,
+    ) -> None: ...
 
 
 async def create_ch_client() -> ChClient:

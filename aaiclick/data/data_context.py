@@ -411,7 +411,7 @@ def _find_non_empty_nested_sample(records: list, key: str) -> dict:
 
 async def _create_nested_object(
     val: dict,
-    ch: AsyncClient,
+    ch: ChClient,
     name: str | None,
 ) -> Object:
     """Create an Object from a single dict with nested list-of-dicts values.
@@ -440,7 +440,7 @@ async def _create_nested_object(
 
 async def _create_nested_records_object(
     val: list,
-    ch: AsyncClient,
+    ch: ChClient,
     name: str | None,
 ) -> Object:
     """Create an Object from a list of dicts with nested list-of-dicts values.

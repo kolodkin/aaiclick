@@ -10,11 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlmodel import select
 
-from .db_handler import DEPENDENCY_WHERE
+from .db_handler import DEPENDENCY_WHERE, DbHandler
 from .models import JobStatus, Task, TaskStatus
 
 
-class SqliteDbHandler:
+class SqliteDbHandler(DbHandler):
     """SQLite: sequential SELECT + UPDATE, no row locking."""
 
     @staticmethod

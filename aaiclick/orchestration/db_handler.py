@@ -5,8 +5,9 @@ Concrete implementations live in pg_handler.py and sqlite_handler.py.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Protocol, Union
+from typing import Optional, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
@@ -53,15 +54,17 @@ DEPENDENCY_WHERE = """
 """
 
 
-class DbHandler(Protocol):
-    """Protocol for backend-specific SQL operations."""
+class DbHandler(ABC):
+    """Abstract base class for backend-specific SQL operations."""
 
     @staticmethod
+    @abstractmethod
     async def claim_next_task(
         session: AsyncSession, worker_id: int, now: datetime
     ) -> Optional[Task]: ...
 
     @staticmethod
+    @abstractmethod
     def lock_query(query: Select) -> Select: ...
 
 
