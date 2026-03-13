@@ -32,55 +32,6 @@ def _convert_value(value):
     return value
 
 
-def _has_nested_columns(column_names: List[str]) -> bool:
-    """Check if any column names use dot-star notation for nested arrays."""
-    return any(".*." in name for name in column_names)
-
-
-def _unflatten_record(flat_record: dict) -> dict:
-    """Reconstruct nested dict structure from flat dot-star notation columns.
-
-    Converts parallel arrays back into list-of-dicts (reverse of flattening).
-
-    Example:
-        ``{"a": 2, "b.*.c": [[1,2,3], [4,5,6]], "b.*.d": [5, 10]}``
-        becomes
-        ``{"a": 2, "b": [{"c": [1,2,3], "d": 5}, {"c": [4,5,6], "d": 10}]}``
-    """
-    plain: dict = {}
-    nested_groups: Dict[str, Dict[str, Any]] = {}
-
-    for col, val in flat_record.items():
-        # Split on first ".*." occurrence
-        star_pos = col.find(".*.")
-        if star_pos == -1:
-            plain[col] = val
-        else:
-            prefix = col[:star_pos]
-            suffix = col[star_pos + 3:]
-            if prefix not in nested_groups:
-                nested_groups[prefix] = {}
-            nested_groups[prefix][suffix] = val
-
-    result = dict(plain)
-
-    for prefix, sub_fields in nested_groups.items():
-        first_val = next(iter(sub_fields.values()))
-        length = len(first_val) if isinstance(first_val, (list, tuple)) else 1
-
-        items = []
-        for i in range(length):
-            item = {}
-            for suffix, values in sub_fields.items():
-                item[suffix] = values[i] if isinstance(values, (list, tuple)) else values
-            items.append(item)
-
-        # Recursively unflatten if deeper nesting exists
-        result[prefix] = [_unflatten_record(item) for item in items]
-
-    return result
-
-
 async def extract_scalar_data(obj: Object) -> Any:
     """
     Extract data from a scalar table (single row with aai_id and value).
@@ -122,9 +73,6 @@ async def extract_dict_data(
     """
     Extract data from a dict table (multiple columns with aai_id).
 
-    Handles nested structures by detecting dot-star notation in column names
-    and unflattening them back to nested dicts.
-
     Args:
         obj: Object instance with dict data
         column_names: List of column names in order
@@ -142,14 +90,9 @@ async def extract_dict_data(
     output_columns = [name for name in column_names if name != "aai_id"]
     col_indices = {name: column_names.index(name) for name in output_columns}
 
-    nested = _has_nested_columns(output_columns)
-
     # Check if this is dict of arrays by looking at fieldtype
     first_col = output_columns[0] if output_columns else None
     is_dict_of_arrays = first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
-
-    if nested:
-        return _extract_nested_dict_data(rows, output_columns, col_indices, is_dict_of_arrays, orient)
 
     if orient == ORIENT_RECORDS:
         # Return list of dicts (one per row)
@@ -162,40 +105,4 @@ async def extract_dict_data(
         elif rows:
             # Dict of scalars: return single dict (first row)
             return {name: _convert_value(rows[0][col_indices[name]]) for name in output_columns}
-        return {}
-
-
-def _extract_nested_dict_data(
-    rows: list,
-    output_columns: List[str],
-    col_indices: Dict[str, int],
-    is_dict_of_arrays: bool,
-    orient: str,
-):
-    """Extract data from a table with nested dot-star columns.
-
-    Builds flat dicts from each row, then unflattens them to restore
-    the nested structure.
-    """
-    if orient == ORIENT_RECORDS:
-        result = []
-        for row in rows:
-            flat = {name: _convert_value(row[col_indices[name]]) for name in output_columns}
-            result.append(_unflatten_record(flat))
-        return result
-    else:
-        # ORIENT_DICT
-        if is_dict_of_arrays:
-            records = []
-            for row in rows:
-                flat = {name: _convert_value(row[col_indices[name]]) for name in output_columns}
-                records.append(_unflatten_record(flat))
-            # Transpose list of records to dict of arrays
-            if records:
-                keys = list(records[0].keys())
-                return {key: [r[key] for r in records] for key in keys}
-            return {}
-        elif rows:
-            flat = {name: _convert_value(rows[0][col_indices[name]]) for name in output_columns}
-            return _unflatten_record(flat)
         return {}
