@@ -141,10 +141,9 @@ async def _create_ch_client(creds: ClickHouseCreds | None = None) -> object:
     clickhouse URL: returns clickhouse-connect AsyncClient.
     """
     if is_chdb():
-        from .chdb_client import create_chdb_client
+        from .chdb_client import create_chdb_client, get_chdb_data_path
 
-        path = get_ch_url().removeprefix("chdb://")
-        return create_chdb_client(path)
+        return create_chdb_client(get_chdb_data_path())
 
     from clickhouse_connect import get_async_client
 

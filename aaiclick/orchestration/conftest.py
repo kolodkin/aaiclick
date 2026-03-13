@@ -93,6 +93,12 @@ def _setup_pg_db():
 
     # Point all subsequent get_db_url() calls to the worker database
     os.environ["POSTGRES_DB"] = db_name
+    # Also update AAICLICK_SQL_URL if set, so get_sql_url() uses the worker DB
+    sql_url = os.environ.get("AAICLICK_SQL_URL")
+    if sql_url and "postgresql" in sql_url:
+        # Replace database name in URL: ...host:port/old_db -> ...host:port/new_db
+        base = sql_url.rsplit("/", 1)[0]
+        os.environ["AAICLICK_SQL_URL"] = f"{base}/{db_name}"
 
     # Run migrations
     from alembic import command

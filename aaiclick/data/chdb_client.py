@@ -161,12 +161,8 @@ def _format_value(val: object) -> str:
 def get_chdb_data_path() -> str:
     """Return the chdb data directory path from AAICLICK_CH_URL.
 
-    Parses the path component of the chdb:///path URL.
-    Falls back to AAICLICK_CHDB_PATH env var for xdist worker isolation.
+    Parses the path component of the chdb://path URL.
     """
-    chdb_override = os.getenv("AAICLICK_CHDB_PATH")
-    if chdb_override:
-        return chdb_override
     from aaiclick.backend import get_ch_url
 
     url = get_ch_url()

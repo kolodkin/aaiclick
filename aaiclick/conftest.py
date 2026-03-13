@@ -25,7 +25,7 @@ def pytest_configure(config):
     worker_id = os.environ.get("PYTEST_XDIST_WORKER")
     if worker_id is not None and is_chdb():
         chdb_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker_id}_")
-        os.environ["AAICLICK_CHDB_PATH"] = chdb_dir
+        os.environ["AAICLICK_CH_URL"] = f"chdb://{chdb_dir}"
 
 
 @pytest.fixture(scope="session")
