@@ -25,16 +25,6 @@ from aaiclick.data.cli import (
     list_objects_cmd,
     show_object_cmd,
 )
-from aaiclick.orchestration.cli import (
-    cancel_job_cmd,
-    show_job,
-    show_job_stats,
-    show_jobs,
-    show_workers,
-    start_background,
-    start_worker,
-)
-from aaiclick.orchestration.migrate import run_migrations
 
 
 def _run_setup():
@@ -75,18 +65,21 @@ def _run_setup():
         sess.cleanup()
         print(f"  chdb data: {chdb_path}")
 
-        # Initialize SQLite database
-        from sqlalchemy import create_engine
+        # Initialize SQLite database (requires orch extras)
+        try:
+            from sqlalchemy import create_engine
 
-        from aaiclick.orchestration.env import get_db_url
-        from aaiclick.orchestration.models import SQLModel
+            from aaiclick.orchestration.env import get_db_url
+            from aaiclick.orchestration.models import SQLModel
 
-        db_url = get_db_url()
-        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-        engine = create_engine(sync_url)
-        SQLModel.metadata.create_all(engine)
-        engine.dispose()
-        print(f"  SQLite DB: {db_url}")
+            db_url = get_db_url()
+            sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
+            engine = create_engine(sync_url)
+            SQLModel.metadata.create_all(engine)
+            engine.dispose()
+            print(f"  SQLite DB: {db_url}")
+        except ImportError:
+            print("  SQLite DB: skipped (orchestration extras not installed)")
 
         print("Local dev environment ready.")
     else:
@@ -280,9 +273,13 @@ def main():
         _run_setup()
 
     elif args.command == "migrate":
+        from aaiclick.orchestration.migrate import run_migrations
+
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":
+        from aaiclick.orchestration.cli import show_workers, start_worker
+
         if args.worker_command == "start":
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
@@ -293,6 +290,8 @@ def main():
             worker_parser.print_help()
 
     elif args.command == "job":
+        from aaiclick.orchestration.cli import cancel_job_cmd, show_job, show_job_stats
+
         if args.job_command == "get":
             asyncio.run(show_job(args.ref))
 
@@ -303,6 +302,8 @@ def main():
             asyncio.run(cancel_job_cmd(args.ref))
 
         elif args.job_command == "list":
+            from aaiclick.orchestration.cli import show_jobs
+
             asyncio.run(show_jobs(
                 status=args.status,
                 name_like=args.like,
@@ -333,6 +334,8 @@ def main():
             data_parser.print_help()
 
     elif args.command == "background":
+        from aaiclick.orchestration.cli import start_background
+
         if args.background_command == "start":
             asyncio.run(start_background(poll_interval=args.poll_interval))
 
