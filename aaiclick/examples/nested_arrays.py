@@ -4,10 +4,8 @@ Nested arrays example for aaiclick.
 Demonstrates creating Objects from dicts containing nested list-of-dicts,
 which are stored as parallel Array columns with dot-star column notation.
 
-Nested list-of-dicts are flattened into parallel Array columns:
-- Scalar sub-fields become Array(T)
-- Array sub-fields become Array(Array(T))
-- Column names use ``parent.*.child`` notation
+Data is stored flat in ClickHouse using dot-star columns, but ``.data()``
+automatically reconstructs the nested dict structure.
 """
 
 import asyncio
@@ -34,13 +32,8 @@ async def example():
         if name != "aai_id":
             print(f"  {name}: {col.ch_type()}")
 
-    data = await obj.data(orient=ORIENT_RECORDS)
-    print(f"\nORIENT_RECORDS ({len(data)} row):")
-    for row in data:
-        print(f"  {row}")
-
-    data = await obj.data(orient=ORIENT_DICT)
-    print(f"\nORIENT_DICT:")
+    data = await obj.data()
+    print(f"\nReconstructed output:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 
@@ -79,8 +72,8 @@ async def example():
         if name != "aai_id":
             print(f"  {name}: {col.ch_type()}")
 
-    data = await obj.data(orient=ORIENT_RECORDS)
-    print(f"\nResult: {data[0]}")
+    data = await obj.data()
+    print(f"\nResult: {data}")
 
     # ── Array Sub-Fields (Array of Arrays) ───────────────────────
     print("\n\n" + "=" * 60)
@@ -100,8 +93,8 @@ async def example():
         if name != "aai_id":
             print(f"  {name}: {col.ch_type()}")
 
-    data = await obj.data(orient=ORIENT_RECORDS)
-    print(f"\nResult: {data[0]}")
+    data = await obj.data()
+    print(f"\nResult: {data}")
 
     # ── Deep Nesting (Two Levels) ────────────────────────────────
     print("\n\n" + "=" * 60)
@@ -121,9 +114,9 @@ async def example():
         if name != "aai_id":
             print(f"  {name}: {col.ch_type()}")
 
-    data = await obj.data(orient=ORIENT_RECORDS)
+    data = await obj.data()
     print(f"\nResult:")
-    for key, val in data[0].items():
+    for key, val in data.items():
         print(f"  {key}: {val}")
 
 
