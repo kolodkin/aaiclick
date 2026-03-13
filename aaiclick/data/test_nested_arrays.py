@@ -1,9 +1,10 @@
 """
 Tests for nested array support - creating Objects from dicts/records
-containing nested list-of-dicts, exploded into rows with dot-star column notation.
+containing nested list-of-dicts, stored as parallel Array columns with
+dot-star column notation.
 
 Example: {a: 2, b: [{c: [1,2,3], d: 5}, {c: [4,5,6], d: 10}]}
-Explodes to 2 rows with columns: a (Int64), b.*.c (Array(Int64)), b.*.d (Int64)
+Stores as 1 row with columns: a (Int64), b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
 """
 
 import pytest
@@ -17,7 +18,7 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
 
 async def test_nested_single_record(ctx):
-    """Single dict with nested list-of-dicts explodes into multiple rows."""
+    """Single dict with nested list-of-dicts stores as one row with Array columns."""
     obj = await create_object_from_value({
         "a": 2,
         "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
@@ -25,13 +26,12 @@ async def test_nested_single_record(ctx):
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 2
-    assert data[0] == {"a": 2, "b.*.c": [1, 2, 3], "b.*.d": 5}
-    assert data[1] == {"a": 2, "b.*.c": [4, 5, 6], "b.*.d": 10}
+    assert len(data) == 1
+    assert data[0] == {"a": 2, "b.*.c": [[1, 2, 3], [4, 5, 6]], "b.*.d": [5, 10]}
 
 
 async def test_nested_single_record_schema(ctx):
-    """Schema uses dot-star notation with no nested Array wrapping."""
+    """Schema uses dot-star notation with correct Array depth."""
     obj = await create_object_from_value({
         "a": 2,
         "b": [{"c": [1, 2, 3], "d": 5}],
@@ -43,13 +43,13 @@ async def test_nested_single_record_schema(ctx):
     assert "b.*.d" in schema.columns
     assert schema.columns["a"].type == "Int64"
     assert schema.columns["b.*.c"].type == "Int64"
-    assert schema.columns["b.*.c"].array is True
+    assert schema.columns["b.*.c"].array == 2  # Array(Array(Int64))
     assert schema.columns["b.*.d"].type == "Int64"
-    assert not schema.columns["b.*.d"].array
+    assert schema.columns["b.*.d"].array == 1  # Array(Int64)
 
 
 async def test_nested_single_record_orient_dict(ctx):
-    """Orient dict returns column-oriented output."""
+    """Orient dict returns single dict for one-row nested object."""
     obj = await create_object_from_value({
         "a": 2,
         "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
@@ -57,7 +57,7 @@ async def test_nested_single_record_orient_dict(ctx):
 
     data = await obj.data(orient=ORIENT_DICT)
 
-    assert data["a"] == [2, 2]
+    assert data["a"] == 2
     assert data["b.*.c"] == [[1, 2, 3], [4, 5, 6]]
     assert data["b.*.d"] == [5, 10]
 
@@ -68,7 +68,7 @@ async def test_nested_single_record_orient_dict(ctx):
 
 
 async def test_nested_multiple_records(ctx):
-    """List of dicts with nested list-of-dicts, each exploded into rows."""
+    """List of dicts with nested list-of-dicts, each stored as one row."""
     obj = await create_object_from_value([
         {"a": 2, "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}]},
         {"a": 3, "b": [{"c": [7, 8, 9], "d": 15}]},
@@ -76,14 +76,13 @@ async def test_nested_multiple_records(ctx):
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 3
-    assert data[0] == {"a": 2, "b.*.c": [1, 2, 3], "b.*.d": 5}
-    assert data[1] == {"a": 2, "b.*.c": [4, 5, 6], "b.*.d": 10}
-    assert data[2] == {"a": 3, "b.*.c": [7, 8, 9], "b.*.d": 15}
+    assert len(data) == 2
+    assert data[0] == {"a": 2, "b.*.c": [[1, 2, 3], [4, 5, 6]], "b.*.d": [5, 10]}
+    assert data[1] == {"a": 3, "b.*.c": [[7, 8, 9]], "b.*.d": [15]}
 
 
 async def test_nested_records_orient_dict(ctx):
-    """Orient dict transposes exploded rows into column arrays."""
+    """Orient dict transposes rows into column arrays."""
     obj = await create_object_from_value([
         {"a": 1, "b": [{"x": 10}]},
         {"a": 2, "b": [{"x": 20}]},
@@ -92,7 +91,7 @@ async def test_nested_records_orient_dict(ctx):
     data = await obj.data(orient=ORIENT_DICT)
 
     assert data["a"] == [1, 2]
-    assert data["b.*.x"] == [10, 20]
+    assert data["b.*.x"] == [[10], [20]]
 
 
 # =============================================================================
@@ -101,7 +100,7 @@ async def test_nested_records_orient_dict(ctx):
 
 
 async def test_nested_scalar_sub_fields(ctx):
-    """Nested objects with only scalar fields become plain columns."""
+    """Nested objects with only scalar fields become Array columns."""
     obj = await create_object_from_value({
         "name": "test",
         "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
@@ -109,9 +108,8 @@ async def test_nested_scalar_sub_fields(ctx):
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 2
-    assert data[0] == {"name": "test", "items.*.x": 1, "items.*.y": 2}
-    assert data[1] == {"name": "test", "items.*.x": 3, "items.*.y": 4}
+    assert len(data) == 1
+    assert data[0] == {"name": "test", "items.*.x": [1, 2], "items.*.y": [2, 4]}
 
 
 # =============================================================================
@@ -120,7 +118,7 @@ async def test_nested_scalar_sub_fields(ctx):
 
 
 async def test_nested_array_sub_fields(ctx):
-    """Nested objects with array fields stored as Array(T), not Array(Array(T))."""
+    """Nested objects with array fields stored as Array(Array(T))."""
     obj = await create_object_from_value({
         "id": 1,
         "groups": [
@@ -131,9 +129,12 @@ async def test_nested_array_sub_fields(ctx):
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 2
-    assert data[0] == {"id": 1, "groups.*.tags": ["a", "b"], "groups.*.score": 10}
-    assert data[1] == {"id": 1, "groups.*.tags": ["c"], "groups.*.score": 20}
+    assert len(data) == 1
+    assert data[0] == {
+        "id": 1,
+        "groups.*.tags": [["a", "b"], ["c"]],
+        "groups.*.score": [10, 20],
+    }
 
 
 # =============================================================================
@@ -151,20 +152,19 @@ async def test_nested_single_element_array(ctx):
     data = await obj.data(orient=ORIENT_RECORDS)
 
     assert len(data) == 1
-    assert data[0] == {"a": 1, "b.*.c": 10}
+    assert data[0] == {"a": 1, "b.*.c": [10]}
 
 
 async def test_nested_many_elements(ctx):
-    """Nested array with many elements produces many rows."""
+    """Nested array with many elements stored as long arrays in one row."""
     items = [{"val": i, "doubled": i * 2} for i in range(10)]
     obj = await create_object_from_value({"data": items})
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 10
-    for i, row in enumerate(data):
-        assert row["data.*.val"] == i
-        assert row["data.*.doubled"] == i * 2
+    assert len(data) == 1
+    assert data[0]["data.*.val"] == list(range(10))
+    assert data[0]["data.*.doubled"] == [i * 2 for i in range(10)]
 
 
 # =============================================================================
@@ -187,7 +187,7 @@ async def test_nested_records_inconsistent_keys_raises(ctx):
 
 
 async def test_deep_nested_two_levels(ctx):
-    """Two levels of nested list-of-dicts explode into cross-product rows."""
+    """Two levels of nested list-of-dicts stored as nested parallel arrays."""
     obj = await create_object_from_value({
         "root": 1,
         "level1": [
@@ -204,7 +204,7 @@ async def test_deep_nested_two_levels(ctx):
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert len(data) == 3
-    assert data[0] == {"root": 1, "level1.*.name": "first", "level1.*.level2.*.val": 10}
-    assert data[1] == {"root": 1, "level1.*.name": "first", "level1.*.level2.*.val": 20}
-    assert data[2] == {"root": 1, "level1.*.name": "second", "level1.*.level2.*.val": 30}
+    assert len(data) == 1
+    assert data[0]["root"] == 1
+    assert data[0]["level1.*.name"] == ["first", "second"]
+    assert data[0]["level1.*.level2.*.val"] == [[10, 20], [30]]
