@@ -6,196 +6,18 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import select
 
-from aaiclick.backend import is_local
-
-from .context import get_orch_session
+from .context import get_db_handler, get_orch_session
 from .models import Job, JobStatus, Task, TaskStatus
 
 # Terminal job statuses that cannot be cancelled
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
-
-# Shared dependency check SQL — identical for both backends
-_DEPENDENCY_WHERE = """
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON d.previous_id = prev.id
-        WHERE d.next_id = t.id
-        AND d.next_type = 'task'
-        AND d.previous_type = 'task'
-        AND prev.status != :completed_status
-    )
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON prev.group_id = d.previous_id
-        WHERE d.next_id = t.id
-        AND d.next_type = 'task'
-        AND d.previous_type = 'group'
-        AND prev.status != :completed_status
-    )
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON d.previous_id = prev.id
-        WHERE d.next_id = t.group_id
-        AND d.next_type = 'group'
-        AND d.previous_type = 'task'
-        AND prev.status != :completed_status
-        AND t.group_id IS NOT NULL
-    )
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON prev.group_id = d.previous_id
-        WHERE d.next_id = t.group_id
-        AND d.next_type = 'group'
-        AND d.previous_type = 'group'
-        AND prev.status != :completed_status
-        AND t.group_id IS NOT NULL
-    )
-"""
-
-
-async def _claim_next_task_pg(worker_id: int) -> Optional[Task]:
-    """PostgreSQL claim: writable CTE with FOR UPDATE SKIP LOCKED."""
-    async with get_orch_session() as session:
-        result = await session.execute(
-            text(f"""
-                WITH claimed_task AS (
-                    UPDATE tasks
-                    SET
-                        status = :claimed_status,
-                        worker_id = :worker_id,
-                        claimed_at = :now
-                    WHERE id = (
-                        SELECT t.id FROM tasks t
-                        JOIN jobs j ON t.job_id = j.id
-                        WHERE t.status = :pending_status
-                        AND (t.retry_after IS NULL OR t.retry_after <= :now)
-                        AND j.status NOT IN (:cancelled_job_status, :failed_job_status)
-                        {_DEPENDENCY_WHERE}
-                        ORDER BY j.started_at ASC NULLS LAST, t.id ASC
-                        LIMIT 1
-                        FOR UPDATE OF t SKIP LOCKED
-                    )
-                    RETURNING id, job_id, entrypoint, name, kwargs, status, result,
-                              log_path, error, worker_id, created_at, claimed_at,
-                              started_at, completed_at, group_id,
-                              max_retries, attempt, retry_after
-                ),
-                updated_job AS (
-                    UPDATE jobs
-                    SET
-                        started_at = COALESCE(started_at, :now),
-                        status = CASE
-                            WHEN started_at IS NULL THEN :running_status
-                            ELSE status
-                        END
-                    WHERE id = (SELECT job_id FROM claimed_task)
-                    RETURNING id
-                )
-                SELECT * FROM claimed_task
-            """),
-            {
-                "claimed_status": TaskStatus.RUNNING.value,
-                "pending_status": TaskStatus.PENDING.value,
-                "completed_status": TaskStatus.COMPLETED.value,
-                "running_status": JobStatus.RUNNING.value,
-                "cancelled_job_status": JobStatus.CANCELLED.value,
-                "failed_job_status": JobStatus.FAILED.value,
-                "worker_id": worker_id,
-                "now": datetime.utcnow(),
-            },
-        )
-
-        row = result.mappings().fetchone()
-        if row is None:
-            return None
-
-        task_data = dict(row)
-        task_data["status"] = TaskStatus(task_data["status"])
-        task = Task(**task_data)
-
-        await session.commit()
-        return task
-
-
-async def _claim_next_task_sqlite(worker_id: int) -> Optional[Task]:
-    """SQLite claim: sequential SELECT + UPDATE in transaction.
-
-    SQLite is single-writer so no row locking is needed.
-    """
-    async with get_orch_session() as session:
-        now = datetime.utcnow()
-
-        # Step 1: find the next eligible task
-        find_result = await session.execute(
-            text(f"""
-                SELECT t.id FROM tasks t
-                JOIN jobs j ON t.job_id = j.id
-                WHERE t.status = :pending_status
-                AND (t.retry_after IS NULL OR t.retry_after <= :now)
-                AND j.status NOT IN (:cancelled_job_status, :failed_job_status)
-                {_DEPENDENCY_WHERE}
-                ORDER BY j.started_at ASC NULLS LAST, t.id ASC
-                LIMIT 1
-            """),
-            {
-                "pending_status": TaskStatus.PENDING.value,
-                "completed_status": TaskStatus.COMPLETED.value,
-                "cancelled_job_status": JobStatus.CANCELLED.value,
-                "failed_job_status": JobStatus.FAILED.value,
-                "now": now,
-            },
-        )
-        row = find_result.fetchone()
-        if row is None:
-            return None
-
-        task_id = row[0]
-
-        # Step 2: claim the task
-        await session.execute(
-            text(
-                "UPDATE tasks "
-                "SET status = :claimed_status, worker_id = :worker_id, claimed_at = :now "
-                "WHERE id = :task_id"
-            ),
-            {
-                "claimed_status": TaskStatus.RUNNING.value,
-                "worker_id": worker_id,
-                "now": now,
-                "task_id": task_id,
-            },
-        )
-
-        # Step 3: update job status if first claim
-        await session.execute(
-            text(
-                "UPDATE jobs "
-                "SET started_at = COALESCE(started_at, :now), "
-                "    status = CASE WHEN started_at IS NULL THEN :running_status ELSE status END "
-                "WHERE id = (SELECT job_id FROM tasks WHERE id = :task_id)"
-            ),
-            {
-                "now": now,
-                "running_status": JobStatus.RUNNING.value,
-                "task_id": task_id,
-            },
-        )
-
-        # Step 4: fetch the claimed task
-        task_result = await session.execute(
-            select(Task).where(Task.id == task_id)
-        )
-        task = task_result.scalar_one()
-
-        await session.commit()
-        return task
 
 
 async def claim_next_task(worker_id: int) -> Optional[Task]:
     """
     Atomically claim the next available task for a worker.
 
-    Dispatches to PostgreSQL or SQLite implementation based on backend.
+    Delegates to the backend-specific handler from the orchestration context.
 
     When the first task of a job is claimed:
     - Job status transitions from PENDING to RUNNING
@@ -213,9 +35,11 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
     Returns:
         Task if one was claimed, None if no tasks available
     """
-    if is_local():
-        return await _claim_next_task_sqlite(worker_id)
-    return await _claim_next_task_pg(worker_id)
+    handler = get_db_handler()
+    async with get_orch_session() as session:
+        task = await handler.claim_next_task(session, worker_id, datetime.utcnow())
+        await session.commit()
+        return task
 
 
 async def update_task_status(
@@ -236,10 +60,9 @@ async def update_task_status(
     Returns:
         bool: True if task was found and updated
     """
+    handler = get_db_handler()
     async with get_orch_session() as session:
-        query = select(Task).where(Task.id == task_id)
-        if not is_local():
-            query = query.with_for_update()
+        query = handler.lock_query(select(Task).where(Task.id == task_id))
         query_result = await session.execute(query)
         task = query_result.scalar_one_or_none()
         if task is None:
@@ -275,10 +98,9 @@ async def update_job_status(job_id: int, status: JobStatus, error: Optional[str]
     Returns:
         bool: True if job was found and updated
     """
+    handler = get_db_handler()
     async with get_orch_session() as session:
-        query = select(Job).where(Job.id == job_id)
-        if not is_local():
-            query = query.with_for_update()
+        query = handler.lock_query(select(Job).where(Job.id == job_id))
         query_result = await session.execute(query)
         job = query_result.scalar_one_or_none()
         if job is None:
@@ -313,10 +135,9 @@ async def cancel_job(job_id: int) -> bool:
     Returns:
         bool: True if job was cancelled, False if not found or already terminal
     """
+    handler = get_db_handler()
     async with get_orch_session() as session:
-        query = select(Job).where(Job.id == job_id)
-        if not is_local():
-            query = query.with_for_update()
+        query = handler.lock_query(select(Job).where(Job.id == job_id))
         query_result = await session.execute(query)
         job = query_result.scalar_one_or_none()
         if job is None:

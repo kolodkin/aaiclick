@@ -43,18 +43,32 @@ Single env var `AAICLICK_BACKEND=local|distributed` (default: `local`).
 
 ## Phase 2: SQLite Orchestration Adapter
 
-### 2a. Split `claiming.py` into backend-specific implementations
+### 2a. `DbHandler` abstraction for backend-specific SQL
 
-- `aaiclick/orchestration/claiming.py` — keeps the public API functions unchanged
-- Internally dispatches to PG or SQLite implementation based on backend
-- **PostgreSQL path**: current raw SQL with `FOR UPDATE SKIP LOCKED`, writable CTEs — unchanged
-- **SQLite path**: simplified `SELECT` + `UPDATE` in transaction (no row locking needed since single-writer)
+New file: `aaiclick/orchestration/db_handler.py`
 
-Functions that need SQLite variants:
-- `claim_next_task()` — rewrite CTE as sequential SELECT + UPDATE
-- `update_task_status()` — remove `with_for_update()`
-- `update_job_status()` — remove `with_for_update()`
-- `cancel_job()` — remove `with_for_update()`
+- Define `DbHandler` Protocol with static methods for backend-specific operations
+- `PgDbHandler` — writable CTEs, `FOR UPDATE SKIP LOCKED`, `.with_for_update()`
+- `SqliteDbHandler` — sequential SELECT + UPDATE, no row locking (single-writer)
+
+Methods:
+- `claim_next_task(session, worker_id, now)` — full claim logic (PG: writable CTE, SQLite: sequential)
+- `lock_query(query)` — PG: `.with_for_update()`, SQLite: no-op (returns query unchanged)
+
+All methods are static — no instance state needed.
+
+### 2b. Store handler in `OrchCtxState`
+
+- Add `db_handler: PgDbHandler | SqliteDbHandler` to `OrchCtxState`
+- Initialize in `orch_context()` based on `is_local()`
+- Add `get_db_handler()` helper to retrieve from context
+
+### 2c. Simplify `claiming.py`
+
+- Remove all `if is_local()` / `if not is_local()` checks
+- `claim_next_task()` delegates to `handler.claim_next_task(session, ...)`
+- `update_task_status()`, `update_job_status()`, `cancel_job()` use `handler.lock_query(query)`
+- Remove `from aaiclick.backend import is_local` from claiming.py
 
 ### 2b. Update `pg_lifecycle.py` → `db_lifecycle.py`
 
@@ -202,7 +216,8 @@ local = ["chdb", "aiosqlite"]
 | `aaiclick/data/data_context.py` | `_create_ch_client()` dispatches by backend |
 | `aaiclick/orchestration/env.py` | `get_db_url()` returns PG or SQLite URL |
 | `aaiclick/orchestration/context.py` | Use `get_db_url()` |
-| `aaiclick/orchestration/claiming.py` | Backend dispatch for PG/SQLite SQL |
+| `aaiclick/orchestration/db_handler.py` | **New** — `PgDbHandler` / `SqliteDbHandler` with shared interface |
+| `aaiclick/orchestration/claiming.py` | Simplified — delegates to `db_handler` from context |
 | `aaiclick/orchestration/pg_lifecycle.py` | Rename to `db_lifecycle.py`, update imports |
 | `aaiclick/orchestration/conftest.py` | SQLite path for local tests |
 | `aaiclick/__main__.py` | Add `setup` subcommand |
