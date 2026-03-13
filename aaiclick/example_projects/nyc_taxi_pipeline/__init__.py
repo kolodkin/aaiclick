@@ -314,68 +314,95 @@ def _fmt(value: object) -> str:
     return f"{value:,}" if isinstance(value, int) else str(value)
 
 
-def _print_report(report: dict) -> None:
-    """Print formatted summary report to stdout."""
-    ov = report["overview"]
-    print("\n" + "=" * 60)
-    print("NYC TAXI ANALYSIS REPORT")
-    print("=" * 60)
+def _print_md_table(md: str) -> None:
+    """Print a pre-rendered markdown table."""
+    for line in md.splitlines():
+        print(line)
 
-    print("\n--- Overview ---")
-    print(f"  Total trips:    {_fmt(ov['total_trips'])}")
-    print(f"  Total revenue:  ${_fmt(ov['total_revenue'])}")
-    print(f"  Total tips:     ${_fmt(ov['total_tips'])}")
-    print(f"  Avg fare:       ${_fmt(ov['avg_fare'])}")
-    print(f"  Avg distance:   {_fmt(ov['avg_distance'])} mi")
+
+def _print_report(
+    report: dict,
+    trips_md: str,
+    by_payment_md: str,
+    by_pickup_zone_md: str,
+    by_passenger_md: str,
+    top_zones_md: str,
+) -> None:
+    """Print formatted summary report to stdout as markdown."""
+    ov = report["overview"]
+    print("\n## NYC Taxi Analysis Report\n")
+
+    print("### Overview\n")
+    print(f"- Total trips: {_fmt(ov['total_trips'])}")
+    print(f"- Total revenue: ${_fmt(ov['total_revenue'])}")
+    print(f"- Total tips: ${_fmt(ov['total_tips'])}")
+    print(f"- Avg fare: ${_fmt(ov['avg_fare'])}")
+    print(f"- Avg distance: {_fmt(ov['avg_distance'])} mi")
+
+    print("\n#### Sample (first 5 rows)\n")
+    _print_md_table(trips_md)
 
     fd = report["fare_distribution"]
-    print("\n--- Fare Distribution ---")
-    print(f"  Mean:   ${_fmt(fd['mean'])}")
-    print(f"  Std:    ${_fmt(fd['std'])}")
-    print(f"  P25:    ${_fmt(fd['p25'])}")
-    print(f"  Median: ${_fmt(fd['median'])}")
-    print(f"  P75:    ${_fmt(fd['p75'])}")
-    print(f"  P90:    ${_fmt(fd['p90'])}")
-    print(f"  P99:    ${_fmt(fd['p99'])}")
+    print("\n### Fare Distribution\n")
+    print(f"- Mean: ${_fmt(fd['mean'])}")
+    print(f"- Std: ${_fmt(fd['std'])}")
+    print(f"- P25: ${_fmt(fd['p25'])}")
+    print(f"- Median: ${_fmt(fd['median'])}")
+    print(f"- P75: ${_fmt(fd['p75'])}")
+    print(f"- P90: ${_fmt(fd['p90'])}")
+    print(f"- P99: ${_fmt(fd['p99'])}")
 
     ta = report["tip_analysis"]
-    print("\n--- Tip Analysis ---")
-    print(f"  Avg tip:          ${_fmt(ta['avg_tip'])}")
-    print(f"  Median tip:       ${_fmt(ta['median_tip'])}")
-    print(f"  Avg tip %:        {_fmt(ta['avg_tip_pct'])}%")
-    print(f"  Median tip %:     {_fmt(ta['median_tip_pct'])}%")
-    print(f"  Max tip:          ${_fmt(ta['max_tip'])}")
-    print(f"  Tip share total:  {_fmt(ta['tip_share_of_total'])}%")
+    print("\n### Tip Analysis\n")
+    print(f"- Avg tip: ${_fmt(ta['avg_tip'])}")
+    print(f"- Median tip: ${_fmt(ta['median_tip'])}")
+    print(f"- Avg tip %: {_fmt(ta['avg_tip_pct'])}%")
+    print(f"- Median tip %: {_fmt(ta['median_tip_pct'])}%")
+    print(f"- Max tip: ${_fmt(ta['max_tip'])}")
+    print(f"- Tip share total: {_fmt(ta['tip_share_of_total'])}%")
 
     da = report["distance_analysis"]
-    print("\n--- Distance Analysis ---")
-    print(f"  Avg distance:       {_fmt(da['avg_distance'])} mi")
-    print(f"  Median distance:    {_fmt(da['median_distance'])} mi")
-    print(f"  Short trips (<1mi): {_fmt(da['short_trips_pct'])}%")
-    print(f"  Long trips (>10mi): {_fmt(da['long_trips_pct'])}%")
-    print(f"  Avg fare/mile:      ${_fmt(da['avg_fare_per_mile'])}")
-    print(f"  Median fare/mile:   ${_fmt(da['median_fare_per_mile'])}")
+    print("\n### Distance Analysis\n")
+    print(f"- Avg distance: {_fmt(da['avg_distance'])} mi")
+    print(f"- Median distance: {_fmt(da['median_distance'])} mi")
+    print(f"- Short trips (<1mi): {_fmt(da['short_trips_pct'])}%")
+    print(f"- Long trips (>10mi): {_fmt(da['long_trips_pct'])}%")
+    print(f"- Avg fare/mile: ${_fmt(da['avg_fare_per_mile'])}")
+    print(f"- Median fare/mile: ${_fmt(da['median_fare_per_mile'])}")
 
-    print("\n--- Payment Breakdown ---")
+    print("\n### By Payment Type\n")
+    _print_md_table(by_payment_md)
+
+    print("\n#### Statistics\n")
     for name, data in report["payment_breakdown"].items():
-        print(f"  {name}:")
-        print(f"    Avg fare:     ${_fmt(data['avg_fare'])}")
-        print(f"    Avg tip:      ${_fmt(data['avg_tip'])}")
-        print(f"    Avg distance: {_fmt(data['avg_distance'])} mi")
+        print(f"- **{name}**: avg fare ${_fmt(data['avg_fare'])}, "
+              f"avg tip ${_fmt(data['avg_tip'])}, "
+              f"avg distance {_fmt(data['avg_distance'])} mi")
 
-    print("\n" + "=" * 60)
+    print("\n### By Pickup Zone\n")
+    _print_md_table(by_pickup_zone_md)
+
+    print("\n### By Passenger Count\n")
+    _print_md_table(by_passenger_md)
+
+    print("\n### Top Revenue Zones\n")
+    _print_md_table(top_zones_md)
 
 
 @task
 async def generate_summary_report(
+    trips: Object,
     basic_stats: dict,
     statistical_metrics: dict,
     tip_analysis: dict,
     distance_analysis: dict,
     by_payment: Object,
+    by_pickup_zone: Object,
+    by_passenger: Object,
+    top_zones: Object,
 ) -> dict:
     """
-    Combine all analysis results into final report.
+    Combine all analysis results into a markdown report.
     """
     payment_data = await by_payment.data()
 
@@ -411,7 +438,13 @@ async def generate_summary_report(
         },
     }
 
-    _print_report(report)
+    trips_md = await trips.view(limit=5).markdown()
+    by_payment_md = await by_payment.view(limit=10).markdown()
+    by_pickup_zone_md = await by_pickup_zone.view(limit=10).markdown()
+    by_passenger_md = await by_passenger.view(limit=10).markdown()
+    top_zones_md = await top_zones.view(limit=10).markdown()
+
+    _print_report(report, trips_md, by_payment_md, by_pickup_zone_md, by_passenger_md, top_zones_md)
     return report
 
 
@@ -478,11 +511,15 @@ def nyc_taxi_pipeline(
 
     # Final report (depends on multiple upstream tasks)
     report = generate_summary_report(
+        trips=trips,
         basic_stats=basic_stats,
         statistical_metrics=statistical_metrics,
         tip_analysis=tip_analysis,
         distance_analysis=distance_analysis,
         by_payment=by_payment,
+        by_pickup_zone=by_pickup_zone,
+        by_passenger=by_passenger,
+        top_zones=top_zones,
     )
 
     return [

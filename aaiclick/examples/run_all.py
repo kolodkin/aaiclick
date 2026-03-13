@@ -18,6 +18,7 @@ from .array_operators import example as array_operators_example
 from .basic_operators import example as basic_operators_example
 from .data_manipulation import example as data_manipulation_example
 from .group_by import example as group_by_example
+from .nested_arrays import example as nested_arrays_example
 from .nullable import example as nullable_example
 from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
@@ -50,6 +51,7 @@ async def main():
         ("Array Operators", array_operators_example),
         ("Basic Operators", basic_operators_example),
         ("Data Manipulation", data_manipulation_example),
+        ("Nested Arrays", nested_arrays_example),
         ("Statistics", statistics_example),
         ("Views", views_example),
         ("Group By", group_by_example),
