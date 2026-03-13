@@ -97,11 +97,11 @@ def test_worker_drop_table_handles_exception():
     worker._drop_table("nonexistent_table")
 
 
-@patch("aaiclick.data.table_worker.get_client")
-def test_worker_full_lifecycle(mock_get_client):
+@patch("aaiclick.data.table_worker.create_sync_client")
+def test_worker_full_lifecycle(mock_create_sync_client):
     """Test worker full lifecycle with mocked ClickHouse client."""
     mock_client = MagicMock()
-    mock_get_client.return_value = mock_client
+    mock_create_sync_client.return_value = mock_client
 
     worker = TableWorker("clickhouse://default:@testhost:9000/testdb")
 
@@ -118,7 +118,7 @@ def test_worker_full_lifecycle(mock_get_client):
     worker.stop()
 
     # Client should have been created
-    mock_get_client.assert_called_once()
+    mock_create_sync_client.assert_called_once()
 
     # Remaining tables should be cleaned up (table_x has refcount 1, table_y has 1)
     # Both should be dropped on shutdown
@@ -126,11 +126,11 @@ def test_worker_full_lifecycle(mock_get_client):
     mock_client.close.assert_called_once()
 
 
-@patch("aaiclick.data.table_worker.get_client")
-def test_worker_drops_table_when_refcount_zero(mock_get_client):
+@patch("aaiclick.data.table_worker.create_sync_client")
+def test_worker_drops_table_when_refcount_zero(mock_create_sync_client):
     """Test that table is dropped immediately when refcount reaches zero."""
     mock_client = MagicMock()
-    mock_get_client.return_value = mock_client
+    mock_create_sync_client.return_value = mock_client
 
     worker = TableWorker("clickhouse://default:@localhost:8123/default")
 
