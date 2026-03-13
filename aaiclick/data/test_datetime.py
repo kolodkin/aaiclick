@@ -144,7 +144,7 @@ async def test_records_with_array_datetime(ctx):
     ]
     obj = await create_object_from_value(val)
     data = await obj.data()
-    assert data["logins"] == [(DT_2024, DT_2025), (DT_EPOCH, DT_MILLIS)]
+    assert data["logins"] == [[DT_2024, DT_2025], [DT_EPOCH, DT_MILLIS]]
     assert data["user"] == ["Alice", "Bob"]
 
 
@@ -165,7 +165,7 @@ async def test_dict_with_array_datetime_column(ctx):
     await ch.insert(obj.table, data, column_names=["timestamps", "label"])
 
     result = await obj.data()
-    assert result["timestamps"] == [(DT_2024, DT_2025), (DT_EPOCH,)]
+    assert result["timestamps"] == [[DT_2024, DT_2025], [DT_EPOCH]]
     assert result["label"] == ["batch1", "batch2"]
 
 
