@@ -11,9 +11,8 @@ import queue
 import threading
 from dataclasses import dataclass
 from enum import Enum, auto
-from urllib.parse import urlparse
 
-from clickhouse_connect import get_client
+from .ch_client import create_sync_client
 
 
 class TableOp(Enum):
@@ -30,28 +29,6 @@ class TableMessage:
 
     op: TableOp
     table_name: str
-
-
-def _create_sync_client(connection_string: str) -> object:
-    """Create a sync ClickHouse client from a connection string.
-
-    Supports:
-    - chdb:///path/to/data → ChdbSyncClient
-    - clickhouse://user:pass@host:port/db → clickhouse-connect sync client
-    """
-    if connection_string.startswith("chdb://"):
-        from .chdb_client import create_chdb_sync_client
-
-        return create_chdb_sync_client(connection_string)
-
-    parsed = urlparse(connection_string)
-    return get_client(
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 8123,
-        username=parsed.username or "default",
-        password=parsed.password or "",
-        database=parsed.path.lstrip("/") or "default",
-    )
 
 
 class TableWorker:
@@ -91,7 +68,7 @@ class TableWorker:
 
     def _run(self) -> None:
         """Worker loop - runs in background thread."""
-        self._ch_client = _create_sync_client(self._connection_string)
+        self._ch_client = create_sync_client(self._connection_string)
 
         try:
             while True:
