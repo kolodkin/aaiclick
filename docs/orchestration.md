@@ -1,22 +1,76 @@
-# aaiclick Orchestration Backend Specification
+aaiclick Orchestration Backend Specification
+---
 
-## Overview
+# Basic Example
+
+```python
+from aaiclick.orchestration import job, task, job_test
+
+@task
+async def add(a: int, b: int) -> int:
+    return a + b
+
+@task
+async def multiply(x: int, y: int) -> int:
+    return x * y
+
+@job("pipeline")
+def pipeline(x: int, y: int):
+    sum_result = add(a=x, b=y)      # no dependency between tasks → run in parallel
+    product = multiply(x=x, y=y)
+    return [sum_result, product]
+
+j = pipeline(x=3, y=4)
+job_test(j)  # execute synchronously (testing/local)
+```
+
+See `aaiclick/examples/orchestration_basic.py` for a full example.
+
+# Decorators
+
+**Implementation**: `aaiclick/orchestration/decorators.py` — see `TaskFactory` and `JobFactory`
+
+Airflow-style TaskFlow API with automatic dependency detection. Passing a Task result as an
+argument to another task automatically creates an upstream dependency. Native Python values
+(int, float, list, etc.) work alongside Object/View parameters.
+
+## @task
+
+Wraps an async function into a `TaskFactory`. Calling it inside a `@job` body creates a `Task`
+record. At runtime, workers resolve upstream task results by querying completed task output.
+
+| Parameter     | Type | Default       | Description                           |
+|---------------|------|---------------|---------------------------------------|
+| `name`        | str  | function name | Human-readable name for created tasks |
+| `max_retries` | int  | 0             | Maximum retry attempts on failure     |
+
+**Retry behavior**: When a task fails and has retries remaining, `_schedule_retry()` in
+`worker.py` resets it to PENDING with an incremented `attempt` count. Workers pick it up again
+via normal claiming.
+
+## @job
+
+Wraps a workflow function into a `JobFactory`. Calling it creates a `Job`, auto-manages
+`orch_context()`, and commits all tasks to the SQL database via `commit_tasks()`.
+
+| Parameter | Type | Default       | Description                   |
+|-----------|------|---------------|-------------------------------|
+| `name`    | str  | function name | Human-readable name for the job |
+
+Accepts name as positional arg (`@job("my_job")`), keyword (`@job(name="my_job")`), or bare
+(`@job` — defaults to function name).
+
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute a job synchronously in the
+current process for testing/debugging. See `aaiclick/orchestration/debug_execution.py`.
+
+# Overview
 
 The aaiclick orchestration backend manages job scheduling, task distribution, and execution coordination. It supports two deployment modes:
 
 - **Local mode** (default): SQLite + chdb — zero infrastructure, single-process execution for development and testing
 - **Distributed mode**: PostgreSQL + ClickHouse server — multi-worker execution across processes and machines
 
-### Motivation
-
-As aaiclick scales to handle large-scale data processing, we need:
-- **Distributed execution**: Parallelize work across multiple workers
-- **Dynamic task generation**: Create new tasks during execution (e.g., via `map()` operations)
-- **Reliable state management**: Track job progress with crash recovery
-- **Ordered execution**: Preserve temporal causality via creation timestamps
-- **Zero-setup development**: Run everything locally without external services
-
-## Deployment Modes
+# Deployment Modes
 
 The orchestration layer supports two deployment modes, controlled by two independent environment variables:
 
@@ -34,7 +88,7 @@ The orchestration layer supports two deployment modes, controlled by two indepen
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
 
-### Mixing Backends
+## Mixing Backends
 
 The two URL variables are independent — you can mix backends (e.g., remote ClickHouse server + SQLite for orchestration). However, the typical combinations are:
 
@@ -44,7 +98,7 @@ The two URL variables are independent — you can mix backends (e.g., remote Cli
 | ClickHouse server + PostgreSQL     | Production distributed execution                    |
 | ClickHouse server + SQLite         | Single-worker with remote data storage              |
 
-### Task Claiming: SQLite vs PostgreSQL
+## Task Claiming: SQLite vs PostgreSQL
 
 **Implementation**: `aaiclick/orchestration/db_handler.py` (factory), `sqlite_handler.py`, `pg_handler.py`
 
@@ -53,7 +107,7 @@ Both handlers implement `DbHandler` with identical dependency-checking SQL (`DEP
 - **`SqliteDbHandler`**: Sequential SELECT then UPDATE — safe for single-worker mode since SQLite doesn't support `FOR UPDATE`. Created when `is_sqlite()` is `True`.
 - **`PgDbHandler`**: Single atomic CTE with `FOR UPDATE SKIP LOCKED` — enables multiple workers to claim tasks concurrently without conflicts. Created when `is_sqlite()` is `False`.
 
-## Architecture
+# Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -99,7 +153,7 @@ Both handlers implement `DbHandler` with identical dependency-checking SQL (`DEP
                                  └────────────────────────────┘
 ```
 
-### Dual-Context Design
+## Dual-Context Design
 
 Both contexts are async context managers using `ContextVar` for async-safe global access:
 
@@ -116,7 +170,7 @@ Both contexts are async context managers using `ContextVar` for async-safe globa
 
 Workers use **both** contexts internally: `data_context()` for data, `orch_context()` for state.
 
-### Why Dual-Database?
+## Why Dual-Database?
 
 **SQL database for orchestration**: ACID consistency, row-level locking (PostgreSQL: `FOR UPDATE SKIP LOCKED`), JSON for task params, Alembic migrations, foreign keys.
 
@@ -124,13 +178,13 @@ Workers use **both** contexts internally: `data_context()` for data, `orch_conte
 
 In local mode, SQLite provides the same ACID guarantees for single-process use, while chdb gives full ClickHouse SQL compatibility without a running server.
 
-## Data Models
+# Data Models
 
 **Implementation**: `aaiclick/orchestration/models.py`
 
 All entities use **Snowflake IDs** (not database auto-increment) — distributed generation, time-ordered, no DB round-trip. Stored as PostgreSQL `BIGINT`.
 
-### Status Enums
+## Status Enums
 
 | Enum           | Values                                          |
 |----------------|------------------------------------------------|
@@ -138,7 +192,7 @@ All entities use **Snowflake IDs** (not database auto-increment) — distributed
 | `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED    |
 | `WorkerStatus` | ACTIVE, IDLE, STOPPED                            |
 
-### Job
+## Job
 
 Represents a workflow containing tasks. See `Job` class in `models.py`.
 
@@ -146,7 +200,7 @@ Key fields: `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, 
 
 **Status lifecycle**: `PENDING → RUNNING → COMPLETED / FAILED`
 
-### Task
+## Task
 
 Single executable unit of work. See `Task` class in `models.py`.
 
@@ -154,25 +208,25 @@ Key fields: `id`, `job_id`, `group_id`, `entrypoint` (importable callable like `
 
 **Status lifecycle**: `PENDING → CLAIMED → RUNNING → COMPLETED / FAILED`
 
-### Group
+## Group
 
 Logical grouping of tasks. Supports nesting via `parent_group_id`. See `Group` class in `models.py`.
 
 Key fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`.
 
-### Dependency
+## Dependency
 
 Unified dependency table — composite PK `(previous_id, previous_type, next_id, next_type)`. Types are `'task'` or `'group'`. Supports all four combinations: task→task, task→group, group→task, group→group.
 
 See `Dependency` class in `models.py`.
 
-### Worker
+## Worker
 
 Active worker process. See `Worker` class in `models.py`.
 
 Key fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`.
 
-## Task Parameter Serialization
+# Task Parameter Serialization
 
 Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_serialize_ref()` on Object/View — see `aaiclick/data/object.py`.
 
@@ -182,7 +236,7 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 `job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
-### Task Return Values
+## Task Return Values
 
 - **`None`**: `task.result` is `null`
 - **Object/View**: Stored via `_serialize_ref()` + `job_id`
@@ -190,46 +244,7 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 **Implementation**: `aaiclick/orchestration/execution.py` — see `serialize_task_result()`
 
-## User-Facing API
-
-**Implementation**: `aaiclick/orchestration/decorators.py` — see `TaskFactory` and `JobFactory`
-
-### @task and @job Decorators
-
-Airflow-style TaskFlow API with automatic dependency detection. For usage examples, see `aaiclick/examples/orchestration_basic.py`.
-
-**@task parameters**:
-
-| Parameter      | Type | Default         | Description                                   |
-|----------------|------|-----------------|-----------------------------------------------|
-| `name`         | str  | function name   | Human-readable name for created tasks         |
-| `max_retries`  | int  | 0               | Maximum retry attempts on failure             |
-
-**@job** accepts a name as positional arg, keyword `name=`, or bare (defaults to function name).
-
-**How it works**:
-- `@task` wraps async functions into `TaskFactory` — calling it creates Task objects
-- Passing a Task as an argument automatically creates an upstream dependency
-- `@job("name")` wraps workflow functions into `JobFactory` — creates Job, auto-manages `orch_context()`, commits all tasks to PostgreSQL via `commit_tasks()`
-- Native Python values (int, float, list, etc.) work alongside Object/View parameters
-- At runtime, workers resolve upstream refs by querying completed task results
-
-**Retry behavior**: When a task fails and has retries remaining, `_schedule_retry()` in `worker.py` resets it to PENDING with incremented `attempt` count. Workers pick it up again via normal claiming.
-
-### Job Testing
-
-**Implementation**: `aaiclick/orchestration/debug_execution.py` — see `job_test()` and `ajob_test()`
-
-`job_test(job)` executes a job synchronously in the current process for testing/debugging.
-
-### Internal APIs
-
-Not for direct use:
-- `create_task()`, `create_job()` — low-level factories in `aaiclick/orchestration/factories.py`
-- `commit_tasks()` — commits DAG to PostgreSQL
-- `>>` / `<<` dependency operators on Task/Group
-
-### Job Management APIs ✅ IMPLEMENTED
+# Job Management APIs ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
 
@@ -239,7 +254,7 @@ Not for direct use:
 
 **CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
 
-### Job Cancellation ✅ IMPLEMENTED
+# Job Cancellation ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/orchestration/claiming.py` — see `cancel_job()`, `check_task_cancelled()`
 
@@ -254,11 +269,7 @@ Not for direct use:
 
 **CLI**: `python -m aaiclick job cancel <id>`
 
-### Partially Implemented
-
-- Retry logic for failed tasks ✅ IMPLEMENTED — see `aaiclick/orchestration/worker.py` `_schedule_retry()`
-
-## Custom Operators
+# Custom Operators
 
 **Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `map()` and `_map_part()` functions
 
@@ -270,7 +281,7 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 | `_map_part(cbk, part, out) -> None`               | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
 | `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
 
-### Spark Methods vs aaiclick Capabilities
+## Spark Methods vs aaiclick Capabilities
 
 | Spark Method           | aaiclick Equivalent               | Notes                                       |
 |------------------------|-----------------------------------|---------------------------------------------|
@@ -286,15 +297,15 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 | `flatMap(func)`        | ⚠️ NOT YET IMPLEMENTED           | Variant of map() for variable-output tasks  |
 | `join`                 | ⚠️ NOT YET IMPLEMENTED           | SQL JOIN                                    |
 
-## Task Execution
+# Task Execution
 
-### Worker Main Loop
+## Worker Main Loop
 
 **Implementation**: `aaiclick/orchestration/worker.py` — see `worker_main_loop()`
 
 Workers continuously poll for tasks, execute them, and update status. Handles auto-registration/deregistration, periodic heartbeats (30s), graceful SIGTERM/SIGINT shutdown, and per-task lifecycle handler creation via `lifecycle_factory`.
 
-### Task Claiming
+## Task Claiming
 
 **Implementation**: `aaiclick/orchestration/claiming.py` — see `claim_next_task()`, `aaiclick/orchestration/pg_handler.py`, `aaiclick/orchestration/sqlite_handler.py`
 
@@ -305,7 +316,7 @@ Finds the oldest pending task whose dependencies are all satisfied, atomically c
 - **PostgreSQL**: Single atomic CTE with `FOR UPDATE SKIP LOCKED` — safe for concurrent multi-worker claiming
 - **SQLite**: Sequential SELECT + UPDATE — sufficient for single-worker local mode
 
-### CLI
+## CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
@@ -327,11 +338,11 @@ python -m aaiclick job list --limit 20 --offset 40  # Pagination
 python -m aaiclick background start            # Standalone cleanup worker
 ```
 
-## Distributed Object Lifecycle
+# Distributed Object Lifecycle
 
 In distributed mode, Object table lifecycle is managed through PostgreSQL with **explicit ownership transfer** via pin/claim.
 
-### Architecture
+## Architecture
 
 ```
 Worker Process
@@ -350,7 +361,7 @@ Worker Process
 
 Each component owns its own PG engine — fully decoupled from `orch_context()`.
 
-### Ownership Transfer (Pin/Claim)
+## Ownership Transfer (Pin/Claim)
 
 ```
 Task A executes (handler context_id=auto_snowflake, job_id=job.id)
@@ -369,7 +380,7 @@ Task B starts (handler context_id=auto_snowflake_2, job_id=job.id)
 Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
 ```
 
-### PgLifecycleHandler
+## PgLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
 
@@ -381,7 +392,7 @@ Each handler gets a unique `context_id` (snowflake). Pin operations use `job_id`
 
 Operations: INCREF (upsert +1), DECREF (update -1), PIN (upsert with job_id), stop() (delete by context_id), claim() (release job-scoped pin).
 
-### PgCleanupWorker
+## PgCleanupWorker
 
 **Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker` class
 
@@ -392,21 +403,21 @@ Three cleanup operations per poll:
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
-### Write-Ahead Incref
+## Write-Ahead Incref
 
 **Implementation**: `aaiclick/data/data_context.py` — see `create_object()`
 
 `create_object()` calls `incref` **before** `CREATE TABLE` in ClickHouse. Crash after incref but before CREATE → cleanup tries `DROP TABLE IF EXISTS` (harmless no-op).
 
-### TableSweeper ⚠️ NOT YET IMPLEMENTED
+## TableSweeper ⚠️ NOT YET IMPLEMENTED
 
 Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row. Complements PgCleanupWorker (catches tables refcount system missed entirely).
 
-### Local Mode (chdb + SQLite)
+## Local Mode (chdb + SQLite)
 
 Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [DataContext documentation](data_context.md) — "Table Lifecycle Tracking".
 
-## Configuration
+# Configuration
 
 See CLAUDE.md for environment variables. Orchestration-specific:
 
@@ -421,7 +432,7 @@ See CLAUDE.md for environment variables. Orchestration-specific:
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
 - Legacy env vars (`POSTGRES_HOST`, etc.) are read by Alembic as fallback when `AAICLICK_SQL_URL` is not set
 
-## References
+# References
 
 - [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
 - [Alembic Documentation](https://alembic.sqlalchemy.org/)
