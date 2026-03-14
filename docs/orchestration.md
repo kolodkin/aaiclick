@@ -276,6 +276,49 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 | `_map_part(cbk, part, out) -> None`               | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
 | `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
 
+## reduce() ⚠️ NOT YET IMPLEMENTED
+
+Layered parallel reduction over an Object. See [docs/reduce.md](reduce.md) for full design.
+
+Each layer partitions the current input into Views, applies the function to each partition
+concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats until one row remains.
+
+### Layer count
+
+Given `N` input rows and `partition` size `P`, the number of layers is:
+
+```
+layers = ⌈log_P(N)⌉
+```
+
+Or equivalently:
+
+```python
+def num_layers(N: int, P: int) -> int:
+    layers = 0
+    while N > 1:
+        N = ceil(N / P)
+        layers += 1
+    return layers
+```
+
+**Example — 1300 rows, partition=500:**
+
+```
+Layer 0  input=1300  tasks=⌈1300/500⌉=3   layer_obj → 3 rows
+Layer 1  input=3     tasks=⌈3/500⌉   =1   layer_obj → 1 row  ✓
+```
+Total: **2 layers**, 4 `_reduce_part` tasks.
+
+**Example — 210 rows, partition=10:**
+
+```
+Layer 0  input=210  tasks=⌈210/10⌉=21  layer_obj → 21 rows
+Layer 1  input=21   tasks=⌈21/10⌉ = 3  layer_obj →  3 rows
+Layer 2  input=3    tasks=⌈3/10⌉  = 1  layer_obj →  1 row  ✓
+```
+Total: **3 layers**, 25 `_reduce_part` tasks.
+
 ## Spark Methods vs aaiclick Capabilities
 
 | Spark Method           | aaiclick Equivalent               | Notes                               |
