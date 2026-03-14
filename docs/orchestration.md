@@ -283,6 +283,11 @@ Layered parallel reduction over an Object. See [docs/reduce.md](reduce.md) for f
 Each layer partitions the current input into Views, applies the function to each partition
 concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats until one row remains.
 
+All layers, subgroups, and tasks are created at once inside `_expand_reduce` — no lazy
+layer-by-layer expansion. The top-level "reduce" Group contains one subgroup per layer
+(`"layer_0"`, `"layer_1"`, …); each layer subgroup depends on the previous one completing.
+A final `_reduce_return` task depends on the last layer subgroup and returns the result.
+
 ### Layer count
 
 Given `N` input rows and `partition` size `P`, the number of layers is:
