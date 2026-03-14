@@ -1093,6 +1093,101 @@ class Object:
         info = self._get_query_info()
         return await operators.unique_group(info, self.ch_client)
 
+    # Unary Transform Operators
+
+    async def _apply_unary_transform(self, transform: str) -> Self:
+        """Apply a unary ClickHouse function to the value column.
+
+        Args:
+            transform: Transform key from operators.UNARY_TRANSFORMS
+
+        Returns:
+            Self: New Object with transformed values
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.unary_transform(info, transform, self.ch_client)
+
+    async def year(self) -> Self:
+        """Extract year from Date/DateTime values.
+
+        Returns:
+            Self: New Object with UInt16 year values
+        """
+        return await self._apply_unary_transform("year")
+
+    async def month(self) -> Self:
+        """Extract month (1-12) from Date/DateTime values.
+
+        Returns:
+            Self: New Object with UInt8 month values
+        """
+        return await self._apply_unary_transform("month")
+
+    async def day_of_week(self) -> Self:
+        """Extract day of week (1=Mon, 7=Sun) from Date/DateTime values.
+
+        Returns:
+            Self: New Object with UInt8 day-of-week values
+        """
+        return await self._apply_unary_transform("day_of_week")
+
+    async def lower(self) -> Self:
+        """Lowercase string values.
+
+        Returns:
+            Self: New Object with lowercased String values
+        """
+        return await self._apply_unary_transform("lower")
+
+    async def upper(self) -> Self:
+        """Uppercase string values.
+
+        Returns:
+            Self: New Object with uppercased String values
+        """
+        return await self._apply_unary_transform("upper")
+
+    async def length(self) -> Self:
+        """String length of values.
+
+        Returns:
+            Self: New Object with UInt64 length values
+        """
+        return await self._apply_unary_transform("length")
+
+    async def trim(self) -> Self:
+        """Trim whitespace from string values.
+
+        Returns:
+            Self: New Object with trimmed String values
+        """
+        return await self._apply_unary_transform("trim")
+
+    async def abs(self) -> Self:
+        """Absolute value of numeric values.
+
+        Returns:
+            Self: New Object with Float64 absolute values
+        """
+        return await self._apply_unary_transform("abs")
+
+    async def log2(self) -> Self:
+        """Log base 2 of numeric values.
+
+        Returns:
+            Self: New Object with Float64 log2 values
+        """
+        return await self._apply_unary_transform("log2")
+
+    async def sqrt(self) -> Self:
+        """Square root of numeric values.
+
+        Returns:
+            Self: New Object with Float64 sqrt values
+        """
+        return await self._apply_unary_transform("sqrt")
+
     # String/Regex Operators
 
     async def match(self, pattern: str) -> Self:

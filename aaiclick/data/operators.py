@@ -903,6 +903,57 @@ async def replace_op(info: QueryInfo, pattern: str, replacement: str, ch_client)
     return await _apply_string_op_db(info, "replace", pattern, ch_client, replacement=replacement)
 
 
+# Unary Transform Operations
+# Apply a ClickHouse function to the value column, returning a new Object.
+# Docs:
+# - Date/time: https://clickhouse.com/docs/sql-reference/functions/date-time-functions
+# - String:    https://clickhouse.com/docs/sql-reference/functions/string-functions
+# - Math:      https://clickhouse.com/docs/sql-reference/functions/math-functions
+
+# Mapping: Python method name -> (ClickHouse function, result type)
+UNARY_TRANSFORMS = {
+    # Date/time extractions
+    "year": ("toYear", "UInt16"),
+    "month": ("toMonth", "UInt8"),
+    "day_of_week": ("toDayOfWeek", "UInt8"),
+    # String transforms
+    "lower": ("lower", "String"),
+    "upper": ("upper", "String"),
+    "length": ("length", "UInt64"),
+    "trim": ("trimBoth", "String"),
+    # Math transforms
+    "abs": ("abs", "Float64"),
+    "log2": ("log2", "Float64"),
+    "sqrt": ("sqrt", "Float64"),
+}
+
+
+async def unary_transform(info: QueryInfo, transform: str, ch_client):
+    """Apply a unary ClickHouse function to the value column.
+
+    Args:
+        info: QueryInfo for source
+        transform: Transform key from UNARY_TRANSFORMS
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with transformed values (preserves fieldtype)
+    """
+    ch_func, result_type = UNARY_TRANSFORMS[transform]
+
+    schema = Schema(
+        fieldtype=info.fieldtype,
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(result_type)},
+    )
+    result = await create_object(schema)
+
+    await ch_client.command(f"""
+        INSERT INTO {result.table}
+        SELECT aai_id, {ch_func}(value) AS value FROM {info.source}
+    """)
+    return result
+
+
 # Null Operations
 # Docs: https://clickhouse.com/docs/sql-reference/functions/functions-for-nulls
 

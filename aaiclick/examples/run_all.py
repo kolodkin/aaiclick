@@ -24,6 +24,7 @@ from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
 from .selectors import example as selectors_example
 from .statistics import example as statistics_example
+from .transforms import example as transforms_example
 from .views import example as views_example
 
 
@@ -53,6 +54,7 @@ async def main():
         ("Data Manipulation", data_manipulation_example),
         ("Nested Arrays", nested_arrays_example),
         ("Statistics", statistics_example),
+        ("Transforms", transforms_example),
         ("Views", views_example),
         ("Group By", group_by_example),
         ("Nullable Columns", nullable_example),
