@@ -46,7 +46,7 @@
 
 7. **Implement lineage graph queries**
    - `backward_explain(table, max_depth)` — recursive upstream trace
-   - `forward_lineage(table, max_depth)` — recursive downstream trace
+   - `forward_impact(table, max_depth)` — recursive downstream trace
    - `LineageGraph` dataclass with `to_prompt_context()` formatter
 
 8. **Tests**
