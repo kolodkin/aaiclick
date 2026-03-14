@@ -125,6 +125,7 @@ async def data_context(
     ctx: str = "default",
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
+    lineage: bool = False,
 ) -> AsyncIterator[None]:
     """Async context manager for data operations.
 
@@ -133,7 +134,10 @@ async def data_context(
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
+        lineage: When True, activate lineage tracking via LineageCollector.
     """
+    from ..lineage.collector import LineageCollector, _lineage_collector
+
     ch_client = await create_ch_client()
 
     owns_lifecycle = lifecycle is None
@@ -159,9 +163,19 @@ async def data_context(
     contexts[ctx] = state
     token = _data_contexts.set(contexts)
 
+    # Activate lineage collector if requested
+    lineage_token = None
+    if lineage:
+        collector = LineageCollector()
+        lineage_token = _lineage_collector.set(collector)
+
     try:
         yield
     finally:
+        # Reset lineage collector
+        if lineage_token is not None:
+            _lineage_collector.reset(lineage_token)
+
         # Mark all tracked objects as stale
         for obj_ref in state.objects.values():
             obj = obj_ref()
@@ -633,6 +647,11 @@ async def create_object_from_value(
 
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
+
+    from ..lineage.collector import get_lineage_collector
+    collector = get_lineage_collector()
+    if collector:
+        collector.record(obj.table, "create_from_value", [])
 
     return obj
 

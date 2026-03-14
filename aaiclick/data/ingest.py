@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
+from ..lineage.collector import get_lineage_collector
 from .data_context import create_object
 from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
@@ -143,6 +144,10 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {copy_info.source_query}{alias}"
     await ch_client.command(insert_query)
 
+    collector = get_lineage_collector()
+    if collector:
+        source_table = copy_info.source_query.strip("()")
+        collector.record(result.table, "copy", [source_table])
     return result
 
 
@@ -293,6 +298,9 @@ async def concat_objects_db(
             result.table, info, data_columns, i, ch_client,
         )
 
+    collector = get_lineage_collector()
+    if collector:
+        collector.record(result.table, "concat", [qi.base_table for qi in query_infos])
     return result
 
 
@@ -347,6 +355,13 @@ async def insert_objects_db(
         source_target_types = {col: target_columns[col] for col in col_names}
         await _insert_source(
             target_info.base_table, info, source_target_types, i, ch_client,
+        )
+
+    collector = get_lineage_collector()
+    if collector:
+        collector.record(
+            target_info.base_table, "insert",
+            [si.base_table for si in source_infos],
         )
 
 
