@@ -45,7 +45,7 @@
    - `ingest.copy_db()` → record `"copy"`
 
 7. **Implement lineage graph queries**
-   - `backward_lineage(table, max_depth)` — recursive upstream trace
+   - `backward_explain(table, max_depth)` — recursive upstream trace
    - `forward_lineage(table, max_depth)` — recursive downstream trace
    - `LineageGraph` dataclass with `to_prompt_context()` formatter
 

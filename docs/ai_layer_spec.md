@@ -108,7 +108,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 class LineageContext:
     """Full lineage context — graph + sampled data + schemas.
 
-    Returned by backward_lineage() so context is always available
+    Returned by backward_explain() so context is always available
     for LLM consumption without extra calls.
     """
     graph: LineageGraph
@@ -124,20 +124,20 @@ class LineageGraph:
     nodes: list[LineageNode]  # Tables with metadata
     edges: list[LineageEdge]  # Operations connecting tables
 
-async def _backward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def _backward_trace(table: str, max_depth: int = 10) -> list[OperationLog]:
     """Internal: trace all upstream operations that produced `table`."""
     # Recursive: find op where result_table=table, then recurse on source_tables
     ...
 
-async def backward_lineage(table: str, max_depth: int = 10,
+async def backward_explain(table: str, max_depth: int = 10,
                             sample_limit: int = 10) -> LineageContext:
     """Trace upstream lineage and return full context (graph, samples, schemas).
 
     This is the public API — always returns context ready for LLM consumption.
-    Internally calls _backward_lineage() for the raw operation log traversal,
+    Internally calls _backward_trace() for the raw operation log traversal,
     then enriches with sample data and schema info.
     """
-    ops = await _backward_lineage(table, max_depth=max_depth)
+    ops = await _backward_trace(table, max_depth=max_depth)
     graph = _build_graph(ops)
     samples = await _sample_nodes(graph, limit=sample_limit)
     schemas = await _get_schemas(graph)
@@ -234,10 +234,10 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
     """Trace and explain how target_table was produced.
 
     Can be called standalone or as a @task in a job.
-    backward_lineage() returns full LineageContext (graph + samples + schemas),
+    backward_explain() returns full LineageContext (graph + samples + schemas),
     so context is always transparently available for the LLM.
     """
-    lineage_ctx = await backward_lineage(target_table)
+    lineage_ctx = await backward_explain(target_table)
     context = lineage_ctx.to_prompt_context()
 
     provider = get_ai_provider()
@@ -263,7 +263,7 @@ async def debug_result(target_table: str, question: str) -> str:
         "Why are there only 3 rows instead of 10?"
         "Which input caused the NaN values?"
     """
-    lineage_ctx = await backward_lineage(target_table, sample_limit=10)
+    lineage_ctx = await backward_explain(target_table, sample_limit=10)
     context = lineage_ctx.to_prompt_context()
 
     provider = get_ai_provider()
