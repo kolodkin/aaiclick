@@ -104,44 +104,10 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 ```python
 # aaiclick/lineage/graph.py
 
-@dataclass
-class LineageContext:
-    """Full lineage context — graph + sampled data + schemas.
-
-    Returned by backward_lineage() so context is always available
-    for LLM consumption without extra calls.
-    """
-    graph: LineageGraph
-    samples: dict[str, list[dict]]  # table_name -> sample rows
-    schemas: dict[str, dict[str, str]]  # table_name -> {col: type}
-
-    def to_prompt_context(self) -> str:
-        """Format everything as text for LLM consumption."""
-        ...
-
-@dataclass
-class LineageGraph:
-    nodes: list[LineageNode]  # Tables with metadata
-    edges: list[LineageEdge]  # Operations connecting tables
-
-async def _backward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
-    """Internal: trace all upstream operations that produced `table`."""
+async def backward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+    """Trace all upstream operations that produced `table`."""
     # Recursive: find op where result_table=table, then recurse on source_tables
     ...
-
-async def backward_lineage(table: str, max_depth: int = 10,
-                            sample_limit: int = 10) -> LineageContext:
-    """Trace upstream lineage and return full context (graph, samples, schemas).
-
-    This is the public API — always returns context ready for LLM consumption.
-    Internally calls _backward_lineage() for the raw operation log traversal,
-    then enriches with sample data and schema info.
-    """
-    ops = await _backward_lineage(table, max_depth=max_depth)
-    graph = _build_graph(ops)
-    samples = await _sample_nodes(graph, limit=sample_limit)
-    schemas = await _get_schemas(graph)
-    return LineageContext(graph=graph, samples=samples, schemas=schemas)
 
 async def forward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
     """Trace all downstream operations that consumed `table`."""
@@ -150,8 +116,17 @@ async def forward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]
 
 async def lineage_subgraph(table: str, direction: str = "backward",
                            max_depth: int = 10) -> LineageGraph:
-    """Return structured graph (nodes + edges) for visualization."""
+    """Return structured graph (nodes + edges) for visualization or AI context."""
     ...
+
+@dataclass
+class LineageGraph:
+    nodes: list[LineageNode]  # Tables with metadata
+    edges: list[LineageEdge]  # Operations connecting tables
+
+    def to_prompt_context(self) -> str:
+        """Format graph as text for LLM consumption."""
+        ...
 ```
 
 ### 1.5 Alembic Migration
@@ -234,11 +209,10 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
     """Trace and explain how target_table was produced.
 
     Can be called standalone or as a @task in a job.
-    backward_lineage() returns full LineageContext (graph + samples + schemas),
-    so context is always transparently available for the LLM.
     """
-    lineage_ctx = await backward_lineage(target_table)
-    context = lineage_ctx.to_prompt_context()
+    graph = await backward_lineage(target_table)
+    samples = await _sample_nodes(graph, limit=5)  # Fetch sample rows per table
+    context = _format_lineage_context(graph, samples)
 
     provider = get_ai_provider()
     prompt = question or "Explain how this result was produced, step by step."
@@ -263,8 +237,10 @@ async def debug_result(target_table: str, question: str) -> str:
         "Why are there only 3 rows instead of 10?"
         "Which input caused the NaN values?"
     """
-    lineage_ctx = await backward_lineage(target_table, sample_limit=10)
-    context = lineage_ctx.to_prompt_context()
+    graph = await backward_lineage(target_table)
+    samples = await _sample_nodes(graph, limit=10)
+    schemas = await _get_schemas(graph)
+    context = _format_debug_context(graph, samples, schemas)
 
     provider = get_ai_provider()
     return await provider.query(
@@ -362,4 +338,39 @@ async def my_pipeline():
 
 ## Implementation Plan
 
-See [AI Layer Implementation Plan](ai_layer_plan.md) for the detailed phased implementation plan.
+### Phase 1: Lineage Core (`aaiclick/lineage/`)
+
+1. Create `aaiclick/lineage/` module with `__init__.py`
+2. Define `OperationLog` model in `models.py`
+3. Create Alembic migration for `operation_log` table
+4. Implement `LineageCollector` in `collector.py`
+5. Add `lineage` ContextVar and opt-in to `data_context()`
+6. Instrument operators, ingest, and data_context creation functions
+7. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
+8. Write tests: verify operations produce correct log entries, verify graph traversal
+
+### Phase 2: AI Package (`aaiclick-ai/`)
+
+1. Create `aaiclick-ai/` package with `pyproject.toml` (dep: `litellm>=1.0`)
+2. Implement `AIProvider` wrapping `litellm.acompletion()`
+3. Implement `config.py` with env-based provider construction
+4. Implement `lineage_agent.py` — graph formatting + LLM query
+5. Implement `debug_agent.py` — "why" queries with data sampling
+6. Implement `tools.py` — table sampling, schema, stats tools
+7. Write tests with mock provider (no real LLM needed for unit tests)
+8. Add example script: interactive lineage exploration with Ollama
+
+### Phase 3: Orchestration Integration
+
+1. Add `lineage_enabled` flag to Job model (default False)
+2. Wire LineageCollector into `execute_task()` when lineage enabled
+3. Auto-flush collector on data_context exit
+4. Create `@task` wrappers for AI agents
+5. Write integration test: job with lineage → AI explanation
+
+### Phase 4: Examples & Documentation
+
+1. Example: interactive session with lineage + local Ollama model
+2. Example: job pipeline with built-in AI debugging task
+3. Update `docs/` with AI layer specification reference
+4. Add `ai` optional dependency group to core `pyproject.toml`
