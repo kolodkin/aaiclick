@@ -4,22 +4,61 @@
 
 ---
 
-## Phase 1: Lineage Core (`aaiclick/lineage/`) ✅ IMPLEMENTED
+## Phase 1: Lineage Core (`aaiclick/lineage/`) ⚠️ NOT YET IMPLEMENTED
 
 **Objective**: Capture data operation provenance in core with zero AI dependencies.
 
-**Implementation**:
-- `aaiclick/lineage/models.py` — `OperationLog` SQLModel
-- `aaiclick/lineage/collector.py` — `LineageCollector` with ContextVar, buffered flush
-- `aaiclick/lineage/graph.py` — `backward_explain()`, `forward_impact()`, `LineageContext`
-- `aaiclick/lineage/__init__.py` — public exports
-- `aaiclick/data/data_context.py` — `lineage=True` parameter, instruments `create_object`/`create_object_from_value`
-- `aaiclick/data/operators.py` — instruments `_apply_operator_db`, `_apply_aggregation`
-- `aaiclick/data/ingest.py` — instruments `concat_objects_db`, `insert_objects_db`, `copy_db`
-- `aaiclick/lineage/test_collector.py` — 14 tests for collector and instrumentation
-- `aaiclick/lineage/test_graph.py` — 6 tests for graph traversal
+### Tasks
 
-**Note**: Alembic migration for `operation_log` table is deferred — the table is created inline via `SQLModel.metadata.create_all()` during tests. Migration will be added when the orchestration DB schema stabilizes.
+1. **Create module structure**
+   - `aaiclick/lineage/__init__.py`
+   - `aaiclick/lineage/models.py` — `OperationLog` SQLModel
+   - `aaiclick/lineage/collector.py` — `LineageCollector` event sink
+   - `aaiclick/lineage/graph.py` — lineage graph queries
+
+2. **Define OperationLog model**
+   - Snowflake ID primary key
+   - Fields: `result_table`, `operation`, `source_tables` (JSON), `sql_template`, `task_id`, `job_id`, `created_at`
+   - Indexes on `result_table` and `created_at`
+
+3. **Create Alembic migration**
+   - Add `operation_log` table to orchestration migration chain
+
+4. **Implement LineageCollector**
+   - Buffer-based: collects events in memory, flushes to DB
+   - ContextVar-based: `_lineage_collector: ContextVar[LineageCollector | None]`
+   - Helper: `get_lineage_collector()` returns current or None
+
+5. **Opt-in via data_context**
+   - Add `lineage: bool = False` parameter to `data_context()`
+   - When True: create `LineageCollector`, store in ContextVar
+   - On context exit: call `collector.flush()`
+   - When False: no collector, no overhead
+
+6. **Instrument data operations** (2-line additions each)
+   - `data_context.create_object()` → record `"create"`
+   - `data_context.create_object_from_value()` → record `"create_from_value"`
+   - `operators._apply_operator_db()` → record operator name (`"add"`, `"sub"`, etc.)
+   - `operators._apply_agg_db()` → record aggregation name (`"sum"`, `"mean"`, etc.)
+   - `ingest.concat_objects_db()` → record `"concat"`
+   - `ingest.insert_objects_db()` → record `"insert"`
+   - `ingest.copy_db()` → record `"copy"`
+
+7. **Implement lineage graph queries**
+   - `backward_explain(table, max_depth)` — recursive upstream trace
+   - `forward_impact(table, max_depth)` — recursive downstream trace
+   - `LineageGraph` dataclass with `to_prompt_context()` formatter
+
+8. **Tests**
+   - `aaiclick/lineage/test_collector.py` — verify operations emit correct log entries
+   - `aaiclick/lineage/test_graph.py` — verify backward/forward traversal
+   - Test: lineage=False produces no log entries (zero overhead)
+   - Test: multi-step pipeline produces correct graph
+
+### Deliverables
+- `aaiclick/lineage/` module with full test coverage
+- Alembic migration for `operation_log` table
+- `data_context(lineage=True)` opt-in working end-to-end
 
 ---
 
