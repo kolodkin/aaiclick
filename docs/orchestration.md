@@ -270,61 +270,46 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 Plain `@task`-decorated functions for parallel data processing. Callbacks are serialized via `_serialize_value()` in `decorators.py` and deserialized via `_deserialize_value()` in `execution.py`.
 
-| Operator                                  | Status                   | Description                                                   |
-|-------------------------------------------|--------------------------|---------------------------------------------------------------|
-| `map(cbk, obj, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `_map_part` child tasks. `args`/`kwargs` forwarded to `cbk`. |
-| `_map_part(cbk, part, out) -> None`               | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
-| `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
+| Operator                                                     | Status                    | Description                                                                 |
+|--------------------------------------------------------------|---------------------------|-----------------------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Group`            | ✅ IMPLEMENTED            | Partitions Object into Views, creates N `_map_part` child tasks.            |
+| `_map_part(cbk, part, out) -> None`                          | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
+| `reduce(cbk, obj, initializer, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED       | Layered parallel reduction. Each layer reduces partitions into one row.     |
+| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`        | ✅ IMPLEMENTED (internal) | Expander: pre-allocates all layer Objects, creates all tasks at once.       |
+| `_reduce_part(cbk, part, layer_obj) -> None`                 | ✅ IMPLEMENTED (internal) | Applies `cbk(partition)` and INSERTs result into pre-allocated `layer_obj`. |
 
-## reduce() ⚠️ NOT YET IMPLEMENTED
+## reduce() ✅ IMPLEMENTED
 
-Layered parallel reduction over an Object. See [docs/reduce.md](reduce.md) for full design.
+**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `reduce()`, `_expand_reduce()`, `_reduce_part()`
 
-Each layer partitions the current input into Views, applies the function to each partition
-concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats until one row remains.
+Layered parallel reduction over an Object. The callback must be **homomorphic**: output schema
+must match input schema. Each layer partitions the current input into Views, applies the callback
+to each partition concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats
+until one row remains.
 
 All layers, subgroups, and tasks are created at once inside `_expand_reduce` — no lazy
-layer-by-layer expansion. `reduce()` returns `_expand_reduce` as a `Task[Object]`; the
-task's result value is the final single-row Object. The Group contains one subgroup per
-layer (`"layer_0"`, `"layer_1"`, …); each depends on the previous one completing.
-No separate terminal task — `_expand_reduce` returns the final Object and all dynamic
-children in one shot.
+layer-by-layer expansion. `_expand_reduce` returns `(layer_last_obj, [layer_groups])` — the
+final single-row Object as task result, plus all layer subgroups as dynamic children.
+Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
 
 ### Layer count
 
-Given `N` input rows and `partition` size `P`, the number of layers is:
+Given `N` input rows and `partition` size `P`:
 
 ```
-layers = ⌈log_P(N)⌉
+Layer 0  input=N    tasks=⌈N/P⌉   → layer_0_obj
+Layer 1  input=⌈N/P⌉ tasks=⌈.../P⌉ → layer_1_obj
+…continues until 1 row remains
 ```
 
-Or equivalently:
+**Example — 1300 rows, partition=500:** 2 layers, 4 `_reduce_part` tasks.
 
-```python
-def num_layers(N: int, P: int) -> int:
-    layers = 0
-    while N > 1:
-        N = ceil(N / P)
-        layers += 1
-    return layers
-```
+**Example — 210 rows, partition=10:** 3 layers, 25 `_reduce_part` tasks.
 
-**Example — 1300 rows, partition=500:**
+### Initializer
 
-```
-Layer 0  input=1300  tasks=⌈1300/500⌉=3   layer_obj → 3 rows
-Layer 1  input=3     tasks=⌈3/500⌉   =1   layer_obj → 1 row  ✓
-```
-Total: **2 layers**, 4 `_reduce_part` tasks.
-
-**Example — 210 rows, partition=10:**
-
-```
-Layer 0  input=210  tasks=⌈210/10⌉=21  layer_obj → 21 rows
-Layer 1  input=21   tasks=⌈21/10⌉ = 3  layer_obj →  3 rows
-Layer 2  input=3    tasks=⌈3/10⌉  = 1  layer_obj →  1 row  ✓
-```
-Total: **3 layers**, 25 `_reduce_part` tasks.
+When `initializer` is not None, it is prepended to the input Object before reduction.
+When `initializer` is None and the Object is empty, raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 ## Spark Methods vs aaiclick Capabilities
 
@@ -339,7 +324,7 @@ Total: **3 layers**, 25 `_reduce_part` tasks.
 | `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT              |
 | `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                        |
 
-Planned (not yet implemented): `reduce()`, `flatMap()`, `join()`.
+Planned (not yet implemented): `flatMap()`, `join()`.
 
 # Task Execution
 

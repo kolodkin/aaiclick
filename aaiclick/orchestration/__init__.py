@@ -27,7 +27,7 @@ from .claiming import cancel_job
 from .context import commit_tasks, get_orch_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
-from .orch_helpers import map
+from .orch_helpers import map, reduce
 from .job_queries import (
     count_jobs,
     get_job,

@@ -277,9 +277,10 @@ async def execute_task(
             else:
                 result = func(**kwargs)
 
-    if lifecycle is not None and isinstance(result, (Object, View)):
-        if not result.persistent:
-            lifecycle.pin(result.table)
+    if lifecycle is not None:
+        pin_target = result[0] if (isinstance(result, tuple) and len(result) == 2) else result
+        if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+            lifecycle.pin(pin_target.table)
 
     return result
 
@@ -332,11 +333,27 @@ def _extract_task_items(result: Any) -> tuple[list, Any]:
     When a Group carries attached tasks (via group.add_task()), those
     tasks are flattened into the returned list for co-registration.
 
+    Supports two return patterns from expander tasks:
+    - Pure tasks:  [task, group, ...]       → (tasks, None)
+    - Mixed tuple: (data, [task, group, ...]) → (tasks, data)
+    - Pure data:   value                    → ([], value)
+
     Returns:
         Tuple of (registerable_items, data_result):
         - registerable_items: list of Task/Group objects to register
-        - data_result: remaining data for serialization (None if all items are tasks)
+        - data_result: remaining data for serialization (None if all tasks)
     """
+    # Mixed pattern: (data, tasks_list) — expander returns result + dynamic children.
+    # Matches even when tasks_list is empty (e.g. single-row input with 0 layers).
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and not _is_registerable(result[0])
+        and isinstance(result[1], (list, tuple))
+    ):
+        task_items = _flatten_item(result[1])
+        return (task_items, result[0])
+
     items = _flatten_item(result)
     if items:
         return (items, None)
@@ -379,7 +396,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     task_items, data_result = _extract_task_items(result)
 
     if not task_items:
-        return result
+        return data_result
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
