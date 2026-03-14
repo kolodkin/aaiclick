@@ -29,11 +29,13 @@ def reduce(
     partition: int = 5000,        # Rows per partition at each layer
     args: tuple = (),             # Extra positional args forwarded to function
     kwargs: Optional[dict] = None,
-) -> Group
+) -> Task[Object]
 ```
 
-Returns a `Group` (consistent with `map()`). The group's final task result is
-the reduced Object.
+Returns `_expand_reduce` as a `Task[Object]`. The task's result value is
+`layer_last_obj` — the final single-row Object produced by the reduction.
+The Group("reduce") and all layer subgroups are created internally and
+registered through `_expand_reduce`'s dynamic children.
 
 ## Function Contract
 
@@ -88,56 +90,60 @@ Layer 2  input=3    tasks=⌈3/10⌉  = 1  layer_2_obj →  1 row  ✓
 
 `reduce()` is called at define-time and creates two things:
 
-1. **Group "reduce"** — top-level group containing everything
-2. **`_expand_reduce` task** — the only task created at define-time
+1. **Group "reduce"** — top-level group (internal, not returned to caller)
+2. **`_expand_reduce` task** — returned to the caller as `Task[Object]`
 
 All remaining structure is created inside `_expand_reduce` at runtime, in one
-shot:
+shot. `_expand_reduce` returns two things to the framework:
+
+- **Task result**: `layer_last_obj` — the final Object (1 row, same schema as input)
+- **Dynamic children**: all layer subgroups and `_reduce_part` tasks
 
 ```
 [define-time]
 Group "reduce"
-└── _expand_reduce
+└── _expand_reduce   ← returned to caller as Task[Object]
 
 [_expand_reduce runtime — all created at once]
 Group "reduce"
-└── _expand_reduce
+└── _expand_reduce → result: layer_last_obj (Object)
     └── dynamic children:
         ├── Group "layer_0"
-        │   ├── _reduce_part(view[0:P]        → layer_0_obj)
-        │   ├── _reduce_part(view[P:2P]        → layer_0_obj)
-        │   └── _reduce_part(view[2P:N]        → layer_0_obj)
-        ├── Group "layer_1"  ← depends on Group "layer_0"
-        │   └── _reduce_part(view[0:M0] of layer_0_obj → layer_1_obj)
-        └── _reduce_return(layer_1_obj)  ← depends on Group "layer_1"
+        │   ├── _reduce_part(view[0:P]   → layer_0_obj)
+        │   ├── _reduce_part(view[P:2P]  → layer_0_obj)
+        │   └── _reduce_part(view[2P:N]  → layer_0_obj)
+        └── Group "layer_1"  ← depends on Group "layer_0"
+            └── _reduce_part(view[0:M0] of layer_0_obj → layer_1_obj)
 ```
+
+`layer_1_obj` above IS `layer_last_obj` — the same Object returned as the
+task result. No separate terminal task is needed.
 
 Each `Group "layer_L+1"` depends on `Group "layer_L"` completing — enforces
 sequential layer execution while all tasks within a layer run in parallel.
-
-`_reduce_return` depends on the final layer's Group and returns `layer_K_obj`
-as the reduce result.
 
 ## Concrete Example: 1300 rows, partition=500
 
 ```
 Group "reduce"
-└── _expand_reduce
+└── _expand_reduce → result: layer_1_obj (Object, 1 row)
     └── dynamic children (all registered at once):
         ├── Group "layer_0"
         │   ├── _reduce_part(view rows    0– 499  → layer_0_obj)
         │   ├── _reduce_part(view rows  500– 999  → layer_0_obj)
         │   └── _reduce_part(view rows 1000–1299  → layer_0_obj)
-        ├── Group "layer_1"  [depends on Group "layer_0"]
-        │   └── _reduce_part(view rows 0–2 of layer_0_obj → layer_1_obj)
-        └── _reduce_return(layer_1_obj)  [depends on Group "layer_1"]
+        └── Group "layer_1"  [depends on Group "layer_0"]
+            └── _reduce_part(view rows 0–2 of layer_0_obj → layer_1_obj)
 ```
+
+`layer_1_obj` (3 rows written by layer_0, reduced to 1 row in layer_1) is the
+final Object returned by `_expand_reduce` as its task result.
 
 ## Concrete Example: 210 rows, partition=10
 
 ```
 Group "reduce"
-└── _expand_reduce
+└── _expand_reduce → result: layer_2_obj (Object, 1 row)
     └── dynamic children (all registered at once):
         ├── Group "layer_0"
         │   ├── _reduce_part(view rows   0–  9  → layer_0_obj)
@@ -148,16 +154,17 @@ Group "reduce"
         │   ├── _reduce_part(view rows  0– 9 of layer_0_obj → layer_1_obj)
         │   ├── _reduce_part(view rows 10–19 of layer_0_obj → layer_1_obj)
         │   └── _reduce_part(view rows 20–20 of layer_0_obj → layer_1_obj)
-        ├── Group "layer_2"  [depends on Group "layer_1"]
-        │   └── _reduce_part(view rows 0–2 of layer_1_obj → layer_2_obj)
-        └── _reduce_return(layer_2_obj)  [depends on Group "layer_2"]
+        └── Group "layer_2"  [depends on Group "layer_1"]
+            └── _reduce_part(view rows 0–2 of layer_1_obj → layer_2_obj)
 ```
 
 # Task Descriptions
 
-## `_expand_reduce(function, obj, partition, cbk_args, cbk_kwargs)`
+## `_expand_reduce(function, obj, partition, cbk_args, cbk_kwargs) -> Object`
 
 Expander task. Decorated with `@task`. Runs once at execution time.
+Returns `layer_last_obj` (the final Object) as its task result value, plus
+all layer subgroups and `_reduce_part` tasks as dynamic children.
 
 1. Query: `SELECT count() FROM obj`
 2. If `count == 0`: raise `TypeError("reduce() of empty sequence with no initial value")`
@@ -170,8 +177,9 @@ Expander task. Decorated with `@task`. Runs once at execution time.
      - `M = ceil(sizes[L] / partition)`
      - Create `Group(f"layer_{L}")` depending on previous layer's Group (if L > 0)
      - Create M `_reduce_part(function, View(src, offset=i*P, limit=P), layer_objs[L], cbk_args, cbk_kwargs)` tasks inside `Group("layer_L")`
-   - Create `_reduce_return(layer_objs[-1])` depending on last layer's Group
-6. Return all groups, tasks, and `_reduce_return` as a flat list of dynamic children
+6. Return `(layer_objs[-1], [*all_groups, *all_tasks])`:
+   - First element: the final Object (task result value, 1 row)
+   - Second element: flat list of all Groups and tasks (dynamic children for registration)
 
 ## `_reduce_part(function, part_view, layer_obj, cbk_args, cbk_kwargs) -> None`
 
@@ -184,13 +192,6 @@ Worker task. Decorated with `@task`. Runs once per partition per layer.
 
 All M tasks within a layer write concurrently to the same `layer_obj`.
 ClickHouse MergeTree tables support concurrent inserts natively.
-
-## `_reduce_return(layer_obj) -> Object`
-
-Terminal task. Decorated with `@task`. Depends on the last layer's Group.
-
-Simply returns `layer_obj` as the reduce result. No computation — exists only to
-carry the result through the task graph as a proper task return value.
 
 # Initializer Handling
 
@@ -217,9 +218,10 @@ Lifecycle managed automatically:
 - **Distributed mode**: `PgLifecycleHandler` pin/claim; `PgCleanupWorker` drops
   tables after all references are released
 
-Because all layer Objects are created by `_expand_reduce` and referenced by tasks
-that are registered as its dynamic children, the lifecycle handler sees all
-references within the same job scope.
+All layer Objects are created by `_expand_reduce` and referenced by tasks
+registered as its dynamic children. `layer_last_obj` is also the task's return
+value, so the lifecycle handler keeps it alive until all downstream consumers
+release their reference.
 
 # Design Constraints & Trade-offs
 
@@ -308,20 +310,22 @@ async def aggregate_partition(partition: Object) -> Object:
 def pipeline(data: Object):
     mapped = map(process_row, data, partition=5000, kwargs={"factor": 2})
     reduced = reduce(aggregate_partition, mapped, partition=5000)
-    return reduced
+    return reduced  # Task[Object] — result is the final single-row Object
 ```
 
-The result of `map()` (a Group) can be passed as `obj` to `reduce()`.
-`_expand_reduce` depends on the map Group completing before it queries the
-row count — standard task dependency via `_collect_upstreams`.
+The result of `map()` (a Group or Task) can be passed as `obj` to `reduce()`.
+`_expand_reduce` depends on `obj` completing before it queries the row count —
+standard task dependency via `_collect_upstreams`.
 
 Both `map()` and `reduce()` follow the same pattern:
 - **Define-time**: create Group + expander task (no DB access)
 - **Runtime**: expander queries count, pre-allocates output Object(s), spawns
-  all partition tasks at once
+  all partition tasks at once, returns final Object as task result
 
 The difference: `reduce()` computes multiple layers in `_expand_reduce` and
 organises them into layer subgroups with inter-layer Group dependencies.
+`reduce()` returns `Task[Object]` directly; `map()` returns a `Group` (its
+output is an Object written by multiple parallel partition tasks).
 
 # Open Questions (for implementation)
 
@@ -329,11 +333,15 @@ organises them into layer subgroups with inter-layer Group dependencies.
    output. Should `_expand_reduce` validate schema on a 1-row sample before
    pre-allocating all layer Objects, or defer to runtime INSERT failures?
 
-2. **layer_obj ownership**: All layer Objects are created by `_expand_reduce` and
-   referenced by tasks registered as its dynamic children. Confirm
-   `PgLifecycleHandler` keeps all layer Objects alive until `_reduce_return`
-   completes and the job-scoped pin is released.
+2. **Expander task result + dynamic children**: The framework must support
+   expander tasks that return both a result value (`layer_last_obj`) and a list
+   of dynamic children. Confirm the task protocol for returning `(result, children)`
+   and that `_expand_reduce`'s result value flows to downstream consumers correctly.
 
-3. **Group dependency registration**: Layer subgroups depend on the previous
+3. **layer_obj ownership**: `layer_last_obj` is returned as `_expand_reduce`'s
+   task result. Confirm `PgLifecycleHandler` keeps it alive until all downstream
+   consumers that depend on `_expand_reduce` complete and release their pin.
+
+4. **Group dependency registration**: Layer subgroups depend on the previous
    layer's Group. Confirm the execution engine resolves Group→Group dependencies
    correctly (Group is COMPLETED only when all its tasks are COMPLETED).

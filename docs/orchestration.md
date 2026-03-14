@@ -284,9 +284,11 @@ Each layer partitions the current input into Views, applies the function to each
 concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats until one row remains.
 
 All layers, subgroups, and tasks are created at once inside `_expand_reduce` — no lazy
-layer-by-layer expansion. The top-level "reduce" Group contains one subgroup per layer
-(`"layer_0"`, `"layer_1"`, …); each layer subgroup depends on the previous one completing.
-A final `_reduce_return` task depends on the last layer subgroup and returns the result.
+layer-by-layer expansion. `reduce()` returns `_expand_reduce` as a `Task[Object]`; the
+task's result value is the final single-row Object. The Group contains one subgroup per
+layer (`"layer_0"`, `"layer_1"`, …); each depends on the previous one completing.
+No separate terminal task — `_expand_reduce` returns the final Object and all dynamic
+children in one shot.
 
 ### Layer count
 
