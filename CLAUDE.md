@@ -361,6 +361,30 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 **Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
 ```
 
+**Markdown heading style** — use setext style for document titles, ATX (`#`) for sections:
+
+```markdown
+# GOOD - setext title + ATX sections (one level deep)
+Document Title
+---
+
+# Section One
+
+## Subsection
+
+# BAD - ATX title with deep nesting
+# Document Title
+
+## Section One
+
+### Subsection
+```
+
+- Document title: setext underline with `---`
+- Top-level sections: `#`
+- Subsections: `##`
+- Avoid `###` and deeper where possible — restructure instead
+
 **Markdown table formatting** - align columns with padding for human readability:
 
 ```markdown

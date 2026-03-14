@@ -22,22 +22,11 @@ async with data_context():
 
 ## Deployment Modes
 
-The data layer runs on two interchangeable ClickHouse backends, selected via the `AAICLICK_CH_URL` environment variable:
-
-| Aspect            | Local (default)                            | Distributed                                        |
-|-------------------|--------------------------------------------|----------------------------------------------------|
-| **Backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                  |
-| **URL scheme**    | `chdb:///path/to/data`                     | `clickhouse://user:pass@host:8123/database`        |
-| **Default URL**   | `chdb://~/.aaiclick/chdb_data`             | —                                                  |
-| **Setup**         | `python -m aaiclick setup` creates the dir | Server must be provisioned separately              |
-| **Concurrency**   | Single process                             | Multi-process / multi-machine                      |
-| **Connection**    | In-process `chdb.Session`                  | `clickhouse-connect` AsyncClient + urllib3 pool    |
-| **Lifecycle**     | `LocalLifecycleHandler` (background thread)| `PgLifecycleHandler` (PostgreSQL refcounts)        |
-| **Detection**     | `is_chdb()` returns `True`                 | `is_chdb()` returns `False`                        |
-
-Both backends satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations — creation, operators, aggregations, Views — work identically regardless of backend. The factory function `create_ch_client()` dispatches based on `is_chdb()`.
+`AAICLICK_CH_URL` selects the ClickHouse backend: `chdb:///path` (embedded, default) or `clickhouse://user:pass@host:8123/db` (remote server). Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
+
+See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
 
 ## Object Lifecycle and Staleness
 
@@ -64,16 +53,9 @@ Each Object gets a dedicated ClickHouse table named `t{snowflake_id}`. All table
 
 Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
 
-### Snowflake ID Structure (64 bits)
+### Snowflake ID Structure
 
-| Bits  | Field      | Range                         |
-|-------|------------|-------------------------------|
-| 63    | Sign       | Always 0                      |
-| 62-22 | Timestamp  | 41 bits, ~69 years            |
-| 21-12 | Machine ID | 10 bits, up to 1024 machines  |
-| 11-0  | Sequence   | 12 bits, up to 4096 IDs/ms    |
-
-**Implementation**: `aaiclick/snowflake_id.py`
+64-bit IDs: sign (1) + timestamp ms (41) + machine ID (10) + sequence (12). See `aaiclick/snowflake_id.py`.
 
 ## Supported Data Types
 

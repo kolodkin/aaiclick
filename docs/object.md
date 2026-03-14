@@ -1,6 +1,7 @@
-# Object Class Documentation
+Object Class Documentation
+---
 
-## Overview
+# Overview
 
 **Implementation**: `aaiclick/data/object.py` — see `Object` and `View` classes
 
@@ -14,7 +15,35 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 For context management, deployment modes, table schemas, data types, lifecycle tracking, and URL loading, see [DataContext documentation](data_context.md).
 
-## Operator Support
+# API Quick Reference
+
+| API                                                         | Category          | Description                                  | Section                                                                         |
+|-------------------------------------------------------------|-------------------|----------------------------------------------|---------------------------------------------------------------------------------|
+| `+`, `-`, `*`, `/`, `//`, `%`, `**`                        | Arithmetic        | Element-wise arithmetic                      | [Arithmetic Operators](#arithmetic-operators)                                   |
+| `==`, `!=`, `<`, `<=`, `>`, `>=`                           | Comparison        | Element-wise comparison                      | [Comparison Operators](#comparison-operators)                                   |
+| `&`, `\|`, `^`                                              | Bitwise           | Bitwise AND / OR / XOR                       | [Bitwise Operators](#bitwise-operators)                                         |
+| `.min()`, `.max()`, `.sum()`, `.mean()`                     | Aggregation       | Reduce array to scalar                       | [Aggregation Operators](#aggregation-operators)                                 |
+| `.std()`, `.var()`, `.count()`, `.quantile(q)`              | Aggregation       | Statistical reduction                        | [Aggregation Operators](#aggregation-operators)                                 |
+| `.unique()`                                                 | Set               | Deduplicate values via GROUP BY              | [Set Operators](#set-operators)                                                 |
+| `.match(p)`, `.like(p)`, `.ilike(p)`                       | String / Regex    | Pattern matching (returns UInt8 mask)        | [String/Regex Operators](#stringregex-operators)                                |
+| `.extract(p)`, `.replace(p, r)`                             | String / Regex    | Capture group extraction, regex replace      | [String/Regex Operators](#stringregex-operators)                                |
+| `.year()`, `.month()`, `.day_of_week()`                     | Unary Transforms  | Date/time extraction → new Object            | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.lower()`, `.upper()`, `.length()`, `.trim()`              | Unary Transforms  | String transforms → new Object               | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.abs()`, `.log2()`, `.sqrt()`                              | Unary Transforms  | Math functions → new Object                  | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.group_by(keys).sum(col)` etc.                             | Group By          | Aggregation with GROUP BY + optional HAVING  | [Group By Operations](#group-by-operations)                                     |
+| `.group_by(keys).agg({col: op})`                            | Group By          | Multiple aggregations in one pass            | [Group By Operations](#group-by-operations)                                     |
+| `.explode(*cols)`                                           | Array Join        | Flatten Array columns into rows → View       | [Explode (Array Join)](#explode-array-join)                                     |
+| `.view(where, limit, offset, order_by)`                     | Views             | Read-only View with optional filters         | [Views](#views)                                                                 |
+| `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
+| `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns-implemented)|
+| `.with_year(col)`, `.with_month(col)`, `.with_lower(col)` … | Domain Helpers   | Named shortcuts for common computed columns  | [Domain Helpers](#domain-helpers-implemented)                                   |
+| `.rename({old: new})`                                       | Column Renaming   | Alias column names in a View                 | [Column Renaming](#column-renaming-rename-implemented)                          |
+| `.insert(*sources)`                                         | Data Ingestion    | Insert data from Objects / scalars / lists   | [insert()](#the-insert-method)                                                  |
+| `.insert_from_url(url)`                                     | Data Ingestion    | Insert rows from a remote URL                | [insert_from_url()](#insert_from_url-implemented)                               |
+| `.concat(*sources)` / `concat(a, b, …)`                     | Data Ingestion    | Concatenate sources into a new Object        | [concat()](#the-concat-method)                                                  |
+| `.data(orient=…)`                                           | Data Retrieval    | Fetch results to Python (scalar / list / dict)| [data()](#the-data-method)                                                     |
+
+# Operator Support
 
 **Implementation**: `aaiclick/data/object.py` (dunder methods) delegates to `aaiclick/data/operators.py` (async functions).
 
@@ -22,7 +51,7 @@ All operators work element-wise on both scalar and array data. Each operator cre
 
 See [operators.md](operators.md) for complete function reference. For runnable examples, see `examples/basic_operators.py`.
 
-### Scalar Broadcast
+## Scalar Broadcast
 
 **Implementation**: `aaiclick/data/object.py` — see `_ensure_object()`
 
@@ -34,7 +63,7 @@ Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()
 
 For runnable examples, see `examples/basic_operators.py`.
 
-### Arithmetic Operators
+## Arithmetic Operators
 
 | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
 |-----------------|----------------|-----------------------|-----------------|-------------------|
@@ -46,7 +75,7 @@ For runnable examples, see `examples/basic_operators.py`.
 | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
 | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
-### Comparison Operators
+## Comparison Operators
 
 | Python Operator | Description           | ClickHouse Equivalent | Python Method |
 |-----------------|-----------------------|-----------------------|---------------|
@@ -59,7 +88,7 @@ For runnable examples, see `examples/basic_operators.py`.
 
 Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
 
-### Bitwise Operators
+## Bitwise Operators
 
 | Python Operator | Description | ClickHouse Equivalent | Forward Method | Reverse Method |
 |-----------------|-------------|-----------------------|----------------|----------------|
@@ -67,7 +96,7 @@ Comparison operators don't need explicit reverse methods — Python swaps `<`/`>
 | `\|`            | Bitwise OR  | `bitOr()`             | `__or__`       | `__ror__`      |
 | `^`             | Bitwise XOR | `bitXor()`            | `__xor__`      | `__rxor__`     |
 
-### Aggregation Operators
+## Aggregation Operators
 
 Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1) memory.
 
@@ -82,13 +111,13 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 | `.count()`     | `count()`           |                      |
 | `.quantile(q)` | `quantile(q)()`     | Approximate          |
 
-### Set Operators
+## Set Operators
 
 | Method      | ClickHouse Implementation | Notes                          |
 |-------------|---------------------------|--------------------------------|
 | `.unique()` | `GROUP BY`                | Order not guaranteed           |
 
-### String/Regex Operators
+## String/Regex Operators
 
 **Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `_apply_string_op_db()`
 
@@ -104,7 +133,7 @@ Pattern matching on String columns. All methods take a Python `str` pattern and 
 
 **Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
 
-### Unary Transform Operators
+## Unary Transform Operators
 
 **Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
 
@@ -131,7 +160,7 @@ Results are full Objects — chainable with any operator (e.g., `await (await ob
 
 **Tests**: `aaiclick/data/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 
-### Group By Operations
+## Group By Operations
 
 **Implementation**: `aaiclick/data/object.py` — see `GroupByQuery` class, `aaiclick/data/operators.py` — see `group_by_agg()`
 
@@ -156,24 +185,24 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 
 **Known gap**: No `Array(T)` column support — `groupArray()`, `groupUniqArray()`, per-group concat not available.
 
-### Memory/Disk Settings
+## Memory/Disk Settings
 
 For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_sort`, `max_bytes_in_join`, `join_algorithm`.
 
-## Explode (Array Join)
+# Explode (Array Join)
 
 ⚠️ NOT YET IMPLEMENTED
 
 Explode Array column(s) into individual rows for aggregation. Returns a **View** (lazy subquery, no materialization).
 
-### Problem
+## Problem
 
 Dict Objects can have `Array(T)` columns (e.g., `tags: Array(String)`, `scores: Array(Int64)`).
 Aggregation operators (`unique`, `max`, `sum`, `group_by`, etc.) work on **rows**, not on elements
 inside array columns. To aggregate over array elements, we need an **explode** step that flattens
 array columns into individual rows first.
 
-### ClickHouse Primitives
+## ClickHouse Primitives
 
 | Mechanism              | Syntax                                    | Notes                                                        |
 |------------------------|-------------------------------------------|--------------------------------------------------------------|
@@ -195,7 +224,7 @@ Shorter arrays pad with type defaults. This is NOT a Cartesian product.
 
 **Reference**: https://clickhouse.com/docs/sql-reference/statements/select/array-join
 
-### Approach: Hybrid View
+## Approach: Hybrid View
 
 `explode()` returns a **View** (lazy subquery), not a materialized table.
 Downstream operators fuse into a single SQL query. Materialization available via `View.copy()`.
@@ -207,7 +236,7 @@ Downstream operators fuse into a single SQL query. Materialization available via
 - No changes needed to aggregation operators — they work on the exploded view transparently
 - Materialization available via `View.copy()` when needed
 
-### Method Signature
+## Method Signature
 
 ```python
 class Object:
@@ -234,7 +263,7 @@ class Object:
         """
 ```
 
-### Usage Patterns
+## Usage Patterns
 
 ```python
 obj = await create_object_from_value([
@@ -275,7 +304,7 @@ await flat3.data()
 materialized = await flat.copy()  # Creates real table with new Snowflake IDs
 ```
 
-### Generated SQL
+## Generated SQL
 
 **Single column explode:**
 
@@ -307,7 +336,7 @@ SELECT tags, count() AS _count FROM (
 ) GROUP BY tags
 ```
 
-### Schema Change After Explode
+## Schema Change After Explode
 
 The exploded column changes type in the View's schema:
 
@@ -320,7 +349,7 @@ The exploded column changes type in the View's schema:
 The `ColumnInfo.array` flag becomes `False` for exploded columns.
 Non-exploded columns keep their original type.
 
-### View Class Extension
+## View Class Extension
 
 The `View` class needs new attributes to track exploded columns:
 
@@ -339,20 +368,20 @@ The View's cached schema reflects the post-explode column types.
 applies uniformly to all exploded columns. Therefore `left_explode` is a single flag on
 the View, not a per-column setting.
 
-### Snowflake ID Handling
+## Snowflake ID Handling
 
 - Exploded rows share the parent row's `aai_id`
 - This is correct for View (read-only, no lifecycle)
 - If materialized via `copy()`, new Snowflake IDs are generated
 - ClickHouse preserves array element order within each exploded group
 
-### Validation
+## Validation
 
 - `explode()` only valid on dict Objects (`fieldtype == 'd'`)
 - Each specified column must exist and have `ColumnInfo.array == True`
 - At least one column must be specified
 
-### Empty Arrays
+## Empty Arrays
 
 | Mode                   | Row with `tags=[]`    |
 |------------------------|-----------------------|
@@ -361,17 +390,17 @@ the View, not a per-column setting.
 
 The `left=True` parameter controls this behavior.
 
-## Loading Data from URLs
+# Loading Data from URLs
 
 For `create_object_from_url()` (creates a new Object from a URL), see [DataContext documentation](data_context.md) — "Loading Data from URLs".
 
-### insert_from_url() ✅ IMPLEMENTED
+## insert_from_url() ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.insert_from_url()`
 
 Insert data from a URL into an existing Object. Schema created once, multiple workers can insert.
 
-## The insert() Method
+# The insert() Method
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.insert()`, `aaiclick/data/ingest.py` — see `insert_objects_db()`
 
@@ -382,7 +411,7 @@ Inserts data from one or more sources into an existing Object. Target must be ar
 - **View support**: sources can be Views with `where()`, `with_columns()`, field selection, etc.
 - **Type casting**: source column types are `CAST` to target column types
 
-## The concat() Method
+# The concat() Method
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.concat()`, `aaiclick/data/ingest.py` — see `concat_objects_db()`
 
@@ -392,13 +421,13 @@ Concatenates multiple sources into a new Object. Self must be array; args can be
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types
 
-## Shared Insert Mechanics
+# Shared Insert Mechanics
 
 **Implementation**: `aaiclick/data/ingest.py` — see `_insert_source()`
 
 Both `insert()` and `concat()` delegate to `_insert_source()` which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. This shared helper takes a `dict[str, ColumnInfo]` mapping data column names to their target types. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()` — the computed SQL expressions are embedded in the View's subquery.
 
-## The data() Method
+# The data() Method
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.data()`
 
@@ -411,7 +440,7 @@ Returns values based on data type: scalar → value, array → list, dict → di
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
-## Views
+# Views
 
 **Implementation**: `aaiclick/data/object.py` — see `View` class
 
@@ -421,7 +450,7 @@ Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports
 
 For runnable examples, see `examples/view_examples.py`.
 
-### Chained WHERE Clauses
+## Chained WHERE Clauses
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.where()`, `View.where()`, `View.or_where()`
 
@@ -433,15 +462,15 @@ Fluent API for building WHERE conditions. `Object.where()` creates a View; `View
 
 **Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
 
-## Computed Column Expansion: `with_columns()` ✅ IMPLEMENTED
+# Computed Column Expansion: `with_columns()` ✅ IMPLEMENTED
 
-### Motivation
+## Motivation
 
 `group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), the workaround is manual: create an intermediate Object, populate it with `INSERT...SELECT`, then group. `with_columns()` automates this pattern.
 
 See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
 
-### Design: SELECT Expression Approach (No Materialization)
+## Design: SELECT Expression Approach (No Materialization)
 
 `with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy, no schema mutation — the computed column exists only in the View's query.
 
@@ -460,7 +489,7 @@ See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_
 
 SELECT expressions are the simplest and most composable — they align with how Views already work. The computed column is just another entry in the View's SELECT list.
 
-### API
+## API
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.with_columns()` and `View.with_columns()` methods
 
@@ -476,7 +505,7 @@ SELECT expressions are the simplest and most composable — they align with how 
 
 **Examples**: See `aaiclick/data/test_with_columns.py` for usage patterns including basic computed columns, chaining, group_by integration, and error cases.
 
-### Result Schema Rules
+## Result Schema Rules
 
 The result is always a **View** with dict-like schema (`fieldtype='d'`):
 
@@ -489,27 +518,27 @@ The result is always a **View** with dict-like schema (`fieldtype='d'`):
 | View (multi field)    | View selects selected fields + computed columns                   |
 | View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
 
-### Column Name Collision
+## Column Name Collision
 
 Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
 
-### Implementation Details
+## Implementation Details
 
 **ViewSchema extension**: `ViewSchema` gains a `computed_columns: Optional[Dict[str, Computed]]` field — see `aaiclick/data/models.py`.
 
 **View._build_select()**: When `computed_columns` is set, expands `*` to explicit columns plus `expr AS name` for each computed column — see `aaiclick/data/object.py`.
 
-### Chaining
+## Chaining
 
 `with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
 
-### Security: SQL Expression Validation
+## Security: SQL Expression Validation
 
 SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons (prevents statement injection) and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time.
 
 **Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
 
-### Domain Helpers ✅ IMPLEMENTED
+## Domain Helpers ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/data/object.py` — methods on `Object` class, delegating to `with_columns()`
 
@@ -537,7 +566,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Tests**: `aaiclick/data/test_with_columns.py`
 
-## Column Renaming: `rename()` ✅ IMPLEMENTED
+# Column Renaming: `rename()` ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
 
@@ -565,7 +594,7 @@ await consolidated.insert(kev_view)
 
 **Tests**: `aaiclick/data/test_rename.py`
 
-## Test Files
+# Test Files
 
 | Operator Group                  | Test File                        |
 |---------------------------------|----------------------------------|
