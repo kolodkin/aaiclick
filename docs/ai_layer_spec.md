@@ -143,7 +143,7 @@ async def backward_explain(table: str, max_depth: int = 10,
     schemas = await _get_schemas(graph)
     return LineageContext(graph=graph, samples=samples, schemas=schemas)
 
-async def forward_impact(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def forward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
     """Trace all downstream operations that consumed `table`."""
     # Find ops where table appears in source_tables, recurse on result_table
     ...
