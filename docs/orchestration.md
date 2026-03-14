@@ -170,13 +170,8 @@ Both contexts are async context managers using `ContextVar` for async-safe globa
 
 Workers use **both** contexts internally: `data_context()` for data, `orch_context()` for state.
 
-## Why Dual-Database?
+SQL handles orchestration because it provides ACID consistency, row-level locking (`FOR UPDATE SKIP LOCKED`), and foreign keys. ClickHouse handles data because of columnar storage and fast aggregations. SQLite/chdb give the same guarantees locally without running servers.
 
-**SQL database for orchestration**: ACID consistency, row-level locking (PostgreSQL: `FOR UPDATE SKIP LOCKED`), JSON for task params, Alembic migrations, foreign keys.
-
-**ClickHouse for data**: Columnar storage, fast aggregations, scalability for large datasets.
-
-In local mode, SQLite provides the same ACID guarantees for single-process use, while chdb gives full ClickHouse SQL compatibility without a running server.
 
 # Data Models
 
@@ -283,19 +278,18 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 
 ## Spark Methods vs aaiclick Capabilities
 
-| Spark Method           | aaiclick Equivalent               | Notes                                       |
-|------------------------|-----------------------------------|---------------------------------------------|
-| `map(func)`            | Object operators (`+`, `*`, etc.) | Element-wise SQL operations                 |
-| `mapPartitions(func)`  | **`map(cbk, obj)`** ✅           | Custom Python logic per partition           |
-| `reduce(func)`         | ⚠️ NOT YET IMPLEMENTED           | Collect and aggregate partition results     |
-| `filter(pred)`         | `View(where=...)`                 | SQL WHERE clause                            |
-| `groupByKey`           | `obj.group_by(...)`               | SQL GROUP BY                                |
-| `count()`              | `obj.count()`                     | SQL COUNT aggregation                       |
-| `sum/mean/min/max/std` | `obj.sum()` etc.                  | SQL aggregation functions                   |
-| `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT                      |
-| `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                                |
-| `flatMap(func)`        | ⚠️ NOT YET IMPLEMENTED           | Variant of map() for variable-output tasks  |
-| `join`                 | ⚠️ NOT YET IMPLEMENTED           | SQL JOIN                                    |
+| Spark Method           | aaiclick Equivalent               | Notes                               |
+|------------------------|-----------------------------------|-------------------------------------|
+| `map(func)`            | Object operators (`+`, `*`, etc.) | Element-wise SQL operations         |
+| `mapPartitions(func)`  | **`map(cbk, obj)`** ✅           | Custom Python logic per partition   |
+| `filter(pred)`         | `View(where=...)`                 | SQL WHERE clause                    |
+| `groupByKey`           | `obj.group_by(...)`               | SQL GROUP BY                        |
+| `count()`              | `obj.count()`                     | SQL COUNT aggregation               |
+| `sum/mean/min/max/std` | `obj.sum()` etc.                  | SQL aggregation functions           |
+| `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT              |
+| `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                        |
+
+Planned (not yet implemented): `reduce()`, `flatMap()`, `join()`.
 
 # Task Execution
 
@@ -419,15 +413,11 @@ Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHand
 
 # Configuration
 
-See CLAUDE.md for environment variables. Orchestration-specific:
+See CLAUDE.md for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`).
 
-- **`AAICLICK_SQL_URL`**: SQL database connection (default: `sqlite+aiosqlite:///~/.aaiclick/local.db`)
-  - SQLite: `sqlite+aiosqlite:///path/to/file.db`
-  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/database`
-- **`AAICLICK_CH_URL`**: ClickHouse data connection (default: `chdb://~/.aaiclick/chdb_data`)
-  - chdb: `chdb:///path/to/data`
-  - Remote: `clickhouse://user:pass@host:8123/database`
-- **Log directory**: `AAICLICK_LOG_DIR` env var, or OS defaults (macOS: `~/.aaiclick/logs`, Linux: `/var/log/aaiclick`). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
+Orchestration-specific:
+
+- **Log directory**: `AAICLICK_LOG_DIR`, or OS defaults (`~/.aaiclick/logs` macOS, `/var/log/aaiclick` Linux). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
 - **Setup (local)**: `python -m aaiclick setup` — creates chdb data dir and SQLite database with tables
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
 - Legacy env vars (`POSTGRES_HOST`, etc.) are read by Alembic as fallback when `AAICLICK_SQL_URL` is not set
