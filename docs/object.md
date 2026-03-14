@@ -14,6 +14,34 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 For context management, deployment modes, table schemas, data types, lifecycle tracking, and URL loading, see [DataContext documentation](data_context.md).
 
+## API Quick Reference
+
+| API                                                         | Category          | Description                                  | Section                                                                         |
+|-------------------------------------------------------------|-------------------|----------------------------------------------|---------------------------------------------------------------------------------|
+| `+`, `-`, `*`, `/`, `//`, `%`, `**`                        | Arithmetic        | Element-wise arithmetic                      | [Arithmetic Operators](#arithmetic-operators)                                   |
+| `==`, `!=`, `<`, `<=`, `>`, `>=`                           | Comparison        | Element-wise comparison                      | [Comparison Operators](#comparison-operators)                                   |
+| `&`, `\|`, `^`                                              | Bitwise           | Bitwise AND / OR / XOR                       | [Bitwise Operators](#bitwise-operators)                                         |
+| `.min()`, `.max()`, `.sum()`, `.mean()`                     | Aggregation       | Reduce array to scalar                       | [Aggregation Operators](#aggregation-operators)                                 |
+| `.std()`, `.var()`, `.count()`, `.quantile(q)`              | Aggregation       | Statistical reduction                        | [Aggregation Operators](#aggregation-operators)                                 |
+| `.unique()`                                                 | Set               | Deduplicate values via GROUP BY              | [Set Operators](#set-operators)                                                 |
+| `.match(p)`, `.like(p)`, `.ilike(p)`                       | String / Regex    | Pattern matching (returns UInt8 mask)        | [String/Regex Operators](#stringregex-operators)                                |
+| `.extract(p)`, `.replace(p, r)`                             | String / Regex    | Capture group extraction, regex replace      | [String/Regex Operators](#stringregex-operators)                                |
+| `.year()`, `.month()`, `.day_of_week()`                     | Unary Transforms  | Date/time extraction → new Object            | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.lower()`, `.upper()`, `.length()`, `.trim()`              | Unary Transforms  | String transforms → new Object               | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.abs()`, `.log2()`, `.sqrt()`                              | Unary Transforms  | Math functions → new Object                  | [Unary Transform Operators](#unary-transform-operators)                         |
+| `.group_by(keys).sum(col)` etc.                             | Group By          | Aggregation with GROUP BY + optional HAVING  | [Group By Operations](#group-by-operations)                                     |
+| `.group_by(keys).agg({col: op})`                            | Group By          | Multiple aggregations in one pass            | [Group By Operations](#group-by-operations)                                     |
+| `.explode(*cols)`                                           | Array Join        | Flatten Array columns into rows → View       | [Explode (Array Join)](#explode-array-join)                                     |
+| `.view(where, limit, offset, order_by)`                     | Views             | Read-only View with optional filters         | [Views](#views)                                                                 |
+| `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
+| `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns-implemented)|
+| `.with_year(col)`, `.with_month(col)`, `.with_lower(col)` … | Domain Helpers   | Named shortcuts for common computed columns  | [Domain Helpers](#domain-helpers-implemented)                                   |
+| `.rename({old: new})`                                       | Column Renaming   | Alias column names in a View                 | [Column Renaming](#column-renaming-rename-implemented)                          |
+| `.insert(*sources)`                                         | Data Ingestion    | Insert data from Objects / scalars / lists   | [insert()](#the-insert-method)                                                  |
+| `.insert_from_url(url)`                                     | Data Ingestion    | Insert rows from a remote URL                | [insert_from_url()](#insert_from_url-implemented)                               |
+| `.concat(*sources)` / `concat(a, b, …)`                     | Data Ingestion    | Concatenate sources into a new Object        | [concat()](#the-concat-method)                                                  |
+| `.data(orient=…)`                                           | Data Retrieval    | Fetch results to Python (scalar / list / dict)| [data()](#the-data-method)                                                     |
+
 ## Operator Support
 
 **Implementation**: `aaiclick/data/object.py` (dunder methods) delegates to `aaiclick/data/operators.py` (async functions).
