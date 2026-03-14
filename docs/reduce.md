@@ -4,35 +4,37 @@ reduce Orchestration Helper — Design
 # Overview
 
 `reduce(function, obj, initializer=None, *, partition, args, kwargs)` implements a
-**parallel tree reduction** over an Object. Unlike Python's sequential
-`functools.reduce`, this variant achieves O(n log_P n) depth by applying the
-function to P-row partitions in parallel and feeding the partial results back
-through the same function until a single result remains.
+**layered parallel reduction** over an Object. Each layer partitions the current
+input into Views, applies the function to each partition concurrently (all
+INSERTing results into a single pre-allocated layer Object), then repeats until
+only one row remains.
 
-The function must therefore be **homomorphic**: its output schema must be
-compatible with its input schema, because outputs of one layer become inputs
-of the next.
+The design follows the same **pre-allocate + concurrent INSERT** pattern as
+`map()`: `_expand_reduce` creates a `layer_obj` before spawning partition tasks,
+and each `_reduce_part` task writes its result directly into `layer_obj` without
+a separate collect/concat step.
 
-## Motivation
+The function must be **homomorphic**: its output schema must match its input
+schema, because each layer's `layer_obj` becomes the next layer's input.
 
-Tree reduction is the standard distributed pattern for associative operations
-(sum, product, min, max, concat, merge, custom aggregation). Parallelism is
-proportional to the number of partitions at each layer; depth is O(log_P n)
-layers.
+## Motivating Example
 
 ```
-Input (N=8 rows, P=2):
+Input: Object (1300 rows), partition=500
 
-Layer 0:   [a b] [c d] [e f] [g h]   ← 4 partition tasks (parallel)
-               ↓     ↓     ↓     ↓
-Layer 1:  [p1 p2] [p3 p4]            ← 2 partition tasks (parallel)
-               ↓       ↓
-Layer 2:  [q1   q2]                  ← 1 partition task
-               ↓
-           result                    ← final Object
+Layer 0 — _expand_reduce creates layer0_obj (empty), spawns 3 tasks:
+  _reduce_part(view rows 0–499,    dest=layer0_obj)  ─┐
+  _reduce_part(view rows 500–999,  dest=layer0_obj)  ├─ parallel INSERT
+  _reduce_part(view rows 1000–1299,dest=layer0_obj)  ─┘
+  _after_reduce(layer0_obj, depends_on=all 3 above)
+
+_after_reduce: count(layer0_obj) = 3 → continue
+  → creates layer1_obj, spawns 1 task:
+    _reduce_part(view rows 0–2 of layer0_obj, dest=layer1_obj)
+    _after_reduce(layer1_obj, depends_on=above)
+
+_after_reduce: count(layer1_obj) = 1 → return layer1_obj (final result)
 ```
-
-Each layer creates new intermediate Objects and drops them when no longer needed.
 
 # API
 
@@ -58,10 +60,11 @@ async def my_reduce_fn(partition: Object, *args, **kwargs) -> Object:
     ...
 ```
 
-- Receives an Object (a partition View or intermediate layer Object)
-- Must return an Object whose schema is compatible with its own input schema
-  (output rows become inputs at the next layer)
-- Should perform the actual aggregation in ClickHouse (not fetch rows to Python)
+- Receives an Object (a partition View of the current layer's input)
+- Must return an Object whose schema matches its input schema
+- Should perform the aggregation in ClickHouse (not fetch rows to Python)
+- The framework INSERTs the returned Object's rows into the pre-allocated
+  `layer_obj`; the returned Object is then dropped
 
 ### Example: distributed sum
 
@@ -85,36 +88,33 @@ result_group = reduce(sum_partition, my_object, initializer=0, partition=5000)
 
 ```
 Layer 0:
-  Input:  Object with N rows
-  Split:  M = ceil(N / partition) Views (LIMIT + OFFSET + ORDER BY aai_id)
-  Apply:  function(view_i) → partial_i  for i in 0..M-1   (parallel)
-  Concat: concat(partial_0, ..., partial_M-1) → layer_1_obj (M rows)
+  Input:    Object with N rows
+  Pre-alloc: layer_obj (empty, schema = input schema)
+  Split:    M = ceil(N / partition) Views (LIMIT + OFFSET ORDER BY aai_id)
+  Spawn:    M _reduce_part tasks in parallel, each INSERTs 1 result row into layer_obj
+  After:    _after_reduce waits for all M tasks → layer_obj has M rows
 
 Layer 1:
-  Input:  layer_1_obj (M rows)
-  Split:  K = ceil(M / partition) Views
-  Apply:  function(view_j) → partial_j  for j in 0..K-1   (parallel)
-  Concat: concat results → layer_2_obj (K rows)
+  Input:    layer_obj (M rows)
+  Pre-alloc: next_layer_obj (empty, same schema)
+  Split:    K = ceil(M / partition) Views of layer_obj
+  Spawn:    K _reduce_part tasks in parallel, each INSERTs into next_layer_obj
+  After:    _after_reduce waits for all K tasks → next_layer_obj has K rows
 
-...repeat until count == 1...
-
-Layer k:
-  Input:  layer_k_obj (1 row)
-  → return layer_k_obj as final result  (no further reduction needed)
+...repeat until layer_obj has exactly 1 row...
 ```
 
-Termination: when the concat result has exactly 1 row, that row is the result.
-Special case: M == 1 on any layer means only one partition exists; apply
-function once and the result is final.
+Termination: `_after_reduce` returns `layer_obj` as the final result when
+`count(layer_obj) == 1`. Special case: if `M == 1` on the first layer, a single
+partition task runs and `_after_reduce` immediately returns the result.
 
 ## Initializer Handling
 
 When `initializer` is not None:
 
-1. Create an Object from the initializer value (using `create_object_from_value`)
-2. Schema-check: the initializer Object must be compatible with `obj`
-3. Concat initializer Object with `obj` → new input Object
-4. Proceed with normal tree reduction
+1. Create an Object from the initializer value (`create_object_from_value`)
+2. Concat initializer Object with `obj` → new input Object
+3. Proceed with normal layered reduction
 
 When `initializer` is None and `obj` is empty (0 rows):
 - Raise `TypeError("reduce() of empty sequence with no initial value")`
@@ -124,23 +124,24 @@ When `initializer` is None and `obj` is empty (0 rows):
 
 ```
 Group (name="reduce")
-└── _expand_reduce            ← expander task; runs at execution time
-    ├── Queries row count of input Object
-    ├── Handles empty input (raise or return initializer)
-    ├── If M == 1: creates single _reduce_part + _finalize_reduce
-    └── If M > 1:
-        ├── Creates M _reduce_part tasks (parallel)
-        └── _collect_reduce (depends on all M _reduce_part tasks)
-            ├── Concats M partial result Objects → layer_obj
-            ├── If count(layer_obj) > 1:
-            │   └── Creates next-layer _expand_reduce (dynamic child)
-            └── If count(layer_obj) == 1:
-                └── Returns layer_obj as final result
+└── _expand_reduce(input_obj, ...)
+    ├── Queries count(input_obj)
+    ├── Handles empty input (raise or prepend initializer)
+    ├── Pre-allocates layer_obj (schema = input_obj.schema)
+    ├── Creates M _reduce_part tasks (parallel, all writing to layer_obj)
+    └── Creates _after_reduce(layer_obj, parts_done=[task_0..task_M-1], ...)
+        ├── Depends on all M _reduce_part tasks (via parts_done list)
+        ├── If count(layer_obj) == 1: return layer_obj (final)
+        └── Else:
+            ├── Pre-allocates next_layer_obj
+            ├── Creates K _reduce_part tasks (next layer)
+            └── Creates next _after_reduce(next_layer_obj, ...)
+                └── (dynamic children returned for registration)
 ```
 
-The dynamic task creation pattern follows `_expand_map`: tasks returned from
-`_expand_reduce` and `_collect_reduce` are registered as children by the
-orchestration engine.
+The `parts_done` parameter passes all `_reduce_part` Task objects as a list.
+`_collect_upstreams` recurses into lists, so the framework automatically creates
+dependencies on all M tasks without any special mechanism.
 
 ## Task Descriptions
 
@@ -149,93 +150,91 @@ orchestration engine.
 Expander task. Decorated with `@task`. Runs at execution time.
 
 1. Query: `SELECT count() FROM obj.table`
-2. If `count == 0`: raise (initializer handled upstream before this task)
+2. If `count == 0`: raise `TypeError` (initializer handling done upstream)
 3. Compute `M = ceil(count / partition)`
-4. Create M `_reduce_part` tasks, each with a View:
+4. `layer_obj = await create_object(obj.schema)`  ← pre-allocate empty dest
+5. Create M `_reduce_part` tasks, each receiving a View and `layer_obj`:
    `View(limit=partition, offset=i*partition, order_by="aai_id")`
-5. Create `_collect_reduce` task that depends on all M `_reduce_part` tasks
-6. Return `[*reduce_part_tasks, collect_task]` for dynamic registration
+6. Create `_after_reduce` task with `layer_obj` + `parts_done=[*reduce_part_tasks]`
+7. Return `[*reduce_part_tasks, after_task]` for dynamic registration
 
-### `_reduce_part(function, part, cbk_args, cbk_kwargs) -> Object`
+### `_reduce_part(function, part_view, layer_obj, cbk_args, cbk_kwargs) -> None`
 
-Worker task. Decorated with `@task`. Runs once per partition.
+Worker task. Decorated with `@task`. Runs once per partition per layer.
 
-1. Call `function(part, *cbk_args, **cbk_kwargs)` (awaiting if async)
-2. Return the resulting Object
+1. `temp = await function(part_view, *cbk_args, **cbk_kwargs)` (await if async)
+2. `INSERT INTO layer_obj SELECT * FROM temp`
+3. Drop `temp`
+4. Return `None` (result is in `layer_obj`, not returned)
 
-The returned Object is serialized via `_serialize_ref()` and stored as the
-task result. `_collect_reduce` reads these results via task output resolution.
+All M partition tasks write concurrently to the same `layer_obj`. ClickHouse
+MergeTree engines support concurrent inserts.
 
-### `_collect_reduce(part_results, group_id, function, partition, layer, cbk_args, cbk_kwargs) -> Object`
+### `_after_reduce(layer_obj, parts_done, function, partition, group_id, layer, cbk_args, cbk_kwargs)`
 
-Collector task. Decorated with `@task`. Runs after all `_reduce_part` tasks
-in the current layer complete.
+Collector task. Decorated with `@task`. Depends on all `_reduce_part` tasks
+via the `parts_done` list parameter.
 
-1. Receive list of partial result Objects (resolved from `_reduce_part` results)
-2. If `len(part_results) == 1`: return `part_results[0]` (already final)
-3. Concat all partial Objects → `layer_obj`
-4. Query `count(layer_obj)`
-5. If `count == 1`: return `layer_obj` (done)
-6. Else: create next-layer `_expand_reduce(function, layer_obj, ...)`
-   with `layer=layer+1` and return new expander task for dynamic registration
+1. `parts_done` resolved at runtime to `[None, None, ...]` (just used for deps)
+2. Query `count(layer_obj)`
+3. If `count == 1`: return `layer_obj` (final result)
+4. Else:
+   a. `next_layer_obj = await create_object(layer_obj.schema)`
+   b. Create K `_reduce_part` tasks for next layer (partitioning `layer_obj`)
+   c. Create next `_after_reduce(next_layer_obj, parts_done=[...], layer=layer+1)`
+   d. Return `[*reduce_part_tasks, after_task]` as dynamic children
 
-The `layer` counter is for debugging/logging only (no functional effect).
+The `layer` counter is for debugging/logging only.
 
 # Intermediate Object Lifecycle
 
 Each layer creates:
-- M temporary partial Objects (returned by `_reduce_part`, consumed by `_collect_reduce`)
-- 1 layer concat Object (created by `_collect_reduce`, passed to next `_expand_reduce`)
+- 1 `layer_obj` (pre-allocated by `_expand_reduce` or `_after_reduce`, written
+  to by M concurrent `_reduce_part` tasks, then read by the next `_after_reduce`)
+- M temporary `temp` Objects (created inside each `_reduce_part` call, dropped
+  immediately after INSERT)
+
+Compare to previous concat-based design:
+- **New**: 1 layer Object + M short-lived temp Objects per layer
+- **Old**: M partial Objects + 1 concat Object per layer (more total Objects)
 
 Lifecycle is managed automatically:
 - **Local mode**: `LocalLifecycleHandler` drops tables when refcount reaches 0
-- **Distributed mode**: `PgLifecycleHandler` pin/claim pattern transfers ownership
-  between tasks; `PgCleanupWorker` drops tables after all references are released
-
-No special cleanup code needed in reduce itself — the existing machinery handles it.
+- **Distributed mode**: `PgLifecycleHandler` pin/claim pattern; `PgCleanupWorker`
+  drops tables after all references are released
 
 # Design Constraints & Trade-offs
 
 ## Function must be homomorphic
 
-The same function is applied at every layer. This means:
-- Output schema must be compatible with input schema (same column names/types)
-- Output typically has fewer rows than input (aggregation)
-- The most natural pattern: function reduces any number of rows to a single row
-
-This is not a hard requirement — function could return multiple rows — but
-reduction terminates only when a single row remains, so multi-row outputs
-extend the number of layers.
+The same function is applied at every layer. Output schema must match input
+schema because `layer_obj` is created with the input schema and becomes the
+next layer's input. The most natural pattern: function reduces any number of
+rows to exactly 1 row.
 
 ## Partition argument controls fan-out
 
-`partition=P` means each task processes at most P rows. Larger P:
-- Fewer tasks per layer → less orchestration overhead
-- More work per task → less parallelism
+`partition=P` means each task processes at most P rows:
+- Larger P → fewer tasks, less parallelism, less overhead
+- Smaller P → more tasks, more parallelism, more overhead
 
-Smaller P:
-- More tasks per layer → more parallelism
-- More orchestration overhead
+Default `partition=5000` matches `map()`.
 
-For most aggregations, `partition=5000` (same default as `map`) is a
-reasonable starting point.
+## Concurrent writes to layer_obj
+
+All M `_reduce_part` tasks INSERT into the same `layer_obj` table concurrently.
+ClickHouse MergeTree tables support concurrent inserts natively. Row ordering
+within `layer_obj` follows Snowflake ID insertion order (non-deterministic
+across parallel tasks), which is acceptable since the function must be
+commutative anyway.
 
 ## No cross-partition state
 
-Unlike a sequential reduce, the function cannot depend on ordering or
-accumulate state across partitions. The function must be associative and
-(if initializer is provided) the initializer must be the identity element
-for the operation.
+The function cannot depend on ordering or accumulate state across partitions.
+Must be associative and commutative for deterministic results.
 
-Correct: sum, product, min, max, bitwise AND/OR, string concat (with separator)
+Correct: sum, product, min, max, bitwise AND/OR
 Incorrect: running median, sequential state machines, order-dependent operations
-
-## Argument order does not affect result
-
-Partial results are concatenated via `concat()`, which preserves Snowflake ID
-order (creation time). Since partition tasks run in parallel and creation order
-is not guaranteed, the reduce function must be commutative as well as
-associative for results to be deterministic.
 
 # Usage Examples
 
@@ -264,13 +263,12 @@ def compute_max_abs(data: Object):
     return reduce(max_abs_part, data, partition=5000)
 ```
 
-## Word count merge (dict Object)
+## Word count merge
 
 ```python
 @task
 async def merge_counts(partition: Object) -> Object:
     # partition has columns: word (String), count (Int64)
-    # group by word, sum counts
     return await (await partition.group_by("word")).sum("count")
 
 @job("word_count")
@@ -280,12 +278,12 @@ def aggregate_word_counts(partial_counts: Object):
 
 # Relation to map()
 
-`reduce()` is designed to complement `map()`. A typical pipeline:
+`reduce()` complements `map()`. A typical pipeline:
 
 ```python
 @task
 async def process_row(row, factor):
-    ...  # row-level work
+    ...
 
 @task
 async def aggregate_partition(partition: Object) -> Object:
@@ -298,26 +296,35 @@ def pipeline(data: Object):
     return reduced
 ```
 
-The result of `map()` (a Group) can be passed as `obj` to `reduce()`. The
-`_expand_reduce` expander task will wait for the map Group to complete before
-querying the row count, using the standard task dependency mechanism.
+The result of `map()` (a Group) can be passed as `obj` to `reduce()`.
+`_expand_reduce` waits for the map Group to complete via the standard task
+dependency mechanism before querying the row count.
+
+Both `map()` and `reduce()` follow the same pattern:
+- Define-time: create Group + expander task (no DB access)
+- Runtime: expander pre-allocates output Object, spawns partition tasks
+- Partition tasks write concurrently into the pre-allocated Object
+
+The difference: `reduce()` adds `_after_reduce` to check termination and
+optionally spawn the next layer.
 
 # Open Questions (for implementation)
 
-1. **`_collect_reduce` dependency resolution**: The task framework resolves
-   upstream task results for known parameter names. `_collect_reduce` needs
-   all `_reduce_part` results as a list. This may require a wrapper that
-   collects N results into a list — or a new mechanism in the execution engine
-   for "collect N results from a group".
+1. **Schema for layer_obj**: `create_object(input_obj.schema)` assumes the
+   function's output schema matches the input schema (homomorphic). Should
+   `_expand_reduce` validate this on a 1-row sample before creating all tasks,
+   or defer to runtime INSERT failures?
 
-2. **Termination condition**: Should termination be `count == 1` or
-   `count <= 1`? Strictly 1 is cleaner; `<= 1` handles edge case where
-   function returns 0 rows (which would be a bug in the user's function, but
-   worth considering for robustness).
+2. **Termination condition**: `count == 1` or `count <= 1`? Strictly 1 is
+   cleaner; `<= 1` handles the edge case where a buggy function returns 0 rows.
+   A layer cap (max layers) would guard against infinite loops.
 
-3. **Layer cap**: Should there be a maximum layer count to prevent accidental
-   infinite loops (e.g., function always returns multiple rows)?
+3. **parts_done resolution**: At `_after_reduce` runtime, `parts_done` resolves
+   to `[None, None, ...]` (since `_reduce_part` returns None). Verify the
+   execution engine handles lists of None upstream results correctly.
 
-4. **Schema validation**: Should `_expand_reduce` validate that function's
-   output schema is compatible with input schema before creating all tasks?
-   This would require a speculative function call on a 1-row sample.
+4. **layer_obj ownership across tasks**: `layer_obj` is created by
+   `_expand_reduce` and referenced by both `_reduce_part` tasks and
+   `_after_reduce`. In distributed mode, the pin/claim lifecycle handler must
+   keep `layer_obj` alive until `_after_reduce` completes. Confirm `PgLifecycleHandler`
+   handles this multi-task reference correctly.
