@@ -104,6 +104,33 @@ Pattern matching on String columns. All methods take a Python `str` pattern and 
 
 **Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
 
+### Unary Transform Operators
+
+**Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
+
+Apply a ClickHouse function element-wise to the value column, returning a new Object. These are the Object-level equivalents of [Domain Helpers](#domain-helpers--implemented) (`with_year`, `with_lower`, etc.) which operate on Views.
+
+| Method          | ClickHouse Function | Result Type | Category  |
+|-----------------|---------------------|-------------|-----------|
+| `.year()`       | `toYear()`          | UInt16      | Date/time |
+| `.month()`      | `toMonth()`         | UInt8       | Date/time |
+| `.day_of_week()`| `toDayOfWeek()`     | UInt8       | Date/time |
+| `.lower()`      | `lower()`           | String      | String    |
+| `.upper()`      | `upper()`           | String      | String    |
+| `.length()`     | `length()`          | UInt64      | String    |
+| `.trim()`       | `trimBoth()`        | String      | String    |
+| `.abs()`        | `abs()`             | Float64     | Math      |
+| `.log2()`       | `log2()`            | Float64     | Math      |
+| `.sqrt()`       | `sqrt()`            | Float64     | Math      |
+
+Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
+
+**When to use which**:
+- **Object methods** (`obj.year()`) — single-column Objects, returns a new Object
+- **View helpers** (`view.with_year('col')`) — multi-column dicts, adds a computed column to the View
+
+**Tests**: `aaiclick/data/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
+
 ### Group By Operations
 
 **Implementation**: `aaiclick/data/object.py` — see `GroupByQuery` class, `aaiclick/data/operators.py` — see `group_by_agg()`

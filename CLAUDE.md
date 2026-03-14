@@ -302,6 +302,11 @@ The Object class follows a consistent pattern where **all operators return new O
 - `mean()` - average value
 - `std()` - standard deviation (population)
 
+**Unary Transform Operators** (element-wise, returns new Object):
+- Date/time: `year()`, `month()`, `day_of_week()`
+- String: `lower()`, `upper()`, `length()`, `trim()`
+- Math: `abs()`, `log2()`, `sqrt()`
+
 ## Usage Pattern
 
 ```python
