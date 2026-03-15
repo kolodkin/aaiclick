@@ -2,7 +2,7 @@
 
 import tempfile
 
-from aaiclick.data.data_context import create_object_from_value, get_ch_client
+from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.decorators import job, task
@@ -15,13 +15,9 @@ from aaiclick.orchestration.orch_helpers import reduce
 
 @task
 async def sum_reduce(partition: Object) -> Object:
-    """Sum all values in the partition via ClickHouse."""
-    ch = get_ch_client()
-    col = next(iter(partition.schema.columns))
-    select_sql = partition._build_select()
-    result = await ch.query(f"SELECT sum({col}) FROM ({select_sql})")
-    total = result.first_row[0]
-    return await create_object_from_value(int(total))
+    """Sum all values in the partition using only the native aaiclick API."""
+    values = await partition.data()
+    return await create_object_from_value(int(sum(values)))
 
 
 # --- Job pipelines (module-level for entrypoint resolution) ---
@@ -123,6 +119,17 @@ async def test_reduce_single_row(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
         j = await reduce_single_row()
+        await ajob_test(j)
+
+        assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
+
+
+async def test_reduce_native_api(orch_ctx, monkeypatch):
+    """reduce() with native API callback (partition.data() + sum()) completes successfully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+
+        j = await reduce_single_layer(values=[10, 20, 30, 40])
         await ajob_test(j)
 
         assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
