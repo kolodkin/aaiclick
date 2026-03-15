@@ -14,10 +14,10 @@ from aaiclick.orchestration.orch_helpers import reduce
 
 
 @task
-async def sum_reduce(partition: Object) -> Object:
-    """Sum all values in the partition using only the native aaiclick API."""
+async def sum_reduce(partition: Object, output: Object) -> None:
+    """Sum all values in the partition and insert result into output."""
     values = await partition.data()
-    return await create_object_from_value(int(sum(values)))
+    await output.insert(int(sum(values)))
 
 
 # --- Job pipelines (module-level for entrypoint resolution) ---

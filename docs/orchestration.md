@@ -276,16 +276,16 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 | `_map_part(cbk, part, out) -> None`                          | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
 | `reduce(cbk, obj, initializer, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED       | Layered parallel reduction. Each layer reduces partitions into one row.     |
 | `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`        | ✅ IMPLEMENTED (internal) | Expander: pre-allocates all layer Objects, creates all tasks at once.       |
-| `_reduce_part(cbk, part, layer_obj) -> None`                 | ✅ IMPLEMENTED (internal) | Applies `cbk(partition)` and INSERTs result into pre-allocated `layer_obj`. |
+| `_reduce_part(cbk, part, layer_obj) -> None`                 | ✅ IMPLEMENTED (internal) | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
 
 ## reduce() ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `reduce()`, `_expand_reduce()`, `_reduce_part()`
 
-Layered parallel reduction over an Object. The callback must be **homomorphic**: output schema
-must match input schema. Each layer partitions the current input into Views, applies the callback
-to each partition concurrently (all INSERTing into a pre-allocated `layer_obj`), then repeats
-until one row remains.
+Layered parallel reduction over an Object. The callback receives both the input partition and
+the pre-allocated output Object, and writes results directly into `output` using the native
+`output.insert()` API. Each layer partitions the current input into Views, applies the callback
+to each partition concurrently, then repeats until one row remains.
 
 All layers, subgroups, and tasks are created at once inside `_expand_reduce` — no lazy
 layer-by-layer expansion. `_expand_reduce` returns `(layer_last_obj, [layer_groups])` — the

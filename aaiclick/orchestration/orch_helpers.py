@@ -310,11 +310,11 @@ async def _reduce_part(
     cbk_args: list = None,
     cbk_kwargs: dict = None,
 ) -> None:
-    """Apply callback to a partition View and INSERT result into layer_obj.
+    """Apply callback to a partition View, writing results into layer_obj.
 
     Args:
         cbk: Homomorphic reduction function. Signature:
-             async def f(partition: Object, *args, **kwargs) -> Object
+             async def f(partition: Object, output: Object, *args, **kwargs) -> None
         part: View (partition) of the source Object.
         layer_obj: Pre-allocated destination Object for this layer.
         cbk_args: Extra positional arguments forwarded to cbk.
@@ -327,9 +327,6 @@ async def _reduce_part(
 
     is_async = asyncio.iscoroutinefunction(cbk)
     if is_async:
-        temp = await cbk(part, *cbk_args, **cbk_kwargs)
+        await cbk(part, layer_obj, *cbk_args, **cbk_kwargs)
     else:
-        temp = cbk(part, *cbk_args, **cbk_kwargs)
-
-    ch = get_ch_client()
-    await ch.command(f"INSERT INTO {layer_obj.table} SELECT * FROM {temp.table}")
+        cbk(part, layer_obj, *cbk_args, **cbk_kwargs)
