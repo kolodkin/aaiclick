@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.data.data_context import (
-    _get_data_state,
     data_context,
     get_ch_client,
+    get_data_lifecycle,
     register_object,
 )
 from aaiclick.data.ingest import _get_table_schema
@@ -176,7 +176,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
     # Check for Object/View reference
     if "object_type" in value:
-        state = _get_data_state()
         obj_type = value["object_type"]
 
         if obj_type == "object":
@@ -190,8 +189,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             else:
                 obj._register()
             register_object(obj)
-            if not is_persistent and "job_id" in value and state.lifecycle is not None:
-                await state.lifecycle.claim(table, value["job_id"])
+            if not is_persistent and "job_id" in value:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    await lifecycle.claim(table, value["job_id"])
             return obj
 
         elif obj_type == "view":

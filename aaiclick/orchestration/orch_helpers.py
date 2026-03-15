@@ -32,10 +32,10 @@ from math import ceil
 from typing import Any, Callable, Dict, Tuple, Union
 
 from aaiclick.data.data_context import (
-    _get_data_state,
     create_object,
     create_object_from_value,
     get_ch_client,
+    get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
@@ -227,7 +227,6 @@ async def _expand_reduce(
     Returns:
         Tuple of (final_obj, [layer_groups]) for mixed task+data extraction.
     """
-    state = _get_data_state()
     ch = get_ch_client()
 
     if initializer is not None:
@@ -235,8 +234,9 @@ async def _expand_reduce(
         combined = await create_object(obj.schema)
         await ch.command(f"INSERT INTO {combined.table} SELECT * FROM {init_obj.table}")
         await ch.command(f"INSERT INTO {combined.table} SELECT * FROM {obj.table}")
-        if state.lifecycle is not None and not combined.persistent:
-            state.lifecycle.pin(combined.table)
+        lifecycle = get_data_lifecycle()
+        if lifecycle is not None and not combined.persistent:
+            lifecycle.pin(combined.table)
         obj = combined
 
     result = await ch.query(f"SELECT count() FROM {obj.table}")

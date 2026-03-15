@@ -89,6 +89,11 @@ def get_engine(ctx: str = "default") -> EngineType:
     return _get_data_state(ctx).engine
 
 
+def get_data_lifecycle(ctx: str = "default") -> Optional[LifecycleHandler]:
+    """Get the lifecycle handler from the active context."""
+    return _get_data_state(ctx).lifecycle
+
+
 def incref(table_name: str, ctx: str = "default") -> None:
     """Increment reference count for table."""
     state = _get_data_state(ctx)
