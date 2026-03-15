@@ -13,7 +13,7 @@ Note: This requires a running PostgreSQL server for job/task state storage.
 
 import asyncio
 
-from aaiclick.orchestration import JobStatus, ajob_test, job, task
+from aaiclick.orchestration import JobStatus, TaskResult, ajob_test, job, task
 
 
 # Define sample task functions using @task decorator
@@ -40,14 +40,14 @@ async def multiply(x: int, y: int) -> int:
 def simple_job():
     """A simple job with one task."""
     result = simple_arithmetic()
-    return [result]
+    return TaskResult(tasks=[result])
 
 
 @job("parametrized_job")
 def parametrized_job(x: int, y: int):
     """A job with a parametrized task."""
     result = multiply(x=x, y=y)
-    return [result]
+    return TaskResult(tasks=[result])
 
 
 @job("chained_job")
@@ -60,7 +60,7 @@ def chained_job(x: int, y: int):
     # multiply doesn't depend on simple_arithmetic
     product = multiply(x=x, y=y)
 
-    return [sum_result, product]
+    return TaskResult(tasks=[sum_result, product])
 
 
 async def amain():

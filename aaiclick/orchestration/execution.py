@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -13,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.data.data_context import (
-    _get_data_state,
     data_context,
     get_ch_client,
+    get_data_lifecycle,
     register_object,
 )
 from aaiclick.data.ingest import _get_table_schema
@@ -29,6 +30,20 @@ from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
 from .db_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
+
+
+@dataclass
+class TaskResult:
+    """Explicit return type for tasks that yield both data and dynamic child tasks.
+
+    Both fields default to None:
+    - TaskResult(tasks=[t1, t2])        — tasks only, no data
+    - TaskResult(data=value)            — data only, no tasks
+    - TaskResult(data=value, tasks=[t]) — both
+    """
+
+    data: Any = None
+    tasks: list = field(default_factory=list)
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -161,7 +176,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
     # Check for Object/View reference
     if "object_type" in value:
-        state = _get_data_state()
         obj_type = value["object_type"]
 
         if obj_type == "object":
@@ -175,8 +189,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             else:
                 obj._register()
             register_object(obj)
-            if not is_persistent and "job_id" in value and state.lifecycle is not None:
-                await state.lifecycle.claim(table, value["job_id"])
+            if not is_persistent and "job_id" in value:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    await lifecycle.claim(table, value["job_id"])
             return obj
 
         elif obj_type == "view":
@@ -277,9 +293,10 @@ async def execute_task(
             else:
                 result = func(**kwargs)
 
-    if lifecycle is not None and isinstance(result, (Object, View)):
-        if not result.persistent:
-            lifecycle.pin(result.table)
+    if lifecycle is not None:
+        pin_target = result[0] if (isinstance(result, tuple) and len(result) == 2) else result
+        if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+            lifecycle.pin(pin_target.table)
 
     return result
 
@@ -321,29 +338,6 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     return {"native_value": _sanitize_for_json(result)}
 
 
-def _is_registerable(value: Any) -> bool:
-    """Check if a value is a Task or Group that can be registered."""
-    return isinstance(value, (Task, Group))
-
-
-def _extract_task_items(result: Any) -> tuple[list, Any]:
-    """Extract Task/Group items from a task's return value.
-
-    When a Group carries attached tasks (via group.add_task()), those
-    tasks are flattened into the returned list for co-registration.
-
-    Returns:
-        Tuple of (registerable_items, data_result):
-        - registerable_items: list of Task/Group objects to register
-        - data_result: remaining data for serialization (None if all items are tasks)
-    """
-    items = _flatten_item(result)
-    if items:
-        return (items, None)
-
-    return ([], result)
-
-
 def _flatten_item(item: Any) -> list:
     """Recursively extract Task/Group items, including Group._tasks."""
     if isinstance(item, Task):
@@ -362,10 +356,12 @@ def _flatten_item(item: Any) -> list:
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
-    """Check if a task's result contains Task/Group objects and register them.
+    """Register dynamic child tasks returned from a task function.
 
-    When a task returns Task or Group objects, those are dynamically registered
-    to the current job with a dependency on the parent task.
+    Checks result against None | TaskResult | Any:
+    - None        → no tasks, return None
+    - TaskResult  → register .tasks, return .data
+    - Any         → pure data, return as-is
 
     Args:
         result: The raw return value from the task function
@@ -373,13 +369,19 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
         job_id: ID of the job these tasks belong to
 
     Returns:
-        The non-task portion of the result for serialization, or None if
-        the entire result was tasks.
+        The data portion of the result for serialization, or None.
     """
-    task_items, data_result = _extract_task_items(result)
+    if result is None:
+        return None
+
+    if not isinstance(result, TaskResult):
+        return result
+
+    task_items = _flatten_item(result.tasks)
+    data_result = result.data
 
     if not task_items:
-        return result
+        return data_result
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:

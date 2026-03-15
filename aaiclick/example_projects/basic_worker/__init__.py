@@ -8,7 +8,7 @@ executed by a worker started separately (see basic_worker.sh).
 import asyncio
 import time
 
-from aaiclick.orchestration import job, task
+from aaiclick.orchestration import TaskResult, job, task
 
 
 @task
@@ -24,7 +24,7 @@ async def periodic_print():
 def periodic_print_job():
     """Job that runs periodic printing."""
     result = periodic_print()
-    return [result]
+    return TaskResult(tasks=[result])
 
 
 async def main():
