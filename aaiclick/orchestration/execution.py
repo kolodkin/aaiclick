@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -29,6 +30,20 @@ from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
 from .db_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
+
+
+@dataclass
+class TaskResult:
+    """Explicit return type for tasks that yield both data and dynamic child tasks.
+
+    Both fields default to None:
+    - TaskResult(tasks=[t1, t2])        — tasks only, no data
+    - TaskResult(data=value)            — data only, no tasks
+    - TaskResult(data=value, tasks=[t]) — both
+    """
+
+    data: Any = None
+    tasks: list = field(default_factory=list)
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -322,45 +337,6 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     return {"native_value": _sanitize_for_json(result)}
 
 
-def _is_registerable(value: Any) -> bool:
-    """Check if a value is a Task or Group that can be registered."""
-    return isinstance(value, (Task, Group))
-
-
-def _extract_task_items(result: Any) -> tuple[list, Any]:
-    """Extract Task/Group items from a task's return value.
-
-    When a Group carries attached tasks (via group.add_task()), those
-    tasks are flattened into the returned list for co-registration.
-
-    Supports two return patterns from expander tasks:
-    - Pure tasks:  [task, group, ...]       → (tasks, None)
-    - Mixed tuple: (data, [task, group, ...]) → (tasks, data)
-    - Pure data:   value                    → ([], value)
-
-    Returns:
-        Tuple of (registerable_items, data_result):
-        - registerable_items: list of Task/Group objects to register
-        - data_result: remaining data for serialization (None if all tasks)
-    """
-    # Mixed pattern: (data, tasks_list) — expander returns result + dynamic children.
-    # Matches even when tasks_list is empty (e.g. single-row input with 0 layers).
-    if (
-        isinstance(result, tuple)
-        and len(result) == 2
-        and not _is_registerable(result[0])
-        and isinstance(result[1], (list, tuple))
-    ):
-        task_items = _flatten_item(result[1])
-        return (task_items, result[0])
-
-    items = _flatten_item(result)
-    if items:
-        return (items, None)
-
-    return ([], result)
-
-
 def _flatten_item(item: Any) -> list:
     """Recursively extract Task/Group items, including Group._tasks."""
     if isinstance(item, Task):
@@ -379,10 +355,12 @@ def _flatten_item(item: Any) -> list:
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
-    """Check if a task's result contains Task/Group objects and register them.
+    """Register dynamic child tasks returned from a task function.
 
-    When a task returns Task or Group objects, those are dynamically registered
-    to the current job with a dependency on the parent task.
+    Checks result against None | TaskResult | Any:
+    - None        → no tasks, return None
+    - TaskResult  → register .tasks, return .data
+    - Any         → pure data, return as-is
 
     Args:
         result: The raw return value from the task function
@@ -390,10 +368,16 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
         job_id: ID of the job these tasks belong to
 
     Returns:
-        The non-task portion of the result for serialization, or None if
-        the entire result was tasks.
+        The data portion of the result for serialization, or None.
     """
-    task_items, data_result = _extract_task_items(result)
+    if result is None:
+        return None
+
+    if not isinstance(result, TaskResult):
+        return result
+
+    task_items = _flatten_item(result.tasks)
+    data_result = result.data
 
     if not task_items:
         return data_result
