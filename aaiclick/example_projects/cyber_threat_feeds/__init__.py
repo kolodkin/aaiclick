@@ -26,7 +26,7 @@ Usage:
 
 import asyncio
 
-from aaiclick.orchestration import job
+from aaiclick.orchestration import TaskResult, job
 
 from .consolidated import analyze_consolidated, build_consolidated_table
 from .kev import analyze_kev, load_kev_data
@@ -94,7 +94,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         end_date=END_DATE,
     )
 
-    return [
+    return TaskResult(tasks=[
         kev,
         kev_report,
         shodan_kev,
@@ -104,7 +104,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         consolidated,
         consolidated_stats,
         threat_report,
-    ]
+    ])
 
 
 async def main():

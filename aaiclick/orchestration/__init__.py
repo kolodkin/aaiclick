@@ -5,8 +5,8 @@ This module provides the public API for defining and executing distributed
 workflows using @task and @job decorators.
 
 @job marks a function as the entry point task of a job. @task marks functions
-for execution. Any task returning Task/Group objects triggers dynamic
-registration to the current job.
+for execution. Tasks returning TaskResult(tasks=[...]) trigger dynamic
+registration of child tasks to the current job.
 
 Usage:
     from aaiclick.orchestration import task, job
@@ -18,7 +18,7 @@ Usage:
     @job("my_pipeline")
     def my_pipeline(value: int):
         result = my_task(x=value)
-        return [result]
+        return TaskResult(tasks=[result])
 
     created_job = await my_pipeline(value=42)
 """
