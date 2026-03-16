@@ -33,9 +33,7 @@ from typing import Any, Callable, Dict, Tuple, Union
 
 from aaiclick.data.data_context import (
     create_object,
-    create_object_from_value,
     get_ch_client,
-    get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
@@ -160,7 +158,6 @@ async def _map_part(cbk: Callable, part: View, out: Object,
 def reduce(
     cbk: Union[Callable, TaskFactory],
     obj: Union[Task, Object],
-    initializer=None,
     *,
     partition: int = 5000,
     args: Tuple = (),
@@ -181,8 +178,6 @@ def reduce(
              output schema must match input schema. Returns 1 row.
              Signature: async def f(partition: Object, *args, **kwargs) -> Object
         obj: Task or Object to reduce. If Task, expander waits for it.
-        initializer: Optional value prepended to input before reduction.
-                     Raises TypeError if obj is empty and no initializer.
         partition: Max rows per partition task (default 5000).
         args: Extra positional arguments forwarded to cbk.
         kwargs: Extra keyword arguments forwarded to cbk.
@@ -202,7 +197,6 @@ def reduce(
         partition=partition,
         cbk_args=list(args),
         cbk_kwargs=kwargs,
-        initializer=initializer,
     )
 
     expander.group_id = group.id
@@ -217,7 +211,6 @@ async def _expand_reduce(
     partition: int,
     cbk_args: list,
     cbk_kwargs: dict,
-    initializer,
 ) -> tuple:
     """Expander task: queries count, pre-allocates all layers, creates all tasks.
 
@@ -228,16 +221,6 @@ async def _expand_reduce(
         Tuple of (final_obj, [layer_groups]) for mixed task+data extraction.
     """
     ch = get_ch_client()
-
-    if initializer is not None:
-        init_obj = await create_object_from_value(initializer)
-        combined = await create_object(obj.schema)
-        await ch.command(f"INSERT INTO {combined.table} SELECT * FROM {init_obj.table}")
-        await ch.command(f"INSERT INTO {combined.table} SELECT * FROM {obj.table}")
-        lifecycle = get_data_lifecycle()
-        if lifecycle is not None and not combined.persistent:
-            lifecycle.pin(combined.table)
-        obj = combined
 
     result = await ch.query(f"SELECT count() FROM {obj.table}")
     count = result.first_row[0]

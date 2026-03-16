@@ -274,7 +274,7 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 |--------------------------------------------------------------|---------------------------|-----------------------------------------------------------------------------|
 | `map(cbk, obj, partition, args, kwargs) -> Group`            | ✅ IMPLEMENTED            | Partitions Object into Views, creates N `_map_part` child tasks.            |
 | `_map_part(cbk, part, out) -> None`                          | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
-| `reduce(cbk, obj, initializer, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED       | Layered parallel reduction. Each layer reduces partitions into one row.     |
+| `reduce(cbk, obj, partition, args, kwargs) -> Group`             | ✅ IMPLEMENTED       | Layered parallel reduction. Each layer reduces partitions into one row.     |
 | `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`        | ✅ IMPLEMENTED (internal) | Expander: pre-allocates all layer Objects, creates all tasks at once.       |
 | `_reduce_part(cbk, part, layer_obj) -> None`                 | ✅ IMPLEMENTED (internal) | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
 
@@ -306,10 +306,7 @@ Layer 1  input=⌈N/P⌉ tasks=⌈.../P⌉ → layer_1_obj
 
 **Example — 210 rows, partition=10:** 3 layers, 25 `_reduce_part` tasks.
 
-### Initializer
-
-When `initializer` is not None, it is prepended to the input Object before reduction.
-When `initializer` is None and the Object is empty, raises `TypeError("reduce() of empty sequence with no initial value")`.
+When the input Object is empty, raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 ## Spark Methods vs aaiclick Capabilities
 

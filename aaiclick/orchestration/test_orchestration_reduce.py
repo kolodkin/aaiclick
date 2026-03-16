@@ -42,13 +42,6 @@ def reduce_multi_layer(values: list, partition_size: int):
     return [data, reduced]
 
 
-@job("test_reduce_with_init")
-def reduce_with_initializer(values: list):
-    data = create_test_object(values=values)
-    reduced = reduce(sum_reduce, data, initializer=0, partition=100)
-    return [data, reduced]
-
-
 @job("test_reduce_empty")
 def reduce_empty():
     data = create_test_object(values=[])
@@ -85,17 +78,6 @@ async def test_reduce_multi_layer(orch_ctx, monkeypatch):
         # partition=2: layer 0 has ceil(5/2)=3 tasks, layer 1 has ceil(3/2)=2,
         # layer 2 has ceil(2/2)=1 → 3 layers total
         j = await reduce_multi_layer(values=[1, 2, 3, 4, 5], partition_size=2)
-        await ajob_test(j)
-
-        assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
-
-
-async def test_reduce_with_initializer(orch_ctx, monkeypatch):
-    """reduce() with initializer=0 prepends a zero before reduction."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-        j = await reduce_with_initializer(values=[10, 20, 30])
         await ajob_test(j)
 
         assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
