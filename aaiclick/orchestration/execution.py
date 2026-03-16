@@ -294,7 +294,7 @@ async def execute_task(
                 result = func(**kwargs)
 
     if lifecycle is not None:
-        pin_target = result[0] if (isinstance(result, tuple) and len(result) == 2) else result
+        pin_target = result.data if isinstance(result, TaskResult) else result
         if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
             lifecycle.pin(pin_target.table)
 
@@ -358,10 +358,12 @@ def _flatten_item(item: Any) -> list:
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
-    Checks result against None | TaskResult | Any:
-    - None        → no tasks, return None
-    - TaskResult  → register .tasks, return .data
-    - Any         → pure data, return as-is
+    Handles three return shapes:
+    - None                          → no tasks, return None
+    - TaskResult(data, tasks)       → register .tasks, return .data
+    - list/tuple of Task/Group      → register all, return None
+    - (Object, list[Group])         → register groups from [1], return [0]
+    - Any other value               → pure data, return as-is
 
     Args:
         result: The raw return value from the task function
@@ -374,11 +376,17 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
-    if not isinstance(result, TaskResult):
+    if isinstance(result, TaskResult):
+        task_items = _flatten_item(result.tasks)
+        data_result = result.data
+    elif isinstance(result, list):
+        # Job entry tasks return [Task, Group, ...] directly
+        task_items = _flatten_item(result)
+        if not task_items:
+            return result  # Plain list data, no Task/Group objects
+        data_result = None
+    else:
         return result
-
-    task_items = _flatten_item(result.tasks)
-    data_result = result.data
 
     if not task_items:
         return data_result

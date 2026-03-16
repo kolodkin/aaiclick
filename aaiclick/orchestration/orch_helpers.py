@@ -39,6 +39,7 @@ from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import TaskFactory, task
+from .execution import TaskResult
 from .models import Group, Task
 
 
@@ -125,7 +126,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
         child.group_id = group_id
         tasks.append(child)
 
-    return tasks
+    return TaskResult(tasks=tasks)
 
 
 @task
@@ -238,13 +239,13 @@ async def _expand_reduce(
         # Input already has 1 row — copy to a fresh Object
         result_obj = await create_object(obj.schema)
         await ch.command(f"INSERT INTO {result_obj.table} SELECT * FROM {obj.table}")
-        return (result_obj, [])
+        return TaskResult(data=result_obj)
 
     # Pre-allocate all layer Objects
     layer_objs = [await create_object(obj.schema) for _ in range(num_layers)]
 
     # Pin intermediate layers so they outlive _expand_reduce's data_context.
-    # The last layer is pinned by execute_task via the (data, tasks) tuple.
+    # The last layer is pinned by execute_task via TaskResult.data.
     if state.lifecycle is not None:
         for lo in layer_objs[:-1]:
             if not lo.persistent:
@@ -282,7 +283,7 @@ async def _expand_reduce(
         all_groups.append(layer_group)
         prev_layer_group = layer_group
 
-    return (layer_objs[-1], all_groups)
+    return TaskResult(data=layer_objs[-1], tasks=all_groups)
 
 
 @task
