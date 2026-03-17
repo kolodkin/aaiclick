@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from sqlmodel import func, select
 
 from .context import get_orch_session
+from .execution import _deserialize_value
 from .models import Job, JobStatus, Task
 
 
@@ -128,3 +129,40 @@ async def resolve_job(ref: str) -> Optional[Job]:
     if ref.isdigit():
         return await get_job(int(ref))
     return await get_latest_job_by_name(ref)
+
+
+async def get_job_result(job: Job) -> Any:
+    """Get the result produced by a completed job.
+
+    The job's entry task must have stored a result via
+    ``TaskResult(data=..., tasks=[...])``. Must be called
+    within an active ``data_context()``.
+
+    Args:
+        job: Completed job whose result to retrieve
+
+    Returns:
+        Deserialized result (Object, View, or native value)
+
+    Raises:
+        ValueError: If the entry task is missing or has no result
+    """
+    async with get_orch_session() as session:
+        result_row = await session.execute(
+            select(Task.result, Task.job_id)
+            .where(Task.job_id == job.id, Task.name == job.name)
+        )
+        row = result_row.one_or_none()
+
+    if row is None:
+        raise ValueError(f"Entry task for job {job.id} (name='{job.name}') not found")
+
+    result, task_job_id = row
+    if result is None:
+        raise ValueError(f"Job {job.id} (name='{job.name}') has no result")
+
+    if isinstance(result, dict) and result.get("object_type"):
+        result["job_id"] = task_job_id
+
+    async with get_orch_session() as session:
+        return await _deserialize_value(result, session)

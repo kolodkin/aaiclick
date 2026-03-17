@@ -328,6 +328,9 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     if result is None:
         return None
 
+    if isinstance(result, Task):
+        return {"ref_type": "upstream", "task_id": result.id}
+
     if isinstance(result, Object):
         ref = result._serialize_ref()
         ref["job_id"] = job_id

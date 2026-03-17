@@ -201,6 +201,7 @@ def reduce(
 
     expander.group_id = group.id
     group.add_task(expander)
+    group._result_task = expander
     return group
 
 

@@ -201,14 +201,19 @@ check_review_comments() {
         UNRESOLVED_PATHS=$(echo "$UNRESOLVED_THREADS" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[0] | {path: .path, line: .line}]' 2>/dev/null)
 
         # Get comment IDs from REST API, filtered to only unresolved threads
+        # Shows the LAST comment body in each thread (most recent concern) while
+        # keeping the root comment ID (required for the /replies endpoint).
         ALL_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" --paginate 2>/dev/null)
         COMMENTS_WITH_IDS=$(echo "$ALL_COMMENTS" | jq -r --argjson unresolved "$UNRESOLVED_PATHS" '
-            .[] | . as $comment |
-            select(
-                any($unresolved[]; .path == $comment.path and (.line == $comment.line or .line == $comment.original_line))
-            ) |
-            select(.in_reply_to_id == null) |
-            "ID: \(.id)\nFile: \(.path)\nLine: \(.line // .original_line // "N/A")\nComment: \(.body)\n---"
+            . as $all |
+            # Find root comments matching unresolved threads
+            [ $all[] | select(.in_reply_to_id == null) | select(
+                . as $c | any($unresolved[]; .path == $c.path and (.line == $c.line or .line == $c.original_line))
+            ) ] |
+            .[] | . as $root |
+            # Find the last comment in this thread (root + all replies)
+            ([ $all[] | select(.id == $root.id or .in_reply_to_id == $root.id) ] | max_by(.id)) as $last |
+            "ID: \($root.id)\nFile: \($root.path)\nLine: \($root.line // $root.original_line // "N/A")\nComment: \($last.body)\n---"
         ' 2>/dev/null)
 
         if [ -n "$COMMENTS_WITH_IDS" ]; then
