@@ -11,6 +11,7 @@ from sqlmodel import select
 from ..snowflake_id import get_snowflake_id
 from .claiming import claim_next_task, update_task_status
 from .context import commit_tasks, get_orch_session
+from .db_lifecycle import PgLifecycleHandler
 from .execution import execute_task
 from .factories import create_job, create_task
 from .models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
@@ -306,7 +307,8 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     assert task1.job_id == job1.id
 
     # Execute and complete the task
-    await execute_task(task1)
+    async with PgLifecycleHandler(task1.job_id) as lifecycle:
+        await execute_task(task1, lifecycle)
 
     # Mark task as completed
     await update_task_status(task1.id, TaskStatus.COMPLETED)

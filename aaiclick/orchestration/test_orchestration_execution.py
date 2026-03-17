@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from aaiclick.orchestration.db_lifecycle import PgLifecycleHandler
+
 import pytest
 from sqlalchemy import select
 
@@ -207,26 +209,22 @@ async def test_serialize_task_result_non_object(orch_ctx):
     assert serialize_task_result("hello", job_id=2) == {"native_value": "hello"}
 
 
-async def test_execute_task_sync_function(orch_ctx, monkeypatch):
+async def test_execute_task_sync_function(orch_ctx):
     """Test executing a sync task function with no parameters."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task.job_id = 1  # Set a dummy job_id
 
-        task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-        task.job_id = 1  # Set a dummy job_id
-
-        await execute_task(task)  # Should not raise
+    async with PgLifecycleHandler(task.job_id) as lifecycle:
+        await execute_task(task, lifecycle)  # Should not raise
 
 
-async def test_execute_task_async_function(orch_ctx, monkeypatch):
+async def test_execute_task_async_function(orch_ctx):
     """Test executing an async task function with no parameters."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
+    task.job_id = 1
 
-        task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-        task.job_id = 1
-
-        await execute_task(task)  # Should not raise
+    async with PgLifecycleHandler(task.job_id) as lifecycle:
+        await execute_task(task, lifecycle)  # Should not raise
 
 
 # run_job_tasks tests

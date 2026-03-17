@@ -256,23 +256,23 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
 
 async def execute_task(
     task: Task,
-    lifecycle: LifecycleHandler | None = None,
+    lifecycle: LifecycleHandler,
 ) -> Any:
     """
     Execute a single task with both DataContext and OrchContext available.
 
     Imports the callback function, deserializes kwargs inside a DataContext,
-    captures output, and executes the function. When a lifecycle handler is
-    provided, it is injected into DataContext for distributed refcounting.
-    The caller is responsible for starting/stopping the lifecycle handler.
+    captures output, and executes the function. The lifecycle handler is
+    injected into DataContext for distributed refcounting. The caller is
+    responsible for starting/stopping the lifecycle handler.
 
     After execution, if the result is an Object or View, it is pinned
     under the job scope so it survives lifecycle stop().
 
     Args:
         task: Task to execute
-        lifecycle: Optional pre-started LifecycleHandler for distributed
-                   refcounting with pin/claim ownership.
+        lifecycle: Pre-started LifecycleHandler for distributed refcounting
+                   with pin/claim ownership.
 
     Returns:
         Any: Result of the task function
@@ -293,10 +293,9 @@ async def execute_task(
             else:
                 result = func(**kwargs)
 
-    if lifecycle is not None:
-        pin_target = result.data if isinstance(result, TaskResult) else result
-        if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
-            lifecycle.pin(pin_target.table)
+    pin_target = result.data if isinstance(result, TaskResult) else result
+    if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+        lifecycle.pin(pin_target.table)
 
     return result
 

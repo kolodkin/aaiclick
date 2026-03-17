@@ -15,6 +15,7 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
+from .db_lifecycle import PgLifecycleHandler
 from .context import get_orch_session
 from .execution import execute_task, register_returned_tasks, serialize_task_result
 from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
@@ -238,7 +239,7 @@ async def worker_main_loop(
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
-    lifecycle_factory: Callable[[int], LifecycleHandler] | None = None,
+    lifecycle_factory: Callable[[int], LifecycleHandler] = PgLifecycleHandler,
 ) -> int:
     """
     Main worker execution loop.
@@ -251,9 +252,10 @@ async def worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
-        lifecycle_factory: Optional factory ``(job_id) -> LifecycleHandler`` used
-                          to create a per-task lifecycle handler for distributed
+        lifecycle_factory: Factory ``(job_id) -> LifecycleHandler`` used to
+                          create a per-task lifecycle handler for distributed
                           refcounting with pin/claim ownership.
+                          Defaults to PgLifecycleHandler.
 
     Returns:
         int: Number of tasks executed
@@ -317,11 +319,8 @@ async def worker_main_loop(
             # Wrap execution in an asyncio.Task with a cancellation monitor
             # so that cancel_job() can interrupt running tasks.
             async def _run_task(t, lf):
-                if lf is not None:
-                    async with lf(t.job_id) as lifecycle:
-                        return await execute_task(t, lifecycle=lifecycle)
-                else:
-                    return await execute_task(t)
+                async with lf(t.job_id) as lifecycle:
+                    return await execute_task(t, lifecycle=lifecycle)
 
             exec_task = asyncio.create_task(_run_task(task, lifecycle_factory))
             monitor = asyncio.create_task(
