@@ -379,8 +379,8 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if isinstance(result, TaskResult):
         task_items = _flatten_item(result.tasks)
         data_result = result.data
-    elif isinstance(result, list):
-        # Job entry tasks return [Task, Group, ...] directly
+    elif isinstance(result, (list, Task, Group)):
+        # Job entry tasks return a single Task/Group or [Task, Group, ...] directly
         task_items = _flatten_item(result)
         if not task_items:
             return result  # Plain list data, no Task/Group objects
