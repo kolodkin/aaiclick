@@ -376,7 +376,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
-    if isinstance(result, TaskResult):
+    elif isinstance(result, TaskResult):
         task_items = _flatten_item(result.tasks)
         data_result = result.data
     elif isinstance(result, (Task, Group)):

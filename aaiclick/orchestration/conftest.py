@@ -117,6 +117,12 @@ def _setup_pg_db():
     conn.close()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_log_dir(tmp_path, monkeypatch):
+    """Direct task logs to a temporary directory in all orchestration tests."""
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+
+
 @pytest.fixture
 async def orch_ctx(_isolated_db):
     """

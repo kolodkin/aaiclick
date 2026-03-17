@@ -102,9 +102,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
         List of child tasks for dynamic registration.
     """
     table_name = obj.table
-    ch_client = get_ch_client()
-    result = await ch_client.query(f"SELECT count() FROM {table_name}")
-    row_count = result.first_row[0]
+    row_count = await (await obj.count()).data()
     n_partitions = max(1, ceil(row_count / partition))
 
     out = await create_object(obj.schema)
