@@ -127,7 +127,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
         child.group_id = group_id
         tasks.append(child)
 
-    return tasks
+    return TaskResult(tasks=tasks)
 
 
 @task
@@ -206,6 +206,11 @@ def reduce(
     return group
 
 
+def _reduce_num_layers(count: int, partition: int) -> int:
+    """Return the number of reduction layers needed for count rows at partition size."""
+    return ceil(log(count, partition)) if count > 1 else 0
+
+
 def _build_layer_group(
     L: int,
     src: Union[Object, View],
@@ -261,7 +266,7 @@ async def _expand_reduce(
     if count == 0:
         raise TypeError("reduce() of empty sequence with no initial value")
 
-    num_layers = ceil(log(count, partition)) if count > 1 else 0
+    num_layers = _reduce_num_layers(count, partition)
 
     if num_layers == 0:
         # Input already has 1 row — copy to a fresh Object
