@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, Tuple, Union
 from aaiclick.data.data_context import (
     create_object,
     get_ch_client,
+    get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
@@ -246,10 +247,11 @@ async def _expand_reduce(
 
     # Pin intermediate layers so they outlive _expand_reduce's data_context.
     # The last layer is pinned by execute_task via TaskResult.data.
-    if state.lifecycle is not None:
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
         for lo in layer_objs[:-1]:
             if not lo.persistent:
-                state.lifecycle.pin(lo.table)
+                lifecycle.pin(lo.table)
 
     # Build all layer groups and partition tasks in one shot
     all_groups = []
