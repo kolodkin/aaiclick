@@ -28,7 +28,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from math import ceil
+from math import ceil, log
 from typing import Any, Callable, Dict, Tuple, Union
 
 from aaiclick.data.data_context import (
@@ -206,6 +206,41 @@ def reduce(
     return group
 
 
+def _build_layer_group(
+    L: int,
+    src: Union[Object, View],
+    layer_obj: Object,
+    src_size: int,
+    partition: int,
+    prev_group: "Group | None",
+    cbk: Callable,
+    cbk_args: list,
+    cbk_kwargs: dict,
+) -> Group:
+    """Build one reduce layer: a Group with ceil(src_size/partition) part tasks."""
+    M = ceil(src_size / partition)
+    group = Group(id=get_snowflake_id(), name=f"layer_{L}")
+    if prev_group is not None:
+        group.depends_on(prev_group)
+    for i in range(M):
+        part_task = _reduce_part(
+            cbk=cbk,
+            part={
+                "object_type": "view",
+                "table": src.table,
+                "limit": partition,
+                "offset": i * partition,
+                "order_by": "aai_id",
+            },
+            layer_obj=layer_obj,
+            cbk_args=cbk_args,
+            cbk_kwargs=cbk_kwargs,
+        )
+        part_task.group_id = group.id
+        group.add_task(part_task)
+    return group
+
+
 @task
 async def _expand_reduce(
     cbk: Callable,
@@ -213,28 +248,20 @@ async def _expand_reduce(
     partition: int,
     cbk_args: list,
     cbk_kwargs: dict,
-) -> tuple:
+) -> TaskResult:
     """Expander task: queries count, pre-allocates all layers, creates all tasks.
 
     Runs once at execution time. Returns the final Object as its task result
     alongside all layer subgroups and partition tasks as dynamic children.
-
-    Returns:
-        Tuple of (final_obj, [layer_groups]) for mixed task+data extraction.
     """
     ch = get_ch_client()
 
-    result = await ch.query(f"SELECT count() FROM {obj.table}")
-    count = result.first_row[0]
+    count = await (await obj.count()).data()
 
     if count == 0:
         raise TypeError("reduce() of empty sequence with no initial value")
 
-    # Compute layer sizes: sizes[0]=N, sizes[1]=ceil(N/P), ..., last=1
-    sizes = [count]
-    while sizes[-1] > 1:
-        sizes.append(ceil(sizes[-1] / partition))
-    num_layers = len(sizes) - 1
+    num_layers = ceil(log(count, partition)) if count > 1 else 0
 
     if num_layers == 0:
         # Input already has 1 row — copy to a fresh Object
@@ -253,37 +280,17 @@ async def _expand_reduce(
             if not lo.persistent:
                 lifecycle.pin(lo.table)
 
-    # Build all layer groups and partition tasks in one shot
     all_groups = []
-    prev_layer_group = None
-
+    src_size = count
     for L in range(num_layers):
         src = obj if L == 0 else layer_objs[L - 1]
-        M = ceil(sizes[L] / partition)
-        layer_group = Group(id=get_snowflake_id(), name=f"layer_{L}")
-
-        if prev_layer_group is not None:
-            layer_group.depends_on(prev_layer_group)
-
-        for i in range(M):
-            part_task = _reduce_part(
-                cbk=cbk,
-                part={
-                    "object_type": "view",
-                    "table": src.table,
-                    "limit": partition,
-                    "offset": i * partition,
-                    "order_by": "aai_id",
-                },
-                layer_obj=layer_objs[L],
-                cbk_args=cbk_args,
-                cbk_kwargs=cbk_kwargs,
-            )
-            part_task.group_id = layer_group.id
-            layer_group.add_task(part_task)
-
-        all_groups.append(layer_group)
-        prev_layer_group = layer_group
+        group = _build_layer_group(
+            L, src, layer_objs[L], src_size, partition,
+            all_groups[-1] if all_groups else None,
+            cbk, cbk_args, cbk_kwargs,
+        )
+        all_groups.append(group)
+        src_size = ceil(src_size / partition)
 
     return TaskResult(data=layer_objs[-1], tasks=all_groups)
 
