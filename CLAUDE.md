@@ -450,5 +450,5 @@ See `docs/orchestration.md` for the full specification:
 3. Update tests if needed
 4. Commit with descriptive messages
 5. Push to feature branch
-6. Check PR status via `check-pr` skill (do NOT run tests locally)
+6. Run `check-pr` skill to verify CI passes
 

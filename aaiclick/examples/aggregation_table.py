@@ -146,11 +146,11 @@ async def example():
     print("  CVE-2024-004: scores only (no vendor/severity)")
 
 
-async def main():
+async def amain():
     """Run as standalone."""
     async with data_context():
         await example()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(amain())

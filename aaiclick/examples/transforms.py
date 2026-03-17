@@ -91,10 +91,10 @@ async def example():
     print(f"Longest word length: {await max_len.data()}")
 
 
-async def main():
+async def amain():
     async with data_context():
         await example()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(amain())
