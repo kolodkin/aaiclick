@@ -1,7 +1,7 @@
 """
 Run all aaiclick examples using multiprocessing across available CPUs.
 
-Each example runs in its own process with its own data_context(), capturing
+Each example runs in its own process via its amain() entrypoint, capturing
 output to .tmp/<example_name>.txt. Results are printed in execution order.
 """
 
@@ -12,21 +12,19 @@ import pathlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, Coroutine
 
-from aaiclick.data.data_context import data_context
-
-from .aggregation_table import example as aggregation_table_example
-from .array_operators import example as array_operators_example
-from .basic_operators import example as basic_operators_example
-from .data_manipulation import example as data_manipulation_example
-from .group_by import example as group_by_example
-from .nested_arrays import example as nested_arrays_example
-from .nullable import example as nullable_example
+from .aggregation_table import amain as aggregation_table_example
+from .array_operators import amain as array_operators_example
+from .basic_operators import amain as basic_operators_example
+from .data_manipulation import amain as data_manipulation_example
+from .group_by import amain as group_by_example
+from .nested_arrays import amain as nested_arrays_example
+from .nullable import amain as nullable_example
 from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
-from .selectors import example as selectors_example
-from .statistics import example as statistics_example
-from .transforms import example as transforms_example
-from .views import example as views_example
+from .selectors import amain as selectors_example
+from .statistics import amain as statistics_example
+from .transforms import amain as transforms_example
+from .views import amain as views_example
 
 TMP_DIR = pathlib.Path(".tmp")
 
@@ -39,22 +37,14 @@ def _example_path(title: str) -> pathlib.Path:
 def _run_example(
     title: str,
     func: Callable[[], Coroutine],
-    needs_context: bool,
 ) -> pathlib.Path:
     """Run a single example in a subprocess, capturing stdout to a file."""
     out_path = _example_path(title)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    async def _with_context():
-        async with data_context():
-            await func()
-
     with out_path.open("w") as f:
         with contextlib.redirect_stdout(f):
-            if needs_context:
-                asyncio.run(_with_context())
-            else:
-                asyncio.run(func())
+            asyncio.run(func())
 
     return out_path
 
@@ -72,19 +62,19 @@ def main():
     TMP_DIR.mkdir(parents=True, exist_ok=True)
 
     examples = [
-        ("Array Operators", array_operators_example, True),
-        ("Basic Operators", basic_operators_example, True),
-        ("Data Manipulation", data_manipulation_example, True),
-        ("Nested Arrays", nested_arrays_example, True),
-        ("Statistics", statistics_example, True),
-        ("Transforms", transforms_example, True),
-        ("Views", views_example, True),
-        ("Group By", group_by_example, True),
-        ("Nullable Columns", nullable_example, True),
-        ("Dict Selectors", selectors_example, True),
-        ("Aggregation Table", aggregation_table_example, True),
-        ("Orchestration Basic", orchestration_basic_example, False),
-        ("Orchestration Dynamic", orchestration_dynamic_example, False),
+        ("Array Operators", array_operators_example),
+        ("Basic Operators", basic_operators_example),
+        ("Data Manipulation", data_manipulation_example),
+        ("Nested Arrays", nested_arrays_example),
+        ("Statistics", statistics_example),
+        ("Transforms", transforms_example),
+        ("Views", views_example),
+        ("Group By", group_by_example),
+        ("Nullable Columns", nullable_example),
+        ("Dict Selectors", selectors_example),
+        ("Aggregation Table", aggregation_table_example),
+        ("Orchestration Basic", orchestration_basic_example),
+        ("Orchestration Dynamic", orchestration_dynamic_example),
     ]
 
     results: dict[str, pathlib.Path] = {}
@@ -92,14 +82,14 @@ def main():
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_run_example, title, func, needs_context): title
-            for title, func, needs_context in examples
+            executor.submit(_run_example, title, func): title
+            for title, func in examples
         }
         for future in as_completed(futures):
             title = futures[future]
             results[title] = future.result()
 
-    for title, _, _ in examples:
+    for title, _ in examples:
         _print_collapsible(title, results[title])
 
     print("**ALL EXAMPLES COMPLETED SUCCESSFULLY**")
