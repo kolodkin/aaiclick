@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from typing import Optional, Dict, List, Tuple, Any, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
@@ -99,9 +99,8 @@ class Object:
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
-        schema.table = table_name
         self._stale = False
-        self._schema = schema
+        self._schema = dataclass_replace(schema, table=table_name)
         self._ctx: Optional[str] = None
 
     @property
