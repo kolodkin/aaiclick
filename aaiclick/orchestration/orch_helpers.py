@@ -127,7 +127,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
         child.group_id = group_id
         tasks.append(child)
 
-    return TaskResult(tasks=tasks)
+    return tasks
 
 
 @task
