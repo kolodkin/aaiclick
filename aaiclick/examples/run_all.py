@@ -1,15 +1,16 @@
 """
-Run all aaiclick examples.
+Run all aaiclick examples using multiprocessing across available CPUs.
 
-This script runs all example modules in sequence within a single data_context().
-Orchestration examples run with their own context management.
-
-Output is formatted as markdown with collapsible sections per example.
+Each example runs in its own process with its own data_context(), capturing
+output to .tmp/<example_name>.txt. Results are printed in execution order.
 """
 
 import asyncio
 import contextlib
-import io
+import os
+import pathlib
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Callable, Coroutine
 
 from aaiclick.data.data_context import data_context
 
@@ -27,58 +28,82 @@ from .statistics import example as statistics_example
 from .transforms import example as transforms_example
 from .views import example as views_example
 
-
-async def _run_and_capture(func):
-    """Run an async function and capture its stdout output."""
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        await func()
-    return buf.getvalue().rstrip()
+TMP_DIR = pathlib.Path(".tmp")
 
 
-def _print_collapsible(title, output):
-    """Print captured output as a collapsible markdown section."""
-    print(f"<details>")
+def _example_path(title: str) -> pathlib.Path:
+    name = title.lower().replace(" ", "_")
+    return TMP_DIR / f"{name}.txt"
+
+
+def _run_example(
+    title: str,
+    func: Callable[[], Coroutine],
+    needs_context: bool,
+) -> pathlib.Path:
+    """Run a single example in a subprocess, capturing stdout to a file."""
+    out_path = _example_path(title)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _with_context():
+        async with data_context():
+            await func()
+
+    with out_path.open("w") as f:
+        with contextlib.redirect_stdout(f):
+            if needs_context:
+                asyncio.run(_with_context())
+            else:
+                asyncio.run(func())
+
+    return out_path
+
+
+def _print_collapsible(title: str, out_path: pathlib.Path):
+    print("<details>")
     print(f"<summary>{title}</summary>\n")
-    print(f"```")
-    print(output)
-    print(f"```")
-    print(f"</details>\n")
+    print("```")
+    print(out_path.read_text().rstrip())
+    print("```")
+    print("</details>\n")
 
 
-async def main():
-    """Run all examples."""
-    context_examples = [
-        ("Array Operators", array_operators_example),
-        ("Basic Operators", basic_operators_example),
-        ("Data Manipulation", data_manipulation_example),
-        ("Nested Arrays", nested_arrays_example),
-        ("Statistics", statistics_example),
-        ("Transforms", transforms_example),
-        ("Views", views_example),
-        ("Group By", group_by_example),
-        ("Nullable Columns", nullable_example),
-        ("Dict Selectors", selectors_example),
-        ("Aggregation Table", aggregation_table_example),
+def main():
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    examples = [
+        ("Array Operators", array_operators_example, True),
+        ("Basic Operators", basic_operators_example, True),
+        ("Data Manipulation", data_manipulation_example, True),
+        ("Nested Arrays", nested_arrays_example, True),
+        ("Statistics", statistics_example, True),
+        ("Transforms", transforms_example, True),
+        ("Views", views_example, True),
+        ("Group By", group_by_example, True),
+        ("Nullable Columns", nullable_example, True),
+        ("Dict Selectors", selectors_example, True),
+        ("Aggregation Table", aggregation_table_example, True),
+        ("Orchestration Basic", orchestration_basic_example, False),
+        ("Orchestration Dynamic", orchestration_dynamic_example, False),
     ]
 
-    async with data_context():
-        for title, func in context_examples:
-            output = await _run_and_capture(func)
-            _print_collapsible(title, output)
+    results: dict[str, pathlib.Path] = {}
+    max_workers = os.cpu_count() or 1
 
-    # Orchestration examples manage their own contexts (OrchContext + data_context())
-    orchestration_examples = [
-        ("Orchestration Basic", orchestration_basic_example),
-        ("Orchestration Dynamic", orchestration_dynamic_example),
-    ]
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_example, title, func, needs_context): title
+            for title, func, needs_context in examples
+        }
+        for future in as_completed(futures):
+            title = futures[future]
+            results[title] = future.result()
 
-    for title, func in orchestration_examples:
-        output = await _run_and_capture(func)
-        _print_collapsible(title, output)
+    for title, _, _ in examples:
+        _print_collapsible(title, results[title])
 
     print("**ALL EXAMPLES COMPLETED SUCCESSFULLY**")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
