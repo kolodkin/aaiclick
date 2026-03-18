@@ -33,7 +33,7 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 
 ### 1.1 ClickHouse Storage
 
-Both `operation_log` and `table_registry` are stored in **ClickHouse** (not the SQL orchestration DB) for three reasons:
+`operation_log` is stored in **ClickHouse** (not the SQL orchestration DB) for three reasons:
 
 - Every instrumentation point already has `ch_client` — no cross-layer session needed
 - OLAP performance — graph traversal over millions of lineage rows scales naturally
@@ -62,17 +62,6 @@ CREATE TABLE IF NOT EXISTS operation_log (
 ORDER BY (job_id, created_at)
 TTL created_at + INTERVAL {ttl_days} DAY DELETE
 """
-
-TABLE_REGISTRY_DDL = """
-CREATE TABLE IF NOT EXISTS table_registry (
-    table_name   String,
-    job_id       Nullable(UInt64),  -- NULL for persistent tables
-    is_persistent UInt8,            -- 1 for p_ prefix tables; job_id always NULL
-    created_at   DateTime64(3)
-) ENGINE = MergeTree()
-ORDER BY (table_name)
-TTL created_at + INTERVAL {ttl_days} DAY DELETE
-"""
 ```
 
 TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
@@ -81,21 +70,23 @@ Native `Array(String)` for `source_tables` enables efficient forward lineage via
 
 ### 1.3 Lifecycle Management
 
-**Data tables** — event-driven, on job completion:
+**Data tables** — event-driven, on job completion. `operation_log` doubles as the table registry: every table created within a job has a row with that `job_id` as `result_table`. Cleanup derives the drop list directly from it:
 
 ```python
 # When job → COMPLETED / FAILED / CANCELLED:
-tables = await ch_client.query(
-    "SELECT table_name FROM table_registry WHERE job_id = ? AND is_persistent = 0"
-)
-for t in tables:
-    await ch_client.command(f"DROP TABLE IF EXISTS {t}")
-await ch_client.command("DELETE FROM table_registry WHERE job_id = ?")
+result = await ch_client.query("""
+    SELECT DISTINCT result_table FROM operation_log
+    WHERE job_id = {job_id}
+      AND result_table NOT LIKE 'p_%'
+      AND operation != 'insert'
+""")
+for table in result.result_rows:
+    await ch_client.command(f"DROP TABLE IF EXISTS {table[0]}")
 ```
 
-Persistent objects (`p_name`) are never touched by job cleanup — they have `job_id = NULL` in `table_registry` and are cross-job by design. Their lifecycle is managed explicitly by the user via `delete_persistent_object()`.
+`insert` is excluded because it logs a mutation of an existing table (created by a prior operation, possibly a different job). All other operations — `create`, `copy`, `concat`, binary ops, aggregations — produce a new table owned by this job.
 
-**table_registry** — explicit DELETE on job cleanup (above) + TTL fallback for orphans (interactive sessions, crashed jobs).
+Persistent objects (`p_name`) are never touched by job cleanup — they are cross-job by design and their lifecycle is managed explicitly by the user via `delete_persistent_object()`.
 
 **operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
 
@@ -401,7 +392,7 @@ async def my_pipeline():
 4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on exit
 5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
 6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
-7. Add job-completion table cleanup hook (query `table_registry` → batch DROP → DELETE registry)
+7. Add job-completion table cleanup hook (query `operation_log` for job's non-persistent result tables → batch DROP)
 8. Write tests: verify operations produce correct log entries, verify graph traversal
 
 ### Phase 2: AI Package (`aaiclick-ai/`)
