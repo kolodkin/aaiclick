@@ -121,12 +121,13 @@ class LineageCollector:
         """Buffer an operation event (synchronous, zero overhead)."""
         ...
 
-    async def flush(self, ch_client) -> None:
+    async def flush(self) -> None:
         """Batch-insert buffered events into ClickHouse operation_log."""
+        ch_client = get_ch_client()
         ...
 ```
 
-`ch_client` is passed into `flush()` from `data_context.__aexit__()` only on success (no exception) — same pattern as `PgLifecycleHandler` receiving its engine on construction. No extra connection needed. On failure, the buffer is discarded to avoid writing partial lineage.
+`flush()` calls `get_ch_client()` directly — no need to pass the client in. Called from `data_context.__aexit__()` only on success (no exception). On failure, the buffer is discarded to avoid writing partial lineage.
 
 Activation via `data_context(lineage=True)` — stores collector in a ContextVar. When `lineage=False` (default), no collector exists, no overhead.
 
@@ -399,7 +400,7 @@ async def my_pipeline():
 
 1. Create `aaiclick/lineage/` module with `__init__.py`
 2. Define DDL constants and `init_lineage_tables(ch_client)` in `models.py`
-3. Implement `LineageCollector` in `collector.py` with `record()` and `flush(ch_client)`
+3. Implement `LineageCollector` in `collector.py` with `record()` and `flush()`
 4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on clean exit only (discard buffer on exception)
 5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
 6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
