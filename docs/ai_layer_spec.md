@@ -184,9 +184,7 @@ class LineageGraph:
         ...
 ```
 
-**Limitation — deleted tables**: `operation_log` records the graph structure and SQL templates, but once a table is dropped (job cleanup), AI agents can no longer call `sample_table()` or `get_stats()` on it. The lineage graph is structurally complete but data inspection of deleted nodes is impossible.
-
-> **Future improvement (Phase N+)**: At job-cleanup time, snapshot sample rows and column statistics for each non-persistent table before dropping it. Store snapshots in a `table_snapshots` ClickHouse table (same TTL). AI agents fall back to snapshots when live tables are unavailable. See Phase N+ section at the end of this document.
+**Historical tables**: After job cleanup, each table is replaced with a 10-row sample (same name, same schema). AI agents can still call `sample_table()` on historical nodes — they transparently return the preserved sample rows. `get_stats()` reflects the sample only.
 
 ### 1.7 ClickHouse Table Initialization
 
@@ -438,42 +436,43 @@ async def my_pipeline():
 
 ## Future Improvements (Phase N+)
 
-### Sample Data Preservation for Deleted Tables ⚠️ NOT YET IMPLEMENTED
+### Pinned Row Sampling ⚠️ NOT YET IMPLEMENTED
 
-**Problem**: `operation_log` preserves the lineage graph (structure + SQL) but not data. Once a job completes and tables are dropped, AI agents cannot call `sample_table()` or `get_stats()` on deleted nodes. The "why" debugging use case is partially blind for historical jobs.
+**Current behavior**: cleanup preserves an arbitrary first-10-row sample per table.
 
-**Proposed solution**: Snapshot samples and stats before table deletion.
+**Improvement**: allow users and agents to pin specific rows that must survive cleanup, ensuring statistically or semantically important rows are always in the sample.
 
 ```sql
-CREATE TABLE IF NOT EXISTS table_snapshots (
-    table_name   String,
-    job_id       Nullable(UInt64),
-    column_name  String,
-    sample_rows  String,          -- JSON: first N rows for this column
-    row_count    UInt64,
-    col_min      Nullable(String),
-    col_max      Nullable(String),
-    null_count   UInt64,
-    captured_at  DateTime64(3)
+CREATE TABLE IF NOT EXISTS lineage_sample_aai_id (
+    table_name  String,
+    aai_id      UInt64,   -- Snowflake ID of the row to preserve
+    pinned_at   DateTime64(3)
 ) ENGINE = MergeTree()
-ORDER BY (job_id, table_name)
-TTL captured_at + INTERVAL {ttl_days} DAY DELETE
+ORDER BY (table_name, aai_id)
 ```
 
-**Integration point**: In the job-completion cleanup loop (Phase 1, step 7), before `DROP TABLE`, run:
+**Cleanup change** — prioritise pinned rows, fill remainder up to 10 with arbitrary rows:
 
 ```python
-# Capture stats per column
+await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
 await ch_client.command(f"""
-    INSERT INTO table_snapshots
-    SELECT '{table}', {job_id}, name,
-           -- sample rows as JSON
-           -- min/max/nulls per column
-    FROM system.columns WHERE table = '{table}'
-    ...
+    INSERT INTO {table}_sample
+    SELECT * FROM {table}
+    WHERE id IN (
+        SELECT aai_id FROM lineage_sample_aai_id
+        WHERE table_name = '{table}'
+    )
+    LIMIT 10
 """)
+# Top up to 10 if fewer than 10 pinned rows
+await ch_client.command(f"""
+    INSERT INTO {table}_sample
+    SELECT * FROM {table}
+    WHERE id NOT IN (SELECT id FROM {table}_sample)
+    LIMIT 10
+""")
+await ch_client.command(f"DROP TABLE {table}")
+await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
 ```
-
-**AI agent fallback**: `sample_table()` and `get_stats()` tools first check live ClickHouse; if the table is absent (`system.tables`), fall back to `table_snapshots`. Transparent to the LLM.
 
 **TTL**: Same `AAICLICK_LINEAGE_TTL_DAYS` as `operation_log`.
