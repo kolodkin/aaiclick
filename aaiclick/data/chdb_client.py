@@ -19,6 +19,27 @@ from typing import List, Optional, Sequence
 from chdb.session import Session
 
 
+def _with_settings(query: str, settings: Optional[dict]) -> str:
+    """Append a SETTINGS clause to a query for chdb.
+
+    chdb does not accept settings as keyword arguments, so they must be
+    embedded directly in the SQL. Integer/float values are unquoted;
+    strings are single-quoted.
+    """
+    if not settings:
+        return query
+    parts = []
+    for key, val in settings.items():
+        if isinstance(val, bool):
+            parts.append(f"{key}={1 if val else 0}")
+        elif isinstance(val, (int, float)):
+            parts.append(f"{key}={val}")
+        else:
+            escaped = str(val).replace("'", "\\'")
+            parts.append(f"{key}='{escaped}'")
+    return f"{query} SETTINGS {', '.join(parts)}"
+
+
 @dataclass
 class ChdbQueryResult:
     """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
@@ -50,12 +71,14 @@ class ChdbClient:
         """Access the underlying chdb session (for TableWorker)."""
         return self._session
 
-    async def command(self, query: str) -> object:
+    async def command(self, query: str, settings: Optional[dict] = None) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
         Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
+        Settings are embedded as a SQL SETTINGS clause since chdb does not accept
+        them as keyword arguments.
         """
-        result = self._session.query(query, "TabSeparated")
+        result = self._session.query(_with_settings(query, settings), "TabSeparated")
         raw = result.bytes()
         if raw:
             text = raw.decode("utf-8").strip()
@@ -66,13 +89,15 @@ class ChdbClient:
                     return text
         return None
 
-    async def query(self, query: str) -> ChdbQueryResult:
+    async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 
         Matches AsyncClient.query() — returns object with result_rows attribute.
         Uses ArrowTable format for efficient, typed data from chdb.
+        Settings are embedded as a SQL SETTINGS clause since chdb does not accept
+        them as keyword arguments.
         """
-        table = self._session.query(query, "Arrowtable")
+        table = self._session.query(_with_settings(query, settings), "Arrowtable")
         if table is None or table.num_rows == 0:
             return ChdbQueryResult()
 

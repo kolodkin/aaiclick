@@ -13,8 +13,12 @@ EPSS_COLUMNS = {
     "percentile": ColumnInfo("Float64", description="Relative ranking among all scored CVEs (0-1)"),
 }
 
-# Skip the first line: #model_version:...,score_date:... comment
-_EPSS_CH_SETTINGS = {"input_format_csv_skip_first_lines": 1}
+# Skip the first line: #model_version:...,score_date:... comment.
+# Allow redirects: epss.cyentia.com redirects to CDN storage.
+_EPSS_CH_SETTINGS = {
+    "input_format_csv_skip_first_lines": 1,
+    "max_http_get_redirects": 10,
+}
 
 
 @task
