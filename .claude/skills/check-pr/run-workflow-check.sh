@@ -321,6 +321,17 @@ poll_checks() {
         done
     echo ""
 
+    # Show artifact links
+    RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+    ARTIFACTS=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" 2>/dev/null | jq -r '.artifacts[] | "\(.name)\t\(.id)"' 2>/dev/null || true)
+    if [ -n "$ARTIFACTS" ]; then
+        echo -e "${BLUE}📦 Test result artifacts:${NC}"
+        echo "$ARTIFACTS" | while IFS=$'\t' read -r name artifact_id; do
+            echo -e "  ${BLUE}${name}${NC}  https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${artifact_id}"
+        done
+        echo ""
+    fi
+
     if [ "$FAILED_CHECKS" -eq 0 ]; then
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}STATUS: SUCCESS${NC}"
