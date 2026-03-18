@@ -8,6 +8,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT
 
 THRESHOLD = 1e-5
 
@@ -605,3 +606,41 @@ async def test_group_by_or_having_empty_string_raises(ctx):
     })
     with pytest.raises(ValueError, match="non-empty"):
         obj.group_by("category").having("count() > 0").or_having("")
+
+
+# =============================================================================
+# group_array_distinct tests
+# =============================================================================
+
+
+async def test_group_array_distinct_basic(ctx):
+    """groupArrayDistinct collects unique values per group as an Array."""
+    obj = await create_object_from_value({
+        "id":  [1, 1, 2, 2, 2],
+        "tag": ["a", "b", "a", "b", "b"],
+    })
+    result = await obj.group_by("id").agg({"tag": "group_array_distinct"})
+    data = await result.data()
+
+    lookup = dict(zip(data["id"], data["tag"]))
+    assert sorted(lookup[1]) == ["a", "b"]
+    assert sorted(lookup[2]) == ["a", "b"]  # duplicate "b" collapsed
+
+
+async def test_group_array_distinct_convenience(ctx):
+    """group_array_distinct() convenience method delegates to agg()."""
+    obj = await create_object_from_value({
+        "category": ["X", "X", "Y", "Y"],
+        "label":    ["p", "p", "q", "r"],
+    })
+    result = await obj.group_by("category").group_array_distinct("label")
+    data = await result.data()
+
+    lookup = dict(zip(data["category"], data["label"]))
+    assert sorted(lookup["X"]) == ["p"]       # both "p", deduplicated to one
+    assert sorted(lookup["Y"]) == ["q", "r"]
+
+
+def test_group_array_distinct_gb_constant():
+    """GB_GROUP_ARRAY_DISTINCT constant equals the string literal."""
+    assert GB_GROUP_ARRAY_DISTINCT == "group_array_distinct"

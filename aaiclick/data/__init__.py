@@ -38,6 +38,7 @@ from .models import (
     FIELDTYPE_SCALAR,
     GB_ANY,
     GB_COUNT,
+    GB_GROUP_ARRAY_DISTINCT,
     GB_MAX,
     GB_MEAN,
     GB_MIN,

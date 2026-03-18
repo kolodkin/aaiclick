@@ -215,53 +215,89 @@ load_shodan_cves -+
 
 ## Implementation Phases
 
-### Phase 1: CISA KEV source + analysis
+### Phase 1: CISA KEV source + analysis ✅
 
 | Task                                                     | Status |
 |----------------------------------------------------------|--------|
-| Create `aaiclick/example_projects/cyber_threat_feeds/`   |        |
-| Implement `load_kev_data` task                           |        |
-| Implement `analyze_kev_by_vendor` task                   |        |
-| Implement `analyze_kev_by_year` task                     |        |
-| Implement `analyze_kev_ransomware` task                  |        |
-| Implement `generate_kev_report` task                     |        |
-| Create `__main__.py` entry point                         |        |
-| Create `cyber_threat_feeds.sh` launch script             |        |
-| Add to CI matrix in `test.yaml`                          |        |
-| Push and verify CI                                       |        |
+| Create `aaiclick/example_projects/cyber_threat_feeds/`   | ✅     |
+| Implement `load_kev_data` task                           | ✅     |
+| Implement `analyze_kev_by_vendor` task                   | ✅     |
+| Implement `analyze_kev_by_year` task                     | ✅     |
+| Implement `analyze_kev_ransomware` task                  | ✅     |
+| Implement `generate_kev_report` task                     | ✅     |
+| Create `__main__.py` entry point                         | ✅     |
+| Create `cyber_threat_feeds.sh` launch script             | ✅     |
+| Add to CI matrix in `test.yaml`                          | ✅     |
+| Push and verify CI                                       | ✅     |
 
-### Phase 2: Shodan CVEDB source + enrichment
+**Implementation**: `aaiclick/example_projects/cyber_threat_feeds/kev.py` — see `load_kev_data()` and `analyze_kev()`
 
-| Task                                                     | Status |
-|----------------------------------------------------------|--------|
-| Implement `load_shodan_cves` task                        |        |
-| Implement `analyze_cvss_distribution` task               |        |
-| Implement `analyze_epss_distribution` task               |        |
-| Implement `find_high_risk_cves` task                     |        |
-| Update job DAG with new source                           |        |
-| Push and verify CI                                       |        |
+Note: `analyze_kev_by_vendor`, `analyze_kev_by_year`, `analyze_kev_ransomware`, and `generate_kev_report` are
+consolidated into `analyze_kev()` which returns a dict, and report formatting lives in `report.py`.
 
-### Phase 3: Consolidated AggregatingMergeTree table
+### Phase 2: Shodan CVEDB source + enrichment ✅
 
 | Task                                                     | Status |
 |----------------------------------------------------------|--------|
-| Define `CONSOLIDATED_COLUMNS` schema                     |        |
-| Implement `build_consolidated_table` task                |        |
-| Implement `analyze_consolidated` task                    |        |
-| Wire into job DAG                                        |        |
-| Push and verify CI                                       |        |
+| Implement `load_shodan_cves` task                        | ✅     |
+| Implement `analyze_cvss_distribution` task               | ✅     |
+| Implement `analyze_epss_distribution` task               | ✅     |
+| Implement `find_high_risk_cves` task                     | ✅     |
+| Update job DAG with new source                           | ✅     |
+| Push and verify CI                                       | ✅     |
 
-### Phase 4: Combined report
+**Implementation**: `aaiclick/example_projects/cyber_threat_feeds/shodan.py` — see `load_shodan_kev_cves()`,
+`load_shodan_general_cves()`, `combine_shodan_cves()`, `analyze_shodan_cves()`
+
+Note: Shodan loading is split into two parallel tasks (`is_kev=true` and `is_kev=false`) then combined,
+ensuring cross-source overlap in the consolidated table.
+
+### Phase 3: Consolidated AggregatingMergeTree table ✅
 
 | Task                                                     | Status |
 |----------------------------------------------------------|--------|
-| Implement `generate_threat_report` task (combined)       |        |
-| Include consolidated stats in report                     |        |
-| Print formatted report to stdout                         |        |
-| Update documentation                                     |        |
-| Push and verify CI                                       |        |
+| Define `CONSOLIDATED_COLUMNS` schema                     | ✅     |
+| Implement `build_consolidated_table` task                | ✅     |
+| Implement `analyze_consolidated` task                    | ✅     |
+| Wire into job DAG                                        | ✅     |
+| Push and verify CI                                       | ✅     |
 
-### Phase 4 (Future): Additional sources
+**Implementation**: `aaiclick/example_projects/cyber_threat_feeds/consolidated.py` — see
+`build_consolidated_table()` and `analyze_consolidated()`
+
+**Known issue**: `build_consolidated_table()` uses a raw `ch.command()` for the final GROUP BY collapse
+because `groupArrayDistinct` is not yet in the aaiclick Object API. See TODO comment in `consolidated.py`.
+
+### Phase 4: Combined report ✅
+
+| Task                                                     | Status |
+|----------------------------------------------------------|--------|
+| Implement `generate_threat_report` task (combined)       | ✅     |
+| Include consolidated stats in report                     | ✅     |
+| Print formatted report to stdout                         | ✅     |
+| Update documentation                                     | ✅     |
+| Push and verify CI                                       | ✅     |
+
+**Implementation**: `aaiclick/example_projects/cyber_threat_feeds/report.py` — see `generate_threat_report()`
+
+### Phase 5: API cleanup — groupArrayDistinct support ✅
+
+Remove the raw SQL workaround in `consolidated.py` by adding `groupArrayDistinct` to the Object API.
+
+| Task                                                                        | Status |
+|-----------------------------------------------------------------------------|--------|
+| Add `groupArrayDistinct` aggregation support to Object API                  | ✅     |
+| Replace raw `ch.command()` in `build_consolidated_table` with API call      | ✅     |
+| Push and verify CI                                                          |        |
+
+**Implementation**:
+- `aaiclick/data/models.py` — added `GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"`
+- `aaiclick/data/operators.py` — added `"group_array_distinct": "groupArrayDistinct"` to `AGGREGATION_FUNCTIONS`; handles `Array(T)` result type in `group_by_agg`
+- `aaiclick/data/object.py` — added `GroupByQuery.group_array_distinct()` convenience method
+- `aaiclick/data/test_group_by.py` — added 3 tests for `group_array_distinct`
+- `aaiclick/example_projects/cyber_threat_feeds/consolidated.py` — replaced raw `ch.command()` with `agg.group_by("cve_id").agg({...}).rename({"source": "sources"})`
+
+### Phase 6 (Future): Additional sources
 
 | Task                                                     | Status |
 |----------------------------------------------------------|--------|
@@ -273,13 +309,17 @@ load_shodan_cves -+
 
 ## File Changes
 
-| File                                                        | Description                              |
-|-------------------------------------------------------------|------------------------------------------|
-| `aaiclick/example_projects/cyber_threat_feeds/__init__.py`  | Tasks, job definition, report formatting |
-| `aaiclick/example_projects/cyber_threat_feeds/__main__.py`  | Entry point (register job)               |
-| `aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds.sh` | Launch script              |
-| `.github/workflows/test.yaml`                               | Add to example-projects matrix           |
-| `docs/cyber_threat_feeds.md`                                | This plan document                       |
+| File                                                                        | Description                              |
+|-----------------------------------------------------------------------------|------------------------------------------|
+| `aaiclick/example_projects/cyber_threat_feeds/__init__.py`                  | Job definition and DAG                   |
+| `aaiclick/example_projects/cyber_threat_feeds/__main__.py`                  | Entry point (register job)               |
+| `aaiclick/example_projects/cyber_threat_feeds/kev.py`                       | CISA KEV loading and analysis            |
+| `aaiclick/example_projects/cyber_threat_feeds/shodan.py`                    | Shodan CVEDB loading and analysis        |
+| `aaiclick/example_projects/cyber_threat_feeds/consolidated.py`              | AggregatingMergeTree consolidation       |
+| `aaiclick/example_projects/cyber_threat_feeds/report.py`                    | Report formatting and output             |
+| `aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds.sh`        | Launch script                            |
+| `.github/workflows/test.yaml`                                               | Added to example-projects CI matrix      |
+| `docs/cyber_threat_feeds.md`                                                | This plan document                       |
 
 ## Key Design Decisions
 

@@ -305,6 +305,7 @@ AGGREGATION_FUNCTIONS = {
     "var": "varPop",
     "count": "count",
     "any": "any",
+    "group_array_distinct": "groupArrayDistinct",
 }
 
 
@@ -760,6 +761,11 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         if agg_func == "count":
             agg_exprs.append(f"{sql_func}() AS {column}")
             result_columns[column] = ColumnInfo("UInt64")
+        elif agg_func == "group_array_distinct":
+            agg_exprs.append(f"{sql_func}({column}) AS {column}")
+            source_type = info.columns[column]
+            base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
+            result_columns[column] = ColumnInfo(base_type, array=True)
         else:
             agg_exprs.append(f"{sql_func}({column}) AS {column}")
             source_type = info.columns[column]
