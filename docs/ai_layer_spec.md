@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS operation_log (
     id           UInt64,           -- Snowflake ID (PK)
     result_table String,           -- Table created or modified
     operation    String,           -- "create", "add", "concat", "copy", ...
-    source_tables Array(String),   -- Input table names
+    args         Array(String),    -- Positional input tables (e.g. concat sources)
+    kwargs       Map(String, String), -- Named input tables (e.g. left/right for binary ops)
     sql_template Nullable(String), -- SQL executed (table names, no data)
     task_id      Nullable(UInt64),
     job_id       Nullable(UInt64),
@@ -66,7 +67,7 @@ TTL created_at + INTERVAL {ttl_days} DAY DELETE
 
 TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
 
-Native `Array(String)` for `source_tables` enables efficient forward lineage via `has(source_tables, table_name)` — no GIN index needed.
+`args` holds positional inputs (e.g. N sources for `concat`); `kwargs` holds named inputs (e.g. `{"left": ..., "right": ...}` for binary ops). Forward lineage: `has(args, t) OR mapContains(kwargs, t)` — no GIN index needed.
 
 ### 1.3 Lifecycle Management
 
@@ -117,7 +118,9 @@ class LineageCollector:
         self.job_id = job_id
 
     def record(self, result_table: str, operation: str,
-               source_tables: list[str], sql: str | None = None) -> None:
+               args: list[str] | None = None,
+               kwargs: dict[str, str] | None = None,
+               sql: str | None = None) -> None:
         """Buffer an operation event (synchronous, zero overhead)."""
         ...
 
@@ -135,16 +138,16 @@ Activation via `data_context(lineage=True)` — stores collector in a ContextVar
 
 Emit `collector.record(...)` calls at these locations:
 
-| Location                          | Operation          | Source Tables                  |
-|-----------------------------------|--------------------|--------------------------------|
-| `data_context.create_object()`    | `"create"`         | `[]`                           |
-| `data_context.create_object_from_value()` | `"create_from_value"` | `[]`                 |
-| `operators._apply_operator_db()`  | `"add"`, `"sub"`, etc. | `[left.table, right.table]` |
-| `operators._apply_agg_db()`       | `"sum"`, `"mean"`, etc. | `[source.table]`           |
-| `ingest.concat_objects_db()`      | `"concat"`         | `[s.table for s in sources]`   |
-| `ingest.insert_objects_db()`      | `"insert"`         | `[source.table]`               |
-| `ingest.copy_db()`                | `"copy"`           | `[source.table]`               |
-| `object.Object.copy()`            | `"copy"`           | `[self.table]`                 |
+| Location                                  | Operation              | `args`                        | `kwargs`                              |
+|-------------------------------------------|------------------------|-------------------------------|---------------------------------------|
+| `data_context.create_object()`            | `"create"`             | `[]`                          | `{}`                                  |
+| `data_context.create_object_from_value()` | `"create_from_value"`  | `[]`                          | `{}`                                  |
+| `operators._apply_operator_db()`          | `"add"`, `"sub"`, etc. | `[]`                          | `{"left": left.table, "right": right.table}` |
+| `operators._apply_agg_db()`               | `"sum"`, `"mean"`, etc.| `[]`                          | `{"source": source.table}`            |
+| `ingest.concat_objects_db()`              | `"concat"`             | `[s.table for s in sources]`  | `{}`                                  |
+| `ingest.insert_objects_db()`              | `"insert"`             | `[]`                          | `{"source": source.table, "target": target.table}` |
+| `ingest.copy_db()`                        | `"copy"`               | `[]`                          | `{"source": source.table}`            |
+| `object.Object.copy()`                    | `"copy"`               | `[]`                          | `{"source": self.table}`              |
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
@@ -159,14 +162,14 @@ async def backward_lineage(
     table: str, ch_client, max_depth: int = 10
 ) -> list[dict]:
     """Trace all upstream operations that produced `table`."""
-    # Iterative: fetch op where result_table=table, then recurse on source_tables
+    # Iterative: fetch op where result_table=table, then recurse on args + kwargs values
     ...
 
 async def forward_lineage(
     table: str, ch_client, max_depth: int = 10
 ) -> list[dict]:
     """Trace all downstream operations that consumed `table`."""
-    # has(source_tables, table) — native Array containment, no GIN needed
+    # has(args, table) OR mapContains(kwargs, table) — no GIN needed
     ...
 
 async def lineage_subgraph(

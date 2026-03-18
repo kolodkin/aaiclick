@@ -18,7 +18,7 @@
 
 2. **Define ClickHouse DDL constants** (`models.py`)
    - Snowflake ID primary key
-   - Fields: `result_table`, `operation`, `source_tables` (`Array(String)`), `sql_template`, `task_id`, `job_id`, `created_at`
+   - Fields: `result_table`, `operation`, `args` (`Array(String)`), `kwargs` (`Map(String, String)`), `sql_template`, `task_id`, `job_id`, `created_at`
    - `init_lineage_tables(ch_client)` — `CREATE TABLE IF NOT EXISTS` on context startup
    - No Alembic migration needed — ClickHouse only
 
@@ -35,13 +35,13 @@
    - When False: no collector, no overhead
 
 6. **Instrument data operations** (2-line additions each)
-   - `data_context.create_object()` → record `"create"`
-   - `data_context.create_object_from_value()` → record `"create_from_value"`
-   - `operators._apply_operator_db()` → record operator name (`"add"`, `"sub"`, etc.)
-   - `operators._apply_agg_db()` → record aggregation name (`"sum"`, `"mean"`, etc.)
-   - `ingest.concat_objects_db()` → record `"concat"`
-   - `ingest.insert_objects_db()` → record `"insert"`
-   - `ingest.copy_db()` → record `"copy"`
+   - `data_context.create_object()` → record `"create"`, args=[], kwargs={}
+   - `data_context.create_object_from_value()` → record `"create_from_value"`, args=[], kwargs={}
+   - `operators._apply_operator_db()` → record operator name, kwargs={"left": ..., "right": ...}
+   - `operators._apply_agg_db()` → record aggregation name, kwargs={"source": ...}
+   - `ingest.concat_objects_db()` → record `"concat"`, args=[s.table for s in sources]
+   - `ingest.insert_objects_db()` → record `"insert"`, kwargs={"source": ..., "target": ...}
+   - `ingest.copy_db()` / `Object.copy()` → record `"copy"`, kwargs={"source": ...}
 
 7. **Implement lineage graph queries**
    - `backward_lineage(table, max_depth)` — recursive upstream trace
