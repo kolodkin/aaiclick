@@ -126,7 +126,7 @@ class LineageCollector:
         ...
 ```
 
-`ch_client` is passed into `flush()` from `data_context.__aexit__()` — same pattern as `PgLifecycleHandler` receiving its engine on construction. No extra connection needed.
+`ch_client` is passed into `flush()` from `data_context.__aexit__()` only on success (no exception) — same pattern as `PgLifecycleHandler` receiving its engine on construction. No extra connection needed. On failure, the buffer is discarded to avoid writing partial lineage.
 
 Activation via `data_context(lineage=True)` — stores collector in a ContextVar. When `lineage=False` (default), no collector exists, no overhead.
 
@@ -367,7 +367,7 @@ When a job runs with `lineage=True`, the worker injects a `LineageCollector` int
 async with data_context(lineage=job.lineage_enabled):
     # collector automatically created, task_id/job_id set
     result = await func(**deserialized_kwargs)
-    # collector.flush() on context exit
+    # collector.flush() only called on success — partial lineage discarded on failure
 ```
 
 This means **all object operations within a task are automatically logged** — no changes to user task code.
@@ -400,7 +400,7 @@ async def my_pipeline():
 1. Create `aaiclick/lineage/` module with `__init__.py`
 2. Define DDL constants and `init_lineage_tables(ch_client)` in `models.py`
 3. Implement `LineageCollector` in `collector.py` with `record()` and `flush(ch_client)`
-4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on exit
+4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on clean exit only (discard buffer on exception)
 5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
 6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
 7. Add `table_registry` DDL to `models.py`; register every new table on creation
