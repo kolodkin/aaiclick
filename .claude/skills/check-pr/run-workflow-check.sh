@@ -257,20 +257,6 @@ check_review_comments() {
     fi
 }
 
-# Print checks as short name + direct link
-print_checks_with_links() {
-    gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,link 2>/dev/null | \
-        jq -r '.[] | "\(.state)\t\(.name | split(",")[0] | ltrimstr("(") | rtrimstr(" "))\t\(.link)"' | \
-        while IFS=$'\t' read -r state name link; do
-            case "$state" in
-                SUCCESS) color="$GREEN" icon="✓" ;;
-                FAILURE) color="$RED"   icon="✗" ;;
-                *)        color="$YELLOW" icon="…" ;;
-            esac
-            echo -e "${color}${icon} ${name}${NC}  ${link}"
-        done
-}
-
 # Step 6: Poll PR checks using gh pr checks --watch
 poll_checks() {
     echo ""
@@ -279,72 +265,74 @@ poll_checks() {
 
     # Show initial status
     echo -e "${BLUE}Current check status:${NC}"
-    print_checks_with_links
+    gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
     echo ""
 
     # Watch until all checks complete
     echo -e "${BLUE}⏳ Watching checks until completion...${NC}"
     set +e
-    timeout 1200 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --json name,state,link > /dev/null 2>&1
+    timeout 1200 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch 2>/dev/null
     WATCH_EXIT=$?
     set -e
 
-    # Check actual state from JSON (--watch exit code is unreliable)
-    CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,link 2>/dev/null || echo "[]")
-    FAILED_CHECKS=$(echo "$CHECKS_JSON" | jq '[.[] | select(.state == "FAILURE")] | length')
-    PENDING_CHECKS=$(echo "$CHECKS_JSON" | jq '[.[] | select(.state != "SUCCESS" and .state != "FAILURE")] | length')
+    if [ "$WATCH_EXIT" -eq 0 ]; then
+        echo ""
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}STATUS: SUCCESS${NC}"
+        echo -e "${GREEN}PR: #$PR_NUMBER${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+        # Check for PR review comments after CI passes
+        check_review_comments
+        exit 0
+    fi
+
+    # --watch exited non-zero: could be actual CI failure, pending checks, or review-required status
+    # Check if any CI checks actually failed or are still pending
+    CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true)
+    FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "fail" || true)
+    PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "pending" || true)
 
     if [ "$PENDING_CHECKS" -gt 0 ]; then
+        # Checks still running - wait for them by polling
         echo ""
         echo -e "${YELLOW}⏳ Checks still pending, polling until complete...${NC}"
         while true; do
             sleep 15
-            CHECKS_JSON=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,link 2>/dev/null || echo "[]")
-            PENDING_CHECKS=$(echo "$CHECKS_JSON" | jq '[.[] | select(.state != "SUCCESS" and .state != "FAILURE")] | length')
+            set +e
+            CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null)
+            set -e
+            PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "pending" || true)
             if [ "$PENDING_CHECKS" -eq 0 ]; then
                 break
             fi
             echo -e "${BLUE}  Still waiting on $PENDING_CHECKS pending check(s)...${NC}"
         done
-        FAILED_CHECKS=$(echo "$CHECKS_JSON" | jq '[.[] | select(.state == "FAILURE")] | length')
-    fi
-
-    echo ""
-    echo "$CHECKS_JSON" | jq -r '.[] | "\(.state)\t\(.name | split(",")[0] | ltrimstr("(") | rtrimstr(" "))\t\(.link)"' | \
-        while IFS=$'\t' read -r state name link; do
-            case "$state" in
-                SUCCESS) color="$GREEN" icon="✓" ;;
-                FAILURE) color="$RED"   icon="✗" ;;
-                *)        color="$YELLOW" icon="…" ;;
-            esac
-            echo -e "${color}${icon} ${name}${NC}  ${link}"
-        done
-    echo ""
-
-    # Show artifact links
-    RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
-    ARTIFACTS=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" 2>/dev/null | jq -r '.artifacts[] | "\(.name)\t\(.id)"' 2>/dev/null || true)
-    if [ -n "$ARTIFACTS" ]; then
-        echo -e "${BLUE}📦 Test result artifacts:${NC}"
-        echo "$ARTIFACTS" | while IFS=$'\t' read -r name artifact_id; do
-            echo -e "  ${BLUE}${name}${NC}  https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${artifact_id}"
-        done
-        echo ""
+        FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -c "fail" || true)
     fi
 
     if [ "$FAILED_CHECKS" -eq 0 ]; then
+        # All checks passed - likely review-required status
+        echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}STATUS: SUCCESS${NC}"
+        echo -e "${GREEN}STATUS: ALL CI CHECKS PASSED${NC}"
         echo -e "${GREEN}PR: #$PR_NUMBER${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
+        echo ""
         check_review_comments
         exit 0
     fi
 
     # Actual CI failure - show status and fetch error logs
+    echo ""
     echo -e "${RED}❌ Some checks FAILED!${NC}"
     echo ""
+    gh pr checks "$PR_NUMBER" --repo "$REPO" 2>/dev/null || true
+    echo ""
 
+    # Get failed logs
     RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
     echo -e "${YELLOW}📋 Fetching error logs (run $RUN_ID)...${NC}"
     echo ""
