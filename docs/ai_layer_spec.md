@@ -70,18 +70,27 @@ Native `Array(String)` for `source_tables` enables efficient forward lineage via
 
 ### 1.3 Lifecycle Management
 
-**Background cleanup worker** — on job completion (COMPLETED / FAILED / CANCELLED), drops all ephemeral tables registered to that job:
+**Background cleanup worker** — on job completion (COMPLETED / FAILED / CANCELLED), replaces each ephemeral table with a 10-row sample:
 
 ```python
 result = await ch_client.query(
     "SELECT table_name FROM table_registry WHERE job_id = {job_id:UInt64}"
 )
 for (table,) in result.result_rows:
-    await ch_client.command(f"DROP TABLE IF EXISTS {table}")
+    await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
+    await ch_client.command(f"""
+        INSERT INTO {table}_sample
+        SELECT * FROM {table}
+        LIMIT 10
+    """)
+    await ch_client.command(f"DROP TABLE {table}")
+    await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
 await ch_client.command(
     "DELETE FROM table_registry WHERE job_id = {job_id:UInt64}"
 )
 ```
+
+`CREATE TABLE new AS source` copies the full table definition — ENGINE, ORDER BY, codecs — without data. The INSERT then populates the sample. Renaming back to the original name keeps `operation_log` lineage references valid.
 
 **Persistent tables** (`p_` prefix) — never deleted. They have no `job_id` in `table_registry` and are excluded from all cleanup.
 
