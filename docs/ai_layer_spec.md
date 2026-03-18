@@ -70,7 +70,39 @@ Native `Array(String)` for `source_tables` enables efficient forward lineage via
 
 ### 1.3 Lifecycle Management
 
-`operation_log` — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
+**Sample preservation** — on job cleanup, each ephemeral table is replaced by a 10-row sample instead of being dropped. The sample uses `CREATE TABLE ... AS SELECT` (single statement) which preserves column types without a separate schema declaration:
+
+```python
+# Per table on job completion (COMPLETED / FAILED / CANCELLED):
+pinned = await ch_client.query(
+    "SELECT aai_id FROM lineage_sample_aai_id WHERE table_name = {table:String}"
+)
+pin_ids = [r[0] for r in pinned.result_rows]
+id_filter = f"id IN ({','.join(str(i) for i in pin_ids)}) OR " if pin_ids else ""
+
+await ch_client.command(f"""
+    CREATE TABLE {table}_sample
+    AS SELECT * FROM {table}
+    WHERE {id_filter}true
+    LIMIT 10
+""")
+await ch_client.command(f"DROP TABLE {table}")
+await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
+```
+
+Renaming back to the original name keeps `operation_log` lineage references valid — any agent querying a past result table gets the sample rows back transparently.
+
+**Tables involved**:
+
+| Table                    | Purpose                                          |
+|--------------------------|--------------------------------------------------|
+| `operation_log`          | Lineage graph — TTL-managed, append-only         |
+| `table_registry`         | `table_name → job_id` mapping for background cleanup worker |
+| `lineage_sample_aai_id`  | Pinned row IDs to preserve per table (user-controlled) |
+
+**operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
+
+**Sample tables** — persist indefinitely after rename (no TTL). `table_registry` tracks them with an `is_sample` flag so the background worker can age them out independently.
 
 ### 1.4 LineageCollector
 
