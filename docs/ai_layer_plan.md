@@ -16,13 +16,11 @@
    - `aaiclick/lineage/collector.py` — `LineageCollector` event sink
    - `aaiclick/lineage/graph.py` — lineage graph queries
 
-2. **Define OperationLog model**
+2. **Define ClickHouse DDL constants** (`models.py`)
    - Snowflake ID primary key
-   - Fields: `result_table`, `operation`, `source_tables` (JSON), `sql_template`, `task_id`, `job_id`, `created_at`
-   - Indexes on `result_table` and `created_at`
-
-3. **Create Alembic migration**
-   - Add `operation_log` table to orchestration migration chain
+   - Fields: `result_table`, `operation`, `source_tables` (`Array(String)`), `sql_template`, `task_id`, `job_id`, `created_at`
+   - `init_lineage_tables(ch_client)` — `CREATE TABLE IF NOT EXISTS` on context startup
+   - No Alembic migration needed — ClickHouse only
 
 4. **Implement LineageCollector**
    - Buffer-based: collects events in memory, flushes to DB
@@ -32,7 +30,8 @@
 5. **Opt-in via data_context**
    - Add `lineage: bool = False` parameter to `data_context()`
    - When True: create `LineageCollector`, store in ContextVar
-   - On context exit: call `collector.flush()`
+   - On clean exit only (no exception): call `collector.flush()`
+   - On failure: discard buffer to avoid writing partial lineage
    - When False: no collector, no overhead
 
 6. **Instrument data operations** (2-line additions each)
@@ -57,7 +56,7 @@
 
 ### Deliverables
 - `aaiclick/lineage/` module with full test coverage
-- Alembic migration for `operation_log` table
+- `operation_log` and `table_registry` tables auto-created in ClickHouse on context startup
 - `data_context(lineage=True)` opt-in working end-to-end
 
 ---
