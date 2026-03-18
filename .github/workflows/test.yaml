@@ -54,12 +54,12 @@ jobs:
           mkdir -p tmp
           uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
 
-      - name: Upload test results
+      - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "pytest-results-${{ matrix.group }}"
-          path: tmp/pytest-report.xml
+          name: "coverage-${{ matrix.group }}"
+          path: htmlcov/
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
@@ -161,12 +161,12 @@ jobs:
           mkdir -p tmp
           uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
 
-      - name: Upload test results
+      - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "pytest-results-${{ matrix.group }}"
-          path: tmp/pytest-report.xml
+          name: "coverage-${{ matrix.group }}"
+          path: htmlcov/
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
