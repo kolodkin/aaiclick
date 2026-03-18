@@ -83,3 +83,6 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def decref(self, table_name: str) -> None:
         self._worker.decref(table_name)
+
+    async def claim(self, table_name: str, job_id: int) -> None:
+        pass  # No distributed refs to release in local mode

@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from aaiclick.orchestration.db_lifecycle import PgLifecycleHandler
+
 import pytest
 from sqlalchemy import select
 
@@ -15,7 +17,7 @@ from aaiclick.data.object import Object, View
 from aaiclick.orchestration.context import get_orch_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
-    _extract_task_items,
+    TaskResult,
     deserialize_task_params,
     execute_task,
     import_callback,
@@ -207,26 +209,22 @@ async def test_serialize_task_result_non_object(orch_ctx):
     assert serialize_task_result("hello", job_id=2) == {"native_value": "hello"}
 
 
-async def test_execute_task_sync_function(orch_ctx, monkeypatch):
+async def test_execute_task_sync_function(orch_ctx):
     """Test executing a sync task function with no parameters."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task.job_id = 1  # Set a dummy job_id
 
-        task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-        task.job_id = 1  # Set a dummy job_id
-
-        await execute_task(task)  # Should not raise
+    async with PgLifecycleHandler(task.job_id) as lifecycle:
+        await execute_task(task, lifecycle)  # Should not raise
 
 
-async def test_execute_task_async_function(orch_ctx, monkeypatch):
+async def test_execute_task_async_function(orch_ctx):
     """Test executing an async task function with no parameters."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
+    task.job_id = 1
 
-        task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-        task.job_id = 1
-
-        await execute_task(task)  # Should not raise
+    async with PgLifecycleHandler(task.job_id) as lifecycle:
+        await execute_task(task, lifecycle)  # Should not raise
 
 
 # run_job_tasks tests
@@ -318,84 +316,53 @@ async def test_job_test_simple(orch_ctx, monkeypatch):
         assert job.status == JobStatus.COMPLETED
 
 
-# _extract_task_items tests
+# TaskResult tests
 
 
-def test_extract_task_items_single_task(orch_ctx):
-    """Single Task return is extracted."""
+def test_task_result_defaults():
+    """TaskResult has None data and empty tasks by default."""
+    r = TaskResult()
+    assert r.data is None
+    assert r.tasks == []
+
+
+def test_task_result_tasks_only(orch_ctx):
+    """TaskResult with tasks only."""
     t = create_task("mod.func")
-    items, data = _extract_task_items(t)
-    assert items == [t]
-    assert data is None
+    r = TaskResult(tasks=[t])
+    assert r.data is None
+    assert r.tasks == [t]
 
 
-def test_extract_task_items_single_group(orch_ctx):
-    """Single Group return is extracted."""
-    from aaiclick.snowflake_id import get_snowflake_id
-
-    g = Group(id=get_snowflake_id(), name="g1")
-    items, data = _extract_task_items(g)
-    assert items == [g]
-    assert data is None
+def test_task_result_data_only():
+    """TaskResult with data only."""
+    r = TaskResult(data=42)
+    assert r.data == 42
+    assert r.tasks == []
 
 
-def test_extract_task_items_list_of_tasks(orch_ctx):
-    """List of Tasks is extracted."""
-    t1 = create_task("mod.func1")
-    t2 = create_task("mod.func2")
-    items, data = _extract_task_items([t1, t2])
-    assert len(items) == 2
-    assert data is None
-
-
-def test_extract_task_items_native_value(orch_ctx):
-    """Native values are not extracted."""
-    items, data = _extract_task_items(42)
-    assert items == []
-    assert data == 42
-
-
-def test_extract_task_items_none(orch_ctx):
-    """None is treated as pure data."""
-    items, data = _extract_task_items(None)
-    assert items == []
-    assert data is None
-
-
-def test_extract_task_items_list_of_non_tasks(orch_ctx):
-    """List of non-task values is not extracted."""
-    items, data = _extract_task_items([1, 2, 3])
-    assert items == []
-    assert data == [1, 2, 3]
-
-
-def test_extract_task_items_mixed_task_and_group(orch_ctx):
-    """Mixed list of Task and Group is extracted."""
+def test_task_result_both(orch_ctx):
+    """TaskResult with both data and tasks."""
     from aaiclick.snowflake_id import get_snowflake_id
 
     t = create_task("mod.func")
     g = Group(id=get_snowflake_id(), name="g1")
-    items, data = _extract_task_items([t, g])
-    assert len(items) == 2
-    assert t in items
-    assert g in items
-    assert data is None
+    r = TaskResult(data="result", tasks=[t, g])
+    assert r.data == "result"
+    assert t in r.tasks
+    assert g in r.tasks
 
 
-def test_extract_task_items_mixed_with_explicit_dependency(orch_ctx):
-    """Task with explicit >> dependency is extracted with deps preserved."""
+def test_task_result_preserves_explicit_dependency(orch_ctx):
+    """Explicit >> dependency on tasks inside TaskResult is preserved."""
     from aaiclick.snowflake_id import get_snowflake_id
 
     t1 = create_task("mod.step1")
     t2 = create_task("mod.step2")
     g = Group(id=get_snowflake_id(), name="g1")
-    t2 >> t1  # explicit dependency: t1 depends on t2
+    t2 >> t1  # t1 depends on t2
 
-    items, data = _extract_task_items([t1, g])
-    assert t1 in items
-    assert g in items
-
-    # Explicit dependency is preserved
+    r = TaskResult(tasks=[t1, g])
     dep_ids = {d.previous_id for d in t1.previous_dependencies}
     assert t2.id in dep_ids
 
@@ -403,24 +370,31 @@ def test_extract_task_items_mixed_with_explicit_dependency(orch_ctx):
 # register_returned_tasks tests
 
 
-async def test_register_returned_tasks_no_tasks(orch_ctx):
-    """Non-task return values pass through unchanged."""
+async def test_register_returned_tasks_none(orch_ctx):
+    """None passes through as None."""
+    result = await register_returned_tasks(None, parent_task_id=1, job_id=1)
+    assert result is None
+
+
+async def test_register_returned_tasks_pure_data(orch_ctx):
+    """Non-TaskResult values pass through unchanged as data."""
     result = await register_returned_tasks(42, parent_task_id=1, job_id=1)
     assert result == 42
 
 
-async def test_register_returned_tasks_with_task(orch_ctx):
-    """Returned Task is registered with dependency on parent."""
+async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
+    """TaskResult with tasks registers them and returns None data."""
     job = await create_job("reg_test", "mod.func")
     parent = create_task("mod.parent")
     parent.job_id = job.id
 
     child = create_task("mod.child")
 
-    data_result = await register_returned_tasks(child, parent_task_id=parent.id, job_id=job.id)
+    data_result = await register_returned_tasks(
+        TaskResult(tasks=[child]), parent_task_id=parent.id, job_id=job.id
+    )
     assert data_result is None
 
-    # Verify child was committed with dependency on parent
     async with get_orch_session() as session:
         result = await session.execute(select(Task).where(Task.id == child.id))
         db_child = result.scalar_one()
@@ -437,17 +411,19 @@ async def test_register_returned_tasks_with_task(orch_ctx):
         assert dep.next_type == "task"
 
 
-async def test_register_returned_tasks_list(orch_ctx):
-    """List of Tasks is registered with dependencies on parent."""
-    job = await create_job("reg_list_test", "mod.func")
+async def test_register_returned_tasks_task_result_with_data(orch_ctx):
+    """TaskResult with data and tasks registers tasks and returns data."""
+    job = await create_job("reg_data_test", "mod.func")
     parent = create_task("mod.parent")
     parent.job_id = job.id
 
     c1 = create_task("mod.child1")
     c2 = create_task("mod.child2")
 
-    data_result = await register_returned_tasks([c1, c2], parent_task_id=parent.id, job_id=job.id)
-    assert data_result is None
+    data_result = await register_returned_tasks(
+        TaskResult(data="my_data", tasks=[c1, c2]), parent_task_id=parent.id, job_id=job.id
+    )
+    assert data_result == "my_data"
 
     async with get_orch_session() as session:
         result = await session.execute(

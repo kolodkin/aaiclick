@@ -171,33 +171,40 @@ def get_chdb_data_path() -> str:
     return str(Path.home() / ".aaiclick" / "chdb_data")
 
 
-def create_chdb_session(path: Optional[str] = None) -> Session:
-    """Create a disk-backed chdb Session.
+# Process-wide singleton chdb session, keyed by data path.
+# All ChdbClient and ChdbSyncClient instances in a process share this session
+# so that tables created in one data_context are visible to all others.
+_sessions: dict[str, Session] = {}
 
-    Args:
-        path: Directory for chdb data. If None, uses get_chdb_data_path().
+
+def get_shared_session(path: Optional[str] = None) -> Session:
+    """Return (or create) the shared chdb Session for a given data path.
+
+    Using a singleton ensures all data_context instances in the same process
+    share one chdb session and can see each other's tables.
     """
     data_path = path or get_chdb_data_path()
-    Path(data_path).mkdir(parents=True, exist_ok=True)
-    return Session(data_path)
+    if data_path not in _sessions:
+        Path(data_path).mkdir(parents=True, exist_ok=True)
+        _sessions[data_path] = Session(data_path)
+    return _sessions[data_path]
+
+
+def create_chdb_session(path: Optional[str] = None) -> Session:
+    """Return the shared chdb Session (singleton per data path)."""
+    return get_shared_session(path)
 
 
 def create_chdb_client(path: Optional[str] = None) -> ChdbClient:
-    """Create a ChdbClient with a disk-backed session.
-
-    Args:
-        path: Directory for chdb data. If None, uses default.
-    """
-    session = create_chdb_session(path)
-    return ChdbClient(session)
+    """Create a ChdbClient backed by the shared chdb session."""
+    return ChdbClient(get_shared_session(path))
 
 
 def create_chdb_sync_client(connection_string: str) -> ChdbSyncClient:
-    """Create a ChdbSyncClient from a chdb:// connection string.
+    """Create a ChdbSyncClient backed by the shared chdb session.
 
     Args:
         connection_string: chdb://path/to/data URL.
     """
     path = connection_string[len("chdb://"):]
-    session = create_chdb_session(path)
-    return ChdbSyncClient(session)
+    return ChdbSyncClient(get_shared_session(path))

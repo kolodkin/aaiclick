@@ -239,7 +239,7 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 **Implementation**: `aaiclick/orchestration/execution.py` — see `serialize_task_result()`
 
-# Job Management APIs ✅ IMPLEMENTED
+# Job Management APIs
 
 **Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
 
@@ -249,7 +249,7 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 **CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
 
-# Job Cancellation ✅ IMPLEMENTED
+# Job Cancellation
 
 **Implementation**: `aaiclick/orchestration/claiming.py` — see `cancel_job()`, `check_task_cancelled()`
 
@@ -270,18 +270,50 @@ Task kwargs and results are stored as JSONB. Serialization uses polymorphic `_se
 
 Plain `@task`-decorated functions for parallel data processing. Callbacks are serialized via `_serialize_value()` in `decorators.py` and deserialized via `_deserialize_value()` in `execution.py`.
 
-| Operator                                  | Status                   | Description                                                   |
-|-------------------------------------------|--------------------------|---------------------------------------------------------------|
-| `map(cbk, obj, partition, args, kwargs) -> Group` | ✅ IMPLEMENTED           | Partitions Object into Views, creates N `_map_part` child tasks. `args`/`kwargs` forwarded to `cbk`. |
-| `_map_part(cbk, part, out) -> None`               | ✅ IMPLEMENTED (internal) | Applies `cbk(row, *args, **kwargs)` to each row in a partition View |
-| `reduce()`                                | ⚠️ NOT YET IMPLEMENTED  | Collect and aggregate partition results from a Group          |
+| Operator                                                  | Description                                                                 |
+|-----------------------------------------------------------|-----------------------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Group`         | Partitions Object into Views, creates N `_map_part` child tasks.            |
+| `_map_part(cbk, part, out) -> None`                       | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
+| `reduce(cbk, obj, partition, args, kwargs) -> Group`      | Layered parallel reduction. Each layer reduces partitions into one row.     |
+| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`     | Expander: pre-allocates all layer Objects, creates all tasks at once.       |
+| `_reduce_part(cbk, part, layer_obj) -> None`              | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
+
+## reduce()
+
+**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `reduce()`, `_expand_reduce()`, `_reduce_part()`
+
+Layered parallel reduction over an Object. The callback receives both the input partition and
+the pre-allocated output Object, and writes results directly into `output` using the native
+`output.insert()` API. Each layer partitions the current input into Views, applies the callback
+to each partition concurrently, then repeats until one row remains.
+
+All layers, subgroups, and tasks are created at once inside `_expand_reduce` — no lazy
+layer-by-layer expansion. `_expand_reduce` returns `(layer_last_obj, [layer_groups])` — the
+final single-row Object as task result, plus all layer subgroups as dynamic children.
+Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
+
+### Layer count
+
+Given `N` input rows and `partition` size `P`:
+
+```
+Layer 0  input=N    tasks=⌈N/P⌉   → layer_0_obj
+Layer 1  input=⌈N/P⌉ tasks=⌈.../P⌉ → layer_1_obj
+…continues until 1 row remains
+```
+
+**Example — 1300 rows, partition=500:** 2 layers, 4 `_reduce_part` tasks.
+
+**Example — 210 rows, partition=10:** 3 layers, 25 `_reduce_part` tasks.
+
+When the input Object is empty, raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 ## Spark Methods vs aaiclick Capabilities
 
 | Spark Method           | aaiclick Equivalent               | Notes                               |
 |------------------------|-----------------------------------|-------------------------------------|
 | `map(func)`            | Object operators (`+`, `*`, etc.) | Element-wise SQL operations         |
-| `mapPartitions(func)`  | **`map(cbk, obj)`** ✅           | Custom Python logic per partition   |
+| `mapPartitions(func)`  | `map(cbk, obj)`                   | Custom Python logic per partition   |
 | `filter(pred)`         | `View(where=...)`                 | SQL WHERE clause                    |
 | `groupByKey`           | `obj.group_by(...)`               | SQL GROUP BY                        |
 | `count()`              | `obj.count()`                     | SQL COUNT aggregation               |
@@ -289,7 +321,7 @@ Plain `@task`-decorated functions for parallel data processing. Callbacks are se
 | `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT              |
 | `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                        |
 
-Planned (not yet implemented): `reduce()`, `flatMap()`, `join()`.
+Planned (not yet implemented): `flatMap()`, `join()`.
 
 # Task Execution
 
@@ -403,7 +435,7 @@ Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 `create_object()` calls `incref` **before** `CREATE TABLE` in ClickHouse. Crash after incref but before CREATE → cleanup tries `DROP TABLE IF EXISTS` (harmless no-op).
 
-## TableSweeper ⚠️ NOT YET IMPLEMENTED
+## TableSweeper
 
 Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row. Complements PgCleanupWorker (catches tables refcount system missed entirely).
 

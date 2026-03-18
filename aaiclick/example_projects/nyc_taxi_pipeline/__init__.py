@@ -26,7 +26,7 @@ import asyncio
 
 from aaiclick import create_object_from_url
 from aaiclick.data.object import Object
-from aaiclick.orchestration import job, task
+from aaiclick.orchestration import TaskResult, job, task
 
 # NYC TLC Yellow Taxi data URLs (Parquet format)
 NYC_TAXI_BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
@@ -522,7 +522,7 @@ def nyc_taxi_pipeline(
         top_zones=top_zones,
     )
 
-    return [
+    return TaskResult(tasks=[
         trips,
         basic_stats,
         statistical_metrics,
@@ -533,7 +533,7 @@ def nyc_taxi_pipeline(
         tip_analysis,
         distance_analysis,
         report,
-    ]
+    ])
 
 
 async def main():
