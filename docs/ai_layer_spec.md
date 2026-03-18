@@ -437,41 +437,16 @@ async def my_pipeline():
 3. Update `docs/` with AI layer specification reference
 4. Add `ai` optional dependency group to core `pyproject.toml`
 
-### Phase 5: Pinned Row Sampling
+### Phase 5: Pinned Row Sampling ⚠️ FUTURE
 
-Allow users and agents to pin specific rows that must survive cleanup, ensuring statistically or semantically important rows are always in the sample (Phase 1 cleanup preserves arbitrary first-10 rows).
+Allow users to define rule-based predicates that ensure matching rows always survive cleanup. Phase 1 preserves an arbitrary 10 rows; Phase 5 lets you guarantee semantically important rows are included.
 
-```sql
-CREATE TABLE IF NOT EXISTS lineage_sample_aai_id (
-    table_name  String,
-    aai_id      UInt64,   -- Snowflake ID of the row to preserve
-    pinned_at   DateTime64(3)
-) ENGINE = MergeTree()
-ORDER BY (table_name, aai_id)
-```
+**Design** (not yet specified in detail):
 
-**Cleanup change** — prioritise pinned rows, fill remainder up to 10 with arbitrary rows:
-
-```python
-await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
-await ch_client.command(f"""
-    INSERT INTO {table}_sample
-    SELECT * FROM {table}
-    WHERE id IN (
-        SELECT aai_id FROM lineage_sample_aai_id
-        WHERE table_name = '{table}'
-    )
-    LIMIT 10
-""")
-# Top up to 10 if fewer than 10 pinned rows
-await ch_client.command(f"""
-    INSERT INTO {table}_sample
-    SELECT * FROM {table}
-    WHERE id NOT IN (SELECT id FROM {table}_sample)
-    LIMIT 10
-""")
-await ch_client.command(f"DROP TABLE {table}")
-await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
-```
-
-**TTL**: Same `AAICLICK_LINEAGE_TTL_DAYS` as `operation_log`.
+- Rules are WHERE clause predicates registered against a table before job completion:
+  ```python
+  pin_rows("my_table", where="value < 5")
+  ```
+- Cleanup prioritises rows matching any pinned rule, fills remainder up to 10 with arbitrary rows
+- Rules must be registered **during task execution** (before job completion triggers cleanup)
+- Rule-based (not ID-based) — predicates are more robust and don't require knowing row IDs in advance
