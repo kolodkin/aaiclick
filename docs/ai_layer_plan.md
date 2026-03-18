@@ -4,60 +4,63 @@
 
 ---
 
-## Phase 1: Lineage Core (`aaiclick/lineage/`) ⚠️ NOT YET IMPLEMENTED
+## Phase 1: Lineage Core (`aaiclick/lineage/`) ✅ IMPLEMENTED
 
 **Objective**: Capture data operation provenance in core with zero AI dependencies.
 
+**Implementation**: `aaiclick/lineage/` — see `init_lineage_tables()`, `LineageCollector`, `backward_lineage()`, `forward_lineage()`, `lineage_subgraph()`
+
 ### Tasks
 
-1. **Create module structure**
+1. **Create module structure** ✅
    - `aaiclick/lineage/__init__.py`
-   - `aaiclick/lineage/models.py` — `OperationLog` SQLModel
+   - `aaiclick/lineage/models.py` — DDL constants and `init_lineage_tables()`
    - `aaiclick/lineage/collector.py` — `LineageCollector` event sink
    - `aaiclick/lineage/graph.py` — lineage graph queries
 
-2. **Define ClickHouse DDL constants** (`models.py`)
-   - Snowflake ID primary key
+2. **Define ClickHouse DDL constants** ✅ (`models.py`)
+   - Snowflake ID primary key (`DEFAULT generateSnowflakeID()`)
    - Fields: `result_table`, `operation`, `args` (`Array(String)`), `kwargs` (`Map(String, String)`), `sql_template`, `task_id`, `job_id`, `created_at`
+   - `table_registry` table for cleanup worker (populated by `LineageCollector`)
    - `init_lineage_tables(ch_client)` — `CREATE TABLE IF NOT EXISTS` on context startup
-   - No Alembic migration needed — ClickHouse only
+   - Schema validation on startup to detect stale/mismatched tables
 
-4. **Implement LineageCollector**
+3. **Implement LineageCollector** ✅ (`collector.py`)
    - Buffer-based: collects events in memory, flushes to DB
    - ContextVar-based: `_lineage_collector: ContextVar[LineageCollector | None]`
    - Helper: `get_lineage_collector()` returns current or None
+   - `record_table()` populates `table_registry` buffer (one entry per new table)
 
-5. **Opt-in via data_context**
-   - Add `lineage: bool = False` parameter to `data_context()`
+4. **Opt-in via data_context** ✅ (`data_context.py`)
+   - Added `lineage: bool = False`, `task_id`, `job_id` parameters to `data_context()`
    - When True: create `LineageCollector`, store in ContextVar
    - On clean exit only (no exception): call `collector.flush()`
    - On failure: discard buffer to avoid writing partial lineage
-   - When False: no collector, no overhead
 
-6. **Instrument data operations** (2-line additions each)
-   - `data_context.create_object()` → record `"create"`, args=[], kwargs={}
-   - `data_context.create_object_from_value()` → record `"create_from_value"`, args=[], kwargs={}
+5. **Instrument data operations** ✅
+   - `data_context.create_object()` → `record_table()` only (table registry, not operation_log)
+   - `data_context.create_object_from_value()` → record `"create_from_value"`
    - `operators._apply_operator_db()` → record operator name, kwargs={"left": ..., "right": ...}
-   - `operators._apply_agg_db()` → record aggregation name, kwargs={"source": ...}
-   - `ingest.concat_objects_db()` → record `"concat"`, args=[s.table for s in sources]
+   - `operators._apply_aggregation()` → record aggregation name, kwargs={"source": ...}
+   - `ingest.concat_objects_db()` → record `"concat"`, args=[source tables]
    - `ingest.insert_objects_db()` → record `"insert"`, kwargs={"source": ..., "target": ...}
-   - `ingest.copy_db()` / `Object.copy()` → record `"copy"`, kwargs={"source": ...}
+   - `object.Object.copy()` → record `"copy"`, kwargs={"source": self.table}
 
-7. **Implement lineage graph queries**
-   - `backward_lineage(table, max_depth)` — recursive upstream trace
-   - `forward_lineage(table, max_depth)` — recursive downstream trace
-   - `LineageGraph` dataclass with `to_prompt_context()` formatter
+6. **Implement lineage graph queries** ✅ (`graph.py`)
+   - `backward_lineage(table, ch_client, max_depth)` — iterative BFS upstream trace
+   - `forward_lineage(table, ch_client, max_depth)` — iterative BFS downstream trace
+   - `lineage_subgraph(table, ch_client, direction, max_depth)` → `LineageGraph`
+   - `LineageGraph.to_prompt_context()` — text formatter for LLM consumption
 
-8. **Tests**
-   - `aaiclick/lineage/test_collector.py` — verify operations emit correct log entries
-   - `aaiclick/lineage/test_graph.py` — verify backward/forward traversal
-   - Test: lineage=False produces no log entries (zero overhead)
-   - Test: multi-step pipeline produces correct graph
+7. **Tests** ✅
+   - `aaiclick/lineage/test_collector.py` — 13 tests covering buffering, flushing, all instrumentation points
+   - `aaiclick/lineage/test_graph.py` — 11 tests covering backward/forward traversal and edge cases
 
-### Deliverables
-- `aaiclick/lineage/` module with full test coverage
-- `operation_log` and `table_registry` tables auto-created in ClickHouse on context startup
-- `data_context(lineage=True)` opt-in working end-to-end
+### Notes
+
+- `ORDER BY created_at` (not `job_id, created_at`) — nullable columns cannot be in MergeTree sorting key
+- chdb returns `Map(String, String)` as list of `(key, value)` tuples; `_to_dict()` normalises both formats
+- `create_object()` only writes to `table_registry` (not `operation_log`) to avoid double-counting with higher-level operations
 
 ---
 
@@ -139,7 +142,7 @@
 
 ## Phase 3: Orchestration Integration ⚠️ NOT YET IMPLEMENTED
 
-**Objective**: Automatic lineage capture during job execution + AI agents as tasks.
+**Objective**: Automatic lineage capture during job execution + AI agents as tasks + table cleanup worker.
 
 ### Tasks
 
@@ -152,7 +155,23 @@
    - Pass `lineage=True` to `data_context()` inside task execution
    - Collector auto-flushes on context exit
 
-3. **AI agents as @task wrappers**
+3. **Background cleanup worker** (deferred from Phase 1 — needs `job_id` from orchestration)
+   - On job completion (COMPLETED / FAILED / CANCELLED), replace each ephemeral table with a 10-row sample:
+     ```python
+     result = await ch_client.query(
+         "SELECT table_name FROM table_registry WHERE job_id = {job_id:UInt64}"
+     )
+     for (table,) in result.result_rows:
+         await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
+         await ch_client.command(f"INSERT INTO {table}_sample SELECT * FROM {table} LIMIT 10")
+         await ch_client.command(f"DROP TABLE {table}")
+         await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
+     await ch_client.command("DELETE FROM table_registry WHERE job_id = {job_id:UInt64}")
+     ```
+   - `CREATE TABLE new AS source` copies ENGINE, ORDER BY, codecs — confirmed working in chdb
+   - Persistent tables (`p_` prefix) excluded (no `job_id` in registry)
+
+4. **AI agents as @task wrappers**
    ```python
    @task(name="explain_lineage")
    async def explain_lineage_task(target: Object, question: str) -> str:
@@ -162,13 +181,14 @@
    - Lazy import: works only if aaiclick-ai is installed
    - Participates in normal DAG dependencies
 
-4. **Integration tests**
+5. **Integration tests**
    - Job with lineage=True → verify operation_log populated
    - AI task in DAG → verify explanation returned (mock LLM)
 
 ### Deliverables
 - Zero-config lineage for jobs (just set `lineage_enabled=True`)
 - AI agents composable with regular tasks in job DAGs
+- Post-job table sampling preserves lineage-accessible data without storage bloat
 
 ---
 

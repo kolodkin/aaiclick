@@ -130,6 +130,9 @@ async def data_context(
     ctx: str = "default",
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
+    lineage: bool = False,
+    task_id: int | None = None,
+    job_id: int | None = None,
 ) -> AsyncIterator[None]:
     """Async context manager for data operations.
 
@@ -138,7 +141,16 @@ async def data_context(
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
+        lineage: When True, capture operation lineage into ClickHouse.
+                 Creates ``operation_log`` and ``table_registry`` tables on
+                 first use. Events are flushed only on clean exit; on error
+                 the buffer is discarded.
+        task_id: Optional orchestration task ID to tag lineage events.
+        job_id: Optional orchestration job ID to tag lineage events.
     """
+    from aaiclick.lineage.collector import LineageCollector, _lineage_collector
+    from aaiclick.lineage.models import init_lineage_tables
+
     ch_client = await create_ch_client()
 
     owns_lifecycle = lifecycle is None
@@ -164,9 +176,27 @@ async def data_context(
     contexts[ctx] = state
     token = _data_contexts.set(contexts)
 
+    # Set up lineage collector if requested
+    collector: LineageCollector | None = None
+    lineage_token = None
+    if lineage:
+        await init_lineage_tables(ch_client)
+        collector = LineageCollector(task_id=task_id, job_id=job_id)
+        lineage_token = _lineage_collector.set(collector)
+
+    failed = False
     try:
         yield
+    except Exception:
+        failed = True
+        raise
     finally:
+        # Flush lineage only on clean exit; discard buffer on failure
+        if collector is not None and not failed:
+            await collector.flush()
+        if lineage_token is not None:
+            _lineage_collector.reset(lineage_token)
+
         # Mark all tracked objects as stale
         for obj_ref in state.objects.values():
             obj = obj_ref()
@@ -274,6 +304,15 @@ async def create_object(
         obj._ctx = "default"
     register_object(obj)  # Object lifecycle: track for stale marking on exit
     await state.ch_client.command(create_query)
+
+    # Register every new non-persistent table in table_registry for cleanup worker.
+    # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
+    if not obj.persistent:
+        from aaiclick.lineage.collector import get_lineage_collector
+        collector = get_lineage_collector()
+        if collector is not None:
+            collector.record_table(obj.table)
+
     return obj
 
 
@@ -507,6 +546,7 @@ async def create_object_from_value(
         Object: New Object instance with data
     """
     from .object import Object, View
+    from aaiclick.lineage.collector import get_lineage_collector
 
     if isinstance(val, (Object, View)):
         return val
@@ -515,7 +555,11 @@ async def create_object_from_value(
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):
-            return await _create_nested_object(val, ch, name)
+            result = await _create_nested_object(val, ch, name)
+            _lc = get_lineage_collector()
+            if _lc is not None:
+                _lc.record(result.table, "create_from_value")
+            return result
 
         has_arrays = any(isinstance(v, list) for v in val.values())
 
@@ -575,7 +619,11 @@ async def create_object_from_value(
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
             if _has_nested_dicts(val[0]):
-                return await _create_nested_records_object(val, ch, name)
+                result = await _create_nested_records_object(val, ch, name)
+                _lc = get_lineage_collector()
+                if _lc is not None:
+                    _lc.record(result.table, "create_from_value")
+                return result
 
             # Records format: list of dicts with possible Array fields
             first_keys = set(val[0].keys())
@@ -639,6 +687,9 @@ async def create_object_from_value(
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
 
+    _lc = get_lineage_collector()
+    if _lc is not None:
+        _lc.record(obj.table, "create_from_value")
     return obj
 
 

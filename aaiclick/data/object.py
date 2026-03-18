@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
+from ..lineage.collector import get_lineage_collector
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -635,10 +636,16 @@ class Object:
             >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
+        source_table = self.table
         copy_info = self._get_copy_info()
         if copy_info.selected_fields:
-            return await ingest.copy_db_selected_fields(copy_info, self.ch_client)
-        return await ingest.copy_db(copy_info, self.ch_client)
+            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+        else:
+            result = await ingest.copy_db(copy_info, self.ch_client)
+        collector = get_lineage_collector()
+        if collector is not None:
+            collector.record(result.table, "copy", kwargs={"source": source_table})
+        return result
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
