@@ -31,33 +31,75 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 - View source reference lost on serialization
 - No Object→Task mapping
 
-### 1.1 OperationLog Model
+### 1.1 ClickHouse Storage
 
-Stored in the orchestration SQL database (SQLite/PostgreSQL), same as Task/Job.
+Both `operation_log` and `table_registry` are stored in **ClickHouse** (not the SQL orchestration DB) for three reasons:
+
+- Every instrumentation point already has `ch_client` — no cross-layer session needed
+- OLAP performance — graph traversal over millions of lineage rows scales naturally
+- AI agents use `ch_client` as their primary query interface — single unified surface
+
+`task_id` and `job_id` are stored as plain integers (no FK constraints — ClickHouse doesn't support them). Cross-referencing with Task/Job records is done in Python when needed.
+
+### 1.2 ClickHouse Models
 
 ```python
 # aaiclick/lineage/models.py
 
-class OperationLog(SQLModel, table=True):
-    __tablename__ = "operation_log"
+# DDL executed on data_context startup (CREATE TABLE IF NOT EXISTS)
 
-    id: int              # Snowflake ID (PK)
-    result_table: str    # Table created or modified
-    operation: str       # "create", "create_from_value", "add", "sub", "mul",
-                         # "div", "concat", "insert", "copy", "min", "max",
-                         # "sum", "mean", "std", "eq", "ne", "lt", "gt", ...
-    source_tables: str   # JSON list of input table names: '["t_123", "t_456"]'
-    sql_template: str | None  # SQL executed (with table names, no data)
-    task_id: int | None  # Which task produced this (nullable for interactive use)
-    job_id: int | None   # Job scope (nullable for interactive use)
-    created_at: datetime
+OPERATION_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS operation_log (
+    id           UInt64,           -- Snowflake ID (PK)
+    result_table String,           -- Table created or modified
+    operation    String,           -- "create", "add", "concat", "copy", ...
+    source_tables Array(String),   -- Input table names
+    sql_template Nullable(String), -- SQL executed (table names, no data)
+    task_id      Nullable(UInt64),
+    job_id       Nullable(UInt64),
+    created_at   DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (job_id, created_at)
+TTL created_at + INTERVAL {ttl_days} DAY DELETE
+"""
+
+TABLE_REGISTRY_DDL = """
+CREATE TABLE IF NOT EXISTS table_registry (
+    table_name   String,
+    job_id       Nullable(UInt64),  -- NULL for persistent tables
+    is_persistent UInt8,            -- 1 for p_ prefix tables; job_id always NULL
+    created_at   DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (table_name)
+TTL created_at + INTERVAL {ttl_days} DAY DELETE
+"""
 ```
 
-Index on `result_table` for backward lineage queries. Index on `source_tables` (or GIN on PostgreSQL) for forward lineage queries.
+TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
 
-### 1.2 LineageCollector
+Native `Array(String)` for `source_tables` enables efficient forward lineage via `has(source_tables, table_name)` — no GIN index needed.
 
-A lightweight event sink, injected into DataContext via context variable.
+### 1.3 Lifecycle Management
+
+**Data tables** — event-driven, on job completion:
+
+```python
+# When job → COMPLETED / FAILED / CANCELLED:
+tables = await ch_client.query(
+    "SELECT table_name FROM table_registry WHERE job_id = ? AND is_persistent = 0"
+)
+for t in tables:
+    await ch_client.command(f"DROP TABLE IF EXISTS {t}")
+await ch_client.command("DELETE FROM table_registry WHERE job_id = ?")
+```
+
+Persistent objects (`p_name`) are never touched by job cleanup — they have `job_id = NULL` in `table_registry` and are cross-job by design. Their lifecycle is managed explicitly by the user via `delete_persistent_object()`.
+
+**table_registry** — explicit DELETE on job cleanup (above) + TTL fallback for orphans (interactive sessions, crashed jobs).
+
+**operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
+
+### 1.4 LineageCollector
 
 ```python
 # aaiclick/lineage/collector.py
@@ -66,23 +108,25 @@ class LineageCollector:
     """Collects operation events during a data_context session."""
 
     def __init__(self, task_id: int | None = None, job_id: int | None = None):
-        self._buffer: list[OperationLog] = []
+        self._buffer: list[dict] = []
         self.task_id = task_id
         self.job_id = job_id
 
     def record(self, result_table: str, operation: str,
                source_tables: list[str], sql: str | None = None) -> None:
-        """Buffer an operation event."""
+        """Buffer an operation event (synchronous, zero overhead)."""
         ...
 
-    async def flush(self) -> None:
-        """Write buffered events to database."""
+    async def flush(self, ch_client) -> None:
+        """Batch-insert buffered events into ClickHouse operation_log."""
         ...
 ```
 
+`ch_client` is passed into `flush()` from `data_context.__aexit__()` — same pattern as `PgLifecycleHandler` receiving its engine on construction. No extra connection needed.
+
 Activation via `data_context(lineage=True)` — stores collector in a ContextVar. When `lineage=False` (default), no collector exists, no overhead.
 
-### 1.3 Instrumentation Points
+### 1.5 Instrumentation Points
 
 Emit `collector.record(...)` calls at these locations:
 
@@ -99,23 +143,30 @@ Emit `collector.record(...)` calls at these locations:
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
-### 1.4 Lineage Graph Queries (Pure SQL)
+### 1.6 Lineage Graph Queries
+
+Implemented in ClickHouse SQL using iterative joins (ClickHouse supports WITH RECURSIVE in 23+, but `arrayJoin` + iterative Python loops work across all versions):
 
 ```python
 # aaiclick/lineage/graph.py
 
-async def backward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def backward_lineage(
+    table: str, ch_client, max_depth: int = 10
+) -> list[dict]:
     """Trace all upstream operations that produced `table`."""
-    # Recursive: find op where result_table=table, then recurse on source_tables
+    # Iterative: fetch op where result_table=table, then recurse on source_tables
     ...
 
-async def forward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def forward_lineage(
+    table: str, ch_client, max_depth: int = 10
+) -> list[dict]:
     """Trace all downstream operations that consumed `table`."""
-    # Find ops where table appears in source_tables, recurse on result_table
+    # has(source_tables, table) — native Array containment, no GIN needed
     ...
 
-async def lineage_subgraph(table: str, direction: str = "backward",
-                           max_depth: int = 10) -> LineageGraph:
+async def lineage_subgraph(
+    table: str, ch_client, direction: str = "backward", max_depth: int = 10
+) -> LineageGraph:
     """Return structured graph (nodes + edges) for visualization or AI context."""
     ...
 
@@ -129,9 +180,13 @@ class LineageGraph:
         ...
 ```
 
-### 1.5 Alembic Migration
+**Limitation — deleted tables**: `operation_log` records the graph structure and SQL templates, but once a table is dropped (job cleanup), AI agents can no longer call `sample_table()` or `get_stats()` on it. The lineage graph is structurally complete but data inspection of deleted nodes is impossible.
 
-Add `operation_log` table to the existing orchestration migration chain.
+> **Future improvement (Phase N+)**: At job-cleanup time, snapshot sample rows and column statistics for each non-persistent table before dropping it. Store snapshots in a `table_snapshots` ClickHouse table (same TTL). AI agents fall back to snapshots when live tables are unavailable. See Phase N+ section at the end of this document.
+
+### 1.7 ClickHouse Table Initialization
+
+No Alembic migration needed. Tables are created at `data_context` startup via `CREATE TABLE IF NOT EXISTS`. The `aaiclick/lineage/` module exposes an `init_lineage_tables(ch_client)` function called during context setup when `lineage=True`.
 
 ---
 
@@ -341,12 +396,12 @@ async def my_pipeline():
 ### Phase 1: Lineage Core (`aaiclick/lineage/`)
 
 1. Create `aaiclick/lineage/` module with `__init__.py`
-2. Define `OperationLog` model in `models.py`
-3. Create Alembic migration for `operation_log` table
-4. Implement `LineageCollector` in `collector.py`
-5. Add `lineage` ContextVar and opt-in to `data_context()`
-6. Instrument operators, ingest, and data_context creation functions
-7. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
+2. Define DDL constants and `init_lineage_tables(ch_client)` in `models.py`
+3. Implement `LineageCollector` in `collector.py` with `record()` and `flush(ch_client)`
+4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on exit
+5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
+6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
+7. Add job-completion table cleanup hook (query `table_registry` → batch DROP → DELETE registry)
 8. Write tests: verify operations produce correct log entries, verify graph traversal
 
 ### Phase 2: AI Package (`aaiclick-ai/`)
@@ -355,16 +410,16 @@ async def my_pipeline():
 2. Implement `AIProvider` wrapping `litellm.acompletion()`
 3. Implement `config.py` with env-based provider construction
 4. Implement `lineage_agent.py` — graph formatting + LLM query
-5. Implement `debug_agent.py` — "why" queries with data sampling
-6. Implement `tools.py` — table sampling, schema, stats tools
+5. Implement `debug_agent.py` — "why" queries with data sampling (live tables only)
+6. Implement `tools.py` — `sample_table`, `get_schema`, `get_stats`, `trace_upstream`
 7. Write tests with mock provider (no real LLM needed for unit tests)
 8. Add example script: interactive lineage exploration with Ollama
 
 ### Phase 3: Orchestration Integration
 
 1. Add `lineage_enabled` flag to Job model (default False)
-2. Wire LineageCollector into `execute_task()` when lineage enabled
-3. Auto-flush collector on data_context exit
+2. Pass `job_id` to `data_context()` from `execute_task()`; wire `LineageCollector`
+3. Wire job-completion cleanup into `PgLifecycleHandler` or job status update path
 4. Create `@task` wrappers for AI agents
 5. Write integration test: job with lineage → AI explanation
 
@@ -374,3 +429,47 @@ async def my_pipeline():
 2. Example: job pipeline with built-in AI debugging task
 3. Update `docs/` with AI layer specification reference
 4. Add `ai` optional dependency group to core `pyproject.toml`
+
+---
+
+## Future Improvements (Phase N+)
+
+### Sample Data Preservation for Deleted Tables ⚠️ NOT YET IMPLEMENTED
+
+**Problem**: `operation_log` preserves the lineage graph (structure + SQL) but not data. Once a job completes and tables are dropped, AI agents cannot call `sample_table()` or `get_stats()` on deleted nodes. The "why" debugging use case is partially blind for historical jobs.
+
+**Proposed solution**: Snapshot samples and stats before table deletion.
+
+```sql
+CREATE TABLE IF NOT EXISTS table_snapshots (
+    table_name   String,
+    job_id       Nullable(UInt64),
+    column_name  String,
+    sample_rows  String,          -- JSON: first N rows for this column
+    row_count    UInt64,
+    col_min      Nullable(String),
+    col_max      Nullable(String),
+    null_count   UInt64,
+    captured_at  DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (job_id, table_name)
+TTL captured_at + INTERVAL {ttl_days} DAY DELETE
+```
+
+**Integration point**: In the job-completion cleanup loop (Phase 1, step 7), before `DROP TABLE`, run:
+
+```python
+# Capture stats per column
+await ch_client.command(f"""
+    INSERT INTO table_snapshots
+    SELECT '{table}', {job_id}, name,
+           -- sample rows as JSON
+           -- min/max/nulls per column
+    FROM system.columns WHERE table = '{table}'
+    ...
+""")
+```
+
+**AI agent fallback**: `sample_table()` and `get_stats()` tools first check live ClickHouse; if the table is absent (`system.tables`), fall back to `table_snapshots`. Transparent to the LLM.
+
+**TTL**: Same `AAICLICK_LINEAGE_TTL_DAYS` as `operation_log`.
