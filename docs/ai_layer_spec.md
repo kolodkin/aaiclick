@@ -70,25 +70,7 @@ Native `Array(String)` for `source_tables` enables efficient forward lineage via
 
 ### 1.3 Lifecycle Management
 
-**Data tables** — event-driven, on job completion. `operation_log` doubles as the table registry: every table created within a job has a row with that `job_id` as `result_table`. Cleanup derives the drop list directly from it:
-
-```python
-# When job → COMPLETED / FAILED / CANCELLED:
-result = await ch_client.query("""
-    SELECT DISTINCT result_table FROM operation_log
-    WHERE job_id = {job_id}
-      AND result_table NOT LIKE 'p_%'
-      AND operation != 'insert'
-""")
-for table in result.result_rows:
-    await ch_client.command(f"DROP TABLE IF EXISTS {table[0]}")
-```
-
-`insert` is excluded because it logs a mutation of an existing table (created by a prior operation, possibly a different job). All other operations — `create`, `copy`, `concat`, binary ops, aggregations — produce a new table owned by this job.
-
-Persistent objects (`p_name`) are never touched by job cleanup — they are cross-job by design and their lifecycle is managed explicitly by the user via `delete_persistent_object()`.
-
-**operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
+`operation_log` — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
 
 ### 1.4 LineageCollector
 
