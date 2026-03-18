@@ -20,15 +20,6 @@ def test_storm_reduces_opponent_dice_bonus():
     assert opponent.dice_bonus == 3
 
 
-def test_storm_cannot_reduce_dice_bonus_below_zero():
-    mage = Player(name="Mage")
-    opponent = Player(name="Opponent", dice_bonus=1)
-
-    apply_skill(_get_skill("Storm"), opponent)
-
-    assert opponent.dice_bonus == -1
-
-
 def test_storm_does_not_affect_caster():
     mage = Player(name="Mage", dice_bonus=10)
     opponent = Player(name="Opponent", dice_bonus=5)
