@@ -2124,6 +2124,7 @@ class View(Object):
             "offset": self.offset,
             "order_by": self.order_by,
             "selected_fields": self.selected_fields,
+            "renamed_columns": self._renamed_columns,
         }
         if self.persistent:
             ref["persistent"] = True

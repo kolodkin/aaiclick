@@ -209,10 +209,13 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 offset=value.get("offset"),
                 order_by=value.get("order_by"),
                 selected_fields=value.get("selected_fields"),
+                renamed_columns=value.get("renamed_columns"),
             )
             register_object(view)
-            if "job_id" in value and state.lifecycle is not None:
-                await state.lifecycle.claim(value["table"], value["job_id"])
+            if "job_id" in value:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    await lifecycle.claim(value["table"], value["job_id"])
             return view
 
         else:
