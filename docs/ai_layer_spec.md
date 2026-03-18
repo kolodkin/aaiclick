@@ -46,16 +46,14 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 ```python
 # aaiclick/lineage/models.py
 
-# DDL executed on data_context startup (CREATE TABLE IF NOT EXISTS)
-
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
-    id           UInt64,           -- Snowflake ID (PK)
-    result_table String,           -- Table created or modified
-    operation    String,           -- "create", "add", "concat", "copy", ...
-    args         Array(String),    -- Positional input tables (e.g. concat sources)
+    id           UInt64,              -- Snowflake ID (PK)
+    result_table String,              -- Table created or modified
+    operation    String,              -- "create", "add", "concat", "copy", ...
+    args         Array(String),       -- Positional input tables (e.g. concat sources)
     kwargs       Map(String, String), -- Named input tables (e.g. left/right for binary ops)
-    sql_template Nullable(String), -- SQL executed (table names, no data)
+    sql_template Nullable(String),    -- SQL executed (table names, no data)
     task_id      Nullable(UInt64),
     job_id       Nullable(UInt64),
     created_at   DateTime64(3)
@@ -63,9 +61,29 @@ CREATE TABLE IF NOT EXISTS operation_log (
 ORDER BY (job_id, created_at)
 TTL created_at + INTERVAL {ttl_days} DAY DELETE
 """
+
+OPERATION_LOG_EXPECTED_COLUMNS = {
+    "id": "UInt64",
+    "result_table": "String",
+    "operation": "String",
+    "args": "Array(String)",
+    "kwargs": "Map(String, String)",
+    "sql_template": "Nullable(String)",
+    "task_id": "Nullable(UInt64)",
+    "job_id": "Nullable(UInt64)",
+    "created_at": "DateTime64(3)",
+}
+
+
+async def init_lineage_tables(ch_client: ChClient) -> None:
+    """Create lineage tables if they don't exist; validate schema if they do."""
+    await ch_client.command(OPERATION_LOG_DDL.format(ttl_days=_ttl_days()))
+    await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
 ```
 
 TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
+
+`init_lineage_tables()` is idempotent: `CREATE TABLE IF NOT EXISTS` is atomic in ClickHouse. If the table already exists, `_validate_schema()` checks that all expected columns are present with correct types and raises `RuntimeError` on mismatch.
 
 `args` holds positional inputs (e.g. N sources for `concat`); `kwargs` holds named inputs (e.g. `{"left": ..., "right": ...}` for binary ops). Forward lineage: `has(args, t) OR mapContains(kwargs, t)` — no GIN index needed.
 
@@ -109,11 +127,22 @@ await ch_client.command(
 ```python
 # aaiclick/lineage/collector.py
 
+from dataclasses import dataclass, field
+
+@dataclass
+class OperationEvent:
+    result_table: str
+    operation: str
+    args: list[str] = field(default_factory=list)
+    kwargs: dict[str, str] = field(default_factory=dict)
+    sql: str | None = None
+
+
 class LineageCollector:
     """Collects operation events during a data_context session."""
 
     def __init__(self, task_id: int | None = None, job_id: int | None = None):
-        self._buffer: list[dict] = []
+        self._buffer: list[OperationEvent] = []
         self.task_id = task_id
         self.job_id = job_id
 
