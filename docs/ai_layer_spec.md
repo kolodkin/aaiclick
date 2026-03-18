@@ -31,33 +31,80 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 - View source reference lost on serialization
 - No Object→Task mapping
 
-### 1.1 OperationLog Model
+### 1.1 ClickHouse Storage
 
-Stored in the orchestration SQL database (SQLite/PostgreSQL), same as Task/Job.
+`operation_log` is stored in **ClickHouse** (not the SQL orchestration DB) for three reasons:
+
+- Every instrumentation point already has `ch_client` — no cross-layer session needed
+- OLAP performance — graph traversal over millions of lineage rows scales naturally
+- AI agents use `ch_client` as their primary query interface — single unified surface
+
+`task_id` and `job_id` are stored as plain integers (no FK constraints — ClickHouse doesn't support them). Cross-referencing with Task/Job records is done in Python when needed.
+
+### 1.2 ClickHouse Models
 
 ```python
 # aaiclick/lineage/models.py
 
-class OperationLog(SQLModel, table=True):
-    __tablename__ = "operation_log"
+# DDL executed on data_context startup (CREATE TABLE IF NOT EXISTS)
 
-    id: int              # Snowflake ID (PK)
-    result_table: str    # Table created or modified
-    operation: str       # "create", "create_from_value", "add", "sub", "mul",
-                         # "div", "concat", "insert", "copy", "min", "max",
-                         # "sum", "mean", "std", "eq", "ne", "lt", "gt", ...
-    source_tables: str   # JSON list of input table names: '["t_123", "t_456"]'
-    sql_template: str | None  # SQL executed (with table names, no data)
-    task_id: int | None  # Which task produced this (nullable for interactive use)
-    job_id: int | None   # Job scope (nullable for interactive use)
-    created_at: datetime
+OPERATION_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS operation_log (
+    id           UInt64,           -- Snowflake ID (PK)
+    result_table String,           -- Table created or modified
+    operation    String,           -- "create", "add", "concat", "copy", ...
+    args         Array(String),    -- Positional input tables (e.g. concat sources)
+    kwargs       Map(String, String), -- Named input tables (e.g. left/right for binary ops)
+    sql_template Nullable(String), -- SQL executed (table names, no data)
+    task_id      Nullable(UInt64),
+    job_id       Nullable(UInt64),
+    created_at   DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (job_id, created_at)
+TTL created_at + INTERVAL {ttl_days} DAY DELETE
+"""
 ```
 
-Index on `result_table` for backward lineage queries. Index on `source_tables` (or GIN on PostgreSQL) for forward lineage queries.
+TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
 
-### 1.2 LineageCollector
+`args` holds positional inputs (e.g. N sources for `concat`); `kwargs` holds named inputs (e.g. `{"left": ..., "right": ...}` for binary ops). Forward lineage: `has(args, t) OR mapContains(kwargs, t)` — no GIN index needed.
 
-A lightweight event sink, injected into DataContext via context variable.
+### 1.3 Lifecycle Management
+
+**Background cleanup worker** — on job completion (COMPLETED / FAILED / CANCELLED), replaces each ephemeral table with a 10-row sample:
+
+```python
+result = await ch_client.query(
+    "SELECT table_name FROM table_registry WHERE job_id = {job_id:UInt64}"
+)
+for (table,) in result.result_rows:
+    await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
+    await ch_client.command(f"""
+        INSERT INTO {table}_sample
+        SELECT * FROM {table}
+        LIMIT 10
+    """)
+    await ch_client.command(f"DROP TABLE {table}")
+    await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
+await ch_client.command(
+    "DELETE FROM table_registry WHERE job_id = {job_id:UInt64}"
+)
+```
+
+`CREATE TABLE new AS source` copies the full table definition — ENGINE, ORDER BY, codecs — without data. The INSERT then populates the sample. Renaming back to the original name keeps `operation_log` lineage references valid.
+
+**Persistent tables** (`p_` prefix) — never deleted. They have no `job_id` in `table_registry` and are excluded from all cleanup.
+
+**Tables involved**:
+
+| Table            | Purpose                                            |
+|------------------|----------------------------------------------------|
+| `operation_log`  | Lineage graph — TTL-managed, append-only           |
+| `table_registry` | `table_name → job_id` mapping for cleanup worker   |
+
+**operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
+
+### 1.4 LineageCollector
 
 ```python
 # aaiclick/lineage/collector.py
@@ -66,56 +113,68 @@ class LineageCollector:
     """Collects operation events during a data_context session."""
 
     def __init__(self, task_id: int | None = None, job_id: int | None = None):
-        self._buffer: list[OperationLog] = []
+        self._buffer: list[dict] = []
         self.task_id = task_id
         self.job_id = job_id
 
     def record(self, result_table: str, operation: str,
-               source_tables: list[str], sql: str | None = None) -> None:
-        """Buffer an operation event."""
+               args: list[str] | None = None,
+               kwargs: dict[str, str] | None = None,
+               sql: str | None = None) -> None:
+        """Buffer an operation event (synchronous, zero overhead)."""
         ...
 
     async def flush(self) -> None:
-        """Write buffered events to database."""
+        """Batch-insert buffered events into ClickHouse operation_log."""
+        ch_client = get_ch_client()
         ...
 ```
 
+`flush()` calls `get_ch_client()` directly — no need to pass the client in. Called from `data_context.__aexit__()` only on success (no exception). On failure, the buffer is discarded to avoid writing partial lineage.
+
 Activation via `data_context(lineage=True)` — stores collector in a ContextVar. When `lineage=False` (default), no collector exists, no overhead.
 
-### 1.3 Instrumentation Points
+### 1.5 Instrumentation Points
 
 Emit `collector.record(...)` calls at these locations:
 
-| Location                          | Operation          | Source Tables                  |
-|-----------------------------------|--------------------|--------------------------------|
-| `data_context.create_object()`    | `"create"`         | `[]`                           |
-| `data_context.create_object_from_value()` | `"create_from_value"` | `[]`                 |
-| `operators._apply_operator_db()`  | `"add"`, `"sub"`, etc. | `[left.table, right.table]` |
-| `operators._apply_agg_db()`       | `"sum"`, `"mean"`, etc. | `[source.table]`           |
-| `ingest.concat_objects_db()`      | `"concat"`         | `[s.table for s in sources]`   |
-| `ingest.insert_objects_db()`      | `"insert"`         | `[source.table]`               |
-| `ingest.copy_db()`                | `"copy"`           | `[source.table]`               |
-| `object.Object.copy()`            | `"copy"`           | `[self.table]`                 |
+| Location                                  | Operation              | `args`                        | `kwargs`                              |
+|-------------------------------------------|------------------------|-------------------------------|---------------------------------------|
+| `data_context.create_object()`            | `"create"`             | `[]`                          | `{}`                                  |
+| `data_context.create_object_from_value()` | `"create_from_value"`  | `[]`                          | `{}`                                  |
+| `operators._apply_operator_db()`          | `"add"`, `"sub"`, etc. | `[]`                          | `{"left": left.table, "right": right.table}` |
+| `operators._apply_agg_db()`               | `"sum"`, `"mean"`, etc.| `[]`                          | `{"source": source.table}`            |
+| `ingest.concat_objects_db()`              | `"concat"`             | `[s.table for s in sources]`  | `{}`                                  |
+| `ingest.insert_objects_db()`              | `"insert"`             | `[]`                          | `{"source": source.table, "target": target.table}` |
+| `ingest.copy_db()`                        | `"copy"`               | `[]`                          | `{"source": source.table}`            |
+| `object.Object.copy()`                    | `"copy"`               | `[]`                          | `{"source": self.table}`              |
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
-### 1.4 Lineage Graph Queries (Pure SQL)
+### 1.6 Lineage Graph Queries
+
+Implemented in ClickHouse SQL using iterative joins (ClickHouse supports WITH RECURSIVE in 23+, but `arrayJoin` + iterative Python loops work across all versions):
 
 ```python
 # aaiclick/lineage/graph.py
 
-async def backward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def backward_lineage(
+    table: str, ch_client, max_depth: int = 10
+) -> list[dict]:
     """Trace all upstream operations that produced `table`."""
-    # Recursive: find op where result_table=table, then recurse on source_tables
+    # Iterative: fetch op where result_table=table, then recurse on args + kwargs values
     ...
 
-async def forward_lineage(table: str, max_depth: int = 10) -> list[OperationLog]:
+async def forward_lineage(
+    table: str, ch_client, max_depth: int = 10
+) -> list[dict]:
     """Trace all downstream operations that consumed `table`."""
-    # Find ops where table appears in source_tables, recurse on result_table
+    # has(args, table) OR mapContains(kwargs, table) — no GIN needed
     ...
 
-async def lineage_subgraph(table: str, direction: str = "backward",
-                           max_depth: int = 10) -> LineageGraph:
+async def lineage_subgraph(
+    table: str, ch_client, direction: str = "backward", max_depth: int = 10
+) -> LineageGraph:
     """Return structured graph (nodes + edges) for visualization or AI context."""
     ...
 
@@ -129,9 +188,11 @@ class LineageGraph:
         ...
 ```
 
-### 1.5 Alembic Migration
+**Historical tables**: After job cleanup, each table is replaced with a 10-row sample (same name, same schema). AI agents can still call `sample_table()` on historical nodes — they transparently return the preserved sample rows. `get_stats()` reflects the sample only.
 
-Add `operation_log` table to the existing orchestration migration chain.
+### 1.7 ClickHouse Table Initialization
+
+No Alembic migration needed. Tables are created at `data_context` startup via `CREATE TABLE IF NOT EXISTS`. The `aaiclick/lineage/` module exposes an `init_lineage_tables(ch_client)` function called during context setup when `lineage=True`.
 
 ---
 
@@ -310,7 +371,7 @@ When a job runs with `lineage=True`, the worker injects a `LineageCollector` int
 async with data_context(lineage=job.lineage_enabled):
     # collector automatically created, task_id/job_id set
     result = await func(**deserialized_kwargs)
-    # collector.flush() on context exit
+    # collector.flush() only called on success — partial lineage discarded on failure
 ```
 
 This means **all object operations within a task are automatically logged** — no changes to user task code.
@@ -341,13 +402,14 @@ async def my_pipeline():
 ### Phase 1: Lineage Core (`aaiclick/lineage/`)
 
 1. Create `aaiclick/lineage/` module with `__init__.py`
-2. Define `OperationLog` model in `models.py`
-3. Create Alembic migration for `operation_log` table
-4. Implement `LineageCollector` in `collector.py`
-5. Add `lineage` ContextVar and opt-in to `data_context()`
-6. Instrument operators, ingest, and data_context creation functions
-7. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
-8. Write tests: verify operations produce correct log entries, verify graph traversal
+2. Define DDL constants and `init_lineage_tables(ch_client)` in `models.py`
+3. Implement `LineageCollector` in `collector.py` with `record()` and `flush()`
+4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on clean exit only (discard buffer on exception)
+5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
+6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
+7. Add `table_registry` DDL to `models.py`; register every new table on creation
+8. Implement background cleanup worker: `CREATE AS source` + `INSERT LIMIT 10` + `DROP` + `RENAME` per table in registry for completed job; persistent (`p_` prefix) tables skipped
+9. Write tests: verify operations produce correct log entries, verify graph traversal, verify sample tables after cleanup
 
 ### Phase 2: AI Package (`aaiclick-ai/`)
 
@@ -355,16 +417,16 @@ async def my_pipeline():
 2. Implement `AIProvider` wrapping `litellm.acompletion()`
 3. Implement `config.py` with env-based provider construction
 4. Implement `lineage_agent.py` — graph formatting + LLM query
-5. Implement `debug_agent.py` — "why" queries with data sampling
-6. Implement `tools.py` — table sampling, schema, stats tools
+5. Implement `debug_agent.py` — "why" queries with data sampling (live tables only)
+6. Implement `tools.py` — `sample_table`, `get_schema`, `get_stats`, `trace_upstream`
 7. Write tests with mock provider (no real LLM needed for unit tests)
 8. Add example script: interactive lineage exploration with Ollama
 
 ### Phase 3: Orchestration Integration
 
 1. Add `lineage_enabled` flag to Job model (default False)
-2. Wire LineageCollector into `execute_task()` when lineage enabled
-3. Auto-flush collector on data_context exit
+2. Pass `job_id` to `data_context()` from `execute_task()`; wire `LineageCollector`
+3. Wire job-completion cleanup into `PgLifecycleHandler` or job status update path
 4. Create `@task` wrappers for AI agents
 5. Write integration test: job with lineage → AI explanation
 
@@ -374,3 +436,17 @@ async def my_pipeline():
 2. Example: job pipeline with built-in AI debugging task
 3. Update `docs/` with AI layer specification reference
 4. Add `ai` optional dependency group to core `pyproject.toml`
+
+### Phase 5: Pinned Row Sampling ⚠️ FUTURE
+
+Allow users to define rule-based predicates that ensure matching rows always survive cleanup. Phase 1 preserves an arbitrary 10 rows; Phase 5 lets you guarantee semantically important rows are included.
+
+**Design** (not yet specified in detail):
+
+- Rules are WHERE clause predicates registered against a table before job completion:
+  ```python
+  pin_rows("my_table", where="value < 5")
+  ```
+- Cleanup prioritises rows matching any pinned rule, fills remainder up to 10 with arbitrary rows
+- Rules must be registered **during task execution** (before job completion triggers cleanup)
+- Rule-based (not ID-based) — predicates are more robust and don't require knowing row IDs in advance
