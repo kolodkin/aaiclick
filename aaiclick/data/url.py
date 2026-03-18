@@ -134,6 +134,7 @@ async def create_object_from_url(
     limit: int | None = None,
     json_path: str | None = None,
     json_columns: dict[str, ColumnInfo] | None = None,
+    ch_settings: dict[str, str | int] | None = None,
 ) -> Object:
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
@@ -158,6 +159,9 @@ async def create_object_from_url(
         limit: Optional row limit applied at load time
         json_path: Path to JSON array in response (e.g., "vulnerabilities"). Requires json_columns.
         json_columns: Mapping of JSON field names to ColumnInfo types. Requires json_path.
+        ch_settings: Optional ClickHouse query settings passed to the read operation.
+            Useful for format-specific options, e.g.
+            ``{"input_format_csv_skip_first_lines": 1}`` to skip a comment header line.
 
     Returns:
         Object: New Object with loaded data.
@@ -192,12 +196,12 @@ async def create_object_from_url(
         for col_name in json_columns:
             if col_name == "aai_id":
                 raise ValueError("'aai_id' is a reserved column name and cannot be used")
-        return await _create_from_json(url, format, json_path, json_columns, where, limit)
+        return await _create_from_json(url, format, json_path, json_columns, where, limit, ch_settings)
 
     if columns is None:
         raise ValueError("Either columns or json_path/json_columns must be provided")
     _validate_url_columns(columns)
-    return await _create_from_tabular(url, format, columns, where, limit)
+    return await _create_from_tabular(url, format, columns, where, limit, ch_settings)
 
 
 async def _create_from_tabular(
@@ -206,17 +210,19 @@ async def _create_from_tabular(
     columns: list[str],
     where: str | None,
     limit: int | None,
+    ch_settings: dict[str, str | int] | None,
 ) -> Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
     safe_url = url.replace("'", "\\'")
+    settings = ch_settings or {}
 
     quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
     describe_query = (
         f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
     )
-    describe_result = await ch.query(describe_query)
+    describe_result = await ch.query(describe_query, settings=settings)
 
     ch_types: dict[str, str] = {}
     for row in describe_result.result_rows:
@@ -253,7 +259,7 @@ async def _create_from_tabular(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ch.command(insert_query)
+    await ch.command(insert_query, settings=settings)
 
     return obj
 
@@ -265,10 +271,12 @@ async def _create_from_json(
     json_columns: dict[str, ColumnInfo],
     where: str | None,
     limit: int | None,
+    ch_settings: dict[str, str | int] | None,
 ) -> Object:
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
     safe_url = url.replace("'", "\\'")
+    settings = ch_settings or {}
 
     schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     for col_name, col_info in json_columns.items():
@@ -294,6 +302,6 @@ async def _create_from_json(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ch.command(insert_query)
+    await ch.command(insert_query, settings=settings)
 
     return obj

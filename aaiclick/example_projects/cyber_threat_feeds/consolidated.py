@@ -15,6 +15,7 @@ from aaiclick.orchestration import task
 
 _HAS_KEV = "has(sources, 'kev')"
 _HAS_SHODAN = "has(sources, 'shodan')"
+_HAS_EPSS = "has(sources, 'epss')"
 
 CONSOLIDATED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
@@ -37,7 +38,7 @@ CONSOLIDATED_COLUMNS = {
 MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
-    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan']"),
+    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan','epss']"),
     "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
     "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
     "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
@@ -57,6 +58,7 @@ MERGED_COLUMNS = {
 async def build_consolidated_table(
     kev: Object,
     cves: Object,
+    epss: Object,
     start_date: str,
     end_date: str,
 ) -> Object:
@@ -99,6 +101,14 @@ async def build_consolidated_table(
     })
     await agg.insert(shodan_view)
 
+    # EPSS: rename cve→cve_id, percentile→ranking_epss, add source tag
+    epss_view = (
+        epss
+        .rename({"cve": "cve_id", "percentile": "ranking_epss"})
+        .with_columns({"source": Computed("String", "'epss'")})
+    )
+    await agg.insert(epss_view)
+
     # Collapse: merge rows per CVE — groupArrayDistinct for sources, any() for all other columns
     merged = await agg.group_by("cve_id").agg({
         "source":             GB_GROUP_ARRAY_DISTINCT,
@@ -127,5 +137,7 @@ async def analyze_consolidated(consolidated: Object) -> dict:
         "kev_only":           f"{_HAS_KEV} AND NOT {_HAS_SHODAN}",
         "shodan_only":        f"{_HAS_SHODAN} AND NOT {_HAS_KEV}",
         "kev_with_high_epss": f"{_HAS_KEV} AND epss > 0.5",
+        "epss_coverage":      _HAS_EPSS,
+        "kev_with_epss":      f"{_HAS_KEV} AND {_HAS_EPSS}",
     })
     return await stats.data()

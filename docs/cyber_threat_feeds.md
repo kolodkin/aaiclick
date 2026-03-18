@@ -205,12 +205,17 @@ load_shodan_cves -+
                     |           +-> analyze_kev_ransomware -----+                         |
                     |                                                                     |
                     +---> build_consolidated_table --> analyze_consolidated --+            |
-                    |                                                        v            v
-    load_shodan_cves --+---> analyze_cvss_distribution ------+-----> generate_threat_report
-                       |                                     |
-                       +--> analyze_epss_distribution -------+
-                       |                                     |
-                       +--> find_high_risk_cves -------------+
+                    |         ^                                              v            v
+    load_shodan_cves --+       |         analyze_cvss_distribution ---+-> generate_threat_report
+                       |       |                                      |
+                       +-------+         analyze_epss_distribution ---+
+                       |       |                                      |
+                       +---> analyze_shodan_cves                      |
+                             find_high_risk_cves --------------------+
+                                                                      |
+    load_epss_data ----+---> analyze_epss ---------------------------+
+                       |
+                       +-> build_consolidated_table (3rd source)
 ```
 
 ## Implementation Phases
@@ -297,15 +302,61 @@ Remove the raw SQL workaround in `consolidated.py` by adding `groupArrayDistinct
 - `aaiclick/data/test_group_by.py` — added 3 tests for `group_array_distinct`
 - `aaiclick/example_projects/cyber_threat_feeds/consolidated.py` — replaced raw `ch.command()` with `agg.group_by("cve_id").agg({...}).rename({"source": "sources"})`
 
-### Phase 6 (Future): Additional sources
+### Phase 6: FIRST EPSS CSV — full exploitation scoring ✅
 
-| Task                                                     | Status |
-|----------------------------------------------------------|--------|
-| Add EPSS CSV feed as standalone source                   |        |
-| Extend `create_object_from_url` for nested JSON paths    |        |
-| Add NVD CVE 2.0 API support (nested `cve` subobject)    |        |
-| Add POST support for OSV.dev                             |        |
-| Add headers support for authenticated APIs               |        |
+Add the FIRST EPSS feed as a standalone third source. Provides complete exploitation
+probability scores for ~319K CVEs — far broader than Shodan's date-windowed subset.
+
+| Task                                                                              | Status |
+|-----------------------------------------------------------------------------------|--------|
+| Add `ch_settings` parameter to `create_object_from_url` (skip comment header)    | ✅     |
+| Create `aaiclick/url_samples/sample_commented.csv` for `ch_settings` unit test   | ✅     |
+| Add unit test for `ch_settings` to `test_url.py`                                 | ✅     |
+| Implement `load_epss_data()` task in `epss.py`                                   | ✅     |
+| Implement `analyze_epss()` task in `epss.py`                                     | ✅     |
+| Update `build_consolidated_table` to insert EPSS as third source                 | ✅     |
+| Update `analyze_consolidated` to include EPSS coverage stats                     | ✅     |
+| Wire EPSS into job DAG in `__init__.py`                                          | ✅     |
+| Add Source 3: FIRST EPSS section to `report.py`                                  | ✅     |
+| Push and verify CI                                                                |        |
+
+**Implementation**:
+- `aaiclick/data/url.py` — added `ch_settings` parameter to `create_object_from_url` and `_create_from_tabular`
+- `aaiclick/example_projects/cyber_threat_feeds/epss.py` — see `load_epss_data()` and `analyze_epss()`
+- `aaiclick/example_projects/cyber_threat_feeds/consolidated.py` — `build_consolidated_table` now accepts `epss` parameter
+- `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — updated DAG and docstring
+
+**EPSS data source details**:
+
+| Property      | Value                                                  |
+|---------------|--------------------------------------------------------|
+| URL           | `https://epss.cyentia.com/epss_scores-current.csv.gz`  |
+| Format        | Gzip-compressed CSV (auto-decompressed by ClickHouse)  |
+| Header quirk  | First line is a `#model_version:...` comment to skip   |
+| Records       | ~319,355 CVEs with exploitation probability scores     |
+| Auth required | No                                                     |
+
+**Columns**:
+
+| Field        | Type    | Description                                     |
+|--------------|---------|-------------------------------------------------|
+| `cve`        | String  | CVE identifier (e.g. "CVE-2024-1234")           |
+| `epss`       | Float64 | Probability of exploitation in next 30 days     |
+| `percentile` | Float64 | Relative ranking among all scored CVEs          |
+
+### Phase 7 (Future): Additional sources
+
+| Source                 | URL                                                                          | Format     | Notes                                                       |
+|------------------------|------------------------------------------------------------------------------|------------|-------------------------------------------------------------|
+| Exploit-DB CSV         | `https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv` | CSV        | Maps CVE IDs → public exploit entries (date, platform, type) |
+| GitHub Advisory DB     | `https://api.github.com/advisories?per_page=100&type=reviewed`              | JSON array | Package/ecosystem context; 60 req/hr unauthenticated        |
+| NVD CVE 2.0 API        | `https://services.nvd.nist.gov/rest/json/cves/2.0`                          | JSON       | Nested `cve` subobject — needs dot-path JSONExtract support |
+| OSV.dev bulk export    | `https://osv-vulnerabilities.storage.googleapis.com/all.zip`                | ZIP/JSON   | Needs ZIP extraction support                                |
+
+**Prerequisite work for Phase 7**:
+- Extend `_json_extract_expr` with dot-path support for NVD's nested `cve.field` structure
+- Add POST support to `create_object_from_url` for OSV.dev
+- Add HTTP headers support for authenticated APIs
 
 ## File Changes
 
