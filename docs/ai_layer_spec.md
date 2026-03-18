@@ -403,8 +403,9 @@ async def my_pipeline():
 4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on exit
 5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
 6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
-7. Add job-completion table cleanup hook (query `operation_log` for job's non-persistent result tables → batch DROP)
-8. Write tests: verify operations produce correct log entries, verify graph traversal
+7. Add `table_registry` DDL to `models.py`; register every new table on creation
+8. Implement background cleanup worker: `CREATE AS source` + `INSERT LIMIT 10` + `DROP` + `RENAME` per table in registry for completed job; persistent (`p_` prefix) tables skipped
+9. Write tests: verify operations produce correct log entries, verify graph traversal, verify sample tables after cleanup
 
 ### Phase 2: AI Package (`aaiclick-ai/`)
 
@@ -432,15 +433,9 @@ async def my_pipeline():
 3. Update `docs/` with AI layer specification reference
 4. Add `ai` optional dependency group to core `pyproject.toml`
 
----
+### Phase 5: Pinned Row Sampling
 
-## Future Improvements (Phase N+)
-
-### Pinned Row Sampling ⚠️ NOT YET IMPLEMENTED
-
-**Current behavior**: cleanup preserves an arbitrary first-10-row sample per table.
-
-**Improvement**: allow users and agents to pin specific rows that must survive cleanup, ensuring statistically or semantically important rows are always in the sample.
+Allow users and agents to pin specific rows that must survive cleanup, ensuring statistically or semantically important rows are always in the sample (Phase 1 cleanup preserves arbitrary first-10 rows).
 
 ```sql
 CREATE TABLE IF NOT EXISTS lineage_sample_aai_id (
