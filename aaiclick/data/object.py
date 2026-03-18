@@ -27,6 +27,7 @@ from .models import (
     GroupByOpType,
     GB_ANY,
     GB_COUNT,
+    GB_GROUP_ARRAY_DISTINCT,
     GB_MAX,
     GB_MEAN,
     GB_MIN,
@@ -1966,6 +1967,10 @@ class GroupByQuery:
     async def any(self, column: str) -> Object:
         """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
         return await self.agg({column: GB_ANY})
+
+    async def group_array_distinct(self, column: str) -> Object:
+        """Convenience: collect distinct values into an array per group. Delegates to agg()."""
+        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT})
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""

@@ -137,7 +137,8 @@ GB_COUNT = "count"
 GB_STD = "std"
 GB_VAR = "var"
 GB_ANY = "any"
-GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any"]
+GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
+GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str, datetime]

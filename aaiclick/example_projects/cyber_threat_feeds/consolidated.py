@@ -1,9 +1,11 @@
 """Consolidated AggregatingMergeTree table — merges KEV and Shodan sources."""
 
-from aaiclick.data.data_context import create_object, get_ch_client
+from aaiclick.data.data_context import create_object
 from aaiclick.data.models import (
     ENGINE_AGGREGATING_MERGE_TREE,
     FIELDTYPE_ARRAY,
+    GB_ANY,
+    GB_GROUP_ARRAY_DISTINCT,
     ColumnInfo,
     Computed,
     Schema,
@@ -97,28 +99,23 @@ async def build_consolidated_table(
     })
     await agg.insert(shodan_view)
 
-    # Collapse: merge rows per CVE with groupArrayDistinct for sources
-    # TODO: replace with agg API once groupArrayDistinct is supported
-    ch = get_ch_client()
-    merged_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns=MERGED_COLUMNS,
-    )
-    merged = await create_object(merged_schema)
-    await ch.command(
-        f"INSERT INTO {merged.table} "
-        f"(cve_id, sources, vendor, product, vulnerability_name, "
-        f"short_description, date_added, known_ransomware, "
-        f"cvss, cvss_v2, cvss_v3, epss, ranking_epss, summary) "
-        f"SELECT cve_id, groupArrayDistinct(source), "
-        f"any(vendor), any(product), any(vulnerability_name), "
-        f"any(short_description), any(date_added), any(known_ransomware), "
-        f"any(cvss), any(cvss_v2), any(cvss_v3), "
-        f"any(epss), any(ranking_epss), any(summary) "
-        f"FROM {agg.table} GROUP BY cve_id"
-    )
-
-    return merged
+    # Collapse: merge rows per CVE — groupArrayDistinct for sources, any() for all other columns
+    merged = await agg.group_by("cve_id").agg({
+        "source":             GB_GROUP_ARRAY_DISTINCT,
+        "vendor":             GB_ANY,
+        "product":            GB_ANY,
+        "vulnerability_name": GB_ANY,
+        "short_description":  GB_ANY,
+        "date_added":         GB_ANY,
+        "known_ransomware":   GB_ANY,
+        "cvss":               GB_ANY,
+        "cvss_v2":            GB_ANY,
+        "cvss_v3":            GB_ANY,
+        "epss":               GB_ANY,
+        "ranking_epss":       GB_ANY,
+        "summary":            GB_ANY,
+    })
+    return merged.rename({"source": "sources"})
 
 
 @task
