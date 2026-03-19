@@ -74,7 +74,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     kev_report = analyze_kev(kev=kev)
 
     # Phase 2: Shodan CVEDB (two parallel loads + combine)
-    shodan_kev = load_shodan_kev_cves(start_date=START_DATE, end_date=END_DATE)
+    shodan_kev = load_shodan_kev_cves()
     shodan_general = load_shodan_general_cves(
         start_date=START_DATE, end_date=END_DATE, limit=shodan_limit,
     )

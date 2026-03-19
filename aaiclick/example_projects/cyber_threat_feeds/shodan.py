@@ -24,17 +24,14 @@ SHODAN_COLUMNS = {
 
 
 @task
-async def load_shodan_kev_cves(start_date: str, end_date: str) -> Object:
-    """Load KEV-flagged CVEs from Shodan CVEDB.
+async def load_shodan_kev_cves() -> Object:
+    """Load all KEV-flagged CVEs from Shodan CVEDB.
 
-    Uses is_kev=true to fetch CVEs that Shodan knows are in the CISA KEV
-    catalog, ensuring cross-source overlap in the consolidated table.
+    Fetches all CVEs that Shodan marks as in the CISA KEV catalog with no
+    date filter — KEV entries span the full vulnerability history, not just
+    a recent window.
     """
-    url = (
-        f"{SHODAN_CVEDB_URL}"
-        f"?is_kev=true&limit=5000"
-        f"&start_date={start_date}&end_date={end_date}"
-    )
+    url = f"{SHODAN_CVEDB_URL}?is_kev=true&limit=5000"
     return await create_object_from_url(
         url=url,
         format="RawBLOB",
