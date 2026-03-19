@@ -86,22 +86,6 @@ async def test_oplog_subgraph_invalid_direction():
         await oplog_subgraph("some_table", ch, direction="sideways")
 
 
-async def test_to_prompt_context_no_nodes():
-    """OplogGraph.to_prompt_context() handles empty graph."""
-    graph = OplogGraph()
-    text = graph.to_prompt_context()
-    assert "No operation log" in text
-
-
-async def test_to_prompt_context_with_nodes():
-    """OplogGraph.to_prompt_context() formats graph as readable text."""
-    a_table, b_table, result_table, ch = await _run_pipeline()
-
-    graph = await oplog_subgraph(result_table, ch, direction="backward")
-    text = graph.to_prompt_context()
-    assert "operation" in text.lower()
-    assert result_table in text or any(n.table in text for n in graph.nodes)
-
 
 async def test_multi_step_pipeline_graph():
     """Multi-step pipeline produces correct backward oplog."""

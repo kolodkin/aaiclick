@@ -44,28 +44,6 @@ class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
     edges: list[OplogEdge] = field(default_factory=list)
 
-    def to_prompt_context(self) -> str:
-        """Format the oplog graph as plain text for LLM consumption."""
-        if not self.nodes:
-            return "No operation log information found."
-
-        lines: list[str] = ["Data operation graph:", ""]
-        for node in self.nodes:
-            sources = list(node.args) + list(node.kwargs.values())
-            src_str = ", ".join(sources) if sources else "(none)"
-            lines.append(f"  {node.table}")
-            lines.append(f"    operation : {node.operation}")
-            lines.append(f"    inputs    : {src_str}")
-            if node.sql_template:
-                lines.append(f"    sql       : {node.sql_template}")
-            lines.append("")
-
-        lines.append("Edges:")
-        for edge in self.edges:
-            lines.append(f"  {edge.source} -> {edge.target} [{edge.operation}]")
-
-        return "\n".join(lines)
-
 
 async def backward_oplog(
     table: str,
