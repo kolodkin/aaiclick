@@ -36,7 +36,8 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
-from aaiclick.oplog.collector import oplog_record, oplog_record_table
+from aaiclick.oplog.collector import OplogCollector, oplog_record, oplog_record_table, _oplog_collector
+from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
 # internals during query result processing. Suppress globally so the filter covers
@@ -101,6 +102,7 @@ async def delete_object(obj: object) -> None:
 async def data_context(
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
+    oplog: bool | OplogCollector = False,
 ) -> AsyncIterator[None]:
     """Async context manager for data operations.
 
@@ -108,14 +110,16 @@ async def data_context(
     - ChClient (ch_client.py)
     - LifecycleHandler (lifecycle.py)
     - EngineType and object registry (data_context.py)
-
-    Use lineage_context() (from aaiclick.oplog.collector) inside this block
-    to enable operation logging.
+    - OplogCollector (oplog/collector.py, when oplog=True)
 
     Args:
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
+        oplog: When True, capture operation log into ClickHouse. Pass an
+               OplogCollector instance directly to use a pre-configured
+               collector (e.g. with task_id/job_id set). Events are flushed
+               only on clean exit; on error the buffer is discarded.
     """
     ch_client = await create_ch_client()
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
@@ -132,9 +136,29 @@ async def data_context(
     eng_token = _engine_var.set(effective_engine)
     obj_token = _objects_var.set(objects)
 
+    collector: OplogCollector | None = None
+    oplog_token = None
+    if isinstance(oplog, OplogCollector):
+        await init_oplog_tables(ch_client)
+        collector = oplog
+        oplog_token = _oplog_collector.set(collector)
+    elif oplog:
+        await init_oplog_tables(ch_client)
+        collector = OplogCollector()
+        oplog_token = _oplog_collector.set(collector)
+
+    failed = False
     try:
         yield
+    except Exception:
+        failed = True
+        raise
     finally:
+        if collector is not None and not failed:
+            await collector.flush()
+        if oplog_token is not None:
+            _oplog_collector.reset(oplog_token)
+
         # Mark all tracked objects as stale
         for obj_ref in objects.values():
             obj = obj_ref()

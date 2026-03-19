@@ -1,5 +1,5 @@
 """
-aaiclick.oplog.lineage - Oplog context management and graph traversal.
+aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
 """
 
 from __future__ import annotations
@@ -8,55 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-from aaiclick.data.ch_client import ChClient, create_ch_client, _ch_client_var
-from aaiclick.oplog.collector import OplogCollector, _oplog_collector
-from aaiclick.oplog.models import init_oplog_tables
-
-
-@asynccontextmanager
-async def lineage_context(
-    collector: OplogCollector | None = None,
-) -> AsyncIterator[None]:
-    """Async context manager for oplog recording.
-
-    Installs an OplogCollector for the duration of the block. Reuses the
-    active ClickHouse client if one is set (e.g. from an enclosing
-    data_context()); otherwise creates and owns its own client.
-
-    Events are flushed to ClickHouse on clean exit. On error, the buffer
-    is discarded to avoid partial oplog entries.
-
-    Args:
-        collector: Pre-configured OplogCollector (e.g. with task_id/job_id).
-                   If None, creates a plain OplogCollector.
-    """
-    ch_token = None
-    existing = _ch_client_var.get()
-    if existing is None:
-        ch_client = await create_ch_client()
-        ch_token = _ch_client_var.set(ch_client)
-    else:
-        ch_client = existing
-
-    await init_oplog_tables(ch_client)
-
-    if collector is None:
-        collector = OplogCollector()
-
-    oplog_token = _oplog_collector.set(collector)
-
-    failed = False
-    try:
-        yield
-    except Exception:
-        failed = True
-        raise
-    finally:
-        if not failed:
-            await collector.flush()
-        _oplog_collector.reset(oplog_token)
-        if ch_token is not None:
-            _ch_client_var.reset(ch_token)
+from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -94,9 +46,29 @@ class OplogGraph:
     edges: list[OplogEdge] = field(default_factory=list)
 
 
+@asynccontextmanager
+async def lineage_context() -> AsyncIterator[None]:
+    """Async context manager for lineage queries.
+
+    Sets up a ClickHouse client for querying the operation log.
+    Intended to be used after data_context exits:
+
+        async with data_context(oplog=True):
+            ...
+
+        async with lineage_context():
+            graph = await oplog_subgraph(table, direction="backward")
+    """
+    ch_client = await create_ch_client()
+    token = _ch_client_var.set(ch_client)
+    try:
+        yield
+    finally:
+        _ch_client_var.reset(token)
+
+
 async def backward_oplog(
     table: str,
-    ch_client: ChClient,
     max_depth: int = 10,
 ) -> list[OplogNode]:
     """Trace all upstream operations that produced `table`.
@@ -104,6 +76,7 @@ async def backward_oplog(
     Uses WITH RECURSIVE for a single SQL round-trip. A `visited` array
     guards against revisiting nodes in diamond-shaped lineage graphs.
     """
+    ch_client = get_ch_client()
     table_escaped = table.replace("'", "\\'")
     result = await ch_client.query(f"""
         WITH RECURSIVE upstream AS (
@@ -144,13 +117,13 @@ async def backward_oplog(
 
 async def forward_oplog(
     table: str,
-    ch_client: ChClient,
     max_depth: int = 10,
 ) -> list[OplogNode]:
     """Trace all downstream operations that consumed `table`.
 
     Returns nodes in BFS order starting from operations that used `table`.
     """
+    ch_client = get_ch_client()
     visited: set[str] = set()
     frontier = [table]
     nodes: list[OplogNode] = []
@@ -193,15 +166,14 @@ async def forward_oplog(
 
 async def oplog_subgraph(
     table: str,
-    ch_client: ChClient,
     direction: str = "backward",
     max_depth: int = 10,
 ) -> OplogGraph:
     """Return a structured OplogGraph for visualization or AI context."""
     if direction == "backward":
-        nodes = await backward_oplog(table, ch_client, max_depth)
+        nodes = await backward_oplog(table, max_depth)
     elif direction == "forward":
-        nodes = await forward_oplog(table, ch_client, max_depth)
+        nodes = await forward_oplog(table, max_depth)
     else:
         raise ValueError(f"direction must be 'backward' or 'forward', got '{direction}'")
 
