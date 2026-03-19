@@ -91,12 +91,12 @@ jobs:
           path: dist/
 
       - name: Export pinned dependencies from uv.lock
-        run: uv export --frozen --extra test --no-emit-project -o /tmp/requirements.txt
+        run: uv export --frozen --extra test --extra ai --no-emit-project -o /tmp/requirements.txt
 
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install --python /tmp/test-venv/bin/python -r /tmp/requirements.txt
-          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ aaiclick
+          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ "aaiclick[ai]"
 
       - name: Run database migrations
         env:

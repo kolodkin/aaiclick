@@ -54,3 +54,18 @@ from .snowflake_id import get_snowflake_id, get_snowflake_ids
 # Note: Ingest functions (copy_db, concat_objects_db, insert_objects_db) are internal.
 # Use Object.copy(), Object.concat(), Object.insert() methods instead.
 
+
+async def explain(target_table: str, question: str | None = None) -> str:
+    """Trace and explain how target_table was produced using AI lineage analysis.
+
+    Requires: pip install aaiclick[ai]
+    """
+    try:
+        from aaiclick.ai.agents.lineage_agent import explain_lineage
+    except ImportError:
+        raise ImportError(
+            "AI features require the aaiclick[ai] extra. "
+            "Install with: pip install aaiclick[ai]"
+        )
+    return await explain_lineage(target_table, question)
+

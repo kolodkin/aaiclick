@@ -1,7 +1,7 @@
 AI Layer
 ---
 
-Optional AI-powered lineage querying and debugging for aaiclick. Lives in a separate `aaiclick-ai/` package — the core `aaiclick` package works identically without it.
+Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
 
 **Specification status**: ⚠️ NOT YET IMPLEMENTED (Phase 2+)
 
@@ -15,16 +15,15 @@ Optional AI-powered lineage querying and debugging for aaiclick. Lives in a sepa
 - **Single provider via LiteLLM** — one interface for local (Ollama) and remote (Anthropic, OpenAI) models
 - **User chooses model** — no hard local/remote split; any model for any query
 - **AI agents are `@task` functions** — dogfood the orchestration engine
-- **Opt-in** — aaiclick works identically without the AI package installed
+- **Opt-in** — `pip install aaiclick[ai]` pulls in LiteLLM; without it the package is unaffected
 
 ---
 
 # Package Structure
 
 ```
-aaiclick-ai/
-├── pyproject.toml           # deps: litellm, aaiclick
-└── aaiclick_ai/
+aaiclick/
+└── ai/
     ├── __init__.py
     ├── provider.py          # AIProvider — thin wrapper around litellm
     ├── config.py            # Configuration from env vars
@@ -35,12 +34,18 @@ aaiclick-ai/
         └── tools.py         # Tools exposed to AI agents
 ```
 
+**Installation**:
+
+```bash
+pip install aaiclick[ai]   # installs litellm alongside aaiclick
+```
+
 ---
 
 # AIProvider
 
 ```python
-# aaiclick_ai/provider.py
+# aaiclick/ai/provider.py
 
 from litellm import acompletion
 
@@ -66,7 +71,7 @@ AAICLICK_AI_API_KEY=...                 # Only needed for remote APIs
 ```
 
 ```python
-# aaiclick_ai/config.py
+# aaiclick/ai/config.py
 def get_ai_provider() -> AIProvider:
     model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
     return AIProvider(model=model)
@@ -79,7 +84,7 @@ def get_ai_provider() -> AIProvider:
 ## Lineage Agent
 
 ```python
-# aaiclick_ai/agents/lineage_agent.py
+# aaiclick/ai/agents/lineage_agent.py
 
 async def explain_lineage(target_table: str, question: str | None = None) -> str:
     """Trace and explain how target_table was produced.
@@ -92,7 +97,7 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
 ## Debug Agent
 
 ```python
-# aaiclick_ai/agents/debug_agent.py
+# aaiclick/ai/agents/debug_agent.py
 
 async def debug_result(target_table: str, question: str) -> str:
     """Answer 'why' questions about a result by tracing lineage
@@ -110,9 +115,9 @@ async def debug_result(target_table: str, question: str) -> str:
 Tools the AI can call for deeper inspection via tool-calling protocol:
 
 ```python
-# aaiclick_ai/agents/tools.py
+# aaiclick/ai/agents/tools.py
 
-TOOLS = [
+TOOL_DEFINITIONS = [
     {"name": "sample_table",   "parameters": {"table": "str", "limit": "int", "where": "str | None"}},
     {"name": "get_schema",     "parameters": {"table": "str"}},
     {"name": "get_stats",      "parameters": {"table": "str", "column": "str"}},
@@ -143,7 +148,7 @@ from aaiclick.orchestration.decorators import task
 
 @task(name="explain_lineage")
 async def explain_lineage_task(target: Object, question: str) -> str:
-    from aaiclick_ai.agents.lineage_agent import explain_lineage
+    from aaiclick.ai.agents.lineage_agent import explain_lineage
     return await explain_lineage(target.table, question)
 
 # Usage in a job:
@@ -162,15 +167,15 @@ async def my_pipeline():
 ```python
 # aaiclick core — surfaced in aaiclick/__init__.py
 
-def explain(target_table: str, question: str | None = None) -> str:
+async def explain(target_table: str, question: str | None = None) -> str:
     try:
-        from aaiclick_ai.agents.lineage_agent import explain_lineage
+        from aaiclick.ai.agents.lineage_agent import explain_lineage
     except ImportError:
         raise ImportError(
-            "AI features require the aaiclick-ai package. "
-            "Install with: pip install aaiclick-ai"
+            "AI features require the aaiclick[ai] extra. "
+            "Install with: pip install aaiclick[ai]"
         )
-    return explain_lineage(target_table, question)
+    return await explain_lineage(target_table, question)
 ```
 
 ---

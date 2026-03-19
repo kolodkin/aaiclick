@@ -17,7 +17,7 @@ AI Layer Implementation Plan
    - `aaiclick/oplog/__init__.py`
    - `aaiclick/oplog/models.py` — DDL constants and `init_oplog_tables()`
    - `aaiclick/oplog/collector.py` — `OplogCollector` event sink
-   - `aaiclick/oplog/graph.py` — oplog graph queries
+   - `aaiclick/oplog/lineage.py` — oplog graph queries
 
 2. **Define ClickHouse DDL** ✅ (`models.py`)
    - `operation_log` — Snowflake ID PK, fields for operation/args/kwargs/sql_template/task_id/job_id/created_at
@@ -45,7 +45,7 @@ AI Layer Implementation Plan
    - `ingest.insert_objects_db()` → record `"insert"`, kwargs={"source": ..., "target": ...}
    - `object.Object.copy()` → record `"copy"`, kwargs={"source": self.table}
 
-6. **Implement oplog graph queries** ✅ (`graph.py`)
+6. **Implement oplog graph queries** ✅ (`lineage.py`)
    - `backward_oplog()`, `forward_oplog()` — iterative BFS (no `WITH RECURSIVE`)
    - `oplog_subgraph()` → `OplogGraph`
    - `OplogGraph.to_prompt_context()` — text formatter for LLM consumption
@@ -62,17 +62,18 @@ AI Layer Implementation Plan
 
 ---
 
-## Phase 2: AI Package (`aaiclick-ai/`) ⚠️ NOT YET IMPLEMENTED
+## Phase 2: AI Sub-package (`aaiclick/ai/`) ⚠️ NOT YET IMPLEMENTED
 
-**Objective**: Separate package providing LLM-powered lineage queries and debugging.
+**Objective**: Optional sub-package providing LLM-powered lineage queries and debugging.
+Installed via `pip install aaiclick[ai]` — lives inside the main `aaiclick` package.
 
 **Spec**: `docs/ai.md`
 
 ### Tasks
 
-1. **Create package structure** — `aaiclick-ai/pyproject.toml`, `aaiclick_ai/` with `provider.py`, `config.py`, `agents/`
+1. **Create sub-package structure** — `aaiclick/ai/` with `provider.py`, `config.py`, `agents/`
 
-2. **pyproject.toml** — dependencies: `litellm>=1.0`, `aaiclick`
+2. **Add `ai` extras group to `pyproject.toml`** — `litellm>=1.0`
 
 3. **Implement AIProvider** (`provider.py`)
    - `query(prompt, context, system)` → `str`
@@ -86,13 +87,15 @@ AI Layer Implementation Plan
 
 7. **Implement agent tools** (`agents/tools.py`) — `sample_table`, `get_schema`, `get_stats`, `trace_upstream`
 
-8. **Tests** — mock `litellm.acompletion`, test context formatting and tool dispatch
+8. **Add `explain()` to `aaiclick/__init__.py`** — graceful degradation wrapper
 
-9. **CI/CD** — extend publish workflow to build and release `aaiclick-ai` alongside `aaiclick` on `v*` tag
+9. **Tests** — mock `litellm.acompletion`, test context formatting and tool dispatch
+
+10. **CI/CD** — extend publish workflow to build and release `aaiclick` (with AI extras) on `v*` tag
 
 ### Deliverables
-- `pip install aaiclick-ai` works with any LiteLLM-supported model
-- Both packages released automatically on `v*` tag push
+- `pip install aaiclick[ai]` works with any LiteLLM-supported model
+- Package released automatically on `v*` tag push
 
 ---
 
@@ -139,7 +142,7 @@ AI Layer Implementation Plan
 1. **Example**: interactive lineage exploration with `data_context(oplog=True)` + local Ollama
 2. **Example**: job pipeline with AI debugging task at the end
 3. **Update docs** — reference `docs/oplog.md` and `docs/ai.md` from main docs
-4. **Add `ai` optional dependency group** in core `pyproject.toml` — enables `pip install aaiclick[ai]`
+4. **Add `ai` optional dependency group** in `pyproject.toml` — enables `pip install aaiclick[ai]`
 
 ---
 
