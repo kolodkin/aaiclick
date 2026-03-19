@@ -120,3 +120,6 @@ asyncio_mode = "auto"
 filterwarnings = [
     "error",
 ]
+markers = [
+    "live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model",
+]
