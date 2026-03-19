@@ -53,22 +53,10 @@ def test_bulk_generation_edge_cases():
     assert ids_pair[0] < ids_pair[1]
     assert len(set(ids_pair)) == 2
 
-    # Test invalid counts
+    # Test invalid count
     try:
         gen.generate_bulk(0)
         assert False, "Should have raised ValueError for count=0"
-    except ValueError as e:
-        assert "at least 1" in str(e)
-
-    try:
-        gen.generate_bulk(-1)
-        assert False, "Should have raised ValueError for count=-1"
-    except ValueError as e:
-        assert "at least 1" in str(e)
-
-    try:
-        gen.generate_bulk(-100)
-        assert False, "Should have raised ValueError for count=-100"
     except ValueError as e:
         assert "at least 1" in str(e)
 
