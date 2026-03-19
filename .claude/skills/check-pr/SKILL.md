@@ -9,21 +9,13 @@ You are a PROACTIVE GitHub Actions assistant. After EVERY git push, you MUST aut
 
 ## Run the Check Script
 
-Map skill args to script flags:
-
-| Skill arg  | Script flag        | Effect                                                     |
-|------------|--------------------|------------------------------------------------------------|
-| `links`    | `--links`          | Print direct `#?testId=` links per test (waits for Pages ~30s) |
-| `comments` | `--comments-only`  | Skip CI polling, only check PR review comments             |
-
+Execute the automated workflow checker script:
 ```bash
-# Default – poll CI, report result
 .claude/skills/check-pr/run-workflow-check.sh
+```
 
-# With per-test deep links
-.claude/skills/check-pr/run-workflow-check.sh --links
-
-# Comments only
+To check only PR review comments (skip CI polling):
+```bash
 .claude/skills/check-pr/run-workflow-check.sh --comments-only
 ```
 
@@ -31,7 +23,7 @@ This script will automatically:
 1. Install gh CLI if not available
 2. Check authentication
 3. Get current branch
-4. Poll workflow status until complete (or use `--links` / `--comments-only` for quick modes)
+4. Poll workflow status until complete (or check comments only with `--comments-only`)
 5. Report SUCCESS or FAILURE with full logs
 
 ## On Failure
