@@ -135,6 +135,7 @@ async def create_object_from_url(
     json_path: str | None = None,
     json_columns: dict[str, ColumnInfo] | None = None,
     ch_settings: dict[str, str | int] | None = None,
+    column_types: dict[str, ColumnInfo] | None = None,
 ) -> Object:
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
@@ -145,7 +146,8 @@ async def create_object_from_url(
     Supports two modes:
 
     **Tabular mode** (default): For formats where each row maps to an Object row.
-        Requires `columns` parameter. Types are inferred via DESCRIBE.
+        Requires `columns` parameter. Types are inferred via DESCRIBE unless
+        ``column_types`` is provided.
 
     **JSON mode**: For nested JSON APIs that return an array inside an envelope.
         Requires `json_path` + `json_columns`. Uses JSONExtract to parse fields.
@@ -162,6 +164,10 @@ async def create_object_from_url(
         ch_settings: Optional ClickHouse query settings passed to the read operation.
             Useful for format-specific options, e.g.
             ``{"input_format_csv_skip_first_lines": 1}`` to skip a comment header line.
+        column_types: Optional explicit column types for tabular mode. When provided,
+            skips the DESCRIBE query and uses these types directly. Useful for formats
+            like CSV where ClickHouse may fail to infer numeric types (e.g. for large
+            remote files with LIMIT 0 type sampling). Keys must match entries in ``columns``.
 
     Returns:
         Object: New Object with loaded data.
@@ -201,7 +207,7 @@ async def create_object_from_url(
     if columns is None:
         raise ValueError("Either columns or json_path/json_columns must be provided")
     _validate_url_columns(columns)
-    return await _create_from_tabular(url, format, columns, where, limit, ch_settings)
+    return await _create_from_tabular(url, format, columns, where, limit, ch_settings, column_types)
 
 
 async def _create_from_tabular(
@@ -211,6 +217,7 @@ async def _create_from_tabular(
     where: str | None,
     limit: int | None,
     ch_settings: dict[str, str | int] | None,
+    column_types: dict[str, ColumnInfo] | None = None,
 ) -> Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
@@ -219,25 +226,26 @@ async def _create_from_tabular(
 
     quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
-    describe_query = (
-        f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
-    )
-    describe_result = await ch.query(describe_query, settings=settings)
 
-    ch_types: dict[str, str] = {}
-    for row in describe_result.result_rows:
-        ch_types[row[0]] = row[1]
+    if column_types is not None:
+        ch_types: dict[str, ColumnInfo] = column_types
+    else:
+        describe_query = (
+            f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
+        )
+        describe_result = await ch.query(describe_query, settings=settings)
+        ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
 
     if len(columns) == 1:
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": parse_ch_type(ch_types[columns[0]])},
+            columns={"aai_id": ColumnInfo("UInt64"), "value": ch_types[columns[0]]},
         )
         select_cols = f"{quoted_columns[0]} AS value"
     else:
-        schema_columns = {"aai_id": ColumnInfo("UInt64")}
+        schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
         for col_name in columns:
-            schema_columns[col_name] = parse_ch_type(ch_types[col_name])
+            schema_columns[col_name] = ch_types[col_name]
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
             columns=schema_columns,

@@ -50,6 +50,7 @@ async def load_epss_data() -> Object:
         columns=list(EPSS_COLUMNS.keys()),
         format="CSVWithNames",
         ch_settings=_EPSS_CH_SETTINGS,
+        column_types=EPSS_COLUMNS,
     )
 
 
