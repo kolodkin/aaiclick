@@ -125,3 +125,10 @@ def oplog_record(
     collector = _oplog_collector.get()
     if collector is not None:
         collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)
+
+
+def oplog_record_table(table_name: str) -> None:
+    """Register a newly created table if an OplogCollector is active in the current context."""
+    collector = _oplog_collector.get()
+    if collector is not None:
+        collector.record_table(table_name)

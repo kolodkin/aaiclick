@@ -36,7 +36,7 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
-from aaiclick.oplog.collector import OplogCollector, get_oplog_collector, oplog_record, _oplog_collector
+from aaiclick.oplog.collector import OplogCollector, oplog_record, oplog_record_table, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
@@ -272,9 +272,7 @@ async def create_object(
     # Register every new non-persistent table in table_registry for cleanup worker.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
     if not obj.persistent:
-        collector = get_oplog_collector()
-        if collector is not None:
-            collector.record_table(obj.table)
+        oplog_record_table(obj.table)
 
     return obj
 
