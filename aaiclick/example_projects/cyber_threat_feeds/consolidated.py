@@ -61,8 +61,6 @@ async def build_consolidated_table(
     kev: Object,
     cves: Object,
     epss: Object,
-    start_date: str,
-    end_date: str,
 ) -> Object:
     """Build a consolidated AggregatingMergeTree table from all sources.
 
@@ -81,7 +79,7 @@ async def build_consolidated_table(
     )
     agg = await create_object(schema)
 
-    # KEV: rename camelCase → snake_case, filter to date window, add source tag
+    # KEV: rename camelCase → snake_case, add source tag
     # All KEV records are KEV by definition → is_kev = true
     kev_view = (
         kev
@@ -97,7 +95,6 @@ async def build_consolidated_table(
             "source": Computed("String", "'kev'"),
             "is_kev": Computed("Bool", "true"),
         })
-        .where(f"dateAdded >= '{start_date}' AND dateAdded < '{end_date}'")
     )
     await agg.insert(kev_view)
 

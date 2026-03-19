@@ -86,9 +86,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     epss_analysis = analyze_epss(epss=epss)
 
     # Phase 3: Consolidated AggregatingMergeTree table (all 3 sources)
-    consolidated = build_consolidated_table(
-        kev=kev, cves=cves, epss=epss, start_date=START_DATE, end_date=END_DATE,
-    )
+    consolidated = build_consolidated_table(kev=kev, cves=cves, epss=epss)
     consolidated_stats = analyze_consolidated(consolidated=consolidated)
 
     # Phase 4: Combined report
