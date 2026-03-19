@@ -1,13 +1,62 @@
 """
-aaiclick.oplog.graph - Oplog graph traversal and formatting.
+aaiclick.oplog.oplog - Oplog context management and graph traversal.
 """
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncIterator
 
-from aaiclick.data.ch_client import ChClient
+from aaiclick.data.ch_client import ChClient, create_ch_client, _ch_client_var
+from aaiclick.oplog.collector import OplogCollector, _oplog_collector
+from aaiclick.oplog.models import init_oplog_tables
+
+
+@asynccontextmanager
+async def oplog_context(
+    collector: OplogCollector | None = None,
+) -> AsyncIterator[None]:
+    """Async context manager for oplog recording.
+
+    Installs an OplogCollector for the duration of the block. Reuses the
+    active ClickHouse client if one is set (e.g. from an enclosing
+    data_context()); otherwise creates and owns its own client.
+
+    Events are flushed to ClickHouse on clean exit. On error, the buffer
+    is discarded to avoid partial oplog entries.
+
+    Args:
+        collector: Pre-configured OplogCollector (e.g. with task_id/job_id).
+                   If None, creates a plain OplogCollector.
+    """
+    ch_token = None
+    existing = _ch_client_var.get()
+    if existing is None:
+        ch_client = await create_ch_client()
+        ch_token = _ch_client_var.set(ch_client)
+    else:
+        ch_client = existing
+
+    await init_oplog_tables(ch_client)
+
+    if collector is None:
+        collector = OplogCollector()
+
+    oplog_token = _oplog_collector.set(collector)
+
+    failed = False
+    try:
+        yield
+    except Exception:
+        failed = True
+        raise
+    finally:
+        if not failed:
+            await collector.flush()
+        _oplog_collector.reset(oplog_token)
+        if ch_token is not None:
+            _ch_client_var.reset(ch_token)
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:

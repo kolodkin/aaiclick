@@ -9,7 +9,8 @@ import pytest
 from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
 from aaiclick.oplog.models import init_oplog_tables
-from aaiclick.oplog.graph import (
+from aaiclick.oplog.oplog import (
+    oplog_context,
     backward_oplog,
     forward_oplog,
     oplog_subgraph,
@@ -20,11 +21,12 @@ from aaiclick.oplog.graph import (
 async def _run_pipeline():
     """Run a small pipeline and return (a.table, b.table, result.table, ch_client)."""
     ch = await create_ch_client()
-    async with data_context(oplog=True):
-        a = await create_object_from_value([1, 2, 3])
-        b = await create_object_from_value([4, 5, 6])
-        result = await a.concat(b)
-        return a.table, b.table, result.table, ch
+    async with data_context():
+        async with oplog_context():
+            a = await create_object_from_value([1, 2, 3])
+            b = await create_object_from_value([4, 5, 6])
+            result = await a.concat(b)
+            return a.table, b.table, result.table, ch
 
 
 async def test_backward_oplog_finds_sources():
@@ -91,12 +93,13 @@ async def test_oplog_subgraph_invalid_direction():
 async def test_multi_step_pipeline_graph():
     """Multi-step pipeline produces correct backward oplog."""
     ch = await create_ch_client()
-    async with data_context(oplog=True):
-        raw = await create_object_from_value([1, 2, 3, 4, 5])
-        filtered = await raw.copy()
-        doubled = await (filtered + filtered)
-        final_table = doubled.table
-        raw_table = raw.table
+    async with data_context():
+        async with oplog_context():
+            raw = await create_object_from_value([1, 2, 3, 4, 5])
+            filtered = await raw.copy()
+            doubled = await (filtered + filtered)
+            final_table = doubled.table
+            raw_table = raw.table
 
     nodes = await backward_oplog(final_table, ch)
     operations = {n.operation for n in nodes}
@@ -115,7 +118,7 @@ async def test_oplog_false_produces_no_log_entries():
 
     count_before = (await ch.query("SELECT count() FROM operation_log")).result_rows[0][0]
 
-    async with data_context(oplog=False):
+    async with data_context():
         a = await create_object_from_value([99, 98, 97])
         _ = await a.sum()
 
