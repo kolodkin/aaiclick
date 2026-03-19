@@ -13,6 +13,9 @@ permissions:
   checks: write
 
 env:
+  # dorny/test-reporter@v2 uses Node.js 20 (deprecated on GH Actions from June 2026).
+  # No v3 exists yet — opt into Node.js 24 early to silence the deprecation warning.
+  # Remove once dorny/test-reporter releases a Node.js 24-compatible version.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
