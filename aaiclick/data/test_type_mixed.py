@@ -223,30 +223,18 @@ async def test_mixed_symmetry(ctx):
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_fails(ctx):
-    """Test that concatenating int array with float array fails with type error."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([4.5, 5.5, 6.5])
-
-    # Int/Float types are incompatible for concat (UNION ALL without CAST)
-    with pytest.raises(ValueError, match="incompatible type"):
-        await a.concat(b)
-
-
-async def test_mixed_float_int_concat_fails(ctx):
-    """Test that concatenating float array with int array fails with type error."""
-    a = await create_object_from_value([1.5, 2.5, 3.5])
-    b = await create_object_from_value([4, 5, 6])
-
-    # Int/Float types are incompatible for concat (UNION ALL without CAST)
-    with pytest.raises(ValueError, match="incompatible type"):
-        await a.concat(b)
-
-
-async def test_mixed_int_string_concat_fails(ctx):
-    """Test that concatenating int array with string array fails with type error."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value(["a", "b", "c"])
+@pytest.mark.parametrize(
+    "arr_a,arr_b",
+    [
+        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], id="int-float"),
+        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], id="float-int"),
+        pytest.param([1, 2, 3], ["a", "b", "c"], id="int-str"),
+    ],
+)
+async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
+    """Test that concatenating incompatible types fails with type error."""
+    a = await create_object_from_value(arr_a)
+    b = await create_object_from_value(arr_b)
 
     with pytest.raises(ValueError, match="incompatible type"):
         await a.concat(b)

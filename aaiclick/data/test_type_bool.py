@@ -5,6 +5,8 @@ Note: Booleans are stored as UInt8 in ClickHouse (True=1, False=0),
 so arithmetic operations work on the underlying integer values.
 """
 
+import pytest
+
 from aaiclick import create_object_from_value
 
 
@@ -12,18 +14,18 @@ from aaiclick import create_object_from_value
 # Scalar Tests
 # =============================================================================
 
-async def test_bool_scalar_creation_true(ctx):
-    """Test creating a True boolean scalar object."""
-    obj = await create_object_from_value(True)
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        pytest.param(True, 1, id="true"),
+        pytest.param(False, 0, id="false"),
+    ],
+)
+async def test_bool_scalar_creation(ctx, value, expected):
+    """Test creating boolean scalar objects (stored as UInt8)."""
+    obj = await create_object_from_value(value)
     data = await obj.data()
-    assert data == 1  # Stored as UInt8
-
-
-async def test_bool_scalar_creation_false(ctx):
-    """Test creating a False boolean scalar object."""
-    obj = await create_object_from_value(False)
-    data = await obj.data()
-    assert data == 0  # Stored as UInt8
+    assert data == expected
 
 
 async def test_bool_scalar_add(ctx):

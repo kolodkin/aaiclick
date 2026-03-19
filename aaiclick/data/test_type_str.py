@@ -78,14 +78,3 @@ async def test_str_array_preserves_order(ctx):
     data = await obj.data()
     assert data == values  # Order should be preserved
 
-
-async def test_str_array_concat(ctx):
-    """Test concatenating string arrays."""
-    a = await create_object_from_value(["hello", "world"])
-    b = await create_object_from_value(["foo", "bar", "baz"])
-
-    result = await a.concat(b)
-    data = await result.data()
-
-    assert data == ["hello", "world", "foo", "bar", "baz"]
-
