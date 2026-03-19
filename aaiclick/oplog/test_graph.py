@@ -9,8 +9,8 @@ import pytest
 from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
 from aaiclick.oplog.models import init_oplog_tables
-from aaiclick.oplog.triage import (
-    oplog_context,
+from aaiclick.oplog.lineage import (
+    lineage_context,
     backward_oplog,
     forward_oplog,
     oplog_subgraph,
@@ -22,7 +22,7 @@ async def _run_pipeline():
     """Run a small pipeline and return (a.table, b.table, result.table, ch_client)."""
     ch = await create_ch_client()
     async with data_context():
-        async with oplog_context():
+        async with lineage_context():
             a = await create_object_from_value([1, 2, 3])
             b = await create_object_from_value([4, 5, 6])
             result = await a.concat(b)
@@ -94,7 +94,7 @@ async def test_multi_step_pipeline_graph():
     """Multi-step pipeline produces correct backward oplog."""
     ch = await create_ch_client()
     async with data_context():
-        async with oplog_context():
+        async with lineage_context():
             raw = await create_object_from_value([1, 2, 3, 4, 5])
             filtered = await raw.copy()
             doubled = await (filtered + filtered)

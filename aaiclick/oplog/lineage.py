@@ -1,5 +1,5 @@
 """
-aaiclick.oplog.triage - Oplog context management and graph traversal.
+aaiclick.oplog.lineage - Oplog context management and graph traversal.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from aaiclick.oplog.models import init_oplog_tables
 
 
 @asynccontextmanager
-async def oplog_context(
+async def lineage_context(
     collector: OplogCollector | None = None,
 ) -> AsyncIterator[None]:
     """Async context manager for oplog recording.

@@ -109,7 +109,7 @@ async def data_context(
     - LifecycleHandler (lifecycle.py)
     - EngineType and object registry (data_context.py)
 
-    Use oplog_context() (from aaiclick.oplog.collector) inside this block
+    Use lineage_context() (from aaiclick.oplog.collector) inside this block
     to enable operation logging.
 
     Args:
