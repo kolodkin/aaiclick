@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.ch_client import ChClient
 
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
@@ -71,12 +71,23 @@ class OplogCollector:
         """Register a newly created table in the table_registry buffer."""
         self._table_buffer.append(table_name)
 
-    async def flush(self) -> None:
+    @staticmethod
+    def record_if_active(
+        result_table: str,
+        operation: str,
+        args: list[str] | None = None,
+        kwargs: dict[str, str] | None = None,
+        sql: str | None = None,
+    ) -> None:
+        """Record an operation if an OplogCollector is active in the current context."""
+        collector = _oplog_collector.get()
+        if collector is not None:
+            collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)
+
+    async def flush(self, ch_client: ChClient) -> None:
         """Batch-insert buffered events into ClickHouse operation_log and table_registry."""
         if not self._buffer and not self._table_buffer:
             return
-
-        ch_client = get_ch_client()
         now = datetime.now(timezone.utc)
 
         if self._buffer:

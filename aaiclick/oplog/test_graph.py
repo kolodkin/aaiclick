@@ -8,6 +8,7 @@ import pytest
 
 from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
+from aaiclick.oplog.models import init_oplog_tables
 from aaiclick.oplog.graph import (
     backward_oplog,
     forward_oplog,
@@ -99,18 +100,17 @@ async def test_multi_step_pipeline_graph():
 
     nodes = await backward_oplog(final_table, ch)
     operations = {n.operation for n in nodes}
-    assert "+" in operations or any(op in operations for op in ["+", "copy", "create_from_value"])
+    assert {"create_from_value", "copy", "+"} <= operations
     all_tables = {n.table for n in nodes}
     all_tables |= {src for n in nodes for src in n.args}
     all_tables |= {v for n in nodes for v in n.kwargs.values()}
-    assert raw_table in all_tables or len(nodes) >= 1
+    assert raw_table in all_tables
 
 
 async def test_oplog_false_produces_no_log_entries():
     """oplog=False (default) produces zero entries in operation_log."""
     ch = await create_ch_client()
 
-    from aaiclick.oplog.models import init_oplog_tables
     await init_oplog_tables(ch)
 
     count_before = (await ch.query("SELECT count() FROM operation_log")).result_rows[0][0]

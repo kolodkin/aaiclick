@@ -37,6 +37,8 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
+from aaiclick.oplog.collector import OplogCollector, get_oplog_collector, _oplog_collector
+from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
 # internals during query result processing. Suppress globally so the filter covers
@@ -145,9 +147,6 @@ async def data_context(
                context with task_id/job_id already set). Events are flushed
                only on clean exit; on error the buffer is discarded.
     """
-    from aaiclick.oplog.collector import OplogCollector, _oplog_collector
-    from aaiclick.oplog.models import init_oplog_tables
-
     ch_client = await create_ch_client()
 
     owns_lifecycle = lifecycle is None
@@ -194,7 +193,7 @@ async def data_context(
     finally:
         # Flush oplog only on clean exit; discard buffer on failure
         if collector is not None and not failed:
-            await collector.flush()
+            await collector.flush(ch_client)
         if oplog_token is not None:
             _oplog_collector.reset(oplog_token)
 
@@ -309,7 +308,6 @@ async def create_object(
     # Register every new non-persistent table in table_registry for cleanup worker.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
     if not obj.persistent:
-        from aaiclick.oplog.collector import get_oplog_collector
         collector = get_oplog_collector()
         if collector is not None:
             collector.record_table(obj.table)
@@ -547,7 +545,6 @@ async def create_object_from_value(
         Object: New Object instance with data
     """
     from .object import Object, View
-    from aaiclick.oplog.collector import get_oplog_collector
 
     if isinstance(val, (Object, View)):
         return val
@@ -557,9 +554,7 @@ async def create_object_from_value(
     if isinstance(val, dict):
         if _has_nested_dicts(val):
             result = await _create_nested_object(val, ch, name)
-            _lc = get_oplog_collector()
-            if _lc is not None:
-                _lc.record(result.table, "create_from_value")
+            OplogCollector.record_if_active(result.table, "create_from_value")
             return result
 
         has_arrays = any(isinstance(v, list) for v in val.values())
@@ -621,9 +616,7 @@ async def create_object_from_value(
         if val and isinstance(val[0], dict):
             if _has_nested_dicts(val[0]):
                 result = await _create_nested_records_object(val, ch, name)
-                _lc = get_oplog_collector()
-                if _lc is not None:
-                    _lc.record(result.table, "create_from_value")
+                OplogCollector.record_if_active(result.table, "create_from_value")
                 return result
 
             # Records format: list of dicts with possible Array fields
@@ -688,9 +681,7 @@ async def create_object_from_value(
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
 
-    _lc = get_oplog_collector()
-    if _lc is not None:
-        _lc.record(obj.table, "create_from_value")
+    OplogCollector.record_if_active(obj.table, "create_from_value")
     return obj
 
 
