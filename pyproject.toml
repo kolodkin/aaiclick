@@ -115,7 +115,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --strict-markers -W error"
+addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --strict-markers"
 asyncio_mode = "auto"
 filterwarnings = [
     "error",
