@@ -1,5 +1,5 @@
 """
-aaiclick.lineage.graph - Lineage graph traversal and formatting.
+aaiclick.oplog.graph - Oplog graph traversal and formatting.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def _to_dict(kwargs_raw: Any) -> dict[str, str]:
 
 
 @dataclass
-class LineageNode:
+class OplogNode:
     table: str
     operation: str
     args: list[str]
@@ -33,23 +33,23 @@ class LineageNode:
 
 
 @dataclass
-class LineageEdge:
+class OplogEdge:
     source: str
     target: str
     operation: str
 
 
 @dataclass
-class LineageGraph:
-    nodes: list[LineageNode] = field(default_factory=list)
-    edges: list[LineageEdge] = field(default_factory=list)
+class OplogGraph:
+    nodes: list[OplogNode] = field(default_factory=list)
+    edges: list[OplogEdge] = field(default_factory=list)
 
     def to_prompt_context(self) -> str:
-        """Format the lineage graph as plain text for LLM consumption."""
+        """Format the oplog graph as plain text for LLM consumption."""
         if not self.nodes:
-            return "No lineage information found."
+            return "No operation log information found."
 
-        lines: list[str] = ["Data lineage graph:", ""]
+        lines: list[str] = ["Data operation graph:", ""]
         for node in self.nodes:
             sources = list(node.args) + list(node.kwargs.values())
             src_str = ", ".join(sources) if sources else "(none)"
@@ -67,18 +67,18 @@ class LineageGraph:
         return "\n".join(lines)
 
 
-async def backward_lineage(
+async def backward_oplog(
     table: str,
     ch_client: ChClient,
     max_depth: int = 10,
-) -> list[LineageNode]:
+) -> list[OplogNode]:
     """Trace all upstream operations that produced `table`.
 
     Returns nodes in BFS order starting from `table`.
     """
     visited: set[str] = set()
     frontier = [table]
-    nodes: list[LineageNode] = []
+    nodes: list[OplogNode] = []
 
     for _ in range(max_depth):
         if not frontier:
@@ -98,7 +98,7 @@ async def backward_lineage(
             if result_table in visited:
                 continue
             visited.add(result_table)
-            node = LineageNode(
+            node = OplogNode(
                 table=result_table,
                 operation=operation,
                 args=list(args),
@@ -117,18 +117,18 @@ async def backward_lineage(
     return nodes
 
 
-async def forward_lineage(
+async def forward_oplog(
     table: str,
     ch_client: ChClient,
     max_depth: int = 10,
-) -> list[LineageNode]:
+) -> list[OplogNode]:
     """Trace all downstream operations that consumed `table`.
 
     Returns nodes in BFS order starting from operations that used `table`.
     """
     visited: set[str] = set()
     frontier = [table]
-    nodes: list[LineageNode] = []
+    nodes: list[OplogNode] = []
 
     for _ in range(max_depth):
         if not frontier:
@@ -149,7 +149,7 @@ async def forward_lineage(
             if result_table in visited:
                 continue
             visited.add(result_table)
-            node = LineageNode(
+            node = OplogNode(
                 table=result_table,
                 operation=operation,
                 args=list(args),
@@ -166,25 +166,25 @@ async def forward_lineage(
     return nodes
 
 
-async def lineage_subgraph(
+async def oplog_subgraph(
     table: str,
     ch_client: ChClient,
     direction: str = "backward",
     max_depth: int = 10,
-) -> LineageGraph:
-    """Return a structured LineageGraph for visualization or AI context."""
+) -> OplogGraph:
+    """Return a structured OplogGraph for visualization or AI context."""
     if direction == "backward":
-        nodes = await backward_lineage(table, ch_client, max_depth)
+        nodes = await backward_oplog(table, ch_client, max_depth)
     elif direction == "forward":
-        nodes = await forward_lineage(table, ch_client, max_depth)
+        nodes = await forward_oplog(table, ch_client, max_depth)
     else:
         raise ValueError(f"direction must be 'backward' or 'forward', got '{direction}'")
 
-    edges: list[LineageEdge] = []
+    edges: list[OplogEdge] = []
     for node in nodes:
         for src in node.args:
-            edges.append(LineageEdge(source=src, target=node.table, operation=node.operation))
+            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
         for src in node.kwargs.values():
-            edges.append(LineageEdge(source=src, target=node.table, operation=node.operation))
+            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
-    return LineageGraph(nodes=nodes, edges=edges)
+    return OplogGraph(nodes=nodes, edges=edges)

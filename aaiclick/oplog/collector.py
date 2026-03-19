@@ -1,5 +1,5 @@
 """
-aaiclick.lineage.collector - LineageCollector for buffering and flushing operation events.
+aaiclick.oplog.collector - OplogCollector for buffering and flushing operation events.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ from datetime import datetime, timezone
 from aaiclick.data.data_context import get_ch_client
 
 
-_lineage_collector: ContextVar[LineageCollector | None] = ContextVar(
-    "lineage_collector", default=None
+_oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
+    "oplog_collector", default=None
 )
 
 
-def get_lineage_collector() -> LineageCollector | None:
-    """Return the active LineageCollector, or None if lineage is disabled."""
-    return _lineage_collector.get()
+def get_oplog_collector() -> OplogCollector | None:
+    """Return the active OplogCollector, or None if oplog is disabled."""
+    return _oplog_collector.get()
 
 
 @dataclass
@@ -30,12 +30,12 @@ class OperationEvent:
     sql: str | None = None
 
 
-class LineageCollector:
+class OplogCollector:
     """Collects operation events during a data_context session.
 
     Buffer-based: events are held in memory and batch-inserted into
     ClickHouse on successful context exit. On failure, the buffer is
-    discarded to avoid partial lineage.
+    discarded to avoid partial oplog entries.
     """
 
     def __init__(

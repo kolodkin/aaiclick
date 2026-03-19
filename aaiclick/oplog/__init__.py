@@ -1,3 +1,3 @@
-from .collector import LineageCollector, get_lineage_collector
-from .graph import LineageGraph, LineageNode, LineageEdge, backward_lineage, forward_lineage, lineage_subgraph
-from .models import init_lineage_tables
+from .collector import OplogCollector, get_oplog_collector
+from .graph import OplogGraph, OplogNode, OplogEdge, backward_oplog, forward_oplog, oplog_subgraph
+from .models import init_oplog_tables
