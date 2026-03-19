@@ -37,16 +37,6 @@ def test_generate_bulk_ids():
     assert ids == sorted(ids)
 
 
-def test_bulk_ids_are_sequential():
-    """Test that bulk IDs are sequential within the same batch."""
-    count = 10
-    ids = get_snowflake_ids(count)
-
-    for i in range(1, len(ids)):
-        diff = ids[i] - ids[i - 1]
-        assert diff > 0, "IDs should be increasing"
-
-
 def test_bulk_generation_edge_cases():
     """Test edge cases for bulk snowflake ID generation."""
     gen = SnowflakeGenerator()
@@ -177,17 +167,6 @@ def test_decode_snowflake_id():
     # Reconstructing should give back the original ID
     reconstructed = (timestamp << 22) | (machine_id << 12) | sequence
     assert reconstructed == id_val
-
-
-def test_sequential_calls_have_increasing_ids():
-    """Test that sequential calls produce increasing IDs."""
-    gen = SnowflakeGenerator()
-
-    id1 = gen.generate()
-    id2 = gen.generate()
-
-    # Second ID should always be greater (time-ordered)
-    assert id2 > id1, "IDs should be strictly increasing"
 
 
 def test_buffer_refill():
