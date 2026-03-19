@@ -36,7 +36,11 @@ async def generate_threat_report(
     kev_md = await kev.view(limit=5).markdown()
     cves_md = await cves.view(limit=5).markdown(truncate={"summary": 40})
     epss_md = await epss.view(limit=5).markdown()
-    consolidated_md = await consolidated.view(limit=5).markdown(truncate={"summary": 40})
+    consolidated_md = await consolidated.view(
+        where="is_kev",
+        order_by="date_added DESC",
+        limit=5,
+    ).markdown(truncate={"summary": 40})
 
     _print_threat_report(report, kev_md, cves_md, epss_md, consolidated_md, start_date, end_date)
     return report
@@ -161,7 +165,7 @@ def _print_threat_report(
     print("#### Field Schema\n")
     _print_field_table(MERGED_COLUMNS)
 
-    print("\n#### Sample (first 5 rows)\n")
+    print("\n#### Sample (newest 5 KEV CVEs)\n")
     _print_md_table(consolidated_md)
 
     print("\n#### Statistics\n")
