@@ -351,25 +351,6 @@ poll_checks() {
     exit 1
 }
 
-# Show check links without polling
-show_links() {
-    echo ""
-    echo -e "${BLUE}🔗 Check links for PR #$PR_NUMBER:${NC}"
-    echo ""
-    gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,link 2>/dev/null | \
-        jq -r '.[] | "\(.state)\t\(.name | split(",")[0] | ltrimstr("(") | rtrimstr(" "))\t\(.link)"' | \
-        while IFS=$'\t' read -r state name link; do
-            case "$state" in
-                SUCCESS) color="$GREEN" icon="✓" ;;
-                FAILURE) color="$RED"   icon="✗" ;;
-                *)        color="$YELLOW" icon="…" ;;
-            esac
-            echo -e "  ${color}${icon} ${name}${NC}"
-            echo -e "    ${link}"
-        done
-    echo ""
-}
-
 # Main execution
 main() {
     install_gh
@@ -379,8 +360,6 @@ main() {
     check_pr_exists
     if [ "${1:-}" = "--comments-only" ]; then
         check_review_comments
-    elif [ "${1:-}" = "--links" ]; then
-        show_links
     else
         poll_checks
     fi
