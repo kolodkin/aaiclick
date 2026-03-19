@@ -9,19 +9,18 @@ from __future__ import annotations
 
 import re
 import warnings
+import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import AsyncIterator, Dict, List, Optional, Union
-import weakref
+from typing import AsyncIterator, Dict, List, Union
 
 import numpy as np
 
-from aaiclick.backend import get_ch_url, is_chdb
+from aaiclick.backend import get_ch_url
 
-from .ch_client import ChClient, create_ch_client
-from .lifecycle import LifecycleHandler, LocalLifecycleHandler
+from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
+from .lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
 from .models import (
     ColumnInfo,
     ValueScalarType,
@@ -37,6 +36,8 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
+from aaiclick.oplog.collector import OplogCollector, oplog_record, oplog_record_table, _oplog_collector
+from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
 # internals during query result processing. Suppress globally so the filter covers
@@ -45,141 +46,135 @@ from .sql_utils import quote_identifier
 warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect\.")
 
 
-@dataclass
-class DataCtxState:
-    """State bundle for a named data context."""
-
-    ch_client: ChClient
-    lifecycle: Optional[LifecycleHandler]
-    owns_lifecycle: bool
-    engine: EngineType
-    objects: Dict[int, weakref.ref] = field(default_factory=dict)
+# Per-resource ContextVars — each set by data_context() on entry, reset on exit.
+# Resources owned by their respective modules:
+#   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
+#   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
+#   OplogCollector  → collector.py  (_oplog_collector / get_oplog_collector)
+_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_DEFAULT)
+_objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
 
 
-# ContextVar holding dict[name -> DataCtxState]
-_data_contexts: ContextVar[dict[str, DataCtxState]] = ContextVar('data_contexts')
+def get_engine() -> EngineType:
+    """Return the table engine for the active data context."""
+    return _engine_var.get()
 
 
-def _get_data_state(ctx: str = "default") -> DataCtxState:
-    """Get state bundle for a named context.
-
-    Raises:
-        RuntimeError: If no active context with that name.
-    """
-    try:
-        contexts = _data_contexts.get()
-    except LookupError:
-        raise RuntimeError(
-            f"No active data context '{ctx}' - use 'async with data_context()'"
-        )
-    if ctx not in contexts:
-        raise RuntimeError(
-            f"No active data context '{ctx}' - use 'async with data_context()'"
-        )
-    return contexts[ctx]
-
-
-def get_ch_client(ctx: str = "default") -> ChClient:
-    """Get the ClickHouse client from the active context."""
-    return _get_data_state(ctx).ch_client
-
-
-def get_engine(ctx: str = "default") -> EngineType:
-    """Get the engine type from the active context."""
-    return _get_data_state(ctx).engine
-
-
-def get_data_lifecycle(ctx: str = "default") -> Optional[LifecycleHandler]:
-    """Get the lifecycle handler from the active context."""
-    return _get_data_state(ctx).lifecycle
-
-
-def incref(table_name: str, ctx: str = "default") -> None:
+def incref(table_name: str) -> None:
     """Increment reference count for table."""
-    state = _get_data_state(ctx)
-    if state.lifecycle is not None:
-        state.lifecycle.incref(table_name)
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        lifecycle.incref(table_name)
 
 
-def decref(table_name: str, ctx: str = "default") -> None:
+def decref(table_name: str) -> None:
     """Decrement reference count for table."""
-    state = _get_data_state(ctx)
-    if state.lifecycle is not None:
-        state.lifecycle.decref(table_name)
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        lifecycle.decref(table_name)
 
 
-def register_object(obj: object, ctx: str = "default") -> None:
+def register_object(obj: object) -> None:
     """Register an Object for stale marking on context exit."""
-    state = _get_data_state(ctx)
-    state.objects[id(obj)] = weakref.ref(obj)
+    try:
+        objects = _objects_var.get()
+    except LookupError:
+        return
+    objects[id(obj)] = weakref.ref(obj)
 
 
-async def delete_object(obj: object, ctx: str = "default") -> None:
+async def delete_object(obj: object) -> None:
     """Delete an Object's table and mark it as stale."""
-    state = _get_data_state(ctx)
     obj._stale = True
+    try:
+        objects = _objects_var.get()
+    except LookupError:
+        objects = {}
     obj_id = id(obj)
-    if obj_id in state.objects:
-        del state.objects[obj_id]
-    if state.lifecycle is not None:
-        state.lifecycle.decref(obj.table)
+    if obj_id in objects:
+        del objects[obj_id]
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        lifecycle.decref(obj.table)
 
 
 @asynccontextmanager
 async def data_context(
-    ctx: str = "default",
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
+    oplog: bool | OplogCollector = False,
 ) -> AsyncIterator[None]:
     """Async context manager for data operations.
 
+    Sets per-resource ContextVars for the duration of the block:
+    - ChClient (ch_client.py)
+    - LifecycleHandler (lifecycle.py)
+    - EngineType and object registry (data_context.py)
+    - OplogCollector (oplog/collector.py, when oplog=True)
+
     Args:
-        ctx: Named context key (default "default").
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
+        oplog: When True, capture operation log into ClickHouse. Pass an
+               OplogCollector instance directly to use a pre-configured
+               collector (e.g. with task_id/job_id set). Events are flushed
+               only on clean exit; on error the buffer is discarded.
     """
     ch_client = await create_ch_client()
-
-    owns_lifecycle = lifecycle is None
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
+    owns_lifecycle = lifecycle is None
     if owns_lifecycle:
         lifecycle = LocalLifecycleHandler(get_ch_url())
         await lifecycle.start()
 
-    state = DataCtxState(
-        ch_client=ch_client,
-        lifecycle=lifecycle,
-        owns_lifecycle=owns_lifecycle,
-        engine=effective_engine,
-    )
+    objects: Dict[int, weakref.ref] = {}
 
-    # Copy-on-write: copy existing dict before mutation
-    try:
-        existing = _data_contexts.get()
-    except LookupError:
-        existing = {}
-    contexts = dict(existing)
-    contexts[ctx] = state
-    token = _data_contexts.set(contexts)
+    ch_token = _ch_client_var.set(ch_client)
+    lc_token = _lifecycle_var.set(lifecycle)
+    eng_token = _engine_var.set(effective_engine)
+    obj_token = _objects_var.set(objects)
 
+    collector: OplogCollector | None = None
+    oplog_token = None
+    if isinstance(oplog, OplogCollector):
+        await init_oplog_tables(ch_client)
+        collector = oplog
+        oplog_token = _oplog_collector.set(collector)
+    elif oplog:
+        await init_oplog_tables(ch_client)
+        collector = OplogCollector()
+        oplog_token = _oplog_collector.set(collector)
+
+    failed = False
     try:
         yield
+    except Exception:
+        failed = True
+        raise
     finally:
+        if collector is not None and not failed:
+            await collector.flush()
+        if oplog_token is not None:
+            _oplog_collector.reset(oplog_token)
+
         # Mark all tracked objects as stale
-        for obj_ref in state.objects.values():
+        for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
-        state.objects.clear()
+        objects.clear()
 
         # Stop lifecycle if we own it
-        if owns_lifecycle and state.lifecycle:
-            await state.lifecycle.stop()
+        if owns_lifecycle and lifecycle:
+            await lifecycle.stop()
 
-        # Reset ContextVar
-        _data_contexts.reset(token)
+        # Reset all ContextVars
+        _objects_var.reset(obj_token)
+        _engine_var.reset(eng_token)
+        _lifecycle_var.reset(lc_token)
+        _ch_client_var.reset(ch_token)
 
 
 def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
@@ -226,8 +221,6 @@ async def create_object(
     """
     from .object import Object
 
-    state = _get_data_state()
-
     if name is not None:
         _validate_persistent_name(name)
         obj = Object(table=f"p_{name}", schema=schema)
@@ -256,7 +249,7 @@ async def create_object(
     if obj.persistent:
         effective_engine = "MergeTree"
     else:
-        effective_engine = engine or schema.engine or state.engine
+        effective_engine = engine or schema.engine or get_engine()
 
     order_by = schema.order_by or "tuple()"
     engine_clause = get_engine_clause(effective_engine, order_by=order_by)
@@ -270,10 +263,14 @@ async def create_object(
 
     if not obj.persistent:
         obj._register()  # Write-ahead incref: register before CREATE TABLE
-    else:
-        obj._ctx = "default"
     register_object(obj)  # Object lifecycle: track for stale marking on exit
-    await state.ch_client.command(create_query)
+    await get_ch_client().command(create_query)
+
+    # Register every new non-persistent table in table_registry for cleanup worker.
+    # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
+    if not obj.persistent:
+        oplog_record_table(obj.table)
+
     return obj
 
 
@@ -515,7 +512,9 @@ async def create_object_from_value(
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):
-            return await _create_nested_object(val, ch, name)
+            result = await _create_nested_object(val, ch, name)
+            oplog_record(result.table, "create_from_value")
+            return result
 
         has_arrays = any(isinstance(v, list) for v in val.values())
 
@@ -575,7 +574,9 @@ async def create_object_from_value(
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
             if _has_nested_dicts(val[0]):
-                return await _create_nested_records_object(val, ch, name)
+                result = await _create_nested_records_object(val, ch, name)
+                oplog_record(result.table, "create_from_value")
+                return result
 
             # Records format: list of dicts with possible Array fields
             first_keys = set(val[0].keys())
@@ -639,6 +640,7 @@ async def create_object_from_value(
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
 
+    oplog_record(obj.table, "create_from_value")
     return obj
 
 
@@ -659,22 +661,21 @@ async def open_object(name: str) -> Object:
     from .ingest import _get_table_schema
 
     _validate_persistent_name(name)
-    state = _get_data_state()
+    ch = get_ch_client()
     table_name = f"p_{name}"
 
-    result = await state.ch_client.command(f"EXISTS TABLE {table_name}")
+    result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
         raise RuntimeError(
             f"Persistent object '{name}' does not exist "
             f"(table {table_name})"
         )
 
-    col_fieldtype, columns = await _get_table_schema(table_name, state.ch_client)
+    col_fieldtype, columns = await _get_table_schema(table_name, ch)
     is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
     fieldtype = FIELDTYPE_DICT if is_dict_type else col_fieldtype
     schema = Schema(fieldtype=fieldtype, columns=columns, col_fieldtype=col_fieldtype)
     obj = Object(table=table_name, schema=schema)
-    obj._ctx = "default"
     register_object(obj)
     return obj
 
@@ -689,9 +690,8 @@ async def delete_persistent_object(name: str) -> None:
         ValueError: If name is invalid.
     """
     _validate_persistent_name(name)
-    state = _get_data_state()
     table_name = f"p_{name}"
-    await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+    await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
 
 
 async def delete_persistent_objects(
@@ -718,7 +718,7 @@ async def delete_persistent_objects(
             "At least one of 'after' or 'before' must be specified "
             "to prevent accidental deletion of all persistent objects"
         )
-    state = _get_data_state()
+    ch = get_ch_client()
     conditions = [
         "database = currentDatabase()",
         r"name LIKE 'p\_%'",
@@ -731,13 +731,11 @@ async def delete_persistent_objects(
         conditions.append(f"metadata_modification_time < '{before_str}'")
 
     where = " AND ".join(conditions)
-    result = await state.ch_client.query(
-        f"SELECT name FROM system.tables WHERE {where}"
-    )
+    result = await ch.query(f"SELECT name FROM system.tables WHERE {where}")
     names = [row[0] for row in result.result_rows]
 
     for table_name in names:
-        await state.ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+        await ch.command(f"DROP TABLE IF EXISTS {table_name}")
 
     return [n[2:] for n in names]
 
@@ -748,8 +746,7 @@ async def list_persistent_objects() -> list[str]:
     Returns:
         List of persistent names (without ``p_`` prefix).
     """
-    state = _get_data_state()
-    result = await state.ch_client.query(
+    result = await get_ch_client().query(
         "SELECT name FROM system.tables "
         "WHERE database = currentDatabase() "
         r"AND name LIKE 'p\_%'"

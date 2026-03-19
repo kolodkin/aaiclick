@@ -20,6 +20,21 @@ async with data_context():
 - Lifecycle/refcounting (`incref`/`decref`) for automatic table cleanup
 - Accessed via `async with data_context():` or `get_data_context()` for the current context
 
+## Managed Resources
+
+`data_context()` owns and sets five per-resource ContextVars for the duration of the block.
+Each resource lives in its own module so it can be accessed without importing `data_context`:
+
+| Resource             | Type                          | ContextVar          | Module               | Accessor              |
+|----------------------|-------------------------------|---------------------|----------------------|-----------------------|
+| ClickHouse client    | `ChClient`                    | `_ch_client_var`    | `ch_client.py`       | `get_ch_client()`     |
+| Table lifecycle      | `LifecycleHandler \| None`    | `_lifecycle_var`    | `lifecycle.py`       | `get_data_lifecycle()`|
+| Table engine         | `EngineType`                  | `_engine_var`       | `data_context.py`    | `get_engine()`        |
+| Object registry      | `dict[int, weakref.ref]`      | `_objects_var`      | `data_context.py`    | internal              |
+| Oplog collector      | `OplogCollector \| None`      | `_oplog_collector`  | `oplog/collector.py` | `get_oplog_collector()`|
+
+Each ContextVar is reset (via token) on context exit, so nested `data_context()` calls are safe.
+
 ## Deployment Modes
 
 `AAICLICK_CH_URL` selects the ClickHouse backend: `chdb:///path` (embedded, default) or `clickhouse://user:pass@host:8123/db` (remote server). Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
@@ -147,5 +162,5 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | Guard                               | Scenario                                      |
 |-------------------------------------|-----------------------------------------------|
 | `sys.is_finalizing()`               | Interpreter shutdown — skip for thread safety  |
-| `_ctx is None`                      | Object was never registered                    |
+| `not _registered`                   | Object was never registered                    |
 | `table.startswith("p_")`            | Persistent object — skip cleanup               |

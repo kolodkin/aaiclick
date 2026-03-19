@@ -60,6 +60,7 @@ from __future__ import annotations
 
 from typing import Union
 
+from ..oplog.collector import oplog_record
 from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
 from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
@@ -270,6 +271,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                 ON a.rn = b.rn
             """)
 
+        oplog_record(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
@@ -291,6 +293,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
 
+    oplog_record(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
     return result
 
 
@@ -395,6 +398,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     await ch_client.command(insert_query)
 
+    oplog_record(result.table, agg_func, kwargs={"source": info.base_table})
     return result
 
 

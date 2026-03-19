@@ -1,0 +1,62 @@
+"""
+Tests for oplog graph traversal: backward_oplog, forward_oplog, oplog_subgraph.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from aaiclick.data.data_context import data_context, create_object_from_value
+from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
+
+
+async def _run_pipeline():
+    """Run a create/concat pipeline and return (a.table, b.table, result.table)."""
+    async with data_context(oplog=True):
+        a = await create_object_from_value([1, 2, 3])
+        b = await create_object_from_value([4, 5, 6])
+        result = await a.concat(b)
+        return a.table, b.table, result.table
+
+
+async def test_backward_oplog():
+    """backward_oplog returns the 3 upstream nodes with exact structure and edges."""
+    a_table, b_table, result_table = await _run_pipeline()
+
+    async with lineage_context():
+        nodes = await backward_oplog(result_table)
+        graph = await oplog_subgraph(result_table, direction="backward")
+
+    by_table = {n.table: n for n in nodes}
+    assert set(by_table) == {result_table, a_table, b_table}
+
+    concat_node = by_table[result_table]
+    assert concat_node.operation == "concat"
+    assert set(concat_node.args) == {a_table, b_table}
+
+    for t in (a_table, b_table):
+        assert by_table[t].operation == "create_from_value"
+
+    assert {(e.source, e.target) for e in graph.edges} == {
+        (a_table, result_table),
+        (b_table, result_table),
+    }
+
+
+async def test_forward_oplog():
+    """forward_oplog from a source finds exactly the concat node."""
+    a_table, b_table, result_table = await _run_pipeline()
+
+    async with lineage_context():
+        nodes = await forward_oplog(a_table)
+
+    assert len(nodes) == 1
+    assert nodes[0].table == result_table
+    assert nodes[0].operation == "concat"
+
+
+async def test_invalid_direction():
+    """oplog_subgraph raises ValueError for unknown direction."""
+    async with lineage_context():
+        with pytest.raises(ValueError, match="direction"):
+            await oplog_subgraph("some_table", direction="sideways")

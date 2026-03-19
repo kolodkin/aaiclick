@@ -9,8 +9,17 @@ for single-process local operation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 
 from .table_worker import TableWorker
+
+
+_lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
+
+
+def get_data_lifecycle() -> LifecycleHandler | None:
+    """Return the active LifecycleHandler, or None if no lifecycle is set."""
+    return _lifecycle_var.get()
 
 
 class LifecycleHandler(ABC):

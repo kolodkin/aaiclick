@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
+from ..oplog.collector import oplog_record
 from .data_context import create_object
 from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from .sql_utils import quote_identifier
@@ -293,6 +294,7 @@ async def concat_objects_db(
             result.table, info, data_columns, i, ch_client,
         )
 
+    oplog_record(result.table, "concat", args=[info.base_table for info in query_infos])
     return result
 
 
@@ -347,6 +349,12 @@ async def insert_objects_db(
         source_target_types = {col: target_columns[col] for col in col_names}
         await _insert_source(
             target_info.base_table, info, source_target_types, i, ch_client,
+        )
+
+    for info in source_infos:
+        oplog_record(
+            target_info.base_table, "insert",
+            kwargs={"source": info.base_table, "target": target_info.base_table},
         )
 
 

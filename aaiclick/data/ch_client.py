@@ -7,6 +7,7 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
@@ -33,6 +34,17 @@ class ChClient(Protocol):
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
     ) -> None: ...
+
+
+_ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)
+
+
+def get_ch_client() -> ChClient:
+    """Return the ClickHouse client for the active data context."""
+    client = _ch_client_var.get()
+    if client is None:
+        raise RuntimeError("No active data context — use 'async with data_context()'")
+    return client
 
 
 async def create_ch_client() -> ChClient:

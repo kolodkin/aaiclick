@@ -608,3 +608,9 @@ await consolidated.insert(kev_view)
 | Concat (+ View flavors)         | `test_concat_parametrized.py`    |
 | Rename + tolerant insert        | `test_rename.py`                 |
 | DateTime Support                | `test_datetime.py`               |
+
+# Operation Provenance (Oplog)
+
+All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are automatically instrumented to record provenance when `data_context(oplog=True)` is active. See `docs/oplog.md` for the full specification.
+
+**Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector.record()`, `record_table()`

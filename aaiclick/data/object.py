@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
+from ..oplog.collector import oplog_record
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -102,31 +103,28 @@ class Object:
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
         self._stale = False
         self._schema = dataclass_replace(schema, table=table_name)
-        self._ctx: Optional[str] = None
+        self._registered = False
 
     @property
     def persistent(self) -> bool:
         """Check if this is a persistent (named) object that survives context exit."""
         return self.table.startswith("p_")
 
-    def _register(self, ctx_name: str = "default") -> None:
-        """Register this object with a named context for lifecycle tracking."""
-        self._ctx = ctx_name
+    def _register(self) -> None:
+        """Register this object with the active context for lifecycle tracking."""
+        self._registered = True
         if not self.persistent:
-            incref(self.table, ctx=ctx_name)
+            incref(self.table)
 
     def __del__(self):
         """Decrement refcount on deletion."""
         if sys.is_finalizing():
             return
-        if self._ctx is None:
+        if not self._registered:
             return
         if self.table.startswith("p_"):
             return
-        try:
-            decref(self.table, ctx=self._ctx)
-        except RuntimeError:
-            return
+        decref(self.table)
 
     @property
     def table(self) -> str:
@@ -189,7 +187,7 @@ class Object:
     def ch_client(self):
         """Get the ClickHouse client from the context."""
         self.checkstale()
-        return get_ch_client(ctx=self._ctx or "default")
+        return get_ch_client()
 
     @property
     def stale(self) -> bool:
@@ -636,10 +634,14 @@ class Object:
             >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
+        source_table = self.table
         copy_info = self._get_copy_info()
         if copy_info.selected_fields:
-            return await ingest.copy_db_selected_fields(copy_info, self.ch_client)
-        return await ingest.copy_db(copy_info, self.ch_client)
+            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+        else:
+            result = await ingest.copy_db(copy_info, self.ch_client)
+        oplog_record(result.table, "copy", kwargs={"source": source_table})
+        return result
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
         """
@@ -2040,9 +2042,9 @@ class View(Object):
         )
 
         # Register with context for lifecycle tracking and stale marking
-        if source._ctx is not None:
-            self._register(source._ctx)
-            register_object(self, ctx=source._ctx)
+        if source._registered:
+            self._register()
+            register_object(self)
 
     @property
     def limit(self) -> Optional[int]:
