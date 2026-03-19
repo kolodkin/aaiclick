@@ -1,5 +1,10 @@
 """Threat intelligence report generation and formatting."""
 
+import os
+import sys
+from contextlib import redirect_stdout
+from io import StringIO
+
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
@@ -42,7 +47,19 @@ async def generate_threat_report(
         limit=5,
     ).markdown(truncate={"summary": 40})
 
-    _print_threat_report(report, kev_md, cves_md, epss_md, consolidated_md, start_date, end_date)
+    buf = StringIO()
+    with redirect_stdout(buf):
+        _print_threat_report(report, kev_md, cves_md, epss_md, consolidated_md, start_date, end_date)
+    rendered = buf.getvalue()
+
+    report_file = os.environ.get("AAICLICK_REPORT_FILE")
+    if report_file:
+        os.makedirs(os.path.dirname(report_file) or ".", exist_ok=True)
+        with open(report_file, "w") as f:
+            f.write(rendered)
+    else:
+        sys.stdout.write(rendered)
+
     return report
 
 
