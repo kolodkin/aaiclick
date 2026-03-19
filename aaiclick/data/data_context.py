@@ -130,9 +130,7 @@ async def data_context(
     ctx: str = "default",
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
-    oplog: bool = False,
-    task_id: int | None = None,
-    job_id: int | None = None,
+    oplog: bool | OplogCollector = False,
 ) -> AsyncIterator[None]:
     """Async context manager for data operations.
 
@@ -141,12 +139,11 @@ async def data_context(
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
-        lineage: When True, capture operation log into ClickHouse.
-                 Creates ``operation_log`` and ``table_registry`` tables on
-                 first use. Events are flushed only on clean exit; on error
-                 the buffer is discarded.
-        task_id: Optional orchestration task ID to tag oplog events.
-        job_id: Optional orchestration job ID to tag oplog events.
+        oplog: When True, capture operation log into ClickHouse (creates a
+               plain OplogCollector). Pass an OplogCollector instance directly
+               to use a pre-configured collector (e.g. from orchestration
+               context with task_id/job_id already set). Events are flushed
+               only on clean exit; on error the buffer is discarded.
     """
     from aaiclick.oplog.collector import OplogCollector, _oplog_collector
     from aaiclick.oplog.models import init_oplog_tables
@@ -179,9 +176,13 @@ async def data_context(
     # Set up oplog collector if requested
     collector: OplogCollector | None = None
     oplog_token = None
-    if oplog:
+    if isinstance(oplog, OplogCollector):
         await init_oplog_tables(ch_client)
-        collector = OplogCollector(task_id=task_id, job_id=job_id)
+        collector = oplog
+        oplog_token = _oplog_collector.set(collector)
+    elif oplog:
+        await init_oplog_tables(ch_client)
+        collector = OplogCollector()
         oplog_token = _oplog_collector.set(collector)
 
     failed = False
