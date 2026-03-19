@@ -119,6 +119,8 @@ addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --stric
 asyncio_mode = "auto"
 filterwarnings = [
     "error",
+    # LiteLLM's async_success_handler coroutine is not always awaited — known upstream issue
+    "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 markers = [
     "live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model",
