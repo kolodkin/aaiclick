@@ -10,13 +10,14 @@ from aaiclick import create_object_from_value
 
 
 # =============================================================================
-# Unique Tests - Integer Arrays
+# Unique Tests - All Types
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "values,expected_unique",
     [
+        # Integer arrays
         pytest.param([1, 2, 2, 3, 3, 3, 4], {1, 2, 3, 4}, id="int-duplicates"),
         pytest.param([1, 1, 1, 1], {1}, id="int-all-same"),
         pytest.param([1, 2, 3, 4, 5], {1, 2, 3, 4, 5}, id="int-all-unique"),
@@ -24,80 +25,20 @@ from aaiclick import create_object_from_value
         pytest.param([0, 0, 1, 1, 0], {0, 1}, id="int-zeros-ones"),
         pytest.param([-5, -5, 5, 5], {-5, 5}, id="int-negative"),
         pytest.param([10, 20, 10, 30, 20, 10], {10, 20, 30}, id="int-repeated-pattern"),
-    ],
-)
-async def test_unique_int(ctx, values, expected_unique):
-    """Test unique() on integer arrays. Returns array Object with unique values."""
-    obj = await create_object_from_value(values)
-
-    result_obj = await obj.unique()
-    result = await result_obj.data()
-
-    # Convert to set for comparison (order is not guaranteed)
-    assert set(result) == expected_unique
-
-
-# =============================================================================
-# Unique Tests - Float Arrays
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "values,expected_unique",
-    [
+        # Float arrays
         pytest.param([1.1, 2.2, 2.2, 3.3], {1.1, 2.2, 3.3}, id="float-duplicates"),
         pytest.param([3.14, 3.14, 3.14], {3.14}, id="float-all-same"),
         pytest.param([1.0, 2.0, 3.0], {1.0, 2.0, 3.0}, id="float-all-unique"),
         pytest.param([42.5], {42.5}, id="float-single"),
         pytest.param([-1.5, 1.5, -1.5], {-1.5, 1.5}, id="float-negative"),
         pytest.param([0.0, 0.0, 0.0, 1.0], {0.0, 1.0}, id="float-zeros"),
-    ],
-)
-async def test_unique_float(ctx, values, expected_unique):
-    """Test unique() on float arrays. Returns array Object with unique values."""
-    obj = await create_object_from_value(values)
-
-    result_obj = await obj.unique()
-    result = await result_obj.data()
-
-    # Convert to set for comparison (order is not guaranteed)
-    assert set(result) == expected_unique
-
-
-# =============================================================================
-# Unique Tests - Boolean Arrays
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "values,expected_unique",
-    [
+        # Boolean arrays (stored as UInt8)
         pytest.param([True, False, True, False], {0, 1}, id="bool-mixed"),
         pytest.param([True, True, True], {1}, id="bool-all-true"),
         pytest.param([False, False, False], {0}, id="bool-all-false"),
         pytest.param([True], {1}, id="bool-single-true"),
         pytest.param([False], {0}, id="bool-single-false"),
-    ],
-)
-async def test_unique_bool(ctx, values, expected_unique):
-    """Test unique() on boolean arrays. Returns array Object with unique values (as UInt8)."""
-    obj = await create_object_from_value(values)
-
-    result_obj = await obj.unique()
-    result = await result_obj.data()
-
-    # Convert to set for comparison (order is not guaranteed)
-    assert set(result) == expected_unique
-
-
-# =============================================================================
-# Unique Tests - String Arrays
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "values,expected_unique",
-    [
+        # String arrays
         pytest.param(["a", "b", "a", "c", "b"], {"a", "b", "c"}, id="str-duplicates"),
         pytest.param(["hello", "hello", "hello"], {"hello"}, id="str-all-same"),
         pytest.param(["x", "y", "z"], {"x", "y", "z"}, id="str-all-unique"),
@@ -105,8 +46,8 @@ async def test_unique_bool(ctx, values, expected_unique):
         pytest.param(["", "", "a"], {"", "a"}, id="str-with-empty"),
     ],
 )
-async def test_unique_str(ctx, values, expected_unique):
-    """Test unique() on string arrays. Returns array Object with unique values."""
+async def test_unique(ctx, values, expected_unique):
+    """Test unique() across all data types. Returns array Object with unique values."""
     obj = await create_object_from_value(values)
 
     result_obj = await obj.unique()

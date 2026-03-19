@@ -5,6 +5,8 @@ Note: String type does not support arithmetic operators (+, -) or statistics.
 Only creation and data() retrieval are tested.
 """
 
+import pytest
+
 from aaiclick import create_object_from_value, create_object
 
 
@@ -12,39 +14,22 @@ from aaiclick import create_object_from_value, create_object
 # Scalar Tests
 # =============================================================================
 
-async def test_str_scalar_creation(ctx):
-    """Test creating a string scalar object."""
-    obj = await create_object_from_value("hello")
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("hello", id="simple"),
+        pytest.param("", id="empty"),
+        pytest.param("hello world", id="spaces"),
+        pytest.param("hello@world.com", id="special-chars"),
+        pytest.param("こんにちは", id="unicode"),
+    ],
+)
+async def test_str_scalar_creation(ctx, value):
+    """Test creating string scalar objects."""
+    obj = await create_object_from_value(value)
     data = await obj.data()
-    assert data == "hello"
-
-
-async def test_str_scalar_empty(ctx):
-    """Test creating an empty string scalar object."""
-    obj = await create_object_from_value("")
-    data = await obj.data()
-    assert data == ""
-
-
-async def test_str_scalar_with_spaces(ctx):
-    """Test creating a string scalar with spaces."""
-    obj = await create_object_from_value("hello world")
-    data = await obj.data()
-    assert data == "hello world"
-
-
-async def test_str_scalar_with_special_chars(ctx):
-    """Test creating a string scalar with special characters."""
-    obj = await create_object_from_value("hello@world.com")
-    data = await obj.data()
-    assert data == "hello@world.com"
-
-
-async def test_str_scalar_unicode(ctx):
-    """Test creating a string scalar with unicode characters."""
-    obj = await create_object_from_value("こんにちは")
-    data = await obj.data()
-    assert data == "こんにちは"
+    assert data == value
 
 
 # =============================================================================
