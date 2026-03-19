@@ -119,7 +119,9 @@ addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --stric
 asyncio_mode = "auto"
 filterwarnings = [
     "error",
-    # LiteLLM's async_success_handler coroutine is not always awaited — known upstream issue
+    # LiteLLM's async_success_handler coroutine is not always awaited — known upstream issue.
+    # Two warnings are raised: RuntimeWarning from Python GC, then PytestUnraisableExceptionWarning from pytest.
+    "ignore:coroutine 'Logging.async_success_handler' was never awaited:RuntimeWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 markers = [
