@@ -2,6 +2,7 @@
 
 Usage:
     python -m aaiclick setup              # Initialize local dev environment
+    python -m aaiclick setup --ai         # Also pull the configured Ollama model
     python -m aaiclick migrate            # Run database migrations
     python -m aaiclick migrate --help     # Show migration help
     python -m aaiclick worker start       # Start a worker process
@@ -18,6 +19,11 @@ Usage:
 
 import argparse
 import asyncio
+import os
+import shutil
+import subprocess
+import urllib.request
+import urllib.error
 
 from aaiclick.data.cli import (
     delete_object_cmd,
@@ -27,7 +33,48 @@ from aaiclick.data.cli import (
 )
 
 
-def _run_setup():
+def _setup_ollama_model(model: str) -> None:
+    """Pull an Ollama model, checking that Ollama is installed and running."""
+    # model is like "ollama/llama3.2:3b" — strip the provider prefix
+    model_name = model.removeprefix("ollama/")
+
+    print(f"\nAI model: {model}")
+
+    if not shutil.which("ollama"):
+        print("  ollama: NOT INSTALLED")
+        print("  Install with:  curl -fsSL https://ollama.com/install.sh | sh")
+        return
+
+    print("  ollama: installed")
+
+    # Check if Ollama server is reachable
+    try:
+        urllib.request.urlopen("http://localhost:11434", timeout=2)  # noqa: S310
+        print("  ollama server: running")
+    except (urllib.error.URLError, OSError):
+        print("  ollama server: NOT RUNNING")
+        print("  Start with:    ollama serve &")
+        return
+
+    # Check if model is already present
+    result = subprocess.run(
+        ["ollama", "list"],
+        capture_output=True,
+        text=True,
+    )
+    if model_name in result.stdout:
+        print(f"  model '{model_name}': already downloaded")
+        return
+
+    print(f"  Pulling '{model_name}' (this may take a few minutes)...")
+    pull = subprocess.run(["ollama", "pull", model_name])
+    if pull.returncode == 0:
+        print(f"  model '{model_name}': OK")
+    else:
+        print(f"  model '{model_name}': pull failed (exit {pull.returncode})")
+
+
+def _run_setup(ai: bool = False):
     """Initialize local dev environment."""
     from pathlib import Path
 
@@ -82,6 +129,13 @@ def _run_setup():
     else:
         print("  PostgreSQL: use 'python -m aaiclick migrate upgrade head' for database setup")
 
+    if ai:
+        model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
+        if model.startswith("ollama/"):
+            _setup_ollama_model(model)
+        else:
+            print(f"\nAI model: {model} (not an Ollama model — nothing to pull)")
+
     print("Setup complete.")
 
 
@@ -94,9 +148,15 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Add setup subcommand
-    subparsers.add_parser(
+    setup_parser = subparsers.add_parser(
         "setup",
         help="Initialize local dev environment (SQLite + chdb)",
+    )
+    setup_parser.add_argument(
+        "--ai",
+        action="store_true",
+        default=False,
+        help="Also pull the configured Ollama model (reads AAICLICK_AI_MODEL)",
     )
 
     # Add migrate subcommand
@@ -269,7 +329,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "setup":
-        _run_setup()
+        _run_setup(ai=args.ai)
 
     elif args.command == "migrate":
         from aaiclick.orchestration.migrate import run_migrations
