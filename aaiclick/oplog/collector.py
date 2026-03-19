@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from aaiclick.data.ch_client import ChClient
+from aaiclick.data.ch_client import get_ch_client
 
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
@@ -84,10 +84,12 @@ class OplogCollector:
         if collector is not None:
             collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)
 
-    async def flush(self, ch_client: ChClient) -> None:
+    async def flush(self) -> None:
         """Batch-insert buffered events into ClickHouse operation_log and table_registry."""
         if not self._buffer and not self._table_buffer:
             return
+
+        ch_client = get_ch_client()
         now = datetime.now(timezone.utc)
 
         if self._buffer:

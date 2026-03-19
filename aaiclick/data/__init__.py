@@ -7,8 +7,6 @@ including context management, object creation, and database operations.
 
 from .ch_client import ChClient
 from .data_context import (
-    DataCtxState,
-    _get_data_state,
     create_object,
     create_object_from_value,
     data_context,

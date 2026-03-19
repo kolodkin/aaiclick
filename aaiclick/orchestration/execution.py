@@ -184,9 +184,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
-            if is_persistent:
-                obj._ctx = "default"
-            else:
+            if not is_persistent:
                 obj._register()
             register_object(obj)
             if not is_persistent and "job_id" in value:

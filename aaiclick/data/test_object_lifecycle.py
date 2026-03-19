@@ -15,7 +15,7 @@ from aaiclick.data.object import Object
 def test_del_guard_unregistered_object():
     """Guard: Object created without factory should not error on __del__."""
     obj = Object()
-    assert obj._ctx is None
+    assert obj._registered is False
     obj.__del__()
 
 
