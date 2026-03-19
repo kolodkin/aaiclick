@@ -9,7 +9,7 @@ import pytest
 from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
 from aaiclick.oplog.collector import get_oplog_collector, OplogCollector
-from aaiclick.oplog.oplog import oplog_context
+from aaiclick.oplog.triage import oplog_context
 
 
 async def test_oplog_disabled_by_default():

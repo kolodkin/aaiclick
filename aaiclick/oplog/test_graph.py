@@ -9,7 +9,7 @@ import pytest
 from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
 from aaiclick.oplog.models import init_oplog_tables
-from aaiclick.oplog.oplog import (
+from aaiclick.oplog.triage import (
     oplog_context,
     backward_oplog,
     forward_oplog,

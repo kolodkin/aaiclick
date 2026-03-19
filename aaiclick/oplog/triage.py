@@ -1,5 +1,5 @@
 """
-aaiclick.oplog.oplog - Oplog context management and graph traversal.
+aaiclick.oplog.triage - Oplog context management and graph traversal.
 """
 
 from __future__ import annotations
