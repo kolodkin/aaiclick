@@ -162,5 +162,5 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 | Guard                               | Scenario                                      |
 |-------------------------------------|-----------------------------------------------|
 | `sys.is_finalizing()`               | Interpreter shutdown — skip for thread safety  |
-| `_ctx is None`                      | Object was never registered                    |
+| `not _registered`                   | Object was never registered                    |
 | `table.startswith("p_")`            | Persistent object — skip cleanup               |
