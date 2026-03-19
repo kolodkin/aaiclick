@@ -74,47 +74,45 @@ async def backward_oplog(
 ) -> list[OplogNode]:
     """Trace all upstream operations that produced `table`.
 
-    Returns nodes in BFS order starting from `table`.
+    Uses WITH RECURSIVE for a single SQL round-trip. A `visited` array
+    guards against revisiting nodes in diamond-shaped lineage graphs.
     """
-    visited: set[str] = set()
-    frontier = [table]
-    nodes: list[OplogNode] = []
-
-    for _ in range(max_depth):
-        if not frontier:
-            break
-
-        placeholders = ", ".join(f"'{t}'" for t in frontier)
-        result = await ch_client.query(f"""
-            SELECT result_table, operation, args, kwargs, sql_template, task_id, job_id
+    table_escaped = table.replace("'", "\\'")
+    result = await ch_client.query(f"""
+        WITH RECURSIVE upstream AS (
+            SELECT result_table, operation, args, kwargs, sql_template, task_id, job_id,
+                   0 AS depth, [result_table] AS visited
             FROM operation_log
-            WHERE result_table IN ({placeholders})
-            ORDER BY created_at DESC
-        """)
+            WHERE result_table = '{table_escaped}'
 
-        next_frontier: list[str] = []
-        for row in result.result_rows:
-            result_table, operation, args, kwargs, sql_template, task_id, job_id = row
-            if result_table in visited:
-                continue
-            visited.add(result_table)
-            node = OplogNode(
-                table=result_table,
-                operation=operation,
-                args=list(args),
-                kwargs=_to_dict(kwargs),
-                sql_template=sql_template,
-                task_id=task_id,
-                job_id=job_id,
-            )
-            nodes.append(node)
-            for src in list(args) + list(_to_dict(kwargs).values()):
-                if src and src not in visited:
-                    next_frontier.append(src)
+            UNION ALL
 
-        frontier = next_frontier
+            SELECT ol.result_table, ol.operation, ol.args, ol.kwargs,
+                   ol.sql_template, ol.task_id, ol.job_id,
+                   u.depth + 1, arrayConcat(u.visited, [ol.result_table])
+            FROM upstream u
+            INNER JOIN operation_log ol
+                ON hasAny(arrayConcat(u.args, mapValues(u.kwargs)), [ol.result_table])
+            WHERE u.depth < {max_depth}
+              AND NOT has(u.visited, ol.result_table)
+        )
+        SELECT DISTINCT result_table, operation, args, kwargs, sql_template, task_id, job_id
+        FROM upstream
+    """)
 
-    return nodes
+    return [
+        OplogNode(
+            table=result_table,
+            operation=operation,
+            args=list(args),
+            kwargs=_to_dict(kwargs_raw),
+            sql_template=sql_template,
+            task_id=task_id,
+            job_id=job_id,
+        )
+        for result_table, operation, args, kwargs_raw, sql_template, task_id, job_id
+        in result.result_rows
+    ]
 
 
 async def forward_oplog(
