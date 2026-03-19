@@ -1,0 +1,180 @@
+AI Layer
+---
+
+Optional AI-powered lineage querying and debugging for aaiclick. Lives in a separate `aaiclick-ai/` package — the core `aaiclick` package works identically without it.
+
+**Specification status**: ⚠️ NOT YET IMPLEMENTED (Phase 2+)
+
+**Depends on**: `docs/oplog.md` — the oplog module provides the provenance data that AI agents query.
+
+---
+
+# Design Principles
+
+- **Oplog in core, AI outside** — operation logging has zero AI dependencies
+- **Single provider via LiteLLM** — one interface for local (Ollama) and remote (Anthropic, OpenAI) models
+- **User chooses model** — no hard local/remote split; any model for any query
+- **AI agents are `@task` functions** — dogfood the orchestration engine
+- **Opt-in** — aaiclick works identically without the AI package installed
+
+---
+
+# Package Structure
+
+```
+aaiclick-ai/
+├── pyproject.toml           # deps: litellm, aaiclick
+└── aaiclick_ai/
+    ├── __init__.py
+    ├── provider.py          # AIProvider — thin wrapper around litellm
+    ├── config.py            # Configuration from env vars
+    └── agents/
+        ├── __init__.py
+        ├── lineage_agent.py # Backward/forward lineage + explanation
+        ├── debug_agent.py   # "Why" queries, anomaly root-cause
+        └── tools.py         # Tools exposed to AI agents
+```
+
+---
+
+# AIProvider
+
+```python
+# aaiclick_ai/provider.py
+
+from litellm import acompletion
+
+class AIProvider:
+    """Unified AI provider via LiteLLM. Works with any model string."""
+
+    def __init__(self, model: str = "ollama/llama3.1:8b"):
+        self.model = model
+
+    async def query(self, prompt: str, context: str = "", system: str = "") -> str:
+        """Single-turn query."""
+
+    async def query_with_tools(self, prompt: str, tools: list[dict], context: str = "") -> dict:
+        """Query with tool-calling support for agents that need to fetch additional data."""
+```
+
+# Configuration
+
+```bash
+AAICLICK_AI_MODEL=ollama/llama3.1:8b   # Default model (local-first)
+AAICLICK_AI_API_KEY=...                 # Only needed for remote APIs
+# Standard LiteLLM env vars also work (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+```
+
+```python
+# aaiclick_ai/config.py
+def get_ai_provider() -> AIProvider:
+    model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
+    return AIProvider(model=model)
+```
+
+---
+
+# Agents
+
+## Lineage Agent
+
+```python
+# aaiclick_ai/agents/lineage_agent.py
+
+async def explain_lineage(target_table: str, question: str | None = None) -> str:
+    """Trace and explain how target_table was produced.
+
+    Calls backward_oplog(), samples each node, formats context for LLM.
+    Can be called standalone or as a @task in a job.
+    """
+```
+
+## Debug Agent
+
+```python
+# aaiclick_ai/agents/debug_agent.py
+
+async def debug_result(target_table: str, question: str) -> str:
+    """Answer 'why' questions about a result by tracing lineage
+    and inspecting intermediate data.
+
+    Examples:
+        "Why is this value negative?"
+        "Why are there only 3 rows instead of 10?"
+        "Which input caused the NaN values?"
+    """
+```
+
+## Agent Tools
+
+Tools the AI can call for deeper inspection via tool-calling protocol:
+
+```python
+# aaiclick_ai/agents/tools.py
+
+TOOLS = [
+    {"name": "sample_table",   "parameters": {"table": "str", "limit": "int", "where": "str | None"}},
+    {"name": "get_schema",     "parameters": {"table": "str"}},
+    {"name": "get_stats",      "parameters": {"table": "str", "column": "str"}},
+    {"name": "trace_upstream", "parameters": {"table": "str", "depth": "int"}},
+]
+```
+
+---
+
+# Orchestration Integration
+
+When a job runs, the worker always creates an `OplogCollector(task_id=..., job_id=...)` and injects it into `data_context`:
+
+```python
+# In execute_task()
+collector = OplogCollector(task_id=task.id, job_id=job.id)
+async with data_context(oplog=collector):
+    result = await func(**deserialized_kwargs)
+    # collector.flush() called on clean exit only
+```
+
+All object operations within a task are automatically logged — no changes to user task code.
+
+## AI Agents as @task Functions
+
+```python
+from aaiclick.orchestration.decorators import task
+
+@task(name="explain_lineage")
+async def explain_lineage_task(target: Object, question: str) -> str:
+    from aaiclick_ai.agents.lineage_agent import explain_lineage
+    return await explain_lineage(target.table, question)
+
+# Usage in a job:
+@job("pipeline_with_debug")
+async def my_pipeline():
+    data = load_data(url="...")
+    result = transform(data=data)
+    explanation = explain_lineage_task(target=result, question="Summarize this pipeline")
+    return [result, explanation]
+```
+
+---
+
+# Graceful Degradation
+
+```python
+# aaiclick core — surfaced in aaiclick/__init__.py
+
+def explain(target_table: str, question: str | None = None) -> str:
+    try:
+        from aaiclick_ai.agents.lineage_agent import explain_lineage
+    except ImportError:
+        raise ImportError(
+            "AI features require the aaiclick-ai package. "
+            "Install with: pip install aaiclick-ai"
+        )
+    return explain_lineage(target_table, question)
+```
+
+---
+
+# Historical Tables
+
+After job cleanup, each table is replaced with a 10-row sample (same name, same schema — see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently return the preserved sample rows.

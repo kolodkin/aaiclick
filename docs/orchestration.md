@@ -454,9 +454,16 @@ Orchestration-specific:
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
 - Legacy env vars (`POSTGRES_HOST`, etc.) are read by Alembic as fallback when `AAICLICK_SQL_URL` is not set
 
+# Operation Provenance (Oplog)
+
+In Phase 3, the worker always creates an `OplogCollector(task_id=task.id, job_id=job.id)` and injects it into each task's `data_context` — all object operations within a task are automatically logged with no changes to user task code. On job completion, a cleanup worker samples each ephemeral table to 10 rows. See `docs/oplog.md` for the full specification.
+
+**Implementation** (Phase 3 — not yet implemented): `aaiclick/orchestration/` — wire into `execute_task()`
+
 # References
 
 - [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
 - [Alembic Documentation](https://alembic.sqlalchemy.org/)
 - [PostgreSQL Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
 - [aaiclick Architecture](./aaiclick.md)
+- [Operation Provenance](./oplog.md)
