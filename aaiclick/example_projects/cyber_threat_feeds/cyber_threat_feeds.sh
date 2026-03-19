@@ -6,7 +6,8 @@
 
 set -e
 
-REPORT_LOG="tmp/cyber_threat_report.log"
+WORKER_LOG="tmp/cyber_threat_worker.log"
+export AAICLICK_REPORT_FILE="tmp/cyber_threat_report.md"
 mkdir -p tmp
 
 echo "## Cyber Threat Feeds Pipeline"
@@ -28,7 +29,7 @@ echo
 
 # Step 3: Start worker in background, capturing output to log file
 echo "Starting worker..."
-uv run python -m aaiclick worker start > "$REPORT_LOG" 2>&1 &
+uv run python -m aaiclick worker start > "$WORKER_LOG" 2>&1 &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
@@ -59,11 +60,15 @@ kill $BACKGROUND_PID 2>/dev/null || true
 wait $WORKER_PID 2>/dev/null || true
 wait $BACKGROUND_PID 2>/dev/null || true
 
-# Step 7: Display report from log
+# Step 7: Display worker log, then report
+echo
+echo "### Worker Log"
+echo
+cat "$WORKER_LOG"
 echo
 echo "### Threat Report Output"
 echo
-cat "$REPORT_LOG"
+cat "$AAICLICK_REPORT_FILE"
 
 echo
 if [ "$JOB_STATUS" = "COMPLETED" ]; then

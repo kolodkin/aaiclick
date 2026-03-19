@@ -15,11 +15,13 @@ from aaiclick.orchestration import task
 
 _HAS_KEV = "has(sources, 'kev')"
 _HAS_SHODAN = "has(sources, 'shodan')"
+_HAS_EPSS = "has(sources, 'epss')"
 
 CONSOLIDATED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String"),
     "source": ColumnInfo("String"),
+    "is_kev": ColumnInfo("Bool", nullable=True),
     "vendor": ColumnInfo("String", nullable=True),
     "product": ColumnInfo("String", nullable=True),
     "vulnerability_name": ColumnInfo("String", nullable=True),
@@ -37,7 +39,8 @@ CONSOLIDATED_COLUMNS = {
 MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
-    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan']"),
+    "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan','epss']"),
+    "is_kev": ColumnInfo("Bool", nullable=True, description="True if CVE is in the CISA KEV catalog (from source data)"),
     "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
     "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
     "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
@@ -57,8 +60,7 @@ MERGED_COLUMNS = {
 async def build_consolidated_table(
     kev: Object,
     cves: Object,
-    start_date: str,
-    end_date: str,
+    epss: Object,
 ) -> Object:
     """Build a consolidated AggregatingMergeTree table from all sources.
 
@@ -77,7 +79,8 @@ async def build_consolidated_table(
     )
     agg = await create_object(schema)
 
-    # KEV: rename camelCase → snake_case, filter to date window, add source tag
+    # KEV: rename camelCase → snake_case, add source tag
+    # All KEV records are KEV by definition → is_kev = true
     kev_view = (
         kev
         .rename({
@@ -88,20 +91,34 @@ async def build_consolidated_table(
             "dateAdded": "date_added",
             "knownRansomwareCampaignUse": "known_ransomware",
         })
-        .with_columns({"source": Computed("String", "'kev'")})
-        .where(f"dateAdded >= '{start_date}' AND dateAdded < '{end_date}'")
+        .with_columns({
+            "source": Computed("String", "'kev'"),
+            "is_kev": Computed("Bool", "true"),
+        })
     )
     await agg.insert(kev_view)
 
-    # Shodan: already snake_case, just add source tag
-    shodan_view = cves.with_columns({
-        "source": Computed("String", "'shodan'"),
-    })
+    # Shodan: already snake_case, rename kev → is_kev, add source tag
+    shodan_view = (
+        cves
+        .rename({"kev": "is_kev"})
+        .with_columns({"source": Computed("String", "'shodan'")})
+    )
     await agg.insert(shodan_view)
 
+    # EPSS: rename cve→cve_id, percentile→ranking_epss, add source tag
+    epss_view = (
+        epss
+        .rename({"cve": "cve_id", "percentile": "ranking_epss"})
+        .with_columns({"source": Computed("String", "'epss'")})
+    )
+    await agg.insert(epss_view)
+
     # Collapse: merge rows per CVE — groupArrayDistinct for sources, any() for all other columns
+    # is_kev comes from source data: true for KEV records, Shodan's kev field for Shodan, NULL for EPSS
     merged = await agg.group_by("cve_id").agg({
         "source":             GB_GROUP_ARRAY_DISTINCT,
+        "is_kev":             GB_ANY,
         "vendor":             GB_ANY,
         "product":            GB_ANY,
         "vulnerability_name": GB_ANY,
@@ -127,5 +144,7 @@ async def analyze_consolidated(consolidated: Object) -> dict:
         "kev_only":           f"{_HAS_KEV} AND NOT {_HAS_SHODAN}",
         "shodan_only":        f"{_HAS_SHODAN} AND NOT {_HAS_KEV}",
         "kev_with_high_epss": f"{_HAS_KEV} AND epss > 0.5",
+        "epss_coverage":      _HAS_EPSS,
+        "kev_with_epss":      f"{_HAS_KEV} AND {_HAS_EPSS}",
     })
     return await stats.data()

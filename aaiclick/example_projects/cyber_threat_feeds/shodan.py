@@ -23,24 +23,33 @@ SHODAN_COLUMNS = {
 }
 
 
-@task
-async def load_shodan_kev_cves(start_date: str, end_date: str) -> Object:
-    """Load KEV-flagged CVEs from Shodan CVEDB.
+_PAGE_SIZE = 5000
 
-    Uses is_kev=true to fetch CVEs that Shodan knows are in the CISA KEV
-    catalog, ensuring cross-source overlap in the consolidated table.
+
+@task
+async def load_shodan_kev_cves() -> Object:
+    """Load all KEV-flagged CVEs from Shodan CVEDB using sequential pagination.
+
+    Fetches all CVEs that Shodan marks as in the CISA KEV catalog with no
+    date filter — KEV entries span the full vulnerability history. Pages
+    through all results (5000 per page) until the last partial page.
     """
-    url = (
-        f"{SHODAN_CVEDB_URL}"
-        f"?is_kev=true&limit=5000"
-        f"&start_date={start_date}&end_date={end_date}"
-    )
-    return await create_object_from_url(
-        url=url,
-        format="RawBLOB",
-        json_path="cves",
-        json_columns=SHODAN_COLUMNS,
-    )
+    result = None
+    skip = 0
+    while True:
+        url = f"{SHODAN_CVEDB_URL}?is_kev=true&limit={_PAGE_SIZE}&skip={skip}"
+        page = await create_object_from_url(
+            url=url,
+            format="RawBLOB",
+            json_path="cves",
+            json_columns=SHODAN_COLUMNS,
+        )
+        count = await (await page["cve_id"].count()).data()
+        result = page if result is None else await result.concat(page)
+        if count < _PAGE_SIZE:
+            break
+        skip += _PAGE_SIZE
+    return result
 
 
 @task
