@@ -4,38 +4,38 @@
 
 ---
 
-## Phase 1: Lineage Core (`aaiclick/lineage/`) ✅ IMPLEMENTED
+## Phase 1: Lineage Core (`aaiclick/oplog/`) ✅ IMPLEMENTED
 
 **Objective**: Capture data operation provenance in core with zero AI dependencies.
 
-**Implementation**: `aaiclick/lineage/` — see `init_lineage_tables()`, `LineageCollector`, `backward_lineage()`, `forward_lineage()`, `lineage_subgraph()`
+**Implementation**: `aaiclick/oplog/` — see `init_oplog_tables()`, `OplogCollector`, `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`
 
 ### Tasks
 
 1. **Create module structure** ✅
-   - `aaiclick/lineage/__init__.py`
-   - `aaiclick/lineage/models.py` — DDL constants and `init_lineage_tables()`
-   - `aaiclick/lineage/collector.py` — `LineageCollector` event sink
-   - `aaiclick/lineage/graph.py` — lineage graph queries
+   - `aaiclick/oplog/__init__.py`
+   - `aaiclick/oplog/models.py` — DDL constants and `init_oplog_tables()`
+   - `aaiclick/oplog/collector.py` — `OplogCollector` event sink
+   - `aaiclick/oplog/graph.py` — lineage graph queries
 
 2. **Define ClickHouse DDL constants** ✅ (`models.py`)
    - Snowflake ID primary key (`DEFAULT generateSnowflakeID()`)
    - Fields: `result_table`, `operation`, `args` (`Array(String)`), `kwargs` (`Map(String, String)`), `sql_template`, `task_id`, `job_id`, `created_at`
-   - `table_registry` table for cleanup worker (populated by `LineageCollector`)
-   - `init_lineage_tables(ch_client)` — `CREATE TABLE IF NOT EXISTS` on context startup
+   - `table_registry` table for cleanup worker (populated by `OplogCollector`)
+   - `init_oplog_tables(ch_client)` — `CREATE TABLE IF NOT EXISTS` on context startup
    - Schema validation on startup to detect stale/mismatched tables
 
-3. **Implement LineageCollector** ✅ (`collector.py`)
+3. **Implement OplogCollector** ✅ (`collector.py`)
    - Buffer-based: collects events in memory, flushes to DB
-   - ContextVar-based: `_lineage_collector: ContextVar[LineageCollector | None]`
-   - Helper: `get_lineage_collector()` returns current or None
+   - ContextVar-based: `_oplog_collector: ContextVar[OplogCollector | None]`
+   - Helper: `get_oplog_collector()` returns current or None
    - `record_table()` populates `table_registry` buffer (one entry per new table)
 
 4. **Opt-in via data_context** ✅ (`data_context.py`)
-   - Added `lineage: bool = False`, `task_id`, `job_id` parameters to `data_context()`
-   - When True: create `LineageCollector`, store in ContextVar
+   - Added `oplog: bool = False`, `task_id`, `job_id` parameters to `data_context()`
+   - When True: create `OplogCollector`, store in ContextVar
    - On clean exit only (no exception): call `collector.flush()`
-   - On failure: discard buffer to avoid writing partial lineage
+   - On failure: discard buffer to avoid partial oplog
 
 5. **Instrument data operations** ✅
    - `data_context.create_object()` → `record_table()` only (table registry, not operation_log)
@@ -46,15 +46,15 @@
    - `ingest.insert_objects_db()` → record `"insert"`, kwargs={"source": ..., "target": ...}
    - `object.Object.copy()` → record `"copy"`, kwargs={"source": self.table}
 
-6. **Implement lineage graph queries** ✅ (`graph.py`)
-   - `backward_lineage(table, ch_client, max_depth)` — iterative BFS upstream trace
-   - `forward_lineage(table, ch_client, max_depth)` — iterative BFS downstream trace
-   - `lineage_subgraph(table, ch_client, direction, max_depth)` → `LineageGraph`
-   - `LineageGraph.to_prompt_context()` — text formatter for LLM consumption
+6. **Implement oplog graph queries** ✅ (`graph.py`)
+   - `backward_oplog(table, ch_client, max_depth)` — iterative BFS upstream trace
+   - `forward_oplog(table, ch_client, max_depth)` — iterative BFS downstream trace
+   - `oplog_subgraph(table, ch_client, direction, max_depth)` → `OplogGraph`
+   - `OplogGraph.to_prompt_context()` — text formatter for LLM consumption
 
 7. **Tests** ✅
-   - `aaiclick/lineage/test_collector.py` — 13 tests covering buffering, flushing, all instrumentation points
-   - `aaiclick/lineage/test_graph.py` — 11 tests covering backward/forward traversal and edge cases
+   - `aaiclick/oplog/test_collector.py` — 13 tests covering buffering, flushing, all instrumentation points
+   - `aaiclick/oplog/test_graph.py` — 11 tests covering backward/forward traversal and edge cases
 
 ### Notes
 
@@ -101,7 +101,7 @@
 
 5. **Implement lineage agent** (`agents/lineage_agent.py`)
    - `explain_lineage(target_table, question)` — trace + explain
-   - Formats `LineageGraph.to_prompt_context()` as LLM input
+   - Formats `OplogGraph.to_prompt_context()` as LLM input
    - Samples data from each node for concrete examples
    - System prompt tuned for lineage explanation
 
@@ -146,13 +146,13 @@
 
 ### Tasks
 
-1. **Add lineage flag to Job model**
-   - `Job.lineage_enabled: bool = False`
+1. **Add oplog flag to Job model**
+   - `Job.oplog_enabled: bool = False`
    - Alembic migration to add column
 
-2. **Wire LineageCollector into execute_task()**
-   - When `job.lineage_enabled`: create collector with `task_id` and `job_id`
-   - Pass `lineage=True` to `data_context()` inside task execution
+2. **Wire OplogCollector into execute_task()**
+   - When `job.oplog_enabled`: create collector with `task_id` and `job_id`
+   - Pass `oplog=True` to `data_context()` inside task execution
    - Collector auto-flushes on context exit
 
 3. **Background cleanup worker** (deferred from Phase 1 — needs `job_id` from orchestration)
@@ -182,11 +182,11 @@
    - Participates in normal DAG dependencies
 
 5. **Integration tests**
-   - Job with lineage=True → verify operation_log populated
+   - Job with oplog=True → verify operation_log populated
    - AI task in DAG → verify explanation returned (mock LLM)
 
 ### Deliverables
-- Zero-config lineage for jobs (just set `lineage_enabled=True`)
+- Zero-config lineage for jobs (just set `oplog_enabled=True`)
 - AI agents composable with regular tasks in job DAGs
 - Post-job table sampling preserves lineage-accessible data without storage bloat
 
@@ -199,7 +199,7 @@
 ### Tasks
 
 1. **Example: Interactive lineage exploration**
-   - Script using `data_context(lineage=True)` + local Ollama
+   - Script using `data_context(oplog=True)` + local Ollama
    - Build a small pipeline, then ask "explain this result"
    - Demonstrates fully local setup (no API keys needed)
 

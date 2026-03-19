@@ -130,7 +130,7 @@ async def data_context(
     ctx: str = "default",
     engine: EngineType | None = None,
     lifecycle: LifecycleHandler | None = None,
-    lineage: bool = False,
+    oplog: bool = False,
     task_id: int | None = None,
     job_id: int | None = None,
 ) -> AsyncIterator[None]:
@@ -141,15 +141,15 @@ async def data_context(
         engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
         lifecycle: LifecycleHandler for table refcounting.
                   If None, creates a LocalLifecycleHandler.
-        lineage: When True, capture operation lineage into ClickHouse.
+        lineage: When True, capture operation log into ClickHouse.
                  Creates ``operation_log`` and ``table_registry`` tables on
                  first use. Events are flushed only on clean exit; on error
                  the buffer is discarded.
-        task_id: Optional orchestration task ID to tag lineage events.
-        job_id: Optional orchestration job ID to tag lineage events.
+        task_id: Optional orchestration task ID to tag oplog events.
+        job_id: Optional orchestration job ID to tag oplog events.
     """
-    from aaiclick.lineage.collector import LineageCollector, _lineage_collector
-    from aaiclick.lineage.models import init_lineage_tables
+    from aaiclick.oplog.collector import OplogCollector, _oplog_collector
+    from aaiclick.oplog.models import init_oplog_tables
 
     ch_client = await create_ch_client()
 
@@ -176,13 +176,13 @@ async def data_context(
     contexts[ctx] = state
     token = _data_contexts.set(contexts)
 
-    # Set up lineage collector if requested
-    collector: LineageCollector | None = None
-    lineage_token = None
-    if lineage:
-        await init_lineage_tables(ch_client)
-        collector = LineageCollector(task_id=task_id, job_id=job_id)
-        lineage_token = _lineage_collector.set(collector)
+    # Set up oplog collector if requested
+    collector: OplogCollector | None = None
+    oplog_token = None
+    if oplog:
+        await init_oplog_tables(ch_client)
+        collector = OplogCollector(task_id=task_id, job_id=job_id)
+        oplog_token = _oplog_collector.set(collector)
 
     failed = False
     try:
@@ -191,11 +191,11 @@ async def data_context(
         failed = True
         raise
     finally:
-        # Flush lineage only on clean exit; discard buffer on failure
+        # Flush oplog only on clean exit; discard buffer on failure
         if collector is not None and not failed:
             await collector.flush()
-        if lineage_token is not None:
-            _lineage_collector.reset(lineage_token)
+        if oplog_token is not None:
+            _oplog_collector.reset(oplog_token)
 
         # Mark all tracked objects as stale
         for obj_ref in state.objects.values():
@@ -308,8 +308,8 @@ async def create_object(
     # Register every new non-persistent table in table_registry for cleanup worker.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
     if not obj.persistent:
-        from aaiclick.lineage.collector import get_lineage_collector
-        collector = get_lineage_collector()
+        from aaiclick.oplog.collector import get_oplog_collector
+        collector = get_oplog_collector()
         if collector is not None:
             collector.record_table(obj.table)
 
@@ -546,7 +546,7 @@ async def create_object_from_value(
         Object: New Object instance with data
     """
     from .object import Object, View
-    from aaiclick.lineage.collector import get_lineage_collector
+    from aaiclick.oplog.collector import get_oplog_collector
 
     if isinstance(val, (Object, View)):
         return val
@@ -556,7 +556,7 @@ async def create_object_from_value(
     if isinstance(val, dict):
         if _has_nested_dicts(val):
             result = await _create_nested_object(val, ch, name)
-            _lc = get_lineage_collector()
+            _lc = get_oplog_collector()
             if _lc is not None:
                 _lc.record(result.table, "create_from_value")
             return result
@@ -620,7 +620,7 @@ async def create_object_from_value(
         if val and isinstance(val[0], dict):
             if _has_nested_dicts(val[0]):
                 result = await _create_nested_records_object(val, ch, name)
-                _lc = get_lineage_collector()
+                _lc = get_oplog_collector()
                 if _lc is not None:
                     _lc.record(result.table, "create_from_value")
                 return result
@@ -687,7 +687,7 @@ async def create_object_from_value(
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
 
-    _lc = get_lineage_collector()
+    _lc = get_oplog_collector()
     if _lc is not None:
         _lc.record(obj.table, "create_from_value")
     return obj

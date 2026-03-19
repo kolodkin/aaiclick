@@ -60,7 +60,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from ..lineage.collector import get_lineage_collector
+from ..oplog.collector import get_oplog_collector
 from ..snowflake_id import get_snowflake_id
 from .data_context import create_object
 from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
@@ -271,7 +271,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                 ON a.rn = b.rn
             """)
 
-        collector = get_lineage_collector()
+        collector = get_oplog_collector()
         if collector is not None:
             collector.record(result.table, operator,
                              kwargs={"left": info_a.base_table, "right": info_b.base_table})
@@ -296,7 +296,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
 
-    collector = get_lineage_collector()
+    collector = get_oplog_collector()
     if collector is not None:
         collector.record(result.table, operator,
                          kwargs={"left": info_a.base_table, "right": info_b.base_table})
@@ -403,7 +403,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     await ch_client.command(insert_query)
 
-    collector = get_lineage_collector()
+    collector = get_oplog_collector()
     if collector is not None:
         collector.record(result.table, agg_func, kwargs={"source": info.base_table})
     return result

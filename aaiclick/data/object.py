@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
-from ..lineage.collector import get_lineage_collector
+from ..oplog.collector import get_oplog_collector
 from ..snowflake_id import get_snowflake_id
 
 from .models import (
@@ -642,7 +642,7 @@ class Object:
             result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
         else:
             result = await ingest.copy_db(copy_info, self.ch_client)
-        collector = get_lineage_collector()
+        collector = get_oplog_collector()
         if collector is not None:
             collector.record(result.table, "copy", kwargs={"source": source_table})
         return result

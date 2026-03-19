@@ -14,7 +14,7 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 
 ---
 
-## Part 1: Lineage Capture (Core — `aaiclick/lineage/`)
+## Part 1: Lineage Capture (Core — `aaiclick/oplog/`)
 
 ### Gap Analysis
 
@@ -44,7 +44,7 @@ Add an AI-powered lineage tracking and conversational debugging layer to aaiclic
 ### 1.2 ClickHouse Models
 
 ```python
-# aaiclick/lineage/models.py
+# aaiclick/oplog/models.py
 
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
@@ -75,15 +75,15 @@ OPERATION_LOG_EXPECTED_COLUMNS = {
 }
 
 
-async def init_lineage_tables(ch_client: ChClient) -> None:
+async def init_oplog_tables(ch_client: ChClient) -> None:
     """Create lineage tables if they don't exist; validate schema if they do."""
     await ch_client.command(OPERATION_LOG_DDL.format(ttl_days=_ttl_days()))
     await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
 ```
 
-TTL controlled by `AAICLICK_LINEAGE_TTL_DAYS` (default: `90`).
+TTL controlled by `AAICLICK_OPLOG_TTL_DAYS` (default: `90`).
 
-`init_lineage_tables()` is idempotent: `CREATE TABLE IF NOT EXISTS` is atomic in ClickHouse. If the table already exists, `_validate_schema()` checks that all expected columns are present with correct types and raises `RuntimeError` on mismatch.
+`init_oplog_tables()` is idempotent: `CREATE TABLE IF NOT EXISTS` is atomic in ClickHouse. If the table already exists, `_validate_schema()` checks that all expected columns are present with correct types and raises `RuntimeError` on mismatch.
 
 `args` holds positional inputs (e.g. N sources for `concat`); `kwargs` holds named inputs (e.g. `{"left": ..., "right": ...}` for binary ops). Forward lineage: `has(args, t) OR mapContains(kwargs, t)` — no GIN index needed.
 
@@ -122,10 +122,10 @@ await ch_client.command(
 
 **operation_log** — TTL only. Append-only audit records; ClickHouse handles deletion natively during MergeTree merges.
 
-### 1.4 LineageCollector
+### 1.4 OplogCollector
 
 ```python
-# aaiclick/lineage/collector.py
+# aaiclick/oplog/collector.py
 
 from dataclasses import dataclass, field
 
@@ -138,7 +138,7 @@ class OperationEvent:
     sql: str | None = None
 
 
-class LineageCollector:
+class OplogCollector:
     """Collects operation events during a data_context session."""
 
     def __init__(self, task_id: int | None = None, job_id: int | None = None):
@@ -161,7 +161,7 @@ class LineageCollector:
 
 `flush()` calls `get_ch_client()` directly — no need to pass the client in. Called from `data_context.__aexit__()` only on success (no exception). On failure, the buffer is discarded to avoid writing partial lineage.
 
-Activation via `data_context(lineage=True)` — stores collector in a ContextVar. When `lineage=False` (default), no collector exists, no overhead.
+Activation via `data_context(oplog=True)` — stores collector in a ContextVar. When `oplog=False` (default), no collector exists, no overhead.
 
 ### 1.5 Instrumentation Points
 
@@ -185,32 +185,32 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 Implemented in ClickHouse SQL using iterative joins (ClickHouse supports WITH RECURSIVE in 23+, but `arrayJoin` + iterative Python loops work across all versions):
 
 ```python
-# aaiclick/lineage/graph.py
+# aaiclick/oplog/graph.py
 
-async def backward_lineage(
+async def backward_oplog(
     table: str, ch_client, max_depth: int = 10
 ) -> list[dict]:
     """Trace all upstream operations that produced `table`."""
     # Iterative: fetch op where result_table=table, then recurse on args + kwargs values
     ...
 
-async def forward_lineage(
+async def forward_oplog(
     table: str, ch_client, max_depth: int = 10
 ) -> list[dict]:
     """Trace all downstream operations that consumed `table`."""
     # has(args, table) OR mapContains(kwargs, table) — no GIN needed
     ...
 
-async def lineage_subgraph(
+async def oplog_subgraph(
     table: str, ch_client, direction: str = "backward", max_depth: int = 10
-) -> LineageGraph:
+) -> OplogGraph:
     """Return structured graph (nodes + edges) for visualization or AI context."""
     ...
 
 @dataclass
-class LineageGraph:
-    nodes: list[LineageNode]  # Tables with metadata
-    edges: list[LineageEdge]  # Operations connecting tables
+class OplogGraph:
+    nodes: list[OplogNode]  # Tables with metadata
+    edges: list[OplogEdge]  # Operations connecting tables
 
     def to_prompt_context(self) -> str:
         """Format graph as text for LLM consumption."""
@@ -221,7 +221,7 @@ class LineageGraph:
 
 ### 1.7 ClickHouse Table Initialization
 
-No Alembic migration needed. Tables are created at `data_context` startup via `CREATE TABLE IF NOT EXISTS`. The `aaiclick/lineage/` module exposes an `init_lineage_tables(ch_client)` function called during context setup when `lineage=True`.
+No Alembic migration needed. Tables are created at `data_context` startup via `CREATE TABLE IF NOT EXISTS`. The `aaiclick/oplog/` module exposes an `init_oplog_tables(ch_client)` function called during context setup when `oplog=True`.
 
 ---
 
@@ -300,7 +300,7 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
 
     Can be called standalone or as a @task in a job.
     """
-    graph = await backward_lineage(target_table)
+    graph = await backward_oplog(target_table)
     samples = await _sample_nodes(graph, limit=5)  # Fetch sample rows per table
     context = _format_lineage_context(graph, samples)
 
@@ -327,7 +327,7 @@ async def debug_result(target_table: str, question: str) -> str:
         "Why are there only 3 rows instead of 10?"
         "Which input caused the NaN values?"
     """
-    graph = await backward_lineage(target_table)
+    graph = await backward_oplog(target_table)
     samples = await _sample_nodes(graph, limit=10)
     schemas = await _get_schemas(graph)
     context = _format_debug_context(graph, samples, schemas)
@@ -393,11 +393,11 @@ def explain(target_table: str, question: str | None = None) -> str:
 
 ### 3.1 Auto-Lineage in Task Execution
 
-When a job runs with `lineage=True`, the worker injects a `LineageCollector` into each task's `data_context`:
+When a job runs with `oplog=True`, the worker injects a `OplogCollector` into each task's `data_context`:
 
 ```python
 # In execution.py — execute_task()
-async with data_context(lineage=job.lineage_enabled):
+async with data_context(lineage=job.oplog_enabled):
     # collector automatically created, task_id/job_id set
     result = await func(**deserialized_kwargs)
     # collector.flush() only called on success — partial lineage discarded on failure
@@ -428,14 +428,14 @@ async def my_pipeline():
 
 ## Implementation Plan
 
-### Phase 1: Lineage Core (`aaiclick/lineage/`)
+### Phase 1: Lineage Core (`aaiclick/oplog/`)
 
-1. Create `aaiclick/lineage/` module with `__init__.py`
-2. Define DDL constants and `init_lineage_tables(ch_client)` in `models.py`
-3. Implement `LineageCollector` in `collector.py` with `record()` and `flush()`
-4. Add `lineage=False` param and ContextVar to `data_context()`; call `flush()` on clean exit only (discard buffer on exception)
+1. Create `aaiclick/oplog/` module with `__init__.py`
+2. Define DDL constants and `init_oplog_tables(ch_client)` in `models.py`
+3. Implement `OplogCollector` in `collector.py` with `record()` and `flush()`
+4. Add `oplog=False` param and ContextVar to `data_context()`; call `flush()` on clean exit only (discard buffer on exception)
 5. Instrument operators, ingest, and data_context creation functions (8 locations, 2 lines each)
-6. Implement `backward_lineage()`, `forward_lineage()`, `LineageGraph` in `graph.py`
+6. Implement `backward_oplog()`, `forward_oplog()`, `OplogGraph` in `graph.py`
 7. Add `table_registry` DDL to `models.py`; register every new table on creation
 8. Implement background cleanup worker: `CREATE AS source` + `INSERT LIMIT 10` + `DROP` + `RENAME` per table in registry for completed job; persistent (`p_` prefix) tables skipped
 9. Write tests: verify operations produce correct log entries, verify graph traversal, verify sample tables after cleanup
@@ -454,7 +454,7 @@ async def my_pipeline():
 ### Phase 3: Orchestration Integration
 
 1. Add `lineage_enabled` flag to Job model (default False)
-2. Pass `job_id` to `data_context()` from `execute_task()`; wire `LineageCollector`
+2. Pass `job_id` to `data_context()` from `execute_task()`; wire `OplogCollector`
 3. Wire job-completion cleanup into `PgLifecycleHandler` or job status update path
 4. Create `@task` wrappers for AI agents
 5. Write integration test: job with lineage → AI explanation
