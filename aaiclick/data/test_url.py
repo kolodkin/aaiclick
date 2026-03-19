@@ -241,6 +241,20 @@ async def test_url_snowflake_ids_ordered(ctx, fileserver):
 
 
 
+async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
+    """ch_settings skips a comment header line in CSV before column headers."""
+    obj = await create_object_from_url(
+        f"{fileserver}/sample_commented.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
+        ch_settings={"input_format_csv_skip_first_lines": 1},
+    )
+    data = await obj.data()
+    assert isinstance(data, dict)
+    assert data["id"] == [1, 2, 3, 4, 5]
+    assert data["price"] == pytest.approx([10.0, 20.0, 30.0, 40.0, 50.0])
+
+
 async def test_url_aggregation_on_result(ctx, fileserver):
     """Aggregation operators work on Objects loaded from URL."""
     obj = await create_object_from_url(
