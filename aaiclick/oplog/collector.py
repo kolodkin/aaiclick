@@ -71,19 +71,6 @@ class OplogCollector:
         """Register a newly created table in the table_registry buffer."""
         self._table_buffer.append(table_name)
 
-    @staticmethod
-    def record_if_active(
-        result_table: str,
-        operation: str,
-        args: list[str] | None = None,
-        kwargs: dict[str, str] | None = None,
-        sql: str | None = None,
-    ) -> None:
-        """Record an operation if an OplogCollector is active in the current context."""
-        collector = _oplog_collector.get()
-        if collector is not None:
-            collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)
-
     async def flush(self) -> None:
         """Batch-insert buffered events into ClickHouse operation_log and table_registry."""
         if not self._buffer and not self._table_buffer:
@@ -125,3 +112,16 @@ class OplogCollector:
                 table_rows,
                 column_names=["table_name", "job_id", "task_id", "created_at"],
             )
+
+
+def oplog_record(
+    result_table: str,
+    operation: str,
+    args: list[str] | None = None,
+    kwargs: dict[str, str] | None = None,
+    sql: str | None = None,
+) -> None:
+    """Record an operation if an OplogCollector is active in the current context."""
+    collector = _oplog_collector.get()
+    if collector is not None:
+        collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)

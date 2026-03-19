@@ -36,7 +36,7 @@ from .models import (
     parse_ch_type,
 )
 from .sql_utils import quote_identifier
-from aaiclick.oplog.collector import OplogCollector, get_oplog_collector, _oplog_collector
+from aaiclick.oplog.collector import OplogCollector, get_oplog_collector, oplog_record, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
@@ -518,7 +518,7 @@ async def create_object_from_value(
     if isinstance(val, dict):
         if _has_nested_dicts(val):
             result = await _create_nested_object(val, ch, name)
-            OplogCollector.record_if_active(result.table, "create_from_value")
+            oplog_record(result.table, "create_from_value")
             return result
 
         has_arrays = any(isinstance(v, list) for v in val.values())
@@ -580,7 +580,7 @@ async def create_object_from_value(
         if val and isinstance(val[0], dict):
             if _has_nested_dicts(val[0]):
                 result = await _create_nested_records_object(val, ch, name)
-                OplogCollector.record_if_active(result.table, "create_from_value")
+                oplog_record(result.table, "create_from_value")
                 return result
 
             # Records format: list of dicts with possible Array fields
@@ -645,7 +645,7 @@ async def create_object_from_value(
         insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
         await ch.command(insert_query)
 
-    OplogCollector.record_if_active(obj.table, "create_from_value")
+    oplog_record(obj.table, "create_from_value")
     return obj
 
 
