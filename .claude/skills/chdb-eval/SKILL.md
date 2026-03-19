@@ -15,11 +15,21 @@ chdb is an embedded ClickHouse engine for Python that allows you to run ClickHou
 - Testing query logic offline
 - CI/CD environments where you want lightweight testing
 
-## Installation
+## Running with uv
+
+This project uses `uv`. Run chdb scripts with:
 
 ```bash
-pip install chdb
+uv run python script.py
 ```
+
+Or run inline Python:
+
+```bash
+uv run python -c "import chdb; print(chdb.query('SELECT 1 + 1'))"
+```
+
+No need to manually `pip install chdb` — `uv` handles dependencies from `pyproject.toml`.
 
 ## Basic Usage
 
@@ -31,6 +41,11 @@ import chdb
 # Execute a simple query
 result = chdb.query("SELECT 1 + 1")
 print(result)
+```
+
+Run it:
+```bash
+uv run python script.py
 ```
 
 ### Validating Complex SQL
@@ -54,6 +69,10 @@ try:
     print(result)
 except Exception as e:
     print(f"✗ SQL error: {e}")
+```
+
+```bash
+uv run python validate.py
 ```
 
 ### Using Sessions for Stateful Operations

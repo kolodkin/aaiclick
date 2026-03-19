@@ -27,6 +27,7 @@ from .models import (
     GroupByOpType,
     GB_ANY,
     GB_COUNT,
+    GB_GROUP_ARRAY_DISTINCT,
     GB_MAX,
     GB_MEAN,
     GB_MIN,
@@ -1967,6 +1968,10 @@ class GroupByQuery:
         """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
         return await self.agg({column: GB_ANY})
 
+    async def group_array_distinct(self, column: str) -> Object:
+        """Convenience: collect distinct values into an array per group. Delegates to agg()."""
+        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT})
+
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
         keys_str = ", ".join(f"'{k}'" for k in self._keys)
@@ -2119,6 +2124,7 @@ class View(Object):
             "offset": self.offset,
             "order_by": self.order_by,
             "selected_fields": self.selected_fields,
+            "renamed_columns": self._renamed_columns,
         }
         if self.persistent:
             ref["persistent"] = True

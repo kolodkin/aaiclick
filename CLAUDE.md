@@ -51,7 +51,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 **Local testing is supported with the default backend (chdb + SQLite).**
 
-- Run `python -m aaiclick setup` before first test run
+- Run `uv run python -m aaiclick setup` before first test run
 - Default URLs use chdb + SQLite — no infrastructure needed
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
