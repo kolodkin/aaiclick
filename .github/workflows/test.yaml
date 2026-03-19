@@ -12,6 +12,9 @@ permissions:
   actions: read
   checks: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test-local:
     runs-on: ubuntu-latest
