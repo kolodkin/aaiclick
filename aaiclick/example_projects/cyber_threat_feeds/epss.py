@@ -1,5 +1,7 @@
 """FIRST EPSS (Exploit Prediction Scoring System) data loading and analysis."""
 
+import urllib.request
+
 from aaiclick import create_object_from_url
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
@@ -14,11 +16,21 @@ EPSS_COLUMNS = {
 }
 
 # Skip the first line: #model_version:...,score_date:... comment.
-# Allow redirects: epss.cyentia.com redirects to CDN storage.
 _EPSS_CH_SETTINGS = {
     "input_format_csv_skip_first_lines": 1,
-    "max_http_get_redirects": 10,
 }
+
+
+def _resolve_redirect_url(url: str) -> str:
+    """Follow HTTP redirects and return the final URL without downloading content.
+
+    ClickHouse mishandles relative redirects (appends the redirect target to the
+    current path instead of replacing the filename). Resolving to the final URL
+    in Python first avoids this issue.
+    """
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "aaiclick/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.url
 
 
 @task
@@ -28,9 +40,13 @@ async def load_epss_data() -> Object:
     The feed is a gzip-compressed CSV (auto-decompressed by ClickHouse) with a
     comment line before the column headers that must be skipped via ch_settings.
     Covers ~319K CVEs with exploitation probability and percentile scores.
+
+    The canonical URL redirects to a date-specific CDN file. We resolve the
+    redirect in Python first so ClickHouse receives a direct URL with no redirects.
     """
+    resolved_url = _resolve_redirect_url(EPSS_URL)
     return await create_object_from_url(
-        url=EPSS_URL,
+        url=resolved_url,
         columns=list(EPSS_COLUMNS.keys()),
         format="CSVWithNames",
         ch_settings=_EPSS_CH_SETTINGS,
