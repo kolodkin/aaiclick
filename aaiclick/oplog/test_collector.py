@@ -170,7 +170,7 @@ async def test_task_job_ids_stored():
     """task_id and job_id are stored in operation_log entries."""
     from aaiclick.data import create_object_from_value as cofv
 
-    async with data_context(oplog=True, task_id=42, job_id=99):
+    async with data_context(oplog=OplogCollector(task_id=42, job_id=99)):
         obj = await cofv([5])
         table_name = obj.table
 
