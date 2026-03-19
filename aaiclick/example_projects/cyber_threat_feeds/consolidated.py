@@ -39,6 +39,7 @@ MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
     "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan','epss']"),
+    "is_kev": ColumnInfo("Bool", description="True if CVE is in the CISA KEV catalog"),
     "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
     "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
     "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
@@ -125,7 +126,8 @@ async def build_consolidated_table(
         "ranking_epss":       GB_ANY,
         "summary":            GB_ANY,
     })
-    return merged.rename({"source": "sources"})
+    renamed = merged.rename({"source": "sources"})
+    return renamed.with_columns({"is_kev": Computed("Bool", _HAS_KEV)})
 
 
 @task
