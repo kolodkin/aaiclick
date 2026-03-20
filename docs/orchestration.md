@@ -321,8 +321,6 @@ When the input Object is empty, raises `TypeError("reduce() of empty sequence wi
 | `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT              |
 | `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                        |
 
-Planned (not yet implemented): `flatMap()`, `join()`.
-
 # Task Execution
 
 ## Worker Main Loop
@@ -456,9 +454,7 @@ Orchestration-specific:
 
 # Operation Provenance (Oplog)
 
-In Phase 3, the worker always creates an `OplogCollector(task_id=task.id, job_id=job.id)` and injects it into each task's `data_context` — all object operations within a task are automatically logged with no changes to user task code. On job completion, a cleanup worker samples each ephemeral table to 10 rows. See `docs/oplog.md` for the full specification.
-
-**Implementation** (Phase 3 — not yet implemented): `aaiclick/orchestration/` — wire into `execute_task()`
+All Object operations within a task are automatically logged when `data_context(oplog=...)` is active. See `docs/oplog.md` for the full specification and `docs/future.md` for planned Phase 3 orchestration integration.
 
 # References
 
