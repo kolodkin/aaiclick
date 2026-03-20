@@ -29,24 +29,18 @@ def _mock_tool_response(tool_name: str, tool_args: str, tool_id: str = "call_1")
     return resp
 
 
-async def test_query_returns_string():
-    provider = AIProvider(model="test/model")
-    with patch("aaiclick.ai.provider.acompletion", new=AsyncMock(return_value=_mock_response("Answer"))):
-        result = await provider.query("What is this?")
-    assert result == "Answer"
-
-
-async def test_query_without_context_sends_prompt_directly():
+async def test_query_returns_content_and_sends_prompt_directly():
     provider = AIProvider(model="test/model")
     captured: list[list] = []
 
     async def mock_completion(**kwargs):
         captured.append(kwargs["messages"])
-        return _mock_response("ok")
+        return _mock_response("Answer")
 
     with patch("aaiclick.ai.provider.acompletion", new=mock_completion):
-        await provider.query("Direct question?")
+        result = await provider.query("Direct question?")
 
+    assert result == "Answer"
     assert len(captured[0]) == 1
     assert captured[0][0]["content"] == "Direct question?"
 

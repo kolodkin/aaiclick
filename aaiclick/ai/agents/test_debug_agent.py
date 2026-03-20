@@ -44,14 +44,24 @@ def _tool_response(tool_name: str, tool_args: str, tool_id: str = "call_1") -> M
 
 async def test_debug_result_direct_answer():
     nodes = [_node("result", "add")]
+    mock_backward = AsyncMock(return_value=nodes)
+    captured: list[list] = []
+
+    async def mock_completion(**kwargs):
+        captured.append(kwargs["messages"])
+        return _stop_response("Because input was negative")
+
     with (
-        patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(return_value=_stop_response("Because input was negative"))),
+        patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=mock_backward),
+        patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
     assert result == "Because input was negative"
+    mock_backward.assert_called_once_with("result")
+    all_content = " ".join(str(m.get("content") or "") for m in captured[0])
+    assert "Why is this value negative?" in all_content
 
 
 async def test_debug_result_with_one_tool_call():
@@ -68,39 +78,6 @@ async def test_debug_result_with_one_tool_call():
         result = await debug_result("result", "Why are there only 3 rows?")
 
     assert "3 rows" in result
-
-
-async def test_debug_result_calls_backward_oplog():
-    nodes = [_node("result", "copy")]
-    mock_backward = AsyncMock(return_value=nodes)
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=mock_backward),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(return_value=_stop_response("ok"))),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
-    ):
-        await debug_result("result", "Why?")
-
-    mock_backward.assert_called_once_with("result")
-
-
-async def test_debug_result_question_in_messages():
-    nodes = [_node("result", "add")]
-    captured: list[list] = []
-
-    async def mock_completion(**kwargs):
-        captured.append(kwargs["messages"])
-        return _stop_response("Answer")
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
-    ):
-        await debug_result("result", "Why is this value zero?")
-
-    all_content = " ".join(str(m.get("content") or "") for m in captured[0])
-    assert "Why is this value zero?" in all_content
 
 
 async def test_debug_result_dispatches_correct_tool():

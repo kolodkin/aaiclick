@@ -28,38 +28,29 @@ def _mock_provider(answer: str = "Explanation") -> MagicMock:
     return provider
 
 
-async def test_explain_lineage_returns_string():
+async def test_explain_lineage_returns_string_and_calls_backward_oplog():
     nodes = [_node("result", "add", ["a", "b"])]
+    mock_backward = AsyncMock(return_value=nodes)
+
     with (
-        patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
+        patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=mock_backward),
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="c1\nv1")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("Result")),
     ):
         result = await explain_lineage("result")
 
     assert result == "Result"
-
-
-async def test_explain_lineage_calls_backward_oplog_with_table():
-    nodes = [_node("result", "copy")]
-    mock_backward = AsyncMock(return_value=nodes)
-
-    with (
-        patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=mock_backward),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="")),
-        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider()),
-    ):
-        await explain_lineage("result")
-
     mock_backward.assert_called_once_with("result")
 
 
-async def test_explain_lineage_context_includes_operation():
+async def test_explain_lineage_context_and_custom_question():
     nodes = [_node("result", "add")]
     captured_context: list[str] = []
+    captured_prompts: list[str] = []
 
     async def mock_query(prompt, context="", system=""):
         captured_context.append(context)
+        captured_prompts.append(prompt)
         return "ok"
 
     mock_provider = MagicMock()
@@ -70,30 +61,10 @@ async def test_explain_lineage_context_includes_operation():
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
     ):
-        await explain_lineage("result")
+        await explain_lineage("result", question="Why is this table empty?")
 
     assert "add" in captured_context[0]
     assert "result" in captured_context[0]
-
-
-async def test_explain_lineage_custom_question_in_prompt():
-    nodes = [_node("result", "copy")]
-    captured_prompts: list[str] = []
-
-    async def mock_query(prompt, context="", system=""):
-        captured_prompts.append(prompt)
-        return "ok"
-
-    mock_provider = MagicMock()
-    mock_provider.query = mock_query
-
-    with (
-        patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="")),
-        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
-    ):
-        await explain_lineage("result", question="Why is this table empty?")
-
     assert "Why is this table empty?" in captured_prompts[0]
 
 
