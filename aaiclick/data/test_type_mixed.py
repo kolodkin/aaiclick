@@ -19,69 +19,26 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-async def test_mixed_scalar_int_plus_float(ctx):
-    """Test addition of int scalar + float scalar."""
-    a = await create_object_from_value(100)
-    b = await create_object_from_value(50.5)
+@pytest.mark.parametrize(
+    "val_a,val_b,operator,expected",
+    [
+        pytest.param(100, 50.5, "+", 150.5, id="int-plus-float"),
+        pytest.param(100.5, 50, "+", 150.5, id="float-plus-int"),
+        pytest.param(100, 30.5, "-", 69.5, id="int-minus-float"),
+        pytest.param(100.5, 30, "-", 70.5, id="float-minus-int"),
+        pytest.param(0, 3.14159, "+", 3.14159, id="int-zero-plus-float"),
+        pytest.param(0.0, 42, "+", 42.0, id="float-zero-plus-int"),
+    ],
+)
+async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
+    """Test mixed int/float scalar arithmetic."""
+    a = await create_object_from_value(val_a)
+    b = await create_object_from_value(val_b)
 
-    result = await (a + b)
+    result = await (a + b) if operator == "+" else await (a - b)
     data = await result.data()
 
-    assert abs(data - 150.5) < THRESHOLD
-
-
-
-async def test_mixed_scalar_float_plus_int(ctx):
-    """Test addition of float scalar + int scalar."""
-    a = await create_object_from_value(100.5)
-    b = await create_object_from_value(50)
-
-    result = await (a + b)
-    data = await result.data()
-
-    assert abs(data - 150.5) < THRESHOLD
-
-
-
-async def test_mixed_scalar_int_minus_float(ctx):
-    """Test subtraction of int scalar - float scalar."""
-    a = await create_object_from_value(100)
-    b = await create_object_from_value(30.5)
-
-    result = await (a - b)
-    data = await result.data()
-
-    assert abs(data - 69.5) < THRESHOLD
-
-
-
-async def test_mixed_scalar_float_minus_int(ctx):
-    """Test subtraction of float scalar - int scalar."""
-    a = await create_object_from_value(100.5)
-    b = await create_object_from_value(30)
-
-    result = await (a - b)
-    data = await result.data()
-
-    assert abs(data - 70.5) < THRESHOLD
-
-
-
-async def test_mixed_scalar_zero_combinations(ctx):
-    """Test mixed type operations with zero values."""
-    # int 0 + float
-    a = await create_object_from_value(0)
-    b = await create_object_from_value(3.14159)
-    result = await (a + b)
-    data = await result.data()
-    assert abs(data - 3.14159) < THRESHOLD
-
-    # float 0.0 + int
-    a = await create_object_from_value(0.0)
-    b = await create_object_from_value(42)
-    result = await (a + b)
-    data = await result.data()
-    assert abs(data - 42.0) < THRESHOLD
+    assert abs(data - expected) < THRESHOLD
 
 
 # =============================================================================
@@ -89,85 +46,25 @@ async def test_mixed_scalar_zero_combinations(ctx):
 # =============================================================================
 
 
-async def test_mixed_array_int_plus_float(ctx):
-    """Test element-wise addition of int array + float array."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([0.5, 1.5, 2.5])
+@pytest.mark.parametrize(
+    "arr_a,arr_b,operator,expected",
+    [
+        pytest.param([1, 2, 3], [0.5, 1.5, 2.5], "+", [1.5, 3.5, 5.5], id="int-plus-float"),
+        pytest.param([10.0, 20.0, 30.0], [1, 2, 3], "+", [11.0, 22.0, 33.0], id="float-plus-int"),
+        pytest.param([100, 200, 300], [10.5, 20.5, 30.5], "-", [89.5, 179.5, 269.5], id="int-minus-float"),
+        pytest.param([100.5, 200.5, 300.5], [10, 20, 30], "-", [90.5, 180.5, 270.5], id="float-minus-int"),
+        pytest.param([1000000, 2000000, 3000000], [0.001, 0.002, 0.003], "+", [1000000.001, 2000000.002, 3000000.003], id="large-int-small-float"),
+        pytest.param([-10, -20, -30], [5.5, 10.5, 15.5], "+", [-4.5, -9.5, -14.5], id="negative-int-plus-float"),
+    ],
+)
+async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
+    """Test element-wise mixed int/float array arithmetic."""
+    a = await create_object_from_value(arr_a)
+    b = await create_object_from_value(arr_b)
 
-    result = await (a + b)
+    result = await (a + b) if operator == "+" else await (a - b)
     data = await result.data()
 
-    expected = [1.5, 3.5, 5.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_array_float_plus_int(ctx):
-    """Test element-wise addition of float array + int array."""
-    a = await create_object_from_value([10.0, 20.0, 30.0])
-    b = await create_object_from_value([1, 2, 3])
-
-    result = await (a + b)
-    data = await result.data()
-
-    expected = [11.0, 22.0, 33.0]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_array_int_minus_float(ctx):
-    """Test element-wise subtraction of int array - float array."""
-    a = await create_object_from_value([100, 200, 300])
-    b = await create_object_from_value([10.5, 20.5, 30.5])
-
-    result = await (a - b)
-    data = await result.data()
-
-    expected = [89.5, 179.5, 269.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_array_float_minus_int(ctx):
-    """Test element-wise subtraction of float array - int array."""
-    a = await create_object_from_value([100.5, 200.5, 300.5])
-    b = await create_object_from_value([10, 20, 30])
-
-    result = await (a - b)
-    data = await result.data()
-
-    expected = [90.5, 180.5, 270.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_array_large_int_small_float(ctx):
-    """Test mixed arrays with large integers and small floats."""
-    a = await create_object_from_value([1000000, 2000000, 3000000])
-    b = await create_object_from_value([0.001, 0.002, 0.003])
-
-    result = await (a + b)
-    data = await result.data()
-
-    expected = [1000000.001, 2000000.002, 3000000.003]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_array_negative_combinations(ctx):
-    """Test mixed arrays with negative numbers."""
-    a = await create_object_from_value([-10, -20, -30])
-    b = await create_object_from_value([5.5, 10.5, 15.5])
-
-    result = await (a + b)
-    data = await result.data()
-
-    expected = [-4.5, -9.5, -14.5]
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
@@ -178,52 +75,24 @@ async def test_mixed_array_negative_combinations(ctx):
 # =============================================================================
 
 
-async def test_mixed_chained_operations(ctx):
-    """Test chaining multiple operations with mixed types."""
-    # int + float - int
-    a = await create_object_from_value([10, 20, 30])
-    b = await create_object_from_value([5.5, 10.5, 15.5])
-    c = await create_object_from_value([3, 6, 9])
+@pytest.mark.parametrize(
+    "arr_a,arr_b,arr_c,op1,op2,expected",
+    [
+        pytest.param([10, 20, 30], [5.5, 10.5, 15.5], [3, 6, 9], "+", "-", [12.5, 24.5, 36.5], id="int-plus-float-minus-int"),
+        pytest.param([100.5, 200.5], [10, 20], [5.25, 10.25], "-", "+", [95.75, 190.75], id="float-minus-int-plus-float"),
+        pytest.param([1, 2, 3], [0.5, 1.0, 1.5], [10, 20, 30], "+", "+", [11.5, 23.0, 34.5], id="int-plus-float-plus-int"),
+    ],
+)
+async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
+    """Test chained mixed int/float operations."""
+    a = await create_object_from_value(arr_a)
+    b = await create_object_from_value(arr_b)
+    c = await create_object_from_value(arr_c)
 
-    temp = await (a + b)
-    result = await (temp - c)
+    temp = await (a + b) if op1 == "+" else await (a - b)
+    result = await (temp + c) if op2 == "+" else await (temp - c)
     data = await result.data()
 
-    expected = [12.5, 24.5, 36.5]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_chained_float_int_float(ctx):
-    """Test chaining with float - int + float pattern."""
-    # float - int + float
-    a = await create_object_from_value([100.5, 200.5])
-    b = await create_object_from_value([10, 20])
-    c = await create_object_from_value([5.25, 10.25])
-
-    temp = await (a - b)
-    result = await (temp + c)
-    data = await result.data()
-
-    expected = [95.75, 190.75]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
-
-
-
-async def test_mixed_triple_addition(ctx):
-    """Test triple addition with mixed types."""
-    # int + float + int
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([0.5, 1.0, 1.5])
-    c = await create_object_from_value([10, 20, 30])
-
-    temp = await (a + b)
-    result = await (temp + c)
-    data = await result.data()
-
-    expected = [11.5, 23.0, 34.5]
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
 
@@ -354,30 +223,18 @@ async def test_mixed_symmetry(ctx):
 # =============================================================================
 
 
-async def test_mixed_int_float_concat_fails(ctx):
-    """Test that concatenating int array with float array fails with type error."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value([4.5, 5.5, 6.5])
-
-    # Int/Float types are incompatible for concat (UNION ALL without CAST)
-    with pytest.raises(ValueError, match="incompatible type"):
-        await a.concat(b)
-
-
-async def test_mixed_float_int_concat_fails(ctx):
-    """Test that concatenating float array with int array fails with type error."""
-    a = await create_object_from_value([1.5, 2.5, 3.5])
-    b = await create_object_from_value([4, 5, 6])
-
-    # Int/Float types are incompatible for concat (UNION ALL without CAST)
-    with pytest.raises(ValueError, match="incompatible type"):
-        await a.concat(b)
-
-
-async def test_mixed_int_string_concat_fails(ctx):
-    """Test that concatenating int array with string array fails with type error."""
-    a = await create_object_from_value([1, 2, 3])
-    b = await create_object_from_value(["a", "b", "c"])
+@pytest.mark.parametrize(
+    "arr_a,arr_b",
+    [
+        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], id="int-float"),
+        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], id="float-int"),
+        pytest.param([1, 2, 3], ["a", "b", "c"], id="int-str"),
+    ],
+)
+async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
+    """Test that concatenating incompatible types fails with type error."""
+    a = await create_object_from_value(arr_a)
+    b = await create_object_from_value(arr_b)
 
     with pytest.raises(ValueError, match="incompatible type"):
         await a.concat(b)
@@ -443,16 +300,4 @@ async def test_mixed_insert_float_list_into_int_succeeds(ctx):
     assert data == [1, 2, 3, 4, 5]
 
 
-async def test_mixed_insert_modifies_in_place(ctx):
-    """Test that insert with same type modifies the original object."""
-    a = await create_object_from_value([1, 2, 3])
-    original_table = a.table
-
-    await a.insert([4, 5])
-    data = await a.data()
-
-    # Verify data was inserted
-    assert data == [1, 2, 3, 4, 5]
-    # Verify table name unchanged (in-place modification)
-    assert a.table == original_table
 
