@@ -94,23 +94,7 @@ Iterative BFS traversal — avoids `WITH RECURSIVE` for broader ClickHouse versi
 
 # Table Lifecycle & Cleanup
 
-**Phase 3 — not yet implemented.** See `docs/ai_layer_plan.md` Phase 3.
-
-On job completion (COMPLETED / FAILED / CANCELLED), a cleanup worker replaces each ephemeral table with a 10-row sample, keeping `operation_log` references valid:
-
-```python
-result = await ch_client.query(
-    "SELECT table_name FROM table_registry WHERE job_id = {job_id:UInt64}"
-)
-for (table,) in result.result_rows:
-    await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
-    await ch_client.command(f"INSERT INTO {table}_sample SELECT * FROM {table} LIMIT 10")
-    await ch_client.command(f"DROP TABLE {table}")
-    await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
-await ch_client.command("DELETE FROM table_registry WHERE job_id = {job_id:UInt64}")
-```
-
-`CREATE TABLE new AS source` copies ENGINE, ORDER BY, and codecs without data. Renaming back to the original name keeps `operation_log` references valid. AI agents calling `sample_table()` on historical nodes transparently return the preserved sample.
+Post-job table sampling (replacing ephemeral tables with 10-row samples after job completion) is planned for Phase 3. See `docs/future.md` — "Oplog: Table Lifecycle & Cleanup".
 
 ---
 

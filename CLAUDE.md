@@ -316,6 +316,15 @@ result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
 
 The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
 
+# Future Plans
+
+Unimplemented features live in `docs/future.md`. This is the single source of truth for planned work.
+
+- **Move future items here**: When a feature is not yet implemented, document it in `docs/future.md` rather than inline in spec docs with `⚠️ NOT YET IMPLEMENTED` markers
+- **Exception**: Example project-specific future work stays within its own context (e.g., inside `docs/cyber_threat_feeds.md`)
+- **Reference from spec docs**: Specs may briefly note "see `docs/future.md`" for planned work, but the detail lives in `future.md`
+- **Remove on implementation**: When a feature lands, delete it from `docs/future.md` and document it in the relevant spec file
+
 # Specification-Driven Development
 
 **Write detailed specifications BEFORE implementing complex features.**
