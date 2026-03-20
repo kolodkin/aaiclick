@@ -30,6 +30,7 @@ def _mock_tool_response(tool_name: str, tool_args: str, tool_id: str = "call_1")
 
 
 async def test_query_returns_content_and_sends_prompt_directly():
+    """query() sends a single user message and returns the text content."""
     provider = AIProvider(model="test/model")
     captured: list[list] = []
 
@@ -46,6 +47,7 @@ async def test_query_returns_content_and_sends_prompt_directly():
 
 
 async def test_query_with_context_prepends_context():
+    """context= is included in the user message alongside the prompt."""
     provider = AIProvider(model="test/model")
     captured: list[list] = []
 
@@ -62,6 +64,7 @@ async def test_query_with_context_prepends_context():
 
 
 async def test_query_with_system_adds_system_message():
+    """system= is sent as the first system-role message."""
     provider = AIProvider(model="test/model")
     captured: list[list] = []
 
@@ -77,6 +80,7 @@ async def test_query_with_system_adds_system_message():
 
 
 async def test_query_with_tools_returns_tool_call_dict():
+    """query_with_tools() returns parsed tool calls when the model stops with tool_calls."""
     provider = AIProvider(model="test/model")
     resp = _mock_tool_response("sample_table", '{"table": "t1"}')
     with patch("aaiclick.ai.provider.acompletion", new=AsyncMock(return_value=resp)):
@@ -89,6 +93,7 @@ async def test_query_with_tools_returns_tool_call_dict():
 
 
 async def test_query_with_tools_stop_returns_content():
+    """query_with_tools() returns content and empty tool_calls when model stops normally."""
     provider = AIProvider(model="test/model")
     with patch("aaiclick.ai.provider.acompletion", new=AsyncMock(return_value=_mock_response("Final"))):
         result = await provider.query_with_tools("Question", tools=[])
@@ -99,6 +104,7 @@ async def test_query_with_tools_stop_returns_content():
 
 
 async def test_query_passes_api_key():
+    """api_key= is forwarded to litellm.acompletion."""
     provider = AIProvider(model="test/model", api_key="sk-test")
     captured_kwargs: list[dict] = []
 

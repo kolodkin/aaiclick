@@ -29,6 +29,7 @@ def _mock_provider(answer: str = "Explanation") -> MagicMock:
 
 
 async def test_explain_lineage_returns_string_and_calls_backward_oplog():
+    """explain_lineage() returns the AI answer and calls backward_oplog with the target table."""
     nodes = [_node("result", "add", ["a", "b"])]
     mock_backward = AsyncMock(return_value=nodes)
 
@@ -44,6 +45,7 @@ async def test_explain_lineage_returns_string_and_calls_backward_oplog():
 
 
 async def test_explain_lineage_context_and_custom_question():
+    """lineage graph is passed as context; custom question= overrides the default prompt."""
     nodes = [_node("result", "add")]
     captured_context: list[str] = []
     captured_prompts: list[str] = []
@@ -69,6 +71,7 @@ async def test_explain_lineage_context_and_custom_question():
 
 
 async def test_explain_lineage_sample_error_does_not_raise():
+    """sample_table() errors are swallowed so explain_lineage() still returns an answer."""
     nodes = [_node("result", "copy")]
 
     async def failing_sample(*args, **kwargs):
@@ -85,6 +88,7 @@ async def test_explain_lineage_sample_error_does_not_raise():
 
 
 async def test_explain_lineage_samples_each_node():
+    """sample_table() is called once per unique node in the lineage graph."""
     nodes = [_node("result", "concat", ["a", "b"]), _node("a", "create_from_value")]
     sampled_tables: list[str] = []
 

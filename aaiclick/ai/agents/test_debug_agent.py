@@ -43,6 +43,7 @@ def _tool_response(tool_name: str, tool_args: str, tool_id: str = "call_1") -> M
 
 
 async def test_debug_result_direct_answer():
+    """Model answers without tools: backward_oplog is called and result contains the AI answer."""
     nodes = [_node("result", "add")]
     mock_backward = AsyncMock(return_value=nodes)
     captured: list[list] = []
@@ -65,6 +66,7 @@ async def test_debug_result_direct_answer():
 
 
 async def test_debug_result_with_one_tool_call():
+    """Tool call loop: model calls sample_table, receives result, then gives final answer."""
     nodes = [_node("result", "filter")]
     tool_resp = _tool_response("sample_table", '{"table": "result"}')
     final_resp = _stop_response("After sampling: 3 rows found")
@@ -81,6 +83,7 @@ async def test_debug_result_with_one_tool_call():
 
 
 async def test_debug_result_dispatches_correct_tool():
+    """dispatch_tool() is called with the exact tool name and parsed arguments from the model."""
     nodes = [_node("result", "add")]
     tool_resp = _tool_response("get_schema", '{"table": "result"}')
     final_resp = _stop_response("Schema analysis done")
