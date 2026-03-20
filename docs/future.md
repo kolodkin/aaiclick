@@ -272,23 +272,3 @@ pin_rows("my_table", where="value < 5")
 
 Rules are WHERE clause predicates registered during task execution (before job completion triggers cleanup). Cleanup prioritises matching rows, fills remainder up to 10 with arbitrary rows.
 
----
-
-# AI Layer
-
-**Spec**: `docs/ai.md`
-
-## Phase 3: Orchestration Integration
-
-**Objective**: Automatic oplog capture during job execution + AI agents as tasks + table cleanup worker.
-
-See [Orchestration Phase 3](#operation-provenance-integration-phase-3) and [Oplog Table Lifecycle](#table-lifecycle--cleanup-phase-3) above.
-
-### Additional Tasks
-
-1. **AI agents as @task wrappers** — lazy import, participates in normal DAG dependencies
-2. **Integration tests** — job execution → verify `operation_log` populated; cleanup → verify sample tables
-
-### Deliverables
-- Zero-config oplog for all jobs (always-on in orchestration context)
-- AI agents composable with regular tasks in job DAGs

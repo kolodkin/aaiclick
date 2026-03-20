@@ -122,41 +122,6 @@ Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/t
 
 ---
 
-# Orchestration Integration ⚠️ NOT YET IMPLEMENTED
-
-When a job runs, the worker always creates an `OplogCollector(task_id=..., job_id=...)` and injects it into `data_context`:
-
-```python
-# In execute_task()
-collector = OplogCollector(task_id=task.id, job_id=job.id)
-async with data_context(oplog=collector):
-    result = await func(**deserialized_kwargs)
-    # collector.flush() called on clean exit only
-```
-
-All object operations within a task are automatically logged — no changes to user task code.
-
-## AI Agents as @task Functions ⚠️ NOT YET IMPLEMENTED
-
-```python
-from aaiclick.orchestration.decorators import task
-
-@task(name="explain_lineage")
-async def explain_lineage_task(target: Object, question: str) -> str:
-    from aaiclick.ai.agents.lineage_agent import explain_lineage
-    return await explain_lineage(target.table, question)
-
-# Usage in a job:
-@job("pipeline_with_debug")
-async def my_pipeline():
-    data = load_data(url="...")
-    result = transform(data=data)
-    explanation = explain_lineage_task(target=result, question="Summarize this pipeline")
-    return [result, explanation]
-```
-
----
-
 # Graceful Degradation
 
 ```python
