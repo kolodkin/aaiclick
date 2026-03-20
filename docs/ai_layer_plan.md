@@ -62,40 +62,14 @@ AI Layer Implementation Plan
 
 ---
 
-## Phase 2: AI Sub-package (`aaiclick/ai/`) ⚠️ NOT YET IMPLEMENTED
+## Phase 2: AI Sub-package (`aaiclick/ai/`) ✅ IMPLEMENTED
 
 **Objective**: Optional sub-package providing LLM-powered lineage queries and debugging.
 Installed via `pip install aaiclick[ai]` — lives inside the main `aaiclick` package.
 
+**Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
+
 **Spec**: `docs/ai.md`
-
-### Tasks
-
-1. **Create sub-package structure** — `aaiclick/ai/` with `provider.py`, `config.py`, `agents/`
-
-2. **Add `ai` extras group to `pyproject.toml`** — `litellm>=1.0`
-
-3. **Implement AIProvider** (`provider.py`)
-   - `query(prompt, context, system)` → `str`
-   - `query_with_tools(prompt, tools, context)` → `dict`
-
-4. **Implement config** (`config.py`) — `get_ai_provider()` reads `AAICLICK_AI_MODEL` (default: `ollama/llama3.1:8b`)
-
-5. **Implement lineage agent** (`agents/lineage_agent.py`) — `explain_lineage(target_table, question)`
-
-6. **Implement debug agent** (`agents/debug_agent.py`) — `debug_result(target_table, question)`
-
-7. **Implement agent tools** (`agents/tools.py`) — `sample_table`, `get_schema`, `get_stats`, `trace_upstream`
-
-8. **Add `explain()` to `aaiclick/__init__.py`** — graceful degradation wrapper
-
-9. **Tests** — mock `litellm.acompletion`, test context formatting and tool dispatch
-
-10. **CI/CD** — extend publish workflow to build and release `aaiclick` (with AI extras) on `v*` tag
-
-### Deliverables
-- `pip install aaiclick[ai]` works with any LiteLLM-supported model
-- Package released automatically on `v*` tag push
 
 ---
 
