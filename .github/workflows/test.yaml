@@ -29,12 +29,12 @@ jobs:
             title: Data Tests (Local/chdb)
             install: ".[test,local]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-            pytest-args: "-n auto -v"
+            pytest-args: "-v"
           - group: orch-local
             title: Orchestration Tests (Local/SQLite)
             install: ".[orch,test,local]"
             test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
+            pytest-args: "-v"
 
     steps:
       - name: Checkout code
@@ -78,13 +78,13 @@ jobs:
             title: Data Tests (Distributed)
             install: ".[test]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py aaiclick/benchmarks/"
-            pytest-args: "-n auto -v"
+            pytest-args: "-v"
             needs-postgres: false
           - group: orch
             title: Orchestration Tests (Distributed)
             install: ".[orch,test]"
             test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
+            pytest-args: "-v"
             needs-postgres: true
 
     services:
