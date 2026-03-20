@@ -3,7 +3,7 @@ AI Layer
 
 Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
 
-**Specification status**: ⚠️ NOT YET IMPLEMENTED (Phase 2+)
+**Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 
 **Depends on**: `docs/oplog.md` — the oplog module provides the provenance data that AI agents query.
 
@@ -47,19 +47,16 @@ pip install aaiclick[ai]   # installs litellm alongside aaiclick
 ```python
 # aaiclick/ai/provider.py
 
-from litellm import acompletion
-
 class AIProvider:
     """Unified AI provider via LiteLLM. Works with any model string."""
 
-    def __init__(self, model: str = "ollama/llama3.1:8b"):
-        self.model = model
+    def __init__(self, model: str = "ollama/llama3.1:8b", api_key: str | None = None): ...
 
     async def query(self, prompt: str, context: str = "", system: str = "") -> str:
-        """Single-turn query."""
+        """Single-turn query. Returns the model's text response."""
 
     async def query_with_tools(self, prompt: str, tools: list[dict], context: str = "") -> dict:
-        """Query with tool-calling support for agents that need to fetch additional data."""
+        """Single-round query with tool-calling. Returns {content, tool_calls, finish_reason}."""
 ```
 
 # Configuration
@@ -114,20 +111,18 @@ async def debug_result(target_table: str, question: str) -> str:
 
 Tools the AI can call for deeper inspection via tool-calling protocol:
 
-```python
-# aaiclick/ai/agents/tools.py
+Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
-TOOL_DEFINITIONS = [
-    {"name": "sample_table",   "parameters": {"table": "str", "limit": "int", "where": "str | None"}},
-    {"name": "get_schema",     "parameters": {"table": "str"}},
-    {"name": "get_stats",      "parameters": {"table": "str", "column": "str"}},
-    {"name": "trace_upstream", "parameters": {"table": "str", "depth": "int"}},
-]
-```
+| Tool             | Parameters                          | Returns                          |
+|------------------|-------------------------------------|----------------------------------|
+| `sample_table`   | `table`, `limit=10`, `where=None`   | Formatted rows as text           |
+| `get_schema`     | `table`                             | Column names and types           |
+| `get_stats`      | `table`, `column`                   | count, non_null, min, max        |
+| `trace_upstream` | `table`, `depth=10`                 | Upstream operation graph as text |
 
 ---
 
-# Orchestration Integration
+# Orchestration Integration ⚠️ NOT YET IMPLEMENTED
 
 When a job runs, the worker always creates an `OplogCollector(task_id=..., job_id=...)` and injects it into `data_context`:
 
@@ -141,7 +136,7 @@ async with data_context(oplog=collector):
 
 All object operations within a task are automatically logged — no changes to user task code.
 
-## AI Agents as @task Functions
+## AI Agents as @task Functions ⚠️ NOT YET IMPLEMENTED
 
 ```python
 from aaiclick.orchestration.decorators import task

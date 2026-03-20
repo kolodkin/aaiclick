@@ -276,37 +276,7 @@ Rules are WHERE clause predicates registered during task execution (before job c
 
 # AI Layer
 
-**Spec**: `docs/ai.md`, `docs/ai_layer_plan.md`
-
-## Phase 2: AI Package (`aaiclick-ai/`)
-
-**Objective**: Separate package providing LLM-powered lineage queries and debugging.
-
-### Tasks
-
-1. **Create package structure** — `aaiclick-ai/pyproject.toml`, `aaiclick_ai/` with `provider.py`, `config.py`, `agents/`
-
-2. **pyproject.toml** — dependencies: `litellm>=1.0`, `aaiclick`
-
-3. **Implement AIProvider** (`provider.py`)
-   - `query(prompt, context, system)` → `str`
-   - `query_with_tools(prompt, tools, context)` → `dict`
-
-4. **Implement config** (`config.py`) — `get_ai_provider()` reads `AAICLICK_AI_MODEL` (default: `ollama/llama3.1:8b`)
-
-5. **Implement lineage agent** (`agents/lineage_agent.py`) — `explain_lineage(target_table, question)`
-
-6. **Implement debug agent** (`agents/debug_agent.py`) — `debug_result(target_table, question)`
-
-7. **Implement agent tools** (`agents/tools.py`) — `sample_table`, `get_schema`, `get_stats`, `trace_upstream`
-
-8. **Tests** — mock `litellm.acompletion`, test context formatting and tool dispatch
-
-9. **CI/CD** — extend publish workflow to build and release `aaiclick-ai` alongside `aaiclick` on `v*` tag
-
-### Deliverables
-- `pip install aaiclick-ai` works with any LiteLLM-supported model
-- Both packages released automatically on `v*` tag push
+**Spec**: `docs/ai.md`
 
 ## Phase 3: Orchestration Integration
 
@@ -317,18 +287,8 @@ See [Orchestration Phase 3](#operation-provenance-integration-phase-3) and [Oplo
 ### Additional Tasks
 
 1. **AI agents as @task wrappers** — lazy import, participates in normal DAG dependencies
-
 2. **Integration tests** — job execution → verify `operation_log` populated; cleanup → verify sample tables
 
 ### Deliverables
 - Zero-config oplog for all jobs (always-on in orchestration context)
 - AI agents composable with regular tasks in job DAGs
-
-## Phase 4: Examples & Documentation
-
-### Tasks
-
-1. **Example**: interactive lineage exploration with `data_context(oplog=True)` + local Ollama
-2. **Example**: job pipeline with AI debugging task at the end
-3. **Update docs** — reference `docs/oplog.md` and `docs/ai.md` from main docs
-4. **Add `ai` optional dependency group** in core `pyproject.toml` — enables `pip install aaiclick[ai]`
