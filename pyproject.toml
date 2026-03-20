@@ -50,6 +50,9 @@ local = [
     "chdb>=4.0.0",
     "aiosqlite>=0.19.0",
 ]
+ai = [
+    "litellm>=1.0",
+]
 dev = [
     "aaiclick[orch,test,local]",
     "black>=23.0.0",
@@ -116,4 +119,7 @@ addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --stric
 asyncio_mode = "auto"
 filterwarnings = [
     "error",
+]
+markers = [
+    "live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model",
 ]

@@ -1,9 +1,9 @@
 AI Layer
 ---
 
-Optional AI-powered lineage querying and debugging for aaiclick. Lives in a separate `aaiclick-ai/` package — the core `aaiclick` package works identically without it.
+Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
 
-**Specification status**: ⚠️ NOT YET IMPLEMENTED (Phase 2+)
+**Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 
 **Depends on**: `docs/oplog.md` — the oplog module provides the provenance data that AI agents query.
 
@@ -15,16 +15,15 @@ Optional AI-powered lineage querying and debugging for aaiclick. Lives in a sepa
 - **Single provider via LiteLLM** — one interface for local (Ollama) and remote (Anthropic, OpenAI) models
 - **User chooses model** — no hard local/remote split; any model for any query
 - **AI agents are `@task` functions** — dogfood the orchestration engine
-- **Opt-in** — aaiclick works identically without the AI package installed
+- **Opt-in** — `pip install aaiclick[ai]` pulls in LiteLLM; without it the package is unaffected
 
 ---
 
 # Package Structure
 
 ```
-aaiclick-ai/
-├── pyproject.toml           # deps: litellm, aaiclick
-└── aaiclick_ai/
+aaiclick/
+└── ai/
     ├── __init__.py
     ├── provider.py          # AIProvider — thin wrapper around litellm
     ├── config.py            # Configuration from env vars
@@ -35,26 +34,29 @@ aaiclick-ai/
         └── tools.py         # Tools exposed to AI agents
 ```
 
+**Installation**:
+
+```bash
+pip install aaiclick[ai]   # installs litellm alongside aaiclick
+```
+
 ---
 
 # AIProvider
 
 ```python
-# aaiclick_ai/provider.py
-
-from litellm import acompletion
+# aaiclick/ai/provider.py
 
 class AIProvider:
     """Unified AI provider via LiteLLM. Works with any model string."""
 
-    def __init__(self, model: str = "ollama/llama3.1:8b"):
-        self.model = model
+    def __init__(self, model: str = "ollama/llama3.1:8b", api_key: str | None = None): ...
 
     async def query(self, prompt: str, context: str = "", system: str = "") -> str:
-        """Single-turn query."""
+        """Single-turn query. Returns the model's text response."""
 
     async def query_with_tools(self, prompt: str, tools: list[dict], context: str = "") -> dict:
-        """Query with tool-calling support for agents that need to fetch additional data."""
+        """Single-round query with tool-calling. Returns {content, tool_calls, finish_reason}."""
 ```
 
 # Configuration
@@ -66,7 +68,7 @@ AAICLICK_AI_API_KEY=...                 # Only needed for remote APIs
 ```
 
 ```python
-# aaiclick_ai/config.py
+# aaiclick/ai/config.py
 def get_ai_provider() -> AIProvider:
     model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
     return AIProvider(model=model)
@@ -79,7 +81,7 @@ def get_ai_provider() -> AIProvider:
 ## Lineage Agent
 
 ```python
-# aaiclick_ai/agents/lineage_agent.py
+# aaiclick/ai/agents/lineage_agent.py
 
 async def explain_lineage(target_table: str, question: str | None = None) -> str:
     """Trace and explain how target_table was produced.
@@ -92,7 +94,7 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
 ## Debug Agent
 
 ```python
-# aaiclick_ai/agents/debug_agent.py
+# aaiclick/ai/agents/debug_agent.py
 
 async def debug_result(target_table: str, question: str) -> str:
     """Answer 'why' questions about a result by tracing lineage
@@ -109,51 +111,14 @@ async def debug_result(target_table: str, question: str) -> str:
 
 Tools the AI can call for deeper inspection via tool-calling protocol:
 
-```python
-# aaiclick_ai/agents/tools.py
+Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
-TOOLS = [
-    {"name": "sample_table",   "parameters": {"table": "str", "limit": "int", "where": "str | None"}},
-    {"name": "get_schema",     "parameters": {"table": "str"}},
-    {"name": "get_stats",      "parameters": {"table": "str", "column": "str"}},
-    {"name": "trace_upstream", "parameters": {"table": "str", "depth": "int"}},
-]
-```
-
----
-
-# Orchestration Integration
-
-When a job runs, the worker always creates an `OplogCollector(task_id=..., job_id=...)` and injects it into `data_context`:
-
-```python
-# In execute_task()
-collector = OplogCollector(task_id=task.id, job_id=job.id)
-async with data_context(oplog=collector):
-    result = await func(**deserialized_kwargs)
-    # collector.flush() called on clean exit only
-```
-
-All object operations within a task are automatically logged — no changes to user task code.
-
-## AI Agents as @task Functions
-
-```python
-from aaiclick.orchestration.decorators import task
-
-@task(name="explain_lineage")
-async def explain_lineage_task(target: Object, question: str) -> str:
-    from aaiclick_ai.agents.lineage_agent import explain_lineage
-    return await explain_lineage(target.table, question)
-
-# Usage in a job:
-@job("pipeline_with_debug")
-async def my_pipeline():
-    data = load_data(url="...")
-    result = transform(data=data)
-    explanation = explain_lineage_task(target=result, question="Summarize this pipeline")
-    return [result, explanation]
-```
+| Tool             | Parameters                          | Returns                          |
+|------------------|-------------------------------------|----------------------------------|
+| `sample_table`   | `table`, `limit=10`, `where=None`   | Formatted rows as text           |
+| `get_schema`     | `table`                             | Column names and types           |
+| `get_stats`      | `table`, `column`                   | count, non_null, min, max        |
+| `trace_upstream` | `table`, `depth=10`                 | Upstream operation graph as text |
 
 ---
 
@@ -162,15 +127,15 @@ async def my_pipeline():
 ```python
 # aaiclick core — surfaced in aaiclick/__init__.py
 
-def explain(target_table: str, question: str | None = None) -> str:
+async def explain(target_table: str, question: str | None = None) -> str:
     try:
-        from aaiclick_ai.agents.lineage_agent import explain_lineage
+        from aaiclick.ai.agents.lineage_agent import explain_lineage
     except ImportError:
         raise ImportError(
-            "AI features require the aaiclick-ai package. "
-            "Install with: pip install aaiclick-ai"
+            "AI features require the aaiclick[ai] extra. "
+            "Install with: pip install aaiclick[ai]"
         )
-    return explain_lineage(target_table, question)
+    return await explain_lineage(target_table, question)
 ```
 
 ---

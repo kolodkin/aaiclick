@@ -45,6 +45,32 @@ class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
     edges: list[OplogEdge] = field(default_factory=list)
 
+    def to_prompt_context(self) -> str:
+        """Format the graph as human-readable text for LLM consumption."""
+        lines = ["# Data Lineage Graph"]
+
+        lines.append(f"\n## Operations ({len(self.nodes)})")
+        for node in self.nodes:
+            lines.append(f"\n### Table: `{node.table}`")
+            lines.append(f"- Operation: `{node.operation}`")
+            if node.args:
+                lines.append(f"- Input tables: {', '.join(f'`{a}`' for a in node.args)}")
+            for k, v in node.kwargs.items():
+                lines.append(f"- {k}: `{v}`")
+            if node.sql_template:
+                lines.append(f"- SQL: `{node.sql_template}`")
+            if node.task_id is not None:
+                lines.append(f"- Task ID: {node.task_id}")
+            if node.job_id is not None:
+                lines.append(f"- Job ID: {node.job_id}")
+
+        if self.edges:
+            lines.append(f"\n## Data Flow ({len(self.edges)} edges)")
+            for edge in self.edges:
+                lines.append(f"- `{edge.source}` → `{edge.target}` (via `{edge.operation}`)")
+
+        return "\n".join(lines)
+
 
 @asynccontextmanager
 async def lineage_context() -> AsyncIterator[None]:
