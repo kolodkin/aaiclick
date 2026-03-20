@@ -50,6 +50,9 @@ async def debug_result(target_table: str, question: str) -> str:
         {"role": "user", "content": f"Context:\n{context}\n\n{prompt}"},
     ]
 
+    # Agentic loop: model may call tools repeatedly to inspect tables before answering.
+    # Each iteration appends tool results to the conversation and re-queries the model.
+    # Loop exits early when the model stops requesting tools (finish_reason != "tool_calls").
     for _ in range(_MAX_TOOL_ROUNDS):
         kwargs: dict[str, Any] = {
             "model": provider.model,
