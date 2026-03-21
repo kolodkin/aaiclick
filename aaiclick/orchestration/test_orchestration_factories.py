@@ -8,7 +8,7 @@ from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution import TaskResult
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
-from aaiclick.orchestration.context import get_orch_session
+from aaiclick.orchestration.orch_context import get_sql_session
 
 
 async def test_create_task_basic(orch_ctx):
@@ -120,7 +120,7 @@ async def test_create_job_with_string(orch_ctx):
     assert job.error is None
 
     # Verify job was persisted to database using ORM
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         # Query for the job
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one_or_none()
@@ -146,7 +146,7 @@ async def test_create_job_with_task(orch_ctx):
     assert job.name == "test_job_2"
 
     # Verify task has job_id assigned using ORM
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task.id))
         db_task = result.scalar_one_or_none()
         assert db_task is not None
@@ -170,7 +170,7 @@ async def test_job_task_relationship(orch_ctx):
     job = await create_job("relationship_test", "mymodule.task3")
 
     # Verify job and task relationship using ORM
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         # Get job
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one_or_none()

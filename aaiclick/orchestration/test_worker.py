@@ -10,8 +10,7 @@ from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
 from .claiming import claim_next_task, update_task_status
-from .context import commit_tasks, get_orch_session
-from .db_lifecycle import PgLifecycleHandler
+from .orch_context import commit_tasks, get_sql_session
 from .execution import execute_task
 from .factories import create_job, create_task
 from .models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
@@ -142,7 +141,7 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
     assert tasks_executed == 1
 
     # Verify task was completed
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -179,7 +178,7 @@ async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
     assert tasks_executed == 0  # Failed tasks don't count as executed
 
     # Verify task was marked as failed
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -235,7 +234,7 @@ async def test_claim_next_task_basic(orch_ctx):
     assert task.claimed_at is not None
 
     # Verify job status changed to RUNNING
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one()
         assert db_job.status == JobStatus.RUNNING
@@ -307,8 +306,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     assert task1.job_id == job1.id
 
     # Execute and complete the task
-    async with PgLifecycleHandler(task1.job_id) as lifecycle:
-        await execute_task(task1, lifecycle)
+    await execute_task(task1)
 
     # Mark task as completed
     await update_task_status(task1.id, TaskStatus.COMPLETED)
@@ -350,7 +348,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
     )
 
     # Get the initial task created by create_job
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -402,7 +400,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     # Using standalone apply function
 
     # Get initial task
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -413,7 +411,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     await commit_tasks(group1, job_id=job.id)
 
     # Update initial_task to be in group1
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         await session.execute(
             text("UPDATE tasks SET group_id = :group_id WHERE id = :task_id"),
             {"group_id": group1.id, "task_id": initial_task.id},

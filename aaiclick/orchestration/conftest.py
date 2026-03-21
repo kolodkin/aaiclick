@@ -12,7 +12,7 @@ import tempfile
 import pytest
 
 from aaiclick.backend import is_sqlite
-from aaiclick.orchestration.context import orch_context
+from aaiclick.orchestration.orch_context import orch_context
 
 # Capture the original database name before any fixture modifies it
 _BASE_DB = os.environ.get("POSTGRES_DB", "aaiclick")

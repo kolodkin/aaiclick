@@ -7,16 +7,14 @@ import os
 import signal
 import socket
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import Optional
 
 from sqlmodel import select
 
-from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
-from .db_lifecycle import PgLifecycleHandler
-from .context import get_orch_session
+from .orch_context import get_sql_session
 from .execution import execute_task, register_returned_tasks, serialize_task_result
 from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
@@ -29,7 +27,7 @@ POLL_INTERVAL = 1
 
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task.status).where(Task.job_id == job_id)
         )
@@ -55,7 +53,7 @@ async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> Non
     delay = base_delay * (2 ** current_attempt)
     retry_after = datetime.utcnow() + timedelta(seconds=delay)
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
         )
@@ -99,7 +97,7 @@ async def register_worker(
         started_at=datetime.utcnow(),
     )
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         session.add(worker)
         await session.commit()
         await session.refresh(worker)
@@ -120,7 +118,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -150,7 +148,7 @@ async def deregister_worker(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -176,7 +174,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     Returns:
         list[Worker]: List of workers matching criteria
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = select(Worker)
         if status is not None:
             query = query.where(Worker.status == status)
@@ -198,7 +196,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
     Returns:
         Worker if found, None otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -207,7 +205,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
 
 async def _increment_worker_stat(worker_id: int, field: str) -> None:
     """Increment a worker stat field (tasks_completed or tasks_failed)."""
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
         if worker:
@@ -239,23 +237,18 @@ async def worker_main_loop(
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
-    lifecycle_factory: Callable[[int], LifecycleHandler] = PgLifecycleHandler,
 ) -> int:
     """
     Main worker execution loop.
 
     Continuously polls for and executes tasks until shutdown signal
-    or max_tasks is reached.
+    or max_tasks is reached. Must be called inside an active orch_context.
 
     Args:
         worker_id: Worker ID (registers new worker if None)
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
-        lifecycle_factory: Factory ``(job_id) -> LifecycleHandler`` used to
-                          create a per-task lifecycle handler for distributed
-                          refcounting with pin/claim ownership.
-                          Defaults to PgLifecycleHandler.
 
     Returns:
         int: Number of tasks executed
@@ -318,11 +311,10 @@ async def worker_main_loop(
 
             # Wrap execution in an asyncio.Task with a cancellation monitor
             # so that cancel_job() can interrupt running tasks.
-            async def _run_task(t, lf):
-                async with lf(t.job_id) as lifecycle:
-                    return await execute_task(t, lifecycle=lifecycle)
+            async def _run_task(t):
+                return await execute_task(t)
 
-            exec_task = asyncio.create_task(_run_task(task, lifecycle_factory))
+            exec_task = asyncio.create_task(_run_task(task))
             monitor = asyncio.create_task(
                 _cancellation_monitor(task.id, exec_task)
             )
@@ -354,7 +346,7 @@ async def worker_main_loop(
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
                 # Read current retry state from DB to ensure accurate values
-                async with get_orch_session() as session:
+                async with get_sql_session() as session:
                     row = await session.execute(
                         select(Task.max_retries, Task.attempt).where(
                             Task.id == task.id
