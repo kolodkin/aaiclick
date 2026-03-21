@@ -15,41 +15,36 @@ resolution-markers = [
 name = "aaiclick"
 source = { editable = "." }
 dependencies = [
+    { name = "alembic" },
+    { name = "asyncpg" },
     { name = "clickhouse-connect" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "psycopg2-binary" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "sqlmodel" },
 ]
 
 [package.optional-dependencies]
 ai = [
     { name = "litellm" },
+    { name = "ollama" },
 ]
 dev = [
     { name = "aiosqlite" },
-    { name = "alembic" },
-    { name = "asyncpg" },
     { name = "black" },
     { name = "chdb" },
     { name = "mypy" },
-    { name = "psycopg2-binary" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "sqlmodel" },
 ]
 local = [
     { name = "aiosqlite" },
     { name = "chdb" },
-]
-orch = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "psycopg2-binary" },
-    { name = "sqlmodel" },
 ]
 test = [
     { name = "pytest" },
@@ -60,17 +55,18 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aaiclick", extras = ["local", "orch", "test"], marker = "extra == 'dev'" },
+    { name = "aaiclick", extras = ["local", "test"], marker = "extra == 'dev'" },
     { name = "aiosqlite", marker = "extra == 'local'", specifier = ">=0.19.0" },
-    { name = "alembic", marker = "extra == 'orch'", specifier = ">=1.13.0" },
-    { name = "asyncpg", marker = "extra == 'orch'", specifier = ">=0.29.0" },
+    { name = "alembic", specifier = ">=1.13.0" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "chdb", marker = "extra == 'local'", specifier = ">=4.0.0" },
     { name = "clickhouse-connect", specifier = ">=0.6.0" },
     { name = "litellm", marker = "extra == 'ai'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
-    { name = "psycopg2-binary", marker = "extra == 'orch'", specifier = ">=2.9.9" },
+    { name = "ollama", marker = "extra == 'ai'", specifier = ">=0.1.0" },
+    { name = "psycopg2-binary", specifier = ">=2.9.9" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
@@ -78,9 +74,9 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "sqlmodel", marker = "extra == 'orch'", specifier = ">=0.0.14" },
+    { name = "sqlmodel", specifier = ">=0.0.14" },
 ]
-provides-extras = ["orch", "test", "local", "ai", "dev"]
+provides-extras = ["test", "local", "ai", "dev"]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1894,6 +1890,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/58/ad/1100d7229bb248394939a12a8074d485b655e8ed44207d328fdd7fcebc7b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:7e58765ad74dcebd3ef0208a5078fba32dc8ec3578fe84a604432950cd043d79", size = 15800434, upload-time = "2026-03-09T07:58:44.837Z" },
     { url = "https://files.pythonhosted.org/packages/0c/fd/16d710c085d28ba4feaf29ac60c936c9d662e390344f94a6beaa2ac9899b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8e236dbda4e1d319d681afcbb136c0c4a8e0f1a5c58ceec2adebb547357fe857", size = 16729409, upload-time = "2026-03-09T07:58:47.972Z" },
     { url = "https://files.pythonhosted.org/packages/57/a7/b35835e278c18b85206834b3aa3abe68e77a98769c59233d1f6300284781/numpy-2.4.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:4b42639cdde6d24e732ff823a3fa5b701d8acad89c4142bc1d0bd6dc85200ba5", size = 12504685, upload-time = "2026-03-09T07:58:50.525Z" },
+]
+
+[[package]]
+name = "ollama"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9d/5a/652dac4b7affc2b37b95386f8ae78f22808af09d720689e3d7a86b6ed98e/ollama-0.6.1.tar.gz", hash = "sha256:478c67546836430034b415ed64fa890fd3d1ff91781a9d548b3325274e69d7c6", size = 51620, upload-time = "2025-11-13T23:02:17.416Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/4f/4a617ee93d8208d2bcf26b2d8b9402ceaed03e3853c754940e2290fed063/ollama-0.6.1-py3-none-any.whl", hash = "sha256:fc4c984b345735c5486faeee67d8a265214a31cbb828167782dc642ce0a2bf8c", size = 14354, upload-time = "2025-11-13T23:02:16.292Z" },
 ]
 
 [[package]]
