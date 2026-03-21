@@ -14,7 +14,7 @@ from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import lineage_context
 from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.ai.agents.debug_agent import debug_result
-from aaiclick.orchestration.context import task_scope
+from aaiclick.orchestration.orch_context import task_scope
 
 
 @pytest.mark.live_llm

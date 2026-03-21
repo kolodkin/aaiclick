@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from .claiming import claim_next_task, update_task_status
-from .context import get_sql_session
+from .orch_context import get_sql_session
 from .decorators import task
 from .factories import create_job, create_task
 from .models import Job, JobStatus, Task, TaskStatus

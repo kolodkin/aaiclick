@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
 from .claiming import claim_next_task, update_task_status
-from .context import commit_tasks, get_sql_session
+from .orch_context import commit_tasks, get_sql_session
 from .execution import execute_task
 from .factories import create_job, create_task
 from .models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration.context import get_sql_session
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
     TaskResult,

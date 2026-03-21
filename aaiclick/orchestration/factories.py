@@ -7,7 +7,7 @@ from typing import Callable, Union
 
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .context import get_sql_session
+from .orch_context import get_sql_session
 from .models import Job, JobStatus, Task, TaskStatus
 
 

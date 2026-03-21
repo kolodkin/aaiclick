@@ -8,7 +8,7 @@ import pytest
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
-from aaiclick.orchestration.context import task_scope
+from aaiclick.orchestration.orch_context import task_scope
 
 
 async def _run_pipeline():

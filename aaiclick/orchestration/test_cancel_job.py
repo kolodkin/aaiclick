@@ -3,7 +3,7 @@
 from sqlmodel import select
 
 from .claiming import cancel_job, check_task_cancelled, claim_next_task, update_job_status, update_task_status
-from .context import commit_tasks, get_sql_session
+from .orch_context import commit_tasks, get_sql_session
 from .factories import create_job, create_task
 from .models import Job, JobStatus, Task, TaskStatus
 from .worker import register_worker

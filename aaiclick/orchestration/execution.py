@@ -22,7 +22,7 @@ from aaiclick.data.ingest import _get_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
-from .context import commit_tasks, get_sql_session, task_scope
+from .orch_context import commit_tasks, get_sql_session, task_scope
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus

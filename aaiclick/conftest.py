@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_sqlite
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration.context import orch_context
+from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.models import SQLModel
 
 

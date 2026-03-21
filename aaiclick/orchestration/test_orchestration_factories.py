@@ -8,7 +8,7 @@ from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution import TaskResult
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
-from aaiclick.orchestration.context import get_sql_session
+from aaiclick.orchestration.orch_context import get_sql_session
 
 
 async def test_create_task_basic(orch_ctx):
