@@ -22,7 +22,7 @@ from aaiclick.data.ingest import _get_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
-from .context import commit_tasks, get_orch_session, task_scope
+from .context import commit_tasks, get_sql_session, task_scope
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
@@ -245,7 +245,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
     if not serialized_params:
         return {}
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         return {
             k: await _deserialize_value(v, session)
             for k, v in serialized_params.items()
@@ -465,7 +465,7 @@ async def run_job_tasks(job: Job) -> None:
     Raises:
         Exception: If any task fails
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         # Update job to RUNNING
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -477,7 +477,7 @@ async def run_job_tasks(job: Job) -> None:
 
     # Fetch and execute one task at a time until no more ready tasks
     while True:
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             # Fetch next ready task (dependency-aware)
             now = datetime.utcnow()
             result = await session.execute(
@@ -518,7 +518,7 @@ async def run_job_tasks(job: Job) -> None:
             # Serialize the data portion of the result
             result_ref = serialize_task_result(data_result, task_job_id)
 
-            async with get_orch_session() as session:
+            async with get_sql_session() as session:
                 # Reload and update task to COMPLETED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
@@ -534,7 +534,7 @@ async def run_job_tasks(job: Job) -> None:
             job_failed = True
             error_msg = str(e)
 
-            async with get_orch_session() as session:
+            async with get_sql_session() as session:
                 # Reload and update task to FAILED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
@@ -547,7 +547,7 @@ async def run_job_tasks(job: Job) -> None:
 
             break
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         # Reload job and update final status
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one()

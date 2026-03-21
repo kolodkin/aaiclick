@@ -36,7 +36,7 @@ from typing import Any, Callable, List, Union
 from aaiclick.data.object import Object
 
 from ..snowflake_id import get_snowflake_id
-from .context import _orch_contexts, commit_tasks, get_orch_session, orch_context
+from .context import _orch_contexts, commit_tasks, get_sql_session, orch_context
 from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
@@ -242,7 +242,7 @@ class JobFactory:
         )
 
         # Commit job to database
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             session.add(job)
             await session.commit()
 

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration.context import get_orch_session
+from aaiclick.orchestration.context import get_sql_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
     TaskResult,
@@ -234,7 +234,7 @@ async def test_run_job_tasks_single_task(orch_ctx, monkeypatch):
         assert job.completed_at is not None
 
         # Verify task completed in database
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
@@ -255,7 +255,7 @@ async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
         assert "intentionally" in job.error
 
         # Verify task failed in database
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
@@ -273,7 +273,7 @@ async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
         await run_job_tasks(job)
 
         # Get the task to find log file
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             task = result.scalar_one()
 
@@ -386,7 +386,7 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
     )
     assert data_result is None
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == child.id))
         db_child = result.scalar_one()
         assert db_child.job_id == job.id
@@ -416,7 +416,7 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
     )
     assert data_result == "my_data"
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id, Task.entrypoint.in_(["mod.child1", "mod.child2"]))
         )
@@ -437,7 +437,7 @@ async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
         assert job.status == JobStatus.PENDING
 
         # Verify entry point task was created
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id)
             )
@@ -458,7 +458,7 @@ async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
         assert job.status == JobStatus.COMPLETED
 
         # Entry point + 2 child tasks = 3 tasks total
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id).order_by(Task.id)
             )
@@ -487,7 +487,7 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
         assert job.status == JobStatus.COMPLETED
 
         # chain_pipeline -> step_one -> step_two = 3 tasks
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 select(Task).where(Task.job_id == job.id).order_by(Task.id)
             )

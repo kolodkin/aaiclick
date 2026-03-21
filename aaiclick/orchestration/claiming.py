@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import select
 
-from .context import get_db_handler, get_orch_session
+from .context import get_db_handler, get_sql_session
 from .models import Job, JobStatus, Task, TaskStatus
 
 # Terminal job statuses that cannot be cancelled
@@ -36,7 +36,7 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
         Task if one was claimed, None if no tasks available
     """
     handler = get_db_handler()
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         task = await handler.claim_next_task(session, worker_id, datetime.utcnow())
         await session.commit()
         return task
@@ -61,7 +61,7 @@ async def update_task_status(
         bool: True if task was found and updated
     """
     handler = get_db_handler()
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = handler.lock_query(select(Task).where(Task.id == task_id))
         query_result = await session.execute(query)
         task = query_result.scalar_one_or_none()
@@ -99,7 +99,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: Optional[str]
         bool: True if job was found and updated
     """
     handler = get_db_handler()
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = handler.lock_query(select(Job).where(Job.id == job_id))
         query_result = await session.execute(query)
         job = query_result.scalar_one_or_none()
@@ -136,7 +136,7 @@ async def cancel_job(job_id: int) -> bool:
         bool: True if job was cancelled, False if not found or already terminal
     """
     handler = get_db_handler()
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = handler.lock_query(select(Job).where(Job.id == job_id))
         query_result = await session.execute(query)
         job = query_result.scalar_one_or_none()
@@ -182,7 +182,7 @@ async def check_task_cancelled(task_id: int) -> bool:
     Returns:
         bool: True if task status is CANCELLED
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task.status).where(Task.id == task_id)
         )

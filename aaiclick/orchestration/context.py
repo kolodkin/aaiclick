@@ -61,7 +61,7 @@ def _get_orch_state(ctx: str = "default") -> OrchCtxState:
 class OrchLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle handler using shared resources from orch_context.
 
-    Uses get_orch_session() for all database ops — no private engine needed.
+    Uses get_sql_session() for all database ops — no private engine needed.
     When DECREF causes total refcount across all contexts to reach 0,
     it creates a sample copy and drops the CH table.
 
@@ -95,7 +95,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN, ""))
         if self._task:
             await self._task
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             await session.execute(
                 text("DELETE FROM table_context_refs WHERE context_id = :ctx"),
                 {"ctx": self._context_id},
@@ -114,7 +114,7 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     async def claim(self, table_name: str, job_id: int) -> None:
         """Release a job-scoped pinned ref (ownership transfer to consumer)."""
-        async with get_orch_session() as session:
+        async with get_sql_session() as session:
             await session.execute(
                 text(
                     "DELETE FROM table_context_refs "
@@ -146,7 +146,7 @@ class OrchLifecycleHandler(LifecycleHandler):
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
             total = 0
-            async with get_orch_session() as session:
+            async with get_sql_session() as session:
                 if msg.op == DBLifecycleOp.INCREF:
                     await session.execute(
                         text(
@@ -307,7 +307,7 @@ def get_db_handler(ctx: str = "default") -> DbHandler:
 
 
 @asynccontextmanager
-async def get_orch_session(ctx: str = "default") -> AsyncIterator[AsyncSession]:
+async def get_sql_session(ctx: str = "default") -> AsyncIterator[AsyncSession]:
     """Get a database session from the active orchestration context.
 
     Yields:
@@ -338,7 +338,7 @@ async def commit_tasks(
     """
     items_list = items if isinstance(items, list) else [items]
 
-    async with get_orch_session(ctx) as session:
+    async with get_sql_session(ctx) as session:
         for item in items_list:
             item.job_id = job_id
 

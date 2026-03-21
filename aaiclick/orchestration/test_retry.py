@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from .claiming import claim_next_task, update_task_status
-from .context import get_orch_session
+from .context import get_sql_session
 from .decorators import task
 from .factories import create_job, create_task
 from .models import Job, JobStatus, Task, TaskStatus
@@ -22,7 +22,7 @@ from .worker import (
 
 async def _cancel_all_pending_tasks():
     """Cancel all pending/running tasks to prevent interference between tests."""
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         await session.execute(
             text(
                 "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
@@ -85,7 +85,7 @@ async def test_schedule_retry(orch_ctx):
     )
 
     # Get the task and simulate it being claimed/running
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -100,7 +100,7 @@ async def test_schedule_retry(orch_ctx):
     await _schedule_retry(task_id, 0, "test error")
 
     # Verify state
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id)
         )
@@ -128,7 +128,7 @@ async def test_retry_backoff_timing(orch_ctx):
         ),
     )
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -137,7 +137,7 @@ async def test_retry_backoff_timing(orch_ctx):
     # Attempt 0 -> retry_after ~1s
     before = datetime.utcnow()
     await _schedule_retry(task_id, 0, "err")
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
         delay_0 = (t.retry_after - before).total_seconds()
@@ -146,7 +146,7 @@ async def test_retry_backoff_timing(orch_ctx):
     # Attempt 1 -> retry_after ~2s
     before = datetime.utcnow()
     await _schedule_retry(task_id, 1, "err")
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
         delay_1 = (t.retry_after - before).total_seconds()
@@ -155,7 +155,7 @@ async def test_retry_backoff_timing(orch_ctx):
     # Attempt 2 -> retry_after ~4s
     before = datetime.utcnow()
     await _schedule_retry(task_id, 2, "err")
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
         delay_2 = (t.retry_after - before).total_seconds()
@@ -176,7 +176,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     )
 
     # Set retry_after to future
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id).with_for_update()
         )
@@ -193,7 +193,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     assert claimed is None
 
     # Set retry_after to past
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
         )
@@ -235,7 +235,7 @@ async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
     )
 
     # After exhausting all retries: task FAILED, attempt=2
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -246,7 +246,7 @@ async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
         assert t.error is not None
 
     # Job should be FAILED
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Job).where(Job.id == job.id)
         )
@@ -276,7 +276,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
     )
 
     # Task should be FAILED immediately (no retries)
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -286,7 +286,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         assert t.error is not None
 
     # Job should be FAILED
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Job).where(Job.id == job.id)
         )
@@ -324,7 +324,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmp
     assert tasks_executed == 1  # Task eventually succeeded
 
     # Task should be COMPLETED after 3 attempts
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
         )
@@ -333,7 +333,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmp
         assert t.attempt == 2  # Succeeded on attempt 2 (third try)
 
     # Job should be COMPLETED
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Job).where(Job.id == job.id)
         )

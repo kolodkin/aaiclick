@@ -14,7 +14,7 @@ from sqlmodel import select
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
-from .context import get_orch_session
+from .context import get_sql_session
 from .execution import execute_task, register_returned_tasks, serialize_task_result
 from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
@@ -27,7 +27,7 @@ POLL_INTERVAL = 1
 
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task.status).where(Task.job_id == job_id)
         )
@@ -53,7 +53,7 @@ async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> Non
     delay = base_delay * (2 ** current_attempt)
     retry_after = datetime.utcnow() + timedelta(seconds=delay)
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
         )
@@ -97,7 +97,7 @@ async def register_worker(
         started_at=datetime.utcnow(),
     )
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         session.add(worker)
         await session.commit()
         await session.refresh(worker)
@@ -118,7 +118,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -148,7 +148,7 @@ async def deregister_worker(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -174,7 +174,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     Returns:
         list[Worker]: List of workers matching criteria
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = select(Worker)
         if status is not None:
             query = query.where(Worker.status == status)
@@ -196,7 +196,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
     Returns:
         Worker if found, None otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Worker).where(Worker.id == worker_id)
         )
@@ -205,7 +205,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
 
 async def _increment_worker_stat(worker_id: int, field: str) -> None:
     """Increment a worker stat field (tasks_completed or tasks_failed)."""
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
         if worker:
@@ -346,7 +346,7 @@ async def worker_main_loop(
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
                 # Read current retry state from DB to ensure accurate values
-                async with get_orch_session() as session:
+                async with get_sql_session() as session:
                     row = await session.execute(
                         select(Task.max_retries, Task.attempt).where(
                             Task.id == task.id

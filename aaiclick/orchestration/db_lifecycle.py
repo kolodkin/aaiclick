@@ -15,7 +15,7 @@ from sqlmodel import Field, SQLModel
 
 
 class DBLifecycleOp(Enum):
-    """Operations for the PG lifecycle handler."""
+    """Operations for the distributed lifecycle handler."""
 
     INCREF = auto()
     DECREF = auto()

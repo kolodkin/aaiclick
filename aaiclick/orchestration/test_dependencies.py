@@ -3,7 +3,7 @@
 from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
-from .context import commit_tasks, get_orch_session
+from .context import commit_tasks, get_sql_session
 from .factories import create_job, create_task
 from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
 
@@ -167,7 +167,7 @@ async def test_apply_saves_dependencies(orch_ctx):
     await commit_tasks([task1, task2], job_id=job.id)
 
     # Verify dependency was saved
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Dependency).where(
                 Dependency.previous_id == task1.id,
