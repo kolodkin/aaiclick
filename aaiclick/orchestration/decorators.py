@@ -36,7 +36,8 @@ from typing import Any, Callable, List, Union
 from aaiclick.data.object import Object
 
 from ..snowflake_id import get_snowflake_id
-from .context import _orch_contexts, commit_tasks, get_sql_session, orch_context
+from .context import commit_tasks, get_sql_session, orch_context
+from .db_handler import _sql_engine_var
 from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
@@ -219,12 +220,8 @@ class JobFactory:
             Job: Created job with entry point task committed
         """
         # Check if we're already in an orch context
-        try:
-            contexts = _orch_contexts.get()
-            if "default" in contexts:
-                return await self._create_job(**kwargs)
-        except LookupError:
-            pass
+        if _sql_engine_var.get() is not None:
+            return await self._create_job(**kwargs)
         # Not in context, create one
         async with orch_context():
             return await self._create_job(**kwargs)

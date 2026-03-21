@@ -1,19 +1,52 @@
 """DB handler protocol, shared SQL, and factory dispatch.
 
 Concrete implementations live in pg_handler.py and sqlite_handler.py.
+
+Module-level ContextVars:
+- _sql_engine_var: active AsyncEngine, set by orch_context()
+- _db_handler_var: active DbHandler, set by orch_context()
+
+Access via get_sql_session() and get_db_handler().
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime
-from typing import Optional, Union
+from typing import AsyncIterator, Optional, Union
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.sql import Select
 
 from ..backend import is_sqlite
 from .models import Task
+
+_sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar('sql_engine', default=None)
+_db_handler_var: ContextVar[DbHandler | None] = ContextVar('db_handler', default=None)
+
+
+def get_db_handler() -> DbHandler:
+    """Return the DbHandler for the active orchestration context."""
+    handler = _db_handler_var.get()
+    if handler is None:
+        raise RuntimeError(
+            "No active orch_context — use 'async with orch_context()'"
+        )
+    return handler
+
+
+@asynccontextmanager
+async def get_sql_session() -> AsyncIterator[AsyncSession]:
+    """Yield an AsyncSession from the active orchestration context engine."""
+    engine = _sql_engine_var.get()
+    if engine is None:
+        raise RuntimeError(
+            "No active orch_context — use 'async with orch_context()'"
+        )
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        yield session
 
 # Shared dependency check SQL — identical for both backends
 DEPENDENCY_WHERE = """

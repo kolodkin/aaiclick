@@ -6,56 +6,28 @@ import asyncio
 import queue
 import weakref
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
 from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.data.ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
 from aaiclick.data.data_context import _engine_var, _objects_var
 from aaiclick.data.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
 from ..snowflake_id import get_snowflake_id
-from .db_handler import DbHandler, create_db_handler
+from .db_handler import (
+    create_db_handler,
+    get_db_handler,
+    get_sql_session,
+    _sql_engine_var,
+    _db_handler_var,
+)
 from .db_lifecycle import DBLifecycleMessage, DBLifecycleOp
 from .env import get_db_url
 from .models import Group, Task, TasksType
-
-
-@dataclass
-class OrchCtxState:
-    """State bundle for a named orchestration context."""
-
-    engine: AsyncEngine
-    db_handler: DbHandler
-    ch_client: ChClient
-
-
-# ContextVar holding dict[name -> OrchCtxState]
-_orch_contexts: ContextVar[dict[str, OrchCtxState]] = ContextVar('orch_contexts')
-
-
-def _get_orch_state(ctx: str = "default") -> OrchCtxState:
-    """Get state bundle for a named orchestration context.
-
-    Raises:
-        RuntimeError: If no active context with that name.
-    """
-    try:
-        contexts = _orch_contexts.get()
-    except LookupError:
-        raise RuntimeError(
-            f"No active orch context '{ctx}' - use 'async with orch_context()'"
-        )
-    if ctx not in contexts:
-        raise RuntimeError(
-            f"No active orch context '{ctx}' - use 'async with orch_context()'"
-        )
-    return contexts[ctx]
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -85,7 +57,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._task = asyncio.create_task(self._process_loop())
 
     async def stop(self) -> None:
-        """Drain queue then unconditionally delete all refs for this context_id.
+        """Drain queue then unconditionally delete all refs for this task_id.
 
         Pin refs use job_id as context_id, so they survive this cleanup.
         Only execution-time refs (incref/decref) are removed.
@@ -193,50 +165,36 @@ class OrchLifecycleHandler(LifecycleHandler):
 
 
 @asynccontextmanager
-async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
+async def orch_context() -> AsyncIterator[None]:
     """Async context manager for all orchestration operations.
 
     Creates shared resources on enter:
-    - SQLAlchemy AsyncEngine for orchestration SQL
-    - DbHandler for database operations
+    - SQLAlchemy AsyncEngine for orchestration SQL (set in _sql_engine_var)
+    - DbHandler for database operations (set in _db_handler_var)
     - ChClient for ClickHouse operations (set in _ch_client_var)
 
     Sets ContextVars for the duration:
-    - _ch_client_var: shared ClickHouse client
+    - _sql_engine_var: SQL engine (accessed via get_sql_session())
+    - _db_handler_var: DB handler (accessed via get_db_handler())
+    - _ch_client_var: shared ClickHouse client (accessed via get_ch_client())
     - _engine_var: ENGINE_DEFAULT for data operations
-    - _orch_contexts: named state bundle
 
-    Per-task state (lifecycle view, objects, oplog) is managed by task_scope().
-
-    Args:
-        ctx: Named context key (default "default").
+    Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()
     ch_client = await create_ch_client()
 
-    state = OrchCtxState(
-        engine=engine,
-        db_handler=handler,
-        ch_client=ch_client,
-    )
-
-    # Copy-on-write
-    try:
-        existing = _orch_contexts.get()
-    except LookupError:
-        existing = {}
-    contexts = dict(existing)
-    contexts[ctx] = state
-    token = _orch_contexts.set(contexts)
-
+    sql_token = _sql_engine_var.set(engine)
+    db_token = _db_handler_var.set(handler)
     ch_token = _ch_client_var.set(ch_client)
     eng_token = _engine_var.set(ENGINE_DEFAULT)
 
     try:
         yield
     finally:
-        _orch_contexts.reset(token)
+        _sql_engine_var.reset(sql_token)
+        _db_handler_var.reset(db_token)
         _engine_var.reset(eng_token)
         _ch_client_var.reset(ch_token)
         await engine.dispose()
@@ -258,8 +216,6 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
     """
-    state = _get_orch_state()
-
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
@@ -268,7 +224,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
 
     objects: Dict[int, weakref.ref] = {}
     collector = OplogCollector(task_id=task_id, job_id=job_id)
-    await init_oplog_tables(state.ch_client)
+    await init_oplog_tables(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
@@ -298,44 +254,25 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         _lifecycle_var.reset(lc_token)
 
 
-def get_db_handler(ctx: str = "default") -> DbHandler:
-    """Get the database handler from the active orchestration context."""
-    return _get_orch_state(ctx).db_handler
-
-
-@asynccontextmanager
-async def get_sql_session(ctx: str = "default") -> AsyncIterator[AsyncSession]:
-    """Get a database session from the active orchestration context.
-
-    Yields:
-        AsyncSession configured with expire_on_commit=False
-    """
-    state = _get_orch_state(ctx)
-    async with AsyncSession(state.engine, expire_on_commit=False) as session:
-        yield session
-
-
 async def commit_tasks(
     items: TasksType,
     job_id: int,
-    ctx: str = "default",
 ) -> TasksType:
     """Commit tasks, groups, and their dependencies to the database.
 
     Sets job_id on all items, generates snowflake IDs for Groups
-    if not already set, and commits to PostgreSQL.
+    if not already set, and commits to the SQL database.
 
     Args:
         items: Single Task/Group or list of Task/Group objects
         job_id: Job ID to assign to all items
-        ctx: Named context key (default "default")
 
     Returns:
         Same items with database IDs populated
     """
     items_list = items if isinstance(items, list) else [items]
 
-    async with get_sql_session(ctx) as session:
+    async with get_sql_session() as session:
         for item in items_list:
             item.job_id = job_id
 
