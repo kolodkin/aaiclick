@@ -14,21 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.data.data_context import (
-    data_context,
     get_ch_client,
     get_data_lifecycle,
     register_object,
 )
 from aaiclick.data.ingest import _get_table_schema
-from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
-from .context import commit_tasks, get_orch_session
+from .context import commit_tasks, get_orch_session, task_scope
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
-from .db_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
 
 
@@ -255,25 +252,19 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         }
 
 
-async def execute_task(
-    task: Task,
-    lifecycle: LifecycleHandler,
-) -> Any:
+async def execute_task(task: Task) -> Any:
     """
-    Execute a single task with both DataContext and OrchContext available.
+    Execute a single task inside orch_context.
 
-    Imports the callback function, deserializes kwargs inside a DataContext,
-    captures output, and executes the function. The lifecycle handler is
-    injected into DataContext for distributed refcounting. The caller is
-    responsible for starting/stopping the lifecycle handler.
+    Imports the callback function, deserializes kwargs inside a task_scope,
+    captures output, and executes the function. Uses the active orch_context
+    for ClickHouse client and distributed lifecycle refcounting.
 
     After execution, if the result is an Object or View, it is pinned
     under the job scope so it survives lifecycle stop().
 
     Args:
         task: Task to execute
-        lifecycle: Pre-started LifecycleHandler for distributed refcounting
-                   with pin/claim ownership.
 
     Returns:
         Any: Result of the task function
@@ -287,16 +278,19 @@ async def execute_task(
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
     with capture_task_output(task.id):
-        async with data_context(lifecycle=lifecycle):
+        async with task_scope(task_id=task.id, job_id=task.job_id):
             kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
                 result = func(**kwargs)
 
-    pin_target = result.data if isinstance(result, TaskResult) else result
-    if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
-        lifecycle.pin(pin_target.table)
+            # Pin INSIDE task_scope while lifecycle is still active
+            pin_target = result.data if isinstance(result, TaskResult) else result
+            if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    lifecycle.pin(pin_target.table)
 
     return result
 
@@ -516,8 +510,7 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            async with PgLifecycleHandler(task_job_id) as lifecycle:
-                result = await execute_task(task, lifecycle=lifecycle)
+            result = await execute_task(task)
 
             # Register any returned Task/Group objects to the job
             data_result = await register_returned_tasks(result, task_id, task_job_id)

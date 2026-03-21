@@ -10,16 +10,17 @@ Set AAICLICK_AI_MODEL to choose the model (default: ollama/llama3.1:8b).
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value, data_context
+from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import lineage_context
 from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.orchestration.context import task_scope
 
 
 @pytest.mark.live_llm
-async def test_explain_lineage_real_pipeline():
+async def test_explain_lineage_real_pipeline(orch_ctx):
     """explain_lineage completes without error for a real concat pipeline."""
-    async with data_context(oplog=True):
+    async with task_scope(task_id=1, job_id=1):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
         result = await a.concat(b)
@@ -32,9 +33,9 @@ async def test_explain_lineage_real_pipeline():
 
 
 @pytest.mark.live_llm
-async def test_explain_lineage_with_custom_question():
+async def test_explain_lineage_with_custom_question(orch_ctx):
     """explain_lineage accepts a custom question and returns a string."""
-    async with data_context(oplog=True):
+    async with task_scope(task_id=2, job_id=1):
         a = await create_object_from_value([10, 20, 30])
         b = await create_object_from_value([40, 50, 60])
         result = await a.concat(b)
@@ -50,9 +51,9 @@ async def test_explain_lineage_with_custom_question():
 
 
 @pytest.mark.live_llm
-async def test_debug_result_real_pipeline():
+async def test_debug_result_real_pipeline(orch_ctx):
     """debug_result completes without error and returns a string."""
-    async with data_context(oplog=True):
+    async with task_scope(task_id=3, job_id=1):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([-1, -2, -3])
         result = await a.concat(b)

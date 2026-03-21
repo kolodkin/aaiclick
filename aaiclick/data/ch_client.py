@@ -43,7 +43,10 @@ def get_ch_client() -> ChClient:
     """Return the ClickHouse client for the active data context."""
     client = _ch_client_var.get()
     if client is None:
-        raise RuntimeError("No active data context — use 'async with data_context()'")
+        raise RuntimeError(
+            "No active data or orch context — "
+            "use 'async with data_context()' or 'async with orch_context()'"
+        )
     return client
 
 

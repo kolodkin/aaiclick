@@ -16,7 +16,6 @@ from .job_queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
 from .job_stats import compute_job_stats, print_job_stats
 from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
-from .db_lifecycle import PgLifecycleHandler
 from .worker import list_workers, worker_main_loop
 
 
@@ -92,10 +91,7 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     await pg_cleanup.start()
     try:
         async with orch_context():
-            await worker_main_loop(
-                max_tasks=max_tasks,
-                lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
-            )
+            await worker_main_loop(max_tasks=max_tasks)
     finally:
         await pg_cleanup.stop()
 

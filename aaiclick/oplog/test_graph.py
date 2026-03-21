@@ -6,20 +6,24 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import data_context, create_object_from_value
+from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
+from aaiclick.orchestration.context import task_scope
 
 
 async def _run_pipeline():
-    """Run a create/concat pipeline and return (a.table, b.table, result.table)."""
-    async with data_context(oplog=True):
+    """Run a create/concat pipeline and return (a.table, b.table, result.table).
+
+    Must be called inside an active orch_context.
+    """
+    async with task_scope(task_id=1, job_id=1):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
         result = await a.concat(b)
         return a.table, b.table, result.table
 
 
-async def test_backward_oplog():
+async def test_backward_oplog(orch_ctx):
     """backward_oplog returns the 3 upstream nodes with exact structure and edges."""
     a_table, b_table, result_table = await _run_pipeline()
 
@@ -43,7 +47,7 @@ async def test_backward_oplog():
     }
 
 
-async def test_forward_oplog():
+async def test_forward_oplog(orch_ctx):
     """forward_oplog from a source finds exactly the concat node."""
     a_table, b_table, result_table = await _run_pipeline()
 
@@ -55,7 +59,7 @@ async def test_forward_oplog():
     assert nodes[0].operation == "concat"
 
 
-async def test_invalid_direction():
+async def test_invalid_direction(orch_ctx):
     """oplog_subgraph raises ValueError for unknown direction."""
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
