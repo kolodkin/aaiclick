@@ -32,7 +32,7 @@ jobs:
             pytest-args: "-n auto -v"
           - group: orch-local
             title: Orchestration Tests (Local/SQLite)
-            install: ".[orch,test,local]"
+            install: ".[test,local]"
             test-paths: "aaiclick/orchestration/"
             pytest-args: "-n auto -v"
 
@@ -82,7 +82,7 @@ jobs:
             needs-postgres: false
           - group: orch
             title: Orchestration Tests (Distributed)
-            install: ".[orch,test]"
+            install: ".[test]"
             test-paths: "aaiclick/orchestration/"
             pytest-args: "-n auto -v"
             needs-postgres: true
@@ -260,7 +260,7 @@ jobs:
           - group: ai-lineage
             title: AI Lineage Agent Tests (Local/Ollama)
             test-paths: "aaiclick/ai/agents/test_lineage_agent_live.py"
-            extras: ".[ai,orch,test,local]"
+            extras: ".[ai,test,local]"
 
     env:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
