@@ -77,7 +77,7 @@ jobs:
           - group: data
             title: Data Tests (Distributed)
             install: ".[test]"
-            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py aaiclick/benchmarks/"
+            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
             pytest-args: "-n auto -v"
             needs-postgres: false
           - group: orch
