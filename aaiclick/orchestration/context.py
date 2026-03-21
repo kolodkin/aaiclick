@@ -13,7 +13,7 @@ from typing import AsyncIterator, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.data.ch_client import ChClient, create_ch_client, _ch_client_var
+from aaiclick.data.ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from aaiclick.data.data_context import _engine_var, _objects_var
 from aaiclick.data.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
@@ -61,24 +61,22 @@ def _get_orch_state(ctx: str = "default") -> OrchCtxState:
 class OrchLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle handler using shared resources from orch_context.
 
-    Uses get_sql_session() for all database ops — no private engine needed.
+    Uses get_sql_session() for DB ops and get_ch_client() for CH ops —
+    no private engine or client needed.
     When DECREF causes total refcount across all contexts to reach 0,
     it creates a sample copy and drops the CH table.
 
     Args:
-        ch_client: Shared ClickHouse client from orch_context.
-        context_id: task_id used as context_id for grouping this handler's refs.
+        task_id: Task ID used as context_id for grouping this handler's refs.
         job_id: Job ID used as context_id for pin operations.
     """
 
     def __init__(
         self,
-        ch_client: ChClient,
-        context_id: int,
+        task_id: int,
         job_id: int,
     ):
-        self._ch_client = ch_client
-        self._context_id = context_id
+        self._task_id = task_id
         self._job_id = job_id
         self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
@@ -98,7 +96,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         async with get_sql_session() as session:
             await session.execute(
                 text("DELETE FROM table_context_refs WHERE context_id = :ctx"),
-                {"ctx": self._context_id},
+                {"ctx": self._task_id},
             )
             await session.commit()
 
@@ -127,7 +125,7 @@ class OrchLifecycleHandler(LifecycleHandler):
     async def _create_sample_and_drop(self, table_name: str) -> None:
         """Create a sample copy of the table, then drop the original."""
         try:
-            await self._ch_client.command(
+            await get_ch_client().command(
                 f"CREATE TABLE IF NOT EXISTS {table_name}_sample "
                 f"ENGINE = MergeTree() ORDER BY tuple() "
                 f"AS SELECT * FROM {table_name} LIMIT 1000"
@@ -135,7 +133,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         except Exception:
             pass  # Best effort
         try:
-            await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+            await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
         except Exception:
             pass  # Best effort
 
@@ -155,7 +153,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                             "ON CONFLICT (table_name, context_id) "
                             "DO UPDATE SET refcount = table_context_refs.refcount + 1"
                         ),
-                        {"table_name": msg.table_name, "context_id": self._context_id},
+                        {"table_name": msg.table_name, "context_id": self._task_id},
                     )
                 elif msg.op == DBLifecycleOp.DECREF:
                     await session.execute(
@@ -164,7 +162,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                             "SET refcount = refcount - 1 "
                             "WHERE table_name = :table_name AND context_id = :context_id"
                         ),
-                        {"table_name": msg.table_name, "context_id": self._context_id},
+                        {"table_name": msg.table_name, "context_id": self._task_id},
                     )
                     result = await session.execute(
                         text(
@@ -263,8 +261,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     state = _get_orch_state()
 
     lifecycle = OrchLifecycleHandler(
-        ch_client=state.ch_client,
-        context_id=task_id,
+        task_id=task_id,
         job_id=job_id,
     )
     await lifecycle.start()
