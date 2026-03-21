@@ -2,7 +2,7 @@
 aaiclick.orchestration.db_lifecycle - Database models for distributed lifecycle tracking.
 
 PgLifecycleOp, PgLifecycleMessage, and TableContextRef define the data structures
-used by _OrchLifecycleView (in context.py) for distributed table reference counting.
+used by OrchLifecycleHandler (in context.py) for distributed table reference counting.
 """
 
 from __future__ import annotations

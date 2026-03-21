@@ -59,10 +59,10 @@ def _get_orch_state(ctx: str = "default") -> OrchCtxState:
     return contexts[ctx]
 
 
-class _OrchLifecycleView(LifecycleHandler):
+class OrchLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle handler using shared resources from orch_context.
 
-    Unlike PgLifecycleHandler, this class does NOT create its own engine.
+    Unlike LocalLifecycleHandler, this class does NOT create its own engine.
     It uses the shared pg_engine from orch_context for all database ops.
     When DECREF causes total refcount across all contexts to reach 0,
     it creates a sample copy and drops the CH table.
@@ -259,23 +259,22 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
 
     Creates isolated per-task state:
     - Fresh objects registry for stale-marking on exit
-    - _OrchLifecycleView with new snowflake context_id for distributed refcounting
+    - OrchLifecycleHandler using task_id as context_id for distributed refcounting
     - OplogCollector for operation lineage (always active in orch mode)
 
     Oplog is flushed on clean exit; discarded on exception.
     All tracked objects are stale-marked on exit.
 
     Args:
-        task_id: ID of the current task (for oplog).
+        task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
     """
     state = _get_orch_state()
-    context_id = get_snowflake_id()
 
-    lifecycle = _OrchLifecycleView(
+    lifecycle = OrchLifecycleHandler(
         pg_engine=state.pg_engine,
         ch_client=state.ch_client,
-        context_id=context_id,
+        context_id=task_id,
         job_id=job_id,
     )
     await lifecycle.start()
