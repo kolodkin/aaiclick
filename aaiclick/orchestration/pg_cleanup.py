@@ -88,9 +88,103 @@ class PgCleanupWorker:
                 pass
 
     async def _do_cleanup(self) -> None:
+        await self._sample_completed_job_tables()
         await self._cleanup_completed_jobs()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_dead_workers()
+
+    async def _sample_completed_job_tables(self) -> None:
+        """Replace ephemeral tables from completed jobs with 10-row samples.
+
+        Preserves operation_log references by keeping tables under the same
+        name but truncated to 10 rows. Removes sampled tables from
+        table_context_refs so the lifecycle cleanup won't drop them.
+        """
+        # Check if table_registry exists (oplog may not have been enabled yet)
+        try:
+            exists = await self._ch_client.command("EXISTS TABLE table_registry")
+            if not exists:
+                return
+        except Exception:
+            return
+
+        # Find completed/failed/cancelled jobs
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT id FROM jobs "
+                    "WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
+                )
+            )
+            job_ids = [row[0] for row in result.fetchall()]
+
+        if not job_ids:
+            return
+
+        # Find tables for those jobs in CH table_registry
+        job_ids_str = ", ".join(str(jid) for jid in job_ids)
+        try:
+            result = await self._ch_client.query(
+                f"SELECT DISTINCT table_name FROM table_registry "
+                f"WHERE job_id IN ({job_ids_str})"
+            )
+        except Exception:
+            logger.warning("Failed to query table_registry", exc_info=True)
+            return
+
+        table_names = [row[0] for row in result.result_rows]
+        if not table_names:
+            return
+
+        sampled_tables = []
+        for table_name in table_names:
+            try:
+                exists = await self._ch_client.command(f"EXISTS TABLE {table_name}")
+                if not exists:
+                    sampled_tables.append(table_name)
+                    continue
+
+                sample_table = f"{table_name}_sample"
+                await self._ch_client.command(f"CREATE TABLE {sample_table} AS {table_name}")
+                await self._ch_client.command(
+                    f"INSERT INTO {sample_table} SELECT * FROM {table_name} LIMIT 10"
+                )
+                await self._ch_client.command(f"DROP TABLE {table_name}")
+                await self._ch_client.command(f"RENAME TABLE {sample_table} TO {table_name}")
+                sampled_tables.append(table_name)
+            except Exception:
+                logger.warning("Failed to sample table %s", table_name, exc_info=True)
+
+        if not sampled_tables:
+            return
+
+        # Delete from CH table_registry for all processed jobs
+        try:
+            await self._ch_client.command(
+                f"ALTER TABLE table_registry DELETE WHERE job_id IN ({job_ids_str})"
+            )
+        except Exception:
+            logger.warning("Failed to delete from table_registry", exc_info=True)
+
+        # Remove sampled tables from SQL table_context_refs so lifecycle cleanup
+        # won't drop them — sampled tables persist indefinitely for historical queries
+        async with AsyncSession(self._engine) as session:
+            if is_sqlite():
+                for table_name in sampled_tables:
+                    await session.execute(
+                        text(
+                            "DELETE FROM table_context_refs WHERE table_name = :table_name"
+                        ),
+                        {"table_name": table_name},
+                    )
+            else:
+                await session.execute(
+                    text(
+                        "DELETE FROM table_context_refs WHERE table_name = ANY(:table_names)"
+                    ),
+                    {"table_names": sampled_tables},
+                )
+            await session.commit()
 
     async def _cleanup_completed_jobs(self) -> None:
         """Delete job-scoped pin refs for completed/failed jobs."""

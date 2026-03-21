@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+from aaiclick.data.data_context import create_object_from_value
+
 
 def simple_task():
     """A simple task that does basic arithmetic and prints."""
@@ -28,6 +30,12 @@ def task_with_output():
     """A task that produces both stdout and stderr output."""
     print("This is stdout")
     print("Error message", file=sys.stderr)
+
+
+async def data_task():
+    """A task that creates Objects — used for oplog and lifecycle tests."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    return obj
 
 
 def flaky_task(counter_file: str):

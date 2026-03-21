@@ -94,7 +94,9 @@ Iterative BFS traversal — avoids `WITH RECURSIVE` for broader ClickHouse versi
 
 # Table Lifecycle & Cleanup
 
-Post-job table sampling (replacing ephemeral tables with 10-row samples after job completion) is planned for Phase 3. See `docs/future.md` — "Oplog: Table Lifecycle & Cleanup".
+**Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker._sample_completed_job_tables()`
+
+On each cleanup cycle, ephemeral tables from completed/failed/cancelled jobs are replaced with 10-row samples under the same table name. Sampled tables are removed from `table_context_refs` so the lifecycle worker won't drop them — they persist indefinitely, keeping `operation_log` lineage references valid. AI agents calling `sample_table()` on historical nodes return the preserved rows transparently.
 
 ---
 

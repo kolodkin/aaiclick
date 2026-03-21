@@ -23,6 +23,7 @@ from aaiclick.data.ingest import _get_table_schema
 from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
+from aaiclick.oplog.collector import OplogCollector
 
 from .context import commit_tasks, get_orch_session
 from .decorators import JobFactory, TaskFactory
@@ -286,8 +287,10 @@ async def execute_task(
     # Set task context so expander tasks can access job_id/task_id
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
+    collector = OplogCollector(task_id=task.id, job_id=task.job_id)
+
     with capture_task_output(task.id):
-        async with data_context(lifecycle=lifecycle):
+        async with data_context(lifecycle=lifecycle, oplog=collector):
             kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)

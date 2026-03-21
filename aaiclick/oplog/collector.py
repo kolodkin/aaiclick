@@ -44,7 +44,7 @@ class OplogCollector:
         job_id: int | None = None,
     ) -> None:
         self._buffer: list[OperationEvent] = []
-        self._table_buffer: list[str] = []
+        self._table_buffer: set[str] = set()
         self.task_id = task_id
         self.job_id = job_id
 
@@ -69,7 +69,7 @@ class OplogCollector:
 
     def record_table(self, table_name: str) -> None:
         """Register a newly created table in the table_registry buffer."""
-        self._table_buffer.append(table_name)
+        self._table_buffer.add(table_name)
 
     async def flush(self) -> None:
         """Batch-insert buffered events into ClickHouse operation_log and table_registry."""
