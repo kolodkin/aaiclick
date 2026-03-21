@@ -256,9 +256,11 @@ jobs:
           - group: ai-provider
             title: AI Provider Tests (Local/Ollama)
             test-paths: "aaiclick/ai/test_provider_live.py"
+            extras: ".[ai,test,local]"
           - group: ai-lineage
             title: AI Lineage Agent Tests (Local/Ollama)
             test-paths: "aaiclick/ai/agents/test_lineage_agent_live.py"
+            extras: ".[ai,orch,test,local]"
 
     env:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
@@ -277,7 +279,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv --python 3.10
-          uv pip install -e ".[ai,test,local]"
+          uv pip install -e "${{ matrix.extras }}"
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
