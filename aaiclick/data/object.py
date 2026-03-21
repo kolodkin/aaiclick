@@ -2372,11 +2372,20 @@ class View(Object):
             CopyInfo with source query, schema metadata, and field selection info
         """
         source_query = f"({self._build_select()})" if self.has_constraints else self.table
-        # For dict copies with exploded columns, use effective columns so that
-        # exploded column types (Array(T) → T) are reflected in the copy target.
-        # For selected-fields copies, use original schema so copy_db_selected_fields
-        # can look up column types by the original field name.
-        if self._exploded_columns and not self.selected_fields:
+        # Use effective columns (Array(T) → T) for exploded columns, while keeping
+        # original field names as keys so copy_db_selected_fields can look them up.
+        if self._exploded_columns and self.selected_fields:
+            columns = dict(self._schema.columns)
+            for col_name in self._exploded_columns:
+                if col_name in columns:
+                    old_info = columns[col_name]
+                    columns[col_name] = ColumnInfo(
+                        type=old_info.type,
+                        nullable=old_info.nullable,
+                        array=max(0, int(old_info.array) - 1),
+                        low_cardinality=old_info.low_cardinality,
+                    )
+        elif self._exploded_columns:
             columns = self._effective_columns
         else:
             columns = self._schema.columns

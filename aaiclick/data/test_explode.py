@@ -191,6 +191,19 @@ async def test_explode_materialized_copy(ctx):
     assert sorted(result["tags"]) == ["go", "python", "rust"]
 
 
+async def test_explode_selected_field_copy_type(ctx):
+    """copy() on explode + field selection produces correct scalar type, not Array."""
+    obj = await create_object_from_value([
+        {"user": "Alice", "tags": ["python", "rust"]},
+        {"user": "Bob",   "tags": ["go"]},
+    ])
+    materialized = await obj.explode("tags")["tags"].copy()
+    result = await materialized.data()
+    assert sorted(result) == ["go", "python", "rust"]
+    # Schema should be String (scalar), not Array(String)
+    assert materialized._schema.columns["value"].array == 0
+
+
 # =============================================================================
 # Validation errors
 # =============================================================================
