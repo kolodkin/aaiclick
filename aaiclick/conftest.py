@@ -12,8 +12,12 @@ import tempfile
 
 import pytest
 
+from sqlalchemy import create_engine
+
 from aaiclick.backend import is_chdb, is_sqlite
 from aaiclick.data.data_context import data_context
+from aaiclick.orchestration.context import orch_context
+from aaiclick.orchestration.models import SQLModel
 
 
 def pytest_configure(config):
@@ -59,17 +63,11 @@ async def orch_ctx():
     SQLite: creates a temporary database and initialises schema via SQLModel.
     PostgreSQL: assumes migrations have already been applied (by CI or aaiclick setup).
     """
-    from aaiclick.orchestration.context import orch_context
-
     if is_sqlite():
         tmpdir = tempfile.mkdtemp(prefix="aaiclick_test_")
         db_path = os.path.join(tmpdir, "test.db")
         old_url = os.environ.get("AAICLICK_SQL_URL")
         os.environ["AAICLICK_SQL_URL"] = f"sqlite+aiosqlite:///{db_path}"
-
-        from sqlalchemy import create_engine
-
-        from aaiclick.orchestration.models import SQLModel
 
         engine = create_engine(f"sqlite:///{db_path}")
         SQLModel.metadata.create_all(engine)
