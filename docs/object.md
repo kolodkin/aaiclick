@@ -32,6 +32,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.abs()`, `.log2()`, `.sqrt()`                              | Unary Transforms  | Math functions → new Object                  | [Unary Transform Operators](#unary-transform-operators)                         |
 | `.group_by(keys).sum(col)` etc.                             | Group By          | Aggregation with GROUP BY + optional HAVING  | [Group By Operations](#group-by-operations)                                     |
 | `.group_by(keys).agg({col: op})`                            | Group By          | Multiple aggregations in one pass            | [Group By Operations](#group-by-operations)                                     |
+| `.explode(*columns, left=False)`                             | Explode           | Flatten Array column(s) into rows → View     | [Explode](#explode-implemented)                                                 |
 | `.view(where, limit, offset, order_by)`                     | Views             | Read-only View with optional filters         | [Views](#views)                                                                 |
 | `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
 | `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns-implemented)|
@@ -237,6 +238,42 @@ Returns values based on data type: scalar → value, array → list, dict → di
 |------------------|-------------|----------------------------------------------|
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
+
+# Explode ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.explode()` method
+
+Flattens Array column(s) into individual rows. Each array element becomes its own row; scalar columns are duplicated. Returns a **View** (lazy, no materialization) — downstream operators fuse into a single SQL query.
+
+```python
+obj = await create_object_from_value([
+    {"user": "Alice", "tags": ["python", "rust"], "scores": [90, 85]},
+    {"user": "Bob",   "tags": ["python", "go"],   "scores": [70, 95]},
+])
+
+# Explode + unique
+flat = obj.explode("tags")
+unique_tags = await flat["tags"].unique()
+await unique_tags.data()  # ["go", "python", "rust"]
+
+# Explode + group_by + count
+tag_counts = await flat.group_by("tags").count()
+await tag_counts.data()  # {"tags": [...], "_count": [...]}
+
+# Explode multiple columns (zip, not Cartesian)
+flat2 = obj.explode("tags", "scores")
+await flat2.data()  # {"user": [...], "tags": [...], "scores": [...]}
+
+# LEFT explode — preserve rows with empty arrays (ClickHouse type default, not NULL)
+flat3 = obj2.explode("tags", left=True)
+
+# Materialize
+materialized = await flat.copy()
+```
+
+**Schema change**: exploded columns change from `Array(T)` to `T` in the View's effective schema.
+
+**Tests**: `aaiclick/data/test_explode.py`
 
 # Views
 

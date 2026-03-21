@@ -194,6 +194,9 @@ class CopyInfo:
         columns: Column name to ClickHouse type mapping (from cached schema)
         selected_fields: Fields to select from dict (None for base copy)
         is_single_field: True if single field selection
+        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT.
+                       Propagated from source schema so copied tables have
+                       correct column comments for data() to work correctly.
     """
 
     source_query: str
@@ -201,6 +204,7 @@ class CopyInfo:
     columns: Dict[str, "ColumnInfo"]
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
+    col_fieldtype: Optional[str] = None
 
 
 @dataclass

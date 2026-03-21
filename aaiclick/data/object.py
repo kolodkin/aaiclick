@@ -171,6 +171,11 @@ class Object:
         """Get renamed columns mapping old->new (None for base Object)."""
         return None
 
+    @property
+    def exploded_columns(self) -> List[str]:
+        """Get exploded column names (empty for base Object)."""
+        return []
+
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
         ref = {"object_type": "object", "table": self.table}
@@ -205,6 +210,7 @@ class Object:
             or self.selected_fields
             or self.computed_columns
             or self.renamed_columns
+            or self.exploded_columns
         )
 
     def checkstale(self):
@@ -306,6 +312,7 @@ class Object:
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
             columns=self._schema.columns,
+            col_fieldtype=self._schema.col_fieldtype,
         )
 
     async def result(self):
@@ -1456,6 +1463,48 @@ class Object:
                 )
         return View(self, renamed_columns=columns)
 
+    def explode(self, *columns: str, left: bool = False) -> "View":
+        """Explode Array column(s) into individual rows.
+
+        Returns a View (lazy, no materialization). Each element in the
+        specified Array column(s) becomes its own row. Scalar columns
+        are duplicated per element. Multiple columns are zipped (not
+        a Cartesian product) — shorter arrays pad with type defaults.
+
+        The ``left`` flag controls empty-array behavior:
+        - Default (``False``): rows with empty arrays are dropped (``ARRAY JOIN``).
+        - ``left=True``: rows with empty arrays are kept with NULL in the
+          exploded column (``LEFT ARRAY JOIN``).
+
+        Args:
+            *columns: Array column name(s) to explode. At least one required.
+            left: If True, use LEFT ARRAY JOIN (preserve rows with empty arrays).
+
+        Returns:
+            View with exploded rows and updated column types (Array(T) → T).
+
+        Raises:
+            ValueError: If no columns are specified.
+            ValueError: If Object is not a dict type.
+            ValueError: If a column does not exist.
+            ValueError: If a column is not an Array type.
+        """
+        self.checkstale()
+        if not columns:
+            raise ValueError("explode() requires at least one column")
+        if self._schema.fieldtype != FIELDTYPE_DICT:
+            raise ValueError("explode() can only be used on dict Objects")
+        for col in columns:
+            if col not in self._schema.columns:
+                raise ValueError(f"Column '{col}' does not exist in schema")
+            col_info = self._schema.columns[col]
+            if not col_info.array:
+                raise ValueError(
+                    f"Column '{col}' is not an Array type. "
+                    "explode() requires Array columns."
+                )
+        return View(self, exploded_columns=list(columns), left_explode=left)
+
     # -----------------------------------------------------------------
     # Domain helpers — each delegates to with_columns()
     # -----------------------------------------------------------------
@@ -2002,6 +2051,8 @@ class View(Object):
         computed_columns: Optional[Dict[str, Computed]] = None,
         renamed_columns: Optional[Dict[str, str]] = None,
         where_connector: str = "AND",
+        exploded_columns: Optional[List[str]] = None,
+        left_explode: bool = False,
     ):
         """
         Initialize a View.
@@ -2018,6 +2069,8 @@ class View(Object):
             computed_columns: Optional dict of computed column definitions
             renamed_columns: Optional dict mapping old_name -> new_name
             where_connector: Connector for the where clause ("AND" or "OR")
+            exploded_columns: Optional list of Array column names to ARRAY JOIN
+            left_explode: If True, use LEFT ARRAY JOIN (preserve rows with empty arrays)
         """
         super().__init__(table=source.table, schema=source._schema)
 
@@ -2039,6 +2092,14 @@ class View(Object):
         )
         self._renamed_columns: Optional[Dict[str, str]] = renamed_columns if renamed_columns is not None else (
             source._renamed_columns if is_view else None
+        )
+        self._exploded_columns: List[str] = (
+            list(exploded_columns) if exploded_columns is not None
+            else (list(source._exploded_columns) if is_view else [])
+        )
+        self._left_explode: bool = (
+            left_explode if exploded_columns is not None
+            else (source._left_explode if is_view else False)
         )
 
         # Register with context for lifecycle tracking and stale marking
@@ -2082,6 +2143,16 @@ class View(Object):
         return self._renamed_columns
 
     @property
+    def exploded_columns(self) -> List[str]:
+        """Get exploded column names."""
+        return self._exploded_columns
+
+    @property
+    def left_explode(self) -> bool:
+        """Get whether LEFT ARRAY JOIN is used."""
+        return self._left_explode
+
+    @property
     def _effective_columns(self) -> Dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
@@ -2113,6 +2184,23 @@ class View(Object):
         if self._computed_columns:
             for name, comp in self._computed_columns.items():
                 columns[name] = parse_ch_type(comp.type)
+
+        if self._exploded_columns:
+            renames = self._renamed_columns or {}
+            for col_name in self._exploded_columns:
+                if self._selected_fields and self.is_single_field:
+                    effective_name = "value" if col_name == self._selected_fields[0] else col_name
+                else:
+                    effective_name = renames.get(col_name, col_name)
+                if effective_name in columns:
+                    old_info = columns[effective_name]
+                    new_depth = max(0, int(old_info.array) - 1)
+                    columns[effective_name] = ColumnInfo(
+                        type=old_info.type,
+                        nullable=old_info.nullable,
+                        array=new_depth,
+                        low_cardinality=old_info.low_cardinality,
+                    )
 
         return columns
 
@@ -2255,6 +2343,10 @@ class View(Object):
             select_cols += ", " + ", ".join(computed_parts)
 
         query = f"SELECT {select_cols} FROM {self.table}"
+        if self._exploded_columns:
+            join_type = "LEFT ARRAY JOIN" if self._left_explode else "ARRAY JOIN"
+            cols_str = ", ".join(quote_identifier(c) for c in self._exploded_columns)
+            query += f" {join_type} {cols_str}"
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -2273,18 +2365,28 @@ class View(Object):
         Get copy info for database-level copy operations.
 
         For Views, includes source schema columns and selected fields info.
+        Uses effective columns so that exploded column types (Array(T) → T)
+        are reflected correctly in the copy target schema.
 
         Returns:
             CopyInfo with source query, schema metadata, and field selection info
         """
-        source_schema = self._schema
         source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        # For dict copies with exploded columns, use effective columns so that
+        # exploded column types (Array(T) → T) are reflected in the copy target.
+        # For selected-fields copies, use original schema so copy_db_selected_fields
+        # can look up column types by the original field name.
+        if self._exploded_columns and not self.selected_fields:
+            columns = self._effective_columns
+        else:
+            columns = self._schema.columns
         return CopyInfo(
             source_query=source_query,
-            fieldtype=source_schema.fieldtype,
-            columns=source_schema.columns,
+            fieldtype=self._schema.fieldtype,
+            columns=columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
+            col_fieldtype=self._schema.col_fieldtype,
         )
 
     async def data(self, orient: str = ORIENT_DICT):
@@ -2319,7 +2421,7 @@ class View(Object):
                 column_names = ["aai_id"] + list(self.selected_fields)
                 return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
-        if self.computed_columns or self._renamed_columns:
+        if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
             columns: Dict[str, ColumnMeta] = {
                 name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
