@@ -120,8 +120,8 @@ Tables are tracked via reference counting and dropped when no Objects reference 
 │                              │  Implementations:           │  │
 │  ┌──────────┐    decref()   │  - LocalLifecycleHandler    │  │
 │  │  Object  │──────────────►│    (TableWorker thread)     │  │
-│  │  __del__ │               │  - PgLifecycleHandler       │  │
-│  └──────────┘               │    (PostgreSQL refcounts)   │  │
+│  │  __del__ │               │  - OrchLifecycleHandler     │  │
+│  └──────────┘               │    (SQL refcounts)          │  │
 │                              └─────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -142,11 +142,11 @@ Used when: running standalone scripts, interactive sessions, or tests without th
 
 ### Distributed Mode (ClickHouse server + PostgreSQL)
 
-**Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
+**Implementation**: `aaiclick/orchestration/context.py` — see `OrchLifecycleHandler` class
 
-Writes refcounts to PostgreSQL. Implements pin/claim for ownership transfer across workers. Does NOT drop tables — cleanup by `PgCleanupWorker`.
+Writes refcounts to SQL via `get_sql_session()`. Implements pin/claim for ownership transfer across workers. Does NOT drop tables — cleanup by `PgCleanupWorker`.
 
-Used when: orchestration workers execute tasks across multiple processes/machines. The worker injects `PgLifecycleHandler` into `data_context()`.
+Used when: orchestration workers execute tasks across multiple processes/machines. The worker injects `OrchLifecycleHandler` into `data_context()`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
 

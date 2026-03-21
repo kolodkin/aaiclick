@@ -1,11 +1,15 @@
 """DB handler protocol, shared SQL, and factory dispatch.
 
 Concrete implementations live in pg_handler.py and sqlite_handler.py.
+
+_db_handler_var holds the active DbHandler; access via get_db_handler().
+The SQL engine and session live in sql_context.py.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Optional, Union
 
@@ -14,6 +18,19 @@ from sqlalchemy.sql import Select
 
 from ..backend import is_sqlite
 from .models import Task
+
+_db_handler_var: ContextVar[DbHandler | None] = ContextVar('db_handler', default=None)
+
+
+def get_db_handler() -> DbHandler:
+    """Return the DbHandler for the active orchestration context."""
+    handler = _db_handler_var.get()
+    if handler is None:
+        raise RuntimeError(
+            "No active orch_context — use 'async with orch_context()'"
+        )
+    return handler
+
 
 # Shared dependency check SQL — identical for both backends
 DEPENDENCY_WHERE = """

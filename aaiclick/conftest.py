@@ -7,12 +7,17 @@ scripts/setup_and_test.py or manually via docker-compose.
 
 import asyncio
 import os
+import shutil
 import tempfile
 
 import pytest
 
-from aaiclick.backend import is_chdb
+from sqlalchemy import create_engine
+
+from aaiclick.backend import is_chdb, is_sqlite
 from aaiclick.data.data_context import data_context
+from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.orchestration.models import SQLModel
 
 
 def pytest_configure(config):
@@ -48,3 +53,35 @@ async def ctx():
     """
     async with data_context():
         yield
+
+
+@pytest.fixture
+async def orch_ctx():
+    """
+    Function-scoped orch context for tests that require orchestration infrastructure.
+
+    SQLite: creates a temporary database and initialises schema via SQLModel.
+    PostgreSQL: assumes migrations have already been applied (by CI or aaiclick setup).
+    """
+    if is_sqlite():
+        tmpdir = tempfile.mkdtemp(prefix="aaiclick_test_")
+        db_path = os.path.join(tmpdir, "test.db")
+        old_url = os.environ.get("AAICLICK_SQL_URL")
+        os.environ["AAICLICK_SQL_URL"] = f"sqlite+aiosqlite:///{db_path}"
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+
+        try:
+            async with orch_context():
+                yield
+        finally:
+            if old_url is not None:
+                os.environ["AAICLICK_SQL_URL"] = old_url
+            elif "AAICLICK_SQL_URL" in os.environ:
+                del os.environ["AAICLICK_SQL_URL"]
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    else:
+        async with orch_context():
+            yield

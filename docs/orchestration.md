@@ -82,7 +82,7 @@ The orchestration layer supports two deployment modes, controlled by two indepen
 | **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE (no row locking)  | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
-| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `PgLifecycleHandler` (PostgreSQL refcounts)         |
+| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) |
 | **Concurrency**     | Single process                               | Multiple workers across processes/machines          |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
@@ -370,45 +370,45 @@ In distributed mode, Object table lifecycle is managed through PostgreSQL with *
 
 ```
 Worker Process
-├── PgLifecycleHandler (per task, asyncio.Task, own PG engine)
-│   ├── incref/decref → writes to table_context_refs (context_id = auto snowflake)
+├── OrchLifecycleHandler (per task, asyncio.Task, uses get_sql_session())
+│   ├── incref/decref → writes to table_context_refs (context_id = task_id)
 │   ├── pin → writes to table_context_refs (context_id = job_id)
-│   └── stop → DELETE WHERE context_id = handler's snowflake (destructive for intermediates)
+│   └── stop → DELETE WHERE context_id = task_id (destructive for intermediates)
 ├── PgCleanupWorker (asyncio.Task, own PG engine + CH client)
 │   ├── polls completed/failed jobs → deletes job-scoped refs
 │   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
 │   └── detects dead workers → marks tasks FAILED
-├── orch_context() (PG engine for jobs/tasks/workers)
+├── orch_context() (SQL engine for jobs/tasks/workers, shared via get_sql_session())
 └── data_context() (per task, ClickHouse)
-    └── lifecycle = PgLifecycleHandler (injected, not owned)
+    └── lifecycle = OrchLifecycleHandler (injected, not owned)
 ```
 
-Each component owns its own PG engine — fully decoupled from `orch_context()`.
+`OrchLifecycleHandler` shares the `orch_context()` SQL engine via `get_sql_session()` — no private engine needed.
 
 ## Ownership Transfer (Pin/Claim)
 
 ```
-Task A executes (handler context_id=auto_snowflake, job_id=job.id)
-  ├── incref intermediates → (table_name, auto_snowflake, N) rows in PG
+Task A executes (handler context_id=task_a.id, job_id=job.id)
+  ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
   ├── Returns result Object (table t_result)
   ├── data_context() exits → Objects marked stale, handler still alive
   ├── PIN: inserts (t_result, job_id, 1) — survives stop()
-  └── stop() → DELETE WHERE context_id=auto_snowflake (intermediates cleaned)
+  └── stop() → DELETE WHERE context_id=task_a.id (intermediates cleaned)
 
-Task B starts (handler context_id=auto_snowflake_2, job_id=job.id)
+Task B starts (handler context_id=task_b.id, job_id=job.id)
   ├── Deserializes task_a.result:
-  │   ├── incref → inserts (t_result, auto_snowflake_2, 1)  ← consumer owns it
-  │   └── claim → deletes (t_result, job_id, 1)             ← release job ref
+  │   ├── incref → inserts (t_result, task_b.id, 1)  ← consumer owns it
+  │   └── claim → deletes (t_result, job_id, 1)       ← release job ref
   └── obj_a now owned by Task B's data_context()
 
 Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
 ```
 
-## PgLifecycleHandler
+## OrchLifecycleHandler
 
-**Implementation**: `aaiclick/orchestration/pg_lifecycle.py` — see `PgLifecycleHandler` class
+**Implementation**: `aaiclick/orchestration/context.py` — see `OrchLifecycleHandler` class
 
-Each handler gets a unique `context_id` (snowflake). Pin operations use `job_id` as context_id so pinned results survive `stop()`.
+Each handler uses the task's own `task_id` as `context_id`. Pin operations use `job_id` as context_id so pinned results survive `stop()`. All SQL operations go through `get_sql_session()` — no private engine.
 
 **Sync-to-async bridge**: `Object.__del__` calls `incref`/`decref` synchronously → `queue.Queue` → asyncio.Task drains via `run_in_executor` → writes to PG.
 

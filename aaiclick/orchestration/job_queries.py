@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from sqlmodel import func, select
 
-from .context import get_orch_session
+from .orch_context import get_sql_session
 from .execution import _deserialize_value
 from .models import Job, JobStatus, Task
 
@@ -20,7 +20,7 @@ async def get_job(job_id: int) -> Optional[Job]:
     Returns:
         Job if found, None otherwise
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job_id))
         return result.scalar_one_or_none()
 
@@ -43,7 +43,7 @@ async def list_jobs(
     Returns:
         List of jobs matching criteria, ordered by created_at descending
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = select(Job)
         if status is not None:
             query = query.where(Job.status == status)
@@ -69,7 +69,7 @@ async def count_jobs(
     Returns:
         Number of matching jobs
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         query = select(func.count()).select_from(Job)
         if status is not None:
             query = query.where(Job.status == status)
@@ -89,7 +89,7 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
     Returns:
         List of tasks belonging to the job
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job_id).order_by(Task.created_at)
         )
@@ -105,7 +105,7 @@ async def get_latest_job_by_name(name: str) -> Optional[Job]:
     Returns:
         Most recent Job with that name, or None
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Job)
             .where(Job.name == name)
@@ -147,7 +147,7 @@ async def get_job_result(job: Job) -> Any:
     Raises:
         ValueError: If the entry task is missing or has no result
     """
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result_row = await session.execute(
             select(Task.result, Task.job_id)
             .where(Task.job_id == job.id, Task.name == job.name)
@@ -164,5 +164,5 @@ async def get_job_result(job: Job) -> Any:
     if isinstance(result, dict) and result.get("object_type"):
         result["job_id"] = task_job_id
 
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         return await _deserialize_value(result, session)
