@@ -1,7 +1,7 @@
 """
 aaiclick.orchestration.db_lifecycle - Database models for distributed lifecycle tracking.
 
-PgLifecycleOp, PgLifecycleMessage, and TableContextRef define the data structures
+DBLifecycleOp, DBLifecycleMessage, and TableContextRef define the data structures
 used by OrchLifecycleHandler (in context.py) for distributed table reference counting.
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy import BigInteger, Column, String
 from sqlmodel import Field, SQLModel
 
 
-class PgLifecycleOp(Enum):
+class DBLifecycleOp(Enum):
     """Operations for the PG lifecycle handler."""
 
     INCREF = auto()
@@ -24,10 +24,10 @@ class PgLifecycleOp(Enum):
 
 
 @dataclass
-class PgLifecycleMessage:
+class DBLifecycleMessage:
     """Message passed to handler via queue."""
 
-    op: PgLifecycleOp
+    op: DBLifecycleOp
     table_name: str
 
 

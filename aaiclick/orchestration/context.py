@@ -21,7 +21,7 @@ from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
 from ..snowflake_id import get_snowflake_id
 from .db_handler import DbHandler, create_db_handler
-from .db_lifecycle import PgLifecycleMessage, PgLifecycleOp
+from .db_lifecycle import DBLifecycleMessage, DBLifecycleOp
 from .env import get_db_url
 from .models import Group, Task, TasksType
 
@@ -33,7 +33,6 @@ class OrchCtxState:
     engine: AsyncEngine
     db_handler: DbHandler
     ch_client: ChClient
-    pg_engine: AsyncEngine
 
 
 # ContextVar holding dict[name -> OrchCtxState]
@@ -62,30 +61,26 @@ def _get_orch_state(ctx: str = "default") -> OrchCtxState:
 class OrchLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle handler using shared resources from orch_context.
 
-    Unlike LocalLifecycleHandler, this class does NOT create its own engine.
-    It uses the shared pg_engine from orch_context for all database ops.
+    Uses get_orch_session() for all database ops — no private engine needed.
     When DECREF causes total refcount across all contexts to reach 0,
     it creates a sample copy and drops the CH table.
 
     Args:
-        pg_engine: Shared SQLAlchemy engine from orch_context.
         ch_client: Shared ClickHouse client from orch_context.
-        context_id: Snowflake ID for grouping this handler's refs.
+        context_id: task_id used as context_id for grouping this handler's refs.
         job_id: Job ID used as context_id for pin operations.
     """
 
     def __init__(
         self,
-        pg_engine: AsyncEngine,
         ch_client: ChClient,
         context_id: int,
         job_id: int,
     ):
-        self._engine = pg_engine
         self._ch_client = ch_client
         self._context_id = context_id
         self._job_id = job_id
-        self._queue: queue.Queue[PgLifecycleMessage] = queue.Queue()
+        self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -97,10 +92,10 @@ class OrchLifecycleHandler(LifecycleHandler):
         Pin refs use job_id as context_id, so they survive this cleanup.
         Only execution-time refs (incref/decref) are removed.
         """
-        self._queue.put(PgLifecycleMessage(PgLifecycleOp.SHUTDOWN, ""))
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN, ""))
         if self._task:
             await self._task
-        async with AsyncSession(self._engine) as session:
+        async with get_orch_session() as session:
             await session.execute(
                 text("DELETE FROM table_context_refs WHERE context_id = :ctx"),
                 {"ctx": self._context_id},
@@ -108,18 +103,18 @@ class OrchLifecycleHandler(LifecycleHandler):
             await session.commit()
 
     def incref(self, table_name: str) -> None:
-        self._queue.put(PgLifecycleMessage(PgLifecycleOp.INCREF, table_name))
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
-        self._queue.put(PgLifecycleMessage(PgLifecycleOp.DECREF, table_name))
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
         """Mark table as result — inserts a job-scoped ref that survives stop()."""
-        self._queue.put(PgLifecycleMessage(PgLifecycleOp.PIN, table_name))
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
         """Release a job-scoped pinned ref (ownership transfer to consumer)."""
-        async with AsyncSession(self._engine) as session:
+        async with get_orch_session() as session:
             await session.execute(
                 text(
                     "DELETE FROM table_context_refs "
@@ -148,11 +143,11 @@ class OrchLifecycleHandler(LifecycleHandler):
         loop = asyncio.get_running_loop()
         while True:
             msg = await loop.run_in_executor(None, self._queue.get)
-            if msg.op == PgLifecycleOp.SHUTDOWN:
+            if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
             total = 0
-            async with AsyncSession(self._engine) as session:
-                if msg.op == PgLifecycleOp.INCREF:
+            async with get_orch_session() as session:
+                if msg.op == DBLifecycleOp.INCREF:
                     await session.execute(
                         text(
                             "INSERT INTO table_context_refs (table_name, context_id, refcount) "
@@ -162,7 +157,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                         ),
                         {"table_name": msg.table_name, "context_id": self._context_id},
                     )
-                elif msg.op == PgLifecycleOp.DECREF:
+                elif msg.op == DBLifecycleOp.DECREF:
                     await session.execute(
                         text(
                             "UPDATE table_context_refs "
@@ -180,7 +175,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                         {"table_name": msg.table_name},
                     )
                     total = result.scalar_one() or 0
-                elif msg.op == PgLifecycleOp.PIN:
+                elif msg.op == DBLifecycleOp.PIN:
                     await session.execute(
                         text(
                             "INSERT INTO table_context_refs (table_name, context_id, refcount) "
@@ -192,7 +187,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                     )
                 await session.commit()
             if (
-                msg.op == PgLifecycleOp.DECREF
+                msg.op == DBLifecycleOp.DECREF
                 and total <= 0
                 and not msg.table_name.startswith("p_")
             ):
@@ -207,7 +202,6 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
     - SQLAlchemy AsyncEngine for orchestration SQL
     - DbHandler for database operations
     - ChClient for ClickHouse operations (set in _ch_client_var)
-    - AsyncEngine (pg_engine) for distributed lifecycle
 
     Sets ContextVars for the duration:
     - _ch_client_var: shared ClickHouse client
@@ -222,13 +216,11 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()
     ch_client = await create_ch_client()
-    pg_engine = create_async_engine(get_db_url(), echo=False)
 
     state = OrchCtxState(
         engine=engine,
         db_handler=handler,
         ch_client=ch_client,
-        pg_engine=pg_engine,
     )
 
     # Copy-on-write
@@ -250,7 +242,6 @@ async def orch_context(ctx: str = "default") -> AsyncIterator[None]:
         _engine_var.reset(eng_token)
         _ch_client_var.reset(ch_token)
         await engine.dispose()
-        await pg_engine.dispose()
 
 
 @asynccontextmanager
@@ -272,7 +263,6 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     state = _get_orch_state()
 
     lifecycle = OrchLifecycleHandler(
-        pg_engine=state.pg_engine,
         ch_client=state.ch_client,
         context_id=task_id,
         job_id=job_id,
