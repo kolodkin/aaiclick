@@ -33,7 +33,7 @@ from aaiclick.data.cli import (
 
 
 def _setup_ollama_model(model: str) -> None:
-    """Pull an Ollama model, using the HTTP API (works with or without ollama CLI)."""
+    """Pull an Ollama model via the Ollama HTTP API."""
     # model is like "ollama/llama3.2:3b" — strip the provider prefix
     model_name = model.removeprefix("ollama/")
     base_url = "http://localhost:11434"
