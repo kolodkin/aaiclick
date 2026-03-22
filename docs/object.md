@@ -9,7 +9,7 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 **Key Features:**
 - Operator overloading for arithmetic, comparison, and bitwise operations
-- Immutable operations (all operations return new Objects)
+- Immutable structure — no in-place schema changes; `insert()` appends data but never mutates structure
 - Support for scalars, arrays, and dictionaries
 - Element-wise operations on arrays
 
@@ -289,7 +289,7 @@ For runnable examples, see `examples/view_examples.py`.
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.where()`, `View.where()`, `View.or_where()`
 
-Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions. Each call returns a **new** View (immutable).
+Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions.
 
 - `obj.where(cond)` — creates View with initial WHERE condition
 - `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
@@ -307,7 +307,7 @@ See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_
 
 ## Design: SELECT Expression Approach (No Materialization)
 
-`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy, no schema mutation — the computed column exists only in the View's query.
+`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy — the computed column exists only in the View's query.
 
 **Why SELECT expressions over alternatives:**
 
@@ -405,7 +405,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
 
-`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). No new table, no data copy — the rename exists only in the View's query. This enables inserting data from sources with different column naming conventions into a shared target table.
+`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). This enables inserting data from sources with different column naming conventions into a shared target table.
 
 ```python
 # Rename camelCase columns to snake_case for a consolidated table
