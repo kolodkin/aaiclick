@@ -245,31 +245,7 @@ Returns values based on data type: scalar → value, array → list, dict → di
 
 Flattens Array column(s) into individual rows. Each array element becomes its own row; scalar columns are duplicated. Returns a **View** (lazy, no materialization) — downstream operators fuse into a single SQL query.
 
-```python
-obj = await create_object_from_value([
-    {"user": "Alice", "tags": ["python", "rust"], "scores": [90, 85]},
-    {"user": "Bob",   "tags": ["python", "go"],   "scores": [70, 95]},
-])
-
-# Explode + unique
-flat = obj.explode("tags")
-unique_tags = await flat["tags"].unique()
-await unique_tags.data()  # ["go", "python", "rust"]
-
-# Explode + group_by + count
-tag_counts = await flat.group_by("tags").count()
-await tag_counts.data()  # {"tags": [...], "_count": [...]}
-
-# Explode multiple columns (zip, not Cartesian)
-flat2 = obj.explode("tags", "scores")
-await flat2.data()  # {"user": [...], "tags": [...], "scores": [...]}
-
-# LEFT explode — preserve rows with empty arrays (ClickHouse type default, not NULL)
-flat3 = obj2.explode("tags", left=True)
-
-# Materialize
-materialized = await flat.copy()
-```
+**Example**: `aaiclick/examples/explode.py`
 
 **Schema change**: exploded columns change from `Array(T)` to `T` in the View's effective schema.
 
