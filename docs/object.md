@@ -9,7 +9,7 @@ The `Object` class represents data stored in ClickHouse tables. Each Object inst
 
 **Key Features:**
 - Operator overloading for arithmetic, comparison, and bitwise operations
-- Immutable operations (all operations return new Objects)
+- Immutable structure — no in-place schema changes; `insert()` appends data but never mutates structure
 - Support for scalars, arrays, and dictionaries
 - Element-wise operations on arrays
 
@@ -32,6 +32,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.abs()`, `.log2()`, `.sqrt()`                              | Unary Transforms  | Math functions → new Object                  | [Unary Transform Operators](#unary-transform-operators)                         |
 | `.group_by(keys).sum(col)` etc.                             | Group By          | Aggregation with GROUP BY + optional HAVING  | [Group By Operations](#group-by-operations)                                     |
 | `.group_by(keys).agg({col: op})`                            | Group By          | Multiple aggregations in one pass            | [Group By Operations](#group-by-operations)                                     |
+| `.explode(*columns, left=False)`                             | Explode           | Flatten Array column(s) into rows → View     | [Explode](#explode-implemented)                                                 |
 | `.view(where, limit, offset, order_by)`                     | Views             | Read-only View with optional filters         | [Views](#views)                                                                 |
 | `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
 | `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns-implemented)|
@@ -238,6 +239,18 @@ Returns values based on data type: scalar → value, array → list, dict → di
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
+# Explode
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.explode()` method
+
+Flattens Array column(s) into individual rows. Each array element becomes its own row; scalar columns are duplicated. Returns a **View** (lazy, no materialization) — downstream operators fuse into a single SQL query.
+
+**Example**: `aaiclick/examples/explode.py`
+
+**Schema change**: exploded columns change from `Array(T)` to `T` in the View's effective schema.
+
+**Tests**: `aaiclick/data/test_explode.py`
+
 # Views
 
 **Implementation**: `aaiclick/data/object.py` — see `View` class
@@ -252,7 +265,7 @@ For runnable examples, see `examples/view_examples.py`.
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.where()`, `View.where()`, `View.or_where()`
 
-Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions. Each call returns a **new** View (immutable).
+Fluent API for building WHERE conditions. `Object.where()` creates a View; `View.where()` and `View.or_where()` chain additional conditions.
 
 - `obj.where(cond)` — creates View with initial WHERE condition
 - `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
@@ -270,7 +283,7 @@ See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_
 
 ## Design: SELECT Expression Approach (No Materialization)
 
-`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy, no schema mutation — the computed column exists only in the View's query.
+`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy — the computed column exists only in the View's query.
 
 **Why SELECT expressions over alternatives:**
 
@@ -368,7 +381,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
 
-`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). No new table, no data copy — the rename exists only in the View's query. This enables inserting data from sources with different column naming conventions into a shared target table.
+`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). This enables inserting data from sources with different column naming conventions into a shared target table.
 
 ```python
 # Rename camelCase columns to snake_case for a consolidated table
