@@ -239,7 +239,7 @@ Returns values based on data type: scalar → value, array → list, dict → di
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
-# Explode ✅ IMPLEMENTED
+# Explode
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.explode()` method
 

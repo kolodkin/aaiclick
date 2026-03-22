@@ -23,8 +23,8 @@ async def test_explode_single_column_data(ctx):
     flat = obj.explode("tags")
     assert isinstance(flat, View)
     result = await flat.data()
-    assert sorted(result["user"]) == ["Alice", "Alice", "Bob", "Bob"]
-    assert sorted(result["tags"]) == ["go", "python", "python", "rust"]
+    assert result["user"] == ["Alice", "Alice", "Bob", "Bob"]
+    assert result["tags"] == ["python", "rust", "python", "go"]
 
 
 async def test_explode_returns_view(ctx):
@@ -174,7 +174,7 @@ async def test_explode_chained_where(ctx):
     ])
     flat = obj.explode("tags").where("user = 'Alice'")
     result = await flat.data()
-    assert set(result["tags"]) == {"python", "rust"}
+    assert sorted(result["tags"]) == ["python", "rust"]
     assert all(u == "Alice" for u in result["user"])
 
 
