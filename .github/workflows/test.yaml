@@ -266,6 +266,19 @@ jobs:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
       AAICLICK_AI_LIVE_TESTS: "1"
 
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+        volumes:
+          - /home/runner/.ollama:/root/.ollama
+        options: >-
+          --health-cmd "wget -q --spider http://localhost:11434"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -281,19 +294,11 @@ jobs:
           uv venv --python 3.10
           uv pip install -e "${{ matrix.extras }}"
 
-      - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | sh
-
       - name: Cache Ollama model
         uses: actions/cache@v4
         with:
           path: ~/.ollama/models
           key: ollama-llama3.2-1b
-
-      - name: Start Ollama server
-        run: |
-          ollama serve &
-          for i in {1..30}; do curl -s http://localhost:11434 && break; sleep 1; done
 
       - name: Setup local backend and pull model
         run: uv run python -m aaiclick setup --ai
