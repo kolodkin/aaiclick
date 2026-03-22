@@ -137,7 +137,11 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     Returns:
         Object: New Object instance with copied data
     """
-    schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
+    schema = Schema(
+        fieldtype=copy_info.fieldtype,
+        columns=copy_info.columns,
+        col_fieldtype=copy_info.col_fieldtype,
+    )
     result = await create_object(schema)
 
     alias = " AS s" if copy_info.source_query.startswith('(') else ""

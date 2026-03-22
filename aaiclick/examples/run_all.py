@@ -14,6 +14,7 @@ from typing import Callable, Coroutine
 
 from .aggregation_table import amain as aggregation_table_example
 from .array_operators import amain as array_operators_example
+from .explode import amain as explode_example
 from .basic_operators import amain as basic_operators_example
 from .data_manipulation import amain as data_manipulation_example
 from .group_by import amain as group_by_example
@@ -63,6 +64,7 @@ def main():
 
     examples = [
         ("Array Operators", array_operators_example),
+        ("Explode", explode_example),
         ("Basic Operators", basic_operators_example),
         ("Data Manipulation", data_manipulation_example),
         ("Nested Arrays", nested_arrays_example),

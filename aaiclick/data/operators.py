@@ -617,16 +617,10 @@ async def unique_group(info: QueryInfo, ch_client):
     Returns:
         New Object with array of unique values
     """
-    # Get value column type from source table (use base table for metadata)
-    # Use value_column to query the correct column for single-field selection
-    safe_value_column = info.value_column.replace("'", "\\'")
-    type_query = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
-    """
-    type_result = await ch_client.query(type_query)
-    source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
-    source_col_def = parse_ch_type(source_type)
+    # Use effective type from QueryInfo — info.value_type already reflects
+    # post-explode scalar types for ARRAY JOIN views, avoiding a system.columns
+    # query that would return the original (pre-explode) Array type.
+    source_col_def = ColumnInfo(info.value_type, nullable=info.nullable)
 
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(
