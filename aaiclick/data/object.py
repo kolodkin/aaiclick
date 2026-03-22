@@ -8,6 +8,7 @@ and supports operations through operator overloading.
 from __future__ import annotations
 
 import sys
+import functools
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
@@ -2152,7 +2153,7 @@ class View(Object):
         """Get whether LEFT ARRAY JOIN is used."""
         return self._left_explode
 
-    @property
+    @functools.cached_property
     def _effective_columns(self) -> Dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
@@ -2361,20 +2362,9 @@ class View(Object):
         return query
 
     def _get_copy_info(self) -> CopyInfo:
-        """
-        Get copy info for database-level copy operations.
-
-        For Views, includes source schema columns and selected fields info.
-        Uses effective columns so that exploded column types (Array(T) → T)
-        are reflected correctly in the copy target schema.
-
-        Returns:
-            CopyInfo with source query, schema metadata, and field selection info
-        """
+        """Get copy info for database-level copy operations."""
         source_query = f"({self._build_select()})" if self.has_constraints else self.table
-        # Use effective columns (Array(T) → T) for exploded columns, while keeping
-        # original field names as keys so copy_db_selected_fields can look them up.
-        if self._exploded_columns and self.selected_fields:
+        if self._exploded_columns:
             columns = dict(self._schema.columns)
             for col_name in self._exploded_columns:
                 if col_name in columns:
@@ -2385,8 +2375,6 @@ class View(Object):
                         array=max(0, int(old_info.array) - 1),
                         low_cardinality=old_info.low_cardinality,
                     )
-        elif self._exploded_columns:
-            columns = self._effective_columns
         else:
             columns = self._schema.columns
         return CopyInfo(
