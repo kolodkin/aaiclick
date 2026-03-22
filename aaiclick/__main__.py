@@ -21,8 +21,6 @@ import argparse
 import asyncio
 import json
 import os
-import shutil
-import subprocess
 import urllib.error
 import urllib.request
 
@@ -41,11 +39,6 @@ def _setup_ollama_model(model: str) -> None:
     base_url = "http://localhost:11434"
 
     print(f"\nAI model: {model}")
-
-    if shutil.which("ollama"):
-        print("  ollama: installed")
-    else:
-        print("  ollama: not installed (will use HTTP API)")
 
     # Check if Ollama server is reachable
     try:
