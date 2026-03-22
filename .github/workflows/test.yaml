@@ -302,15 +302,8 @@ jobs:
           path: ~/.ollama/models
           key: ollama-llama3.2-1b
 
-      - name: Setup local backend
-        run: uv run python -m aaiclick setup
-
-      - name: Pull Ollama model
-        run: |
-          MODEL="${AAICLICK_AI_MODEL#ollama/}"
-          curl -f -X POST http://localhost:11434/api/pull \
-            -H "Content-Type: application/json" \
-            -d "{\"model\": \"${MODEL}\", \"stream\": false}"
+      - name: Setup local backend and pull model
+        run: uv run python -m aaiclick setup --ai
 
       - name: "Run tests: ${{ matrix.title }}"
         run: |

@@ -19,11 +19,12 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import os
 import shutil
 import subprocess
-import urllib.request
 import urllib.error
+import urllib.request
 
 from aaiclick.data.cli import (
     delete_object_cmd,
@@ -34,44 +35,60 @@ from aaiclick.data.cli import (
 
 
 def _setup_ollama_model(model: str) -> None:
-    """Pull an Ollama model, checking that Ollama is installed and running."""
+    """Pull an Ollama model, using the HTTP API (works with or without ollama CLI)."""
     # model is like "ollama/llama3.2:3b" — strip the provider prefix
     model_name = model.removeprefix("ollama/")
+    base_url = "http://localhost:11434"
 
     print(f"\nAI model: {model}")
 
-    if not shutil.which("ollama"):
-        print("  ollama: NOT INSTALLED")
-        print("  Install with:  curl -fsSL https://ollama.com/install.sh | sh")
-        return
-
-    print("  ollama: installed")
+    if shutil.which("ollama"):
+        print("  ollama: installed")
+    else:
+        print("  ollama: not installed (will use HTTP API)")
 
     # Check if Ollama server is reachable
     try:
-        urllib.request.urlopen("http://localhost:11434", timeout=2)  # noqa: S310
+        urllib.request.urlopen(base_url, timeout=2)  # noqa: S310
         print("  ollama server: running")
     except (urllib.error.URLError, OSError):
         print("  ollama server: NOT RUNNING")
         print("  Start with:    ollama serve &")
+        print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
         return
 
-    # Check if model is already present
-    result = subprocess.run(
-        ["ollama", "list"],
-        capture_output=True,
-        text=True,
+    # Check if model is already present via HTTP API
+    req = urllib.request.Request(  # noqa: S310
+        f"{base_url}/api/show",
+        data=json.dumps({"model": model_name}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    if model_name in result.stdout:
+    try:
+        urllib.request.urlopen(req, timeout=5)  # noqa: S310
         print(f"  model '{model_name}': already downloaded")
         return
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
 
+    # Pull via HTTP API (stream=false waits for completion)
     print(f"  Pulling '{model_name}' (this may take a few minutes)...")
-    pull = subprocess.run(["ollama", "pull", model_name])
-    if pull.returncode == 0:
-        print(f"  model '{model_name}': OK")
-    else:
-        print(f"  model '{model_name}': pull failed (exit {pull.returncode})")
+    pull_req = urllib.request.Request(  # noqa: S310
+        f"{base_url}/api/pull",
+        data=json.dumps({"model": model_name, "stream": False}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(pull_req, timeout=600) as resp:  # noqa: S310
+            result = json.loads(resp.read())
+        if result.get("status") == "success":
+            print(f"  model '{model_name}': OK")
+        else:
+            print(f"  model '{model_name}': unexpected response: {result}")
+    except (urllib.error.URLError, OSError) as e:
+        print(f"  model '{model_name}': pull failed: {e}")
 
 
 def _run_setup(ai: bool = False):
