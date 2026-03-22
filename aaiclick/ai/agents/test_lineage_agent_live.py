@@ -18,26 +18,11 @@ from aaiclick.orchestration.orch_context import task_scope
 
 
 @pytest.mark.live_llm
-async def test_explain_lineage_real_pipeline(orch_ctx):
-    """explain_lineage completes without error for a real concat pipeline."""
+async def test_lineage_and_debug(orch_ctx):
+    """explain_lineage and debug_result both complete on a single concat pipeline."""
     async with task_scope(task_id=1, job_id=1):
         a = await create_object_from_value([1, 2, 3])
-        b = await create_object_from_value([4, 5, 6])
-        result = await a.concat(b)
-        result_table = result.table
-
-    async with lineage_context():
-        explanation = await explain_lineage(result_table)
-
-    assert isinstance(explanation, str)
-
-
-@pytest.mark.live_llm
-async def test_explain_lineage_with_custom_question(orch_ctx):
-    """explain_lineage accepts a custom question and returns a string."""
-    async with task_scope(task_id=2, job_id=1):
-        a = await create_object_from_value([10, 20, 30])
-        b = await create_object_from_value([40, 50, 60])
+        b = await create_object_from_value([-1, -2, -3])
         result = await a.concat(b)
         result_table = result.table
 
@@ -46,20 +31,7 @@ async def test_explain_lineage_with_custom_question(orch_ctx):
             result_table,
             question="How many source tables were combined and what operation was used?",
         )
-
-    assert isinstance(explanation, str)
-
-
-@pytest.mark.live_llm
-async def test_debug_result_real_pipeline(orch_ctx):
-    """debug_result completes without error and returns a string."""
-    async with task_scope(task_id=3, job_id=1):
-        a = await create_object_from_value([1, 2, 3])
-        b = await create_object_from_value([-1, -2, -3])
-        result = await a.concat(b)
-        result_table = result.table
-
-    async with lineage_context():
         answer = await debug_result(result_table, "Why does the result contain negative values?")
 
+    assert isinstance(explanation, str)
     assert isinstance(answer, str)
