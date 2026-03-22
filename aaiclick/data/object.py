@@ -2164,6 +2164,9 @@ class View(Object):
         - Computed columns (added as new columns)
 
         Always includes aai_id.
+
+        Cached because View instances are immutable — all fields are set at
+        init and never mutated in place.
         """
         orig = self._schema.columns
         renames = self._renamed_columns or {}
