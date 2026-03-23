@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
   id-token: write
+  checks: write
+
+env:
+  # dorny/test-reporter@v2 uses Node.js 20 (deprecated on GH Actions from June 2026).
+  # No v3 exists yet — opt into Node.js 24 early to silence the deprecation warning.
+  # Remove once dorny/test-reporter releases a Node.js 24-compatible version.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -36,9 +43,90 @@ jobs:
           name: uv-lock
           path: uv.lock
 
+  test-package-local:
+    needs: build
+    runs-on: ubuntu-latest
+
+    env:
+      AAICLICK_AI_MODEL: ollama/llama3.2:1b
+      AAICLICK_AI_LIVE_TESTS: "1"
+
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        env:
+          OLLAMA_HOST: 0.0.0.0
+        ports:
+          - 11434:11434
+        volumes:
+          - /home/runner/.ollama:/root/.ollama
+        options: >-
+          --health-cmd "bash -c 'echo > /dev/tcp/localhost/11434'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install 3.10
+
+      - name: Create virtual environment
+        run: uv venv --python 3.10 /tmp/test-venv
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Export pinned dependencies from uv.lock
+        run: uv export --frozen --extra test --extra local --extra ai --no-emit-project -o /tmp/requirements.txt
+
+      - name: Install pinned dependencies and built wheel
+        run: |
+          uv pip install --python /tmp/test-venv/bin/python -r /tmp/requirements.txt
+          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ "aaiclick[local,ai]"
+
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-1b
+
+      - name: Setup local backend and pull model
+        run: /tmp/test-venv/bin/python -m aaiclick setup --ai
+
+      - name: Run tests against installed package (local backend)
+        working-directory: /tmp
+        run: >-
+          /tmp/test-venv/bin/pytest --pyargs aaiclick -n auto -v
+          -o asyncio_mode=auto
+          -o "filterwarnings=error"
+          --strict-markers
+          -W error
+          --junitxml=/tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Pytest Results (local)"
+          path: /tmp/pytest-report.xml
+          reporter: java-junit
+
   test-package:
     needs: build
     runs-on: ubuntu-latest
+
+    env:
+      AAICLICK_AI_MODEL: ollama/llama3.2:1b
+      AAICLICK_AI_LIVE_TESTS: "1"
 
     services:
       clickhouse:
@@ -71,6 +159,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      ollama:
+        image: ollama/ollama:latest
+        env:
+          OLLAMA_HOST: 0.0.0.0
+        ports:
+          - 11434:11434
+        volumes:
+          - /home/runner/.ollama:/root/.ollama
+        options: >-
+          --health-cmd "bash -c 'echo > /dev/tcp/localhost/11434'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -100,15 +202,22 @@ jobs:
 
       - name: Run database migrations
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: /tmp/test-venv/bin/python -m aaiclick migrate upgrade head
 
-      - name: Run tests against installed package
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-1b
+
+      - name: Pull Ollama model
+        run: /tmp/test-venv/bin/python -m aaiclick setup --ai
+
+      - name: Run tests against installed package (distributed backend)
         env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
@@ -122,14 +231,23 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          /tmp/test-venv/bin/pytest --pyargs aaiclick -v
+          /tmp/test-venv/bin/pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           --strict-markers
           -W error
+          --junitxml=/tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Pytest Results (distributed)"
+          path: /tmp/pytest-report.xml
+          reporter: java-junit
 
   publish:
-    needs: test-package
+    needs: [test-package-local, test-package]
     runs-on: ubuntu-latest
 
     permissions:
