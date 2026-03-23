@@ -8,13 +8,6 @@ on:
 permissions:
   contents: read
   id-token: write
-  checks: write
-
-env:
-  # dorny/test-reporter@v2 uses Node.js 20 (deprecated on GH Actions from June 2026).
-  # No v3 exists yet — opt into Node.js 24 early to silence the deprecation warning.
-  # Remove once dorny/test-reporter releases a Node.js 24-compatible version.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -115,14 +108,6 @@ jobs:
           --strict-markers
           -W error
           --junitxml=/tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
-        with:
-          name: "Pytest Results (local)"
-          path: /tmp/pytest-report.xml
-          reporter: java-junit
 
   test-package:
     needs: build
@@ -237,14 +222,6 @@ jobs:
           --strict-markers
           -W error
           --junitxml=/tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
-        with:
-          name: "Pytest Results (distributed)"
-          path: /tmp/pytest-report.xml
-          reporter: java-junit
 
   publish:
     needs: [test-package-local, test-package]
