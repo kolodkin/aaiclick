@@ -101,6 +101,8 @@ jobs:
 
       - name: Run tests against installed package (local backend)
         working-directory: /tmp
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: >-
           uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
@@ -201,6 +203,7 @@ jobs:
 
       - name: Run tests against installed package (distributed backend)
         env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
