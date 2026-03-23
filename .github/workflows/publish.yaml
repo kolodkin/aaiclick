@@ -78,11 +78,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Set up Python
-        run: uv python install 3.10
-
       - name: Create virtual environment
-        run: uv venv --python 3.10 /tmp/test-venv
+        run: uv venv --python 3.10
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v7
@@ -97,8 +94,8 @@ jobs:
 
       - name: Install pinned dependencies and built wheel
         run: |
-          uv pip install --python /tmp/test-venv/bin/python -r requirements-local.txt
-          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ "aaiclick[local,ai]"
+          uv pip install -r requirements-local.txt
+          uv pip install --no-deps --find-links dist/ "aaiclick[local,ai]"
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -107,12 +104,12 @@ jobs:
           key: ollama-llama3.2-1b
 
       - name: Setup local backend and pull model
-        run: /tmp/test-venv/bin/python -m aaiclick setup --ai
+        run: uv run --no-project python -m aaiclick setup --ai
 
       - name: Run tests against installed package (local backend)
         working-directory: /tmp
         run: >-
-          /tmp/test-venv/bin/pytest --pyargs aaiclick -n auto -v
+          uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           --strict-markers
@@ -184,11 +181,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Set up Python
-        run: uv python install 3.10
-
       - name: Create virtual environment
-        run: uv venv --python 3.10 /tmp/test-venv
+        run: uv venv --python 3.10
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v7
@@ -203,13 +197,13 @@ jobs:
 
       - name: Install pinned dependencies and built wheel
         run: |
-          uv pip install --python /tmp/test-venv/bin/python -r requirements-dist.txt
-          uv pip install --python /tmp/test-venv/bin/python --no-deps --find-links dist/ "aaiclick[ai]"
+          uv pip install -r requirements-dist.txt
+          uv pip install --no-deps --find-links dist/ "aaiclick[ai]"
 
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
-        run: /tmp/test-venv/bin/python -m aaiclick migrate upgrade head
+        run: uv run --no-project python -m aaiclick migrate upgrade head
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -218,7 +212,7 @@ jobs:
           key: ollama-llama3.2-1b
 
       - name: Pull Ollama model
-        run: /tmp/test-venv/bin/python -m aaiclick setup --ai
+        run: uv run --no-project python -m aaiclick setup --ai
 
       - name: Run tests against installed package (distributed backend)
         env:
@@ -237,7 +231,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          /tmp/test-venv/bin/pytest --pyargs aaiclick -n auto -v
+          uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           --strict-markers
