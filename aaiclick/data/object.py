@@ -317,11 +317,18 @@ class Object:
         )
 
     async def result(self):
-        """
-        Query and return all data from the object's table.
+        """Query and return the raw ClickHouse query result for this object.
+
+        Returns the low-level result object from the ClickHouse client, not a
+        structured `DataResult`. Prefer `.data()` for normal use — it returns
+        typed Python values and supports orient modes.
 
         Returns:
-            Query result with all rows from the table
+            Raw query result from the ClickHouse client (clickhouse_connect
+            `QueryResult` or chdb equivalent).
+
+        Raises:
+            RuntimeError: If the object is stale (already deleted).
         """
         self.checkstale()
         return await self.ch_client.query(f"SELECT * FROM {self.table}")

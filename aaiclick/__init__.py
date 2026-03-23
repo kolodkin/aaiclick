@@ -56,9 +56,24 @@ from .snowflake_id import get_snowflake_id, get_snowflake_ids
 
 
 async def explain(target_table: str, question: str | None = None) -> str:
-    """Trace and explain how target_table was produced using AI lineage analysis.
+    """Trace and explain how a table was produced using AI lineage analysis.
 
-    Requires: pip install aaiclick[ai]
+    Walks the operation log to reconstruct the lineage of `target_table` and
+    returns a human-readable explanation. An optional `question` focuses the
+    analysis (e.g. "why does this column contain nulls?").
+
+    Args:
+        target_table: ClickHouse table name to explain.
+        question: Optional natural-language question to focus the analysis.
+
+    Returns:
+        Human-readable explanation string describing how the table was produced.
+
+    Raises:
+        ImportError: If `aaiclick[ai]` is not installed.
+
+    Note:
+        Requires ``pip install "aaiclick[ai]"``.
     """
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
