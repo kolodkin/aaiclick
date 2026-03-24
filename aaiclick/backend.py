@@ -48,6 +48,11 @@ def is_chdb() -> bool:
     return get_ch_url().startswith("chdb://")
 
 
+def is_postgres() -> bool:
+    """True when orchestration uses PostgreSQL."""
+    return get_sql_url().startswith("postgresql")
+
+
 def parse_ch_url() -> dict:
     """Parse AAICLICK_CH_URL into clickhouse-connect connection parameters.
 

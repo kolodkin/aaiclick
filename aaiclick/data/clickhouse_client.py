@@ -24,7 +24,13 @@ def get_pool() -> PoolManager:
 
 async def create_clickhouse_client():
     """Create a clickhouse-connect AsyncClient from AAICLICK_CH_URL."""
-    from clickhouse_connect import get_async_client
+    try:
+        from clickhouse_connect import get_async_client
+    except ImportError as e:
+        raise ImportError(
+            "Remote ClickHouse requires the aaiclick[clickhouse] extra. "
+            "Install with: pip install aaiclick[clickhouse]"
+        ) from e
 
     parsed = urlparse(get_ch_url())
     return await get_async_client(
