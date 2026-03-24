@@ -100,14 +100,17 @@ async def get_stats(table: str, column: str) -> str:
     ch_client = get_ch_client()
     table_escaped = table.replace("'", "\\'")
     column_escaped = column.replace("`", "\\`")
-    result = await ch_client.query(f"""
-        SELECT
-            count() AS count,
-            countIf(`{column_escaped}` IS NOT NULL) AS non_null,
-            min(`{column_escaped}`) AS min_val,
-            max(`{column_escaped}`) AS max_val
-        FROM {table_escaped}
-    """)
+    try:
+        result = await ch_client.query(f"""
+            SELECT
+                count() AS count,
+                countIf(`{column_escaped}` IS NOT NULL) AS non_null,
+                min(`{column_escaped}`) AS min_val,
+                max(`{column_escaped}`) AS max_val
+            FROM {table_escaped}
+        """)
+    except Exception as exc:
+        return f"(error querying {column} in {table}: {exc})"
     if not result.result_rows:
         return f"(no stats for {column} in {table})"
     row = result.result_rows[0]
