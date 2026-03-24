@@ -21,18 +21,6 @@ env:
 jobs:
   test-local:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: data-local
-            title: Data Tests (Local/chdb)
-            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-            pytest-args: "-n auto -v"
-          - group: orch-local
-            title: Orchestration Tests (Local/SQLite)
-            test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
 
     steps:
       - name: Checkout code
@@ -52,16 +40,16 @@ jobs:
         run: |
           uv run python -m aaiclick setup
 
-      - name: "Run tests: ${{ matrix.title }}"
+      - name: Run tests (Local)
         run: |
           mkdir -p tmp
-          uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
+          uv run pytest aaiclick/data/ aaiclick/test_snowflake.py aaiclick/orchestration/ -n auto -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
         if: always()
         with:
-          name: "Pytest Results (${{ matrix.group }})"
+          name: "Pytest Results (local)"
           path: tmp/pytest-report.xml
           reporter: java-junit
 
