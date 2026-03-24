@@ -27,14 +27,10 @@ jobs:
         include:
           - group: data-local
             title: Data Tests (Local/chdb)
-            install: ".[test,local]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-            pytest-args: "-n auto -v"
           - group: orch-local
             title: Orchestration Tests (Local/SQLite)
-            install: ".[test,local]"
             test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
 
     steps:
       - name: Checkout code
@@ -48,8 +44,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.install }}"
+          uv sync --frozen --extra test --python 3.10
 
       - name: Setup local backend
         run: |
@@ -58,7 +53,7 @@ jobs:
       - name: "Run tests: ${{ matrix.title }}"
         run: |
           mkdir -p tmp
-          uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
+          uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
@@ -70,22 +65,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: data
-            title: Data Tests (Distributed)
-            install: ".[test]"
-            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-            pytest-args: "-n auto -v"
-            needs-postgres: false
-          - group: orch
-            title: Orchestration Tests (Distributed)
-            install: ".[test]"
-            test-paths: "aaiclick/orchestration/"
-            pytest-args: "-n auto -v"
-            needs-postgres: true
 
     services:
       clickhouse:
@@ -130,18 +109,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.install }}"
+          uv sync --frozen --extra distributed --extra test --python 3.10
 
       - name: Run database migrations
-        if: matrix.needs-postgres
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
-      - name: "Run tests: ${{ matrix.title }}"
+      - name: Run tests (Distributed)
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
@@ -158,13 +135,13 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
-          uv run pytest ${{ matrix.test-paths }} ${{ matrix.pytest-args }} --junitxml=tmp/pytest-report.xml
+          uv run pytest aaiclick/data/ aaiclick/test_snowflake.py aaiclick/orchestration/ -n auto -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
         if: always()
         with:
-          name: "Pytest Results (${{ matrix.group }})"
+          name: "Pytest Results (distributed)"
           path: tmp/pytest-report.xml
           reporter: java-junit
 
@@ -213,8 +190,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e ".[dev]"
+          uv sync --frozen --extra dev --python 3.10
 
       - name: Run database migrations
         env:
@@ -256,11 +232,9 @@ jobs:
           - group: ai-provider
             title: AI Provider Tests (Local/Ollama)
             test-paths: "aaiclick/ai/test_provider_live.py"
-            extras: ".[ai,test,local]"
           - group: ai-lineage
             title: AI Lineage Agent Tests (Local/Ollama)
             test-paths: "aaiclick/ai/agents/test_lineage_agent_live.py"
-            extras: ".[ai,test,local]"
 
     env:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
@@ -293,8 +267,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.extras }}"
+          uv sync --frozen --extra ai --extra test --python 3.10
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -376,8 +349,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e ".[dev]"
+          uv sync --frozen --extra dev --python 3.10
 
       - name: Run database migrations
         env:

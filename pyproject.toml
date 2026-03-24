@@ -27,33 +27,34 @@ classifiers = [
 ]
 
 dependencies = [
-    "clickhouse-connect>=0.6.0",
     "numpy>=1.24.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
     "sqlmodel>=0.0.14",
-    "asyncpg>=0.29.0",
     "alembic>=1.13.0",
-    "psycopg2-binary>=2.9.9",
+    "chdb>=4.0.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [project.optional-dependencies]
+distributed = [
+    "clickhouse-connect>=0.6.0",
+    "asyncpg>=0.29.0",
+    "psycopg2-binary>=2.9.9",
+]
+ai = [
+    "litellm>=1.0",
+    "ollama>=0.1.0",
+]
+all = ["aaiclick[distributed,ai]"]
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.5.0",
 ]
-local = [
-    "chdb>=4.0.0",
-    "aiosqlite>=0.19.0",
-]
-ai = [
-    "litellm>=1.0",
-    "ollama>=0.1.0",
-]
 dev = [
-    "aaiclick[test,local]",
+    "aaiclick[all,test]",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",

@@ -11,6 +11,7 @@ from typing import AsyncIterator, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from aaiclick.backend import is_postgres
 from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
 from aaiclick.data.data_context import _engine_var, _objects_var
 from aaiclick.data.lifecycle import LifecycleHandler, _lifecycle_var
@@ -176,6 +177,14 @@ async def orch_context() -> AsyncIterator[None]:
 
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
+    if is_postgres():
+        try:
+            import asyncpg  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                "PostgreSQL requires the aaiclick[postgres] extra. "
+                "Install with: pip install aaiclick[postgres]"
+            ) from e
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()
     ch_client = await create_ch_client()
