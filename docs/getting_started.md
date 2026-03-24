@@ -25,6 +25,13 @@ pip install "aaiclick[ai]"
 pip install "aaiclick[all]"
 ```
 
+To build the documentation locally:
+
+```bash
+pip install -r docs/requirements-docs.txt
+mkdocs serve
+```
+
 # First Run
 
 Initialize local storage (creates `~/.aaiclick/` with chdb data and SQLite database):
