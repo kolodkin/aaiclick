@@ -27,12 +27,10 @@ jobs:
         include:
           - group: data-local
             title: Data Tests (Local/chdb)
-            install: ".[test]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
             pytest-args: "-n auto -v"
           - group: orch-local
             title: Orchestration Tests (Local/SQLite)
-            install: ".[test]"
             test-paths: "aaiclick/orchestration/"
             pytest-args: "-n auto -v"
 
@@ -48,7 +46,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-extras --python 3.10
+          uv sync --frozen --extra test --python 3.10
 
       - name: Setup local backend
         run: |
@@ -75,13 +73,11 @@ jobs:
         include:
           - group: data
             title: Data Tests (Distributed)
-            install: ".[all,test]"
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
             pytest-args: "-n auto -v"
             needs-postgres: false
           - group: orch
             title: Orchestration Tests (Distributed)
-            install: ".[all,test]"
             test-paths: "aaiclick/orchestration/"
             pytest-args: "-n auto -v"
             needs-postgres: true
@@ -129,7 +125,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-extras --python 3.10
+          uv sync --frozen --extra clickhouse --extra postgres --extra test --python 3.10
 
       - name: Run database migrations
         if: matrix.needs-postgres
@@ -211,7 +207,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-extras --python 3.10
+          uv sync --frozen --extra dev --python 3.10
 
       - name: Run database migrations
         env:
@@ -253,11 +249,9 @@ jobs:
           - group: ai-provider
             title: AI Provider Tests (Local/Ollama)
             test-paths: "aaiclick/ai/test_provider_live.py"
-            extras: ".[ai,test]"
           - group: ai-lineage
             title: AI Lineage Agent Tests (Local/Ollama)
             test-paths: "aaiclick/ai/agents/test_lineage_agent_live.py"
-            extras: ".[ai,test]"
 
     env:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
@@ -290,7 +284,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-extras --python 3.10
+          uv sync --frozen --extra ai --extra test --python 3.10
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -372,7 +366,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-extras --python 3.10
+          uv sync --frozen --extra dev --python 3.10
 
       - name: Run database migrations
         env:
