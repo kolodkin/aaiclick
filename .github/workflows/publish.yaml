@@ -46,10 +46,10 @@ jobs:
           path: dist/
 
       - name: Export pinned dependencies (local backend)
-        run: uv export --frozen --extra test --extra local --extra ai --no-emit-project -o requirements-local.txt
+        run: uv export --frozen --extra test --extra ai --no-emit-project -o requirements-local.txt
 
       - name: Export pinned dependencies (distributed backend)
-        run: uv export --frozen --extra test --extra ai --no-emit-project -o requirements-dist.txt
+        run: uv export --frozen --extra test --extra distributed --extra ai --no-emit-project -o requirements-dist.txt
 
       - name: Upload requirements artifacts
         uses: actions/upload-artifact@v6
@@ -103,7 +103,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --find-links dist/ "aaiclick[local,ai]"
+          uv pip install --no-deps --find-links dist/ "aaiclick[ai]"
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -200,7 +200,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --find-links dist/ "aaiclick[ai]"
+          uv pip install --no-deps --find-links dist/ "aaiclick[distributed,ai]"
 
       - name: Run database migrations
         env:
