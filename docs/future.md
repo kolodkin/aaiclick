@@ -33,6 +33,57 @@ Wire `OplogCollector` into `execute_task()` so all jobs automatically capture pr
 
 ---
 
+# AI Agents
+
+## Schema-Aware Agent Context
+
+Both `debug_agent` and `lineage_agent` build an initial context from the oplog graph but never
+include table schemas. The LLM has no knowledge of actual column names, so it guesses — which
+causes `get_stats` calls with hallucinated columns like `created_at` (seen in CI, fixed with a
+try/except guard, but the root cause remains).
+
+Two complementary improvements:
+
+### 1. Schema injection into initial context
+
+Before the agentic loop, fetch `DESCRIBE TABLE` for every table in the oplog graph and include
+the result in the context block that is sent in the first user message. The LLM then knows the
+exact column names before making any tool calls.
+
+```python
+# debug_agent.py — augment context building
+for node in nodes:
+    schema = await get_schema(node.table)          # existing tool function
+    context += f"\n\nSchema of `{node.table}`:\n{schema}"
+```
+
+`lineage_agent.py` already calls `sample_table()` per node in a similar loop — schema injection
+follows the same pattern.
+
+**Expected outcome**: LLM stops hallucinating column names; `get_stats` calls become accurate on
+the first attempt rather than relying on error recovery.
+
+### 2. `get_column_stats` — stats for all real columns
+
+Add a new tool (or replace `get_stats`) that reads the schema first and returns stats for every
+column in the table, without requiring the LLM to know column names in advance:
+
+```python
+async def get_column_stats(table: str) -> str:
+    """Return count, non-null count, min, and max for every column in a table."""
+    schema_result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
+    columns = [row[0] for row in schema_result.result_rows]
+    ...
+```
+
+This eliminates the `column` parameter entirely and makes the tool self-contained. The LLM calls
+`get_column_stats(table)` and receives a full profile — no schema knowledge required upfront.
+
+**Trade-off**: May be verbose for wide tables; `get_stats(table, column)` remains useful for
+targeted drill-downs. Both tools can coexist.
+
+---
+
 # Oplog
 
 ## Table Lifecycle & Cleanup (Phase 3)
