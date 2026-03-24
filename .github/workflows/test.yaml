@@ -48,8 +48,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.install }}"
+          uv sync --frozen --all-extras
 
       - name: Setup local backend
         run: |
@@ -130,8 +129,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.install }}"
+          uv sync --frozen --all-extras
 
       - name: Run database migrations
         if: matrix.needs-postgres
@@ -213,8 +211,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e ".[dev]"
+          uv sync --frozen --all-extras
 
       - name: Run database migrations
         env:
@@ -293,8 +290,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e "${{ matrix.extras }}"
+          uv sync --frozen --all-extras
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -376,8 +372,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv --python 3.10
-          uv pip install -e ".[dev]"
+          uv sync --frozen --all-extras
 
       - name: Run database migrations
         env:
