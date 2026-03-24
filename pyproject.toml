@@ -37,10 +37,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-clickhouse = [
+distributed = [
     "clickhouse-connect>=0.6.0",
-]
-postgres = [
     "asyncpg>=0.29.0",
     "psycopg2-binary>=2.9.9",
 ]
@@ -48,7 +46,7 @@ ai = [
     "litellm>=1.0",
     "ollama>=0.1.0",
 ]
-all = ["aaiclick[clickhouse,postgres,ai]"]
+all = ["aaiclick[distributed,ai]"]
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",

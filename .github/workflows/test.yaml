@@ -99,7 +99,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra clickhouse --extra postgres --extra test --python 3.10
+          uv sync --frozen --extra distributed --extra test --python 3.10
 
       - name: Run database migrations
         env:

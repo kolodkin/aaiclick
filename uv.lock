@@ -37,9 +37,6 @@ all = [
     { name = "ollama" },
     { name = "psycopg2-binary" },
 ]
-clickhouse = [
-    { name = "clickhouse-connect" },
-]
 dev = [
     { name = "asyncpg" },
     { name = "black" },
@@ -54,8 +51,9 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
-postgres = [
+distributed = [
     { name = "asyncpg" },
+    { name = "clickhouse-connect" },
     { name = "psycopg2-binary" },
 ]
 test = [
@@ -67,19 +65,19 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aaiclick", extras = ["ai", "clickhouse", "postgres"], marker = "extra == 'all'" },
+    { name = "aaiclick", extras = ["ai", "distributed"], marker = "extra == 'all'" },
     { name = "aaiclick", extras = ["all", "test"], marker = "extra == 'dev'" },
     { name = "aiosqlite", specifier = ">=0.19.0" },
     { name = "alembic", specifier = ">=1.13.0" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29.0" },
+    { name = "asyncpg", marker = "extra == 'distributed'", specifier = ">=0.29.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "chdb", specifier = ">=4.0.0" },
-    { name = "clickhouse-connect", marker = "extra == 'clickhouse'", specifier = ">=0.6.0" },
+    { name = "clickhouse-connect", marker = "extra == 'distributed'", specifier = ">=0.6.0" },
     { name = "litellm", marker = "extra == 'ai'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "ollama", marker = "extra == 'ai'", specifier = ">=0.1.0" },
-    { name = "psycopg2-binary", marker = "extra == 'postgres'", specifier = ">=2.9.9" },
+    { name = "psycopg2-binary", marker = "extra == 'distributed'", specifier = ">=2.9.9" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
@@ -89,7 +87,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "sqlmodel", specifier = ">=0.0.14" },
 ]
-provides-extras = ["clickhouse", "postgres", "ai", "all", "test", "dev"]
+provides-extras = ["distributed", "ai", "all", "test", "dev"]
 
 [[package]]
 name = "aiohappyeyeballs"
