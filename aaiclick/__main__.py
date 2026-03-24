@@ -94,13 +94,7 @@ def _run_setup(ai: bool = False):
     print(f"SQL URL: {get_sql_url()}")
 
     if is_chdb():
-        try:
-            from chdb.session import Session
-
-            print("  chdb: OK")
-        except ImportError:
-            print("  chdb: MISSING - install with: pip install chdb")
-            return
+        from chdb.session import Session
 
         from aaiclick.data.chdb_client import get_chdb_data_path
 
@@ -109,35 +103,25 @@ def _run_setup(ai: bool = False):
         sess = Session(chdb_path)
         sess.query("SELECT 1")
         sess.cleanup()
-        print(f"  chdb data: {chdb_path}")
+        print(f"  chdb: OK ({chdb_path})")
     else:
-        print("  ClickHouse: remote server (no local setup needed)")
+        print("  ClickHouse: remote server — requires pip install aaiclick[clickhouse]")
 
     if is_sqlite():
-        try:
-            import aiosqlite  # noqa: F401
+        from sqlalchemy import create_engine
 
-            print("  aiosqlite: OK")
-        except ImportError:
-            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
-            return
+        from aaiclick.orchestration.env import get_db_url
+        from aaiclick.orchestration.models import SQLModel
 
-        try:
-            from sqlalchemy import create_engine
-
-            from aaiclick.orchestration.env import get_db_url
-            from aaiclick.orchestration.models import SQLModel
-
-            db_url = get_db_url()
-            sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-            engine = create_engine(sync_url)
-            SQLModel.metadata.create_all(engine)
-            engine.dispose()
-            print(f"  SQLite DB: {db_url}")
-        except ImportError:
-            print("  SQLite DB: skipped (orchestration extras not installed)")
+        db_url = get_db_url()
+        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
+        engine = create_engine(sync_url)
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+        print(f"  SQLite DB: OK ({db_url})")
     else:
-        print("  PostgreSQL: use 'python -m aaiclick migrate upgrade head' for database setup")
+        print("  PostgreSQL: requires pip install aaiclick[postgres]")
+        print("  Run migrations: python -m aaiclick migrate upgrade head")
 
     if ai:
         model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
