@@ -262,7 +262,7 @@ class JobFactory:
         return f"JobFactory({self.name!r})"
 
 
-def job(name_or_func=None, *, name: str = None):
+def job(name_or_func: str | Callable | None = None, *, name: str | None = None):
     """Decorator to mark a function as a job's entry point task.
 
     The decorated function runs on a worker as the first task of the job.
@@ -282,9 +282,6 @@ def job(name_or_func=None, *, name: str = None):
     Args:
         name_or_func: Job name string, or the function itself (bare decorator)
         name: Job name as keyword argument
-
-    Returns:
-        JobFactory or decorator function
     """
     if callable(name_or_func):
         return JobFactory(name_or_func.__name__, name_or_func)

@@ -60,21 +60,44 @@ def get_engine() -> EngineType:
 
 
 def incref(table_name: str) -> None:
-    """Increment reference count for table."""
+    """Increment the reference count for a table, keeping it alive.
+
+    Called automatically when a new Object is derived from an existing one
+    (e.g. via operators or copy). Only needed when managing Object lifecycles
+    manually outside of `data_context()`.
+
+    Args:
+        table_name: ClickHouse table name to retain.
+    """
     lifecycle = get_data_lifecycle()
     if lifecycle is not None:
         lifecycle.incref(table_name)
 
 
 def decref(table_name: str) -> None:
-    """Decrement reference count for table."""
+    """Decrement the reference count for a table, dropping it when it reaches zero.
+
+    Called automatically when a derived Object is garbage collected or the
+    enclosing `data_context()` exits. Only needed when managing Object
+    lifecycles manually outside of `data_context()`.
+
+    Args:
+        table_name: ClickHouse table name to release.
+    """
     lifecycle = get_data_lifecycle()
     if lifecycle is not None:
         lifecycle.decref(table_name)
 
 
 def register_object(obj: object) -> None:
-    """Register an Object for stale marking on context exit."""
+    """Register an Object so it is marked stale when the enclosing context exits.
+
+    Called automatically by `create_object()` and `create_object_from_value()`.
+    There is no need to call this directly in normal usage.
+
+    Args:
+        obj: Object instance to track.
+    """
     try:
         objects = _objects_var.get()
     except LookupError:
@@ -83,7 +106,14 @@ def register_object(obj: object) -> None:
 
 
 async def delete_object(obj: object) -> None:
-    """Delete an Object's table and mark it as stale."""
+    """Delete an Object's underlying ClickHouse table and mark the Object stale.
+
+    After calling this, any further operations on `obj` will raise `RuntimeError`.
+    Existing Python references to `obj` remain valid but unusable.
+
+    Args:
+        obj: Object instance to delete.
+    """
     obj._stale = True
     try:
         objects = _objects_var.get()
@@ -173,7 +203,7 @@ async def create_object(
     schema: Schema,
     engine: EngineType | None = None,
     name: str | None = None,
-):
+) -> Object:
     """Create a new Object with a ClickHouse table using the specified schema.
 
     Args:

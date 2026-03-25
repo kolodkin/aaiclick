@@ -461,5 +461,5 @@ All Object operations within a task are automatically logged when `data_context(
 - [SQLModel Documentation](https://sqlmodel.tiangolo.com/)
 - [Alembic Documentation](https://alembic.sqlalchemy.org/)
 - [PostgreSQL Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
-- [aaiclick Architecture](./aaiclick.md)
+
 - [Operation Provenance](./oplog.md)

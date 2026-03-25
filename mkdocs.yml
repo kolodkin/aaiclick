@@ -1,0 +1,90 @@
+site_name: aaiclick
+site_description: A Python framework that translates Python code into ClickHouse operations for big data computing
+site_url: https://aaiclick.readthedocs.io
+repo_url: https://github.com/kolodkin/aaiclick
+repo_name: kolodkin/aaiclick
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_style: google
+            merge_init_into_class: true
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.snippets:
+      base_path: .
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - User Guide:
+    - Object API: object.md
+    - DataContext: data_context.md
+    - Orchestration: orchestration.md
+    - AI Layer: ai.md
+    - Operation Log: oplog.md
+  - Examples:
+    - Basic Operators: examples/basic_operators.md
+    - Array Operators: examples/array_operators.md
+    - Transforms: examples/transforms.md
+    - Statistics: examples/statistics.md
+    - Group By: examples/group_by.md
+    - Aggregation Table: examples/aggregation_table.md
+    - Views: examples/views.md
+    - Selectors: examples/selectors.md
+    - Data Manipulation: examples/data_manipulation.md
+    - Explode: examples/explode.md
+    - Nested Arrays: examples/nested_arrays.md
+    - Nullable Columns: examples/nullable.md
+    - Orchestration Basics: examples/orchestration_basic.md
+    - Orchestration Dynamic: examples/orchestration_dynamic.md
+  - API Reference:
+    - Data: api/data.md
+    - Orchestration: api/orchestration.md
+    - AI: api/ai.md

@@ -127,15 +127,17 @@ async def _get_fieldtype(table: str, ch_client) -> str:
 
 
 async def copy_db(copy_info: CopyInfo, ch_client):
-    """
-    Copy data to a new Object at database level.
+    """Copy data into a new Object using a database-internal INSERT...SELECT.
+
+    Creates a new Object with the schema from `copy_info`, then inserts all
+    rows from the source query directly inside ClickHouse — no Python round-trip.
 
     Args:
-        copy_info: CopyInfo with source query and schema metadata
-        ch_client: ClickHouse client instance
+        copy_info: CopyInfo with source query, column definitions, and fieldtype.
+        ch_client: Active ClickHouse client instance.
 
     Returns:
-        Object: New Object instance with copied data
+        Object: New Object containing the copied data.
     """
     schema = Schema(
         fieldtype=copy_info.fieldtype,
