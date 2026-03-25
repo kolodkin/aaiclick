@@ -203,7 +203,7 @@ async def create_object(
     schema: Schema,
     engine: EngineType | None = None,
     name: str | None = None,
-):
+) -> Object:
     """Create a new Object with a ClickHouse table using the specified schema.
 
     Args:

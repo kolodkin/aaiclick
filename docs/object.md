@@ -49,7 +49,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 
 All operators work element-wise on both scalar and array data. Each operator creates a new Object table with the result via `_apply_operator()` using SQL templates (`apply_op_scalar.sql`, `apply_op_array.sql`).
 
-See [operators.md](operators.md) for complete function reference. For runnable examples, see `examples/basic_operators.py`.
+For runnable examples, see `examples/basic_operators.py`.
 
 ## Scalar Broadcast
 

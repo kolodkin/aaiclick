@@ -321,11 +321,8 @@ class Object:
 
         Returns the low-level result object from the ClickHouse client, not a
         structured `DataResult`. Prefer `.data()` for normal use — it returns
-        typed Python values and supports orient modes.
-
-        Returns:
-            Raw query result from the ClickHouse client (clickhouse_connect
-            `QueryResult` or chdb equivalent).
+        typed Python values and supports orient modes. The concrete type depends
+        on the backend (clickhouse_connect `QueryResult` or the chdb equivalent).
 
         Raises:
             RuntimeError: If the object is stale (already deleted).
@@ -337,15 +334,14 @@ class Object:
         """
         Get the data from the object's table.
 
+        Returns a scalar value, list, or dict depending on the object's field type.
+        Scalar objects return the value directly; array objects return a list;
+        dict objects return a dict or list-of-dicts controlled by `orient`.
+
         Args:
             orient: Output format for dict data. Options:
                 - ORIENT_DICT ('dict'): returns dict with column names as keys (default)
                 - ORIENT_RECORDS ('records'): returns list of dicts (one per row)
-
-        Returns:
-            - For scalar: returns the value directly
-            - For array: returns list of values
-            - For dict: returns dict or list of dicts based on orient
         """
         self.checkstale()
 
@@ -1327,7 +1323,7 @@ class Object:
         info = self._get_query_info()
         return await operators.is_not_null_op(info, self.ch_client)
 
-    async def coalesce(self, other) -> Self:
+    async def coalesce(self, other: Object | View) -> Self:
         """Return first non-NULL value from self or other.
 
         In ClickHouse, NULL = NULL returns NULL (standard SQL semantics).
@@ -2406,12 +2402,6 @@ class View(Object):
 
         Args:
             orient: Output format for dict data
-
-        Returns:
-            - For single-field views: returns list of values (array)
-            - For multi-field views: returns dict with selected columns
-            - For computed column views: returns dict with real + computed columns
-            - Otherwise: delegates to parent Object.data()
         """
         self.checkstale()
 
