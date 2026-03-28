@@ -26,7 +26,7 @@ import asyncio
 
 from aaiclick import create_object_from_url
 from aaiclick.data.object import Object
-from aaiclick.orchestration import job, task
+from aaiclick.orchestration import TaskResult, job, task
 
 from .report import generate_summary_report
 
@@ -383,7 +383,18 @@ def nyc_taxi_pipeline(
         top_zones=top_zones,
     )
 
-    return report
+    return TaskResult(tasks=[
+        trips,
+        basic_stats,
+        statistical_metrics,
+        by_pickup_zone,
+        by_payment,
+        by_passenger,
+        top_zones,
+        tip_analysis,
+        distance_analysis,
+        report,
+    ])
 
 
 async def main():
