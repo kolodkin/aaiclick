@@ -14,6 +14,18 @@ Planned custom operators for the orchestration layer, parallel to the existing `
 - `flatMap()` — like `map()` but each callback returns multiple rows, flattened into the output Object
 - `join()` — distributed join of two Objects across partitions
 
+**Motivation** (`imdb_dataset_builder`): the IMDb dataset builder curates `title.basics` but
+cannot enrich movies with vote counts or average ratings from `title.ratings` because aaiclick
+does not yet support joining two Objects on a key column. Once implemented, the pipeline could do:
+
+```python
+enriched = await basics.join(ratings, on="tconst", how="left")
+clean = enriched.where(enriched["numVotes"] >= 100)
+```
+
+This would enable filtering out obscure movies with fewer than 100 votes and including
+`averageRating` in the published dataset.
+
 ## Operation Provenance Integration (Phase 3)
 
 Wire `OplogCollector` into `execute_task()` so all jobs automatically capture provenance with no user code changes. Spec: `docs/ai_layer_plan.md` Phase 3, `docs/ai.md`.
