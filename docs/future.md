@@ -7,6 +7,12 @@ Unimplemented features and planned work across aaiclick. See individual spec doc
 
 # Orchestration
 
+## Graceful Worker Stop via CLI
+
+Add a `aaiclick worker stop` CLI command that requests a graceful shutdown by writing a stop request to the database (e.g. a `worker_commands` table or a flag on the worker record). The worker polls for this signal between tasks and exits cleanly after finishing its current task.
+
+Motivated by `imdb_dataset_builder.sh` which currently sends `SIGTERM` directly to the worker process. A DB-backed stop request avoids abrupt kills, lets the worker finish in-flight tasks, and works cleanly in distributed deployments where the worker may be on a different host.
+
 ## flatMap() and join() Operators
 
 Planned custom operators for the orchestration layer, parallel to the existing `map()` and `reduce()` helpers in `aaiclick/orchestration/orch_helpers.py`:
