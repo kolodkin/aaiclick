@@ -13,6 +13,11 @@
 - Each example project should have a `report.py` file containing final report printout logic; `report.py` is only responsible for the printout
 - The `@job` function returns the report task — report is always the finalization task of the job, with all other tasks as its dependencies
 
+## Task Return Values
+
+- For low-scale data prefer a Pydantic model return value over `dict`
+- For high-scale data prefer an `Object` return value
+
 ## Report Output Format
 
 **All example projects MUST output reports as markdown to stdout.**
