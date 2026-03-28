@@ -248,7 +248,6 @@ async def _create_from_tabular(
             schema_columns[col_name] = ch_types[col_name]
         schema = Schema(
             fieldtype=FIELDTYPE_DICT,
-            col_fieldtype=FIELDTYPE_ARRAY,
             columns=schema_columns,
         )
         select_cols = columns_str

@@ -101,7 +101,7 @@ class Object:
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
-            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
         self._stale = False
         self._schema = dataclass_replace(schema, table=table_name)
         self._registered = False
