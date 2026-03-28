@@ -1,0 +1,97 @@
+name: project-nyc-taxi-pipeline
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Nightly at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  nyc-taxi-pipeline:
+    runs-on: ubuntu-latest
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.11.8
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen --extra dev --python 3.10
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: |
+          uv run python -m aaiclick migrate upgrade head
+
+      - name: Run NYC Taxi Pipeline
+        env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          CLICKHOUSE_HOST: localhost
+          CLICKHOUSE_PORT: 8123
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DB: default
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+          AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+        run: |
+          mkdir -p tmp
+          aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh 2>&1 | tee tmp/nyc-taxi-pipeline_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Add output to summary
+        if: always()
+        run: |
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>NYC Taxi Pipeline</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat tmp/nyc-taxi-pipeline_output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
