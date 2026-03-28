@@ -138,3 +138,29 @@ pin_rows("my_table", where="value < 5")
 
 Rules are WHERE clause predicates registered during task execution (before job completion triggers cleanup). Cleanup prioritises matching rows, fills remainder up to 10 with arbitrary rows.
 
+---
+
+# Data / Object API
+
+## `literal()` Computed Helper
+
+Add a `literal(value, type)` factory function to `aaiclick/data/transforms.py` that creates a `Computed` constant column — the counterpart to `cast()` and `split_by_char()`.
+
+**Motivation**: constant tag columns appear repeatedly when labelling rows during union/concat operations, e.g. in `cyber_threat_feeds/consolidated.py`:
+
+```python
+# Current — raw Computed:
+.with_columns({
+    "source": Computed("String", "'kev'"),
+    "is_kev": Computed("Bool", "true"),
+})
+
+# With literal():
+.with_columns({
+    "source": literal("kev", "String"),
+    "is_kev": literal(True, "Bool"),
+})
+```
+
+Python value → SQL literal mapping: `str` → `'value'`, `bool` → `true`/`false`, `int`/`float` → bare numeric. Export from `aaiclick` top-level alongside `cast` and `split_by_char`.
+
