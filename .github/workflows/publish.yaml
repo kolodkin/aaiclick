@@ -37,7 +37,9 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Build package
-        run: uv build
+        run: |
+          VERSION="${{ inputs.tag }}"
+          SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION#v}" uv build
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v6
@@ -122,6 +124,7 @@ jobs:
           uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
+          -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           -W error
           --junitxml=/tmp/pytest-report.xml
@@ -237,6 +240,7 @@ jobs:
           uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
+          -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           -W error
           --junitxml=/tmp/pytest-report.xml

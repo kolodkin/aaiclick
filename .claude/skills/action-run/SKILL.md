@@ -10,13 +10,14 @@ Trigger any GitHub Actions `workflow_dispatch` workflow by name, gather required
 ## Invocation Format
 
 ```
-/action-run <workflow description> [key=value] [flag] ...
+/action-run <workflow description> [key=value] [flag] ... [branch=<name>]
 ```
 
 Examples:
 ```
 /action-run pypi publish
 /action-run pypi publish tag=v0.0.8 pre-release
+/action-run pypi publish tag=v0.0.8 branch=main
 /action-run generate migration message="add users table"
 /action-run test
 ```
@@ -48,6 +49,8 @@ Check which required inputs were **not** supplied in the invocation. Ask the use
 Inputs already provided in the invocation (as `key=value` or bare `flag`) are used as-is:
 - `tag=v0.0.8` → `-f tag=v0.0.8`
 - `pre-release` → `-f pre-release=true`
+
+The `branch=<name>` argument is **not** a workflow input — it controls which branch the workflow runs on (`--ref`). By default the current git branch is used.
 
 ## Step 4 — Run the Script
 
