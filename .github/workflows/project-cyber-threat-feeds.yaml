@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Nightly at 00:00 UTC
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

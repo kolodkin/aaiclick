@@ -1,0 +1,17 @@
+name: run-all-projects
+
+on:
+  workflow_dispatch:
+
+jobs:
+  basic-worker:
+    uses: ./.github/workflows/project-basic-worker.yaml
+
+  nyc-taxi-pipeline:
+    uses: ./.github/workflows/project-nyc-taxi-pipeline.yaml
+
+  cyber-threat-feeds:
+    uses: ./.github/workflows/project-cyber-threat-feeds.yaml
+
+  ai-tests:
+    uses: ./.github/workflows/project-ai-tests.yaml
