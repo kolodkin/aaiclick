@@ -11,7 +11,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
-from .models import ColumnInfo, FIELDTYPE_ARRAY, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
+from .models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
 from .sql_utils import quote_identifier
 
 SUPPORTED_URL_FORMATS = frozenset({
@@ -247,7 +247,8 @@ async def _create_from_tabular(
         for col_name in columns:
             schema_columns[col_name] = ch_types[col_name]
         schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
+            fieldtype=FIELDTYPE_DICT,
+            col_fieldtype=FIELDTYPE_ARRAY,
             columns=schema_columns,
         )
         select_cols = columns_str

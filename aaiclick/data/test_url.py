@@ -204,6 +204,15 @@ async def test_url_multi_column(ctx, fileserver):
     assert len(data["name"]) == _NUM_ROWS
 
 
+async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
+    """Multi-column URL object has FIELDTYPE_DICT schema (not FIELDTYPE_ARRAY)."""
+    from aaiclick.data.models import FIELDTYPE_DICT
+    obj = await create_object_from_url(
+        f"{fileserver}/sample.parquet", columns=["name", "price"], format="Parquet",
+    )
+    assert obj._schema.fieldtype == FIELDTYPE_DICT
+
+
 
 async def test_url_with_limit(ctx, fileserver):
     """LIMIT restricts the number of loaded rows."""

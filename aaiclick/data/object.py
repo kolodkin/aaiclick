@@ -1496,14 +1496,7 @@ class Object:
         self.checkstale()
         if not columns:
             raise ValueError("explode() requires at least one column")
-        # Multi-column FIELDTYPE_ARRAY objects (e.g. URL-loaded tabular data) are
-        # semantically equivalent to dict objects for the purpose of explode.
-        schema_cols_without_id = [c for c in self._schema.columns if c != "aai_id"]
-        is_multi_col = (
-            self._schema.fieldtype == FIELDTYPE_DICT
-            or (self._schema.fieldtype == FIELDTYPE_ARRAY and len(schema_cols_without_id) > 1)
-        )
-        if not is_multi_col:
+        if self._schema.fieldtype != FIELDTYPE_DICT:
             raise ValueError("explode() can only be used on dict Objects")
         # Include computed columns (from with_columns()) in the lookup
         computed = getattr(self, "_computed_columns", None) or {}
