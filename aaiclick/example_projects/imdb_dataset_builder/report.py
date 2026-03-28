@@ -4,6 +4,7 @@ import os
 import sys
 from contextlib import redirect_stdout
 from io import StringIO
+from pathlib import Path
 
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
@@ -17,12 +18,6 @@ def _fmt(value: object) -> str:
     if isinstance(value, float):
         return f"{value:,.2f}"
     return f"{value:,}" if isinstance(value, int) else str(value)
-
-
-def _print_md_table(md: str) -> None:
-    """Print a pre-rendered markdown table."""
-    for line in md.splitlines():
-        print(line)
 
 
 def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
@@ -66,7 +61,7 @@ def _print_report(
         print(f"- {title_type}: {_fmt(count)}")
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(raw_md)
+    print(raw_md)
 
     # ---- Movie Filter ----
     q = quality_issues
@@ -85,7 +80,7 @@ def _print_report(
     # ---- Genre Distribution ----
     print("\n### Genre Distribution\n")
     print("#### Top genres (by title count)\n")
-    _print_md_table(genre_md)
+    print(genre_md)
 
     if genre_data:
         pairs = sorted(genre_data.items(), key=lambda x: -x[1])
@@ -104,7 +99,7 @@ def _print_report(
     _print_field_table(CLEAN_COLUMNS)
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(clean_md)
+    print(clean_md)
 
     # ---- Publish Result ----
     print("\n### Published\n")
@@ -151,7 +146,7 @@ async def generate_report(
 
     report_file = os.environ.get("AAICLICK_REPORT_FILE")
     if report_file:
-        os.makedirs(os.path.dirname(report_file) or ".", exist_ok=True)
+        Path(report_file).parent.mkdir(parents=True, exist_ok=True)
         with open(report_file, "w") as f:
             f.write(rendered)
     else:
