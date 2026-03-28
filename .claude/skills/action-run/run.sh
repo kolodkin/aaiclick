@@ -8,8 +8,8 @@
 #   branch=<name> — run from specific branch (default: current git branch)
 #
 # Example:
-#   run.sh publish.yaml tag=v1.2.3 pre-release
-#   run.sh publish.yaml tag=v1.2.3 branch=main
+#   run.sh publish tag=v1.2.3 pre-release
+#   run.sh publish tag=v1.2.3 branch=main
 #
 
 set -e
@@ -39,8 +39,15 @@ parse_args() {
         exit 1
     fi
 
-    WORKFLOW="$1"
+    local input="$1"
     shift
+
+    # Resolve workflow name: append .yaml if no extension, then verify it exists
+    if [[ "$input" != *.yaml && "$input" != *.yml ]]; then
+        WORKFLOW="${input}.yaml"
+    else
+        WORKFLOW="$input"
+    fi
 
     REF=$(git branch --show-current 2>/dev/null || echo "")
 
