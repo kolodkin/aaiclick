@@ -2366,12 +2366,11 @@ class View(Object):
         # but their aliases still need to appear in the SELECT list so they
         # are included in the result (ClickHouse SELECT * does not automatically
         # include ARRAY JOIN aliases).
-        if self.computed_columns or exploded_computed:
+        if self._computed_columns:
             computed_parts = []
-            for name, comp in (self.computed_columns or {}).items():
+            for name, comp in self._computed_columns.items():
                 if name not in exploded_computed:
                     computed_parts.append(f"{comp.expression} AS {quote_identifier(name)}")
-            # Add aliases for exploded computed columns (value comes from ARRAY JOIN)
             for name in exploded_computed:
                 computed_parts.append(quote_identifier(name))
             if computed_parts:
@@ -2416,12 +2415,7 @@ class View(Object):
             for col_name in self._exploded_columns:
                 if col_name in columns:
                     old_info = columns[col_name]
-                    columns[col_name] = ColumnInfo(
-                        type=old_info.type,
-                        nullable=old_info.nullable,
-                        array=max(0, int(old_info.array) - 1),
-                        low_cardinality=old_info.low_cardinality,
-                    )
+                    columns[col_name] = dataclass_replace(old_info, array=max(0, int(old_info.array) - 1))
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,

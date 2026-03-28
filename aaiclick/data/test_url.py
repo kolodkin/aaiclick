@@ -19,6 +19,7 @@ import pytest
 
 from aaiclick import create_object_from_url
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.models import FIELDTYPE_DICT
 
 _NUM_ROWS = 200
 _SAMPLES_DIR = str(Path(__file__).resolve().parent.parent / "url_samples")
@@ -206,7 +207,6 @@ async def test_url_multi_column(ctx, fileserver):
 
 async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
     """Multi-column URL object has FIELDTYPE_DICT schema (not FIELDTYPE_ARRAY)."""
-    from aaiclick.data.models import FIELDTYPE_DICT
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet", columns=["name", "price"], format="Parquet",
     )
