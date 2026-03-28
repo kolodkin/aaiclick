@@ -177,6 +177,16 @@ class Object:
         """Get exploded column names (empty for base Object)."""
         return []
 
+    @property
+    def _effective_columns(self) -> Dict[str, ColumnInfo]:
+        """Effective column schema visible to operations on this object.
+
+        Base implementation returns the raw schema columns. Overridden in
+        View to include computed columns, renames, field selection, and
+        exploded-column type adjustments.
+        """
+        return self._schema.columns
+
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
         ref = {"object_type": "object", "table": self.table}
@@ -1498,13 +1508,10 @@ class Object:
             raise ValueError("explode() requires at least one column")
         if self._schema.fieldtype != FIELDTYPE_DICT:
             raise ValueError("explode() can only be used on dict Objects")
-        # Include computed columns (from with_columns()) in the lookup
-        computed = getattr(self, "_computed_columns", None) or {}
-        effective = {**self._schema.columns, **{k: parse_ch_type(v.type) for k, v in computed.items()}}
         for col in columns:
-            if col not in effective:
+            if col not in self._effective_columns:
                 raise ValueError(f"Column '{col}' does not exist in schema")
-            col_info = effective[col]
+            col_info = self._effective_columns[col]
             if not col_info.array:
                 raise ValueError(
                     f"Column '{col}' is not an Array type. "
