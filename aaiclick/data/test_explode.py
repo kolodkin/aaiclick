@@ -5,7 +5,7 @@ Tests for Object.explode() — ARRAY JOIN flattening to rows.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import Schema, ColumnInfo, FIELDTYPE_DICT
+from aaiclick.data.models import Computed, Schema, ColumnInfo, FIELDTYPE_DICT
 from aaiclick.data.object import View
 
 
@@ -235,3 +235,39 @@ async def test_explode_non_array_column(ctx):
     obj = await create_object_from_value([{"x": [1, 2], "y": "hello"}])
     with pytest.raises(ValueError, match="not an Array type"):
         obj.explode("y")
+
+
+# =============================================================================
+# Explode computed columns (with_columns + explode)
+# =============================================================================
+
+
+async def test_explode_computed_column(ctx):
+    """with_columns(Computed array) + explode() produces one row per element."""
+    obj = await create_object_from_value([
+        {"csv": "a,b,c", "n": 1},
+        {"csv": "d,e",   "n": 2},
+    ])
+    exploded = obj.with_columns({
+        "parts": Computed("Array(String)", "splitByChar(',', csv)")
+    }).explode("parts")
+    result = await exploded.data()
+    assert sorted(result["parts"]) == ["a", "b", "c", "d", "e"]
+    assert len(result["parts"]) == 5
+
+
+async def test_explode_computed_column_copy(ctx):
+    """copy() on a with_columns + explode view materializes individual elements."""
+    obj = await create_object_from_value([
+        {"csv": "Drama,Comedy", "id": "tt001"},
+        {"csv": "Action",       "id": "tt002"},
+    ])
+    materialized = await obj.with_columns({
+        "genre": Computed("Array(String)", "splitByChar(',', csv)")
+    }).explode("genre").copy()
+
+    result = await materialized.data()
+    assert sorted(result["genre"]) == ["Action", "Comedy", "Drama"]
+    assert len(result["genre"]) == 3
+    # genre should be scalar String, not Array
+    assert materialized._schema.columns["genre"].array == 0

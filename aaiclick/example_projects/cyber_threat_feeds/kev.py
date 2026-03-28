@@ -1,7 +1,7 @@
 """CISA KEV (Known Exploited Vulnerabilities) data loading and analysis."""
 
 from aaiclick import create_object_from_url
-from aaiclick.data.models import ColumnInfo, Computed
+from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
@@ -44,10 +44,7 @@ async def _kev_by_vendor(kev: Object) -> Object:
 
 async def _kev_by_year(kev: Object) -> Object:
     """KEV entries grouped by year added to the catalog."""
-    kev_with_year = kev.with_columns({
-        "year": Computed("UInt16", "toYear(dateAdded)"),
-    })
-    return await kev_with_year.group_by("year").agg({"cveID": "count"})
+    return await kev.with_year("dateAdded", alias="year").group_by("year").agg({"cveID": "count"})
 
 
 async def _kev_ransomware(kev: Object) -> dict:

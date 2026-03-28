@@ -101,7 +101,7 @@ class Object:
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
-            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
         self._stale = False
         self._schema = dataclass_replace(schema, table=table_name)
         self._registered = False
@@ -176,6 +176,16 @@ class Object:
     def exploded_columns(self) -> List[str]:
         """Get exploded column names (empty for base Object)."""
         return []
+
+    @property
+    def _effective_columns(self) -> Dict[str, ColumnInfo]:
+        """Effective column schema visible to operations on this object.
+
+        Base implementation returns the raw schema columns. Overridden in
+        View to include computed columns, renames, field selection, and
+        exploded-column type adjustments.
+        """
+        return self._schema.columns
 
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
@@ -1499,9 +1509,9 @@ class Object:
         if self._schema.fieldtype != FIELDTYPE_DICT:
             raise ValueError("explode() can only be used on dict Objects")
         for col in columns:
-            if col not in self._schema.columns:
+            if col not in self._effective_columns:
                 raise ValueError(f"Column '{col}' does not exist in schema")
-            col_info = self._schema.columns[col]
+            col_info = self._effective_columns[col]
             if not col_info.array:
                 raise ValueError(
                     f"Column '{col}' is not an Array type. "
@@ -1569,6 +1579,28 @@ class Object:
         name = alias or f"{column}_trimmed"
         return self.with_columns({name: Computed("String", f"trim({column})")})
 
+    def with_split_by_char(
+        self,
+        column: str,
+        separator: str,
+        *,
+        element_type: str = "String",
+        alias: Optional[str] = None,
+    ) -> "View":
+        """Split a String column into an Array using a character separator.
+
+        Uses ClickHouse's splitByChar(sep, col) function.
+
+        Args:
+            column: Source string column name.
+            separator: Single character to split on.
+            element_type: ClickHouse type for array elements (default "String").
+            alias: Result column name (default: '{column}_parts').
+        """
+        from .transforms import split_by_char
+        name = alias or f"{column}_parts"
+        return self.with_columns({name: split_by_char(column, separator, element_type=element_type)})
+
     def with_abs(self, column: str, *, alias: Optional[str] = None) -> "View":
         """Absolute value of a numeric column. Result type is Float64."""
         name = alias or f"{column}_abs"
@@ -1625,18 +1657,24 @@ class Object:
         )
 
     def with_cast(
-        self, column: str, ch_type: str, *, alias: Optional[str] = None
+        self,
+        column: str,
+        to_type: str,
+        *,
+        nullable: bool = False,
+        alias: Optional[str] = None,
     ) -> "View":
         """Cast a column to a different ClickHouse type.
 
         Args:
-            column: Source column name
-            ch_type: Target ClickHouse type (e.g., 'Float64', 'String', 'Date')
-            alias: Result column name (default: '{column}_{type_lower}')
+            column: Source column name.
+            to_type: Target ClickHouse base type, e.g. "UInt32", "Float64", "String".
+            nullable: Use to{Type}OrNull and wrap in Nullable (default False).
+            alias: Result column name (default: '{column}_{to_type.lower()}').
         """
-        name = alias or f"{column}_{ch_type.lower()}"
-        func = f"to{ch_type}" if not ch_type.startswith("to") else ch_type
-        return self.with_columns({name: Computed(ch_type, f"{func}({column})")})
+        from .transforms import cast
+        name = alias or f"{column}_{to_type.lower()}"
+        return self.with_columns({name: cast(column, to_type, nullable=nullable)})
 
     def view(
         self,
@@ -2341,19 +2379,43 @@ class View(Object):
         else:
             select_cols = columns
 
-        # Append computed column expressions
-        if self.computed_columns:
-            computed_parts = [
-                f"{comp.expression} AS {quote_identifier(name)}"
-                for name, comp in self.computed_columns.items()
-            ]
-            select_cols += ", " + ", ".join(computed_parts)
+        # Computed columns that are being exploded via ARRAY JOIN must be placed
+        # in the ARRAY JOIN clause (not SELECT), because ClickHouse processes
+        # ARRAY JOIN before SELECT aliases — referencing a SELECT alias in
+        # ARRAY JOIN would not resolve correctly.
+        exploded_computed = (
+            set(self._exploded_columns) & set(self._computed_columns)
+            if self._exploded_columns and self._computed_columns
+            else set()
+        )
+
+        # Append non-exploded computed column expressions to SELECT.
+        # Exploded computed columns go into the ARRAY JOIN clause instead,
+        # but their aliases still need to appear in the SELECT list so they
+        # are included in the result (ClickHouse SELECT * does not automatically
+        # include ARRAY JOIN aliases).
+        if self._computed_columns:
+            computed_parts = []
+            for name, comp in self._computed_columns.items():
+                if name not in exploded_computed:
+                    computed_parts.append(f"{comp.expression} AS {quote_identifier(name)}")
+            for name in exploded_computed:
+                computed_parts.append(quote_identifier(name))
+            if computed_parts:
+                select_cols += ", " + ", ".join(computed_parts)
 
         query = f"SELECT {select_cols} FROM {self.table}"
         if self._exploded_columns:
             join_type = "LEFT ARRAY JOIN" if self._left_explode else "ARRAY JOIN"
-            cols_str = ", ".join(quote_identifier(c) for c in self._exploded_columns)
-            query += f" {join_type} {cols_str}"
+            join_parts = []
+            for col in self._exploded_columns:
+                if col in exploded_computed:
+                    # Put the computed expression directly in ARRAY JOIN
+                    expr = self._computed_columns[col].expression
+                    join_parts.append(f"{expr} AS {quote_identifier(col)}")
+                else:
+                    join_parts.append(quote_identifier(col))
+            query += f" {join_type} {', '.join(join_parts)}"
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
@@ -2370,19 +2432,18 @@ class View(Object):
     def _get_copy_info(self) -> CopyInfo:
         """Get copy info for database-level copy operations."""
         source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        columns = dict(self._schema.columns)
+
+        # Include computed columns in destination schema so copy() materializes them
+        if self._computed_columns:
+            for col_name, computed in self._computed_columns.items():
+                columns[col_name] = parse_ch_type(computed.type)
+
         if self._exploded_columns:
-            columns = dict(self._schema.columns)
             for col_name in self._exploded_columns:
                 if col_name in columns:
                     old_info = columns[col_name]
-                    columns[col_name] = ColumnInfo(
-                        type=old_info.type,
-                        nullable=old_info.nullable,
-                        array=max(0, int(old_info.array) - 1),
-                        low_cardinality=old_info.low_cardinality,
-                    )
-        else:
-            columns = self._schema.columns
+                    columns[col_name] = dataclass_replace(old_info, array=max(0, int(old_info.array) - 1))
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,

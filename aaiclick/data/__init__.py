@@ -61,3 +61,4 @@ from .models import (
     ValueType,
 )
 from .object import DataResult, GroupByQuery, Object, View
+from .transforms import cast, split_by_char

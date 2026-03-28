@@ -237,7 +237,7 @@ async def create_object(
             ddl += " DEFAULT generateSnowflakeID()"
             col_fieldtype = FIELDTYPE_SCALAR
         else:
-            col_fieldtype = schema.col_fieldtype or schema.fieldtype
+            col_fieldtype = schema.col_fieldtype or FIELDTYPE_ARRAY
 
         comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
         if comment:
@@ -470,7 +470,7 @@ async def _create_nested_records_object(
     columns = {"aai_id": ColumnInfo("UInt64")}
     columns.update(nested_cols)
 
-    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name)
 
     all_flat = [_flatten_nested_record(record) for record in val]
@@ -538,7 +538,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
             if array_len and array_len > 0:
@@ -602,7 +602,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_ARRAY)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
             data = [[record[key] for key in keys] for record in val]
@@ -623,6 +623,7 @@ async def create_object_from_value(
         col_def = _infer_clickhouse_type(val)
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
+            col_fieldtype=FIELDTYPE_SCALAR,
             columns={"aai_id": ColumnInfo("UInt64"), "value": col_def},
         )
         obj = await create_object(schema, name=name)

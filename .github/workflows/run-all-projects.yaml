@@ -27,6 +27,9 @@ jobs:
       actions: read
       checks: write
 
+  imdb-dataset-builder:
+    uses: ./.github/workflows/project-imdb-dataset-builder.yaml
+
   ai-tests:
     uses: ./.github/workflows/project-ai-tests.yaml
     permissions:
