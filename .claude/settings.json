@@ -5,7 +5,7 @@
       "Grep",
       "Read",
       "Bash(.claude/skills/check-pr/run-workflow-check.sh)",
-      "Bash(.claude/skills/pypi-publish/run-publish.sh:*)",
+      "Bash(.claude/skills/action-run/run.sh:*)",
       "Bash(gh api:*)",
       "Bash(gh auth status:*)",
       "Bash(gh issue list:*)",
