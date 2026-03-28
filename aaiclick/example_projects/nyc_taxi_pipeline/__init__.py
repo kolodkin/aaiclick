@@ -314,10 +314,6 @@ def _fmt(value: object) -> str:
     return f"{value:,}" if isinstance(value, int) else str(value)
 
 
-def _print_md_table(md: str) -> None:
-    """Print a pre-rendered markdown table."""
-    for line in md.splitlines():
-        print(line)
 
 
 def _print_report(
@@ -340,7 +336,7 @@ def _print_report(
     print(f"- Avg distance: {_fmt(ov['avg_distance'])} mi")
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(trips_md)
+    print(trips_md)
 
     fd = report["fare_distribution"]
     print("\n### Fare Distribution\n")
@@ -371,7 +367,7 @@ def _print_report(
     print(f"- Median fare/mile: ${_fmt(da['median_fare_per_mile'])}")
 
     print("\n### By Payment Type\n")
-    _print_md_table(by_payment_md)
+    print(by_payment_md)
 
     print("\n#### Statistics\n")
     for name, data in report["payment_breakdown"].items():
@@ -380,13 +376,13 @@ def _print_report(
               f"avg distance {_fmt(data['avg_distance'])} mi")
 
     print("\n### By Pickup Zone\n")
-    _print_md_table(by_pickup_zone_md)
+    print(by_pickup_zone_md)
 
     print("\n### By Passenger Count\n")
-    _print_md_table(by_passenger_md)
+    print(by_passenger_md)
 
     print("\n### Top Revenue Zones\n")
-    _print_md_table(top_zones_md)
+    print(top_zones_md)
 
 
 @task

@@ -93,12 +93,6 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
         print(f"| {field:<{name_w}s} | {col.ch_type():<{type_w}s} | {col.description:<{desc_w}s} |")
 
 
-def _print_md_table(md: str) -> None:
-    """Print a pre-rendered markdown table."""
-    for line in md.splitlines():
-        print(line)
-
-
 def _print_threat_report(
     report: dict,
     kev_md: str,
@@ -121,7 +115,7 @@ def _print_threat_report(
     _print_field_table(KEV_COLUMNS)
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(kev_md)
+    print(kev_md)
 
     print("\n#### Statistics\n")
     print(f"- Total KEV entries: {_fmt(kev['total_vulnerabilities'])}")
@@ -144,7 +138,7 @@ def _print_threat_report(
     _print_field_table(SHODAN_COLUMNS)
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(cves_md)
+    print(cves_md)
 
     print("\n#### Statistics\n")
     print(f"- CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
@@ -166,7 +160,7 @@ def _print_threat_report(
     _print_field_table(EPSS_COLUMNS)
 
     print("\n#### Sample (first 5 rows)\n")
-    _print_md_table(epss_md)
+    print(epss_md)
 
     print("\n#### Statistics\n")
     print(f"- Total scored CVEs: {_fmt(epss['total_scored_cves'])}")
@@ -183,7 +177,7 @@ def _print_threat_report(
     _print_field_table(MERGED_COLUMNS)
 
     print("\n#### Sample (newest 5 KEV CVEs)\n")
-    _print_md_table(consolidated_md)
+    print(consolidated_md)
 
     print("\n#### Statistics\n")
     print(f"- Total unique CVEs: {_fmt(cons['total_unique_cves'])}")

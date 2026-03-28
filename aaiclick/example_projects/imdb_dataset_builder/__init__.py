@@ -32,6 +32,9 @@ Environment variables:
 import asyncio
 import os
 
+import pandas as pd
+from huggingface_hub import HfApi
+
 from aaiclick import ORIENT_DICT, create_object_from_url
 from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
@@ -221,9 +224,6 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     token = os.environ.get("HF_TOKEN")
     if not token:
         return HFPublishResult(status="skipped", reason="HF_TOKEN not set", repo=HF_REPO_ID)
-
-    import pandas as pd
-    from huggingface_hub import HfApi
 
     data = await clean.data(orient=ORIENT_DICT)
     df = pd.DataFrame(data)
