@@ -2,7 +2,7 @@ name: project-ai-tests
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Nightly at 05:00 UTC
+    - cron: '0 0 * * *'  # Nightly at 00:00 UTC
   workflow_dispatch:
 
 permissions:
