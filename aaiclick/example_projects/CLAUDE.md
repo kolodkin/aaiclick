@@ -8,6 +8,17 @@
 - If raw SQL seems necessary, **ask the user for approval first** — it likely means the API needs extending
 - Example projects serve as the public API showcase; they should demonstrate best practices, not internal workarounds
 
+## Project Structure
+
+- Each example project should have a `report.py` file containing final report printout logic
+- The `@job` function returns `TaskResult` with all tasks listed — report is always the last (finalization) task; `report.py` is only responsible for the printout
+- Always prefer `Object.markdown()` for rendering tables in `report.py` — avoid custom table rendering logic
+
+## Task Return Values
+
+- For low-scale data prefer a Pydantic model return value over `dict`
+- For high-scale data prefer an `Object` return value
+
 ## Report Output Format
 
 **All example projects MUST output reports as markdown to stdout.**
