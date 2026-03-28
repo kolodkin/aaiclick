@@ -4,7 +4,7 @@ import os
 
 from aaiclick.data.models import ColumnInfo
 
-IMDB_URL = "https://datasets.imdbws.com/title.basics.tsv.gz"
+IMDB_URL = os.environ.get("IMDB_URL", "https://datasets.imdbws.com/title.basics.tsv.gz")
 
 IMDB_COLUMNS = [
     "tconst",

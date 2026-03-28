@@ -130,10 +130,9 @@ async def generate_report(
     hf_result: dict,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
-    raw_md = await raw.view(
-        limit=5,
-        columns=["tconst", "titleType", "primaryTitle", "startYear", "genres", "runtimeMinutes"],
-    ).markdown(truncate={"primaryTitle": 40})
+    raw_md = await raw[
+        ["tconst", "titleType", "primaryTitle", "startYear", "genres", "runtimeMinutes"]
+    ].view(limit=5).markdown(truncate={"primaryTitle": 40})
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 

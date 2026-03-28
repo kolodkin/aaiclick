@@ -4,12 +4,12 @@ IMDb Dataset Builder - Large-Scale Data Curation Example
 Demonstrates aaiclick's data curation capabilities using real IMDb title data
 loaded directly from the official IMDb datasets URL:
 
-- URL Data Loading (create_object_from_url, TabSeparatedWithNames format)
+- URL Data Loading (create_object_from_url, TSVWithNames format)
 - String Filtering (titleType, isAdult, missing value detection via \\N)
 - Computed Columns (type casting with toUInt32OrNull, array splitting with splitByChar)
 - Array Explode (one genre per row from comma-separated strings)
 - Group By Aggregations (genre distribution analysis)
-- Data Quality Profiling (missing runtime, out-of-range detection)
+- Data Quality Profiling (countIf for missing runtime and out-of-range detection)
 - Hugging Face Publishing (optional, requires HF_TOKEN env var)
 
 Data source: IMDb Non-Commercial Datasets (title.basics)
@@ -26,13 +26,14 @@ Usage:
 
 Environment variables:
     HF_TOKEN  — Hugging Face token for dataset publishing (optional)
+    IMDB_URL  — Override IMDb data URL (useful for local testing)
 """
 
 import asyncio
 import os
 
 from aaiclick import ORIENT_DICT, create_object_from_url
-from aaiclick.data.models import Computed
+from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import TaskResult, job, task
 
@@ -54,17 +55,21 @@ async def load_raw_data(limit: int | None = None) -> Object:
     no Python memory used for the bulk data. The gzip TSV is streamed
     and parsed natively by ClickHouse.
 
-    All columns are loaded as String because ClickHouse TabSeparated
+    All columns are loaded as String because ClickHouse TSVWithNames
     format treats \\N as a literal string, not NULL.
 
     Args:
         limit: Optional row limit for fast demos. Set to None for full ~10M rows.
     """
+    # Force all columns as String — TSV \N values must remain as the
+    # literal string r"\N", not be cast to NULL or int by type inference.
+    all_string = {col: ColumnInfo("String") for col in IMDB_COLUMNS}
     return await create_object_from_url(
         url=IMDB_URL,
         columns=IMDB_COLUMNS,
-        format="TabSeparatedWithNames",
+        format="TSVWithNames",
         limit=limit,
+        column_types=all_string,
     )
 
 
@@ -73,17 +78,21 @@ async def profile_raw(raw: Object) -> dict:
     """
     Profile the raw dataset: title type breakdown, adult content rate.
 
+    Uses count_if for a single-scan count of total rows and adult titles.
     All aggregations run inside ClickHouse — Python only receives the
     small summary dict.
     """
-    total = await (await raw["tconst"].count()).data()
+    counts_obj = await raw.count_if({
+        "total": "1",
+        "adult_count": "isAdult = '1'",
+    })
+    counts = await counts_obj.data()
+    total = counts["total"]
+    adult_count = counts["adult_count"]
 
     type_obj = await raw.group_by("titleType").agg({"tconst": "count"})
     type_data = await type_obj.data(orient=ORIENT_DICT)
     type_counts = dict(zip(type_data["titleType"], type_data["tconst"]))
-
-    adult_col = raw["isAdult"] == "1"
-    adult_count = await (await adult_col.sum()).data()
 
     return {
         "total_titles": total,
@@ -98,14 +107,14 @@ async def filter_movies(raw: Object) -> Object:
     """
     Filter to non-adult movies with known genres and start year.
 
-    Applies four filters in sequence, all executed as a single ClickHouse
-    SELECT. The result is materialized via .copy() into a new table for
-    downstream parallel tasks.
+    All four conditions are pushed down as SQL WHERE clauses — ClickHouse
+    executes them as a single filtered SELECT. The result is materialized
+    via .copy() into a new table for downstream parallel tasks.
     """
-    movies = raw.where(raw["titleType"] == "movie")
-    movies = movies.where(movies["isAdult"] == "0")
-    movies = movies.where(movies["genres"] != "\\N")
-    movies = movies.where(movies["startYear"] != "\\N")
+    movies = raw.where("titleType = 'movie'")
+    movies = movies.where("isAdult = '0'")
+    movies = movies.where(r"genres != '\N'")
+    movies = movies.where(r"startYear != '\N'")
     return await movies.copy()
 
 
@@ -114,42 +123,37 @@ async def detect_quality_issues(movies: Object) -> dict:
     """
     Detect data quality issues in the movie subset.
 
-    Adds typed computed columns (year_int, runtime_int) and counts rows
-    with: missing runtime, runtime out of [40, 300] range, pre-1970 year.
+    Uses a single count_if pass for missing runtime, then adds typed
+    Computed columns to count runtime range and year violations.
     All counting is done inside ClickHouse.
     """
+    total = await (await movies["tconst"].count()).data()
+
+    # Single-scan count for missing runtime
+    missing_obj = await movies.count_if(r"runtimeMinutes = '\N'")
+    missing_runtime = await missing_obj.data()
+
+    # Add typed columns to count range violations
     typed = movies.with_columns({
         "year_int":    Computed("Nullable(UInt32)", "toUInt32OrNull(startYear)"),
         "runtime_int": Computed("Nullable(UInt32)", "toUInt32OrNull(runtimeMinutes)"),
     })
 
-    total = await (await movies["tconst"].count()).data()
-
-    missing_runtime_col = typed["runtimeMinutes"] == "\\N"
-    missing_runtime = await (await missing_runtime_col.sum()).data()
-
-    has_runtime = typed.where(typed["runtimeMinutes"] != "\\N")
-    has_runtime_typed = has_runtime.with_columns({
-        "runtime_int": Computed("Nullable(UInt32)", "toUInt32OrNull(runtimeMinutes)"),
+    range_counts = await typed.count_if({
+        "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
+        "long_runtime":  r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
+        "pre_1970":      "toUInt32OrNull(startYear) < 1970",
     })
-
-    short_col = has_runtime_typed["runtime_int"] < 40
-    short_count = await (await short_col.sum()).data()
-
-    long_col = has_runtime_typed["runtime_int"] > 300
-    long_count = await (await long_col.sum()).data()
-
-    pre_1970_col = typed["year_int"] < 1970
-    pre_1970_count = await (await pre_1970_col.sum()).data()
+    range_data = await range_counts.data()
 
     return {
         "total_movies": total,
         "missing_runtime": missing_runtime,
         "missing_runtime_pct": (missing_runtime / total * 100) if total > 0 else 0.0,
-        "short_runtime": short_count,
-        "long_runtime": long_count,
-        "pre_1970": pre_1970_count,
-        "pre_1970_pct": (pre_1970_count / total * 100) if total > 0 else 0.0,
+        "short_runtime": range_data["short_runtime"],
+        "long_runtime": range_data["long_runtime"],
+        "pre_1970": range_data["pre_1970"],
+        "pre_1970_pct": (range_data["pre_1970"] / total * 100) if total > 0 else 0.0,
     }
 
 
@@ -166,8 +170,7 @@ async def normalize_genres(movies: Object) -> Object:
         "genre": Computed("Array(LowCardinality(String))", "splitByChar(',', genres)"),
     })
     exploded = with_array.explode("genre")
-    clean = exploded.where(exploded["genre"] != "Adult")
-    return await clean.copy()
+    return await exploded.copy()
 
 
 @task
@@ -194,11 +197,11 @@ async def build_clean_dataset(movies: Object) -> Object:
         "year_int":    Computed("Nullable(UInt32)", "toUInt32OrNull(startYear)"),
         "runtime_int": Computed("Nullable(UInt32)", "toUInt32OrNull(runtimeMinutes)"),
     })
-    clean = typed.where(typed["runtimeMinutes"] != "\\N")
-    clean = clean.where(typed["runtime_int"] >= 40)
-    clean = clean.where(typed["runtime_int"] <= 300)
-    clean = clean.where(typed["year_int"] >= 1970)
-    clean = clean.where(clean["genres"].match("Adult") == 0)
+    clean = typed.where(r"runtimeMinutes != '\N'")
+    clean = clean.where("runtime_int >= 40")
+    clean = clean.where("runtime_int <= 300")
+    clean = clean.where("year_int >= 1970")
+    clean = clean.where("match(genres, 'Adult') = 0")
     clean = clean[["tconst", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
     return await clean.copy()
 
@@ -214,12 +217,12 @@ async def publish_to_huggingface(clean: Object) -> dict:
     The data is pulled from ClickHouse into a pandas DataFrame, written
     to Parquet, then uploaded via huggingface_hub.HfApi.
     """
-    import pandas as pd
-    from huggingface_hub import HfApi
-
     token = os.environ.get("HF_TOKEN")
     if not token:
         return {"status": "skipped", "reason": "HF_TOKEN not set", "repo": HF_REPO_ID}
+
+    import pandas as pd
+    from huggingface_hub import HfApi
 
     data = await clean.data(orient=ORIENT_DICT)
     df = pd.DataFrame(data)
