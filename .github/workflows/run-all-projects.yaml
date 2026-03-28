@@ -8,12 +8,28 @@ on:
 jobs:
   basic-worker:
     uses: ./.github/workflows/project-basic-worker.yaml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
 
   nyc-taxi-pipeline:
     uses: ./.github/workflows/project-nyc-taxi-pipeline.yaml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
 
   cyber-threat-feeds:
     uses: ./.github/workflows/project-cyber-threat-feeds.yaml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
 
   ai-tests:
     uses: ./.github/workflows/project-ai-tests.yaml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
