@@ -1579,6 +1579,28 @@ class Object:
         name = alias or f"{column}_trimmed"
         return self.with_columns({name: Computed("String", f"trim({column})")})
 
+    def with_split_by_char(
+        self,
+        column: str,
+        separator: str,
+        *,
+        element_type: str = "String",
+        alias: Optional[str] = None,
+    ) -> "View":
+        """Split a String column into an Array using a character separator.
+
+        Uses ClickHouse's splitByChar(sep, col) function.
+
+        Args:
+            column: Source string column name.
+            separator: Single character to split on.
+            element_type: ClickHouse type for array elements (default "String").
+            alias: Result column name (default: '{column}_parts').
+        """
+        from .transforms import split_by_char
+        name = alias or f"{column}_parts"
+        return self.with_columns({name: split_by_char(column, separator, element_type=element_type)})
+
     def with_abs(self, column: str, *, alias: Optional[str] = None) -> "View":
         """Absolute value of a numeric column. Result type is Float64."""
         name = alias or f"{column}_abs"
@@ -1635,18 +1657,24 @@ class Object:
         )
 
     def with_cast(
-        self, column: str, ch_type: str, *, alias: Optional[str] = None
+        self,
+        column: str,
+        to_type: str,
+        *,
+        nullable: bool = False,
+        alias: Optional[str] = None,
     ) -> "View":
         """Cast a column to a different ClickHouse type.
 
         Args:
-            column: Source column name
-            ch_type: Target ClickHouse type (e.g., 'Float64', 'String', 'Date')
-            alias: Result column name (default: '{column}_{type_lower}')
+            column: Source column name.
+            to_type: Target ClickHouse base type, e.g. "UInt32", "Float64", "String".
+            nullable: Use to{Type}OrNull and wrap in Nullable (default False).
+            alias: Result column name (default: '{column}_{to_type.lower()}').
         """
-        name = alias or f"{column}_{ch_type.lower()}"
-        func = f"to{ch_type}" if not ch_type.startswith("to") else ch_type
-        return self.with_columns({name: Computed(ch_type, f"{func}({column})")})
+        from .transforms import cast
+        name = alias or f"{column}_{to_type.lower()}"
+        return self.with_columns({name: cast(column, to_type, nullable=nullable)})
 
     def view(
         self,

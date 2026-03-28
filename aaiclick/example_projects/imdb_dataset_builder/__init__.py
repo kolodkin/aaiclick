@@ -35,8 +35,8 @@ import os
 import pandas as pd
 from huggingface_hub import HfApi
 
-from aaiclick import ORIENT_DICT, create_object_from_url
-from aaiclick.data.models import ColumnInfo, Computed
+from aaiclick import ORIENT_DICT, cast, create_object_from_url
+from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
 from aaiclick.orchestration import TaskResult, job, task
 
@@ -139,8 +139,8 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
 
     # Add typed columns to count range violations
     typed = movies.with_columns({
-        "year_int":    Computed("Nullable(UInt32)", "toUInt32OrNull(startYear)"),
-        "runtime_int": Computed("Nullable(UInt32)", "toUInt32OrNull(runtimeMinutes)"),
+        "year_int":    cast("startYear", "UInt32"),
+        "runtime_int": cast("runtimeMinutes", "UInt32"),
     })
 
     range_counts = await typed.count_if({
@@ -170,10 +170,9 @@ async def normalize_genres(movies: Object) -> Object:
     explode() to produce one row per genre. Adult genre entries are
     filtered out. Result is materialized for downstream analysis.
     """
-    with_array = movies.with_columns({
-        "genre": Computed("Array(LowCardinality(String))", "splitByChar(',', genres)"),
-    })
-    exploded = with_array.explode("genre")
+    exploded = movies.with_split_by_char(
+        "genres", ",", element_type="LowCardinality(String)", alias="genre"
+    ).explode("genre")
     return await exploded.copy()
 
 
@@ -198,8 +197,8 @@ async def build_clean_dataset(movies: Object) -> Object:
     clean (tconst, primaryTitle, startYear, genres, runtimeMinutes) subset.
     """
     typed = movies.with_columns({
-        "year_int":    Computed("Nullable(UInt32)", "toUInt32OrNull(startYear)"),
-        "runtime_int": Computed("Nullable(UInt32)", "toUInt32OrNull(runtimeMinutes)"),
+        "year_int":    cast("startYear", "UInt32"),
+        "runtime_int": cast("runtimeMinutes", "UInt32"),
     })
     clean = typed.where(r"runtimeMinutes != '\N'")
     clean = clean.where("runtime_int >= 40")

@@ -30,6 +30,7 @@ from .data import (
 
 # Import core objects
 from .data import Object, View, DataResult
+from .data import cast, split_by_char
 from .data import (
     Schema,
     ColumnInfo,
