@@ -1,59 +1,59 @@
 ---
 name: pypi-publish
-description: Trigger and monitor the PyPI publish GitHub Actions workflow. Use when user asks to publish, release, or deploy to PyPI.
+description: Trigger and monitor the PyPI publish GitHub Actions workflow. Use when the user asks to publish, release, or deploy the package to PyPI.
 ---
 
 # PyPI Publish Skill
 
-Trigger and monitor the `publish` GitHub Actions workflow that builds, tests, and publishes the package to PyPI.
+You are a PROACTIVE release assistant. When triggered, run the publish script, monitor the workflow to completion, and fix any errors automatically before re-running.
 
-## Prerequisites
+## Required Input
 
-Ask the user for:
-1. **Release tag** — must be in `vX.Y.Z` format (e.g. `v1.2.3`)
-2. **Pre-release?** — optional, defaults to `false`
+Ask the user for the **release tag** if not provided. Format must be `vX.Y.Z` (e.g., `v1.2.3`).
+
+Optionally ask if this is a **pre-release** (defaults to `false`).
 
 ## Run the Publish Script
 
 ```bash
-.claude/skills/pypi-publish/run-publish.sh --tag vX.Y.Z [--pre-release]
+.claude/skills/pypi-publish/run-publish.sh --tag vX.Y.Z
 ```
 
-The script will automatically:
-1. Install gh CLI if not available
-2. Check authentication
-3. Detect the GitHub repository
-4. Check required permissions (write access needed to trigger workflows)
-5. Check if the publish workflow is already running — if so, monitor it instead of re-triggering
-6. Trigger `gh workflow run publish` with the provided tag and pre-release inputs
-7. Poll and report per-job status until completion
-8. On success: confirm package published to PyPI
-9. On failure: print full failed job logs
+With pre-release flag:
+```bash
+.claude/skills/pypi-publish/run-publish.sh --tag vX.Y.Z --pre-release
+```
+
+The script automatically:
+1. Installs gh CLI if not available
+2. Checks authentication and required permissions
+3. Detects if the publish workflow is already running — if so, monitors it instead of triggering a new run
+4. Triggers the `publish.yaml` workflow with the given tag and pre-release inputs
+5. Polls job status until completion
+6. Reports SUCCESS with PyPI link, or FAILURE with full error logs
 
 ## On Failure
 
-1. Read the error logs printed by the script
-2. Identify the root cause (build error, test failure, PyPI auth issue, tag conflict, etc.)
-3. Fix the issue (e.g. update `pyproject.toml`, fix tests, correct tag format)
-4. Commit and push the fix
-5. Re-run the script with the same tag:
-   ```bash
-   .claude/skills/pypi-publish/run-publish.sh --tag vX.Y.Z
-   ```
+1. **Analyze the error logs** printed by the script
+2. **Fix the root cause** (e.g., version already on PyPI, tag format wrong, test failures, missing PyPI trusted publisher config)
+3. **Re-run the script** with the same or corrected arguments
 
-## Check an Already-Running Workflow
+## Common Errors
 
-If you know a publish workflow is already in progress, run without `--tag` to monitor it:
+| Error                                    | Fix                                                                      |
+|------------------------------------------|--------------------------------------------------------------------------|
+| Tag already exists on PyPI               | Bump version in `pyproject.toml`, commit, push, use a new tag            |
+| Tag format invalid                       | Ensure tag matches `vX.Y.Z` exactly                                      |
+| Not authenticated                        | Run `gh auth login` or set `GH_TOKEN`                                    |
+| Insufficient permission                  | Need write or admin access to the repository                             |
+| Test failures in workflow                | Fix failing tests, commit, push, re-run                                  |
+| PyPI trusted publishing not configured   | Check PyPI project settings for the GitHub Actions trusted publisher     |
+
+## Getting Logs Manually
+
+If you need to inspect a specific run:
 ```bash
-.claude/skills/pypi-publish/run-publish.sh --monitor-only
+gh run view RUN_ID --repo OWNER/REPO --log-failed
 ```
 
-## Common Errors and Fixes
-
-| Error | Fix |
-|-------|-----|
-| Tag already exists on PyPI | Bump the version in `pyproject.toml`, use a new tag |
-| Tag format invalid | Ensure tag matches `vX.Y.Z` exactly |
-| Insufficient permissions | User needs write access to the repository |
-| Test failures in workflow | Fix failing tests, commit, push, re-run |
-| PyPI trusted publishing misconfigured | Check OIDC trusted publisher settings on PyPI project |
+Be PROACTIVE: analyze errors and fix them without asking the user — only ask if the fix requires input (like choosing a new version number).
