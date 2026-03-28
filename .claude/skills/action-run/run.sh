@@ -1,13 +1,15 @@
 #!/bin/bash
 #
 # GitHub Actions Workflow Runner
-# Usage: run.sh <workflow> [key=value|flag ...]
-#   workflow  — workflow filename or name (e.g. publish.yaml)
-#   key=value — workflow dispatch input
-#   flag      — shorthand for flag=true
+# Usage: run.sh <workflow> [key=value|flag ...] [branch=<name>]
+#   workflow     — workflow filename or name (e.g. publish.yaml)
+#   key=value    — workflow dispatch input
+#   flag         — shorthand for flag=true
+#   branch=<name> — run from specific branch (default: current git branch)
 #
 # Example:
 #   run.sh publish.yaml tag=v1.2.3 pre-release
+#   run.sh publish.yaml tag=v1.2.3 branch=main
 #
 
 set -e
@@ -24,6 +26,7 @@ GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64"
 WORKFLOW=""
 declare -a INPUT_ARGS=()
 RUN_ID=""
+REF=""
 
 echo -e "${BLUE}⚡ GitHub Actions Runner${NC}"
 echo ""
@@ -39,8 +42,12 @@ parse_args() {
     WORKFLOW="$1"
     shift
 
+    REF=$(git branch --show-current 2>/dev/null || echo "")
+
     for arg in "$@"; do
-        if [[ "$arg" == *"="* ]]; then
+        if [[ "$arg" == branch=* ]]; then
+            REF="${arg#branch=}"
+        elif [[ "$arg" == *"="* ]]; then
             INPUT_ARGS+=("-f" "$arg")
         else
             INPUT_ARGS+=("-f" "${arg}=true")
@@ -48,6 +55,7 @@ parse_args() {
     done
 
     echo -e "${BLUE}  Workflow: ${NC}$WORKFLOW"
+    echo -e "${BLUE}  Branch:   ${NC}${REF:-(default)}"
     for arg in "${INPUT_ARGS[@]}"; do
         if [ "$arg" != "-f" ]; then
             echo -e "${BLUE}  Input:    ${NC}$arg"
@@ -166,11 +174,14 @@ trigger_workflow() {
     echo -e "${BLUE}🚀 Triggering: $WORKFLOW${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
+    REF_ARGS=()
+    [ -n "$REF" ] && REF_ARGS+=("--ref" "$REF")
+
     TRIGGER_OUT=$(mktemp)
     if [ ${#INPUT_ARGS[@]} -gt 0 ]; then
-        gh workflow run "$WORKFLOW" --repo "$REPO" "${INPUT_ARGS[@]}" 2>"$TRIGGER_OUT" || true
+        gh workflow run "$WORKFLOW" --repo "$REPO" "${REF_ARGS[@]}" "${INPUT_ARGS[@]}" 2>"$TRIGGER_OUT" || true
     else
-        gh workflow run "$WORKFLOW" --repo "$REPO" 2>"$TRIGGER_OUT" || true
+        gh workflow run "$WORKFLOW" --repo "$REPO" "${REF_ARGS[@]}" 2>"$TRIGGER_OUT" || true
     fi
     if [ -s "$TRIGGER_OUT" ]; then
         ERR=$(cat "$TRIGGER_OUT"); rm -f "$TRIGGER_OUT"
