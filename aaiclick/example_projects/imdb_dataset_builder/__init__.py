@@ -38,6 +38,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import TaskResult, job, task
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
+from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
 
 
@@ -74,7 +75,7 @@ async def load_raw_data(limit: int | None = None) -> Object:
 
 
 @task
-async def profile_raw(raw: Object) -> dict:
+async def profile_raw(raw: Object) -> RawProfile:
     """
     Profile the raw dataset: title type breakdown, adult content rate.
 
@@ -94,12 +95,12 @@ async def profile_raw(raw: Object) -> dict:
     type_data = await type_obj.data(orient=ORIENT_DICT)
     type_counts = dict(zip(type_data["titleType"], type_data["tconst"]))
 
-    return {
-        "total_titles": total,
-        "by_type": type_counts,
-        "adult_count": adult_count,
-        "adult_pct": (adult_count / total * 100) if total > 0 else 0.0,
-    }
+    return RawProfile(
+        total_titles=total,
+        by_type=type_counts,
+        adult_count=adult_count,
+        adult_pct=(adult_count / total * 100) if total > 0 else 0.0,
+    )
 
 
 @task
@@ -119,7 +120,7 @@ async def filter_movies(raw: Object) -> Object:
 
 
 @task
-async def detect_quality_issues(movies: Object) -> dict:
+async def detect_quality_issues(movies: Object) -> QualityIssues:
     """
     Detect data quality issues in the movie subset.
 
@@ -146,15 +147,15 @@ async def detect_quality_issues(movies: Object) -> dict:
     })
     range_data = await range_counts.data()
 
-    return {
-        "total_movies": total,
-        "missing_runtime": missing_runtime,
-        "missing_runtime_pct": (missing_runtime / total * 100) if total > 0 else 0.0,
-        "short_runtime": range_data["short_runtime"],
-        "long_runtime": range_data["long_runtime"],
-        "pre_1970": range_data["pre_1970"],
-        "pre_1970_pct": (range_data["pre_1970"] / total * 100) if total > 0 else 0.0,
-    }
+    return QualityIssues(
+        total_movies=total,
+        missing_runtime=missing_runtime,
+        missing_runtime_pct=(missing_runtime / total * 100) if total > 0 else 0.0,
+        short_runtime=range_data["short_runtime"],
+        long_runtime=range_data["long_runtime"],
+        pre_1970=range_data["pre_1970"],
+        pre_1970_pct=(range_data["pre_1970"] / total * 100) if total > 0 else 0.0,
+    )
 
 
 @task
@@ -207,19 +208,19 @@ async def build_clean_dataset(movies: Object) -> Object:
 
 
 @task
-async def publish_to_huggingface(clean: Object) -> dict:
+async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     """
     Publish curated dataset to Hugging Face Hub as a Parquet dataset.
 
     Requires HF_TOKEN environment variable. If not set, returns a
-    skipped status dict without raising an error.
+    skipped status without raising an error.
 
     The data is pulled from ClickHouse into a pandas DataFrame, written
     to Parquet, then uploaded via huggingface_hub.HfApi.
     """
     token = os.environ.get("HF_TOKEN")
     if not token:
-        return {"status": "skipped", "reason": "HF_TOKEN not set", "repo": HF_REPO_ID}
+        return HFPublishResult(status="skipped", reason="HF_TOKEN not set", repo=HF_REPO_ID)
 
     import pandas as pd
     from huggingface_hub import HfApi
@@ -240,7 +241,7 @@ async def publish_to_huggingface(clean: Object) -> dict:
         token=token,
     )
 
-    return {"status": "published", "rows": len(df), "repo": HF_REPO_ID}
+    return HFPublishResult(status="published", rows=len(df), repo=HF_REPO_ID)
 
 
 # =============================================================================

@@ -13,5 +13,8 @@ jobs:
   cyber-threat-feeds:
     uses: ./.github/workflows/project-cyber-threat-feeds.yaml
 
+  imdb-dataset-builder:
+    uses: ./.github/workflows/project-imdb-dataset-builder.yaml
+
   ai-tests:
     uses: ./.github/workflows/project-ai-tests.yaml

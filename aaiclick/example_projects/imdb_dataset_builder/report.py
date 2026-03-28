@@ -11,6 +11,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL
+from .models import HFPublishResult, QualityIssues, RawProfile
 
 
 def _fmt(value: object) -> str:
@@ -35,10 +36,10 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
 
 
 def _print_report(
-    profile: dict,
-    quality_issues: dict,
+    profile: RawProfile,
+    quality_issues: QualityIssues,
     genre_data: dict,
-    hf_result: dict,
+    hf_result: HFPublishResult,
     raw_md: str,
     clean_md: str,
     genre_md: str,
@@ -47,35 +48,33 @@ def _print_report(
     print("\n## IMDb Movie Dataset Builder\n")
 
     # ---- Raw Data Profile ----
-    p = profile
     print("### Raw Data Profile\n")
     print(f"URL: {IMDB_URL}")
-    print(f"Total titles: {_fmt(p['total_titles'])}")
-    print(f"Adult titles: {_fmt(p['adult_count'])} ({_fmt(p['adult_pct'])}%)\n")
+    print(f"Total titles: {_fmt(profile.total_titles)}")
+    print(f"Adult titles: {_fmt(profile.adult_count)} ({_fmt(profile.adult_pct)}%)\n")
 
     print("#### Field Schema\n")
     _print_field_table(IMDB_RAW_COLUMNS)
 
     print("\n#### Title Type Breakdown\n")
-    for title_type, count in sorted(p["by_type"].items(), key=lambda x: -x[1]):
+    for title_type, count in sorted(profile.by_type.items(), key=lambda x: -x[1]):
         print(f"- {title_type}: {_fmt(count)}")
 
     print("\n#### Sample (first 5 rows)\n")
     print(raw_md)
 
     # ---- Movie Filter ----
-    q = quality_issues
-    dropped = p["total_titles"] - q["total_movies"]
+    dropped = profile.total_titles - quality_issues.total_movies
     print("\n### Movie Filter\n")
-    print(f"- Non-adult movies with genres + year: {_fmt(q['total_movies'])}")
+    print(f"- Non-adult movies with genres + year: {_fmt(quality_issues.total_movies)}")
     print(f"- Dropped (non-movie, adult, missing genres/year): {_fmt(dropped)}")
 
     # ---- Quality Issues ----
     print("\n### Quality Issues Detected\n")
-    print(f"- Missing runtime (`\\N`): {_fmt(q['missing_runtime'])} ({_fmt(q['missing_runtime_pct'])}%)")
-    print(f"- Runtime < 40 min: {_fmt(q['short_runtime'])}")
-    print(f"- Runtime > 300 min: {_fmt(q['long_runtime'])}")
-    print(f"- Pre-1970 movies: {_fmt(q['pre_1970'])} ({_fmt(q['pre_1970_pct'])}%)")
+    print(f"- Missing runtime (`\\N`): {_fmt(quality_issues.missing_runtime)} ({_fmt(quality_issues.missing_runtime_pct)}%)")
+    print(f"- Runtime < 40 min: {_fmt(quality_issues.short_runtime)}")
+    print(f"- Runtime > 300 min: {_fmt(quality_issues.long_runtime)}")
+    print(f"- Pre-1970 movies: {_fmt(quality_issues.pre_1970)} ({_fmt(quality_issues.pre_1970_pct)}%)")
 
     # ---- Genre Distribution ----
     print("\n### Genre Distribution\n")
@@ -103,15 +102,14 @@ def _print_report(
 
     # ---- Publish Result ----
     print("\n### Published\n")
-    status = hf_result.get("status", "unknown")
-    if status == "published":
-        print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result['repo']}")
-        print(f"- Rows published: {_fmt(hf_result['rows'])}")
-    elif status == "skipped":
-        print(f"- Skipped: {hf_result.get('reason', 'unknown reason')}")
+    if hf_result.status == "published":
+        print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")
+        print(f"- Rows published: {_fmt(hf_result.rows)}")
+    elif hf_result.status == "skipped":
+        print(f"- Skipped: {hf_result.reason or 'unknown reason'}")
         print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
     else:
-        print(f"- Status: {status}")
+        print(f"- Status: {hf_result.status}")
 
 
 @task
@@ -120,9 +118,9 @@ async def generate_report(
     movies: Object,
     clean: Object,
     genre_balance: Object,
-    profile: dict,
-    quality_issues: dict,
-    hf_result: dict,
+    profile: RawProfile,
+    quality_issues: QualityIssues,
+    hf_result: HFPublishResult,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
     raw_md = await raw[
@@ -153,7 +151,7 @@ async def generate_report(
         sys.stdout.write(rendered)
 
     return {
-        "total_titles": profile["total_titles"],
-        "total_movies": quality_issues["total_movies"],
-        "hf_status": hf_result.get("status"),
+        "total_titles": profile.total_titles,
+        "total_movies": quality_issues.total_movies,
+        "hf_status": hf_result.status,
     }

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -76,6 +77,13 @@ def import_callback(entrypoint: str) -> Callable:
         return attr.func
 
     return attr
+
+
+def _import_class(type_path: str) -> type:
+    """Import a class from a dotted module path (e.g. 'mymodule.MyClass')."""
+    module_path, class_name = type_path.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 
 async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
@@ -170,6 +178,11 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     # Check for native value wrapper
     if "native_value" in value and len(value) == 1:
         return value["native_value"]
+
+    # Check for Pydantic model reference
+    if "pydantic_type" in value:
+        cls = _import_class(value["pydantic_type"])
+        return cls.model_validate(value["data"])
 
     # Check for Object/View reference
     if "object_type" in value:
@@ -330,6 +343,12 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         ref = result._serialize_ref()
         ref["job_id"] = job_id
         return ref
+
+    if isinstance(result, BaseModel):
+        return {
+            "pydantic_type": f"{type(result).__module__}.{type(result).__qualname__}",
+            "data": result.model_dump(),
+        }
 
     # Store JSON-serializable values (dict, list, int, float, str, bool) directly
     return {"native_value": _sanitize_for_json(result)}
