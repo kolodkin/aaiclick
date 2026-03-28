@@ -103,7 +103,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --find-links dist/ "aaiclick[ai]"
+          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[ai]"
 
       - name: Cache Ollama model
         uses: actions/cache@v4
@@ -200,7 +200,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --find-links dist/ "aaiclick[distributed,ai]"
+          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed,ai]"
 
       - name: Run database migrations
         env:
