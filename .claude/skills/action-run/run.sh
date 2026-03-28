@@ -93,6 +93,7 @@ check_auth() {
         exit 1
     fi
     echo -e "${GREEN}✓ Authenticated${NC}"
+
 }
 
 # ── Detect repository ─────────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ check_permissions() {
         fi
         echo -e "${GREEN}✓ Permission: $PERM ($AUTH_USER)${NC}"
     fi
+
 }
 
 # ── Check for already-running workflow ───────────────────────────────────────
@@ -164,11 +166,25 @@ trigger_workflow() {
     echo -e "${BLUE}🚀 Triggering: $WORKFLOW${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
+    TRIGGER_OUT=$(mktemp)
     if [ ${#INPUT_ARGS[@]} -gt 0 ]; then
-        gh workflow run "$WORKFLOW" --repo "$REPO" "${INPUT_ARGS[@]}"
+        gh workflow run "$WORKFLOW" --repo "$REPO" "${INPUT_ARGS[@]}" 2>"$TRIGGER_OUT" || true
     else
-        gh workflow run "$WORKFLOW" --repo "$REPO"
+        gh workflow run "$WORKFLOW" --repo "$REPO" 2>"$TRIGGER_OUT" || true
     fi
+    if [ -s "$TRIGGER_OUT" ]; then
+        ERR=$(cat "$TRIGGER_OUT"); rm -f "$TRIGGER_OUT"
+        if echo "$ERR" | grep -q "403\|Resource not accessible"; then
+            echo -e "${RED}❌ Permission denied (HTTP 403) — token cannot trigger workflow_dispatch events${NC}"
+            echo "   For classic PATs:      add 'workflow' scope at github.com/settings/tokens"
+            echo "   For fine-grained PATs: enable 'Actions: write' permission"
+            echo "   Or re-authenticate:    gh auth login --scopes workflow"
+        else
+            echo -e "${RED}❌ Failed to trigger workflow:${NC} $ERR"
+        fi
+        exit 1
+    fi
+    rm -f "$TRIGGER_OUT"
 
     echo -e "${GREEN}✓ Workflow triggered${NC}"
     echo ""
