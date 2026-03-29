@@ -105,7 +105,7 @@ def _run_setup(ai: bool = False):
         sess.cleanup()
         print(f"  chdb: OK ({chdb_path})")
     else:
-        print("  ClickHouse: remote server — requires pip install aaiclick[clickhouse]")
+        print("  ClickHouse: remote server — requires pip install aaiclick[distributed]")
 
     if is_sqlite():
         from sqlalchemy import create_engine
@@ -120,7 +120,7 @@ def _run_setup(ai: bool = False):
         engine.dispose()
         print(f"  SQLite DB: OK ({db_url})")
     else:
-        print("  PostgreSQL: requires pip install aaiclick[postgres]")
+        print("  PostgreSQL: requires pip install aaiclick[distributed]")
         print("  Run migrations: python -m aaiclick migrate upgrade head")
 
     if ai:

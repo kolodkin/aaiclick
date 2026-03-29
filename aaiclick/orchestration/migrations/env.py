@@ -34,8 +34,8 @@ def get_url() -> str:
             import psycopg2  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "PostgreSQL migrations require the aaiclick[postgres] extra. "
-                "Install with: pip install aaiclick[postgres]"
+                "PostgreSQL migrations require the aaiclick[distributed] extra. "
+                "Install with: pip install aaiclick[distributed]"
             ) from e
     if sql_url:
         return sql_url.replace("postgresql+asyncpg://", "postgresql://")
