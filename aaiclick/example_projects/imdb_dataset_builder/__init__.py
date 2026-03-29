@@ -294,8 +294,8 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     # Genre distribution (depends on exploded genres)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    # Optional publish to Hugging Face (depends on clean dataset)
-    hf_result = publish_to_huggingface(clean=clean)
+    # Optional publish to Hugging Face (only scheduled when HF_TOKEN is set)
+    hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
 
     # Final report (depends on everything)
     report = generate_report(
