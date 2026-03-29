@@ -1,13 +1,13 @@
 Operation Log (oplog)
 ---
 
-The `aaiclick/oplog/` module captures data operation provenance inside ClickHouse with zero AI dependencies. Every object created or transformed within a `data_context(oplog=True)` session is recorded, enabling lineage tracing, debugging, and post-job data sampling.
+The `aaiclick/oplog/` module captures data operation provenance inside ClickHouse with zero AI dependencies. Every object created or transformed within a session is recorded, enabling lineage tracing, debugging, and post-job data sampling. Activation via `data_context()` is planned for Phase 3 — see `docs/future.md`.
 
 ---
 
 # Design Principles
 
-- **Zero overhead when disabled** — `oplog=False` (default) installs no ContextVar, no overhead
+- **Zero overhead when disabled** — no ContextVar overhead when oplog is not active
 - **ClickHouse-native** — all provenance data lives in ClickHouse alongside Object tables
 - **Append-only** — `operation_log` is TTL-managed; no deletes during normal operation
 - **Flush on success only** — buffer is discarded on exception to avoid partial lineage
@@ -43,7 +43,12 @@ Maps every ephemeral table to its owning `job_id` for post-job cleanup. Persiste
 
 Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to both `operation_log` and `table_registry` on `flush()`. Accessed via ContextVar `_oplog_collector`.
 
-## Activation
+## Activation ⚠️ NOT YET IMPLEMENTED (Phase 3)
+
+The `data_context()` function does not yet accept an `oplog` parameter. OplogCollector activation
+is planned for Phase 3 — see `docs/future.md` — "Operation Provenance Integration (Phase 3)".
+
+Once implemented, the intended API is:
 
 ```python
 # Bool — creates a plain OplogCollector()
@@ -56,7 +61,7 @@ async with data_context(oplog=collector):
     ...
 ```
 
-`data_context` stores the collector in the ContextVar, calls `flush()` on clean exit, and resets in `finally`. On exception, the buffer is discarded.
+`data_context` will store the collector in the ContextVar, call `flush()` on clean exit, and reset in `finally`. On exception, the buffer is discarded.
 
 ---
 

@@ -304,7 +304,7 @@ SELECT expressions are the simplest and most composable — they align with how 
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.with_columns()` and `View.with_columns()` methods
 
-**Implementation**: `aaiclick/data/models.py` — see `Computed` class (NamedTuple with `type` and `expression` fields)
+**Implementation**: `aaiclick/data/models.py` — see `Computed` class (NamedTuple with `type` and `expression` fields). Import as `from aaiclick.data.models import Computed`.
 
 `with_columns()` is synchronous — it creates a View, no database call needed. No `await`. Works on both Object and View. On Views, preserves existing constraints (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the SELECT list.
 
@@ -331,7 +331,7 @@ The result is always a **View** with dict-like schema (`fieldtype='d'`):
 
 ## Column Name Collision
 
-Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, use `drop_columns()` first (future) or work with the raw SQL pattern.
+Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, work with the raw SQL pattern.
 
 ## Implementation Details
 

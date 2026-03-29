@@ -4,7 +4,7 @@ aaiclick Orchestration Backend Specification
 # Basic Example
 
 ```python
-from aaiclick.orchestration import job, task, job_test
+from aaiclick.orchestration import job, task, job_test, TaskResult
 
 @task
 async def add(a: int, b: int) -> int:
@@ -18,7 +18,7 @@ async def multiply(x: int, y: int) -> int:
 def pipeline(x: int, y: int):
     sum_result = add(a=x, b=y)      # no dependency between tasks → run in parallel
     product = multiply(x=x, y=y)
-    return [sum_result, product]
+    return TaskResult(tasks=[sum_result, product])
 
 j = pipeline(x=3, y=4)
 job_test(j)  # execute synchronously (testing/local)
