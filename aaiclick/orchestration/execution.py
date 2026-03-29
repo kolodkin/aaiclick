@@ -305,7 +305,11 @@ async def execute_task(task: Task) -> Any:
                 if lifecycle is not None:
                     lifecycle.pin(pin_target.table)
 
-    return result
+            # Register returned tasks INSIDE task_scope so the registry
+            # (ContextVar) that was populated during func() is still active.
+            data_result = await register_returned_tasks(result, task.id, task.job_id)
+
+    return data_result
 
 
 def _sanitize_for_json(value: Any) -> Any:
@@ -529,10 +533,7 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            result = await execute_task(task)
-
-            # Register any returned Task/Group objects to the job
-            data_result = await register_returned_tasks(result, task_id, task_job_id)
+            data_result = await execute_task(task)
 
             # Serialize the data portion of the result
             result_ref = serialize_task_result(data_result, task_job_id)
