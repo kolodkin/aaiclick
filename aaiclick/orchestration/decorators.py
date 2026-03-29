@@ -40,6 +40,7 @@ from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
+from .task_registry import get_task_registry
 
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
@@ -137,8 +138,9 @@ class TaskFactory:
         # Serialize kwargs
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
 
+        task_id = get_snowflake_id()
         task = Task(
-            id=get_snowflake_id(),
+            id=task_id,
             entrypoint=self.entrypoint,
             name=self.name,
             kwargs=serialized_kwargs,
@@ -146,6 +148,9 @@ class TaskFactory:
             created_at=datetime.utcnow(),
             max_retries=self.max_retries,
         )
+        registry = get_task_registry()
+        if registry is not None:
+            registry[task_id] = task
 
         # Set up dependencies: upstream >> task
         for upstream in upstream_tasks:

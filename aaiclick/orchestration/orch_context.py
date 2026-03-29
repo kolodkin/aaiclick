@@ -23,6 +23,7 @@ from .db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
 from .db_lifecycle import DBLifecycleMessage, DBLifecycleOp
 from .env import get_db_url
+from .task_registry import _task_registry_var, get_task_registry
 from .models import Group, Task, TasksType
 
 
@@ -193,6 +194,7 @@ async def orch_context() -> AsyncIterator[None]:
     db_token = _db_handler_var.set(handler)
     ch_token = _ch_client_var.set(ch_client)
     eng_token = _engine_var.set(ENGINE_DEFAULT)
+    registry_token = _task_registry_var.set({})
 
     try:
         yield
@@ -201,6 +203,7 @@ async def orch_context() -> AsyncIterator[None]:
         _db_handler_var.reset(db_token)
         _engine_var.reset(eng_token)
         _ch_client_var.reset(ch_token)
+        _task_registry_var.reset(registry_token)
         await engine.dispose()
 
 
@@ -233,6 +236,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
     oplog_token = _oplog_collector.set(collector)
+    registry_token = _task_registry_var.set({})
 
     failed = False
     try:
@@ -244,6 +248,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         if not failed:
             await collector.flush()
         _oplog_collector.reset(oplog_token)
+        _task_registry_var.reset(registry_token)
 
         # Stale-mark all tracked objects
         for obj_ref in objects.values():
@@ -258,6 +263,40 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         _lifecycle_var.reset(lc_token)
 
 
+def _collect_from_registry(items: list) -> list:
+    """Collect all reachable Task/Group objects via dependency IDs and the task registry.
+
+    Walks the dependency graph starting from ``items``, looking up each
+    upstream ID in the active registry (ContextVar). Registry entries are
+    in-memory objects not yet persisted; missing entries are already in the
+    DB so traversal stops there naturally.
+
+    Returns objects in dependency-first order so SQLAlchemy inserts them
+    without FK violations. If no registry is active, returns ``items`` as-is.
+    """
+    registry = get_task_registry()
+    if registry is None:
+        return items
+
+    visited: dict = {}
+    result: list = []
+
+    def visit(node: object) -> None:
+        if id(node) in visited:
+            return
+        visited[id(node)] = node
+        for dep in node.previous_dependencies:
+            upstream = registry.get(dep.previous_id)
+            if upstream is not None:
+                visit(upstream)
+        result.append(node)
+
+    for item in items:
+        visit(item)
+
+    return result
+
+
 async def commit_tasks(
     items: TasksType,
     job_id: int,
@@ -267,6 +306,12 @@ async def commit_tasks(
     Sets job_id on all items, generates snowflake IDs for Groups
     if not already set, and commits to the SQL database.
 
+    All tasks and groups created via create_task() or Group() are tracked in
+    the active task registry (ContextVar set by orch_context / task_scope).
+    commit_tasks uses the registry to resolve upstream IDs from dependency
+    records, so callers only need to pass terminal (leaf) tasks — all upstream
+    tasks are discovered automatically.
+
     Args:
         items: Single Task/Group or list of Task/Group objects
         job_id: Job ID to assign to all items
@@ -275,9 +320,10 @@ async def commit_tasks(
         Same items with database IDs populated
     """
     items_list = items if isinstance(items, list) else [items]
+    all_items = _collect_from_registry(items_list)
 
     async with get_sql_session() as session:
-        for item in items_list:
+        for item in all_items:
             item.job_id = job_id
 
             if isinstance(item, Group) and item.id is None:
@@ -286,6 +332,13 @@ async def commit_tasks(
             session.add(item)
 
         await session.commit()
+
+    # Remove committed items from the registry so subsequent commit_tasks calls
+    # don't re-visit them (which would trigger a detached lazy-load error).
+    registry = get_task_registry()
+    if registry is not None:
+        for item in all_items:
+            registry.pop(item.id, None)
 
     if isinstance(items, list):
         return items_list

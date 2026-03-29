@@ -11,7 +11,7 @@
 ## Project Structure
 
 - Each example project should have a `report.py` file containing final report printout logic
-- The `@job` function returns `TaskResult` with all tasks listed — report is always the last (finalization) task; `report.py` is only responsible for the printout
+- The `@job` function returns the terminal task directly (e.g. `return report`) — the framework auto-discovers all upstream tasks via the dependency graph; `report.py` is only responsible for the printout
 - Always prefer `Object.markdown()` for rendering tables in `report.py` — avoid custom table rendering logic
 
 ## Task Return Values

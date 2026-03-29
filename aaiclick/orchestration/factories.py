@@ -9,6 +9,7 @@ from aaiclick.snowflake_id import get_snowflake_id
 
 from .orch_context import get_sql_session
 from .models import Job, JobStatus, Task, TaskStatus
+from .task_registry import get_task_registry
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -116,7 +117,7 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
         entrypoint = callback
         resolved_name = name or entrypoint.rsplit(".", 1)[-1]
 
-    return Task(
+    task = Task(
         id=task_id,
         entrypoint=entrypoint,
         name=resolved_name,
@@ -125,6 +126,10 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
         created_at=datetime.utcnow(),
         max_retries=max_retries,
     )
+    registry = get_task_registry()
+    if registry is not None:
+        registry[task_id] = task
+    return task
 
 
 async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
@@ -176,5 +181,11 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
 
         # Commit transaction
         await session.commit()
+
+    # Remove the entry task from the registry after commit so that subsequent
+    # registry lookups for the same task ID don't return the now-detached object.
+    registry = get_task_registry()
+    if registry is not None:
+        registry.pop(task.id, None)
 
     return job
