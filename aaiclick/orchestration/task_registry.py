@@ -23,3 +23,10 @@ _task_registry_var: ContextVar[dict | None] = ContextVar(
 def get_task_registry() -> dict | None:
     """Return the active task registry, or None if no context is active."""
     return _task_registry_var.get()
+
+
+def register_task(task_id: int, task) -> None:
+    """Register a task in the active registry, if one is active."""
+    registry = _task_registry_var.get()
+    if registry is not None:
+        registry[task_id] = task

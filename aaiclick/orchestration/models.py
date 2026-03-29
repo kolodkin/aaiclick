@@ -13,7 +13,7 @@ from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
-from .task_registry import get_task_registry
+from .task_registry import register_task
 
 # Dependency type constants
 DEPENDENCY_TASK = "task"
@@ -147,9 +147,7 @@ class Group(SQLModel, table=True):
 
     def model_post_init(self, __context: Any) -> None:
         self._tasks = []
-        registry = get_task_registry()
-        if registry is not None:
-            registry[self.id] = self
+        register_task(self.id, self)
 
     def add_task(self, task: "Task") -> None:
         """Attach a Task to this group for co-registration."""
