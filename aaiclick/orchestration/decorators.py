@@ -40,7 +40,6 @@ from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
-from .task_registry import register_task
 
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
@@ -148,7 +147,6 @@ class TaskFactory:
             created_at=datetime.utcnow(),
             max_retries=self.max_retries,
         )
-        register_task(task_id, task)
 
         # Set up dependencies: upstream >> task
         for upstream in upstream_tasks:

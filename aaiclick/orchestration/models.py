@@ -256,6 +256,9 @@ class Task(SQLModel, table=True):
     attempt: int = Field(default=0)
     retry_after: Optional[datetime] = Field(default=None)
 
+    def model_post_init(self, __context: Any) -> None:
+        register_task(self.id, self)
+
     # Dependencies where this task is the "next" (i.e., this task depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group
     # intentionally write to Dependency.next_id (polymorphic design via next_type)
