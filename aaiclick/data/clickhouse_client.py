@@ -28,8 +28,8 @@ async def create_clickhouse_client():
         from clickhouse_connect import get_async_client
     except ImportError as e:
         raise ImportError(
-            "Remote ClickHouse requires the aaiclick[clickhouse] extra. "
-            "Install with: pip install aaiclick[clickhouse]"
+            "Remote ClickHouse requires the aaiclick[distributed] extra. "
+            "Install with: pip install aaiclick[distributed]"
         ) from e
 
     parsed = urlparse(get_ch_url())

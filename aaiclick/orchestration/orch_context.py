@@ -182,8 +182,8 @@ async def orch_context() -> AsyncIterator[None]:
             import asyncpg  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "PostgreSQL requires the aaiclick[postgres] extra. "
-                "Install with: pip install aaiclick[postgres]"
+                "PostgreSQL requires the aaiclick[distributed] extra. "
+                "Install with: pip install aaiclick[distributed]"
             ) from e
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()
