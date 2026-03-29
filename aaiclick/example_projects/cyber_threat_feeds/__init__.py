@@ -28,7 +28,7 @@ Usage:
 
 import asyncio
 
-from aaiclick.orchestration import TaskResult, job
+from aaiclick.orchestration import job
 
 from .consolidated import analyze_consolidated, build_consolidated_table
 from .epss import analyze_epss, load_epss_data
@@ -103,7 +103,7 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         end_date=END_DATE,
     )
 
-    return TaskResult(tasks=[threat_report])
+    return threat_report
 
 
 async def main():

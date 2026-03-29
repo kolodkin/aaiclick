@@ -38,7 +38,7 @@ from huggingface_hub import HfApi
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
-from aaiclick.orchestration import TaskResult, job, task
+from aaiclick.orchestration import job, task
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
@@ -308,7 +308,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         hf_result=hf_result,
     )
 
-    return TaskResult(tasks=[report])
+    return report
 
 
 async def main():
