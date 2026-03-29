@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from aaiclick.data.object import Object, View
@@ -200,6 +201,36 @@ async def test_serialize_task_result_non_object(orch_ctx):
     """Test serializing a non-Object/View result wraps in native_value."""
     assert serialize_task_result(42, job_id=2) == {"native_value": 42}
     assert serialize_task_result("hello", job_id=2) == {"native_value": "hello"}
+
+
+class _SampleModel(BaseModel):
+    name: str
+    count: int
+    ratio: float | None = None
+
+
+async def test_serialize_task_result_pydantic_model(orch_ctx):
+    """Pydantic BaseModel results are serialized with pydantic_type + data keys."""
+    model = _SampleModel(name="test", count=42, ratio=0.5)
+    result = serialize_task_result(model, job_id=1)
+    assert result["pydantic_type"].endswith("._SampleModel")
+    assert result["data"] == {"name": "test", "count": 42, "ratio": 0.5}
+
+
+async def test_deserialize_pydantic_model_round_trip(orch_ctx):
+    """Pydantic model survives serialize → deserialize round-trip via task result."""
+    from aaiclick.orchestration.execution import _deserialize_value
+
+    model = _SampleModel(name="hello", count=7, ratio=None)
+    serialized = serialize_task_result(model, job_id=1)
+
+    async with get_sql_session() as session:
+        recovered = await _deserialize_value(serialized, session)
+
+    assert isinstance(recovered, _SampleModel)
+    assert recovered.name == "hello"
+    assert recovered.count == 7
+    assert recovered.ratio is None
 
 
 async def test_execute_task_sync_function(orch_ctx):

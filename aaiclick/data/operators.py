@@ -235,6 +235,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=fieldtype,
+        col_fieldtype=fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)}
     )
 
@@ -379,6 +380,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
+        col_fieldtype=FIELDTYPE_SCALAR,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
@@ -528,6 +530,7 @@ async def count_if_agg(info: QueryInfo, condition: Union[str, dict[str, str]], c
     if isinstance(condition, str):
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
+            col_fieldtype=FIELDTYPE_SCALAR,
             columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
         )
         result = await create_object(schema)
@@ -583,6 +586,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
+        col_fieldtype=FIELDTYPE_SCALAR,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
     )
 
@@ -869,6 +873,7 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
+        col_fieldtype=fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
     )
 
@@ -947,6 +952,7 @@ async def unary_transform(info: QueryInfo, transform: str, ch_client):
 
     schema = Schema(
         fieldtype=info.fieldtype,
+        col_fieldtype=info.fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(result_type)},
     )
     result = await create_object(schema)
@@ -966,6 +972,7 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
+        col_fieldtype=info.fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
@@ -981,6 +988,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
+        col_fieldtype=info.fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
@@ -1008,6 +1016,7 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
+        col_fieldtype=fieldtype,
         columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
