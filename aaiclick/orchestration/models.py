@@ -8,17 +8,12 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
-from weakref import WeakValueDictionary
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
-# Registry of all in-memory Task/Group objects created in this process.
-# WeakValueDictionary ensures entries are removed when objects are GC'd.
-# Tasks/Groups loaded from the DB are never added here — only freshly
-# created objects are registered (via create_task and Group.model_post_init).
-_task_registry: WeakValueDictionary = WeakValueDictionary()
+from .task_registry import get_task_registry
 
 # Dependency type constants
 DEPENDENCY_TASK = "task"
@@ -152,7 +147,9 @@ class Group(SQLModel, table=True):
 
     def model_post_init(self, __context: Any) -> None:
         self._tasks = []
-        _task_registry[self.id] = self
+        registry = get_task_registry()
+        if registry is not None:
+            registry[self.id] = self
 
     def add_task(self, task: "Task") -> None:
         """Attach a Task to this group for co-registration."""

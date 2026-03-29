@@ -8,7 +8,8 @@ from typing import Callable, Union
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, Task, TaskStatus, _task_registry
+from .models import Job, JobStatus, Task, TaskStatus
+from .task_registry import get_task_registry
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -125,7 +126,9 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
         created_at=datetime.utcnow(),
         max_retries=max_retries,
     )
-    _task_registry[task_id] = task
+    registry = get_task_registry()
+    if registry is not None:
+        registry[task_id] = task
     return task
 
 
