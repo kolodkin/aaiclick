@@ -6,7 +6,7 @@ import asyncio
 import queue
 import weakref
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -258,6 +258,35 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         _lifecycle_var.reset(lc_token)
 
 
+def _collect_graph(items: list) -> list:
+    """Walk _upstream_objects recursively to collect all reachable tasks/groups.
+
+    Returns a flat list of unique Task/Group objects in dependency-first order
+    (upstreams before downstreams), so SQLAlchemy can insert them without FK
+    violations.
+    """
+    visited: dict = {}
+    result: list = []
+
+    def visit(node: Any) -> None:
+        if id(node) in visited:
+            return
+        visited[id(node)] = node
+        # Tasks/Groups loaded from DB have __pydantic_private__ == None,
+        # meaning they're already persisted — stop traversal there.
+        pydantic_private = object.__getattribute__(node, "__pydantic_private__")
+        if pydantic_private is None:
+            return
+        for upstream in node._upstream_objects:
+            visit(upstream)
+        result.append(node)
+
+    for item in items:
+        visit(item)
+
+    return result
+
+
 async def commit_tasks(
     items: TasksType,
     job_id: int,
@@ -267,6 +296,10 @@ async def commit_tasks(
     Sets job_id on all items, generates snowflake IDs for Groups
     if not already set, and commits to the SQL database.
 
+    Automatically walks the full dependency graph starting from ``items``
+    so callers only need to pass terminal (leaf) tasks — all upstream tasks
+    are discovered and persisted automatically.
+
     Args:
         items: Single Task/Group or list of Task/Group objects
         job_id: Job ID to assign to all items
@@ -275,9 +308,10 @@ async def commit_tasks(
         Same items with database IDs populated
     """
     items_list = items if isinstance(items, list) else [items]
+    all_items = _collect_graph(items_list)
 
     async with get_sql_session() as session:
-        for item in items_list:
+        for item in all_items:
             item.job_id = job_id
 
             if isinstance(item, Group) and item.id is None:

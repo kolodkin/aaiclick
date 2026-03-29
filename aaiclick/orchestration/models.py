@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
+from pydantic import PrivateAttr
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 # Dependency type constants
@@ -141,15 +142,16 @@ class Group(SQLModel, table=True):
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    _tasks: list = PrivateAttr(default_factory=list)
+    _upstream_objects: list = PrivateAttr(default_factory=list)
+
     def add_task(self, task: "Task") -> None:
         """Attach a Task to this group for co-registration."""
-        if not hasattr(self, "_tasks"):
-            self._tasks = []
         self._tasks.append(task)
 
     def get_tasks(self) -> List["Task"]:
         """Return tasks attached to this group (non-DB)."""
-        return getattr(self, "_tasks", [])
+        return self._tasks
 
     # Dependencies where this group is the "next" (i.e., this group depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group
@@ -181,6 +183,7 @@ class Group(SQLModel, table=True):
             next_type=DEPENDENCY_GROUP,
         )
         self.previous_dependencies.append(dependency)
+        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
@@ -261,6 +264,8 @@ class Task(SQLModel, table=True):
         }
     )
 
+    _upstream_objects: list = PrivateAttr(default_factory=list)
+
     def depends_on(self, other: Union["Task", "Group"]) -> "Task":
         """
         Declare that this task depends on another task or group.
@@ -280,6 +285,7 @@ class Task(SQLModel, table=True):
             next_type=DEPENDENCY_TASK,
         )
         self.previous_dependencies.append(dependency)
+        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
