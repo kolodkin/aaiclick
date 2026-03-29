@@ -8,11 +8,17 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
+from weakref import WeakValueDictionary
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
-from pydantic import PrivateAttr
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
+
+# Registry of all in-memory Task/Group objects created in this process.
+# WeakValueDictionary ensures entries are removed when objects are GC'd.
+# Tasks/Groups loaded from the DB are never added here — only freshly
+# created objects are registered (via create_task and Group.model_post_init).
+_task_registry: WeakValueDictionary = WeakValueDictionary()
 
 # Dependency type constants
 DEPENDENCY_TASK = "task"
@@ -142,8 +148,11 @@ class Group(SQLModel, table=True):
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    _tasks: list = PrivateAttr(default_factory=list)
-    _upstream_objects: list = PrivateAttr(default_factory=list)
+    _tasks: list = []
+
+    def model_post_init(self, __context: Any) -> None:
+        self._tasks = []
+        _task_registry[self.id] = self
 
     def add_task(self, task: "Task") -> None:
         """Attach a Task to this group for co-registration."""
@@ -183,7 +192,6 @@ class Group(SQLModel, table=True):
             next_type=DEPENDENCY_GROUP,
         )
         self.previous_dependencies.append(dependency)
-        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
@@ -264,8 +272,6 @@ class Task(SQLModel, table=True):
         }
     )
 
-    _upstream_objects: list = PrivateAttr(default_factory=list)
-
     def depends_on(self, other: Union["Task", "Group"]) -> "Task":
         """
         Declare that this task depends on another task or group.
@@ -285,7 +291,6 @@ class Task(SQLModel, table=True):
             next_type=DEPENDENCY_TASK,
         )
         self.previous_dependencies.append(dependency)
-        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:

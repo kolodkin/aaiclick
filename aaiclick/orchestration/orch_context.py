@@ -6,7 +6,7 @@ import asyncio
 import queue
 import weakref
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict
+from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -23,7 +23,7 @@ from .db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
 from .db_lifecycle import DBLifecycleMessage, DBLifecycleOp
 from .env import get_db_url
-from .models import Group, Task, TasksType
+from .models import Group, Task, TasksType, _task_registry
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -258,27 +258,28 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         _lifecycle_var.reset(lc_token)
 
 
-def _collect_graph(items: list) -> list:
-    """Walk _upstream_objects recursively to collect all reachable tasks/groups.
+def _collect_from_registry(items: list) -> list:
+    """Collect all reachable Task/Group objects via dependency IDs and _task_registry.
 
-    Returns a flat list of unique Task/Group objects in dependency-first order
-    (upstreams before downstreams), so SQLAlchemy can insert them without FK
-    violations.
+    Walks the dependency graph starting from ``items``, looking up each
+    upstream ID in _task_registry. Registry entries are in-memory objects
+    that haven't been persisted yet; missing entries are already in the DB,
+    so traversal stops there naturally.
+
+    Returns objects in dependency-first order so SQLAlchemy inserts them
+    without FK violations.
     """
     visited: dict = {}
     result: list = []
 
-    def visit(node: Any) -> None:
+    def visit(node: object) -> None:
         if id(node) in visited:
             return
         visited[id(node)] = node
-        # Tasks/Groups loaded from DB have __pydantic_private__ == None,
-        # meaning they're already persisted — stop traversal there.
-        pydantic_private = object.__getattribute__(node, "__pydantic_private__")
-        if pydantic_private is None:
-            return
-        for upstream in node._upstream_objects:
-            visit(upstream)
+        for dep in node.previous_dependencies:
+            upstream = _task_registry.get(dep.previous_id)
+            if upstream is not None:
+                visit(upstream)
         result.append(node)
 
     for item in items:
@@ -296,9 +297,10 @@ async def commit_tasks(
     Sets job_id on all items, generates snowflake IDs for Groups
     if not already set, and commits to the SQL database.
 
-    Automatically walks the full dependency graph starting from ``items``
-    so callers only need to pass terminal (leaf) tasks — all upstream tasks
-    are discovered and persisted automatically.
+    All tasks and groups created via create_task() or Group() are tracked in
+    _task_registry. commit_tasks uses the registry to resolve upstream IDs
+    from dependency records, so callers only need to pass terminal (leaf)
+    tasks — all upstream tasks are discovered automatically.
 
     Args:
         items: Single Task/Group or list of Task/Group objects
@@ -308,7 +310,7 @@ async def commit_tasks(
         Same items with database IDs populated
     """
     items_list = items if isinstance(items, list) else [items]
-    all_items = _collect_graph(items_list)
+    all_items = _collect_from_registry(items_list)
 
     async with get_sql_session() as session:
         for item in all_items:
@@ -320,6 +322,11 @@ async def commit_tasks(
             session.add(item)
 
         await session.commit()
+
+    # Remove committed items from the registry so subsequent commit_tasks calls
+    # don't re-visit them (which would trigger a detached lazy-load error).
+    for item in all_items:
+        _task_registry.pop(item.id, None)
 
     if isinstance(items, list):
         return items_list
