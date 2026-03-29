@@ -194,7 +194,7 @@ async def orch_context() -> AsyncIterator[None]:
     db_token = _db_handler_var.set(handler)
     ch_token = _ch_client_var.set(ch_client)
     eng_token = _engine_var.set(ENGINE_DEFAULT)
-    registry_token = _task_registry_var.set(weakref.WeakValueDictionary())
+    registry_token = _task_registry_var.set({})
 
     try:
         yield
@@ -236,7 +236,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
     oplog_token = _oplog_collector.set(collector)
-    registry_token = _task_registry_var.set(weakref.WeakValueDictionary())
+    registry_token = _task_registry_var.set({})
 
     failed = False
     try:

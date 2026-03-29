@@ -182,4 +182,10 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
         # Commit transaction
         await session.commit()
 
+    # Remove the entry task from the registry after commit so that subsequent
+    # registry lookups for the same task ID don't return the now-detached object.
+    registry = get_task_registry()
+    if registry is not None:
+        registry.pop(task.id, None)
+
     return job
