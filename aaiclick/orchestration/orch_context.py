@@ -162,19 +162,24 @@ class OrchLifecycleHandler(LifecycleHandler):
 
 
 @asynccontextmanager
-async def orch_context() -> AsyncIterator[None]:
+async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     """Async context manager for all orchestration operations.
 
     Creates shared resources on enter:
     - SQLAlchemy AsyncEngine for orchestration SQL (set in _sql_engine_var)
     - DbHandler for database operations (set in _db_handler_var)
-    - ChClient for ClickHouse operations (set in _ch_client_var)
+    - ChClient for ClickHouse operations (set in _ch_client_var, if with_ch=True)
 
     Sets ContextVars for the duration:
     - _sql_engine_var: SQL engine (accessed via get_sql_session())
     - _db_handler_var: DB handler (accessed via get_db_handler())
     - _ch_client_var: shared ClickHouse client (accessed via get_ch_client())
     - _engine_var: ENGINE_DEFAULT for data operations
+
+    Args:
+        with_ch: Whether to open a ClickHouse client. Set to False for read-only
+            SQL-only operations (e.g. job status queries) to avoid acquiring the
+            chdb file lock, which would conflict with a running worker process.
 
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
@@ -188,13 +193,16 @@ async def orch_context() -> AsyncIterator[None]:
             ) from e
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()
-    ch_client = await create_ch_client()
 
     sql_token = _sql_engine_var.set(engine)
     db_token = _db_handler_var.set(handler)
-    ch_token = _ch_client_var.set(ch_client)
     eng_token = _engine_var.set(ENGINE_DEFAULT)
     registry_token = _task_registry_var.set({})
+
+    ch_token = None
+    if with_ch:
+        ch_client = await create_ch_client()
+        ch_token = _ch_client_var.set(ch_client)
 
     try:
         yield
@@ -202,7 +210,8 @@ async def orch_context() -> AsyncIterator[None]:
         _sql_engine_var.reset(sql_token)
         _db_handler_var.reset(db_token)
         _engine_var.reset(eng_token)
-        _ch_client_var.reset(ch_token)
+        if ch_token is not None:
+            _ch_client_var.reset(ch_token)
         _task_registry_var.reset(registry_token)
         await engine.dispose()
 
