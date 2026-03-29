@@ -383,18 +383,7 @@ def nyc_taxi_pipeline(
         top_zones=top_zones,
     )
 
-    return TaskResult(tasks=[
-        trips,
-        basic_stats,
-        statistical_metrics,
-        by_pickup_zone,
-        by_payment,
-        by_passenger,
-        top_zones,
-        tip_analysis,
-        distance_analysis,
-        report,
-    ])
+    return TaskResult(tasks=[report])
 
 
 async def main():
