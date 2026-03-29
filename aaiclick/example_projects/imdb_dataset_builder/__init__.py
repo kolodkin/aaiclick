@@ -308,17 +308,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         hf_result=hf_result,
     )
 
-    return TaskResult(tasks=[
-        raw,
-        profile,
-        movies,
-        quality_issues,
-        exploded,
-        genre_balance,
-        clean,
-        hf_result,
-        report,
-    ])
+    return TaskResult(tasks=[report])
 
 
 async def main():

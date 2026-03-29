@@ -181,6 +181,9 @@ class Group(SQLModel, table=True):
             next_type=DEPENDENCY_GROUP,
         )
         self.previous_dependencies.append(dependency)
+        if not hasattr(self, "_upstream_objects"):
+            self._upstream_objects = []
+        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
@@ -280,6 +283,9 @@ class Task(SQLModel, table=True):
             next_type=DEPENDENCY_TASK,
         )
         self.previous_dependencies.append(dependency)
+        if not hasattr(self, "_upstream_objects"):
+            self._upstream_objects = []
+        self._upstream_objects.append(other)
         return self
 
     def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:

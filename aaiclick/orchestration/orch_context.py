@@ -258,6 +258,35 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
         _lifecycle_var.reset(lc_token)
 
 
+def _collect_graph(items: list) -> list:
+    """Walk _upstream_objects references to collect all tasks/groups in the graph.
+
+    Starting from the given items, follows transient _upstream_objects references
+    recursively to discover all upstream tasks and groups that need to be committed.
+
+    Args:
+        items: Seed list of Task/Group objects to start from
+
+    Returns:
+        All reachable Task/Group objects including the seeds
+    """
+    visited: dict[int, object] = {}
+    queue: list = list(items)
+    while queue:
+        item = queue.pop()
+        if item.id in visited:
+            continue
+        visited[item.id] = item
+        for upstream in getattr(item, "_upstream_objects", []):
+            if upstream.id not in visited:
+                queue.append(upstream)
+        if isinstance(item, Group):
+            for t in item.get_tasks():
+                if t.id not in visited:
+                    queue.append(t)
+    return list(visited.values())
+
+
 async def commit_tasks(
     items: TasksType,
     job_id: int,
@@ -267,6 +296,10 @@ async def commit_tasks(
     Sets job_id on all items, generates snowflake IDs for Groups
     if not already set, and commits to the SQL database.
 
+    Automatically walks _upstream_objects references to collect and commit
+    all tasks reachable from the given items — so callers only need to pass
+    terminal (leaf) tasks and the full graph is registered.
+
     Args:
         items: Single Task/Group or list of Task/Group objects
         job_id: Job ID to assign to all items
@@ -275,9 +308,10 @@ async def commit_tasks(
         Same items with database IDs populated
     """
     items_list = items if isinstance(items, list) else [items]
+    all_items = _collect_graph(items_list)
 
     async with get_sql_session() as session:
-        for item in items_list:
+        for item in all_items:
             item.job_id = job_id
 
             if isinstance(item, Group) and item.id is None:
