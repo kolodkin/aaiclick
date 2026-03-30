@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution import TaskResult
-from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.factories import create_job, create_task, data_list, task_result, tasks_list
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 
@@ -181,3 +181,53 @@ async def test_job_task_relationship(orch_ctx):
         tasks = result.scalars().all()
         assert len(tasks) == 1
         assert tasks[0].job_id == job.id
+
+
+def test_task_result_factory(orch_ctx):
+    """Test task_result() creates TaskResult with data and tasks."""
+    t = create_task("mod.fn")
+    result = task_result(data="value", tasks=[t])
+    assert isinstance(result, TaskResult)
+    assert result.data == "value"
+    assert result.tasks == [t]
+
+
+def test_task_result_factory_defaults(orch_ctx):
+    """Test task_result() defaults to None data and empty tasks list."""
+    result = task_result()
+    assert result.data is None
+    assert result.tasks == []
+
+
+def test_data_list_single(orch_ctx):
+    """Test data_list() with a single item returns TaskResult with that item as data."""
+    result = data_list("only")
+    assert isinstance(result, TaskResult)
+    assert result.data == "only"
+    assert result.tasks == []
+
+
+def test_data_list_multiple(orch_ctx):
+    """Test data_list() with multiple items returns TaskResult with a list."""
+    result = data_list("a", "b", "c")
+    assert isinstance(result, TaskResult)
+    assert result.data == ["a", "b", "c"]
+    assert result.tasks == []
+
+
+def test_tasks_list_factory(orch_ctx):
+    """Test tasks_list() creates TaskResult with tasks and no data."""
+    t1 = create_task("mod.fn1")
+    t2 = create_task("mod.fn2")
+    result = tasks_list(t1, t2)
+    assert isinstance(result, TaskResult)
+    assert result.data is None
+    assert result.tasks == [t1, t2]
+
+
+def test_tasks_list_empty(orch_ctx):
+    """Test tasks_list() with no arguments returns empty tasks list."""
+    result = tasks_list()
+    assert isinstance(result, TaskResult)
+    assert result.data is None
+    assert result.tasks == []

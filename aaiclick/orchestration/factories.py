@@ -189,3 +189,56 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
         registry.pop(task.id, None)
 
     return job
+
+
+def task_result(*, data=None, tasks=None):
+    """Create a TaskResult with both data and tasks.
+
+    Args:
+        data: Return value / output data
+        tasks: List of child Task objects
+
+    Returns:
+        TaskResult(data=data, tasks=tasks or [])
+
+    Example:
+        return task_result(data=my_object, tasks=[t1, t2])
+    """
+    from .execution import TaskResult  # Circular dep workaround
+    return TaskResult(data=data, tasks=tasks or [])
+
+
+def data_list(*data):
+    """Create a TaskResult carrying only data items.
+
+    Args:
+        *data: One or more data values to return
+
+    Returns:
+        TaskResult(data=list(data)) when multiple items given,
+        TaskResult(data=data[0]) when a single item is given.
+
+    Example:
+        return data_list(obj_a, obj_b)
+        return data_list(single_obj)
+    """
+    from .execution import TaskResult  # Circular dep workaround
+    if len(data) == 1:
+        return TaskResult(data=data[0])
+    return TaskResult(data=list(data))
+
+
+def tasks_list(*tasks):
+    """Create a TaskResult carrying only child tasks.
+
+    Args:
+        *tasks: Task objects to schedule as children
+
+    Returns:
+        TaskResult(tasks=list(tasks))
+
+    Example:
+        return tasks_list(t1, t2, t3)
+    """
+    from .execution import TaskResult  # Circular dep workaround
+    return TaskResult(tasks=list(tasks))
