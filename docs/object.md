@@ -411,25 +411,6 @@ await consolidated.insert(kev_view)
 
 **Tests**: `aaiclick/data/test_rename.py`
 
-# Test Files
-
-| Operator Group                  | Test File                        |
-|---------------------------------|----------------------------------|
-| Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
-| Scalar Broadcast                | `test_scalar_broadcast.py`       |
-| Aggregation                     | `test_aggregation.py`            |
-| count_if                        | `test_count_if.py`               |
-| Set Operators                   | `test_unique_parametrized.py`    |
-| URL Loading                     | `test_url.py`, `test_url_json.py`|
-| String/Regex Operators          | `test_regex_operators.py`        |
-| Unary Transforms                | `test_unary_transforms.py`       |
-| Group By                        | `test_group_by.py`               |
-| Views                           | `test_view.py`                   |
-| Insert (+ View flavors)         | `test_insert_parametrized.py`    |
-| Concat (+ View flavors)         | `test_concat_parametrized.py`    |
-| Rename + tolerant insert        | `test_rename.py`                 |
-| DateTime Support                | `test_datetime.py`               |
-
 # Operation Provenance (Oplog)
 
 All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are instrumented to record provenance via `OplogCollector`. Activation via `data_context()` is planned for Phase 3. See `docs/oplog.md` for the full specification.
