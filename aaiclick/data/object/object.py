@@ -14,8 +14,8 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
-from ..oplog.collector import oplog_record
-from ..snowflake_id import get_snowflake_id
+from aaiclick.oplog.collector import oplog_record
+from aaiclick.snowflake_id import get_snowflake_id
 
 from ..models import (
     Schema,
