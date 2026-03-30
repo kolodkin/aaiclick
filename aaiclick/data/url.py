@@ -4,11 +4,22 @@ aaiclick.data.url - Load data from external URLs into ClickHouse Objects.
 Uses ClickHouse's native url() table function for zero Python memory footprint.
 Supports both tabular formats (Parquet, CSV, JSONEachRow) and nested JSON APIs
 via RawBLOB/JSONAsString with JSONExtract-based column extraction.
+
+chdb note: chdb's url() table function hangs on external URLs due to blocking
+network I/O in the embedded ClickHouse process. When running with chdb, external
+URLs are downloaded to a temp file via Python first, then loaded with file().
 """
 
 from __future__ import annotations
 
+import asyncio
+import os
+import tempfile
+import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
+
+from aaiclick.backend import is_chdb
 
 from .data_context import create_object, get_ch_client
 from .models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
@@ -28,6 +39,26 @@ _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",
     "JSONAsString": "json",
 }
+
+
+def _is_local_url(url: str) -> bool:
+    """Return True if URL points to localhost or loopback address."""
+    host = urlparse(url).hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+
+
+async def _download_to_temp(url: str) -> str:
+    """Download a URL to a temp file via Python's urllib and return the path.
+
+    Used by chdb path to avoid chdb's url() blocking on external hosts.
+    Caller is responsible for deleting the file.
+    """
+    filename = Path(urlparse(url).path).name or "download"
+    suffix = "".join(Path(filename).suffixes)  # preserves e.g. ".tsv.gz"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    await asyncio.to_thread(urllib.request.urlretrieve, url, tmp_path)
+    return tmp_path
 
 
 def _validate_url(url: str) -> None:
@@ -221,55 +252,67 @@ async def _create_from_tabular(
 ) -> Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
-    safe_url = url.replace("'", "\\'")
     settings = ch_settings or {}
 
-    quoted_columns = [quote_identifier(c) for c in columns]
-    columns_str = ", ".join(quoted_columns)
-
-    if column_types is not None:
-        ch_types: dict[str, ColumnInfo] = column_types
+    # chdb's url() hangs on external hosts — download first, load with file().
+    tmp_path = None
+    if is_chdb() and not _is_local_url(url):
+        tmp_path = await _download_to_temp(url)
+        safe_source = f"file('{tmp_path}', '{format}')"
     else:
-        describe_query = (
-            f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
+        safe_url = url.replace("'", "\\'")
+        safe_source = f"url('{safe_url}', '{format}')"
+
+    try:
+        quoted_columns = [quote_identifier(c) for c in columns]
+        columns_str = ", ".join(quoted_columns)
+
+        if column_types is not None:
+            ch_types: dict[str, ColumnInfo] = column_types
+        else:
+            describe_query = (
+                f"DESCRIBE (SELECT {columns_str} FROM {safe_source} LIMIT 0)"
+            )
+            describe_result = await ch.query(describe_query, settings=settings)
+            ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
+
+        if len(columns) == 1:
+            schema = Schema(
+                fieldtype=FIELDTYPE_ARRAY,
+                columns={"aai_id": ColumnInfo("UInt64"), "value": ch_types[columns[0]]},
+            )
+            select_cols = f"{quoted_columns[0]} AS value"
+        else:
+            schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
+            for col_name in columns:
+                schema_columns[col_name] = ch_types[col_name]
+            schema = Schema(
+                fieldtype=FIELDTYPE_DICT,
+                columns=schema_columns,
+            )
+            select_cols = columns_str
+
+        obj = await create_object(schema)
+
+        where_clause = f" WHERE {where}" if where else ""
+        limit_clause = f" LIMIT {limit}" if limit is not None else ""
+
+        insert_col_names = [k for k in schema.columns if k != "aai_id"]
+        insert_cols_str = ", ".join(insert_col_names)
+
+        insert_query = (
+            f"INSERT INTO {obj.table} ({insert_cols_str}) "
+            f"SELECT {select_cols} "
+            f"FROM {safe_source}"
+            f"{where_clause}"
+            f"{limit_clause}"
         )
-        describe_result = await ch.query(describe_query, settings=settings)
-        ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
+        await ch.command(insert_query, settings=settings)
 
-    if len(columns) == 1:
-        schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": ch_types[columns[0]]},
-        )
-        select_cols = f"{quoted_columns[0]} AS value"
-    else:
-        schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
-        for col_name in columns:
-            schema_columns[col_name] = ch_types[col_name]
-        schema = Schema(
-            fieldtype=FIELDTYPE_DICT,
-            columns=schema_columns,
-        )
-        select_cols = columns_str
-
-    obj = await create_object(schema)
-
-    where_clause = f" WHERE {where}" if where else ""
-    limit_clause = f" LIMIT {limit}" if limit is not None else ""
-
-    insert_col_names = [k for k in schema.columns if k != "aai_id"]
-    insert_cols_str = ", ".join(insert_col_names)
-
-    insert_query = (
-        f"INSERT INTO {obj.table} ({insert_cols_str}) "
-        f"SELECT {select_cols} "
-        f"FROM url('{safe_url}', '{format}')"
-        f"{where_clause}"
-        f"{limit_clause}"
-    )
-    await ch.command(insert_query, settings=settings)
-
-    return obj
+        return obj
+    finally:
+        if tmp_path:
+            os.unlink(tmp_path)
 
 
 async def _create_from_json(
