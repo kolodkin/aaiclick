@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Callable, Awaitable
 
 from ..oplog.collector import oplog_record
-from .data_context import create_object
-from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
-from .sql_utils import quote_identifier
+from ..data_context import create_object
+from ..models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from ..sql_utils import quote_identifier
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:

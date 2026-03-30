@@ -56,7 +56,7 @@ class PgCleanupWorker:
         self._engine = create_async_engine(get_db_url(), echo=False)
 
         if is_chdb():
-            from aaiclick.data.chdb_client import create_chdb_client
+            from aaiclick.data.data_context.chdb_client import create_chdb_client
 
             self._ch_client = create_chdb_client()
         else:

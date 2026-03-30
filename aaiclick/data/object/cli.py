@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from .data_context import (
+from ..data_context import (
     data_context,
     delete_persistent_object,
     delete_persistent_objects,

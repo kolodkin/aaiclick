@@ -17,7 +17,7 @@ from . import operators, ingest, data_extraction
 from ..oplog.collector import oplog_record
 from ..snowflake_id import get_snowflake_id
 
-from .models import (
+from ..models import (
     Schema,
     ColumnInfo,
     Computed,
@@ -46,14 +46,14 @@ from .models import (
     ORIENT_DICT,
     ORIENT_RECORDS,
 )
-from .data_context import (
+from ..data_context import (
     get_ch_client,
     incref,
     decref,
     register_object,
     create_object_from_value,
 )
-from .sql_utils import quote_identifier
+from ..sql_utils import quote_identifier
 
 
 @dataclass

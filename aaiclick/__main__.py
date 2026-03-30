@@ -24,7 +24,7 @@ import os
 import urllib.error
 import urllib.request
 
-from aaiclick.data.cli import (
+from aaiclick.data.object.cli import (
     delete_object_cmd,
     delete_objects_cmd,
     list_objects_cmd,
@@ -96,7 +96,7 @@ def _run_setup(ai: bool = False):
     if is_chdb():
         from chdb.session import Session
 
-        from aaiclick.data.chdb_client import get_chdb_data_path
+        from aaiclick.data.data_context.chdb_client import get_chdb_data_path
 
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)

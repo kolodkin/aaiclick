@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from .data_context import create_object, get_ch_client
-from .models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
-from .sql_utils import quote_identifier
+from ..data_context import create_object, get_ch_client
+from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
+from ..sql_utils import quote_identifier
 
 SUPPORTED_URL_FORMATS = frozenset({
     "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",

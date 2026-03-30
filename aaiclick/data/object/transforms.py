@@ -1,6 +1,6 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
-from .models import Computed
+from ..models import Computed
 
 
 def cast(col: str, to_type: str, nullable: bool = True) -> Computed:

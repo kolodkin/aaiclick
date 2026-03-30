@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
+from ..models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
 
 
 def _convert_value(value):

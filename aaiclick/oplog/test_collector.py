@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from aaiclick.data.data_context import create_object_from_value
-from aaiclick.data.ch_client import create_ch_client
+from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.oplog.collector import get_oplog_collector, OplogCollector
 from aaiclick.orchestration.orch_context import task_scope
 

@@ -18,7 +18,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
     register_object,
 )
-from aaiclick.data.ingest import _get_table_schema
+from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
