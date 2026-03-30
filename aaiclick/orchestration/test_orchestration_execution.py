@@ -527,3 +527,64 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
 
             for t in tasks:
                 assert t.status == TaskStatus.COMPLETED
+
+
+# =============================================================================
+# Object fieldtype preservation through serialize/deserialize roundtrip
+# This test would have caught the bug where DICT Objects received as task
+# parameters were reconstructed as FIELDTYPE_ARRAY, causing explode() to fail.
+# =============================================================================
+
+
+async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
+    """DICT Object fieldtype survives serialize → deserialize used for task params."""
+    from aaiclick import create_object_from_value
+    from aaiclick.data.models import FIELDTYPE_DICT
+
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": ["a", "b", "c"]})
+    assert obj._schema.fieldtype == FIELDTYPE_DICT
+
+    # Simulate what the worker does: serialize the result, then deserialize as param
+    serialized = serialize_task_result(obj, job_id=1)
+    result = await deserialize_task_params({"obj": serialized})
+
+    deserialized = result["obj"]
+    assert isinstance(deserialized, Object)
+    assert deserialized._schema.fieldtype == FIELDTYPE_DICT
+
+
+async def test_object_array_fieldtype_preserved_through_roundtrip(orch_ctx):
+    """ARRAY Object fieldtype survives serialize → deserialize used for task params."""
+    from aaiclick import create_object_from_value
+    from aaiclick.data.models import FIELDTYPE_ARRAY
+
+    obj = await create_object_from_value([10, 20, 30])
+    assert obj._schema.fieldtype == FIELDTYPE_ARRAY
+
+    serialized = serialize_task_result(obj, job_id=1)
+    result = await deserialize_task_params({"obj": serialized})
+
+    deserialized = result["obj"]
+    assert isinstance(deserialized, Object)
+    assert deserialized._schema.fieldtype == FIELDTYPE_ARRAY
+
+
+async def test_dict_object_explode_works_after_roundtrip(orch_ctx):
+    """explode() succeeds on a DICT Object that went through task param roundtrip.
+
+    Regression test: before the fix, _get_table_schema returned FIELDTYPE_ARRAY
+    for DICT objects, causing explode() to raise 'can only be used on dict Objects'.
+    """
+    from aaiclick import create_object_from_value
+
+    obj = await create_object_from_value({"genre": ["Action,Drama", "Comedy"], "title": ["A", "B"]})
+
+    serialized = serialize_task_result(obj, job_id=1)
+    result = await deserialize_task_params({"obj": serialized})
+    deserialized = result["obj"]
+
+    # This must not raise "explode() can only be used on dict Objects"
+    with_split = deserialized.with_split_by_char("genre", ",", element_type="String", alias="g")
+    exploded = with_split.explode("g")
+    data = await (await exploded.copy()).data()
+    assert set(data["g"]) == {"Action", "Drama", "Comedy"}

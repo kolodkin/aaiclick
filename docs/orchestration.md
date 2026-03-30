@@ -4,7 +4,7 @@ aaiclick Orchestration Backend Specification
 # Basic Example
 
 ```python
-from aaiclick.orchestration import job, task, job_test
+from aaiclick.orchestration import job, task, job_test, TaskResult
 
 @task
 async def add(a: int, b: int) -> int:
@@ -18,7 +18,7 @@ async def multiply(x: int, y: int) -> int:
 def pipeline(x: int, y: int):
     sum_result = add(a=x, b=y)      # no dependency between tasks → run in parallel
     product = multiply(x=x, y=y)
-    return [sum_result, product]
+    return TaskResult(tasks=[sum_result, product])
 
 j = pipeline(x=3, y=4)
 job_test(j)  # execute synchronously (testing/local)
@@ -36,32 +36,17 @@ argument to another task automatically creates an upstream dependency. Native Py
 
 ## @task
 
-Wraps an async function into a `TaskFactory`. Calling it inside a `@job` body creates a `Task`
-record. At runtime, workers resolve upstream task results by querying completed task output.
+Wraps an async function into a `TaskFactory`. Calling it inside a `@job` body creates a `Task` record. At runtime, workers resolve upstream task results by querying completed task output.
 
-| Parameter     | Type | Default       | Description                           |
-|---------------|------|---------------|---------------------------------------|
-| `name`        | str  | function name | Human-readable name for created tasks |
-| `max_retries` | int  | 0             | Maximum retry attempts on failure     |
-
-**Retry behavior**: When a task fails and has retries remaining, `_schedule_retry()` in
-`worker.py` resets it to PENDING with an incremented `attempt` count. Workers pick it up again
-via normal claiming.
+Parameters: `name` (default: function name), `max_retries` (default: `0`). On failure with retries remaining, `_schedule_retry()` resets the task to PENDING with incremented `attempt`.
 
 ## @job
 
-Wraps a workflow function into a `JobFactory`. Calling it creates a `Job`, auto-manages
-`orch_context()`, and commits all tasks to the SQL database via `commit_tasks()`.
+Wraps a workflow function into a `JobFactory`. Calling it creates a `Job`, auto-manages `orch_context()`, and commits all tasks to SQL via `commit_tasks()`.
 
-| Parameter | Type | Default       | Description                   |
-|-----------|------|---------------|-------------------------------|
-| `name`    | str  | function name | Human-readable name for the job |
+Parameter: `name` (default: function name). Accepts positional (`@job("my_job")`), keyword (`@job(name="my_job")`), or bare (`@job`).
 
-Accepts name as positional arg (`@job("my_job")`), keyword (`@job(name="my_job")`), or bare
-(`@job` — defaults to function name).
-
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute a job synchronously in the
-current process for testing/debugging. See `aaiclick/orchestration/debug_execution.py`.
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously for testing. See `aaiclick/orchestration/debug_execution.py`.
 
 # Overview
 
@@ -97,15 +82,6 @@ The two URL variables are independent — you can mix backends (e.g., remote Cli
 | chdb + SQLite                      | Local development, testing, single-machine scripts  |
 | ClickHouse server + PostgreSQL     | Production distributed execution                    |
 | ClickHouse server + SQLite         | Single-worker with remote data storage              |
-
-## Task Claiming: SQLite vs PostgreSQL
-
-**Implementation**: `aaiclick/orchestration/db_handler.py` (factory), `sqlite_handler.py`, `pg_handler.py`
-
-Both handlers implement `DbHandler` with identical dependency-checking SQL (`DEPENDENCY_WHERE`). The difference is concurrency control:
-
-- **`SqliteDbHandler`**: Sequential SELECT then UPDATE — safe for single-worker mode since SQLite doesn't support `FOR UPDATE`. Created when `is_sqlite()` is `True`.
-- **`PgDbHandler`**: Single atomic CTE with `FOR UPDATE SKIP LOCKED` — enables multiple workers to claim tasks concurrently without conflicts. Created when `is_sqlite()` is `False`.
 
 # Architecture
 
@@ -307,19 +283,6 @@ Layer 1  input=⌈N/P⌉ tasks=⌈.../P⌉ → layer_1_obj
 **Example — 210 rows, partition=10:** 3 layers, 25 `_reduce_part` tasks.
 
 When the input Object is empty, raises `TypeError("reduce() of empty sequence with no initial value")`.
-
-## Spark Methods vs aaiclick Capabilities
-
-| Spark Method           | aaiclick Equivalent               | Notes                               |
-|------------------------|-----------------------------------|-------------------------------------|
-| `map(func)`            | Object operators (`+`, `*`, etc.) | Element-wise SQL operations         |
-| `mapPartitions(func)`  | `map(cbk, obj)`                   | Custom Python logic per partition   |
-| `filter(pred)`         | `View(where=...)`                 | SQL WHERE clause                    |
-| `groupByKey`           | `obj.group_by(...)`               | SQL GROUP BY                        |
-| `count()`              | `obj.count()`                     | SQL COUNT aggregation               |
-| `sum/mean/min/max/std` | `obj.sum()` etc.                  | SQL aggregation functions           |
-| `union/concat`         | `concat(a, b)`                    | INSERT INTO ... SELECT              |
-| `sort/orderBy`         | `View(order_by=...)`              | SQL ORDER BY                        |
 
 # Task Execution
 

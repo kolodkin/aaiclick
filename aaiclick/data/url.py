@@ -221,8 +221,9 @@ async def _create_from_tabular(
 ) -> Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
-    safe_url = url.replace("'", "\\'")
     settings = ch_settings or {}
+    safe_url = url.replace("'", "\\'")
+    safe_source = f"url('{safe_url}', '{format}')"
 
     quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
@@ -231,7 +232,7 @@ async def _create_from_tabular(
         ch_types: dict[str, ColumnInfo] = column_types
     else:
         describe_query = (
-            f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
+            f"DESCRIBE (SELECT {columns_str} FROM {safe_source} LIMIT 0)"
         )
         describe_result = await ch.query(describe_query, settings=settings)
         ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
@@ -263,7 +264,7 @@ async def _create_from_tabular(
     insert_query = (
         f"INSERT INTO {obj.table} ({insert_cols_str}) "
         f"SELECT {select_cols} "
-        f"FROM url('{safe_url}', '{format}')"
+        f"FROM {safe_source}"
         f"{where_clause}"
         f"{limit_clause}"
     )
@@ -283,8 +284,8 @@ async def _create_from_json(
 ) -> Object:
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
-    safe_url = url.replace("'", "\\'")
     settings = ch_settings or {}
+    safe_url = url.replace("'", "\\'")
 
     schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     for col_name, col_info in json_columns.items():

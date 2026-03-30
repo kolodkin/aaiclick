@@ -14,12 +14,6 @@ async with data_context():
 # obj and result are now stale — using them raises RuntimeError
 ```
 
-**Key responsibilities:**
-- ClickHouse client creation (chdb or remote, via `ChClient` protocol)
-- Object tracking via weakref dict — marks all Objects stale on context exit
-- Lifecycle/refcounting (`incref`/`decref`) for automatic table cleanup
-- Accessed via `async with data_context():` or `get_data_context()` for the current context
-
 ## Managed Resources
 
 `data_context()` owns and sets five per-resource ContextVars for the duration of the block.
@@ -49,7 +43,7 @@ Objects are managed by a `data_context()` and become **stale** when the context 
 
 **Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-**Rules**: Create and use Objects within the same `data_context()`. Don't store Objects for use after context exit. Don't pass Objects between contexts.
+Create and use Objects within the same `data_context()`. Don't store Objects for use after context exit or pass them between contexts.
 
 ## Table Schema and Structure
 
@@ -104,63 +98,8 @@ Loads data from HTTP URLs directly into ClickHouse using the `url()` table funct
 
 ## Table Lifecycle Tracking
 
-Tables are tracked via reference counting and dropped when no Objects reference them.
+**Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler`, `LocalLifecycleHandler`
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    data_context()                             │
-│                                                              │
-│  enter  ──► Start LifecycleHandler                           │
-│  exit   ──► Stop LifecycleHandler, cleanup                   │
-│                                                              │
-│  ┌──────────┐    incref()   ┌─────────────────────────────┐  │
-│  │  Object  │──────────────►│                             │  │
-│  │  __init__│               │    LifecycleHandler (ABC)   │  │
-│  └──────────┘               │                             │  │
-│                              │  Implementations:           │  │
-│  ┌──────────┐    decref()   │  - LocalLifecycleHandler    │  │
-│  │  Object  │──────────────►│    (TableWorker thread)     │  │
-│  │  __del__ │               │  - OrchLifecycleHandler     │  │
-│  └──────────┘               │    (SQL refcounts)          │  │
-│                              └─────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### LifecycleHandler ABC
-
-**Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler` class
-
-Abstract interface: `start()`, `stop()`, `incref()`, `decref()`, `pin()` (no-op default), `claim()` (raises NotImplementedError default).
-
-### Local Mode (chdb or ClickHouse server, no orchestration)
-
-**Implementation**: `aaiclick/data/lifecycle.py` — see `LocalLifecycleHandler` class
-
-Default handler when no lifecycle is injected. Wraps `TableWorker` (background thread in `aaiclick/data/table_worker.py`). Drops tables immediately on refcount 0. Works with both chdb and remote ClickHouse — the handler only needs a connection URL, not a specific backend.
-
-Used when: running standalone scripts, interactive sessions, or tests without the orchestration layer.
-
-### Distributed Mode (ClickHouse server + PostgreSQL)
-
-**Implementation**: `aaiclick/orchestration/context.py` — see `OrchLifecycleHandler` class
-
-Writes refcounts to SQL via `get_sql_session()`. Implements pin/claim for ownership transfer across workers. Does NOT drop tables — cleanup by `PgCleanupWorker`.
-
-Used when: orchestration workers execute tasks across multiple processes/machines. The worker injects `OrchLifecycleHandler` into `data_context()`.
+Tables are reference-counted and dropped when no Objects reference them. `data_context()` creates a `LocalLifecycleHandler` (background `TableWorker` thread) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `PgCleanupWorker`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
-
-### Object Registration Flow
-
-1. `create_object()` generates table name, calls `obj._register(ctx)` → `incref` (write-ahead, before CREATE TABLE)
-2. `CREATE TABLE` in ClickHouse
-3. On garbage collection, `Object.__del__` → `decref`
-4. Views incref/decref the source Object's table (no new tables)
-
-### __del__ Guard Clauses
-
-| Guard                               | Scenario                                      |
-|-------------------------------------|-----------------------------------------------|
-| `sys.is_finalizing()`               | Interpreter shutdown — skip for thread safety  |
-| `not _registered`                   | Object was never registered                    |
-| `table.startswith("p_")`            | Persistent object — skip cleanup               |

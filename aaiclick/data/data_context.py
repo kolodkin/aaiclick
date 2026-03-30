@@ -235,11 +235,13 @@ async def create_object(
         ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
         if col_name == "aai_id":
             ddl += " DEFAULT generateSnowflakeID()"
-            col_fieldtype = FIELDTYPE_SCALAR
+            # Store the object-level fieldtype on aai_id so _get_table_schema
+            # can reconstruct it exactly without inferring from column structure.
+            comment_fieldtype = schema.fieldtype
         else:
-            col_fieldtype = schema.col_fieldtype or FIELDTYPE_ARRAY
+            comment_fieldtype = schema.col_fieldtype or FIELDTYPE_ARRAY
 
-        comment = ColumnMeta(fieldtype=col_fieldtype).to_yaml()
+        comment = ColumnMeta(fieldtype=comment_fieldtype).to_yaml()
         if comment:
             ddl += f" COMMENT '{comment}'"
         column_defs.append(ddl)

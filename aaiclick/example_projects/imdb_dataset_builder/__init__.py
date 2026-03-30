@@ -32,9 +32,6 @@ Environment variables:
 import asyncio
 import os
 
-import pandas as pd
-from huggingface_hub import HfApi
-
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
@@ -224,6 +221,9 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     if not token:
         return HFPublishResult(status="skipped", reason="HF_TOKEN not set", repo=HF_REPO_ID)
 
+    import pandas as pd
+    from huggingface_hub import HfApi
+
     data = await clean.data(orient=ORIENT_DICT)
     df = pd.DataFrame(data)
 
@@ -294,8 +294,8 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     # Genre distribution (depends on exploded genres)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    # Optional publish to Hugging Face (depends on clean dataset)
-    hf_result = publish_to_huggingface(clean=clean)
+    # Optional publish to Hugging Face (only scheduled when HF_TOKEN is set)
+    hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
 
     # Final report (depends on everything)
     report = generate_report(
