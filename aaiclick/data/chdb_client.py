@@ -10,13 +10,67 @@ Thread-safe for concurrent access from background workers.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import re
+import tempfile
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
+from urllib.parse import urlparse
 
 from chdb.session import Session
+
+
+# Matches url('https://...', 'Format') in SQL — used to detect and rewrite
+# external URL calls that chdb's embedded HTTP client hangs on.
+_URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
+
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+async def _rewrite_external_urls(query: str) -> tuple[str, list[str]]:
+    """Replace ``url('https://...', 'fmt')`` with ``file('/tmp/x', 'fmt')`` in *query*.
+
+    Downloads each external URL to a temp file via :func:`asyncio.to_thread` so
+    the event loop is not blocked.  Returns the rewritten query and a list of
+    temp file paths that the caller must delete.
+
+    chdb's embedded ClickHouse hangs indefinitely on external HTTP/HTTPS requests
+    via ``url()``.  Downloading through Python first and using ``file()`` is the
+    reliable workaround.
+    """
+    matches = list(_URL_FUNC_RE.finditer(query))
+    if not matches:
+        return query, []
+
+    tmp_paths: list[str] = []
+    # Build span→replacement map; apply in reverse to preserve offsets.
+    replacements: dict[tuple[int, int], str] = {}
+
+    for m in matches:
+        url, fmt = m.group(1), m.group(2)
+        if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
+            continue
+        filename = Path(urlparse(url).path).name or "download"
+        suffix = "".join(Path(filename).suffixes)  # e.g. ".tsv.gz"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        await asyncio.to_thread(urllib.request.urlretrieve, url, tmp_path)
+        tmp_paths.append(tmp_path)
+        safe_tmp = tmp_path.replace("'", "\\'")
+        replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
+
+    if not replacements:
+        return query, []
+
+    result = query
+    for (start, end), replacement in sorted(replacements.items(), reverse=True):
+        result = result[:start] + replacement + result[end:]
+
+    return result, tmp_paths
 
 
 def _with_settings(query: str, settings: Optional[dict]) -> str:
@@ -77,17 +131,26 @@ class ChdbClient:
         Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
         them as keyword arguments.
+
+        Any ``url('https://...', 'fmt')`` calls in *query* are transparently
+        rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
+        hangs on external URLs.
         """
-        result = self._session.query(_with_settings(query, settings), "TabSeparated")
-        raw = result.bytes()
-        if raw:
-            text = raw.decode("utf-8").strip()
-            if text:
-                try:
-                    return int(text)
-                except ValueError:
-                    return text
-        return None
+        query, tmp_paths = await _rewrite_external_urls(query)
+        try:
+            result = self._session.query(_with_settings(query, settings), "TabSeparated")
+            raw = result.bytes()
+            if raw:
+                text = raw.decode("utf-8").strip()
+                if text:
+                    try:
+                        return int(text)
+                    except ValueError:
+                        return text
+            return None
+        finally:
+            for p in tmp_paths:
+                os.unlink(p)
 
     async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
@@ -96,19 +159,28 @@ class ChdbClient:
         Uses ArrowTable format for efficient, typed data from chdb.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
         them as keyword arguments.
-        """
-        table = self._session.query(_with_settings(query, settings), "Arrowtable")
-        if table is None or table.num_rows == 0:
-            return ChdbQueryResult()
 
-        columns = table.to_pydict()
-        col_names = table.column_names
-        n_rows = table.num_rows
-        rows = [
-            tuple(columns[name][i] for name in col_names)
-            for i in range(n_rows)
-        ]
-        return ChdbQueryResult(result_rows=rows)
+        Any ``url('https://...', 'fmt')`` calls in *query* are transparently
+        rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
+        hangs on external URLs.
+        """
+        query, tmp_paths = await _rewrite_external_urls(query)
+        try:
+            table = self._session.query(_with_settings(query, settings), "Arrowtable")
+            if table is None or table.num_rows == 0:
+                return ChdbQueryResult()
+
+            columns = table.to_pydict()
+            col_names = table.column_names
+            n_rows = table.num_rows
+            rows = [
+                tuple(columns[name][i] for name in col_names)
+                for i in range(n_rows)
+            ]
+            return ChdbQueryResult(result_rows=rows)
+        finally:
+            for p in tmp_paths:
+                os.unlink(p)
 
     async def insert(
         self,
