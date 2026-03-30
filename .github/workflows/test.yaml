@@ -81,8 +81,18 @@ jobs:
           path: tmp/pytest-report.xml
           reporter: java-junit
 
-  test:
+  test-dist:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: data-dist
+            title: Data Tests (Distributed/ClickHouse)
+            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
+          - group: orch-dist
+            title: Orchestration Tests (Distributed/PostgreSQL)
+            test-paths: "aaiclick/orchestration/"
 
     services:
       clickhouse:
@@ -136,7 +146,7 @@ jobs:
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
-      - name: Run tests (Distributed)
+      - name: "Run tests: ${{ matrix.title }}"
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
@@ -153,13 +163,13 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           mkdir -p tmp
-          uv run pytest aaiclick/data/ aaiclick/test_snowflake.py aaiclick/orchestration/ -n auto -v --junitxml=tmp/pytest-report.xml
+          uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
         if: always()
         with:
-          name: "Pytest Results (distributed)"
+          name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
 
