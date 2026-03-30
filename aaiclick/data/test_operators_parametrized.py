@@ -17,25 +17,22 @@ THRESHOLD = 1e-5
 
 
 async def apply_operator(obj_a, obj_b, operator: str):
-    """
-    Apply a binary operator to two objects using match/case.
-
-    Args:
-        obj_a: First Object operand
-        obj_b: Second Object operand
-        operator: Operator string ('+', '-', etc.)
-
-    Returns:
-        Object: Result of the operation
-
-    Raises:
-        ValueError: If operator is not supported
-    """
+    """Apply a binary operator to two objects using match/case."""
     match operator:
         case "+":
             return await (obj_a + obj_b)
         case "-":
             return await (obj_a - obj_b)
+        case "*":
+            return await (obj_a * obj_b)
+        case "/":
+            return await (obj_a / obj_b)
+        case "//":
+            return await (obj_a // obj_b)
+        case "%":
+            return await (obj_a % obj_b)
+        case "**":
+            return await (obj_a ** obj_b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -231,13 +228,55 @@ async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected
     obj_b = await create_object_from_value(data_b)
     obj_c = await create_object_from_value(data_c)
 
-    # Apply first operation
     temp = await apply_operator(obj_a, obj_b, op1)
-
-    # Apply second operation
     result = await apply_operator(temp, obj_c, op2)
     result_data = await result.data()
 
+    for i, val in enumerate(result_data):
+        assert abs(val - expected_result[i]) < THRESHOLD
+
+
+# =============================================================================
+# Multiplication, division, floor division, modulo, power
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "data_a,data_b,operator,expected_result",
+    [
+        pytest.param(6, 7, "*", 42, id="int-scalar-mul"),
+        pytest.param(10.0, 2.5, "*", 25.0, id="float-scalar-mul"),
+        pytest.param(10.0, 4.0, "/", 2.5, id="float-scalar-div"),
+        pytest.param(10, 3, "//", 3, id="int-scalar-floordiv"),
+        pytest.param(10, 3, "%", 1, id="int-scalar-mod"),
+        pytest.param(2.0, 10.0, "**", 1024.0, id="float-scalar-pow"),
+    ],
+)
+async def test_mul_div_scalar(ctx, data_a, data_b, operator, expected_result):
+    """Test multiplication, division, floordiv, mod, pow on scalars."""
+    obj_a = await create_object_from_value(data_a)
+    obj_b = await create_object_from_value(data_b)
+    result = await apply_operator(obj_a, obj_b, operator)
+    result_data = await result.data()
+    assert abs(result_data - expected_result) < THRESHOLD
+
+
+@pytest.mark.parametrize(
+    "data_a,data_b,operator,expected_result",
+    [
+        pytest.param([1, 2, 3], [4, 5, 6], "*", [4, 10, 18], id="int-array-mul"),
+        pytest.param([10.0, 20.0], [2.0, 4.0], "/", [5.0, 5.0], id="float-array-div"),
+        pytest.param([10, 23, 37], [3, 5, 7], "//", [3, 4, 5], id="int-array-floordiv"),
+        pytest.param([10, 23, 37], [3, 5, 7], "%", [1, 3, 2], id="int-array-mod"),
+        pytest.param([2.0, 3.0], [3.0, 2.0], "**", [8.0, 9.0], id="float-array-pow"),
+    ],
+)
+async def test_mul_div_array(ctx, data_a, data_b, operator, expected_result):
+    """Test multiplication, division, floordiv, mod, pow on arrays."""
+    obj_a = await create_object_from_value(data_a)
+    obj_b = await create_object_from_value(data_b)
+    result = await apply_operator(obj_a, obj_b, operator)
+    result_data = await result.data()
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
 

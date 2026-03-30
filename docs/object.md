@@ -25,7 +25,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.min()`, `.max()`, `.sum()`, `.mean()`                     | Aggregation       | Reduce array to scalar                       | [Aggregation Operators](#aggregation-operators)                                 |
 | `.std()`, `.var()`, `.count()`, `.quantile(q)`              | Aggregation       | Statistical reduction                        | [Aggregation Operators](#aggregation-operators)                                 |
 | `.count_if(condition)`                                      | Aggregation       | Count rows matching condition(s)             | [Aggregation Operators](#aggregation-operators)                                 |
-| `.unique()`                                                 | Set               | Deduplicate values via GROUP BY              | [Set Operators](#set-operators)                                                 |
+| `.unique()`                                                 | Unique            | Deduplicate values via GROUP BY              | [Unique](#unique)                                                               |
 | `.match(p)`, `.like(p)`, `.ilike(p)`                       | String / Regex    | Pattern matching (returns UInt8 mask)        | [String/Regex Operators](#stringregex-operators)                                |
 | `.extract(p)`, `.replace(p, r)`                             | String / Regex    | Capture group extraction, regex replace      | [String/Regex Operators](#stringregex-operators)                                |
 | `.year()`, `.month()`, `.day_of_week()`                     | Unary Transforms  | Date/time extraction → new Object            | [Unary Transform Operators](#unary-transform-operators)                         |
@@ -33,13 +33,17 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.abs()`, `.log2()`, `.sqrt()`                              | Unary Transforms  | Math functions → new Object                  | [Unary Transform Operators](#unary-transform-operators)                         |
 | `.group_by(keys).sum(col)` etc.                             | Group By          | Aggregation with GROUP BY + optional HAVING  | [Group By Operations](#group-by-operations)                                     |
 | `.group_by(keys).agg({col: op})`                            | Group By          | Multiple aggregations in one pass            | [Group By Operations](#group-by-operations)                                     |
-| `.explode(*columns, left=False)`                             | Explode           | Flatten Array column(s) into rows → View     | [Explode](#explode)                                                             |
+| `.group_by(keys).any(col)`                                  | Group By          | Arbitrary non-NULL value per group           | [Group By Operations](#group-by-operations)                                     |
+| `.group_by(keys).group_array_distinct(col)`                 | Group By          | Distinct values → Array per group            | [Group By Operations](#group-by-operations)                                     |
+| `.explode(*columns, left=False)`                            | Explode           | Flatten Array column(s) into rows → View     | [Explode](#explode)                                                             |
 | `.view(where, limit, offset, order_by)`                     | Views             | Read-only View with optional filters         | [Views](#views)                                                                 |
 | `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
+| `obj[key]` / `obj[[keys]]`                                  | Column Selection  | Select column(s) from dict Object → View     | [Column Selection](#column-selection)                                           |
 | `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns)            |
 | `.with_year(col)`, `.with_month(col)`, `.with_lower(col)` … | Domain Helpers   | Named shortcuts for common computed columns  | [Domain Helpers](#domain-helpers)                                               |
 | `.with_split_by_char(col, sep)`                             | Domain Helpers    | Split String column by separator → Array     | [Domain Helpers](#domain-helpers)                                               |
 | `.rename({old: new})`                                       | Column Renaming   | Alias column names in a View                 | [Column Renaming](#column-renaming-rename)                                      |
+| `.copy()`                                                   | Copy              | Copy Object / View to a new materialized Object | [copy()](#the-copy-method)                                                   |
 | `.insert(*sources)`                                         | Data Ingestion    | Insert data from Objects / scalars / lists   | [insert()](#the-insert-method)                                                  |
 | `.insert_from_url(url)`                                     | Data Ingestion    | Insert rows from a remote URL                | [insert_from_url()](#insert_from_url)                                           |
 | `.concat(*sources)` / `concat(a, b, …)`                     | Data Ingestion    | Concatenate sources into a new Object        | [concat()](#the-concat-method)                                                  |
@@ -110,7 +114,7 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 | `.quantile(q)` | `quantile(q)()`     | Approximate          |
 | `.count_if(cond)` | `countIf()`      | Scalar (str) or dict Object (dict of conditions) |
 
-## Set Operators
+## Unique
 
 | Method      | ClickHouse Implementation | Notes                          |
 |-------------|---------------------------|--------------------------------|
@@ -270,6 +274,30 @@ Fluent API for building WHERE conditions. `Object.where()` creates a View; `View
 
 **Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
 
+# Column Selection
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.__getitem__()`
+
+Select one or more columns from a dict Object, returning a View. No data copy — the View references the same table with a restricted SELECT list.
+
+- `obj["col"]` — single column → array-like View (single `value` field)
+- `obj[["col_a", "col_b"]]` — multiple columns → dict-like View
+
+```python
+obj = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30]})
+
+# Single column — returns array-like View
+await obj["x"].data()              # [1, 2, 3]
+arr = await obj["x"].copy()        # new array Object
+
+# Multiple columns — returns dict-like View
+await obj[["x", "y"]].data()       # {'x': [1, 2, 3], 'y': [10, 20, 30]}
+```
+
+Preserves WHERE and computed column constraints when chained on a filtered View.
+
+**Tests**: `aaiclick/data/test_dict_selector.py`
+
 # Computed Column Expansion: `with_columns()`
 
 ## Motivation
@@ -387,6 +415,23 @@ await consolidated.insert(kev_view)
 - `insert()` skips extra source columns not present in the target — no need to `select()` away unwanted columns.
 
 **Tests**: `aaiclick/data/test_rename.py`
+
+# The copy() Method
+
+**Implementation**: `aaiclick/data/object.py` — see `Object.copy()`
+
+Creates a new Object with a full copy of the data. Works on both Objects and Views — column selection, WHERE filters, and computed columns are materialized into the new table.
+
+```python
+# Copy an array Object
+obj_copy = await obj.copy()
+
+# Materialize a View into a new Object
+arr = await obj["x"].copy()         # array Object from dict column
+subset = await obj.where("x > 5").copy()  # filtered copy
+```
+
+**Tests**: `aaiclick/data/test_copy_parametrized.py`
 
 # Operation Provenance (Oplog)
 
