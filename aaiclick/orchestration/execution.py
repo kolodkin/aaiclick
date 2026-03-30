@@ -20,7 +20,7 @@ from aaiclick.data.data_context import (
     register_object,
 )
 from aaiclick.data.ingest import _get_table_schema
-from aaiclick.data.models import Schema
+from aaiclick.data.models import FIELDTYPE_DICT, Schema
 from aaiclick.data.object import Object, View
 
 from .orch_context import commit_tasks, get_sql_session, task_scope
@@ -192,6 +192,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             table = value["table"]
             is_persistent = value.get("persistent", False)
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
+            if is_dict_type:
+                fieldtype = FIELDTYPE_DICT
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
             if not is_persistent:
@@ -206,6 +209,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         elif obj_type == "view":
             table = value["table"]
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
+            if is_dict_type:
+                fieldtype = FIELDTYPE_DICT
             schema = Schema(fieldtype=fieldtype, columns=columns)
             source = Object(table=table, schema=schema)
             source._register()
