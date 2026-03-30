@@ -34,11 +34,11 @@ Airflow-style TaskFlow API with automatic dependency detection. Passing a Task r
 
 ## @task
 
-Wraps an async function into a `TaskFactory`. Parameters: `name` (default: function name), `max_retries` (default: `0`). On failure with retries remaining, `_schedule_retry()` resets the task to PENDING with incremented `attempt`.
+Wraps an async function into a `TaskFactory`. Parameters: `name` (default: function name), `max_retries` (default: `0`). On failure with retries remaining, resets the task to PENDING with incremented `attempt`.
 
 ## @job
 
-Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and commits all tasks to SQL via `commit_tasks()`. Parameter: `name` — accepts positional (`@job("my_job")`), keyword, or bare (`@job`).
+Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` (SQLAlchemy `AsyncEngine`, aiosqlite or asyncpg) and commits all tasks to SQL. Parameter: `name` — accepts positional (`@job("my_job")`), keyword, or bare (`@job`).
 
 **Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/debug_execution.py`.
 
@@ -57,12 +57,6 @@ Two deployment modes, controlled by two independent environment variables:
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
-
-# Orchestration Context
-
-**Implementation**: `aaiclick/orchestration/context.py`
-
-`orch_context()` is an async context manager using `ContextVar` for async-safe global access. It holds the SQLAlchemy `AsyncEngine` (aiosqlite or asyncpg) and exposes `commit_tasks()` to persist task/group DAGs to SQL. The `@job` decorator manages it automatically — not part of the public API.
 
 # DB Models
 
@@ -86,7 +80,7 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
 - **Worker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
 
-# Task Parameter Serialization
+## Task Parameter Serialization
 
 Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/View — see `aaiclick/data/object.py`.
 
@@ -96,60 +90,7 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 `job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
-## Task Return Values
-
-- **`None`**: `task.result` is `null`
-- **Object/View**: Stored via `_serialize_ref()` + `job_id`
-- **Any other value**: Auto-converted via `create_object_from_value()`
-
-**Implementation**: `aaiclick/orchestration/execution.py` — see `serialize_task_result()`
-
-# Job Management APIs
-
-**Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
-
-**CLI**: `python -m aaiclick job get <id>` and `python -m aaiclick job list [--status] [--like] [--limit] [--offset]`
-
-# Job Cancellation
-
-**Implementation**: `aaiclick/orchestration/claiming.py` — see `cancel_job()`, `check_task_cancelled()`
-
-- `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal
-- Workers detect cancellation via `_cancellation_monitor()` in `worker.py`, which polls and cancels the asyncio.Task
-
-**Known limitation**: asyncio cancellation is cooperative — CPU-bound tasks without `await` points won't be interrupted until they yield.
-
-**CLI**: `python -m aaiclick job cancel <id>`
-
-# Orchestration Operators
-
-**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `map()` and `_map_part()` functions
-
-| Operator                                                  | Description                                                                 |
-|-----------------------------------------------------------|-----------------------------------------------------------------------------|
-| `map(cbk, obj, partition, args, kwargs) -> Group`         | Partitions Object into Views, creates N `_map_part` child tasks.            |
-| `_map_part(cbk, part, out) -> None`                       | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
-| `reduce(cbk, obj, partition, args, kwargs) -> Group`      | Layered parallel reduction. Each layer reduces partitions into one row.     |
-| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`     | Pre-allocates all layer Objects and tasks at once.                          |
-| `_reduce_part(cbk, part, layer_obj) -> None`              | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
-
-## reduce()
-
-**Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `reduce()`, `_expand_reduce()`, `_reduce_part()`
-
-Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes results via `output.insert()`. All layers and tasks are created at once inside `_expand_reduce`. Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
-
-### Layer count
-
-```
-Layer 0  input=N    tasks=⌈N/P⌉   → layer_0_obj
-Layer 1  input=⌈N/P⌉ tasks=⌈.../P⌉ → layer_1_obj
-…continues until 1 row remains
-```
-
-**Example — 1300 rows, partition=500:** 2 layers, 4 tasks. **Example — 210 rows, partition=10:** 3 layers, 25 tasks.
-
-Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
+**Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution.py` — `serialize_task_result()`.
 
 # Task Execution
 
@@ -182,6 +123,43 @@ python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
 python -m aaiclick background start           # Standalone cleanup worker
 ```
+
+# Job Management
+
+**Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
+
+- `get_job(job_id)` — retrieve a single job by ID
+- `list_jobs(status, name_like, limit, offset)` — list with filtering and pagination
+- `count_jobs(status, name_like)` — count matching jobs
+- `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `aaiclick/orchestration/claiming.py`.
+
+Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
+
+# Orchestration Operators
+
+**Implementation**: `aaiclick/orchestration/orch_helpers.py`
+
+| Operator                                                  | Description                                                                 |
+|-----------------------------------------------------------|-----------------------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Group`         | Partitions Object into Views, creates N `_map_part` child tasks.            |
+| `_map_part(cbk, part, out) -> None`                       | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
+| `reduce(cbk, obj, partition, args, kwargs) -> Group`      | Layered parallel reduction. Each layer reduces partitions into one row.     |
+| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`     | Pre-allocates all layer Objects and tasks at once.                          |
+| `_reduce_part(cbk, part, layer_obj) -> None`              | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
+
+## reduce()
+
+Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes results via `output.insert()`. All layers and tasks are created at once inside `_expand_reduce`. Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
+
+```
+Layer 0  input=N      tasks=⌈N/P⌉   → layer_0_obj
+Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
+…continues until 1 row remains
+```
+
+**Example — 1300 rows, partition=500:** 2 layers, 4 tasks. **Example — 210 rows, partition=10:** 3 layers, 25 tasks.
+
+Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 # Distributed Object Lifecycle
 
