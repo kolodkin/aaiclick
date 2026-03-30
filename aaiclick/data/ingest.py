@@ -71,19 +71,28 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     columns_result = await ch_client.query(columns_query)
 
     columns = {}
+    aai_id_fieldtype = None
     col_fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
         columns[name] = parse_ch_type(col_type)
-        if name != "aai_id" and comment and col_fieldtype == FIELDTYPE_SCALAR:
-            meta = ColumnMeta.from_yaml(comment)
-            if meta.fieldtype:
-                col_fieldtype = meta.fieldtype
+        if not comment:
+            continue
+        meta = ColumnMeta.from_yaml(comment)
+        if name == "aai_id":
+            # New tables store the object-level fieldtype on aai_id.
+            aai_id_fieldtype = meta.fieldtype if meta.fieldtype else None
+        elif meta.fieldtype and col_fieldtype == FIELDTYPE_SCALAR:
+            col_fieldtype = meta.fieldtype
 
-    # DICT objects have columns beyond aai_id/value; ARRAY/SCALAR objects only have value.
-    # Column comments store col_fieldtype (always ARRAY for dict columns), not the object
-    # fieldtype, so we infer DICT from the column structure — same logic as open_object().
-    is_dict = bool(set(columns.keys()) - {"aai_id", "value"})
-    fieldtype = FIELDTYPE_DICT if is_dict else col_fieldtype
+    # Prefer the explicit object-level fieldtype stored on aai_id (new tables).
+    # For old tables aai_id carries FIELDTYPE_SCALAR (its former placeholder), so
+    # fall back to structural inference: tables with columns beyond aai_id/value
+    # are DICT; otherwise use col_fieldtype (ARRAY or SCALAR from column comments).
+    if aai_id_fieldtype and aai_id_fieldtype != FIELDTYPE_SCALAR:
+        fieldtype = aai_id_fieldtype
+    else:
+        is_dict = bool(set(columns.keys()) - {"aai_id", "value"})
+        fieldtype = FIELDTYPE_DICT if is_dict else col_fieldtype
 
     return fieldtype, columns
 
