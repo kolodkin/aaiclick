@@ -19,9 +19,9 @@ from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
 from ..snowflake_id import get_snowflake_id
-from .db_handler import create_db_handler, get_db_handler, _db_handler_var
+from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
-from .db_lifecycle import DBLifecycleMessage, DBLifecycleOp
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp
 from .env import get_db_url
 from .task_registry import _task_registry_var, get_task_registry
 from .models import Group, Task, TasksType

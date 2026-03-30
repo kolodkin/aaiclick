@@ -40,7 +40,7 @@ Wraps an async function into a `TaskFactory`. Parameters: `name` (default: funct
 
 Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` (SQLAlchemy `AsyncEngine`, aiosqlite or asyncpg) and commits all tasks to SQL. Parameter: `name` — accepts positional (`@job("my_job")`), keyword, or bare (`@job`).
 
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/debug_execution.py`.
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/execution/debug.py`.
 
 # Deployment Modes
 
@@ -90,19 +90,21 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 `job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
 
-**Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution.py` — `serialize_task_result()`.
+**Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution/runner.py` — `serialize_task_result()`.
 
 # Task Execution
 
+**Implementation**: `aaiclick/orchestration/execution/`
+
 ## Worker Main Loop
 
-**Implementation**: `aaiclick/orchestration/worker.py` — see `worker_main_loop()`
+**Implementation**: `aaiclick/orchestration/execution/worker.py` — see `worker_main_loop()`
 
 Continuously polls for tasks, executes them, and updates status. Handles auto-registration/deregistration, periodic heartbeats (30s), graceful SIGTERM/SIGINT shutdown, and per-task lifecycle handler creation via `lifecycle_factory`.
 
 ## Task Claiming
 
-**Implementation**: `aaiclick/orchestration/claiming.py` — see `claim_next_task()`, `aaiclick/orchestration/pg_handler.py`, `aaiclick/orchestration/sqlite_handler.py`
+**Implementation**: `aaiclick/orchestration/execution/claiming.py` — see `claim_next_task()`, `pg_handler.py`, `sqlite_handler.py`
 
 Finds the oldest pending task with all dependencies satisfied, atomically claims it, and transitions the parent job PENDING→RUNNING on first claim.
 
@@ -110,7 +112,17 @@ Finds the oldest pending task with all dependencies satisfied, atomically claims
 - **PostgreSQL**: Single atomic CTE with `FOR UPDATE SKIP LOCKED`
 - **SQLite**: Sequential SELECT + UPDATE — sufficient for single-worker local mode
 
-## CLI
+# Job Management
+
+**Implementation**: `aaiclick/orchestration/jobs/`
+
+- `queries.py` — `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`, `get_tasks_for_job()`
+- `stats.py` — `compute_job_stats()`, `print_job_stats()`
+- `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
+
+Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
+
+# CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
@@ -124,20 +136,9 @@ python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --of
 python -m aaiclick background start           # Standalone cleanup worker
 ```
 
-# Job Management
-
-**Implementation**: `aaiclick/orchestration/job_queries.py` — see `get_job()`, `list_jobs()`, `count_jobs()`
-
-- `get_job(job_id)` — retrieve a single job by ID
-- `list_jobs(status, name_like, limit, offset)` — list with filtering and pagination
-- `count_jobs(status, name_like)` — count matching jobs
-- `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `aaiclick/orchestration/claiming.py`.
-
-Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
-
 # Orchestration Operators
 
-**Implementation**: `aaiclick/orchestration/orch_helpers.py`
+**Implementation**: `aaiclick/orchestration/operators.py`
 
 | Operator                                                  | Description                                                                 |
 |-----------------------------------------------------------|-----------------------------------------------------------------------------|
@@ -162,6 +163,8 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 # Distributed Object Lifecycle
+
+**Implementation**: `aaiclick/orchestration/lifecycle/`
 
 In distributed mode, Object table lifecycle is managed through PostgreSQL with explicit ownership transfer via pin/claim.
 
@@ -195,17 +198,17 @@ Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
 
 ## OrchLifecycleHandler
 
-**Implementation**: `aaiclick/orchestration/context.py` — see `OrchLifecycleHandler` class
+**Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
 Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_session()`.
 
 **Sync-to-async bridge**: `Object.__del__` calls incref/decref synchronously → `queue.Queue` → asyncio.Task drains via `run_in_executor`.
 
-**PostgreSQL table**: `TableContextRef` in `pg_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
+**PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
 
 ## PgCleanupWorker
 
-**Implementation**: `aaiclick/orchestration/pg_cleanup.py` — see `PgCleanupWorker` class
+**Implementation**: `aaiclick/orchestration/lifecycle/pg_cleanup.py` — see `PgCleanupWorker` class
 
 Three cleanup operations per poll: (1) job cleanup — delete job-scoped pin refs for completed/failed jobs; (2) table cleanup — `HAVING SUM(refcount) <= 0` → DROP in CH; (3) dead worker detection — expired heartbeats → mark tasks FAILED, workers STOPPED. Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 

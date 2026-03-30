@@ -13,8 +13,8 @@ from sqlalchemy import select
 
 from aaiclick.data.object import Object, View
 from aaiclick.orchestration.orch_context import get_sql_session
-from aaiclick.orchestration.debug_execution import ajob_test
-from aaiclick.orchestration.execution import (
+from aaiclick.orchestration.execution.debug import ajob_test
+from aaiclick.orchestration.execution.runner import (
     deserialize_task_params,
     execute_task,
     import_callback,
@@ -219,7 +219,7 @@ async def test_serialize_task_result_pydantic_model(orch_ctx):
 
 async def test_deserialize_pydantic_model_round_trip(orch_ctx):
     """Pydantic model survives serialize → deserialize round-trip via task result."""
-    from aaiclick.orchestration.execution import _deserialize_value
+    from aaiclick.orchestration.execution.runner import _deserialize_value
 
     model = _SampleModel(name="hello", count=7, ratio=None)
     serialized = serialize_task_result(model, job_id=1)

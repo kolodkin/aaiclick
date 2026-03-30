@@ -23,13 +23,13 @@ Usage:
     created_job = await my_pipeline(value=42)
 """
 
-from .claiming import cancel_job
+from .execution.claiming import cancel_job
 from .result import TaskResult, data_list, task_result, tasks_list
 from .orch_context import commit_tasks, get_sql_session, orch_context
-from .debug_execution import ajob_test, job_test
+from .execution.debug import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
-from .orch_helpers import map, reduce
-from .job_queries import (
+from .operators import map, reduce
+from .jobs.queries import (
     count_jobs,
     get_job,
     get_job_result,
@@ -38,5 +38,5 @@ from .job_queries import (
     list_jobs,
     resolve_job,
 )
-from .job_stats import JobStats, TaskStats, compute_job_stats, print_job_stats
+from .jobs.stats import JobStats, TaskStats, compute_job_stats, print_job_stats
 from .models import JobStatus, TaskStatus

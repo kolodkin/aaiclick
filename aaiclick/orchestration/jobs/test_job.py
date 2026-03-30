@@ -1,8 +1,8 @@
 """Tests for job query functions."""
 
-from .factories import create_job
-from .job_queries import count_jobs, get_job, list_jobs
-from .models import JobStatus
+from ..factories import create_job
+from .queries import count_jobs, get_job, list_jobs
+from ..models import JobStatus
 
 
 async def test_get_job(orch_ctx):
