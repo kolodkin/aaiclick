@@ -77,30 +77,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Do NOT modify, skip, or weaken unrelated tests to make them pass
   - If unsure whether the test or the implementation is wrong, ask the user
 
-- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/`:
-
-  | API Quick Reference section | Test file                          |
-  |-----------------------------|------------------------------------|
-  | Arithmetic Operators        | `test_operators_parametrized.py`   |
-  | Comparison Operators        | `test_comparison.py`               |
-  | Bitwise Operators           | `test_bitwise.py`                  |
-  | Aggregation Operators       | `test_aggregation.py`              |
-  | Unique                      | `test_unique_parametrized.py`      |
-  | String/Regex Operators      | `test_regex_operators.py`          |
-  | Unary Transform Operators   | `test_unary_transforms.py`         |
-  | Group By Operations         | `test_group_by.py`                 |
-  | Explode                     | `test_explode.py`                  |
-  | Views / Chained WHERE       | `test_view.py`                     |
-  | Column Selection            | `test_dict_selector.py`            |
-  | Computed Column Expansion   | `test_with_columns.py`             |
-  | Domain Helpers              | `test_domain_helpers.py`           |
-  | Column Renaming             | `test_rename.py`                   |
-  | copy()                      | `test_copy_parametrized.py`        |
-  | insert() / insert_from_url  | `test_insert_parametrized.py`      |
-  | concat()                    | `test_concat_parametrized.py`      |
-  | data()                      | `test_data_retrieval.py`           |
-
-  When adding a new section to the API Quick Reference, also create the corresponding test file.
+- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file.
 
 
 # Code Quality
