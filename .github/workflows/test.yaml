@@ -81,7 +81,7 @@ jobs:
           path: tmp/pytest-report.xml
           reporter: java-junit
 
-  test:
+  test-dist:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
