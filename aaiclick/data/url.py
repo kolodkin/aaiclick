@@ -126,7 +126,7 @@ def _build_json_select(
     json_columns: dict[str, ColumnInfo],
     json_path: str,
     format: str,
-    safe_url: str,
+    source_expr: str,
 ) -> tuple[str, str]:
     """Build SELECT expressions and FROM subquery for JSON extraction.
 
@@ -134,7 +134,8 @@ def _build_json_select(
         json_columns: Mapping of JSON field name to target ColumnInfo
         json_path: Dot-path to the JSON array (e.g., "vulnerabilities")
         format: RawBLOB or JSONAsString
-        safe_url: SQL-safe URL string (single quotes escaped)
+        source_expr: Full SQL source expression, e.g. ``url('...', 'RawBLOB')``
+            or ``file('/tmp/x', 'RawBLOB')`` for chdb local fallback.
 
     Returns:
         (select_exprs, from_subquery) tuple for use in INSERT...SELECT
@@ -151,7 +152,7 @@ def _build_json_select(
     from_subquery = (
         f"(SELECT arrayJoin(JSONExtractArrayRaw("
         f"{quote_identifier(source_col)}, '{safe_path}')) AS elem "
-        f"FROM url('{safe_url}', '{format}')) AS _json_src"
+        f"FROM {source_expr}) AS _json_src"
     )
 
     return select_exprs, from_subquery
@@ -326,8 +327,16 @@ async def _create_from_json(
 ) -> Object:
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
-    safe_url = url.replace("'", "\\'")
     settings = ch_settings or {}
+
+    # chdb's url() hangs on external hosts — download first, load with file().
+    tmp_path = None
+    if is_chdb() and not _is_local_url(url):
+        tmp_path = await _download_to_temp(url)
+        source_expr = f"file('{tmp_path}', '{format}')"
+    else:
+        safe_url = url.replace("'", "\\'")
+        source_expr = f"url('{safe_url}', '{format}')"
 
     schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     for col_name, col_info in json_columns.items():
@@ -337,22 +346,26 @@ async def _create_from_json(
     obj = await create_object(schema)
 
     select_exprs, from_subquery = _build_json_select(
-        json_columns, json_path, format, safe_url,
+        json_columns, json_path, format, source_expr,
     )
 
-    insert_col_names = [k for k in schema_columns if k != "aai_id"]
-    insert_cols_str = ", ".join(quote_identifier(c) for c in insert_col_names)
+    try:
+        insert_col_names = [k for k in schema_columns if k != "aai_id"]
+        insert_cols_str = ", ".join(quote_identifier(c) for c in insert_col_names)
 
-    where_clause = f" WHERE {where}" if where else ""
-    limit_clause = f" LIMIT {limit}" if limit is not None else ""
+        where_clause = f" WHERE {where}" if where else ""
+        limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
-    insert_query = (
-        f"INSERT INTO {obj.table} ({insert_cols_str}) "
-        f"SELECT {select_exprs} "
-        f"FROM {from_subquery}"
-        f"{where_clause}"
-        f"{limit_clause}"
-    )
-    await ch.command(insert_query, settings=settings)
+        insert_query = (
+            f"INSERT INTO {obj.table} ({insert_cols_str}) "
+            f"SELECT {select_exprs} "
+            f"FROM {from_subquery}"
+            f"{where_clause}"
+            f"{limit_clause}"
+        )
+        await ch.command(insert_query, settings=settings)
 
-    return obj
+        return obj
+    finally:
+        if tmp_path:
+            os.unlink(tmp_path)
