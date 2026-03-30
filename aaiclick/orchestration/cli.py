@@ -10,13 +10,11 @@ import asyncio
 import signal
 from typing import Optional
 
-from .execution.claiming import cancel_job
+from .execution import cancel_job, list_workers, worker_main_loop
 from .orch_context import orch_context
-from .jobs.queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
-from .jobs.stats import compute_job_stats, print_job_stats
+from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
+from .lifecycle import PgCleanupWorker
 from .models import JobStatus
-from .lifecycle.pg_cleanup import PgCleanupWorker
-from .execution.worker import list_workers, worker_main_loop
 
 
 async def show_workers() -> None:
