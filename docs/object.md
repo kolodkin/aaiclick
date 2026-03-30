@@ -24,6 +24,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `&`, `\|`, `^`                                              | Bitwise           | Bitwise AND / OR / XOR                       | [Bitwise Operators](#bitwise-operators)                                         |
 | `.min()`, `.max()`, `.sum()`, `.mean()`                     | Aggregation       | Reduce array to scalar                       | [Aggregation Operators](#aggregation-operators)                                 |
 | `.std()`, `.var()`, `.count()`, `.quantile(q)`              | Aggregation       | Statistical reduction                        | [Aggregation Operators](#aggregation-operators)                                 |
+| `.count_if(condition)`                                      | Aggregation       | Count rows matching condition(s)             | [Aggregation Operators](#aggregation-operators)                                 |
 | `.unique()`                                                 | Set               | Deduplicate values via GROUP BY              | [Set Operators](#set-operators)                                                 |
 | `.match(p)`, `.like(p)`, `.ilike(p)`                       | String / Regex    | Pattern matching (returns UInt8 mask)        | [String/Regex Operators](#stringregex-operators)                                |
 | `.extract(p)`, `.replace(p, r)`                             | String / Regex    | Capture group extraction, regex replace      | [String/Regex Operators](#stringregex-operators)                                |
@@ -37,6 +38,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.where(cond)` / `.or_where(cond)`                          | Views             | Fluent WHERE chaining (AND / OR)             | [Chained WHERE Clauses](#chained-where-clauses)                                 |
 | `.with_columns({name: Computed(type, expr)})`               | Computed Columns  | Add SQL expression columns → View            | [Computed Column Expansion](#computed-column-expansion-with_columns)            |
 | `.with_year(col)`, `.with_month(col)`, `.with_lower(col)` … | Domain Helpers   | Named shortcuts for common computed columns  | [Domain Helpers](#domain-helpers)                                               |
+| `.with_split_by_char(col, sep)`                             | Domain Helpers    | Split String column by separator → Array     | [Domain Helpers](#domain-helpers)                                               |
 | `.rename({old: new})`                                       | Column Renaming   | Alias column names in a View                 | [Column Renaming](#column-renaming-rename)                                      |
 | `.insert(*sources)`                                         | Data Ingestion    | Insert data from Objects / scalars / lists   | [insert()](#the-insert-method)                                                  |
 | `.insert_from_url(url)`                                     | Data Ingestion    | Insert rows from a remote URL                | [insert_from_url()](#insert_from_url)                                           |
@@ -110,6 +112,7 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 | `.var()`       | `varPop()`          |                      |
 | `.count()`     | `count()`           |                      |
 | `.quantile(q)` | `quantile(q)()`     | Approximate          |
+| `.count_if(cond)` | `countIf()`      | Scalar (str) or dict Object (dict of conditions) |
 
 ## Set Operators
 
@@ -137,7 +140,7 @@ Pattern matching on String columns. All methods take a Python `str` pattern and 
 
 **Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
 
-Apply a ClickHouse function element-wise to the value column, returning a new Object. These are the Object-level equivalents of [Domain Helpers](#domain-helpers--implemented) (`with_year`, `with_lower`, etc.) which operate on Views.
+Apply a ClickHouse function element-wise to the value column, returning a new Object. These are the Object-level equivalents of [Domain Helpers](#domain-helpers) (`with_year`, `with_lower`, etc.) which operate on Views.
 
 | Method          | ClickHouse Function | Result Type | Category  |
 |-----------------|---------------------|-------------|-----------|
@@ -177,6 +180,8 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 | `.count()`         | Count rows per group         | UInt64 (column named `_count`)         |
 | `.std(col)`        | Standard deviation per group | Float64                                |
 | `.var(col)`        | Variance per group           | Float64                                |
+| `.any(col)`        | Arbitrary non-NULL per group | Preserves source type                  |
+| `.group_array_distinct(col)` | Distinct values → Array per group | `Array(T)` where T is source type |
 | `.agg({col: op})`  | Multiple aggregations        | Per-function type rules                |
 
 **Features**: Multiple group keys, chained `.having()`/`.or_having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
@@ -372,6 +377,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 | `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
 | `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
 | `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
+| `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 
@@ -412,9 +418,13 @@ await consolidated.insert(kev_view)
 | Arithmetic, Comparison, Bitwise | `test_operators_parametrized.py` |
 | Scalar Broadcast                | `test_scalar_broadcast.py`       |
 | Aggregation                     | `test_aggregation.py`            |
+| count_if                        | `test_count_if.py`               |
 | Set Operators                   | `test_unique_parametrized.py`    |
-| URL Loading                     | `test_url.py`                    |
+| URL Loading                     | `test_url.py`, `test_url_json.py`|
 | String/Regex Operators          | `test_regex_operators.py`        |
+| Unary Transforms                | `test_unary_transforms.py`       |
+| Group By                        | `test_group_by.py`               |
+| Views                           | `test_view.py`                   |
 | Insert (+ View flavors)         | `test_insert_parametrized.py`    |
 | Concat (+ View flavors)         | `test_concat_parametrized.py`    |
 | Rename + tolerant insert        | `test_rename.py`                 |
@@ -422,6 +432,6 @@ await consolidated.insert(kev_view)
 
 # Operation Provenance (Oplog)
 
-All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are automatically instrumented to record provenance when `data_context(oplog=True)` is active. See `docs/oplog.md` for the full specification.
+All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are instrumented to record provenance via `OplogCollector`. Activation via `data_context()` is planned for Phase 3. See `docs/oplog.md` for the full specification.
 
 **Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector.record()`, `record_table()`
