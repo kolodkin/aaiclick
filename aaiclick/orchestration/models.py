@@ -5,7 +5,6 @@ This module defines SQLModel models for jobs, tasks, workers, groups, and depend
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -15,20 +14,6 @@ from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from .task_registry import register_task
-
-
-@dataclass
-class TaskResult:
-    """Explicit return type for tasks that yield both data and dynamic child tasks.
-
-    Both fields default to None:
-    - TaskResult(tasks=[t1, t2])        — tasks only, no data
-    - TaskResult(data=value)            — data only, no tasks
-    - TaskResult(data=value, tasks=[t]) — both
-    """
-
-    data: Any = None
-    tasks: list = field(default_factory=list)
 
 
 # Dependency type constants

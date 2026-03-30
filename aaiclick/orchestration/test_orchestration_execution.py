@@ -15,7 +15,6 @@ from aaiclick.data.object import Object, View
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
-    TaskResult,
     deserialize_task_params,
     execute_task,
     import_callback,
@@ -23,7 +22,8 @@ from aaiclick.orchestration.execution import (
     run_job_tasks,
     serialize_task_result,
 )
-from aaiclick.orchestration.factories import create_job, create_task, data_list, task_result, tasks_list
+from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
 from aaiclick.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
