@@ -193,7 +193,7 @@ For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_
 
 For `create_object_from_url()` (creates a new Object from a URL), see [DataContext documentation](data_context.md) — "Loading Data from URLs".
 
-## insert_from_url() ✅ IMPLEMENTED
+## insert_from_url()
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.insert_from_url()`
 
@@ -273,7 +273,7 @@ Fluent API for building WHERE conditions. `Object.where()` creates a View; `View
 
 **Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
 
-# Computed Column Expansion: `with_columns()` ✅ IMPLEMENTED
+# Computed Column Expansion: `with_columns()`
 
 ## Motivation
 
@@ -349,7 +349,7 @@ SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semi
 
 **Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
 
-## Domain Helpers ✅ IMPLEMENTED
+## Domain Helpers
 
 **Implementation**: `aaiclick/data/object.py` — methods on `Object` class, delegating to `with_columns()`
 
@@ -377,7 +377,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Tests**: `aaiclick/data/test_with_columns.py`
 
-# Column Renaming: `rename()` ✅ IMPLEMENTED
+# Column Renaming: `rename()`
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
 
