@@ -18,8 +18,8 @@ from aaiclick import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
-    get_ch_client,
 )
+from aaiclick.data.data_context import get_ch_client
 
 
 DT_2024 = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)

@@ -137,6 +137,18 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     __all__ = ["Job", "Task", "Worker"]
     ```
 
+- **Top-level `__init__.py` exposes only the public interface**: `aaiclick/__init__.py` must only export symbols that are part of the user-facing API
+  - Subpackage `__init__.py` files (e.g. `aaiclick/data/__init__.py`, `aaiclick/data/data_context/__init__.py`) may re-export internal symbols for import convenience within the codebase
+  - Internal helpers, infrastructure classes, and implementation details belong in subpackage `__init__.py` files or accessed via their full module path (e.g. `aaiclick.data.data_context.get_ch_client`)
+  - Example:
+    ```python
+    # aaiclick/__init__.py — PUBLIC only
+    from .data import Object, View, create_object, data_context  # user-facing
+
+    # aaiclick/data/__init__.py — can include internal for convenience
+    from .data_context import get_ch_client, LifecycleHandler    # internal but re-exported for subpackage use
+    ```
+
 - **No compromising on typing**: Never use `Any` as a shortcut to avoid proper typing
   - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
   - Prefer `obj: mod.ClassName` over `obj: Any`
