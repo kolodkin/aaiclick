@@ -25,7 +25,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.min()`, `.max()`, `.sum()`, `.mean()`                     | Aggregation       | Reduce array to scalar                       | [Aggregation Operators](#aggregation-operators)                                 |
 | `.std()`, `.var()`, `.count()`, `.quantile(q)`              | Aggregation       | Statistical reduction                        | [Aggregation Operators](#aggregation-operators)                                 |
 | `.count_if(condition)`                                      | Aggregation       | Count rows matching condition(s)             | [Aggregation Operators](#aggregation-operators)                                 |
-| `.unique()`                                                 | Set               | Deduplicate values via GROUP BY              | [Set Operators](#set-operators)                                                 |
+| `.unique()`                                                 | Unique            | Deduplicate values via GROUP BY              | [Unique](#unique)                                                               |
 | `.match(p)`, `.like(p)`, `.ilike(p)`                       | String / Regex    | Pattern matching (returns UInt8 mask)        | [String/Regex Operators](#stringregex-operators)                                |
 | `.extract(p)`, `.replace(p, r)`                             | String / Regex    | Capture group extraction, regex replace      | [String/Regex Operators](#stringregex-operators)                                |
 | `.year()`, `.month()`, `.day_of_week()`                     | Unary Transforms  | Date/time extraction → new Object            | [Unary Transform Operators](#unary-transform-operators)                         |
@@ -114,7 +114,7 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 | `.quantile(q)` | `quantile(q)()`     | Approximate          |
 | `.count_if(cond)` | `countIf()`      | Scalar (str) or dict Object (dict of conditions) |
 
-## Set Operators
+## Unique
 
 | Method      | ClickHouse Implementation | Notes                          |
 |-------------|---------------------------|--------------------------------|
