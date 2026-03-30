@@ -8,7 +8,7 @@ from typing import Callable, Union
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, Task, TaskStatus
+from .models import Job, JobStatus, Task, TaskResult, TaskStatus
 from .task_registry import get_task_registry
 
 
@@ -191,7 +191,7 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
     return job
 
 
-def task_result(*, data=None, tasks=None):
+def task_result(*, data=None, tasks=None) -> TaskResult:
     """Create a TaskResult with both data and tasks.
 
     Args:
@@ -204,11 +204,10 @@ def task_result(*, data=None, tasks=None):
     Example:
         return task_result(data=my_object, tasks=[t1, t2])
     """
-    from .execution import TaskResult  # Circular dep workaround
     return TaskResult(data=data, tasks=tasks or [])
 
 
-def data_list(*data):
+def data_list(*data) -> TaskResult:
     """Create a TaskResult carrying only data items.
 
     Args:
@@ -222,13 +221,12 @@ def data_list(*data):
         return data_list(obj_a, obj_b)
         return data_list(single_obj)
     """
-    from .execution import TaskResult  # Circular dep workaround
     if len(data) == 1:
         return TaskResult(data=data[0])
     return TaskResult(data=list(data))
 
 
-def tasks_list(*tasks):
+def tasks_list(*tasks) -> TaskResult:
     """Create a TaskResult carrying only child tasks.
 
     Args:
@@ -240,5 +238,4 @@ def tasks_list(*tasks):
     Example:
         return tasks_list(t1, t2, t3)
     """
-    from .execution import TaskResult  # Circular dep workaround
     return TaskResult(tasks=list(tasks))

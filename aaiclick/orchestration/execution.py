@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -26,22 +25,8 @@ from aaiclick.data.object import Object, View
 from .orch_context import commit_tasks, get_sql_session, task_scope
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
-from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from .models import Dependency, Group, Job, JobStatus, Task, TaskResult, TaskStatus
 from .worker_context import set_current_task_info
-
-
-@dataclass
-class TaskResult:
-    """Explicit return type for tasks that yield both data and dynamic child tasks.
-
-    Both fields default to None:
-    - TaskResult(tasks=[t1, t2])        — tasks only, no data
-    - TaskResult(data=value)            — data only, no tasks
-    - TaskResult(data=value, tasks=[t]) — both
-    """
-
-    data: Any = None
-    tasks: list = field(default_factory=list)
 
 
 def import_callback(entrypoint: str) -> Callable:
