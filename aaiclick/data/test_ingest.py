@@ -3,9 +3,15 @@ Tests for ingest module internals - type compatibility checking functions.
 
 Tests _are_types_compatible (strict, for UNION ALL) and _are_types_castable
 (permissive, for INSERT with CAST).
+Also tests _get_table_schema fieldtype recovery for all Object kinds.
 """
 
-from aaiclick.data.ingest import _are_types_compatible, _are_types_castable
+import pytest
+
+from aaiclick import create_object_from_value
+from aaiclick.data.ingest import _are_types_compatible, _are_types_castable, _get_table_schema
+from aaiclick.data.ch_client import get_ch_client
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR
 
 
 # =============================================================================
@@ -90,3 +96,41 @@ def test_not_castable_numeric_to_string():
     assert not _are_types_castable("Int64", "String")
     assert not _are_types_castable("String", "Int64")
     assert not _are_types_castable("Float64", "String")
+
+
+# =============================================================================
+# _get_table_schema — fieldtype recovery for ARRAY, DICT, SCALAR objects
+# These tests would have caught the bug where DICT objects were read back as
+# FIELDTYPE_ARRAY because column comments stored col_fieldtype, not fieldtype.
+# =============================================================================
+
+
+async def test_get_table_schema_array_object(ctx):
+    """ARRAY Objects (single-value list) round-trip as FIELDTYPE_ARRAY."""
+    obj = await create_object_from_value([1, 2, 3])
+    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
+    assert fieldtype == FIELDTYPE_ARRAY
+
+
+async def test_get_table_schema_dict_object(ctx):
+    """DICT Objects (multi-column) round-trip as FIELDTYPE_DICT."""
+    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
+    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
+    assert fieldtype == FIELDTYPE_DICT
+
+
+async def test_get_table_schema_scalar_object(ctx):
+    """SCALAR Objects round-trip as FIELDTYPE_SCALAR."""
+    obj = await create_object_from_value(42)
+    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
+    assert fieldtype == FIELDTYPE_SCALAR
+
+
+async def test_get_table_schema_dict_columns_preserved(ctx):
+    """Column names are preserved correctly for DICT objects."""
+    obj = await create_object_from_value({"a": [1, 2], "b": ["x", "y"]})
+    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
+    assert fieldtype == FIELDTYPE_DICT
+    assert "a" in columns
+    assert "b" in columns
+    assert "aai_id" in columns

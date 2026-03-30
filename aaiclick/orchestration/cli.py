@@ -21,7 +21,7 @@ from .worker import list_workers, worker_main_loop
 
 async def show_workers() -> None:
     """List all registered workers."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         workers = await list_workers()
         if not workers:
             print("No workers found")
@@ -35,7 +35,7 @@ async def show_workers() -> None:
 
 async def show_job(job_ref: str) -> None:
     """Show details for a single job."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")
@@ -61,7 +61,7 @@ async def show_jobs(
     """List jobs with optional filtering and pagination."""
     job_status = JobStatus(status) if status else None
 
-    async with orch_context():
+    async with orch_context(with_ch=False):
         total = await count_jobs(status=job_status, name_like=name_like)
         jobs = await list_jobs(
             status=job_status,
@@ -98,7 +98,7 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
 
 async def show_job_stats(job_ref: str) -> None:
     """Show execution stats for a job."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")
@@ -111,7 +111,7 @@ async def show_job_stats(job_ref: str) -> None:
 
 async def cancel_job_cmd(job_ref: str) -> None:
     """Cancel a job and all its non-terminal tasks."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")

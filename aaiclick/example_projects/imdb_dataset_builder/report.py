@@ -39,7 +39,7 @@ def _print_report(
     profile: RawProfile,
     quality_issues: QualityIssues,
     genre_data: dict,
-    hf_result: HFPublishResult,
+    hf_result: HFPublishResult | None,
     raw_md: str,
     clean_md: str,
     genre_md: str,
@@ -102,12 +102,12 @@ def _print_report(
 
     # ---- Publish Result ----
     print("\n### Published\n")
-    if hf_result.status == "published":
+    if hf_result is None:
+        print(f"- Skipped: HF_TOKEN not set")
+        print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
+    elif hf_result.status == "published":
         print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")
         print(f"- Rows published: {_fmt(hf_result.rows)}")
-    elif hf_result.status == "skipped":
-        print(f"- Skipped: {hf_result.reason or 'unknown reason'}")
-        print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
     else:
         print(f"- Status: {hf_result.status}")
 
@@ -120,7 +120,7 @@ async def generate_report(
     genre_balance: Object,
     profile: RawProfile,
     quality_issues: QualityIssues,
-    hf_result: HFPublishResult,
+    hf_result: HFPublishResult | None = None,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
     raw_md = await raw[
@@ -153,5 +153,5 @@ async def generate_report(
     return {
         "total_titles": profile.total_titles,
         "total_movies": quality_issues.total_movies,
-        "hf_status": hf_result.status,
+        "hf_status": hf_result.status if hf_result is not None else "skipped",
     }
