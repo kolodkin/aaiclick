@@ -71,13 +71,19 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     columns_result = await ch_client.query(columns_query)
 
     columns = {}
-    fieldtype = FIELDTYPE_SCALAR
+    col_fieldtype = FIELDTYPE_SCALAR
     for name, col_type, comment in columns_result.result_rows:
         columns[name] = parse_ch_type(col_type)
-        if name != "aai_id" and comment and fieldtype == FIELDTYPE_SCALAR:
+        if name != "aai_id" and comment and col_fieldtype == FIELDTYPE_SCALAR:
             meta = ColumnMeta.from_yaml(comment)
             if meta.fieldtype:
-                fieldtype = meta.fieldtype
+                col_fieldtype = meta.fieldtype
+
+    # DICT objects have columns beyond aai_id/value; ARRAY/SCALAR objects only have value.
+    # Column comments store col_fieldtype (always ARRAY for dict columns), not the object
+    # fieldtype, so we infer DICT from the column structure — same logic as open_object().
+    is_dict = bool(set(columns.keys()) - {"aai_id", "value"})
+    fieldtype = FIELDTYPE_DICT if is_dict else col_fieldtype
 
     return fieldtype, columns
 
