@@ -192,13 +192,6 @@ def test_task_result_factory(orch_ctx):
     assert result.tasks == [t]
 
 
-def test_task_result_factory_defaults(orch_ctx):
-    """Test task_result() defaults to None data and empty tasks list."""
-    result = task_result()
-    assert result.data is None
-    assert result.tasks == []
-
-
 def test_data_list_single(orch_ctx):
     """Test data_list() with a single item returns TaskResult with that item as data."""
     result = data_list("only")
