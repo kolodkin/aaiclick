@@ -40,8 +40,8 @@ from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import TaskFactory, task
-from .factories import data_list, task_result, tasks_list
 from .models import Group, Task
+from .result import TaskResult, data_list, task_result, tasks_list
 
 
 def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
