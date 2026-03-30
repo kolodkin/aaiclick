@@ -2,7 +2,7 @@
 
 from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object
-from aaiclick.orchestration import TaskResult, get_job_result
+from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.models import JobStatus
@@ -31,28 +31,28 @@ async def create_test_object(values: list) -> Object:
 def reduce_single_layer(values: list):
     data = create_test_object(values=values)
     reduced = reduce(sum_reduce, data, partition=100)
-    return TaskResult(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced._result_task, tasks=[data, reduced])
 
 
 @job("test_reduce_multi_layer")
 def reduce_multi_layer(values: list, partition_size: int):
     data = create_test_object(values=values)
     reduced = reduce(sum_reduce, data, partition=partition_size)
-    return TaskResult(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced._result_task, tasks=[data, reduced])
 
 
 @job("test_reduce_empty")
 def reduce_empty():
     data = create_test_object(values=[])
     reduced = reduce(sum_reduce, data, partition=100)
-    return TaskResult(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced._result_task, tasks=[data, reduced])
 
 
 @job("test_reduce_single_row")
 def reduce_single_row():
     data = create_test_object(values=[42])
     reduced = reduce(sum_reduce, data, partition=100)
-    return TaskResult(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced._result_task, tasks=[data, reduced])
 
 
 # --- Tests ---

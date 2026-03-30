@@ -18,13 +18,14 @@ Usage:
     @job("my_pipeline")
     def my_pipeline(value: int):
         result = my_task(x=value)
-        return TaskResult(tasks=[result])
+        return tasks_list(result)
 
     created_job = await my_pipeline(value=42)
 """
 
 from .claiming import cancel_job
 from .execution import TaskResult
+from .factories import data_list, task_result, tasks_list
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task

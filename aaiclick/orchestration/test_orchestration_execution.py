@@ -23,7 +23,7 @@ from aaiclick.orchestration.execution import (
     run_job_tasks,
     serialize_task_result,
 )
-from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.factories import create_job, create_task, data_list, task_result, tasks_list
 from aaiclick.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
@@ -351,14 +351,14 @@ def test_task_result_defaults():
 def test_task_result_tasks_only(orch_ctx):
     """TaskResult with tasks only."""
     t = create_task("mod.func")
-    r = TaskResult(tasks=[t])
+    r = tasks_list(t)
     assert r.data is None
     assert r.tasks == [t]
 
 
 def test_task_result_data_only():
     """TaskResult with data only."""
-    r = TaskResult(data=42)
+    r = data_list(42)
     assert r.data == 42
     assert r.tasks == []
 
@@ -369,7 +369,7 @@ def test_task_result_both(orch_ctx):
 
     t = create_task("mod.func")
     g = Group(id=get_snowflake_id(), name="g1")
-    r = TaskResult(data="result", tasks=[t, g])
+    r = task_result(data="result", tasks=[t, g])
     assert r.data == "result"
     assert t in r.tasks
     assert g in r.tasks
@@ -384,7 +384,7 @@ def test_task_result_preserves_explicit_dependency(orch_ctx):
     g = Group(id=get_snowflake_id(), name="g1")
     t2 >> t1  # t1 depends on t2
 
-    r = TaskResult(tasks=[t1, g])
+    r = tasks_list(t1, g)
     dep_ids = {d.previous_id for d in t1.previous_dependencies}
     assert t2.id in dep_ids
 
@@ -413,7 +413,7 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
     child = create_task("mod.child")
 
     data_result = await register_returned_tasks(
-        TaskResult(tasks=[child]), parent_task_id=parent.id, job_id=job.id
+        tasks_list(child), parent_task_id=parent.id, job_id=job.id
     )
     assert data_result is None
 
@@ -443,7 +443,7 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
     c2 = create_task("mod.child2")
 
     data_result = await register_returned_tasks(
-        TaskResult(data="my_data", tasks=[c1, c2]), parent_task_id=parent.id, job_id=job.id
+        task_result(data="my_data", tasks=[c1, c2]), parent_task_id=parent.id, job_id=job.id
     )
     assert data_result == "my_data"
 
