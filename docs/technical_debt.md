@@ -11,7 +11,7 @@
 - **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/chdb_client.py`)
   - **Issue**: chdb's embedded ClickHouse hangs indefinitely on external HTTP/HTTPS URLs passed to the `url()` table function. The embedded HTTP client blocks the process with no timeout.
   - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
-  - **Debt**: Confirmed broken in chdb 4.1.2–4.1.6; no upstream fix. Remove this workaround once chdb's `url()` works reliably for external hosts. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
+  - **Debt**: Confirmed broken in chdb 4.1.2+; no upstream fix. Remove this workaround once chdb's `url()` works reliably for external hosts. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
 ## GitHub Actions
 
