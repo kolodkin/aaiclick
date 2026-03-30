@@ -42,7 +42,7 @@ Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and
 
 **Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/debug_execution.py`.
 
-# Overview
+# Deployment Modes
 
 Two deployment modes, controlled by two independent environment variables:
 
@@ -64,7 +64,7 @@ Two deployment modes, controlled by two independent environment variables:
 
 `orch_context()` is an async context manager using `ContextVar` for async-safe global access. It holds the SQLAlchemy `AsyncEngine` (aiosqlite or asyncpg) and exposes `commit_tasks()` to persist task/group DAGs to SQL. The `@job` decorator manages it automatically — not part of the public API.
 
-# Data Models
+# DB Models
 
 **Implementation**: `aaiclick/orchestration/models.py`
 
@@ -121,7 +121,7 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **CLI**: `python -m aaiclick job cancel <id>`
 
-# Custom Operators
+# Orchestration Operators
 
 **Implementation**: `aaiclick/orchestration/orch_helpers.py` — see `map()` and `_map_part()` functions
 
@@ -245,6 +245,9 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 Without an injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [DataContext documentation](data_context.md).
 
+# Operation Provenance (Oplog)
+
+All Object operations within a task are automatically logged when `data_context(oplog=...)` is active. See `docs/oplog.md` for the full specification.
 
 # Configuration
 
@@ -253,7 +256,3 @@ See CLAUDE.md for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`
 - **Log directory**: `AAICLICK_LOG_DIR`, or OS defaults (`~/.aaiclick/logs` macOS, `/var/log/aaiclick` Linux). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
 - **Setup (local)**: `python -m aaiclick setup`
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
-
-# Operation Provenance (Oplog)
-
-All Object operations within a task are automatically logged when `data_context(oplog=...)` is active. See `docs/oplog.md` for the full specification.
