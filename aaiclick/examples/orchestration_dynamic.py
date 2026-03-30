@@ -17,7 +17,7 @@ Note: This requires running PostgreSQL and ClickHouse servers.
 import asyncio
 
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration import JobStatus, TaskResult, ajob_test, job, task
+from aaiclick.orchestration import JobStatus, ajob_test, job, task, tasks_list
 
 
 @task
@@ -45,7 +45,7 @@ async def orchestrator():
     b = step_b(x=a)  # implicit dependency: b depends on a (via upstream ref)
     c = step_a()
     b >> c  # explicit dependency: c runs after b
-    return TaskResult(tasks=[a, b, c])
+    return tasks_list(a, b, c)
 
 
 @job("dynamic_tasks_example")
@@ -75,7 +75,7 @@ def task_returning_tasks():
     """A task that returns child tasks for dynamic registration."""
     a = child_task_a()
     b = child_task_b()
-    return TaskResult(tasks=[a, b])
+    return tasks_list(a, b)
 
 
 @task
@@ -95,7 +95,7 @@ def dynamic_pipeline():
     """Entry point that spawns child tasks."""
     a = child_task_a()
     b = child_task_b()
-    return TaskResult(tasks=[a, b])
+    return tasks_list(a, b)
 
 
 @job("chain_pipeline")
