@@ -32,7 +32,7 @@
 
 # URL Loading
 
-::: aaiclick.data.url.create_object_from_url
+::: aaiclick.data.object.url.create_object_from_url
 
 # Snowflake IDs
 
