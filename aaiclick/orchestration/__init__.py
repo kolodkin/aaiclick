@@ -18,7 +18,7 @@ Usage:
     @job("my_pipeline")
     def my_pipeline(value: int):
         result = my_task(x=value)
-        return TaskResult(tasks=[result])
+        return tasks_list(result)
 
     created_job = await my_pipeline(value=42)
 """

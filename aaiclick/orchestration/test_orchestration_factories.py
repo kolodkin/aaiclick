@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from aaiclick.orchestration.decorators import job, task
-from aaiclick.orchestration.execution import TaskResult
+from aaiclick.orchestration import TaskResult
 from aaiclick.orchestration.factories import create_job, create_task, data_list, task_result, tasks_list
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -82,7 +82,7 @@ async def test_job_decorator_bare(orch_ctx):
 
     @job
     def my_pipeline():
-        return TaskResult(tasks=[create_task("mymodule.task1")])
+        return tasks_list(create_task("mymodule.task1"))
 
     assert my_pipeline.name == "my_pipeline"
 
@@ -92,7 +92,7 @@ async def test_job_decorator_with_name_kwarg(orch_ctx):
 
     @job(name="custom")
     def my_pipeline():
-        return TaskResult(tasks=[create_task("mymodule.task1")])
+        return tasks_list(create_task("mymodule.task1"))
 
     assert my_pipeline.name == "custom"
 
