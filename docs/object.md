@@ -57,11 +57,7 @@ For runnable examples, see `examples/basic_operators.py`.
 
 **Implementation**: `aaiclick/data/object.py` — see `_ensure_object()`
 
-All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on either side. The scalar is converted to a scalar Object via `create_object_from_value`, so all data stays in ClickHouse with a unified code path. This works for both `obj + 5` (forward) and `5 + obj` (reverse).
-
-**How it works**: `_ensure_object()` converts scalars to Objects first, then the caller uses `_get_query_info()` for all operands — no special-case SQL generation.
-
-Reverse operators (`__radd__`, `__rsub__`, etc.) call `_apply_reverse_operator()` which swaps the operand order so the scalar appears on the left in SQL.
+All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on either side via `_ensure_object()`. This works for both `obj + 5` and `5 + obj`.
 
 For runnable examples, see `examples/basic_operators.py`.
 
@@ -156,10 +152,6 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
 Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
-
-**When to use which**:
-- **Object methods** (`obj.year()`) — single-column Objects, returns a new Object
-- **View helpers** (`view.with_year('col')`) — multi-column dicts, adds a computed column to the View
 
 **Tests**: `aaiclick/data/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 
@@ -286,24 +278,9 @@ Fluent API for building WHERE conditions. `Object.where()` creates a View; `View
 
 See `aaiclick/example_projects/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
 
-## Design: SELECT Expression Approach (No Materialization)
+## Design
 
-`with_columns()` returns a **View** whose SELECT list includes `expr AS name` aliases alongside existing columns. No new table, no data copy — the computed column exists only in the View's query.
-
-**Why SELECT expressions over alternatives:**
-
-| Aspect                    | Materialized table           | ALIAS column                        | SELECT expression (chosen)     |
-|---------------------------|------------------------------|-------------------------------------|--------------------------------|
-| Schema change             | New table created            | `ALTER TABLE ADD COLUMN ... ALIAS`  | None                           |
-| Storage                   | Full copy                    | Zero                                | Zero                           |
-| Table mutation             | No (new table)               | Yes (adds metadata to table)        | No                             |
-| Persistence               | Permanent column             | Permanent column                    | Exists only in that View       |
-| `SELECT *` visibility     | Yes                          | No (must name explicitly)           | Yes (in the View)              |
-| Reusable across Views     | Yes (real column)            | Yes (any query can reference it)    | No (must repeat expression)    |
-| Composability             | Returns Object               | Mutates table                       | Returns View (chainable)       |
-| Performance               | O(n) INSERT                  | O(1) ALTER                          | O(1) View creation             |
-
-SELECT expressions are the simplest and most composable — they align with how Views already work. The computed column is just another entry in the View's SELECT list.
+`with_columns()` returns a **View** with `expr AS name` aliases in the SELECT list — no new table, no data copy, O(1) creation.
 
 ## API
 

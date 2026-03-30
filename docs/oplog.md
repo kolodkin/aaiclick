@@ -5,16 +5,6 @@ The `aaiclick/oplog/` module captures data operation provenance inside ClickHous
 
 ---
 
-# Design Principles
-
-- **Zero overhead when disabled** — no ContextVar overhead when oplog is not active
-- **ClickHouse-native** — all provenance data lives in ClickHouse alongside Object tables
-- **Append-only** — `operation_log` is TTL-managed; no deletes during normal operation
-- **Flush on success only** — buffer is discarded on exception to avoid partial lineage
-- **No AI dependencies** — the oplog module is pure data infrastructure
-
----
-
 # ClickHouse Tables
 
 **Implementation**: `aaiclick/oplog/models.py` — see `OPERATION_LOG_DDL`, `TABLE_REGISTRY_DDL`, `init_oplog_tables()`
@@ -89,11 +79,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 
 **Implementation**: `aaiclick/oplog/graph.py` — see `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`, `OplogGraph.to_prompt_context()`
 
-Iterative BFS traversal — avoids `WITH RECURSIVE` for broader ClickHouse version compatibility.
-
-`OplogGraph.to_prompt_context()` formats the graph as plain text for LLM consumption.
-
-**chdb compatibility**: chdb returns `Map(String, String)` as a list of `(key, value)` tuples instead of a Python dict. `_to_dict()` normalises both formats transparently.
+Iterative graph traversal over `operation_log`. `OplogGraph.to_prompt_context()` formats the graph as plain text for LLM consumption.
 
 ---
 
