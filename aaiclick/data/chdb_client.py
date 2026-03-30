@@ -11,14 +11,14 @@ Thread-safe for concurrent access from background workers.
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import tempfile
 import urllib.request
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
 
 from chdb.session import Session
@@ -31,46 +31,50 @@ _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECA
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 
-async def _rewrite_external_urls(query: str) -> tuple[str, list[str]]:
-    """Replace ``url('https://...', 'fmt')`` with ``file('/tmp/x', 'fmt')`` in *query*.
+@asynccontextmanager
+async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
+    """Context manager that rewrites ``url('https://...', 'fmt')`` → ``file(...)``.
 
-    Downloads each external URL to a temp file via :func:`asyncio.to_thread` so
-    the event loop is not blocked.  Returns the rewritten query and a list of
-    temp file paths that the caller must delete.
+    Downloads each external URL to a :class:`tempfile.NamedTemporaryFile` via
+    :func:`asyncio.to_thread`.  Files are deleted automatically when the
+    ``async with`` block exits, whether normally or on exception.
 
-    chdb's embedded ClickHouse hangs indefinitely on external HTTP/HTTPS requests
-    via ``url()``.  Downloading through Python first and using ``file()`` is the
-    reliable workaround.
+    chdb's embedded ClickHouse hangs indefinitely on external HTTP/HTTPS
+    requests via ``url()``.  Downloading through Python first and loading
+    with ``file()`` is the reliable workaround.
     """
     matches = list(_URL_FUNC_RE.finditer(query))
     if not matches:
-        return query, []
+        yield query
+        return
 
-    tmp_paths: list[str] = []
-    # Build span→replacement map; apply in reverse to preserve offsets.
     replacements: dict[tuple[int, int], str] = {}
+    tmp_files: list[tempfile.NamedTemporaryFile] = []
+    try:
+        for m in matches:
+            url, fmt = m.group(1), m.group(2)
+            if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
+                continue
+            suffix = "".join(Path(urlparse(url).path).suffixes)  # e.g. ".tsv.gz"
+            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
+            tmp_files.append(tmp)
+            await asyncio.to_thread(urllib.request.urlretrieve, url, tmp.name)
+            safe_tmp = tmp.name.replace("'", "\\'")
+            replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
 
-    for m in matches:
-        url, fmt = m.group(1), m.group(2)
-        if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
-            continue
-        filename = Path(urlparse(url).path).name or "download"
-        suffix = "".join(Path(filename).suffixes)  # e.g. ".tsv.gz"
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        await asyncio.to_thread(urllib.request.urlretrieve, url, tmp_path)
-        tmp_paths.append(tmp_path)
-        safe_tmp = tmp_path.replace("'", "\\'")
-        replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
+        if not replacements:
+            yield query
+            return
 
-    if not replacements:
-        return query, []
+        # Apply replacements in reverse order to preserve string offsets.
+        result = query
+        for (start, end), replacement in sorted(replacements.items(), reverse=True):
+            result = result[:start] + replacement + result[end:]
 
-    result = query
-    for (start, end), replacement in sorted(replacements.items(), reverse=True):
-        result = result[:start] + replacement + result[end:]
-
-    return result, tmp_paths
+        yield result
+    finally:
+        for tmp in tmp_files:
+            tmp.close()
 
 
 def _with_settings(query: str, settings: Optional[dict]) -> str:
@@ -136,9 +140,8 @@ class ChdbClient:
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
-        query, tmp_paths = await _rewrite_external_urls(query)
-        try:
-            result = self._session.query(_with_settings(query, settings), "TabSeparated")
+        async with _rewrite_external_urls(query) as rewritten:
+            result = self._session.query(_with_settings(rewritten, settings), "TabSeparated")
             raw = result.bytes()
             if raw:
                 text = raw.decode("utf-8").strip()
@@ -148,9 +151,6 @@ class ChdbClient:
                     except ValueError:
                         return text
             return None
-        finally:
-            for p in tmp_paths:
-                os.unlink(p)
 
     async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
@@ -164,9 +164,8 @@ class ChdbClient:
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
-        query, tmp_paths = await _rewrite_external_urls(query)
-        try:
-            table = self._session.query(_with_settings(query, settings), "Arrowtable")
+        async with _rewrite_external_urls(query) as rewritten:
+            table = self._session.query(_with_settings(rewritten, settings), "Arrowtable")
             if table is None or table.num_rows == 0:
                 return ChdbQueryResult()
 
@@ -178,9 +177,6 @@ class ChdbClient:
                 for i in range(n_rows)
             ]
             return ChdbQueryResult(result_rows=rows)
-        finally:
-            for p in tmp_paths:
-                os.unlink(p)
 
     async def insert(
         self,
