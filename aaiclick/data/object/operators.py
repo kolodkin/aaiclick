@@ -60,11 +60,11 @@ from __future__ import annotations
 
 from typing import Union
 
-from ..oplog.collector import oplog_record
-from ..snowflake_id import get_snowflake_id
-from .data_context import create_object
-from .models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
-from .sql_utils import quote_identifier
+from aaiclick.oplog.collector import oplog_record
+from aaiclick.snowflake_id import get_snowflake_id
+from ..data_context import create_object
+from ..models import ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
+from ..sql_utils import quote_identifier
 
 
 # Operator to arrayMap lambda expression mapping (uses x, y variables)

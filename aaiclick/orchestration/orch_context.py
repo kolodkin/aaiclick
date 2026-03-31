@@ -12,9 +12,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_postgres
-from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
-from aaiclick.data.data_context import _engine_var, _objects_var
-from aaiclick.data.lifecycle import LifecycleHandler, _lifecycle_var
+from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.data_context.data_context import _engine_var, _objects_var
+from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables

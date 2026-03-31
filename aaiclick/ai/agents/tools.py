@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from aaiclick.data.ch_client import get_ch_client
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.oplog.lineage import backward_oplog
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [

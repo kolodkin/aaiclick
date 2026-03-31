@@ -2,10 +2,13 @@
 Tests for TableWorker background thread lifecycle management.
 """
 
+import importlib
 import time
 from unittest.mock import MagicMock, patch
 
-from aaiclick.data.table_worker import TableWorker, TableOp, TableMessage
+from aaiclick.data.data_context.table_worker import TableWorker, TableOp, TableMessage
+
+_table_worker = importlib.import_module("aaiclick.data.data_context.table_worker")
 
 
 def test_worker_incref_queues_message():
@@ -97,7 +100,7 @@ def test_worker_drop_table_handles_exception():
     worker._drop_table("nonexistent_table")
 
 
-@patch("aaiclick.data.table_worker.create_sync_client")
+@patch.object(_table_worker, "create_sync_client")
 def test_worker_full_lifecycle(mock_create_sync_client):
     """Test worker full lifecycle with mocked ClickHouse client."""
     mock_client = MagicMock()
@@ -126,7 +129,7 @@ def test_worker_full_lifecycle(mock_create_sync_client):
     mock_client.close.assert_called_once()
 
 
-@patch("aaiclick.data.table_worker.create_sync_client")
+@patch.object(_table_worker, "create_sync_client")
 def test_worker_drops_table_when_refcount_zero(mock_create_sync_client):
     """Test that table is dropped immediately when refcount reaches zero."""
     mock_client = MagicMock()

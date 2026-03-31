@@ -53,7 +53,7 @@ class SnowflakeGenerator:
         """Lazily create a sync ClickHouse client (chdb or remote)."""
         if self._client is None:
             if is_chdb():
-                from .data.chdb_client import ChdbSyncClient, create_chdb_session
+                from .data.data_context.chdb_client import ChdbSyncClient, create_chdb_session
 
                 session = create_chdb_session()
                 self._client = ChdbSyncClient(session)

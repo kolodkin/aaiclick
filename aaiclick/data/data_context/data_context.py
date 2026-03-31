@@ -21,7 +21,7 @@ from aaiclick.backend import get_ch_url
 
 from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
-from .models import (
+from ..models import (
     ColumnInfo,
     ValueScalarType,
     ValueListType,
@@ -35,7 +35,7 @@ from .models import (
     ENGINE_DEFAULT,
     parse_ch_type,
 )
-from .sql_utils import quote_identifier
+from ..sql_utils import quote_identifier
 from aaiclick.oplog.collector import oplog_record, oplog_record_table
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
@@ -218,7 +218,7 @@ async def create_object(
     Returns:
         Object: New Object instance with created table
     """
-    from .object import Object
+    from ..object import Object
 
     if name is not None:
         _validate_persistent_name(name)
@@ -504,7 +504,7 @@ async def create_object_from_value(
     Returns:
         Object: New Object instance with data
     """
-    from .object import Object, View
+    from ..object import Object, View
 
     if isinstance(val, (Object, View)):
         return val
@@ -659,8 +659,8 @@ async def open_object(name: str) -> Object:
         ValueError: If name is invalid.
         RuntimeError: If table does not exist.
     """
-    from .object import Object
-    from .ingest import _get_table_schema
+    from ..object import Object
+    from ..object.ingest import _get_table_schema
 
     _validate_persistent_name(name)
     ch = get_ch_client()

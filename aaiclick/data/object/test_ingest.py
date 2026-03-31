@@ -9,8 +9,8 @@ Also tests _get_table_schema fieldtype recovery for all Object kinds.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.ingest import _are_types_compatible, _are_types_castable, _get_table_schema
-from aaiclick.data.ch_client import get_ch_client
+from aaiclick.data.object.ingest import _are_types_compatible, _are_types_castable, _get_table_schema
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR
 
 

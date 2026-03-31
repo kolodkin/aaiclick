@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:

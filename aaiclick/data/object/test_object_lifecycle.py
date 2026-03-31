@@ -19,7 +19,7 @@ def test_del_guard_unregistered_object():
     obj.__del__()
 
 
-@patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
+@patch("aaiclick.data.object.object.sys.is_finalizing", return_value=True)
 async def test_del_guard_interpreter_shutdown(mock_finalizing, ctx):
     """Guard: __del__ skips decref during interpreter shutdown."""
     obj = await create_object_from_value([1, 2, 3])
@@ -43,7 +43,7 @@ async def test_del_guard_after_context_exit():
 # View guard tests
 
 
-@patch("aaiclick.data.object.sys.is_finalizing", return_value=True)
+@patch("aaiclick.data.object.object.sys.is_finalizing", return_value=True)
 async def test_view_del_guard_interpreter_shutdown(mock_finalizing, ctx):
     """Guard: View.__del__ skips decref during interpreter shutdown."""
     obj = await create_object_from_value([1, 2, 3])

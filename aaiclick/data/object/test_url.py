@@ -22,7 +22,7 @@ from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import FIELDTYPE_DICT
 
 _NUM_ROWS = 200
-_SAMPLES_DIR = str(Path(__file__).resolve().parent.parent / "url_samples")
+_SAMPLES_DIR = str(Path(__file__).resolve().parent.parent.parent / "url_samples")
 _FILESERVER_HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 
 

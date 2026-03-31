@@ -10,8 +10,8 @@ from aaiclick.data.data_context import (
     get_ch_client,
     list_persistent_objects,
     open_object,
-    _validate_persistent_name,
 )
+from aaiclick.data.data_context.data_context import _validate_persistent_name
 
 
 async def test_create_persistent_object():

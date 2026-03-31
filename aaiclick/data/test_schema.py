@@ -10,12 +10,12 @@ import pytest
 from aaiclick import (
     create_object_from_value,
     Schema,
-    ViewSchema,
     ColumnInfo,
     FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
 )
+from aaiclick.data.models import ViewSchema
 
 
 # =============================================================================

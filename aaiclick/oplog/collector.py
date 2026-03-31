@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from aaiclick.data.ch_client import get_ch_client
+from aaiclick.data.data_context import get_ch_client
 
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(

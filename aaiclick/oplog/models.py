@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 
-from aaiclick.data.ch_client import ChClient
+from aaiclick.data.data_context import ChClient
 
 
 OPERATION_LOG_DDL = """

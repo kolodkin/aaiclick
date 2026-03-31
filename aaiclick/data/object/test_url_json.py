@@ -15,7 +15,7 @@ import pytest
 
 from aaiclick import create_object_from_url
 from aaiclick.data.models import ColumnInfo
-from aaiclick.data.url import _json_extract_expr
+from aaiclick.data.object.url import _json_extract_expr
 
 
 # =============================================================================

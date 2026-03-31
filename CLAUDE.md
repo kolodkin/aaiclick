@@ -137,6 +137,8 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     __all__ = ["Job", "Task", "Worker"]
     ```
 
+- **Top-level `__init__.py` is public API only**: `aaiclick/__init__.py` exports only user-facing symbols; subpackage `__init__.py` files may also re-export internals for intra-package import convenience
+
 - **No compromising on typing**: Never use `Any` as a shortcut to avoid proper typing
   - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
   - Prefer `obj: mod.ClassName` over `obj: Any`
