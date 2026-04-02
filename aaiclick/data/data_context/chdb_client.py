@@ -17,7 +17,7 @@ import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, List, Optional, Sequence, Union
+from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import pyarrow as pa
@@ -181,24 +181,26 @@ class ChdbClient:
     async def insert(
         self,
         table: str,
-        data: Union[Sequence[Sequence], dict[str, list]],
+        data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
+        column_oriented: bool = False,
     ) -> None:
         """Bulk insert via pyarrow Python() table function.
 
-        Accepts either columnar ``dict[str, list]`` (zero-copy) or row-oriented
-        ``Sequence[Sequence]`` (transposed to columnar automatically).
+        Matches clickhouse-connect AsyncClient.insert() signature.
+        When ``column_oriented=True``, *data* is a list of columns (zero-copy).
+        When ``False`` (default), *data* is a list of rows (transposed internally).
         """
         if not data:
             return
 
-        if isinstance(data, dict):
+        names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
+
+        if column_oriented:
             arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-                {name: pa.array(values) for name, values in data.items()}
+                {name: pa.array(col) for name, col in zip(names, data)}
             )
-            names = list(data)
         else:
-            names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
             columns = list(zip(*data))
             arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
                 {name: pa.array(list(col)) for name, col in zip(names, columns)}

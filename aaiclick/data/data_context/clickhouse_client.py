@@ -5,9 +5,6 @@ Creates an AsyncClient for distributed ClickHouse servers using
 clickhouse-connect with a shared urllib3 connection pool.
 """
 
-from __future__ import annotations
-
-from typing import Optional, Sequence, Union
 from urllib.parse import urlparse
 
 from urllib3 import PoolManager
@@ -25,40 +22,7 @@ def get_pool() -> PoolManager:
     return _pool[0]
 
 
-class ClickHouseClient:
-    """Thin wrapper around clickhouse-connect AsyncClient.
-
-    Delegates command/query/insert to the underlying AsyncClient and adds
-    columnar dict support to insert via column_oriented=True.
-    """
-
-    def __init__(self, client: object):
-        self._client = client
-
-    async def command(self, query: str, settings: Optional[dict] = None) -> object:
-        return await self._client.command(query, settings=settings)
-
-    async def query(self, query: str, settings: Optional[dict] = None) -> object:
-        return await self._client.query(query, settings=settings)
-
-    async def insert(
-        self,
-        table: str,
-        data: Union[Sequence[Sequence], dict[str, list]],
-        column_names: Optional[Sequence[str]] = None,
-    ) -> None:
-        """Insert data — accepts columnar dict or row-oriented sequences."""
-        if isinstance(data, dict):
-            names = list(data.keys())
-            columns = list(data.values())
-            await self._client.insert(
-                table, columns, column_names=names, column_oriented=True,
-            )
-        else:
-            await self._client.insert(table, data, column_names=column_names)
-
-
-async def create_clickhouse_client() -> ClickHouseClient:
+async def create_clickhouse_client():
     """Create a clickhouse-connect AsyncClient from AAICLICK_CH_URL."""
     try:
         from clickhouse_connect import get_async_client
@@ -69,7 +33,7 @@ async def create_clickhouse_client() -> ClickHouseClient:
         ) from e
 
     parsed = urlparse(get_ch_url())
-    client = await get_async_client(
+    return await get_async_client(
         pool_mgr=get_pool(),
         host=parsed.hostname or "localhost",
         port=parsed.port or 8123,
@@ -77,4 +41,3 @@ async def create_clickhouse_client() -> ClickHouseClient:
         password=parsed.password or "",
         database=parsed.path.lstrip("/") or "default",
     )
-    return ClickHouseClient(client)
