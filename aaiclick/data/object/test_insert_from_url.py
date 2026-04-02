@@ -1,5 +1,5 @@
 """
-Tests for create_object_from_url().
+Tests for create_object_from_url() and insert_from_url().
 
 Validation tests verify input sanitization.
 Integration tests load data from sample files served by a local HTTP server.
@@ -7,19 +7,23 @@ Integration tests load data from sample files served by a local HTTP server.
 The fileserver fixture starts Python's http.server on a random port, serving
 aaiclick/url_samples/. Set AAICLICK_TEST_FILESERVER_HOST=host.docker.internal
 in CI where ClickHouse runs in Docker.
+
+JSON mode tests use a dedicated handler serving nested JSON payloads.
 """
 
+import json
 import os
 import threading
 from functools import partial
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import pytest
 
 from aaiclick import create_object_from_url
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.models import FIELDTYPE_DICT
+from aaiclick.data.models import ColumnInfo, FIELDTYPE_DICT
+from aaiclick.data.object.url import _json_extract_expr
 
 _NUM_ROWS = 200
 _SAMPLES_DIR = str(Path(__file__).resolve().parent.parent.parent / "url_samples")
@@ -114,7 +118,6 @@ async def test_url_where_with_semicolon(ctx):
 # =============================================================================
 
 
-
 async def test_url_format_parquet(ctx, fileserver):
     """Load 100 rows from Parquet sample file."""
     obj = await create_object_from_url(
@@ -124,7 +127,6 @@ async def test_url_format_parquet(ctx, fileserver):
     assert isinstance(data, dict)
     assert len(data["id"]) == 100
     assert len(data["price"]) == 100
-
 
 
 async def test_url_format_csv_with_names(ctx, fileserver):
@@ -139,7 +141,6 @@ async def test_url_format_csv_with_names(ctx, fileserver):
     assert len(data["name"]) == 100
 
 
-
 async def test_url_format_tsv_with_names(ctx, fileserver):
     """Load 100 rows from TSV sample file."""
     obj = await create_object_from_url(
@@ -151,7 +152,6 @@ async def test_url_format_tsv_with_names(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-
 async def test_url_format_json_each_row(ctx, fileserver):
     """Load 100 rows from JSONL sample file."""
     obj = await create_object_from_url(
@@ -161,7 +161,6 @@ async def test_url_format_json_each_row(ctx, fileserver):
     assert isinstance(data, dict)
     assert len(data["id"]) == 100
     assert len(data["price"]) == 100
-
 
 
 async def test_url_format_orc(ctx, fileserver):
@@ -180,7 +179,6 @@ async def test_url_format_orc(ctx, fileserver):
 # =============================================================================
 
 
-
 async def test_url_single_column(ctx, fileserver):
     """Single column load creates an array Object (column renamed to 'value')."""
     obj = await create_object_from_url(
@@ -190,7 +188,6 @@ async def test_url_single_column(ctx, fileserver):
     assert isinstance(data, list)
     assert len(data) == _NUM_ROWS
     assert not obj.stale
-
 
 
 async def test_url_multi_column(ctx, fileserver):
@@ -213,7 +210,6 @@ async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
     assert obj._schema.fieldtype == FIELDTYPE_DICT
 
 
-
 async def test_url_with_limit(ctx, fileserver):
     """LIMIT restricts the number of loaded rows."""
     obj = await create_object_from_url(
@@ -221,7 +217,6 @@ async def test_url_with_limit(ctx, fileserver):
     )
     data = await obj.data()
     assert len(data) == 3
-
 
 
 async def test_url_with_where(ctx, fileserver):
@@ -236,7 +231,6 @@ async def test_url_with_where(ctx, fileserver):
     assert len(data["price"]) < _NUM_ROWS
 
 
-
 async def test_url_snowflake_ids_ordered(ctx, fileserver):
     """Snowflake IDs are monotonically increasing and unique."""
     obj = await create_object_from_url(
@@ -247,7 +241,6 @@ async def test_url_snowflake_ids_ordered(ctx, fileserver):
     assert ids == sorted(ids)
     assert len(set(ids)) == len(ids)
     assert len(ids) == 100
-
 
 
 async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
@@ -269,7 +262,6 @@ async def test_url_aggregation_on_result(ctx, fileserver):
     obj = await create_object_from_url(
         f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames", limit=10,
     )
-    # First 10 prices: 1.5, 3.0, 4.5, ..., 15.0 => sum = 82.5
     total = await obj.sum()
     total_data = await total.data()
     assert total_data == pytest.approx(82.5, abs=0.1)
@@ -280,7 +272,6 @@ async def test_url_aggregation_on_result(ctx, fileserver):
 # =============================================================================
 
 
-
 async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     """insert_from_url rejects non-HTTP URLs."""
     obj = await create_object_from_url(
@@ -288,7 +279,6 @@ async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     )
     with pytest.raises(ValueError, match="http or https"):
         await obj.insert_from_url("ftp://example.com/data.parquet")
-
 
 
 async def test_insert_from_url_unsupported_format(ctx, fileserver):
@@ -304,7 +294,6 @@ async def test_insert_from_url_unsupported_format(ctx, fileserver):
         )
 
 
-
 async def test_insert_from_url_invalid_limit(ctx, fileserver):
     """insert_from_url rejects invalid limit values."""
     obj = await create_object_from_url(
@@ -316,7 +305,6 @@ async def test_insert_from_url_invalid_limit(ctx, fileserver):
             columns=["id", "price"],
             limit=-1,
         )
-
 
 
 async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
@@ -337,10 +325,8 @@ async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
 # =============================================================================
 
 
-
 async def test_insert_from_url_appends_data(ctx, fileserver):
     """insert_from_url appends data to existing Object."""
-    # Create initial object with 10 rows
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet",
         columns=["id", "price"],
@@ -350,7 +336,6 @@ async def test_insert_from_url_appends_data(ctx, fileserver):
     initial_count = len((await obj.data())["id"])
     assert initial_count == 10
 
-    # Insert 5 more rows
     await obj.insert_from_url(
         f"{fileserver}/sample.parquet",
         columns=["id", "price"],
@@ -359,7 +344,6 @@ async def test_insert_from_url_appends_data(ctx, fileserver):
     )
     final_count = len((await obj.data())["id"])
     assert final_count == 15
-
 
 
 async def test_insert_from_url_auto_columns(ctx, fileserver):
@@ -371,7 +355,6 @@ async def test_insert_from_url_auto_columns(ctx, fileserver):
         limit=5,
     )
 
-    # Insert without specifying columns - should use object's columns
     await obj.insert_from_url(
         f"{fileserver}/sample.csv",
         format="CSVWithNames",
@@ -380,7 +363,6 @@ async def test_insert_from_url_auto_columns(ctx, fileserver):
     data = await obj.data()
     assert len(data["id"]) == 10
     assert len(data["price"]) == 10
-
 
 
 async def test_insert_from_url_with_where(ctx, fileserver):
@@ -393,7 +375,6 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     )
     initial_count = len((await obj.data())["id"])
 
-    # Insert only rows where price > 200
     await obj.insert_from_url(
         f"{fileserver}/sample.csv",
         columns=["id", "price"],
@@ -402,10 +383,8 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     )
     data = await obj.data()
 
-    # Should have more rows than initial, but not all 200
     assert len(data["id"]) > initial_count
     assert len(data["id"]) < initial_count + _NUM_ROWS
-
 
 
 async def test_insert_from_url_snowflake_ids(ctx, fileserver):
@@ -417,7 +396,6 @@ async def test_insert_from_url_snowflake_ids(ctx, fileserver):
         limit=5,
     )
 
-    # Insert more data
     await obj.insert_from_url(
         f"{fileserver}/sample.parquet",
         columns=["price"],
@@ -425,8 +403,221 @@ async def test_insert_from_url_snowflake_ids(ctx, fileserver):
         limit=5,
     )
 
-    # All IDs should be unique
     result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table}")
     ids = [row[0] for row in result.result_rows]
-    assert len(set(ids)) == len(ids)  # All unique
+    assert len(set(ids)) == len(ids)
     assert len(ids) == 10
+
+
+# =============================================================================
+# JSON mode: _json_extract_expr unit tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "field, col_info, expected",
+    [
+        ("name", ColumnInfo("String"), "JSONExtractString(elem, 'name')"),
+        ("count", ColumnInfo("Int64"), "JSONExtractInt(elem, 'count')"),
+        ("count", ColumnInfo("UInt32"), "JSONExtractInt(elem, 'count')"),
+        ("price", ColumnInfo("Float64"), "JSONExtractFloat(elem, 'price')"),
+        ("price", ColumnInfo("Float32"), "JSONExtractFloat(elem, 'price')"),
+        ("flag", ColumnInfo("Bool"), "JSONExtractBool(elem, 'flag')"),
+        ("d", ColumnInfo("Date"), "JSONExtract(elem, 'd', 'Date')"),
+        ("ts", ColumnInfo("DateTime"), "JSONExtract(elem, 'ts', 'DateTime')"),
+        ("tags", ColumnInfo("String", array=True), "JSONExtract(elem, 'tags', 'Array(String)')"),
+        ("notes", ColumnInfo("String", nullable=True), "JSONExtract(elem, 'notes', 'Nullable(String)')"),
+        ("vals", ColumnInfo("Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
+        ("it's", ColumnInfo("String"), "JSONExtractString(elem, 'it\\'s')"),
+    ],
+    ids=["string", "int64", "uint32", "float64", "float32", "bool", "date", "datetime", "array", "nullable", "nullable_array", "escaped"],
+)
+def test_json_extract_expr(field, col_info, expected):
+    assert _json_extract_expr(field, col_info) == expected
+
+
+# =============================================================================
+# JSON mode: validation tests (no server needed)
+# =============================================================================
+
+
+async def test_json_mode_validation_errors(ctx):
+    """All JSON mode validation errors in one test."""
+    with pytest.raises(ValueError, match="json_path and json_columns must both be provided"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            format="RawBLOB",
+            json_columns={"id": ColumnInfo("String")},
+        )
+    with pytest.raises(ValueError, match="json_path and json_columns must both be provided"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            format="RawBLOB",
+            json_path="data",
+        )
+    with pytest.raises(ValueError, match="non-empty dict"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            format="RawBLOB",
+            json_path="data",
+            json_columns={},
+        )
+    with pytest.raises(ValueError, match="JSON mode requires format"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            format="CSV",
+            json_path="data",
+            json_columns={"id": ColumnInfo("String")},
+        )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            columns=["id"],
+            format="RawBLOB",
+            json_path="data",
+            json_columns={"id": ColumnInfo("String")},
+        )
+    with pytest.raises(ValueError, match="reserved"):
+        await create_object_from_url(
+            "https://example.com/api.json",
+            format="RawBLOB",
+            json_path="data",
+            json_columns={"aai_id": ColumnInfo("UInt64")},
+        )
+    with pytest.raises(ValueError, match="Either columns or json_path"):
+        await create_object_from_url("https://example.com/api.json")
+
+
+# =============================================================================
+# JSON mode: integration tests (require local HTTP server)
+# =============================================================================
+
+
+_SAMPLE_JSON = {
+    "title": "Test Catalog",
+    "count": 3,
+    "items": [
+        {"id": "A-001", "name": "Alpha", "score": 95.5, "active": True, "tags": ["x", "y"]},
+        {"id": "A-002", "name": "Beta", "score": 82.0, "active": False, "tags": ["z"]},
+        {"id": "A-003", "name": "Gamma", "score": 71.3, "active": True, "tags": []},
+    ],
+}
+
+
+class _JsonHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps(_SAMPLE_JSON).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def json_server():
+    server = HTTPServer(("0.0.0.0", 0), _JsonHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://{_FILESERVER_HOST}:{port}"
+    server.shutdown()
+    server.server_close()
+
+
+async def test_json_load_all_columns_and_schema(ctx, json_server):
+    """Load all columns, verify data and schema."""
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={
+            "id": ColumnInfo("String"),
+            "name": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
+            "tags": ColumnInfo("String", array=True),
+        },
+    )
+    data = await obj.data()
+    assert isinstance(data, dict)
+    assert len(data["id"]) == 3
+    assert set(data["id"]) == {"A-001", "A-002", "A-003"}
+    assert set(data["name"]) == {"Alpha", "Beta", "Gamma"}
+    schema = obj.schema
+    assert schema.columns["id"].type == "String"
+    assert schema.columns["score"].type == "Float64"
+    assert schema.columns["tags"].array is True
+    assert schema.columns["tags"].type == "String"
+
+
+async def test_json_load_subset_with_limit_and_where(ctx, json_server):
+    """Subset columns, limit, and where filter."""
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={
+            "id": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
+        },
+    )
+    data = await obj.data()
+    assert set(data.keys()) == {"id", "score"}
+    assert len(data["id"]) == 3
+
+    obj_limited = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={"id": ColumnInfo("String")},
+        limit=2,
+    )
+    data_limited = await obj_limited.data()
+    assert len(data_limited["id"]) == 2
+
+    obj_filtered = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={
+            "id": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
+        },
+        where="`score` > 80",
+    )
+    data_filtered = await obj_filtered.data()
+    assert len(data_filtered["id"]) == 2
+    assert all(s > 80 for s in data_filtered["score"])
+
+
+async def test_json_load_array_field(ctx, json_server):
+    """Array fields are correctly extracted."""
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={
+            "id": ColumnInfo("String"),
+            "tags": ColumnInfo("String", array=True),
+        },
+    )
+    data = await obj.data()
+    tags_by_id = dict(zip(data["id"], data["tags"]))
+    assert set(tags_by_id["A-001"]) == {"x", "y"}
+    assert tags_by_id["A-002"] == ["z"]
+    assert tags_by_id["A-003"] == []
+
+
+async def test_json_load_json_as_string_format(ctx, json_server):
+    """JSONAsString format also works for JSON mode."""
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="JSONAsString",
+        json_path="items",
+        json_columns={"id": ColumnInfo("String")},
+    )
+    data = await obj.data()
+    assert len(data["id"]) == 3

@@ -153,7 +153,7 @@ SQL handles orchestration because it provides ACID consistency, row-level lockin
 
 **Implementation**: `aaiclick/orchestration/models.py`
 
-All entities use **Snowflake IDs** (not database auto-increment) — distributed generation, time-ordered, no DB round-trip. Stored as PostgreSQL `BIGINT`.
+All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#generateSnowflakeID) — distributed generation, time-ordered, no DB round-trip. Stored as PostgreSQL `BIGINT`.
 
 ## Status Enums
 
