@@ -31,25 +31,25 @@ async def test_context_with_memory_engine():
 
 
 async def test_create_object_with_engine_override():
-    """Test non-default engine passed directly to create_object."""
-    async with data_context():  # Default MergeTree
+    """Test engine override passed directly to create_object."""
+    async with data_context():  # Default Memory
         ch_client = get_ch_client()
-        # Override with Memory engine
+        # Override to MergeTree
         schema = Schema(fieldtype="a", columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("Int64")})
-        obj_a = await create_object(schema, engine=ENGINE_MEMORY)
+        obj_a = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
         result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_a.table}'
         """)
-        assert result.result_rows[0][0] == "Memory"
+        assert result.result_rows[0][0] == "MergeTree"
 
-        # Without override, should use context default (MergeTree)
+        # Without override, should use context default (Memory)
         obj_b = await create_object(schema)
 
         result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_b.table}'
         """)
-        assert result.result_rows[0][0] == "MergeTree"
+        assert result.result_rows[0][0] == "Memory"
 
 
 async def test_mixed_engine_scenario():
@@ -125,7 +125,7 @@ async def test_schema_engine_param_precedence():
 
 async def test_aggregating_merge_tree_engine():
     """Test AggregatingMergeTree with custom ORDER BY."""
-    async with data_context():
+    async with data_context(engine=ENGINE_MERGE_TREE):
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
@@ -149,7 +149,7 @@ async def test_aggregating_merge_tree_engine():
 
 async def test_schema_order_by_merge_tree():
     """Test custom ORDER BY on MergeTree."""
-    async with data_context():
+    async with data_context(engine=ENGINE_MERGE_TREE):
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",

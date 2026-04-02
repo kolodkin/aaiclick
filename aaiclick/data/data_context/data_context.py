@@ -17,8 +17,6 @@ from typing import AsyncIterator, Dict, List, Union
 
 import numpy as np
 
-from aaiclick.backend import get_ch_url
-
 from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
 from ..models import (
@@ -33,6 +31,7 @@ from ..models import (
     FIELDTYPE_DICT,
     EngineType,
     ENGINE_DEFAULT,
+    ENGINE_MEMORY,
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
@@ -50,7 +49,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
 #   OplogCollector  → collector.py  (_oplog_collector / get_oplog_collector)
-_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_DEFAULT)
+_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_MEMORY)
 _objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
 
 
@@ -142,12 +141,12 @@ async def data_context(
     execution use orch_context() + task_scope() instead.
 
     Args:
-        engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
+        engine: ClickHouse table engine. Defaults to Memory (RAM).
     """
     ch_client = await create_ch_client()
-    effective_engine = engine if engine is not None else ENGINE_DEFAULT
+    effective_engine = engine if engine is not None else ENGINE_MEMORY
 
-    lifecycle = LocalLifecycleHandler(get_ch_url())
+    lifecycle = LocalLifecycleHandler(ch_client)
     await lifecycle.start()
 
     objects: Dict[int, weakref.ref] = {}
@@ -208,12 +207,14 @@ async def create_object(
 
     Args:
         schema: Schema dataclass with fieldtype, columns, engine, and order_by.
-        engine: Deprecated — use schema.engine instead. If both are set,
-                this parameter takes precedence for backward compatibility.
+        engine: Table engine override. Priority (highest to lowest):
+                ``name`` (persistent) → this param → ``schema.engine`` → context default.
+                Ignored when ``name`` is set — persistent tables always use MergeTree.
         name: Optional persistent name. When provided, creates a persistent
               table with prefix ``p_`` that survives context exit. Uses
               ``CREATE TABLE IF NOT EXISTS`` so subsequent calls with the same
-              name append data. Forces MergeTree engine.
+              name append data. Always uses MergeTree regardless of ``engine``
+              or ``schema.engine``.
 
     Returns:
         Object: New Object instance with created table
@@ -246,7 +247,7 @@ async def create_object(
             ddl += f" COMMENT '{comment}'"
         column_defs.append(ddl)
 
-    # Engine priority: persistent forces MergeTree > engine param > schema.engine > context default
+    # Persistent tables always use MergeTree regardless of engine param or schema.engine.
     if obj.persistent:
         effective_engine = "MergeTree"
     else:

@@ -84,6 +84,6 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler`, `LocalLifecycleHandler`
 
-Tables are reference-counted and dropped when no Objects reference them. `data_context()` creates a `LocalLifecycleHandler` (background `TableWorker` thread) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `PgCleanupWorker`.
+Tables are reference-counted and dropped when no Objects reference them. `data_context()` creates a `LocalLifecycleHandler` (async `AsyncTableWorker` task) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `PgCleanupWorker`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.

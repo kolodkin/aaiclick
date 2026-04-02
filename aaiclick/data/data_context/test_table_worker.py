@@ -1,153 +1,173 @@
 """
-Tests for TableWorker background thread lifecycle management.
+Tests for AsyncTableWorker async task lifecycle management.
 """
 
-import importlib
-import time
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
-from aaiclick.data.data_context.table_worker import TableWorker, TableOp, TableMessage
-
-_table_worker = importlib.import_module("aaiclick.data.data_context.table_worker")
+from aaiclick.data.data_context.table_worker import AsyncTableWorker, TableOp, TableMessage
 
 
-def test_worker_incref_queues_message():
-    """Test that incref queues an INCREF message."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
+def _make_mock_client() -> AsyncMock:
+    client = AsyncMock()
+    client.command = AsyncMock(return_value=None)
+    return client
 
-    # Don't start the worker - just test queue behavior
+
+def test_worker_incref_schedules_message():
+    """incref schedules an INCREF message via call_soon_threadsafe."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+
+    mock_loop = MagicMock()
+    worker._loop = mock_loop
+
     worker.incref("table_123")
 
-    msg = worker._queue.get_nowait()
-    assert msg.op == TableOp.INCREF
-    assert msg.table_name == "table_123"
+    mock_loop.call_soon_threadsafe.assert_called_once_with(
+        worker._queue.put_nowait, TableMessage(TableOp.INCREF, "table_123")
+    )
 
 
-def test_worker_decref_queues_message():
-    """Test that decref queues a DECREF message."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
+def test_worker_decref_schedules_message():
+    """decref schedules a DECREF message via call_soon_threadsafe."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+
+    mock_loop = MagicMock()
+    worker._loop = mock_loop
 
     worker.decref("table_456")
 
-    msg = worker._queue.get_nowait()
-    assert msg.op == TableOp.DECREF
-    assert msg.table_name == "table_456"
+    mock_loop.call_soon_threadsafe.assert_called_once_with(
+        worker._queue.put_nowait, TableMessage(TableOp.DECREF, "table_456")
+    )
 
 
-def test_worker_stop_queues_shutdown():
-    """Test that stop queues a SHUTDOWN message and joins thread."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
-
-    # Mock the thread join to avoid blocking
-    worker._thread = MagicMock()
-
-    worker.stop()
-
-    msg = worker._queue.get_nowait()
-    assert msg.op == TableOp.SHUTDOWN
-    worker._thread.join.assert_called_once()
+def test_worker_incref_noop_before_start():
+    """incref is a no-op before start() (loop not set)."""
+    worker = AsyncTableWorker(_make_mock_client())
+    worker.incref("table_123")
 
 
-def test_worker_refcount_tracking():
-    """Test refcount tracking logic without actual ClickHouse."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
-
-    # Simulate what _run does for INCREF
-    worker._refcounts["table_a"] = 0
-    worker._refcounts["table_a"] = worker._refcounts.get("table_a", 0) + 1
-    assert worker._refcounts["table_a"] == 1
-
-    worker._refcounts["table_a"] = worker._refcounts.get("table_a", 0) + 1
-    assert worker._refcounts["table_a"] == 2
-
-    # Simulate DECREF
-    worker._refcounts["table_a"] -= 1
-    assert worker._refcounts["table_a"] == 1
-
-    worker._refcounts["table_a"] -= 1
-    assert worker._refcounts["table_a"] == 0
+def test_worker_decref_noop_before_start():
+    """decref is a no-op before start() (loop not set)."""
+    worker = AsyncTableWorker(_make_mock_client())
+    worker.decref("table_456")
 
 
-def test_worker_cleanup_all():
-    """Test cleanup_all drops all tracked tables."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
+async def test_worker_refcount_drops_only_at_zero():
+    """Table is dropped only when refcount reaches zero, not before."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+    await worker.start()
 
-    # Mock the client
-    worker._ch_client = MagicMock()
-    worker._refcounts = {"table_1": 2, "table_2": 1, "table_3": 5}
+    worker.incref("table_a")
+    worker.incref("table_a")
+    worker.decref("table_a")  # refcount → 1, no drop yet
 
-    worker._cleanup_all()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
-    # All tables should be dropped
-    assert worker._ch_client.command.call_count == 3
-    worker._ch_client.command.assert_any_call("DROP TABLE IF EXISTS table_1")
-    worker._ch_client.command.assert_any_call("DROP TABLE IF EXISTS table_2")
-    worker._ch_client.command.assert_any_call("DROP TABLE IF EXISTS table_3")
+    client.command.assert_not_called()
 
-    # Refcounts should be cleared
-    assert worker._refcounts == {}
+    worker.decref("table_a")  # refcount → 0, should drop
 
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
-def test_worker_drop_table_handles_exception():
-    """Test _drop_table handles exceptions gracefully."""
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
+    client.command.assert_called_once_with("DROP TABLE IF EXISTS table_a")
 
-    # Mock client that raises exception
-    worker._ch_client = MagicMock()
-    worker._ch_client.command.side_effect = Exception("Connection failed")
-
-    # Should not raise
-    worker._drop_table("nonexistent_table")
+    await worker.stop()
 
 
-@patch.object(_table_worker, "create_sync_client")
-def test_worker_full_lifecycle(mock_create_sync_client):
-    """Test worker full lifecycle with mocked ClickHouse client."""
-    mock_client = MagicMock()
-    mock_create_sync_client.return_value = mock_client
+async def test_worker_start_creates_task():
+    """start() creates an asyncio Task and stores the running loop."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
 
-    worker = TableWorker("clickhouse://default:@testhost:9000/testdb")
+    await worker.start()
 
-    # Start worker
-    worker.start()
+    assert worker._loop is asyncio.get_running_loop()
+    assert worker._task is not None
+    assert not worker._task.done()
 
-    # Send some messages
+    await worker.stop()
+
+
+async def test_worker_full_lifecycle():
+    """Worker processes incref/decref and drops tables when refcount hits zero."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+
+    await worker.start()
+
     worker.incref("table_x")
     worker.incref("table_x")
     worker.decref("table_x")
     worker.incref("table_y")
 
-    # Stop and wait
-    worker.stop()
+    await worker.stop()
 
-    # Client should have been created
-    mock_create_sync_client.assert_called_once()
-
-    # Remaining tables should be cleaned up (table_x has refcount 1, table_y has 1)
-    # Both should be dropped on shutdown
-    assert mock_client.command.call_count >= 2
-    mock_client.close.assert_called_once()
+    # table_x (refcount 1) and table_y (refcount 1) both cleaned up on shutdown
+    dropped = {call.args[0] for call in client.command.call_args_list}
+    assert dropped == {
+        "DROP TABLE IF EXISTS table_x",
+        "DROP TABLE IF EXISTS table_y",
+    }
 
 
-@patch.object(_table_worker, "create_sync_client")
-def test_worker_drops_table_when_refcount_zero(mock_create_sync_client):
-    """Test that table is dropped immediately when refcount reaches zero."""
-    mock_client = MagicMock()
-    mock_create_sync_client.return_value = mock_client
+async def test_worker_drops_table_when_refcount_zero():
+    """Table is dropped immediately when refcount reaches zero."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
 
-    worker = TableWorker("clickhouse://default:@localhost:8123/default")
+    await worker.start()
 
-    worker.start()
-
-    # Create and immediately release a table
     worker.incref("temp_table")
     worker.decref("temp_table")
 
-    # Give worker time to process
-    time.sleep(0.1)
+    # call_soon_threadsafe callbacks need one iteration to enqueue;
+    # worker task needs another to process them
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
-    # Stop worker
-    worker.stop()
+    client.command.assert_called_once_with("DROP TABLE IF EXISTS temp_table")
 
-    # Table should have been dropped when refcount hit 0
-    mock_client.command.assert_any_call("DROP TABLE IF EXISTS temp_table")
+    await worker.stop()
+
+
+async def test_worker_cleanup_all():
+    """_cleanup_all drops all tracked tables."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+    worker._refcounts = {"table_1": 2, "table_2": 1, "table_3": 5}
+
+    await worker._cleanup_all()
+
+    assert client.command.call_count == 3
+    client.command.assert_any_call("DROP TABLE IF EXISTS table_1")
+    client.command.assert_any_call("DROP TABLE IF EXISTS table_2")
+    client.command.assert_any_call("DROP TABLE IF EXISTS table_3")
+    assert worker._refcounts == {}
+
+
+async def test_worker_drop_table_handles_exception():
+    """_drop_table handles exceptions gracefully."""
+    client = _make_mock_client()
+    client.command.side_effect = Exception("Connection failed")
+    worker = AsyncTableWorker(client)
+
+    await worker._drop_table("nonexistent_table")
+
+
+async def test_worker_skips_persistent_tables_on_cleanup():
+    """Persistent tables (p_ prefix) are not dropped during cleanup."""
+    client = _make_mock_client()
+    worker = AsyncTableWorker(client)
+    worker._refcounts = {"p_mydata": 1, "temp_table": 1}
+
+    await worker._cleanup_all()
+
+    dropped = {call.args[0] for call in client.command.call_args_list}
+    assert dropped == {"DROP TABLE IF EXISTS temp_table"}
