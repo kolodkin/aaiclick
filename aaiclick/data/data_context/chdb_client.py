@@ -16,7 +16,6 @@ import tempfile
 import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
@@ -30,6 +29,21 @@ from chdb.session import Session
 _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def _needs_explicit_type(pa_type: pa.DataType) -> bool:
+    """Check if pyarrow inferred an ambiguous type that needs schema lookup.
+
+    Covers: null (all-None), list<null> (empty lists), struct (dicts — pyarrow
+    infers struct but ClickHouse Map needs explicit typing).
+    """
+    if pa.types.is_null(pa_type):
+        return True
+    if pa.types.is_list(pa_type) and pa.types.is_null(pa_type.value_type):
+        return True
+    if pa.types.is_struct(pa_type):
+        return True
+    return False
 
 
 @asynccontextmanager
@@ -124,6 +138,7 @@ class ChdbClient:
 
     def __init__(self, session: Session):
         self._session = session
+        self._schema_cache: dict[str, dict[str, pa.DataType]] = {}
 
     @property
     def session(self) -> Session:
@@ -186,32 +201,58 @@ class ChdbClient:
         column_names: Optional[Sequence[str]] = None,
         column_oriented: bool = False,
     ) -> None:
-        """Bulk insert into a ClickHouse table.
+        """Bulk insert via pyarrow Python() table function.
 
         Matches clickhouse-connect AsyncClient.insert() signature.
-        When ``column_oriented=True``, *data* is a list of columns — uses
-        pyarrow ``Python()`` table function for zero-copy columnar transfer.
-        When ``False`` (default), *data* is a list of rows — uses a VALUES
-        clause for universal type compatibility (handles NULL, empty
-        containers, etc. that pyarrow cannot infer types for).
+        When ``column_oriented=True``, *data* is a list of columns (zero-copy).
+        When ``False`` (default), *data* is a list of rows — transposed to
+        columns and typed from the table schema so pyarrow handles all
+        ClickHouse types (Array, Map, Nullable, etc.) correctly.
         """
         if not data:
             return
 
         names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
-        cols = f" ({', '.join(f'`{c}`' for c in names)})"
 
         if column_oriented:
-            arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-                {name: pa.array(col) for name, col in zip(names, data)}
-            )
-            self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
+            cols_data = list(data)
         else:
-            value_rows = []
-            for row in data:
-                formatted = [_format_value(val) for val in row]
-                value_rows.append(f"({', '.join(formatted)})")
-            self._session.query(f"INSERT INTO {table}{cols} VALUES {', '.join(value_rows)}")
+            cols_data = [list(col) for col in zip(*data)]
+
+        pa_types = self._get_pa_types(table, names)
+        pa_columns = {}
+        for name, col in zip(names, cols_data):
+            try:
+                pa_columns[name] = pa.array(col)
+            except pa.ArrowInvalid:
+                pa_columns[name] = pa.array(col, type=pa_types.get(name))
+            else:
+                inferred = pa_columns[name].type
+                if _needs_explicit_type(inferred):
+                    pa_columns[name] = pa.array(col, type=pa_types.get(name))
+        arrow_table = pa.table(pa_columns)  # noqa: F841 — referenced by SQL below
+        cols = f" ({', '.join(f'`{c}`' for c in names)})"
+        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
+
+    def _get_pa_types(self, table: str, columns: list[str]) -> dict[str, pa.DataType]:
+        """Look up pyarrow types for columns from the table schema.
+
+        Caches per table to avoid repeated system.columns queries.
+        """
+        if table not in self._schema_cache:
+            result = self._session.query(
+                f"SELECT name, type FROM system.columns WHERE table = '{table}'",
+                "Arrowtable",
+            )
+            if result and result.num_rows > 0:
+                d = result.to_pydict()
+                self._schema_cache[table] = {
+                    name: _ch_type_to_pa(ch_type) for name, ch_type in zip(d["name"], d["type"])
+                }
+            else:
+                self._schema_cache[table] = {}
+        schema = self._schema_cache[table]
+        return {col: schema[col] for col in columns if col in schema}
 
     def cleanup(self) -> None:
         """Clean up the chdb session."""
@@ -245,24 +286,40 @@ class ChdbSyncClient:
         """No-op — session lifecycle managed by ChdbClient."""
 
 
-def _format_value(val: object) -> str:
-    """Format a Python value for a ClickHouse VALUES clause."""
-    if val is None:
-        return "NULL"
-    if isinstance(val, str):
-        escaped = val.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
-    if isinstance(val, bool):
-        return "1" if val else "0"
-    if isinstance(val, datetime):
-        return f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
-    if isinstance(val, dict):
-        pairs = ", ".join(f"{_format_value(k)}: {_format_value(v)}" for k, v in val.items())
-        return f"{{{pairs}}}"
-    if isinstance(val, (list, tuple)):
-        inner = ", ".join(_format_value(v) for v in val)
-        return f"[{inner}]"
-    return str(val)
+
+_PA_BASE_TYPES: dict[str, pa.DataType] = {
+    "UInt8": pa.uint8(),
+    "UInt16": pa.uint16(),
+    "UInt32": pa.uint32(),
+    "UInt64": pa.uint64(),
+    "Int8": pa.int8(),
+    "Int16": pa.int16(),
+    "Int32": pa.int32(),
+    "Int64": pa.int64(),
+    "Float32": pa.float32(),
+    "Float64": pa.float64(),
+    "String": pa.string(),
+    "Bool": pa.bool_(),
+}
+
+
+def _ch_type_to_pa(ch_type: str) -> pa.DataType:
+    """Convert a ClickHouse type string to a pyarrow DataType."""
+    if ch_type.startswith("Nullable("):
+        return _ch_type_to_pa(ch_type[9:-1])
+    if ch_type.startswith("LowCardinality("):
+        return _ch_type_to_pa(ch_type[15:-1])
+    if ch_type in _PA_BASE_TYPES:
+        return _PA_BASE_TYPES[ch_type]
+    if ch_type.startswith("DateTime64"):
+        return pa.timestamp("ms", tz="UTC")
+    if ch_type.startswith("Array("):
+        return pa.list_(_ch_type_to_pa(ch_type[6:-1]))
+    if ch_type.startswith("Map("):
+        inner = ch_type[4:-1]
+        key_type, val_type = inner.split(", ", 1)
+        return pa.map_(_ch_type_to_pa(key_type), _ch_type_to_pa(val_type))
+    return pa.string()
 
 
 def get_chdb_data_path() -> str:
