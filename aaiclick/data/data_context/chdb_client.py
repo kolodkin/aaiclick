@@ -16,6 +16,7 @@ import tempfile
 import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
@@ -185,29 +186,32 @@ class ChdbClient:
         column_names: Optional[Sequence[str]] = None,
         column_oriented: bool = False,
     ) -> None:
-        """Bulk insert via pyarrow Python() table function.
+        """Bulk insert into a ClickHouse table.
 
         Matches clickhouse-connect AsyncClient.insert() signature.
-        When ``column_oriented=True``, *data* is a list of columns (zero-copy).
-        When ``False`` (default), *data* is a list of rows (transposed internally).
+        When ``column_oriented=True``, *data* is a list of columns — uses
+        pyarrow ``Python()`` table function for zero-copy columnar transfer.
+        When ``False`` (default), *data* is a list of rows — uses a VALUES
+        clause for universal type compatibility (handles NULL, empty
+        containers, etc. that pyarrow cannot infer types for).
         """
         if not data:
             return
 
         names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
+        cols = f" ({', '.join(f'`{c}`' for c in names)})"
 
         if column_oriented:
             arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
                 {name: pa.array(col) for name, col in zip(names, data)}
             )
+            self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
         else:
-            columns = list(zip(*data))
-            arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-                {name: pa.array(list(col)) for name, col in zip(names, columns)}
-            )
-
-        cols = f" ({', '.join(f'`{c}`' for c in names)})"
-        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
+            value_rows = []
+            for row in data:
+                formatted = [_format_value(val) for val in row]
+                value_rows.append(f"({', '.join(formatted)})")
+            self._session.query(f"INSERT INTO {table}{cols} VALUES {', '.join(value_rows)}")
 
     def cleanup(self) -> None:
         """Clean up the chdb session."""
@@ -240,6 +244,25 @@ class ChdbSyncClient:
     def close(self) -> None:
         """No-op — session lifecycle managed by ChdbClient."""
 
+
+def _format_value(val: object) -> str:
+    """Format a Python value for a ClickHouse VALUES clause."""
+    if val is None:
+        return "NULL"
+    if isinstance(val, str):
+        escaped = val.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+    if isinstance(val, bool):
+        return "1" if val else "0"
+    if isinstance(val, datetime):
+        return f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
+    if isinstance(val, dict):
+        pairs = ", ".join(f"{_format_value(k)}: {_format_value(v)}" for k, v in val.items())
+        return f"{{{pairs}}}"
+    if isinstance(val, (list, tuple)):
+        inner = ", ".join(_format_value(v) for v in val)
+        return f"[{inner}]"
+    return str(val)
 
 
 def get_chdb_data_path() -> str:
