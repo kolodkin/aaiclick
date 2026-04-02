@@ -427,9 +427,7 @@ async def _create_nested_object(
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
     obj = await create_object(schema, name=name)
 
-    keys = list(flat.keys())
-    data = [[flat[k] for k in keys]]
-    await ch.insert(obj.table, data, column_names=keys)
+    await ch.insert_columns(obj.table, {k: [v] for k, v in flat.items()})
 
     return obj
 
@@ -470,8 +468,8 @@ async def _create_nested_records_object(
 
     all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
-    data = [[flat[k] for k in keys] for flat in all_flat]
-    await ch.insert(obj.table, data, column_names=keys)
+    col_data = {key: [flat[key] for flat in all_flat] for key in keys}
+    await ch.insert_columns(obj.table, col_data)
 
     return obj
 
@@ -537,33 +535,17 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             if array_len and array_len > 0:
-                keys = list(val.keys())
-                data = [list(row) for row in zip(*[val[key] for key in keys])]
-                await ch.insert(obj.table, data, column_names=keys)
+                await ch.insert_columns(obj.table, dict(val))
 
         else:
             columns = {"aai_id": ColumnInfo("UInt64")}
-            values = []
-
             for key, value in val.items():
-                col_def = _infer_clickhouse_type(value)
-                columns[key] = col_def
-
-                if isinstance(value, str):
-                    values.append(f"'{value}'")
-                elif isinstance(value, bool):
-                    values.append("1" if value else "0")
-                elif isinstance(value, datetime):
-                    values.append(f"'{value.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'")
-                else:
-                    values.append(str(value))
+                columns[key] = _infer_clickhouse_type(value)
 
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
             obj = await create_object(schema, name=name)
 
-            col_names = [quote_identifier(k) for k in val.keys()]
-            insert_query = f"INSERT INTO {obj.table} ({', '.join(col_names)}) VALUES ({', '.join(values)})"
-            await ch.command(insert_query)
+            await ch.insert_columns(obj.table, {k: [v] for k, v in val.items()})
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
@@ -600,8 +582,8 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
-            data = [[record[key] for key in keys] for record in val]
-            await ch.insert(obj.table, data, column_names=keys)
+            col_data = {key: [record[key] for record in val] for key in keys}
+            await ch.insert_columns(obj.table, col_data)
         else:
             col_def = _infer_clickhouse_type(val)
             schema = Schema(
@@ -611,8 +593,7 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             if val:
-                data = [[v] for v in val]
-                await ch.insert(obj.table, data, column_names=["value"])
+                await ch.insert_columns(obj.table, {"value": val})
 
     else:
         col_def = _infer_clickhouse_type(val)
@@ -623,17 +604,7 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name)
 
-        if isinstance(val, str):
-            value_str = f"'{val}'"
-        elif isinstance(val, bool):
-            value_str = "1" if val else "0"
-        elif isinstance(val, datetime):
-            value_str = f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
-        else:
-            value_str = str(val)
-
-        insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
-        await ch.command(insert_query)
+        await ch.insert_columns(obj.table, {"value": [val]})
 
     oplog_record(obj.table, "create_from_value")
     return obj

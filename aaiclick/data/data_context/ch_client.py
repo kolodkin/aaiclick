@@ -34,6 +34,11 @@ class ChClient(Protocol):
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
     ) -> None: ...
+    async def insert_columns(
+        self,
+        table: str,
+        column_data: dict[str, list],
+    ) -> None: ...
 
 
 _ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)

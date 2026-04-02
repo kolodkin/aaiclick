@@ -201,6 +201,25 @@ class ChdbClient:
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
+    async def insert_columns(
+        self,
+        table: str,
+        column_data: dict[str, list],
+    ) -> None:
+        """Insert columnar data directly via pyarrow — zero row↔column transpose.
+
+        Builds a ``pa.table`` directly from the column-oriented dict and uses
+        ``INSERT INTO ... SELECT * FROM Python(arrow_table)`` for zero-copy
+        transfer into chdb.
+        """
+        if not column_data:
+            return
+        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+            {name: pa.array(values) for name, values in column_data.items()}
+        )
+        cols = f" ({', '.join(f'`{c}`' for c in column_data)})"
+        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
+
     def cleanup(self) -> None:
         """Clean up the chdb session."""
         self._session.cleanup()
