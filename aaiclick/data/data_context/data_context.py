@@ -17,8 +17,6 @@ from typing import AsyncIterator, Dict, List, Union
 
 import numpy as np
 
-from aaiclick.backend import get_ch_url
-
 from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
 from ..models import (
@@ -147,7 +145,7 @@ async def data_context(
     ch_client = await create_ch_client()
     effective_engine = engine if engine is not None else ENGINE_DEFAULT
 
-    lifecycle = LocalLifecycleHandler(get_ch_url())
+    lifecycle = LocalLifecycleHandler(ch_client)
     await lifecycle.start()
 
     objects: Dict[int, weakref.ref] = {}

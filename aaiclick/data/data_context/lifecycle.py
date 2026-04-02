@@ -2,7 +2,7 @@
 aaiclick.data.lifecycle - Abstract lifecycle handler and local implementation.
 
 This module defines the LifecycleHandler interface for Object table lifecycle
-management (incref/decref) and the LocalLifecycleHandler that wraps TableWorker
+management (incref/decref) and the LocalLifecycleHandler that wraps AsyncTableWorker
 for single-process local operation.
 """
 
@@ -11,7 +11,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
 
-from .table_worker import TableWorker
+from .ch_client import ChClient
+from .table_worker import AsyncTableWorker
 
 
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
@@ -68,24 +69,24 @@ class LifecycleHandler(ABC):
 
 
 class LocalLifecycleHandler(LifecycleHandler):
-    """Local lifecycle via background TableWorker thread.
+    """Local lifecycle via async AsyncTableWorker task.
 
-    Wraps the existing TableWorker — background thread with queue-based
-    refcounting and automatic DROP TABLE when refcount reaches 0.
-    This is the default when no lifecycle handler is injected.
+    Wraps AsyncTableWorker — asyncio Task with queue-based refcounting and
+    automatic DROP TABLE when refcount reaches 0. Runs entirely in the main
+    event loop; no background thread or sync client needed.
 
     Args:
-        connection_string: ClickHouse or chdb connection URL.
+        ch_client: Async ClickHouse client to use for DROP TABLE operations.
     """
 
-    def __init__(self, connection_string: str):
-        self._worker = TableWorker(connection_string)
+    def __init__(self, ch_client: ChClient):
+        self._worker = AsyncTableWorker(ch_client)
 
     async def start(self) -> None:
-        self._worker.start()
+        await self._worker.start()
 
     async def stop(self) -> None:
-        self._worker.stop()
+        await self._worker.stop()
 
     def incref(self, table_name: str) -> None:
         self._worker.incref(table_name)

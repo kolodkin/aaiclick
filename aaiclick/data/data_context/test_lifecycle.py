@@ -2,14 +2,19 @@
 Tests for LifecycleHandler ABC and LocalLifecycleHandler.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.backend import get_ch_url
 from aaiclick.data.data_context import data_context
 from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
+
+
+def _make_mock_client() -> AsyncMock:
+    client = AsyncMock()
+    client.command = AsyncMock(return_value=None)
+    return client
 
 
 def test_lifecycle_handler_is_abstract():
@@ -19,8 +24,8 @@ def test_lifecycle_handler_is_abstract():
 
 
 def test_local_lifecycle_delegates_incref():
-    """LocalLifecycleHandler.incref delegates to TableWorker."""
-    handler = LocalLifecycleHandler(get_ch_url())
+    """LocalLifecycleHandler.incref delegates to AsyncTableWorker."""
+    handler = LocalLifecycleHandler(_make_mock_client())
     handler._worker = MagicMock()
 
     handler.incref("table_123")
@@ -29,8 +34,8 @@ def test_local_lifecycle_delegates_incref():
 
 
 def test_local_lifecycle_delegates_decref():
-    """LocalLifecycleHandler.decref delegates to TableWorker."""
-    handler = LocalLifecycleHandler(get_ch_url())
+    """LocalLifecycleHandler.decref delegates to AsyncTableWorker."""
+    handler = LocalLifecycleHandler(_make_mock_client())
     handler._worker = MagicMock()
 
     handler.decref("table_456")
@@ -39,23 +44,25 @@ def test_local_lifecycle_delegates_decref():
 
 
 async def test_local_lifecycle_start_delegates():
-    """LocalLifecycleHandler.start delegates to TableWorker.start."""
-    handler = LocalLifecycleHandler(get_ch_url())
-    handler._worker = MagicMock()
+    """LocalLifecycleHandler.start delegates to AsyncTableWorker.start."""
+    handler = LocalLifecycleHandler(_make_mock_client())
+    mock_worker = AsyncMock()
+    handler._worker = mock_worker
 
     await handler.start()
 
-    handler._worker.start.assert_called_once()
+    mock_worker.start.assert_called_once()
 
 
 async def test_local_lifecycle_stop_delegates():
-    """LocalLifecycleHandler.stop delegates to TableWorker.stop."""
-    handler = LocalLifecycleHandler(get_ch_url())
-    handler._worker = MagicMock()
+    """LocalLifecycleHandler.stop delegates to AsyncTableWorker.stop."""
+    handler = LocalLifecycleHandler(_make_mock_client())
+    mock_worker = AsyncMock()
+    handler._worker = mock_worker
 
     await handler.stop()
 
-    handler._worker.stop.assert_called_once()
+    mock_worker.stop.assert_called_once()
 
 
 async def test_data_context_always_creates_local_lifecycle():
