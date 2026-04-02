@@ -53,7 +53,7 @@ zero duplication.
 | 2  | Example output                   | Shows response bodies inline under each code block                | Shows generated SQL below Python code                                 | Raw `.py` includes, no output                           | Add `??? example "Expected Output"` blocks to each example page | P0       | S      |
 | 3  | Admonitions                      | `tip`, `info`, `check`, `warning`, `technical details` throughout | Notes, warnings, deprecated markers on every page                     | Extensions configured, never used                       | Add admonitions to `getting_started.md`, `object.md`, `data_context.md` | P0       | S      |
 | 4  | Progressive tutorial             | 30+ page step-by-step, each page self-contained + sequential      | Unified tutorial building engine → metadata → operations → ORM       | Quick Example → 30KB reference wall                     | 7-page tutorial using named snippets from existing examples | P1       | L      |
-| 5  | Troubleshooting / FAQ            | —                                                                 | Error reference with root cause analysis, FAQ by workflow              | No error docs; `technical_debt.md` not in nav           | `troubleshooting.md` covering common errors + async pitfalls | P1       | M      |
+| 5  | Troubleshooting / FAQ            | —                                                                 | Error reference with root cause analysis, FAQ by workflow              | No error docs; `technical_debt.md` not in nav           | Defer until project matures — not enough user-reported issues yet | P3       | M      |
 | 6  | Cross-page links                 | Parenthetical forward refs, direct backward refs, lateral links   | "See also" sections on nearly every method/page                       | Pages are siloed; minimal cross-referencing              | Add "See Also" footers + inline links between guide, examples, API | P1       | S      |
 | 7  | Tabbed content                   | Tabs for Python 3.9+ vs 3.10+ syntax                              | —                                                                     | Extension configured, never used                        | Use tabs for local vs distributed install/config        | P2       | S      |
 | 8  | Comparison page                  | Explicit comparison vs Flask, Django REST, Express                 | —                                                                     | README mentions "Pandas/SQLAlchemy-inspired" with no elaboration | `comparison.md` with feature matrix vs Pandas, Spark, Dask | P2       | M      |
@@ -85,7 +85,8 @@ For each of the 14 example pages, add:
 
 - Brief intro paragraph explaining what the example covers
 - `??? example "Expected Output"` collapsible block after the code with actual output
-- `!!! tip` admonition for key takeaways
+
+Do **not** add `!!! tip` admonitions to example pages — the code speaks for itself.
 
 Template:
 
@@ -105,29 +106,92 @@ For API details, see [Arithmetic Operators](../object.md#arithmetic-operators).
     Example 1: Creating objects from scalar values
     ...
     ```
-
-!!! tip
-    All operations create new Objects — the originals are never modified.
-    Always `await` the result.
 ```
 
 ### 1c. Admonitions in existing guide pages
 
-Add to `getting_started.md`:
+**Principle**: Use admonitions only at genuine pitfall points — places where a user is
+likely to hit a confusing error without the callout. Never for emphasis, decoration, or
+restating what the surrounding prose already says. Target: **7 total** across all guide pages.
 
-- `!!! tip` — "All objects are cleaned up automatically when `data_context()` exits"
-- `!!! warning` — "Always `await` operation results"
+**`getting_started.md`** (2 admonitions):
 
-Add to `object.md`:
+1. After the Quick Example code block — warning about the `await` pitfall:
 
-- `!!! warning "Awaiting Operations"` at top of Operator Support section
-- `!!! tip "Scalar Broadcast"` in the Scalar Broadcast section
-- `!!! info` boxes for ClickHouse-specific behavior notes
+    ```markdown
+    !!! warning "Always `await` operation results"
+        `prices * tax_rate` returns a coroutine, not an Object.
+        Forgetting `await` gives a confusing error downstream —
+        not at the line where you forgot it.
+    ```
 
-Add to `data_context.md`:
+2. After "All objects created inside `data_context()` are automatically cleaned up" sentence —
+   replace that sentence with a collapsible detail:
 
-- `!!! warning "Object Staleness"` in lifecycle section
-- `!!! tip` for local vs distributed deployment choice
+    ```markdown
+    ??? info "Automatic cleanup"
+        All objects created inside `data_context()` are cleaned up on exit —
+        no manual table management required. Don't store Objects for use after
+        the context exits.
+    ```
+
+**`object.md`** (3 admonitions):
+
+3. In the Scalar Broadcast section — replace the prose explanation:
+
+    ```markdown
+    !!! tip "Scalar broadcast"
+        Python scalars work on either side of an operator:
+        `obj * 2` and `2 * obj` both work. The scalar is auto-converted
+        to a single-value Object via `_ensure_object()`.
+    ```
+
+4. In the String/Regex section, after the operator table — the RE2 note is already
+   there as plain text but easy to miss:
+
+    ```markdown
+    !!! info "ClickHouse uses RE2 regex syntax"
+        No lookaheads or lookbehinds. See
+        [RE2 syntax](https://github.com/google/re2/wiki/Syntax).
+    ```
+
+5. In the `or_where()` / `or_having()` docs — the "requires a prior" rule is a common
+   footgun:
+
+    ```markdown
+    !!! warning "`or_where()` requires a prior `where()`"
+        Calling `or_where()` without a preceding `where()` raises `ValueError`.
+        Same applies to `or_having()` on `GroupByQuery`.
+    ```
+
+**`data_context.md`** (2 admonitions):
+
+6. In the Object Lifecycle and Staleness section — the staleness rule:
+
+    ```markdown
+    !!! warning "Objects become stale when their context exits"
+        Using a stale Object raises `RuntimeError`. Create and consume Objects
+        within the same `data_context()` block. Don't store them in module-level
+        variables or pass them between contexts.
+    ```
+
+7. After the Deployment Modes paragraph — help users choose:
+
+    ```markdown
+    ??? info "Which deployment mode?"
+        Start with the default (chdb + SQLite) — it needs zero setup.
+        Switch to distributed (remote ClickHouse + PostgreSQL) when data
+        exceeds local disk or you need multiple workers.
+    ```
+
+**Pages with zero admonitions** (and why):
+
+| Page                | Reason                                                        |
+|---------------------|---------------------------------------------------------------|
+| `orchestration.md`  | Spec-style doc — admonitions would fight the dense reference format |
+| `ai.md`             | Small page, mostly unimplemented — premature to decorate     |
+| `oplog.md`          | Internal spec — admonition audience doesn't overlap           |
+| `examples/*.md`     | Code-only pages — output blocks are sufficient                |
 
 ## Phase 2 — Tutorial (P1, large effort)
 
@@ -171,27 +235,13 @@ Brief explanation.
     ...
     ```
 
-!!! tip
-    Key insight here.
-
 ## Next Steps
 
 - [Next tutorial page](next.md) — what it covers
 - [Related API reference](../api/data.md) — for full details
 ```
 
-### 2c. Troubleshooting page (`docs/troubleshooting.md`)
-
-Sections:
-
-- "Object is stale" — cause, fix, pattern
-- Forgetting `await` — symptoms, fix
-- "No active data_context" — cause, fix
-- chdb `url()` hanging — workaround (move from `technical_debt.md`)
-- Connection URL format errors — examples of correct formats
-- ClickHouse type mismatches — common cases
-
-### 2d. Cross-page linking pass
+### 2c. Cross-page linking pass
 
 Add to each guide page:
 
@@ -224,7 +274,7 @@ Feature matrix: aaiclick vs Pandas vs Spark vs Dask.
 - Wrap detailed operator sections in `??? details` collapsible blocks
 - Move implementation references to separate contributor doc or remove
 
-## Phase 4 — Maintenance (P3)
+## Phase 4 — Maintenance & Deferred (P3)
 
 ### 4a. Changelog (`docs/changelog.md`)
 
@@ -233,6 +283,19 @@ Keep a Changelog format. Add to nav.
 ### 4b. Contributing guide (`docs/contributing.md`)
 
 Extract from `CLAUDE.md`: dev setup, test conventions, code style, commit format.
+
+### 4c. Troubleshooting / FAQ (`docs/troubleshooting.md`) — deferred
+
+Wait until project has enough real user-reported issues to populate this meaningfully.
+Premature FAQ pages with hypothetical problems add noise. Revisit after public release
+or when GitHub issues show recurring patterns. Candidate sections when ready:
+
+- "Object is stale" — cause, fix, pattern
+- Forgetting `await` — symptoms, fix
+- "No active data_context" — cause, fix
+- chdb `url()` hanging — workaround (currently in `technical_debt.md`)
+- Connection URL format errors
+- ClickHouse type mismatches
 
 # Updated Navigation
 
@@ -259,7 +322,6 @@ nav:
     - ... (unchanged)
   - API Reference:
     - ... (unchanged)
-  - Troubleshooting: troubleshooting.md
   - Glossary: glossary.md
   - Comparison: comparison.md
   - Changelog: changelog.md
