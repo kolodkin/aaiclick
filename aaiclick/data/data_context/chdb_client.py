@@ -16,11 +16,11 @@ import tempfile
 import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
 
+import pyarrow as pa
 from chdb.session import Session
 
 
@@ -184,23 +184,22 @@ class ChdbClient:
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
     ) -> None:
-        """Bulk insert rows into a table.
+        """Bulk insert rows into a table via pyarrow Python() table function.
 
-        Matches AsyncClient.insert() — converts Python data to VALUES clause.
+        Converts row-oriented Python data to a PyArrow table, then uses
+        ``INSERT INTO ... SELECT * FROM Python(arrow_table)`` for efficient
+        columnar transfer without manual VALUES formatting.
         """
         if not data:
             return
 
-        cols = f" ({', '.join(f'`{c}`' for c in column_names)})" if column_names else ""
-        value_rows = []
-        for row in data:
-            formatted = []
-            for val in row:
-                formatted.append(_format_value(val))
-            value_rows.append(f"({', '.join(formatted)})")
-
-        values_sql = ", ".join(value_rows)
-        self._session.query(f"INSERT INTO {table}{cols} VALUES {values_sql}")
+        names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
+        columns = list(zip(*data))
+        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+            {name: pa.array(list(col)) for name, col in zip(names, columns)}
+        )
+        cols = f" ({', '.join(f'`{c}`' for c in names)})"
+        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
     def cleanup(self) -> None:
         """Clean up the chdb session."""
@@ -233,22 +232,6 @@ class ChdbSyncClient:
     def close(self) -> None:
         """No-op — session lifecycle managed by ChdbClient."""
 
-
-def _format_value(val: object) -> str:
-    """Format a Python value for a ClickHouse VALUES clause."""
-    if val is None:
-        return "NULL"
-    if isinstance(val, str):
-        escaped = val.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
-    if isinstance(val, bool):
-        return "1" if val else "0"
-    if isinstance(val, datetime):
-        return f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
-    if isinstance(val, (list, tuple)):
-        inner = ", ".join(_format_value(v) for v in val)
-        return f"[{inner}]"
-    return str(val)
 
 
 def get_chdb_data_path() -> str:

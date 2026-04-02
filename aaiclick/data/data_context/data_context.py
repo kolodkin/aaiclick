@@ -14,7 +14,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import AsyncIterator, Dict, List, Union
 
-import numpy as np
+import pyarrow as pa
 
 from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
@@ -353,7 +353,7 @@ def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnInfo:
-    """Infer ClickHouse column type from Python value using numpy.
+    """Infer ClickHouse column type from Python value using pyarrow.
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
     created explicitly via Schema with ColumnInfo(type, nullable=True).
@@ -364,17 +364,16 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         if not value:
             return ColumnInfo("String", low_cardinality=True)
 
-        if isinstance(value[0], datetime):
-            return ColumnInfo("DateTime64(3, 'UTC')")
+        arr = pa.array(value)
+        pa_type = arr.type
 
-        arr = np.array(value)
-        dtype = arr.dtype
-
-        if np.issubdtype(dtype, np.bool_):
+        if pa.types.is_boolean(pa_type):
             return ColumnInfo("UInt8")
-        elif np.issubdtype(dtype, np.integer):
+        elif pa.types.is_timestamp(pa_type):
+            return ColumnInfo("DateTime64(3, 'UTC')")
+        elif pa.types.is_integer(pa_type):
             return ColumnInfo("Int64")
-        elif np.issubdtype(dtype, np.floating):
+        elif pa.types.is_floating(pa_type):
             return ColumnInfo("Float64")
         else:
             return ColumnInfo("String", low_cardinality=True)
