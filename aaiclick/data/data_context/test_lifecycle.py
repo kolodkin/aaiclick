@@ -11,12 +11,6 @@ from aaiclick.data.data_context import data_context
 from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
 
 
-def _make_mock_client() -> AsyncMock:
-    client = AsyncMock()
-    client.command = AsyncMock(return_value=None)
-    return client
-
-
 def test_lifecycle_handler_is_abstract():
     """LifecycleHandler cannot be instantiated directly."""
     with pytest.raises(TypeError):
@@ -25,7 +19,7 @@ def test_lifecycle_handler_is_abstract():
 
 def test_local_lifecycle_delegates_incref():
     """LocalLifecycleHandler.incref delegates to AsyncTableWorker."""
-    handler = LocalLifecycleHandler(_make_mock_client())
+    handler = LocalLifecycleHandler(MagicMock())
     handler._worker = MagicMock()
 
     handler.incref("table_123")
@@ -35,7 +29,7 @@ def test_local_lifecycle_delegates_incref():
 
 def test_local_lifecycle_delegates_decref():
     """LocalLifecycleHandler.decref delegates to AsyncTableWorker."""
-    handler = LocalLifecycleHandler(_make_mock_client())
+    handler = LocalLifecycleHandler(MagicMock())
     handler._worker = MagicMock()
 
     handler.decref("table_456")
@@ -45,7 +39,7 @@ def test_local_lifecycle_delegates_decref():
 
 async def test_local_lifecycle_start_delegates():
     """LocalLifecycleHandler.start delegates to AsyncTableWorker.start."""
-    handler = LocalLifecycleHandler(_make_mock_client())
+    handler = LocalLifecycleHandler(MagicMock())
     mock_worker = AsyncMock()
     handler._worker = mock_worker
 
@@ -56,7 +50,7 @@ async def test_local_lifecycle_start_delegates():
 
 async def test_local_lifecycle_stop_delegates():
     """LocalLifecycleHandler.stop delegates to AsyncTableWorker.stop."""
-    handler = LocalLifecycleHandler(_make_mock_client())
+    handler = LocalLifecycleHandler(MagicMock())
     mock_worker = AsyncMock()
     handler._worker = mock_worker
 
