@@ -5,7 +5,7 @@ This module provides dataclasses, type literals, and constants used throughout t
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Tuple, Union, Literal, List, NamedTuple
+from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass, field
 
 import yaml
@@ -140,8 +140,13 @@ GB_ANY = "any"
 GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
-# Aggregation spec: plain op, single (op, alias) tuple, or list of (op, alias) tuples
-AggSpec = Union[GroupByOpType, Tuple[GroupByOpType, str], List[Tuple[GroupByOpType, str]]]
+# Named tuple for (operator, alias) aggregation entries
+class Agg(NamedTuple):
+    op: GroupByOpType
+    alias: str
+
+# Aggregation spec: plain op, single Agg, or list of Agg
+AggSpec = Union[GroupByOpType, Agg, List[Agg]]
 
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str, datetime]

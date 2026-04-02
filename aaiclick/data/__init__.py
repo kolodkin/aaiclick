@@ -43,6 +43,7 @@ from .models import (
     GB_STD,
     GB_SUM,
     GB_VAR,
+    Agg,
     AggSpec,
     GroupByOpType,
     ORIENT_DICT,

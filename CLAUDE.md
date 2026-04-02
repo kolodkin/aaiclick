@@ -144,6 +144,28 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
 
+- **Prefer NamedTuples over plain tuples in APIs**: When a function accepts or returns tuples with fixed fields, define a `NamedTuple` instead
+  - Use named attributes (`.op`, `.alias`) in internal code — not positional unpacking
+  - Convert plain tuples to NamedTuples at API boundaries via `Cls._make(t)` to validate input format
+  - Example:
+    ```python
+    from typing import NamedTuple, Literal
+
+    # GOOD — NamedTuple with named access
+    class Agg(NamedTuple):
+        op: Literal["sum", "mean"]
+        alias: str
+
+    for source_col, agg in entries:
+        sql_func = FUNCTIONS[agg.op]
+        result[agg.alias] = compute(source_col, agg.op)
+
+    # BAD — anonymous tuple, positional unpacking
+    for source_col, agg_func, alias in triples:
+        sql_func = FUNCTIONS[agg_func]
+        result[alias] = compute(source_col, agg_func)
+    ```
+
 ## ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**

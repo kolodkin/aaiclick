@@ -2011,8 +2011,8 @@ class GroupByQuery:
 
         Each entry maps a source column to an aggregation spec:
             - ``str``:  plain operator, result alias = column name
-            - ``(op, alias)``:  single operator with explicit alias
-            - ``[(op, alias), ...]``:  multiple operators on the same column
+            - ``Agg(op, alias)``:  single operator with explicit alias
+            - ``[Agg(op, alias), ...]``:  multiple operators on the same column
 
         For 'count', the column key becomes the result column name
         and count() is called without arguments.
@@ -2029,7 +2029,7 @@ class GroupByQuery:
             ...     'price': GB_MEAN,
             ... })
             >>> result = await obj.group_by('category').agg({
-            ...     'amount': [(GB_SUM, 'amount_sum'), (GB_MEAN, 'amount_avg')],
+            ...     'amount': [Agg(GB_SUM, 'amount_sum'), Agg(GB_MEAN, 'amount_avg')],
             ... })
         """
         info = self._get_group_by_info()

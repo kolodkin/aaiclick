@@ -8,7 +8,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT
+from aaiclick.data.models import Agg, GB_GROUP_ARRAY_DISTINCT
 
 THRESHOLD = 1e-5
 
@@ -652,13 +652,13 @@ def test_group_array_distinct_gb_constant():
 
 
 async def test_agg_multi_on_same_column(ctx):
-    """Multiple aggregations on the same column via list-of-tuples spec."""
+    """Multiple aggregations on the same column via list of Agg."""
     obj = await create_object_from_value({
         "category": ["A", "A", "B", "B"],
         "amount": [10, 20, 30, 40],
     })
     result = await obj.group_by("category").agg({
-        "amount": [("sum", "amount_sum"), ("mean", "amount_avg")],
+        "amount": [Agg("sum", "amount_sum"), Agg("mean", "amount_avg")],
     })
     data = await result.data()
 
@@ -671,14 +671,14 @@ async def test_agg_multi_on_same_column(ctx):
     assert abs(data["amount_avg"][b] - 35.0) < THRESHOLD
 
 
-async def test_agg_single_tuple_alias(ctx):
-    """Single (op, alias) tuple renames the result column."""
+async def test_agg_single_agg_alias(ctx):
+    """Single Agg renames the result column."""
     obj = await create_object_from_value({
         "category": ["A", "B"],
         "amount": [10, 20],
     })
     result = await obj.group_by("category").agg({
-        "amount": ("sum", "total"),
+        "amount": Agg("sum", "total"),
     })
     data = await result.data()
 
@@ -690,14 +690,14 @@ async def test_agg_single_tuple_alias(ctx):
 
 
 async def test_agg_multi_mixed_spec(ctx):
-    """Mix of plain op, single tuple, and list-of-tuples in one agg() call."""
+    """Mix of plain op, single Agg, and list of Agg in one agg() call."""
     obj = await create_object_from_value({
         "category": ["A", "A", "B", "B"],
         "amount": [10, 20, 30, 40],
         "price": [1.5, 2.5, 3.5, 4.5],
     })
     result = await obj.group_by("category").agg({
-        "amount": [("sum", "amount_sum"), ("min", "amount_min")],
+        "amount": [Agg("sum", "amount_sum"), Agg("min", "amount_min")],
         "price": "mean",
     })
     data = await result.data()
@@ -722,7 +722,7 @@ async def test_agg_multi_same_column_with_having(ctx):
     result = await (
         obj.group_by("category")
         .having("sum(amount) > 15")
-        .agg({"amount": [("sum", "amount_sum"), ("max", "amount_max")]})
+        .agg({"amount": [Agg("sum", "amount_sum"), Agg("max", "amount_max")]})
     )
     data = await result.data()
 

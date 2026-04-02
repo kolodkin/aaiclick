@@ -183,11 +183,11 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 
 **`agg()` spec formats** — the dict value (per source column) accepts three forms:
 
-| Form                 | Example                                                      | Behavior                              |
-|----------------------|--------------------------------------------------------------|---------------------------------------|
-| `str`                | `{'amount': GB_SUM}`                                         | Alias = column name (backward compat) |
-| `(op, alias)`        | `{'amount': (GB_SUM, 'total')}`                              | Single op with explicit alias         |
-| `[(op, alias), ...]` | `{'amount': [(GB_SUM, 'amt_sum'), (GB_MEAN, 'amt_avg')]}`    | Multiple ops on the same column       |
+| Form                       | Example                                                              | Behavior                              |
+|----------------------------|----------------------------------------------------------------------|---------------------------------------|
+| `str`                      | `{'amount': GB_SUM}`                                                 | Alias = column name (backward compat) |
+| `Agg(op, alias)`           | `{'amount': Agg(GB_SUM, 'total')}`                                   | Single op with explicit alias         |
+| `[Agg(op, alias), ...]`    | `{'amount': [Agg(GB_SUM, 'amt_sum'), Agg(GB_MEAN, 'amt_avg')]}`      | Multiple ops on the same column       |
 
 All three forms can be mixed in a single `agg()` call.
 
