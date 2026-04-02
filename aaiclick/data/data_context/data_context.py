@@ -207,12 +207,14 @@ async def create_object(
 
     Args:
         schema: Schema dataclass with fieldtype, columns, engine, and order_by.
-        engine: Deprecated — use schema.engine instead. If both are set,
-                this parameter takes precedence for backward compatibility.
+        engine: Table engine override. Priority (highest to lowest):
+                ``name`` (persistent) → this param → ``schema.engine`` → context default.
+                Ignored when ``name`` is set — persistent tables always use MergeTree.
         name: Optional persistent name. When provided, creates a persistent
               table with prefix ``p_`` that survives context exit. Uses
               ``CREATE TABLE IF NOT EXISTS`` so subsequent calls with the same
-              name append data. Forces MergeTree engine.
+              name append data. Always uses MergeTree regardless of ``engine``
+              or ``schema.engine``.
 
     Returns:
         Object: New Object instance with created table
@@ -245,7 +247,7 @@ async def create_object(
             ddl += f" COMMENT '{comment}'"
         column_defs.append(ddl)
 
-    # Engine priority: persistent forces MergeTree > engine param > schema.engine > context default
+    # Persistent tables always use MergeTree regardless of engine param or schema.engine.
     if obj.persistent:
         effective_engine = "MergeTree"
     else:
