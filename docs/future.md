@@ -61,3 +61,7 @@ Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wra
 dimensions like compute engine, data location, setup complexity, memory limits, SQL interop,
 and built-in orchestration. Defer until the project has enough real-world usage to make
 meaningful claims.
+
+## Changelog
+
+`docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.

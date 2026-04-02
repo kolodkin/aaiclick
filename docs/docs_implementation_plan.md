@@ -59,7 +59,7 @@ zero duplication.
 | 8  | Comparison page                  | Explicit comparison vs Flask, Django REST, Express                 | —                                                                     | README mentions "Pandas/SQLAlchemy-inspired" with no elaboration | Moved to `docs/future.md` — defer until real-world usage data | —        | —      |
 | 9  | Glossary                         | —                                                                 | 100+ terms with cross-references and aliases                          | ClickHouse terms unexplained                            | `glossary.md` with ~20 key terms                       | P2       | M      |
 | 10 | `object.md` structure            | Progressive: simple first, advanced later, collapsible details    | Quickstart → deep dive separation                                     | 30KB flat wall mixing ref tables + impl notes           | Restructure: Quick Reference → Common Patterns → Details (collapsible) | P2       | M      |
-| 11 | Changelog                        | —                                                                 | Per-version "What's New" + migration guide                            | No version history in docs                              | `changelog.md` in Keep a Changelog format              | P3       | S      |
+| 11 | Changelog                        | —                                                                 | Per-version "What's New" + migration guide                            | No version history in docs                              | Moved to `docs/future.md` — start with 1.0.0 release  | —        | —      |
 | 12 | Contributing guide               | —                                                                 | Full contributor guide with dev setup, test conventions                | `CLAUDE.md` has guidelines but isn't user-facing        | `contributing.md` extracted from relevant `CLAUDE.md` sections | P3       | S      |
 | 13 | Navigation link 404s             | —                                                                 | —                                                                     | `site_url` missing `/en/latest/` prefix                 | **FIXED** in this branch                               | P0       | S      |
 
@@ -263,15 +263,11 @@ Add tabs to `data_context.md` for local vs distributed config.
 
 ## Phase 4 — Maintenance & Deferred (P3)
 
-### 4a. Changelog (`docs/changelog.md`)
-
-Keep a Changelog format. Add to nav.
-
-### 4b. Contributing guide (`docs/contributing.md`)
+### 4a. Contributing guide (`docs/contributing.md`)
 
 Extract from `CLAUDE.md`: dev setup, test conventions, code style, commit format.
 
-### 4c. Troubleshooting / FAQ (`docs/troubleshooting.md`) — deferred
+### 4b. Troubleshooting / FAQ — deferred
 
 Wait until project has enough real user-reported issues to populate this meaningfully.
 Premature FAQ pages with hypothetical problems add noise. Revisit after public release
@@ -310,7 +306,6 @@ nav:
   - API Reference:
     - ... (unchanged)
   - Glossary: glossary.md
-  - Changelog: changelog.md
   - Contributing: contributing.md
   - License: LICENSE.md
 ```
