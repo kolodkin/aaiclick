@@ -31,6 +31,7 @@ from ..models import (
     FIELDTYPE_DICT,
     EngineType,
     ENGINE_DEFAULT,
+    ENGINE_MEMORY,
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
@@ -48,7 +49,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
 #   OplogCollector  → collector.py  (_oplog_collector / get_oplog_collector)
-_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_DEFAULT)
+_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_MEMORY)
 _objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
 
 
@@ -140,10 +141,10 @@ async def data_context(
     execution use orch_context() + task_scope() instead.
 
     Args:
-        engine: ClickHouse table engine. Defaults to ENGINE_DEFAULT.
+        engine: ClickHouse table engine. Defaults to Memory (RAM).
     """
     ch_client = await create_ch_client()
-    effective_engine = engine if engine is not None else ENGINE_DEFAULT
+    effective_engine = engine if engine is not None else ENGINE_MEMORY
 
     lifecycle = LocalLifecycleHandler(ch_client)
     await lifecycle.start()
