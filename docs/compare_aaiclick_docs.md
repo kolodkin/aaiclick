@@ -281,6 +281,14 @@ Examples for `object.md`:
 - Code style
 - PR process
 
+## 13. Fix Broken Navigation Links (CRITICAL BUG)
+
+**Status**: Fixed in this branch (`mkdocs.yml` `site_url` updated).
+
+`site_url` was set to `https://aaiclick.readthedocs.io` but ReadTheDocs serves under
+`/en/latest/`. All internal links clicked from the homepage resolved to 404. Fixed by
+changing `site_url` to `https://aaiclick.readthedocs.io/en/latest/`.
+
 # Priority Ranking
 
 | Priority | Improvement                        | Impact | Effort |

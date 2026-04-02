@@ -1,6 +1,6 @@
 site_name: aaiclick
 site_description: A Python framework that translates Python code into ClickHouse operations for big data computing
-site_url: https://aaiclick.readthedocs.io
+site_url: https://aaiclick.readthedocs.io/en/latest/
 repo_url: https://github.com/kolodkin/aaiclick
 repo_name: kolodkin/aaiclick
 
