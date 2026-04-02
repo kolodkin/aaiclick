@@ -8,7 +8,6 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 import re
-import warnings
 import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -36,12 +35,6 @@ from ..models import (
 )
 from ..sql_utils import quote_identifier
 from aaiclick.oplog.collector import oplog_record, oplog_record_table
-
-# clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
-# internals during query result processing. Suppress globally so the filter covers
-# all call sites (client creation, queries, inserts), not just client init.
-# Remove once clickhouse-connect ships a release that no longer emits these warnings.
-warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect\.")
 
 
 # Per-resource ContextVars — each set by data_context() on entry, reset on exit.
