@@ -56,7 +56,7 @@ zero duplication.
 | 5  | Troubleshooting / FAQ            | —                                                                 | Error reference with root cause analysis, FAQ by workflow              | No error docs; `technical_debt.md` not in nav           | Defer until project matures — not enough user-reported issues yet | P3       | M      |
 | 6  | Cross-page links                 | Parenthetical forward refs, direct backward refs, lateral links   | "See also" sections on nearly every method/page                       | Pages are siloed; minimal cross-referencing              | Add "See Also" footers + inline links between guide, examples, API | P1       | S      |
 | 7  | Tabbed content                   | Tabs for Python 3.9+ vs 3.10+ syntax                              | —                                                                     | Extension configured, never used                        | Use tabs for local vs distributed install/config        | P2       | S      |
-| 8  | Comparison page                  | Explicit comparison vs Flask, Django REST, Express                 | —                                                                     | README mentions "Pandas/SQLAlchemy-inspired" with no elaboration | `comparison.md` with feature matrix vs Pandas, Spark, Dask | P2       | M      |
+| 8  | Comparison page                  | Explicit comparison vs Flask, Django REST, Express                 | —                                                                     | README mentions "Pandas/SQLAlchemy-inspired" with no elaboration | Moved to `docs/future.md` — defer until real-world usage data | —        | —      |
 | 9  | Glossary                         | —                                                                 | 100+ terms with cross-references and aliases                          | ClickHouse terms unexplained                            | `glossary.md` with ~20 key terms                       | P2       | M      |
 | 10 | `object.md` structure            | Progressive: simple first, advanced later, collapsible details    | Quickstart → deep dive separation                                     | 30KB flat wall mixing ref tables + impl notes           | Restructure: Quick Reference → Common Patterns → Details (collapsible) | P2       | M      |
 | 11 | Changelog                        | —                                                                 | Per-version "What's New" + migration guide                            | No version history in docs                              | `changelog.md` in Keep a Changelog format              | P3       | S      |
@@ -250,15 +250,11 @@ Add to each example page:
 Add tabs to `getting_started.md` for local vs distributed install.
 Add tabs to `data_context.md` for local vs distributed config.
 
-### 3b. Comparison page (`docs/comparison.md`)
-
-Feature matrix: aaiclick vs Pandas vs Spark vs Dask.
-
-### 3c. Glossary (`docs/glossary.md`)
+### 3b. Glossary (`docs/glossary.md`)
 
 ~20 terms: Object, View, DataContext, Snowflake ID, chdb, Scalar Broadcast, etc.
 
-### 3d. Restructure `object.md`
+### 3c. Restructure `object.md`
 
 - Keep API Quick Reference table at top
 - Add "Common Patterns" section (5–6 most-used patterns with snippets)
@@ -314,7 +310,6 @@ nav:
   - API Reference:
     - ... (unchanged)
   - Glossary: glossary.md
-  - Comparison: comparison.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: LICENSE.md

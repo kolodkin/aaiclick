@@ -50,3 +50,14 @@ On job completion, replace each ephemeral table with a 10-row sample so `operati
 ## `literal()` Computed Helper
 
 Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wrapper over `Computed` for constant columns. `str` → `'value'`, `bool` → `true`/`false`, `int`/`float` → bare numeric. Export alongside `cast` and `split_by_char`.
+
+---
+
+# Documentation
+
+## Comparison Page
+
+`docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask across
+dimensions like compute engine, data location, setup complexity, memory limits, SQL interop,
+and built-in orchestration. Defer until the project has enough real-world usage to make
+meaningful claims.
