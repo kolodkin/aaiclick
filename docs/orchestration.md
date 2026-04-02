@@ -67,7 +67,7 @@ The orchestration layer supports two deployment modes, controlled by two indepen
 | **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE (no row locking)  | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
-| **Table lifecycle** | `LocalLifecycleHandler` (async task)         | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) |
+| **Table lifecycle** | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) |
 | **Concurrency**     | Single process                               | Multiple workers across processes/machines          |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
