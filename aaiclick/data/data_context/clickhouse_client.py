@@ -7,7 +7,7 @@ clickhouse-connect with a shared urllib3 connection pool.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 from urllib.parse import urlparse
 
 from urllib3 import PoolManager
@@ -26,10 +26,10 @@ def get_pool() -> PoolManager:
 
 
 class ClickHouseClient:
-    """Thin wrapper around clickhouse-connect AsyncClient adding insert_columns.
+    """Thin wrapper around clickhouse-connect AsyncClient.
 
     Delegates command/query/insert to the underlying AsyncClient and adds
-    insert_columns for efficient columnar inserts using column_oriented=True.
+    columnar dict support to insert via column_oriented=True.
     """
 
     def __init__(self, client: object):
@@ -44,22 +44,18 @@ class ClickHouseClient:
     async def insert(
         self,
         table: str,
-        data: Sequence[Sequence],
+        data: Union[Sequence[Sequence], dict[str, list]],
         column_names: Optional[Sequence[str]] = None,
     ) -> None:
-        await self._client.insert(table, data, column_names=column_names)
-
-    async def insert_columns(
-        self,
-        table: str,
-        column_data: dict[str, list],
-    ) -> None:
-        """Insert columnar data using clickhouse-connect's column_oriented mode."""
-        names = list(column_data.keys())
-        columns = list(column_data.values())
-        await self._client.insert(
-            table, columns, column_names=names, column_oriented=True,
-        )
+        """Insert data — accepts columnar dict or row-oriented sequences."""
+        if isinstance(data, dict):
+            names = list(data.keys())
+            columns = list(data.values())
+            await self._client.insert(
+                table, columns, column_names=names, column_oriented=True,
+            )
+        else:
+            await self._client.insert(table, data, column_names=column_names)
 
 
 async def create_clickhouse_client() -> ClickHouseClient:

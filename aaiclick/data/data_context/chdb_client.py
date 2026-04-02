@@ -17,7 +17,7 @@ import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, List, Optional, Sequence
+from typing import AsyncIterator, List, Optional, Sequence, Union
 from urllib.parse import urlparse
 
 import pyarrow as pa
@@ -181,43 +181,30 @@ class ChdbClient:
     async def insert(
         self,
         table: str,
-        data: Sequence[Sequence],
+        data: Union[Sequence[Sequence], dict[str, list]],
         column_names: Optional[Sequence[str]] = None,
     ) -> None:
-        """Bulk insert rows into a table via pyarrow Python() table function.
+        """Bulk insert via pyarrow Python() table function.
 
-        Converts row-oriented Python data to a PyArrow table, then uses
-        ``INSERT INTO ... SELECT * FROM Python(arrow_table)`` for efficient
-        columnar transfer without manual VALUES formatting.
+        Accepts either columnar ``dict[str, list]`` (zero-copy) or row-oriented
+        ``Sequence[Sequence]`` (transposed to columnar automatically).
         """
         if not data:
             return
 
-        names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
-        columns = list(zip(*data))
-        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: pa.array(list(col)) for name, col in zip(names, columns)}
-        )
+        if isinstance(data, dict):
+            arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+                {name: pa.array(values) for name, values in data.items()}
+            )
+            names = list(data)
+        else:
+            names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
+            columns = list(zip(*data))
+            arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+                {name: pa.array(list(col)) for name, col in zip(names, columns)}
+            )
+
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
-        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
-
-    async def insert_columns(
-        self,
-        table: str,
-        column_data: dict[str, list],
-    ) -> None:
-        """Insert columnar data directly via pyarrow — zero row↔column transpose.
-
-        Builds a ``pa.table`` directly from the column-oriented dict and uses
-        ``INSERT INTO ... SELECT * FROM Python(arrow_table)`` for zero-copy
-        transfer into chdb.
-        """
-        if not column_data:
-            return
-        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: pa.array(values) for name, values in column_data.items()}
-        )
-        cols = f" ({', '.join(f'`{c}`' for c in column_data)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
     def cleanup(self) -> None:
