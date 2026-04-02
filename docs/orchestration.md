@@ -67,7 +67,7 @@ The orchestration layer supports two deployment modes, controlled by two indepen
 | **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE (no row locking)  | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
-| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) |
+| **Table lifecycle** | `LocalLifecycleHandler` (async task)         | `OrchLifecycleHandler` (SQL refcounts via `get_sql_session()`) |
 | **Concurrency**     | Single process                               | Multiple workers across processes/machines          |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
@@ -402,7 +402,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ## Local Mode (chdb + SQLite)
 
-Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [DataContext documentation](data_context.md) — "Table Lifecycle Tracking".
+Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `AsyncTableWorker` — async task, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [DataContext documentation](data_context.md) — "Table Lifecycle Tracking".
 
 # Configuration
 
