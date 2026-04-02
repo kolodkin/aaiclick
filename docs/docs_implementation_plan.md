@@ -112,7 +112,7 @@ For API details, see [Arithmetic Operators](../object.md#arithmetic-operators).
 
 **Principle**: Use admonitions only at genuine pitfall points — places where a user is
 likely to hit a confusing error without the callout. Never for emphasis, decoration, or
-restating what the surrounding prose already says. Target: **7 total** across all guide pages.
+restating what the surrounding prose already says. Target: **6 total** across all guide pages.
 
 **`getting_started.md`** (2 admonitions):
 
@@ -135,7 +135,7 @@ restating what the surrounding prose already says. Target: **7 total** across al
         the context exits.
     ```
 
-**`object.md`** (3 admonitions):
+**`object.md`** (2 admonitions):
 
 3. In the Scalar Broadcast section — replace the prose explanation:
 
@@ -146,16 +146,7 @@ restating what the surrounding prose already says. Target: **7 total** across al
         to a single-value Object via `_ensure_object()`.
     ```
 
-4. In the String/Regex section, after the operator table — the RE2 note is already
-   there as plain text but easy to miss:
-
-    ```markdown
-    !!! info "ClickHouse uses RE2 regex syntax"
-        No lookaheads or lookbehinds. See
-        [RE2 syntax](https://github.com/google/re2/wiki/Syntax).
-    ```
-
-5. In the `or_where()` / `or_having()` docs — the "requires a prior" rule is a common
+4. In the `or_where()` / `or_having()` docs — the "requires a prior" rule is a common
    footgun:
 
     ```markdown
@@ -166,7 +157,7 @@ restating what the surrounding prose already says. Target: **7 total** across al
 
 **`data_context.md`** (2 admonitions):
 
-6. In the Object Lifecycle and Staleness section — the staleness rule:
+5. In the Object Lifecycle and Staleness section — the staleness rule:
 
     ```markdown
     !!! warning "Objects become stale when their context exits"
@@ -175,7 +166,7 @@ restating what the surrounding prose already says. Target: **7 total** across al
         variables or pass them between contexts.
     ```
 
-7. After the Deployment Modes paragraph — help users choose:
+6. After the Deployment Modes paragraph — help users choose:
 
     ```markdown
     ??? info "Which deployment mode?"
