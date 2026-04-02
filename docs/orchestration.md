@@ -400,10 +400,6 @@ Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row. Complements PgCleanupWorker (catches tables refcount system missed entirely).
 
-## Local Mode (chdb + SQLite)
-
-Without injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `AsyncTableWorker` — async task, immediate DROP on refcount 0, no PostgreSQL required. Works with both chdb and remote ClickHouse backends. See [DataContext documentation](data_context.md) — "Table Lifecycle Tracking".
-
 # Configuration
 
 See CLAUDE.md for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`).
