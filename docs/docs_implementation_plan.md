@@ -52,9 +52,9 @@ zero duplication.
 | 1  | Landing page                     | Hero section, feature cards, badges, code snippet, social proof   | Getting Started links, architectural overview                         | 5-line README included via `--8<--`                     | Dedicated `index.md` with feature cards, badges, wow snippet | P0       | S      |
 | 2  | Example output                   | Shows response bodies inline under each code block                | Shows generated SQL below Python code                                 | Raw `.py` includes, no output                           | Add `??? example "Expected Output"` blocks to each example page | P0       | S      |
 | 3  | Admonitions                      | `tip`, `info`, `check`, `warning`, `technical details` throughout | Notes, warnings, deprecated markers on every page                     | Extensions configured, never used                       | Add admonitions to `getting_started.md`, `object.md`, `data_context.md` | P0       | S      |
-| 4  | Progressive tutorial             | 30+ page step-by-step, each page self-contained + sequential      | Unified tutorial building engine → metadata → operations → ORM       | Quick Example → 30KB reference wall                     | 7-page tutorial using named snippets from existing examples | P1       | L      |
+| 4  | Progressive tutorial             | 30+ page step-by-step, each page self-contained + sequential      | Unified tutorial building engine → metadata → operations → ORM       | Quick Example → 30KB reference wall                     | Moved to `docs/future.md` — implement after Phase 1 validates approach | —        | —      |
 | 5  | Troubleshooting / FAQ            | —                                                                 | Error reference with root cause analysis, FAQ by workflow              | No error docs; `technical_debt.md` not in nav           | Defer until project matures — not enough user-reported issues yet | P3       | M      |
-| 6  | Cross-page links                 | Parenthetical forward refs, direct backward refs, lateral links   | "See also" sections on nearly every method/page                       | Pages are siloed; minimal cross-referencing              | Add "See Also" footers + inline links between guide, examples, API | P1       | S      |
+| 6  | Cross-page links                 | Parenthetical forward refs, direct backward refs, lateral links   | "See also" sections on nearly every method/page                       | Pages are siloed; minimal cross-referencing              | Moved to `docs/future.md` — add alongside tutorial     | —        | —      |
 | 7  | Tabbed content                   | Tabs for Python 3.9+ vs 3.10+ syntax                              | —                                                                     | Extension configured, never used                        | Use tabs for local vs distributed install/config        | P2       | S      |
 | 8  | Comparison page                  | Explicit comparison vs Flask, Django REST, Express                 | —                                                                     | README mentions "Pandas/SQLAlchemy-inspired" with no elaboration | Moved to `docs/future.md` — defer until real-world usage data | —        | —      |
 | 9  | Glossary                         | —                                                                 | 100+ terms with cross-references and aliases                          | ClickHouse terms unexplained                            | `glossary.md` with ~20 key terms                       | P2       | M      |
@@ -184,90 +184,31 @@ restating what the surrounding prose already says. Target: **6 total** across al
 | `oplog.md`          | Internal spec — admonition audience doesn't overlap           |
 | `examples/*.md`     | Code-only pages — output blocks are sufficient                |
 
-## Phase 2 — Tutorial (P1, large effort)
+## Phase 2 — Polish (P2)
 
-### 2a. Add section markers to existing example files
-
-Annotate 7 example files with `# --8<-- [start:name]` / `# --8<-- [end:name]` markers.
-This is non-breaking — existing full-file includes still work.
-
-### 2b. Create tutorial pages
-
-| File                               | Title                 | Snippets From                          | New Code Needed |
-|------------------------------------|-----------------------|----------------------------------------|-----------------|
-| `docs/tutorial/index.md`           | Tutorial overview     | —                                      | None             |
-| `docs/tutorial/first_object.md`    | Your First Object     | `basic_operators.py:scalar_creation`, `basic_operators.py:list_creation` | None |
-| `docs/tutorial/operations.md`      | Operations            | `basic_operators.py:arithmetic`, `basic_operators.py:comparison` | None |
-| `docs/tutorial/aggregations.md`    | Aggregations          | `statistics.py:basic_stats`, `group_by.py:basic_groupby` | None |
-| `docs/tutorial/dict_objects.md`    | Multi-Column Data     | `basic_operators.py:dict_creation`, `selectors.py:column_select` | None |
-| `docs/tutorial/views.md`           | Views & Filters       | `views.py:where_clause`, `views.py:limit_offset` | None |
-| `docs/tutorial/persistence.md`     | Persistence           | —                                      | Small (3–5 lines) |
-| `docs/tutorial/orchestration.md`   | Orchestration         | `orchestration_basic.py:task_job_intro` | None |
-
-**6 of 7 tutorial pages need zero new code** — they compose named snippets from existing examples.
-
-Each tutorial page follows a consistent skeleton:
-
-```markdown
-# Page Title
-
-What you'll learn: ...
-
-## Section
-
-Brief explanation.
-
-```python
-;--8<-- "aaiclick/examples/file.py:section_name"
-```                                          (closing fence)
-
-??? example "Expected Output"
-    ```
-    ...
-    ```
-
-## Next Steps
-
-- [Next tutorial page](next.md) — what it covers
-- [Related API reference](../api/data.md) — for full details
-```
-
-### 2c. Cross-page linking pass
-
-Add to each guide page:
-
-- "See Also" footer with links to related examples and API reference
-- Inline links from guide sections to relevant example pages
-
-Add to each example page:
-
-- Header link back to relevant guide section
-
-## Phase 3 — Polish (P2)
-
-### 3a. Tabbed content
+### 2a. Tabbed content
 
 Add tabs to `getting_started.md` for local vs distributed install.
 Add tabs to `data_context.md` for local vs distributed config.
 
-### 3b. Glossary (`docs/glossary.md`)
+### 2b. Glossary (`docs/glossary.md`)
 
 ~20 terms: Object, View, DataContext, Snowflake ID, chdb, Scalar Broadcast, etc.
 
-### 3c. Restructure `object.md`
+### 2c. Restructure `object.md`
 
 - Keep API Quick Reference table at top
 - Add "Common Patterns" section (5–6 most-used patterns with snippets)
 - Wrap detailed operator sections in `??? details` collapsible blocks
 - Move implementation references to separate contributor doc or remove
 
-## Phase 4 — Maintenance & Deferred (P3)
+## Phase 3 — Maintenance & Deferred (P3)
 
-### 4a. Contributing guide (`docs/contributing.md`)
+### 3a. Contributing guide (`docs/contributing.md`)
 
 Extract from `CLAUDE.md`: dev setup, test conventions, code style, commit format.
 
-### 4b. Troubleshooting / FAQ — deferred
+### 3b. Troubleshooting / FAQ — deferred
 
 Wait until project has enough real user-reported issues to populate this meaningfully.
 Premature FAQ pages with hypothetical problems add noise. Revisit after public release
@@ -286,15 +227,6 @@ or when GitHub issues show recurring patterns. Candidate sections when ready:
 nav:
   - Home: index.md
   - Getting Started: getting_started.md
-  - Tutorial:
-    - Overview: tutorial/index.md
-    - Your First Object: tutorial/first_object.md
-    - Operations: tutorial/operations.md
-    - Aggregations: tutorial/aggregations.md
-    - Multi-Column Data: tutorial/dict_objects.md
-    - Views & Filters: tutorial/views.md
-    - Persistence: tutorial/persistence.md
-    - Orchestration: tutorial/orchestration.md
   - User Guide:
     - Object API: object.md
     - DataContext: data_context.md

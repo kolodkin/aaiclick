@@ -55,6 +55,20 @@ Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wra
 
 # Documentation
 
+## Progressive Tutorial
+
+7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
+example files — 6 of 7 pages need zero new code. Pages: Your First Object, Operations,
+Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. See
+`docs/docs_implementation_plan.md` — "Reuse Strategy: Named Snippets" for the snippet
+marker plan and page-to-source mapping.
+
+## Cross-Page Links
+
+Add "See Also" footers to guide pages linking to related examples and API reference.
+Add header links from example pages back to relevant guide sections. Implement alongside
+the tutorial.
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask across
