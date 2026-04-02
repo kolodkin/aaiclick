@@ -32,7 +32,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.lower()`, `.upper()`, `.length()`, `.trim()`   | Unary Transforms | String transforms → new Object                | [Unary Transform Operators](#unary-transform-operators)              |
 | `.abs()`, `.log2()`, `.sqrt()`                   | Unary Transforms | Math functions → new Object                   | [Unary Transform Operators](#unary-transform-operators)              |
 | `.group_by(keys).sum(col)` etc.                  | Group By         | Aggregation with GROUP BY + optional HAVING   | [Group By Operations](#group-by-operations)                          |
-| `.group_by(keys).agg({col: op})`                 | Group By         | Multiple aggregations in one pass             | [Group By Operations](#group-by-operations)                          |
+| `.group_by(keys).agg({col: spec})`               | Group By         | Multiple aggregations (multi-agg per column)  | [Group By Operations](#group-by-operations)                          |
 | `.group_by(keys).any(col)`                       | Group By         | Arbitrary non-NULL value per group            | [Group By Operations](#group-by-operations)                          |
 | `.group_by(keys).group_array_distinct(col)`      | Group By         | Distinct values → Array per group             | [Group By Operations](#group-by-operations)                          |
 | `.view(where, limit, offset, order_by)`          | Views            | Read-only View with optional filters          | [Views](#views)                                                      |
@@ -180,6 +180,16 @@ Pandas-style two-step: `obj.group_by('key').sum('col')`. `GroupByQuery` is a sta
 | `.any(col)`        | Arbitrary non-NULL per group | Preserves source type                  |
 | `.group_array_distinct(col)` | Distinct values → Array per group | `Array(T)` where T is source type |
 | `.agg({col: op})`  | Multiple aggregations        | Per-function type rules                |
+
+**`agg()` spec formats** — the dict value (per source column) accepts three forms:
+
+| Form                 | Example                                                      | Behavior                              |
+|----------------------|--------------------------------------------------------------|---------------------------------------|
+| `str`                | `{'amount': GB_SUM}`                                         | Alias = column name (backward compat) |
+| `(op, alias)`        | `{'amount': (GB_SUM, 'total')}`                              | Single op with explicit alias         |
+| `[(op, alias), ...]` | `{'amount': [(GB_SUM, 'amt_sum'), (GB_MEAN, 'amt_avg')]}`    | Multiple ops on the same column       |
+
+All three forms can be mixed in a single `agg()` call.
 
 **Features**: Multiple group keys, chained `.having()`/`.or_having()` for post-aggregation filtering, View support (WHERE + selected_fields). Result is a normal dict Object supporting all existing operations.
 

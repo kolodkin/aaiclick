@@ -732,23 +732,48 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
 
 # Group By Operators
 
+def _normalize_aggregations(aggregations: dict) -> list[tuple[str, str, str]]:
+    """Normalize aggregation spec into flat list of (source_col, agg_func, alias).
+
+    Accepts:
+        - ``{col: op}``                     → alias = col
+        - ``{col: (op, alias)}``            → explicit alias
+        - ``{col: [(op, alias), ...]}``     → multiple aggs on same column
+    """
+    result: list[tuple[str, str, str]] = []
+    for column, spec in aggregations.items():
+        if isinstance(spec, str):
+            result.append((column, spec, column))
+        elif isinstance(spec, tuple):
+            agg_func, alias = spec
+            result.append((column, agg_func, alias))
+        elif isinstance(spec, list):
+            for agg_func, alias in spec:
+                result.append((column, agg_func, alias))
+    return result
+
+
 async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     """
     Apply aggregations with GROUP BY at database level.
 
     Groups data by the specified keys and applies aggregation functions.
-    Each entry maps a result column name to an aggregation function.
     For 'count', uses count() without arguments.
+
+    Aggregation spec per column:
+        - ``str``:  plain operator, alias = column name
+        - ``(op, alias)``:  single operator with explicit alias
+        - ``[(op, alias), ...]``:  multiple operators on the same column
 
     Args:
         info: GroupByInfo with source, group keys, and column metadata
-        aggregations: Dict mapping column_name -> agg_func
-                      (e.g., {'amount': 'sum', '_count': 'count'})
+        aggregations: Dict mapping source_column -> AggSpec
         ch_client: ClickHouse client instance
 
     Returns:
         New dict Object with group keys + all aggregated columns
     """
+    triples = _normalize_aggregations(aggregations)
     keys_str = ", ".join(info.group_keys)
 
     # Build aggregation expressions and result schema
@@ -758,20 +783,20 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     for key in info.group_keys:
         result_columns[key] = ColumnInfo(info.columns[key])
 
-    for column, agg_func in aggregations.items():
+    for source_col, agg_func, alias in triples:
         sql_func = AGGREGATION_FUNCTIONS[agg_func]
         if agg_func == "count":
-            agg_exprs.append(f"{sql_func}() AS {column}")
-            result_columns[column] = ColumnInfo("UInt64")
+            agg_exprs.append(f"{sql_func}() AS {alias}")
+            result_columns[alias] = ColumnInfo("UInt64")
         elif agg_func == "group_array_distinct":
-            agg_exprs.append(f"{sql_func}({column}) AS {column}")
-            source_type = info.columns[column]
+            agg_exprs.append(f"{sql_func}({source_col}) AS {alias}")
+            source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
-            result_columns[column] = ColumnInfo(base_type, array=True)
+            result_columns[alias] = ColumnInfo(base_type, array=True)
         else:
-            agg_exprs.append(f"{sql_func}({column}) AS {column}")
-            source_type = info.columns[column]
-            result_columns[column] = ColumnInfo(_determine_agg_result_type(agg_func, source_type))
+            agg_exprs.append(f"{sql_func}({source_col}) AS {alias}")
+            source_type = info.columns[source_col]
+            result_columns[alias] = ColumnInfo(_determine_agg_result_type(agg_func, source_type))
 
     agg_str = ", ".join(agg_exprs)
 
@@ -785,14 +810,14 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         # when alias name matches source column name).
         tmp_agg_exprs = []
         rename_exprs = []
-        for column, agg_func in aggregations.items():
+        for source_col, agg_func, alias in triples:
             sql_func = AGGREGATION_FUNCTIONS[agg_func]
-            tmp_alias = f"__agg_{column}"
+            tmp_alias = f"__agg_{alias}"
             if agg_func == "count":
                 tmp_agg_exprs.append(f"{sql_func}() AS {tmp_alias}")
             else:
-                tmp_agg_exprs.append(f"{sql_func}({column}) AS {tmp_alias}")
-            rename_exprs.append(f"{tmp_alias} AS {column}")
+                tmp_agg_exprs.append(f"{sql_func}({source_col}) AS {tmp_alias}")
+            rename_exprs.append(f"{tmp_alias} AS {alias}")
         tmp_agg_str = ", ".join(tmp_agg_exprs)
         rename_str = ", ".join(rename_exprs)
         inner = (
