@@ -11,7 +11,7 @@ from sqlalchemy.sql import Select
 from sqlmodel import select
 
 from .db_handler import DEPENDENCY_WHERE, DbHandler
-from .models import JobStatus, Task, TaskStatus
+from ..models import JobStatus, Task, TaskStatus
 
 
 class SqliteDbHandler(DbHandler):

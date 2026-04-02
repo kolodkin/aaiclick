@@ -22,7 +22,7 @@ Usage:
     python -m aaiclick.example_projects.imdb_dataset_builder
 
     # Then run worker to execute
-    python -m aaiclick.orchestration.worker
+    python -m aaiclick worker start
 
 Environment variables:
     HF_TOKEN  — Hugging Face token for dataset publishing (optional)

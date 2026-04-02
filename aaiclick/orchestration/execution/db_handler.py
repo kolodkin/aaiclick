@@ -16,8 +16,8 @@ from typing import Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from ..backend import is_sqlite
-from .models import Task
+from ...backend import is_sqlite
+from ..models import Task
 
 _db_handler_var: ContextVar[DbHandler | None] = ContextVar('db_handler', default=None)
 

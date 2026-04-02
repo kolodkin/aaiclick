@@ -14,6 +14,6 @@
 
 # Testing Utilities
 
-::: aaiclick.orchestration.debug_execution.job_test
+::: aaiclick.orchestration.execution.debug.job_test
 
-::: aaiclick.orchestration.debug_execution.ajob_test
+::: aaiclick.orchestration.execution.debug.ajob_test

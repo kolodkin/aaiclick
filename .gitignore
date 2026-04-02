@@ -215,3 +215,7 @@ tmp/
 # GitHub CLI downloads
 gh_*.tar.gz
 gh_*/
+
+# Claude Code worktrees and session state
+.claude/*
+!.claude/skills/

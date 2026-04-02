@@ -6,8 +6,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import select
 
-from .orch_context import get_db_handler, get_sql_session
-from .models import Job, JobStatus, Task, TaskStatus
+from ..orch_context import get_db_handler, get_sql_session
+from ..models import Job, JobStatus, Task, TaskStatus
 
 # Terminal job statuses that cannot be cancelled
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)

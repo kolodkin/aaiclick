@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from .db_handler import DEPENDENCY_WHERE, DbHandler
-from .models import JobStatus, Task, TaskStatus
+from ..models import JobStatus, Task, TaskStatus
 
 
 class PgDbHandler(DbHandler):

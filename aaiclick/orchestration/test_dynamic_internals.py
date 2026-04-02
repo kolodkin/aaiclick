@@ -2,10 +2,10 @@
 
 from aaiclick.data.object import Object
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
-from aaiclick.orchestration.execution import import_callback
+from aaiclick.orchestration.execution.runner import import_callback
 from aaiclick.orchestration.factories import create_task
 from aaiclick.orchestration.models import Group, Task
-from aaiclick.orchestration.orch_helpers import _map_part, map
+from aaiclick.orchestration.operators import _map_part, map
 
 
 async def _dummy_func(row):
@@ -22,7 +22,7 @@ def test_map_creates_group_with_expander(orch_ctx):
     assert isinstance(group, Group)
     expander = group.get_tasks()[0]
     assert isinstance(expander, Task)
-    assert expander.entrypoint == "aaiclick.orchestration.orch_helpers._expand_map"
+    assert expander.entrypoint == "aaiclick.orchestration.operators._expand_map"
     assert expander.kwargs["partition"] == 500
     assert expander.kwargs["group_id"] == group.id
     assert expander.kwargs["cbk_args"] == [10]
@@ -41,7 +41,7 @@ def test_map_part_creates_task_with_dependencies(orch_ctx):
     result = _map_part(cbk=_dummy_func, part=part_task, out=out_task)
 
     assert isinstance(result, Task)
-    assert result.entrypoint == "aaiclick.orchestration.orch_helpers._map_part"
+    assert result.entrypoint == "aaiclick.orchestration.operators._map_part"
     dep_ids = {d.previous_id for d in result.previous_dependencies}
     assert part_task.id in dep_ids
     assert out_task.id in dep_ids

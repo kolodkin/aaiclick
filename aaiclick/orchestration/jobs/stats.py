@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
-from .models import Job, Task
+from ..models import Job, Task
 
 
 class TaskStats(BaseModel):

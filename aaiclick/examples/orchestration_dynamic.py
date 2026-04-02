@@ -9,7 +9,7 @@ Demonstrates dynamic task creation patterns:
 
 Note: map() example is not included here because it requires distributed
 workers with lifecycle handlers for Object table management. See
-aaiclick/orchestration/orch_helpers.py for the map() implementation.
+aaiclick/orchestration/operators.py for the map() implementation.
 
 Note: This requires running PostgreSQL and ClickHouse servers.
 """
