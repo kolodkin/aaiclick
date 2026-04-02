@@ -8,7 +8,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT
+from aaiclick.data.models import Agg, GB_GROUP_ARRAY_DISTINCT
 
 THRESHOLD = 1e-5
 
@@ -644,3 +644,89 @@ async def test_group_array_distinct_convenience(ctx):
 def test_group_array_distinct_gb_constant():
     """GB_GROUP_ARRAY_DISTINCT constant equals the string literal."""
     assert GB_GROUP_ARRAY_DISTINCT == "group_array_distinct"
+
+
+# =============================================================================
+# Multi-aggregation on the same column
+# =============================================================================
+
+
+async def test_agg_multi_on_same_column(ctx):
+    """Multiple aggregations on the same column via list of Agg."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B"],
+        "amount": [10, 20, 30, 40],
+    })
+    result = await obj.group_by("category").agg({
+        "amount": [Agg("sum", "amount_sum"), Agg("mean", "amount_avg")],
+    })
+    data = await result.data()
+
+    lookup = {cat: i for i, cat in enumerate(data["category"])}
+    a, b = lookup["A"], lookup["B"]
+
+    assert data["amount_sum"][a] == 30
+    assert data["amount_sum"][b] == 70
+    assert abs(data["amount_avg"][a] - 15.0) < THRESHOLD
+    assert abs(data["amount_avg"][b] - 35.0) < THRESHOLD
+
+
+async def test_agg_single_agg_alias(ctx):
+    """Single Agg renames the result column."""
+    obj = await create_object_from_value({
+        "category": ["A", "B"],
+        "amount": [10, 20],
+    })
+    result = await obj.group_by("category").agg({
+        "amount": Agg("sum", "total"),
+    })
+    data = await result.data()
+
+    assert "total" in data
+    assert "amount" not in data
+    lookup = {cat: i for i, cat in enumerate(data["category"])}
+    assert data["total"][lookup["A"]] == 10
+    assert data["total"][lookup["B"]] == 20
+
+
+async def test_agg_multi_mixed_spec(ctx):
+    """Mix of plain op, single Agg, and list of Agg in one agg() call."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "B", "B"],
+        "amount": [10, 20, 30, 40],
+        "price": [1.5, 2.5, 3.5, 4.5],
+    })
+    result = await obj.group_by("category").agg({
+        "amount": [Agg("sum", "amount_sum"), Agg("min", "amount_min")],
+        "price": "mean",
+    })
+    data = await result.data()
+
+    lookup = {cat: i for i, cat in enumerate(data["category"])}
+    a, b = lookup["A"], lookup["B"]
+
+    assert data["amount_sum"][a] == 30
+    assert data["amount_min"][a] == 10
+    assert abs(data["price"][a] - 2.0) < THRESHOLD
+    assert data["amount_sum"][b] == 70
+    assert data["amount_min"][b] == 30
+    assert abs(data["price"][b] - 4.0) < THRESHOLD
+
+
+async def test_agg_multi_same_column_with_having(ctx):
+    """Multi-agg on same column combined with HAVING clause."""
+    obj = await create_object_from_value({
+        "category": ["A", "A", "A", "B", "B"],
+        "amount": [10, 20, 30, 5, 5],
+    })
+    result = await (
+        obj.group_by("category")
+        .having("sum(amount) > 15")
+        .agg({"amount": [Agg("sum", "amount_sum"), Agg("max", "amount_max")]})
+    )
+    data = await result.data()
+
+    assert len(data["category"]) == 1
+    assert data["category"][0] == "A"
+    assert data["amount_sum"][0] == 60
+    assert data["amount_max"][0] == 30

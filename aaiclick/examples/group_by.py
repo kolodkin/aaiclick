@@ -9,6 +9,7 @@ various aggregation methods, multi-agg, HAVING filters, and View support.
 import asyncio
 
 from aaiclick import create_object_from_value
+from aaiclick.data import Agg
 from aaiclick.data.data_context import data_context
 
 
@@ -75,9 +76,28 @@ async def example():
     for i, cat in enumerate(data["category"]):
         print(f"  {cat}: avg price=${data['price'][i]:.2f}, total qty={data['quantity'][i]}")
 
-    # Example 5: Statistical aggregations (std, var)
+    # Example 5: Multiple aggregations on the same column
     print("\n" + "=" * 50)
-    print("Example 5: Statistical aggregations")
+    print("Example 5: Multiple aggregations on the same column")
+    print("-" * 50)
+
+    result = await products.group_by("category").agg({
+        "price": [Agg("min", "price_min"), Agg("max", "price_max"), Agg("mean", "price_avg")],
+        "quantity": Agg("sum", "total_qty"),
+    })
+    data = await result.data()
+    print(f"Product price range + total qty by category:")
+    for i, cat in enumerate(data["category"]):
+        print(
+            f"  {cat}: "
+            f"${data['price_min'][i]:.2f} – ${data['price_max'][i]:.2f} "
+            f"(avg ${data['price_avg'][i]:.2f}), "
+            f"total qty={data['total_qty'][i]}"
+        )
+
+    # Example 6: Statistical aggregations
+    print("\n" + "=" * 50)
+    print("Example 6: Statistical aggregations")
     print("-" * 50)
 
     scores = await create_object_from_value({
@@ -98,9 +118,9 @@ async def example():
     for cls, std in sorted(zip(std_data["class"], std_data["score"])):
         print(f"  Class {cls}: {std:.2f}")
 
-    # Example 6: HAVING — filter groups after aggregation
+    # Example 7: HAVING — filter groups after aggregation
     print("\n" + "=" * 50)
-    print("Example 6: HAVING — filter groups after aggregation")
+    print("Example 7: HAVING — filter groups after aggregation")
     print("-" * 50)
 
     transactions = await create_object_from_value({
@@ -119,9 +139,9 @@ async def example():
     for store, amt in sorted(zip(fdata["store"], fdata["amount"])):
         print(f"  {store}: ${amt}")
 
-    # Example 7: WHERE + HAVING combined
+    # Example 8: WHERE + HAVING combined
     print("\n" + "=" * 50)
-    print("Example 7: WHERE + HAVING combined")
+    print("Example 8: WHERE + HAVING combined")
     print("-" * 50)
 
     print("Filter rows WHERE amount >= 100, then HAVING count() >= 2:")
@@ -131,9 +151,9 @@ async def example():
     for store, cnt in sorted(zip(data["store"], data["_count"])):
         print(f"  {store}: {cnt} large transactions")
 
-    # Example 8: Chained HAVING with AND
+    # Example 9: Chained HAVING with AND
     print("\n" + "=" * 50)
-    print("Example 8: Chained HAVING with AND")
+    print("Example 9: Chained HAVING with AND")
     print("-" * 50)
 
     print("Stores with total > $200 AND at least 2 transactions:")
@@ -147,9 +167,9 @@ async def example():
     for store, amt in sorted(zip(data["store"], data["amount"])):
         print(f"  {store}: ${amt}")
 
-    # Example 9: OR HAVING
+    # Example 10: OR HAVING
     print("\n" + "=" * 50)
-    print("Example 9: OR HAVING")
+    print("Example 10: OR HAVING")
     print("-" * 50)
 
     print("Stores with total > $700 OR only 1 transaction:")
@@ -163,9 +183,9 @@ async def example():
     for store, amt in sorted(zip(data["store"], data["amount"])):
         print(f"  {store}: ${amt}")
 
-    # Example 10: Array value_counts pattern
+    # Example 11: Array value_counts pattern
     print("\n" + "=" * 50)
-    print("Example 10: Array value_counts pattern")
+    print("Example 11: Array value_counts pattern")
     print("-" * 50)
 
     colors = await create_object_from_value(["red", "blue", "red", "green", "blue", "red"])
@@ -175,9 +195,9 @@ async def example():
     for val, cnt in sorted(zip(data["value"], data["_count"]), key=lambda x: -x[1]):
         print(f"  {val}: {cnt}")
 
-    # Example 11: Working with group_by results
+    # Example 12: Working with group_by results
     print("\n" + "=" * 50)
-    print("Example 11: Working with group_by results")
+    print("Example 12: Working with group_by results")
     print("-" * 50)
 
     result = await sales.group_by("category").sum("amount")

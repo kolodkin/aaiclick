@@ -140,6 +140,14 @@ GB_ANY = "any"
 GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
+# Named tuple for (operator, alias) aggregation entries
+class Agg(NamedTuple):
+    op: GroupByOpType
+    alias: str
+
+# Aggregation spec: plain op, single Agg, or list of Agg
+AggSpec = Union[GroupByOpType, Agg, List[Agg]]
+
 # Value type aliases for factory functions
 ValueScalarType = Union[int, float, bool, str, datetime]
 ValueListType = Union[List[int], List[float], List[bool], List[str], List[datetime]]

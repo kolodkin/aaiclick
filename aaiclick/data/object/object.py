@@ -27,6 +27,7 @@ from ..models import (
     parse_ch_type,
     GroupByInfo,
     GroupByOpType,
+    AggSpec,
     GB_ANY,
     GB_COUNT,
     GB_GROUP_ARRAY_DISTINCT,
@@ -2004,18 +2005,20 @@ class GroupByQuery:
             having=self._build_having(),
         )
 
-    async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:
+    async def agg(self, aggregations: Dict[str, AggSpec]) -> Object:
         """
         Apply aggregations per group. Core method — all convenience methods delegate here.
 
-        Each entry maps a column name to an aggregation function.
-        Result columns keep the same name as the source columns.
+        Each entry maps a source column to an aggregation spec:
+            - ``str``:  plain operator, result alias = column name
+            - ``Agg(op, alias)``:  single operator with explicit alias
+            - ``[Agg(op, alias), ...]``:  multiple operators on the same column
+
         For 'count', the column key becomes the result column name
         and count() is called without arguments.
 
         Args:
-            aggregations: Dict mapping column_name -> GroupByOpType
-                         (GB_SUM, GB_MEAN, GB_MIN, GB_MAX, GB_COUNT, GB_STD, GB_VAR)
+            aggregations: Dict mapping source_column -> AggSpec
 
         Returns:
             Dict Object with group keys + all aggregated columns
@@ -2024,6 +2027,9 @@ class GroupByQuery:
             >>> result = await obj.group_by('category').agg({
             ...     'amount': GB_SUM,
             ...     'price': GB_MEAN,
+            ... })
+            >>> result = await obj.group_by('category').agg({
+            ...     'amount': [Agg(GB_SUM, 'amount_sum'), Agg(GB_MEAN, 'amount_avg')],
             ... })
         """
         info = self._get_group_by_info()
