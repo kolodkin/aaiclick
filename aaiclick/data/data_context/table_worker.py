@@ -19,6 +19,7 @@ class TableOp(Enum):
 
     INCREF = auto()
     DECREF = auto()
+    FLUSH = auto()
     SHUTDOWN = auto()
 
 
@@ -28,6 +29,7 @@ class TableMessage:
 
     op: TableOp
     table_name: str
+    event: asyncio.Event | None = None
 
 
 class AsyncTableWorker:
@@ -81,6 +83,22 @@ class AsyncTableWorker:
                 self._queue.put_nowait, TableMessage(TableOp.DECREF, table_name)
             )
 
+    async def flush(self) -> None:
+        """Wait until all pending incref/decref messages have been processed.
+
+        Enqueues a FLUSH sentinel and awaits its event. Since the worker
+        processes the queue in order, the event fires only after every
+        message that was already in the queue has been handled — meaning
+        all pending DROP TABLEs have completed.
+        """
+        if self._loop is None:
+            return
+        event = asyncio.Event()
+        self._loop.call_soon_threadsafe(
+            self._queue.put_nowait, TableMessage(TableOp.FLUSH, "", event)
+        )
+        await event.wait()
+
     async def _run(self) -> None:
         """Worker loop — runs as an asyncio Task."""
         while True:
@@ -89,6 +107,11 @@ class AsyncTableWorker:
             if msg.op == TableOp.SHUTDOWN:
                 await self._cleanup_all()
                 break
+
+            elif msg.op == TableOp.FLUSH:
+                if msg.event is not None:
+                    msg.event.set()
+                continue
 
             elif msg.op == TableOp.INCREF:
                 self._refcounts[msg.table_name] = (

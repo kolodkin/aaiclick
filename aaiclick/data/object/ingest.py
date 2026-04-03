@@ -147,6 +147,11 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     Creates a new Object with the schema from `copy_info`, then inserts all
     rows from the source query directly inside ClickHouse — no Python round-trip.
 
+    When `copy_info.order_by` is set, the INSERT excludes `aai_id` so new
+    Snowflake IDs are generated in sorted insertion order.  This makes
+    ``data()`` (which reads by ``aai_id``) return rows in the requested order
+    without needing a View wrapper.
+
     Args:
         copy_info: CopyInfo with source query, column definitions, and fieldtype.
         ch_client: Active ClickHouse client instance.
@@ -162,9 +167,23 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     result = await create_object(schema)
 
     alias = " AS s" if copy_info.source_query.startswith('(') else ""
-    insert_query = f"INSERT INTO {result.table} SELECT * FROM {copy_info.source_query}{alias}"
-    await ch_client.command(insert_query)
 
+    # Always exclude aai_id — copies get fresh Snowflake IDs.
+    # Preserving source aai_ids would cause duplicates when two copies
+    # are inserted into the same table, breaking ORDER BY aai_id.
+    # For sorted copies, ORDER BY determines insertion order; fresh
+    # generateSnowflakeID() values are monotonic within the INSERT,
+    # so data() (ORDER BY aai_id) returns rows in sorted order.
+    data_cols = [c for c in copy_info.columns if c != "aai_id"]
+    cols_str = ", ".join(data_cols)
+    order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
+    insert_query = (
+        f"INSERT INTO {result.table} ({cols_str})"
+        f" SELECT {cols_str} FROM {copy_info.source_query}{alias}"
+        f"{order_clause}"
+    )
+
+    await ch_client.command(insert_query)
     return result
 
 

@@ -249,13 +249,19 @@ class Object:
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(
+        self,
+        columns: str = "*",
+        default_order_by: Optional[str] = None,
+        skip_order_by: bool = False,
+    ) -> str:
         """
         Build a SELECT query with view constraints applied.
 
         Args:
             columns: Column specification (default "*")
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+            skip_order_by: If True, omit ORDER BY from the query.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -264,10 +270,10 @@ class Object:
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
-        # Use custom order_by if set, otherwise use default
-        order_clause = self.order_by or default_order_by
-        if order_clause:
-            query += f" ORDER BY {order_clause}"
+        if not skip_order_by:
+            order_clause = self.order_by or default_order_by
+            if order_clause:
+                query += f" ORDER BY {order_clause}"
         if self.limit is not None:
             query += f" LIMIT {self.limit}"
         if self.offset is not None:
@@ -292,6 +298,11 @@ class Object:
             fieldtype = self._schema.fieldtype
             col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
 
+        # Build constraint suffix (WHERE/ORDER BY/LIMIT/OFFSET) for same-table
+        # operator optimization. Two views from the same table with identical
+        # constraint_sql reference the same rows and can share a single SELECT.
+        constraint_sql = self._build_constraint_sql()
+
         return QueryInfo(
             source=source,
             base_table=self.table,
@@ -299,6 +310,39 @@ class Object:
             fieldtype=fieldtype,
             value_type=col_def.type,
             nullable=col_def.nullable,
+            constraint_sql=constraint_sql,
+        )
+
+    def _build_constraint_sql(self) -> str:
+        """Build the non-column constraints (WHERE/ORDER BY/LIMIT/OFFSET) as SQL suffix.
+
+        Used by _apply_operator_db to detect when two views from the same table
+        share identical constraints and can be combined into a single SELECT.
+        Returns empty string for unconstrained Objects (no WHERE/LIMIT/etc).
+        """
+        parts = []
+        where = self._build_where()
+        if where:
+            parts.append(f"WHERE {where}")
+        if self.order_by:
+            parts.append(f"ORDER BY {self.order_by}")
+        if self.limit is not None:
+            parts.append(f"LIMIT {self.limit}")
+        if self.offset is not None:
+            parts.append(f"OFFSET {self.offset}")
+        return " ".join(parts)
+
+    def same_source_as(self, other: "Object") -> bool:
+        """Check if this object references the same rows as another.
+
+        Returns True when both objects share the same base table and identical
+        view constraints (WHERE, ORDER BY, LIMIT, OFFSET).  Used by the
+        operator fast-path to avoid the expensive JOIN on row_number() when
+        two field selections come from the same underlying data.
+        """
+        return (
+            self.table == other.table
+            and self._build_constraint_sql() == other._build_constraint_sql()
         )
 
     def _get_ingest_query_info(self) -> IngestQueryInfo:
@@ -1116,6 +1160,28 @@ class Object:
         self.checkstale()
         info = self._get_query_info()
         return await operators.unique_group(info, self.ch_client)
+
+    async def nunique(self) -> Self:
+        """
+        Count the number of distinct values.
+
+        Fused operation equivalent to ``(await obj.unique()).count()`` but
+        executes a single query: ``SELECT count() FROM (... GROUP BY value)``.
+
+        Uses GROUP BY (not ``uniq()``) for exact results and compatibility
+        with MergeTree sorted data (``optimize_aggregation_in_order``).
+
+        Returns:
+            Self: New scalar Object containing the count of distinct values
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+            >>> result = await obj.nunique()
+            >>> await result.data()  # Returns 4
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.nunique_agg(info, self.ch_client)
 
     # Unary Transform Operators
 
@@ -2342,7 +2408,12 @@ class View(Object):
         merged.update(columns)
         return View(self, computed_columns=merged)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(
+        self,
+        columns: str = "*",
+        default_order_by: Optional[str] = None,
+        skip_order_by: bool = False,
+    ) -> str:
         """
         Build a SELECT query with view constraints applied.
 
@@ -2355,6 +2426,8 @@ class View(Object):
         Args:
             columns: Column specification (default "*", respected for field selection views)
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+            skip_order_by: If True, omit ORDER BY from the query. Used by copy()
+                to avoid a wasted sort when the order is preserved as a View.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -2425,10 +2498,10 @@ class View(Object):
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
-        # Use custom order_by if set, otherwise use default
-        order_clause = self.order_by or default_order_by
-        if order_clause:
-            query += f" ORDER BY {order_clause}"
+        if not skip_order_by:
+            order_clause = self.order_by or default_order_by
+            if order_clause:
+                query += f" ORDER BY {order_clause}"
         if self.limit is not None:
             query += f" LIMIT {self.limit}"
         if self.offset is not None:
@@ -2436,8 +2509,25 @@ class View(Object):
         return query
 
     def _get_copy_info(self) -> CopyInfo:
-        """Get copy info for database-level copy operations."""
-        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        """Get copy info for database-level copy operations.
+
+        ORDER BY is stripped from the source query and passed separately
+        via CopyInfo.order_by — copy_db() uses it to sort during INSERT
+        while excluding aai_id so new IDs are generated in sorted order.
+        """
+        has_non_order_constraints = bool(
+            self.where_clauses
+            or self.limit is not None
+            or self.offset is not None
+            or self.selected_fields
+            or self.computed_columns
+            or self.renamed_columns
+            or self.exploded_columns
+        )
+        if has_non_order_constraints:
+            source_query = f"({self._build_select(skip_order_by=True)})"
+        else:
+            source_query = self.table
         columns = dict(self._schema.columns)
 
         # Include computed columns in destination schema so copy() materializes them
@@ -2457,6 +2547,7 @@ class View(Object):
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
             col_fieldtype=self._schema.col_fieldtype,
+            order_by=self.order_by,
         )
 
     async def data(self, orient: str = ORIENT_DICT):

@@ -362,7 +362,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     """
     if isinstance(value, list):
         if not value:
-            return ColumnInfo("String", low_cardinality=True)
+            return ColumnInfo("String")
 
         arr = pa.array(value)
         pa_type = arr.type
@@ -376,7 +376,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         elif pa.types.is_floating(pa_type):
             return ColumnInfo("Float64")
         else:
-            return ColumnInfo("String", low_cardinality=True)
+            return ColumnInfo("String")
 
     if isinstance(value, bool):
         return ColumnInfo("Bool")
@@ -387,9 +387,9 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     elif isinstance(value, float):
         return ColumnInfo("Float64")
     elif isinstance(value, str):
-        return ColumnInfo("String", low_cardinality=True)
+        return ColumnInfo("String")
     else:
-        return ColumnInfo("String", low_cardinality=True)
+        return ColumnInfo("String")
 
 
 def _find_non_empty_nested_sample(records: list, key: str) -> dict:

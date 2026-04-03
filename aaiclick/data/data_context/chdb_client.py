@@ -337,11 +337,16 @@ def get_shared_session(path: Optional[str] = None) -> Session:
 
     Using a singleton ensures all data_context instances in the same process
     share one chdb session and can see each other's tables.
+
+    Pass ``:memory:`` for an in-memory session (no disk persistence).
     """
     data_path = path or get_chdb_data_path()
     if data_path not in _sessions:
-        Path(data_path).mkdir(parents=True, exist_ok=True)
-        _sessions[data_path] = Session(data_path)
+        if data_path == ":memory:":
+            _sessions[data_path] = Session()
+        else:
+            Path(data_path).mkdir(parents=True, exist_ok=True)
+            _sessions[data_path] = Session(data_path)
     return _sessions[data_path]
 
 

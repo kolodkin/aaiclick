@@ -178,6 +178,7 @@ class QueryInfo:
     fieldtype: str
     value_type: str
     nullable: bool = False
+    constraint_sql: str = ""
 
 
 @dataclass
@@ -213,6 +214,7 @@ class CopyInfo:
     selected_fields: Optional[List[str]] = None
     is_single_field: bool = False
     col_fieldtype: Optional[str] = None
+    order_by: Optional[str] = None
 
 
 @dataclass

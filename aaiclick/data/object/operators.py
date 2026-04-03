@@ -240,31 +240,55 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
     # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
-        either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+        # Same-table optimization: when both operands are field selections from
+        # the same table with identical constraints, emit a single SELECT instead
+        # of the expensive INNER JOIN on row_number().
+        same_table = (
+            info_a.base_table == info_b.base_table
+            and info_a.value_column != "value"
+            and info_b.value_column != "value"
+            and info_a.constraint_sql == info_b.constraint_sql
+        )
 
-        if either_is_view:
-            temp_table = await _materialize_array_join(
-                info_a.source, info_a.value_type,
-                info_b.source, info_b.value_type,
-                ch_client,
-            )
-            temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
-            try:
-                await ch_client.command(f"""
-                    INSERT INTO {result.table} (value)
-                    SELECT {temp_expr} AS value FROM {temp_table}
-                """)
-            finally:
-                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
-        else:
-            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+        if same_table:
+            col_a = quote_identifier(info_a.value_column)
+            col_b = quote_identifier(info_b.value_column)
+            expr = expression.replace("a.value", col_a).replace("b.value", col_b)
+            suffix = info_a.constraint_sql
+            if suffix:
+                source_sql = f"(SELECT {col_a}, {col_b} FROM {info_a.base_table} {suffix})"
+            else:
+                source_sql = info_a.base_table
             await ch_client.command(f"""
                 INSERT INTO {result.table} (value)
-                SELECT {expression} AS value
-                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
-                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
-                ON a.rn = b.rn
+                SELECT {expr} AS value FROM {source_sql}
             """)
+        else:
+            either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+
+            if either_is_view:
+                temp_table = await _materialize_array_join(
+                    info_a.source, info_a.value_type,
+                    info_b.source, info_b.value_type,
+                    ch_client,
+                )
+                temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+                try:
+                    await ch_client.command(f"""
+                        INSERT INTO {result.table} (value)
+                        SELECT {temp_expr} AS value FROM {temp_table}
+                    """)
+                finally:
+                    await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
+            else:
+                await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+                await ch_client.command(f"""
+                    INSERT INTO {result.table} (value)
+                    SELECT {expression} AS value
+                    FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
+                    INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                    ON a.rn = b.rn
+                """)
 
         oplog_record(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
         return result
@@ -671,6 +695,40 @@ async def unique_group(info: QueryInfo, ch_client):
     """
     await ch_client.command(insert_query)
 
+    return result
+
+
+async def nunique_agg(info: QueryInfo, ch_client):
+    """
+    Count distinct values at database level using GROUP BY subquery.
+
+    Fused operation equivalent to ``unique().count()`` but in a single query:
+    ``SELECT count() FROM (SELECT value FROM source GROUP BY value)``
+
+    Uses GROUP BY (not ``uniq()``) for exact results and compatibility with
+    MergeTree sorted data (``optimize_aggregation_in_order``).
+
+    Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
+
+    Args:
+        info: QueryInfo for source
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with scalar count of distinct values (UInt64)
+    """
+    schema = Schema(
+        fieldtype=FIELDTYPE_SCALAR,
+        col_fieldtype=FIELDTYPE_SCALAR,
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+    )
+    result = await create_object(schema)
+    await ch_client.command(f"""
+        INSERT INTO {result.table} (value)
+        SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
+    """)
+
+    oplog_record(result.table, "nunique", kwargs={"source": info.base_table})
     return result
 
 
