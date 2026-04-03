@@ -8,12 +8,6 @@ Technical Debt
   - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
   - **Debt**: Confirmed broken in chdb 4.1.2 and 26.1.0; no upstream fix. Remove this workaround once chdb's `url()` works reliably for external hosts. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
-# Flaky `test_claim_respects_group_dependency` in orch-dist
-
-- **Flaky `test_claim_respects_group_dependency`** (`aaiclick/orchestration/execution/test_worker.py`)
-  - **Issue**: Some tests create jobs with failing tasks but don't cancel the job afterward, leaving PENDING tasks in the DB. When xdist runs tests sequentially in the same worker DB, `claim_next_task` picks up these orphaned tasks instead of the expected one.
-  - **Observed**: `test_worker.py:429` intermittently fails on orch-dist CI — claims a `failing_task` left by a prior test.
-  - **Fix**: Audit tests that create failing jobs (e.g. via `failing_task` entrypoint) and ensure they cancel the job in teardown.
 
 # GitHub Actions
 
