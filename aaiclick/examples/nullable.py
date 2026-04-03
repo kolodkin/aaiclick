@@ -39,10 +39,10 @@ async def example():
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (1), (NULL), (3)")
 
     data = await obj.data()
-    print(f"Nullable array: {data}")
+    print(f"Nullable array: {data}")  # → [1, None, 3]  # → [1, None, 3]
 
     schema = obj.schema
-    print(f"Column nullable: {schema.columns['value'].nullable}")
+    print(f"Column nullable: {schema.columns['value'].nullable}")  # → True  # → True
 
     # Example 2: Nullable promotion in concat
     print("\n" + "=" * 50)
@@ -56,13 +56,13 @@ async def example():
 
     schema_a = obj_nullable.schema
     schema_b = obj_regular.schema
-    print(f"Source A nullable: {schema_a.columns['value'].nullable}")
-    print(f"Source B nullable: {schema_b.columns['value'].nullable}")
+    print(f"Source A nullable: {schema_a.columns['value'].nullable}")  # → True  # → True
+    print(f"Source B nullable: {schema_b.columns['value'].nullable}")  # → False  # → False
 
     result = await obj_nullable.concat(obj_regular)
     schema_result = result.schema
-    print(f"Result nullable:  {schema_result.columns['value'].nullable}")
-    print(f"Result data: {await result.data()}")
+    print(f"Result nullable:  {schema_result.columns['value'].nullable}")  # → True  # → True
+    print(f"Result data: {await result.data()}")  # → [10, None, 20, 30]  # → [10, None, 20, 30]
 
     # Example 3: Arithmetic with nullable values
     print("\n" + "=" * 50)
@@ -75,8 +75,8 @@ async def example():
     )
 
     added = await (obj_with_nulls + 10)
-    print(f"Original:    {await obj_with_nulls.data()}")
-    print(f"Added + 10:  {await added.data()}")
+    print(f"Original:    {await obj_with_nulls.data()}")  # → [5, None, 15]  # → [5, None, 15]
+    print(f"Added + 10:  {await added.data()}")  # → [15, None, 25]  # → [15, None, 25]
     print("Note: NULL + 10 = NULL (NULL propagates through arithmetic)")
 
     # Example 4: Coalesce - replace NULLs with a default
@@ -88,13 +88,13 @@ async def example():
     await ch.command(
         f"INSERT INTO {obj_nulls.table} (value) VALUES (1), (NULL), (3), (NULL), (5)"
     )
-    print(f"Before coalesce: {await obj_nulls.data()}")
+    print(f"Before coalesce: {await obj_nulls.data()}")  # → [1, None, 3, None, 5]  # → [1, None, 3, None, 5]
 
     filled = await obj_nulls.coalesce(0)
-    print(f"After coalesce(0): {await filled.data()}")
+    print(f"After coalesce(0): {await filled.data()}")  # → [1, 0, 3, 0, 5]  # → [1, 0, 3, 0, 5]
 
     schema_filled = filled.schema
-    print(f"Result nullable: {schema_filled.columns['value'].nullable}")
+    print(f"Result nullable: {schema_filled.columns['value'].nullable}")  # → False  # → False
     print("Note: coalesce with non-nullable fallback produces non-nullable result")
 
     # Note: All objects created via context are automatically cleaned up when context exits

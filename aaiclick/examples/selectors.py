@@ -25,16 +25,16 @@ async def example():
         'param2': [456, 567, 678]
     })
     print(f"Created dict Object with columns: param1, param2")
-    print(f"Full data: {await obj.data()}\n")
+    print(f"Full data: {await obj.data()}\n")  # → {'param1': [123, 234, 345], 'param2': [456, 567, 678]}
 
     # Select param1 using __getitem__
     view_param1 = obj['param1']
     print(f"obj['param1'] creates a View: {view_param1}")
-    print(f"View data: {await view_param1.data()}")
+    print(f"View data: {await view_param1.data()}")  # → [123, 234, 345]
 
     # Select param2
     view_param2 = obj['param2']
-    print(f"obj['param2'] data: {await view_param2.data()}")
+    print(f"obj['param2'] data: {await view_param2.data()}")  # → [456, 567, 678]
 
     # Example 2: Object metadata
     print("\n" + "=" * 50)
@@ -71,12 +71,12 @@ async def example():
     print("-" * 50)
 
     view = obj['param1']
-    print(f"View data: {await view.data()}")
+    print(f"View data: {await view.data()}")  # → [123, 234, 345]
 
     # copy() materializes the view as a new array Object
     arr = await view.copy()
     print(f"Copied to new Object: {arr}")
-    print(f"Copied data: {await arr.data()}")
+    print(f"Copied data: {await arr.data()}")  # → [123, 234, 345]
 
     # Check copied object's metadata
     arr_schema = arr.schema
@@ -103,13 +103,13 @@ async def example():
 
     # Multiply selected columns
     totals = await (prices * quantities)
-    print(f"prices: {await prices.data()}")
-    print(f"quantities: {await quantities.data()}")
-    print(f"prices * quantities = {await totals.data()}")
+    print(f"prices: {await prices.data()}")  # → [10, 20, 30, 40, 50]
+    print(f"quantities: {await quantities.data()}")  # → [2, 3, 1, 4, 2]
+    print(f"prices * quantities = {await totals.data()}")  # → [20, 60, 30, 160, 100]
 
     # Sum of totals
     total_sum = await totals.sum()
-    print(f"Sum of totals: {await total_sum.data()}")
+    print(f"Sum of totals: {await total_sum.data()}")  # → 370
 
     # Example 6: Aggregations on selected fields
     print("\n" + "=" * 50)
@@ -123,7 +123,7 @@ async def example():
     print(f"Metrics data: {await metrics.data()}\n")
 
     values = metrics['values']
-    print(f"values: {await values.data()}")
+    print(f"values: {await values.data()}")  # → [15, 8, 42, 23, 4, 16, 35, 12, 28, 50]
 
     # Aggregations on selected field
     min_val = await values.min()
@@ -132,11 +132,11 @@ async def example():
     mean_val = await values.mean()
     count_val = await values.count()
 
-    print(f"  min: {await min_val.data()}")
-    print(f"  max: {await max_val.data()}")
-    print(f"  sum: {await sum_val.data()}")
-    print(f"  mean: {await mean_val.data()}")
-    print(f"  count: {await count_val.data()}")
+    print(f"  min: {await min_val.data()}")  # → 4
+    print(f"  max: {await max_val.data()}")  # → 50
+    print(f"  sum: {await sum_val.data()}")  # → 233
+    print(f"  mean: {await mean_val.data()}")  # → 23.3
+    print(f"  count: {await count_val.data()}")  # → 10
 
     print("\n" + "=" * 50)
     print("Cleanup: All context-created objects will be cleaned up automatically")

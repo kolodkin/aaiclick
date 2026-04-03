@@ -166,6 +166,20 @@ This project uses pre-commit hooks that may modify files during commit (formatti
         result[alias] = compute(source_col, agg_func)
     ```
 
+- **Example files** (`aaiclick/examples/*.py`): Add `# →` output comments inline next to `print()` calls that show computed results. Only annotate data results — not headers, separators, or static text. Skip loop bodies.
+  ```python
+  # GOOD — result is visible where the reader's eyes are
+  print(f"Addition (a + b): {await result.data()}")  # → [12.0, 24.0, 35.0]
+
+  # BAD — no output shown
+  print(f"Addition (a + b): {await result.data()}")
+
+  # SKIP — headers and loops don't need output comments
+  print("Example 1: Arithmetic operators")
+  for row in rows:
+      print(f"  {row}")
+  ```
+
 ## ClickHouse Client Guidelines
 
 **Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
@@ -379,6 +393,8 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 
 ## Documentation Guidelines
 
+**Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
+
 **Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
 
 ```markdown
@@ -427,6 +443,28 @@ Document Title
 |-------|----------|
 | `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
 | `_data_ctx_ref is None` | Object was never registered |
+```
+
+**Admonitions** — use `!!! tip`, `!!! warning`, `??? info` only at genuine pitfall points
+where a user would hit a confusing error without the callout. Never for emphasis, decoration,
+or restating what surrounding prose already says. Collapsible `???` for optional context.
+
+```markdown
+# GOOD — real pitfall, saves debugging time
+!!! warning "`or_where()` requires a prior `where()`"
+    Calling `or_where()` without a preceding `where()` raises `ValueError`.
+
+# GOOD — optional context, reader can skip
+??? info "Which deployment mode?"
+    Start with the default (chdb + SQLite) — it needs zero setup.
+
+# BAD — restating what the code already shows
+!!! tip
+    Use `await` to get the result of an operation.
+
+# BAD — decorating a reference table
+!!! info "ClickHouse uses RE2 regex syntax"
+    No lookaheads or lookbehinds.
 ```
 
 ## Documentation Patterns

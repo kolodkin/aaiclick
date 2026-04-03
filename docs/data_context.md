@@ -31,7 +31,25 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 ## Deployment Modes
 
-`AAICLICK_CH_URL` selects the ClickHouse backend: `chdb:///path` (embedded, default) or `clickhouse://user:pass@host:8123/db` (remote server). Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
+`AAICLICK_CH_URL` selects the ClickHouse backend. Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
+
+=== "Local (default)"
+
+    Embedded chdb — no server needed:
+
+    ```bash
+    export AAICLICK_CH_URL="chdb:///~/.aaiclick/chdb_data"
+    export AAICLICK_SQL_URL="sqlite+aiosqlite:///~/.aaiclick/local.db"
+    ```
+
+=== "Distributed"
+
+    Remote ClickHouse + PostgreSQL:
+
+    ```bash
+    export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
+    export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
+    ```
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
@@ -45,7 +63,11 @@ Objects are managed by a `data_context()` and become **stale** when the context 
 
 **Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-Create and use Objects within the same `data_context()`. Don't store Objects for use after context exit or pass them between contexts.
+!!! warning "Objects become stale when their context exits"
+    Using a stale Object raises `RuntimeError`. Create and consume Objects
+    within the same `data_context()` block. Only persistent objects
+    (created with `name=`) survive across contexts — reopen them
+    with `open_object()`.
 
 ## Table Schema and Structure
 

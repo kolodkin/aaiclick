@@ -20,15 +20,15 @@ async def example():
 
     obj_scalar_int = await create_object_from_value(42)
     print(f"Created from int: {obj_scalar_int}")
-    print(f"Value: {await obj_scalar_int.data()}\n")
+    print(f"Value: {await obj_scalar_int.data()}\n")  # → 42
 
     obj_scalar_float = await create_object_from_value(3.14)
     print(f"Created from float: {obj_scalar_float}")
-    print(f"Value: {await obj_scalar_float.data()}\n")
+    print(f"Value: {await obj_scalar_float.data()}\n")  # → 3.14
 
     obj_scalar_str = await create_object_from_value("Hello, ClickHouse!")
     print(f"Created from string: {obj_scalar_str}")
-    print(f"Value: {await obj_scalar_str.data()}")
+    print(f"Value: {await obj_scalar_str.data()}")  # → Hello, ClickHouse!
 
     # Example 2: Create objects from lists (numpy dtype inference)
     print("\n" + "=" * 50)
@@ -37,15 +37,15 @@ async def example():
 
     obj_list_int = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"Created from int list: {obj_list_int}")
-    print(f"Values: {await obj_list_int.data()}\n")
+    print(f"Values: {await obj_list_int.data()}\n")  # → [1, 2, 3, 4, 5]
 
     obj_list_float = await create_object_from_value([1.5, 2.5, 3.5, 4.5])
     print(f"Created from float list: {obj_list_float}")
-    print(f"Values: {await obj_list_float.data()}\n")
+    print(f"Values: {await obj_list_float.data()}\n")  # → [1.5, 2.5, 3.5, 4.5]
 
     obj_list_str = await create_object_from_value(["apple", "banana", "cherry"])
     print(f"Created from string list: {obj_list_str}")
-    print(f"Values: {await obj_list_str.data()}")
+    print(f"Values: {await obj_list_str.data()}")  # → ['apple', 'banana', 'cherry']
 
     # Example 3: Create objects from dictionaries
     print("\n" + "=" * 50)
@@ -57,7 +57,7 @@ async def example():
         {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
     )
     print(f"Created from dict of scalars: {obj_dict}")
-    print(f"Values: {await obj_dict.data()}\n")
+    print(f"Values: {await obj_dict.data()}\n")  # → {'id': 1, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Dict of arrays (multiple rows)
     obj_dict_arrays = await create_object_from_value(
@@ -71,7 +71,7 @@ async def example():
 
     # Default: returns first row as dict
     first_row = await obj_dict_arrays.data()
-    print(f"First row (default): {first_row}")
+    print(f"First row (default): {first_row}")  # → {'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie'], 'age': [30, 25, 35]}
 
     # With orient='records': returns all rows as list of dicts
     all_rows = await obj_dict_arrays.data(orient=ORIENT_RECORDS)
@@ -87,41 +87,41 @@ async def example():
     obj_b = await create_object_from_value([2.0, 4.0, 5.0])
 
     print(f"Created {obj_a}")
-    print(f"Values in a: {await obj_a.data()}\n")
+    print(f"Values in a: {await obj_a.data()}\n")  # → [10.0, 20.0, 30.0]
 
     print(f"Created {obj_b}")
-    print(f"Values in b: {await obj_b.data()}")
+    print(f"Values in b: {await obj_b.data()}")  # → [2.0, 4.0, 5.0]
 
     # All arithmetic operators
     print("\n" + "-" * 50)
 
     # Addition
     result_add = await (obj_a + obj_b)
-    print(f"Addition (a + b): {await result_add.data()}")
+    print(f"Addition (a + b): {await result_add.data()}")  # → [12.0, 24.0, 35.0]
 
     # Subtraction
     result_sub = await (obj_a - obj_b)
-    print(f"Subtraction (a - b): {await result_sub.data()}")
+    print(f"Subtraction (a - b): {await result_sub.data()}")  # → [8.0, 16.0, 25.0]
 
     # Multiplication
     result_mul = await (obj_a * obj_b)
-    print(f"Multiplication (a * b): {await result_mul.data()}")
+    print(f"Multiplication (a * b): {await result_mul.data()}")  # → [20.0, 80.0, 150.0]
 
     # Division
     result_div = await (obj_a / obj_b)
-    print(f"Division (a / b): {await result_div.data()}")
+    print(f"Division (a / b): {await result_div.data()}")  # → [5.0, 5.0, 6.0]
 
     # Floor Division
     result_floordiv = await (obj_a // obj_b)
-    print(f"Floor Division (a // b): {await result_floordiv.data()}")
+    print(f"Floor Division (a // b): {await result_floordiv.data()}")  # → [5.0, 5.0, 6.0]
 
     # Modulo
     result_mod = await (obj_a % obj_b)
-    print(f"Modulo (a % b): {await result_mod.data()}")
+    print(f"Modulo (a % b): {await result_mod.data()}")  # → [0.0, 0.0, 0.0]
 
     # Power
     result_pow = await (obj_a ** obj_b)
-    print(f"Power (a ** b): {await result_pow.data()}")
+    print(f"Power (a ** b): {await result_pow.data()}")  # → [100.0, 160000.0, 24300000.0]
 
     # Example 5: Comparison operators
     print("\n" + "=" * 50)
@@ -131,32 +131,32 @@ async def example():
     obj_x = await create_object_from_value([1, 5, 10, 15])
     obj_y = await create_object_from_value([5, 5, 8, 20])
 
-    print(f"Values in x: {await obj_x.data()}")
-    print(f"Values in y: {await obj_y.data()}\n")
+    print(f"Values in x: {await obj_x.data()}")  # → [1, 5, 10, 15]
+    print(f"Values in y: {await obj_y.data()}\n")  # → [5, 5, 8, 20]
 
     # Equal
     result_eq = await (obj_x == obj_y)
-    print(f"Equal (x == y): {await result_eq.data()}")
+    print(f"Equal (x == y): {await result_eq.data()}")  # → [0, 1, 0, 0]
 
     # Not Equal
     result_ne = await (obj_x != obj_y)
-    print(f"Not Equal (x != y): {await result_ne.data()}")
+    print(f"Not Equal (x != y): {await result_ne.data()}")  # → [1, 0, 1, 1]
 
     # Less Than
     result_lt = await (obj_x < obj_y)
-    print(f"Less Than (x < y): {await result_lt.data()}")
+    print(f"Less Than (x < y): {await result_lt.data()}")  # → [1, 0, 0, 1]
 
     # Less or Equal
     result_le = await (obj_x <= obj_y)
-    print(f"Less or Equal (x <= y): {await result_le.data()}")
+    print(f"Less or Equal (x <= y): {await result_le.data()}")  # → [1, 1, 0, 1]
 
     # Greater Than
     result_gt = await (obj_x > obj_y)
-    print(f"Greater Than (x > y): {await result_gt.data()}")
+    print(f"Greater Than (x > y): {await result_gt.data()}")  # → [0, 0, 1, 0]
 
     # Greater or Equal
     result_ge = await (obj_x >= obj_y)
-    print(f"Greater or Equal (x >= y): {await result_ge.data()}")
+    print(f"Greater or Equal (x >= y): {await result_ge.data()}")  # → [0, 1, 1, 0]
 
     # Example 6: Bitwise operators
     print("\n" + "=" * 50)
@@ -166,20 +166,20 @@ async def example():
     obj_m = await create_object_from_value([12, 10, 8])  # Binary: 1100, 1010, 1000
     obj_n = await create_object_from_value([10, 12, 4])  # Binary: 1010, 1100, 0100
 
-    print(f"Values in m: {await obj_m.data()}")
-    print(f"Values in n: {await obj_n.data()}\n")
+    print(f"Values in m: {await obj_m.data()}")  # → [12, 10, 8]
+    print(f"Values in n: {await obj_n.data()}\n")  # → [10, 12, 4]
 
     # Bitwise AND
     result_and = await (obj_m & obj_n)
-    print(f"Bitwise AND (m & n): {await result_and.data()}")
+    print(f"Bitwise AND (m & n): {await result_and.data()}")  # → [8, 8, 0]
 
     # Bitwise OR
     result_or = await (obj_m | obj_n)
-    print(f"Bitwise OR (m | n): {await result_or.data()}")
+    print(f"Bitwise OR (m | n): {await result_or.data()}")  # → [14, 14, 12]
 
     # Bitwise XOR
     result_xor = await (obj_m ^ obj_n)
-    print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")
+    print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")  # → [6, 6, 12]
 
     # Example 7: UTC datetime support
     print("\n" + "=" * 50)
@@ -191,7 +191,7 @@ async def example():
         datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
     )
     print(f"Created from datetime scalar: {dt_scalar}")
-    print(f"Value: {await dt_scalar.data()}\n")
+    print(f"Value: {await dt_scalar.data()}\n")  # → 2024-01-15 10:30:00+00:00
 
     # Array of datetimes
     dt_array = await create_object_from_value([
@@ -220,8 +220,8 @@ async def example():
     obj_auto = await create_object_from_value(42)
     obj_auto2 = await create_object_from_value(99)
     print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
-    print(f"  Object 1 -> table: {obj_auto.table}")
-    print(f"  Object 2 -> table: {obj_auto2.table}")
+    print(f"  Object 1 -> table: {obj_auto.table}")  # → t_...
+    print(f"  Object 2 -> table: {obj_auto2.table}")  # → t_...
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)

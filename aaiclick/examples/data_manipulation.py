@@ -21,13 +21,13 @@ async def example():
 
     original = await create_object_from_value([1, 2, 3])
     print(f"Original object: {original}")
-    print(f"Original data: {await original.data()}")
+    print(f"Original data: {await original.data()}")  # → [1, 2, 3]
     print(f"Original table: {original.table}\n")
 
     # Copy the object
     copied = await original.copy()
     print(f"Copied object: {copied}")
-    print(f"Copied data: {await copied.data()}")
+    print(f"Copied data: {await copied.data()}")  # → [1, 2, 3]
     print(f"Copied table: {copied.table}")
     print(f"Tables are different: {original.table != copied.table}")
 
@@ -39,14 +39,14 @@ async def example():
     obj_a = await create_object_from_value([1, 2, 3])
     obj_b = await create_object_from_value([4, 5, 6])
 
-    print(f"Object A: {await obj_a.data()}")
-    print(f"Object B: {await obj_b.data()}\n")
+    print(f"Object A: {await obj_a.data()}")  # → [1, 2, 3]
+    print(f"Object B: {await obj_b.data()}\n")  # → [4, 5, 6]
 
     # Concat creates a new object
     result = await obj_a.concat(obj_b)
-    print(f"After concat: {await result.data()}")
-    print(f"Original A unchanged: {await obj_a.data()}")
-    print(f"Original B unchanged: {await obj_b.data()}")
+    print(f"After concat: {await result.data()}")  # → [1, 2, 3, 4, 5, 6]
+    print(f"Original A unchanged: {await obj_a.data()}")  # → [1, 2, 3]
+    print(f"Original B unchanged: {await obj_b.data()}")  # → [4, 5, 6]
     print(f"Result is new object: {result.table != obj_a.table}")
 
     # Example 3: Concatenate with scalar value
@@ -55,12 +55,12 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([10, 20, 30])
-    print(f"Original array: {await obj.data()}\n")
+    print(f"Original array: {await obj.data()}\n")  # → [10, 20, 30]
 
     # Concat with scalar
     result_scalar = await obj.concat(40)
-    print(f"After concat(40): {await result_scalar.data()}")
-    print(f"Original unchanged: {await obj.data()}")
+    print(f"After concat(40): {await result_scalar.data()}")  # → [10, 20, 30, 40]
+    print(f"Original unchanged: {await obj.data()}")  # → [10, 20, 30]
 
     # Example 4: Concatenate with list value
     print("\n" + "=" * 50)
@@ -68,12 +68,12 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([1, 2])
-    print(f"Original array: {await obj.data()}\n")
+    print(f"Original array: {await obj.data()}\n")  # → [1, 2]
 
     # Concat with list
     result_list = await obj.concat([3, 4, 5])
-    print(f"After concat([3, 4, 5]): {await result_list.data()}")
-    print(f"Original unchanged: {await obj.data()}")
+    print(f"After concat([3, 4, 5]): {await result_list.data()}")  # → [1, 2, 3, 4, 5]
+    print(f"Original unchanged: {await obj.data()}")  # → [1, 2]
 
     # Example 5: Insert - Modifies in place (mutating)
     print("\n" + "=" * 50)
@@ -83,15 +83,15 @@ async def example():
     obj_x = await create_object_from_value([100, 200, 300])
     obj_y = await create_object_from_value([400, 500, 600])
 
-    print(f"Object X before: {await obj_x.data()}")
-    print(f"Object Y: {await obj_y.data()}")
+    print(f"Object X before: {await obj_x.data()}")  # → [100, 200, 300]
+    print(f"Object Y: {await obj_y.data()}")  # → [400, 500, 600]
     print(f"Table X before: {obj_x.table}\n")
 
     # Insert modifies obj_x in place
     await obj_x.insert(obj_y)
-    print(f"Object X after insert: {await obj_x.data()}")
+    print(f"Object X after insert: {await obj_x.data()}")  # → [100, 200, 300, 400, 500, 600]
     print(f"Table X after (same): {obj_x.table}")
-    print(f"Object Y unchanged: {await obj_y.data()}")
+    print(f"Object Y unchanged: {await obj_y.data()}")  # → [400, 500, 600]
 
     # Example 6: Insert with scalar value
     print("\n" + "=" * 50)
@@ -99,11 +99,11 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([1, 2, 3])
-    print(f"Before insert: {await obj.data()}")
+    print(f"Before insert: {await obj.data()}")  # → [1, 2, 3]
     print(f"Table: {obj.table}\n")
 
     await obj.insert(4)
-    print(f"After insert(4): {await obj.data()}")
+    print(f"After insert(4): {await obj.data()}")  # → [1, 2, 3, 4]
     print(f"Table (same): {obj.table}")
 
     # Example 7: Insert with list value
@@ -112,11 +112,11 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([10, 20])
-    print(f"Before insert: {await obj.data()}")
+    print(f"Before insert: {await obj.data()}")  # → [10, 20]
     print(f"Table: {obj.table}\n")
 
     await obj.insert([30, 40, 50])
-    print(f"After insert([30, 40, 50]): {await obj.data()}")
+    print(f"After insert([30, 40, 50]): {await obj.data()}")  # → [10, 20, 30, 40, 50]
     print(f"Table (same): {obj.table}")
 
     # Example 8: Multiple inserts
@@ -125,16 +125,16 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([1, 2])
-    print(f"Initial: {await obj.data()}")
+    print(f"Initial: {await obj.data()}")  # → [1, 2]
 
     await obj.insert(3)
-    print(f"After insert(3): {await obj.data()}")
+    print(f"After insert(3): {await obj.data()}")  # → [1, 2, 3]
 
     await obj.insert([4, 5])
-    print(f"After insert([4, 5]): {await obj.data()}")
+    print(f"After insert([4, 5]): {await obj.data()}")  # → [1, 2, 3, 4, 5]
 
     await obj.insert(6)
-    print(f"After insert(6): {await obj.data()}")
+    print(f"After insert(6): {await obj.data()}")  # → [1, 2, 3, 4, 5, 6]
 
     # Example 9: Comparing concat vs insert
     print("\n" + "=" * 50)
@@ -146,15 +146,15 @@ async def example():
     print(f"concat approach:")
     print(f"  Original a1: {await a1.data()}, table: {a1.table}")
     a1_new = await a1.concat([4, 5])
-    print(f"  After concat: {await a1_new.data()}, table: {a1_new.table}")
-    print(f"  Original a1 unchanged: {await a1.data()}, table: {a1.table}\n")
+    print(f"  After concat: {await a1_new.data()}, table: {a1_new.table}")  # → [1, 2, 3, 4, 5]
+    print(f"  Original a1 unchanged: {await a1.data()}, table: {a1.table}\n")  # → [1, 2, 3]
 
     # Using insert (mutating)
     a2 = await create_object_from_value([1, 2, 3])
     print(f"insert approach:")
     print(f"  Original a2: {await a2.data()}, table: {a2.table}")
     await a2.insert([4, 5])
-    print(f"  After insert: {await a2.data()}, table: {a2.table} (same)")
+    print(f"  After insert: {await a2.data()}, table: {a2.table} (same)")  # → [1, 2, 3, 4, 5]
 
     # Example 10: Real-world scenario - Building a dataset
     print("\n" + "=" * 50)
@@ -163,25 +163,25 @@ async def example():
 
     # Start with initial data
     dataset = await create_object_from_value([10.5, 20.3, 30.7])
-    print(f"Initial dataset: {await dataset.data()}")
+    print(f"Initial dataset: {await dataset.data()}")  # → [10.5, 20.3, 30.7]
 
     # Add more measurements in place
     await dataset.insert([15.2, 25.8])
-    print(f"Added batch 1: {await dataset.data()}")
+    print(f"Added batch 1: {await dataset.data()}")  # → [10.5, 20.3, 30.7, 15.2, 25.8]
 
     await dataset.insert(35.9)
-    print(f"Added single value: {await dataset.data()}")
+    print(f"Added single value: {await dataset.data()}")  # → [10.5, 20.3, 30.7, 15.2, 25.8, 35.9]
 
     await dataset.insert([12.1, 22.4, 32.6])
-    print(f"Added batch 2: {await dataset.data()}")
+    print(f"Added batch 2: {await dataset.data()}")  # → [10.5, 20.3, 30.7, 15.2, 25.8, 35.9, 12.1, 22.4, 32.6]
 
     # Calculate statistics on final dataset (returns Objects, use .data() to extract values)
     print(f"\nFinal dataset statistics:")
-    print(f"  Count: {len(await dataset.data())}")
-    print(f"  Min: {await (await dataset.min()).data():.2f}")
-    print(f"  Max: {await (await dataset.max()).data():.2f}")
-    print(f"  Mean: {await (await dataset.mean()).data():.2f}")
-    print(f"  Std: {await (await dataset.std()).data():.2f}")
+    print(f"  Count: {len(await dataset.data())}")  # → 9
+    print(f"  Min: {await (await dataset.min()).data():.2f}")  # → 10.50
+    print(f"  Max: {await (await dataset.max()).data():.2f}")  # → 35.90
+    print(f"  Mean: {await (await dataset.mean()).data():.2f}")  # → 22.83
+    print(f"  Std: {await (await dataset.std()).data():.2f}")  # → 8.62
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)

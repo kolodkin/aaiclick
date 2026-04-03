@@ -25,9 +25,73 @@ For AI features (lineage tracing, debug agents):
 
 ```bash
 pip install "aaiclick[ai]"
-# or everything:
+# or all extras:
 pip install "aaiclick[all]"
 ```
+
+## Orchestration
+
+Define tasks and jobs with decorators — all data operations execute as ClickHouse queries:
+
+```python
+from aaiclick import create_object_from_value
+from aaiclick.orchestration import job, task
+
+@task
+async def load_sales():
+    return await create_object_from_value({
+        "region": ["US", "EU", "US", "EU", "US"],
+        "amount": [500, 300, 150, 200, 80],
+    })
+
+@task
+async def analyze(sales):
+    # GROUP BY + SUM — runs as a single ClickHouse query
+    by_region = await sales.group_by("region").sum("amount")
+    print(await by_region.data())  # → {'region': ['EU', 'US'], 'amount': [500, 730]}
+
+    # append rows without leaving ClickHouse
+    await sales.insert({"region": ["JP"], "amount": [400]})
+
+@job("sales_pipeline")
+def sales_pipeline():
+    sales = load_sales()
+    # dependencies resolved from arguments
+    result = analyze(sales=sales)
+    return result
+
+if __name__ == "__main__":
+    from aaiclick.orchestration import job_test
+    job_test(sales_pipeline)  # runs all tasks locally for debugging
+```
+
+```bash
+python sales_pipeline.py
+```
+
+## Data Operation Only Mode
+
+Use `data_context()` directly for interactive work without orchestration:
+
+```python
+import asyncio
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
+
+async def main():
+    async with data_context():
+        prices = await create_object_from_value([10.0, 20.0, 30.0])
+
+        total = await (prices + prices * 0.1)  # scalars broadcast automatically
+        print(await total.data())  # → [11.0, 22.0, 33.0]
+        print(await (await total.mean()).data())  # → 22.0
+
+asyncio.run(main())
+```
+
+## Documentation
+
+[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/latest/)
 
 ## License
 

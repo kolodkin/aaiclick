@@ -1,6 +1,6 @@
 site_name: aaiclick
 site_description: A Python framework that translates Python code into ClickHouse operations for big data computing
-site_url: https://aaiclick.readthedocs.io
+site_url: https://aaiclick.readthedocs.io/en/latest/
 repo_url: https://github.com/kolodkin/aaiclick
 repo_name: kolodkin/aaiclick
 
@@ -82,10 +82,12 @@ nav:
     - Explode: examples/explode.md
     - Nested Arrays: examples/nested_arrays.md
     - Nullable Columns: examples/nullable.md
+    - Persistent Objects: examples/persistent.md
     - Orchestration Basics: examples/orchestration_basic.md
     - Orchestration Dynamic: examples/orchestration_dynamic.md
   - API Reference:
     - Data: api/data.md
     - Orchestration: api/orchestration.md
     - AI: api/ai.md
+  - Glossary: glossary.md
   - License: LICENSE.md

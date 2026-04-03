@@ -3,42 +3,35 @@ Getting Started
 
 # Installation
 
-The base install includes embedded [chdb](https://clickhouse.com/docs/chdb) and SQLite — no external
-servers needed:
+=== "Local (chdb + SQLite)"
 
-```bash
-pip install aaiclick
-```
+    No external servers needed — embedded ClickHouse and SQLite included:
 
-For a distributed deployment against a remote ClickHouse server and PostgreSQL, add the
-`distributed` extra:
+    ```bash
+    pip install aaiclick
+    python -m aaiclick setup
+    ```
 
-```bash
-pip install "aaiclick[distributed]"
-```
+=== "Distributed (ClickHouse + PostgreSQL)"
 
-For AI features (lineage tracing, debug agents):
+    For a remote ClickHouse server and PostgreSQL:
 
-```bash
-pip install "aaiclick[ai]"
-# or everything at once:
-pip install "aaiclick[all]"
-```
+    ```bash
+    pip install "aaiclick[distributed]"
+    python -m aaiclick setup
+    export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
+    export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
+    ```
 
-To build the documentation locally:
+=== "AI Features"
 
-```bash
-pip install -r docs/requirements-docs.txt
-mkdocs serve
-```
+    Add lineage tracing and debug agents:
 
-# First Run
-
-Initialize local storage (creates `~/.aaiclick/` with chdb data and SQLite database):
-
-```bash
-python -m aaiclick setup
-```
+    ```bash
+    pip install "aaiclick[ai]"
+    # or everything at once:
+    pip install "aaiclick[all]"
+    ```
 
 # Quick Example
 
@@ -49,21 +42,24 @@ from aaiclick.data.data_context import data_context
 
 async def main():
     async with data_context():
-        # Create objects from Python values — schema is inferred automatically
         prices = await create_object_from_value([10.0, 20.0, 30.0])
-        tax_rate = await create_object_from_value(0.1)
 
-        # All computation runs inside ClickHouse
-        tax = await (prices * tax_rate)
-        total = await (prices + tax)
-
+        total = await (prices + prices * 0.1)  # scalars broadcast automatically
         print(await total.data())  # [11.0, 22.0, 33.0]
+        print(await (await total.mean()).data())  # 22.0
 
 asyncio.run(main())
 ```
 
-All objects created inside `data_context()` are automatically cleaned up on exit — no manual
-table management required.
+!!! warning "Always `await` operation results"
+    `prices * 0.1` returns a coroutine, not an Object.
+    Forgetting `await` gives a confusing error downstream —
+    not at the line where you forgot it.
+
+??? info "Automatic cleanup"
+    All objects created inside `data_context()` are cleaned up on exit —
+    no manual table management required. Don't store Objects for use after
+    the context exits.
 
 # Environment Variables
 

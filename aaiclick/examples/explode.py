@@ -44,10 +44,10 @@ async def example():
         {"item": "B", "scores": [5, 15]},
     ])
 
-    print(f"\nBefore explode — scores type: {obj.schema.columns['scores'].ch_type()}")
+    print(f"\nBefore explode — scores type: {obj.schema.columns['scores'].ch_type()}")  # → Array(Int64)  # → Array(Int64)
 
     exploded = obj.explode("scores")
-    print(f"After  explode — scores type: {exploded._effective_columns['scores'].ch_type()}")
+    print(f"After  explode — scores type: {exploded._effective_columns['scores'].ch_type()}")  # → Int64  # → Int64
 
     print("\nExploded rows:")
     for row in await exploded.data(orient=ORIENT_RECORDS):

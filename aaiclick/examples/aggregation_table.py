@@ -98,7 +98,7 @@ async def example():
     })
     await agg.insert(view_scores)
     print("  Inserted scores data (3 rows) — vendor/severity auto-filled with NULL")
-    print(f"  Raw table has {await (await agg.count()).data()} rows (before collapse)")
+    print(f"  Raw table has {await (await agg.count()).data()} rows (before collapse)")  # → 6
     print()
 
     # ---------------------------------------------------------------
@@ -117,7 +117,7 @@ async def example():
     })
 
     data = await merged.data()
-    print(f"  Merged table: {len(data['cve_id'])} unique CVEs")
+    print(f"  Merged table: {len(data['cve_id'])} unique CVEs")  # → 4
     print()
 
     # ---------------------------------------------------------------

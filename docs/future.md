@@ -50,3 +50,32 @@ On job completion, replace each ephemeral table with a 10-row sample so `operati
 ## `literal()` Computed Helper
 
 Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wrapper over `Computed` for constant columns. `str` → `'value'`, `bool` → `true`/`false`, `int`/`float` → bare numeric. Export alongside `cast` and `split_by_char`.
+
+---
+
+# Documentation
+
+## Progressive Tutorial
+
+7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
+example files — 6 of 7 pages need zero new code. Pages: Your First Object, Operations,
+Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. Add
+`# --8<-- [start:name]` / `# --8<-- [end:name]` markers to example `.py` files, then
+include specific sections in tutorial `.md` pages via snippet syntax.
+
+## Cross-Page Links
+
+Add "See Also" footers to guide pages linking to related examples and API reference.
+Add header links from example pages back to relevant guide sections. Implement alongside
+the tutorial.
+
+## Comparison Page
+
+`docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask across
+dimensions like compute engine, data location, setup complexity, memory limits, SQL interop,
+and built-in orchestration. Defer until the project has enough real-world usage to make
+meaningful claims.
+
+## Changelog
+
+`docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
