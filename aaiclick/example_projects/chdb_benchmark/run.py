@@ -1,7 +1,8 @@
 """Benchmark runner — generates data, measures chdb vs aaiclick, prints report.
 
-Each library defines a context() (context manager wrapping convert + benchmarks)
-so chdb releases its in-memory engine before aaiclick claims its own.
+Libraries run in strict serial order: all chdb benchmarks first (with its
+context), then all aaiclick benchmarks (with its context). Only one chdb
+engine is active at a time, avoiding compute resource competition.
 
 Usage:
     python -m aaiclick.example_projects.chdb_benchmark
@@ -96,49 +97,6 @@ def fmt_mem(mem_bytes):
     return f"{mem_bytes / (1024 * 1024):.1f}MB"
 
 
-async def bench_chdb(raw_data, num_runs, results):
-    """Run all benchmarks for native chdb."""
-    mod = bench_chdb_native
-    benchmarks = mod.make_benchmarks(FILTER_THRESHOLD)
-
-    with mod.context():
-        # First convert creates the table (DDL + INSERT)
-        dataset = mod.convert(raw_data, FILTER_THRESHOLD)
-
-        # Ingest: measure INSERT only (TRUNCATE + INSERT), DDL already done
-        print(f"  Ingest [{mod.NAME}]...")
-        avg_time, peak_mem = measure_sync(
-            lambda d: mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
-        )
-        results["Ingest"][mod.NAME] = {"time": avg_time, "memory": peak_mem}
-
-        for bench_name, fn in benchmarks.items():
-            print(f"  {bench_name} [{mod.NAME}]...")
-            avg_time, peak_mem = measure_sync(fn, dataset, num_runs)
-            results[bench_name][mod.NAME] = {"time": avg_time, "memory": peak_mem}
-
-
-async def bench_aai(raw_data, num_runs, results):
-    """Run all benchmarks for aaiclick."""
-    mod = bench_aaiclick
-    benchmarks = mod.make_benchmarks(FILTER_THRESHOLD)
-
-    async with mod.context():
-        # Ingest
-        print(f"  Ingest [{mod.NAME}]...")
-        avg_time, peak_mem = await measure_async(
-            lambda d: mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
-        )
-        results["Ingest"][mod.NAME] = {"time": avg_time, "memory": peak_mem}
-
-        dataset = await mod.convert(raw_data, FILTER_THRESHOLD)
-
-        for bench_name, fn in benchmarks.items():
-            print(f"  {bench_name} [{mod.NAME}]...")
-            avg_time, peak_mem = await measure_async(fn, dataset, num_runs)
-            results[bench_name][mod.NAME] = {"time": avg_time, "memory": peak_mem}
-
-
 def print_results(results, lib_names, num_rows, num_runs):
     """Print benchmark results as markdown tables."""
     print(f"\n## Benchmark Results — {num_rows:,} rows, {num_runs} runs\n")
@@ -202,14 +160,51 @@ async def run(num_rows, num_runs):
     print(f"- Libraries: {', '.join(versions)}")
     print(f"- Data: {num_rows:,} rows, {num_runs} runs per operation")
     print(f"- Filter threshold: {FILTER_THRESHOLD}")
-    print(f"- Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}\n")
+    print(f"- Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}")
+    print(f"- Execution: serial (chdb context → aaiclick context, no overlap)\n")
 
     raw_data = generate_raw_data(num_rows)
     results = {name: {} for name in BENCH_NAMES}
 
     print("### Running benchmarks...\n")
-    await bench_chdb(raw_data, num_runs, results)
-    await bench_aai(raw_data, num_runs, results)
+
+    # Phase 1: chdb — open context, run all benchmarks, close context
+    chdb_mod = bench_chdb_native
+    with chdb_mod.context():
+        chdb_dataset = chdb_mod.convert(raw_data, FILTER_THRESHOLD)
+        chdb_benchmarks = chdb_mod.make_benchmarks(FILTER_THRESHOLD)
+
+        print(f"  Ingest [chdb]...")
+        t, m = measure_sync(
+            lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
+        )
+        results["Ingest"]["chdb"] = {"time": t, "memory": m}
+
+        for bench_name in BENCH_NAMES:
+            if bench_name == "Ingest" or bench_name not in chdb_benchmarks:
+                continue
+            print(f"  {bench_name} [chdb]...")
+            t, m = measure_sync(chdb_benchmarks[bench_name], chdb_dataset, num_runs)
+            results[bench_name]["chdb"] = {"time": t, "memory": m}
+
+    # Phase 2: aaiclick — open context, run all benchmarks, close context
+    aai_mod = bench_aaiclick
+    async with aai_mod.context():
+        aai_dataset = await aai_mod.convert(raw_data, FILTER_THRESHOLD)
+        aai_benchmarks = aai_mod.make_benchmarks(FILTER_THRESHOLD)
+
+        print(f"  Ingest [aaiclick]...")
+        t, m = await measure_async(
+            lambda d: aai_mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
+        )
+        results["Ingest"]["aaiclick"] = {"time": t, "memory": m}
+
+        for bench_name in BENCH_NAMES:
+            if bench_name == "Ingest" or bench_name not in aai_benchmarks:
+                continue
+            print(f"  {bench_name} [aaiclick]...")
+            t, m = await measure_async(aai_benchmarks[bench_name], aai_dataset, num_runs)
+            results[bench_name]["aaiclick"] = {"time": t, "memory": m}
 
     print_results(results, lib_names, num_rows, num_runs)
 
