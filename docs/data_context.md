@@ -52,8 +52,9 @@ Objects are managed by a `data_context()` and become **stale** when the context 
 
 !!! warning "Objects become stale when their context exits"
     Using a stale Object raises `RuntimeError`. Create and consume Objects
-    within the same `data_context()` block. Don't store them in module-level
-    variables or pass them between contexts.
+    within the same `data_context()` block. Only persistent objects
+    (created with `name=`) survive across contexts — reopen them
+    with `open_object()`.
 
 ## Table Schema and Structure
 
