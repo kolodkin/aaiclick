@@ -77,7 +77,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Do NOT modify, skip, or weaken unrelated tests to make them pass
   - If unsure whether the test or the implementation is wrong, ask the user
 
-- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file.
+- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/object/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file. When a domain helper is tightly coupled to an operator (e.g., `with_isin` ↔ `isin`), tests go in the operator's test file (`test_isin.py`), not `test_domain_helpers.py`.
 
 
 # Code Quality

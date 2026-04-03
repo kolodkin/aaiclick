@@ -27,6 +27,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.count_if(condition)`                           | Aggregation      | Count rows matching condition(s)              | [Aggregation Operators](#aggregation-operators)                      |
 | `.unique()`                                      | Unique           | Deduplicate values via GROUP BY               | [Unique](#unique)                                                    |
 | `.nunique()`                                     | Unique           | Count distinct values (fused)                 | [Unique](#unique)                                                    |
+| `.isin(other)`                                   | Membership       | IN subquery test (returns UInt8 mask)         | [Membership Operator](#membership-operator-isin)                    |
 | `.match(p)`, `.like(p)`, `.ilike(p)`             | String / Regex   | Pattern matching (returns UInt8 mask)         | [String/Regex Operators](#stringregex-operators)                     |
 | `.extract(p)`, `.replace(p, r)`                  | String / Regex   | Capture group extraction, regex replace       | [String/Regex Operators](#stringregex-operators)                     |
 | `.year()`, `.month()`, `.day_of_week()`          | Unary Transforms | Date/time extraction → new Object             | [Unary Transform Operators](#unary-transform-operators)              |
@@ -42,6 +43,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
 | `.with_year(col)`, `.with_month(col)` …          | Views            | Named shortcuts for common computed columns   | [Domain Helpers](#domain-helpers)                                    |
 | `.with_split_by_char(col, sep)`                  | Views            | Split String column by separator → Array      | [Domain Helpers](#domain-helpers)                                    |
+| `.with_isin(col, other)`                         | Views            | IN subquery computed column → UInt8           | [Domain Helpers](#domain-helpers)                                    |
 | `.rename({old: new})`                            | Views            | Alias column names in a View                  | [Column Renaming](#column-renaming-rename)                           |
 | `.explode(*columns, left=False)`                 | Views            | Flatten Array column(s) into rows → View      | [Explode](#explode)                                                  |
 | `.copy()`                                        | Copy             | Materialize Object / View to new Object       | [copy()](#the-copy-method)                                           |
@@ -145,6 +147,38 @@ Pattern matching on String columns. All methods take a Python `str` pattern and 
 | `.replace(p, r)`    | `replaceRegexpAll(val, p, r)`| String      | Replace all regex matches          |
 
 **Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
+
+## Membership Operator: `isin()`
+
+**Implementation**: `aaiclick/data/object/object.py` — see `Object.isin()`, `aaiclick/data/object/operators.py` — see `isin_op()`
+
+Test if each value is a member of another Object's value set. Returns a UInt8 mask (1 = in set, 0 = not in set). Generates a ClickHouse `IN` subquery — all data stays in the database.
+
+| Method       | ClickHouse Equivalent                          | Result Type |
+|--------------|-------------------------------------------------|-------------|
+| `.isin(other)` | `value IN (SELECT value FROM other_table)`    | UInt8       |
+
+Accepts an `Object` or a Python `list` (auto-converted to Object).
+
+```python
+obj = await create_object_from_value(["a", "b", "c", "d"])
+allowed = await create_object_from_value(["a", "c"])
+mask = await obj.isin(allowed)
+await mask.data()           # [1, 0, 1, 0]
+
+# Also works with a plain Python list
+mask = await obj.isin(["a", "c"])
+
+# Chain with sum() to count matches
+total = await mask.sum()
+await total.data()          # 2
+
+# Works on dict column selection
+obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})
+mask = await obj["category"].isin(allowed)
+```
+
+**Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
 
 ## Unary Transform Operators
 
@@ -427,6 +461,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 | `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
 | `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
 | `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
+| `with_isin(col, other)`                   | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 

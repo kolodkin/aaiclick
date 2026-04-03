@@ -1339,6 +1339,33 @@ class Object:
         info = self._get_query_info()
         return await operators.ilike_op(info, pattern, self.ch_client)
 
+    async def isin(self, other: Union["Object", List]) -> Self:
+        """
+        Test if values are in another Object's value set.
+
+        Generates an IN subquery: ``value IN (SELECT value FROM other_table)``.
+        Accepts an Object or a Python list (converted to Object automatically).
+
+        Args:
+            other: Object whose values define the allowed set, or a Python list.
+
+        Returns:
+            Self: New Object with UInt8 values (1 if in set, 0 otherwise)
+
+        Examples:
+            >>> obj = await create_object_from_value(["a", "b", "c", "d"])
+            >>> allowed = await create_object_from_value(["a", "c"])
+            >>> result = await obj.isin(allowed)
+            >>> await result.data()  # [1, 0, 1, 0]
+        """
+        self.checkstale()
+        if isinstance(other, list):
+            other = await create_object_from_value(other)
+        other.checkstale()
+        info = self._get_query_info()
+        other_info = other._get_query_info()
+        return await operators.isin_op(info, other_info, self.ch_client)
+
     async def extract(self, pattern: str) -> Self:
         """
         Extract the first regex capture group match from string values.
@@ -1496,6 +1523,23 @@ class Object:
                     f"Computed column '{name}' collides with existing column"
                 )
             self._validate_expression(computed.expression)
+        return View(self, computed_columns=columns)
+
+    def _with_columns_trusted(self, columns: Dict[str, Computed]) -> "View":
+        """Add computed columns without expression validation.
+
+        For internal use only — expressions are built programmatically
+        from trusted sources (e.g., table names) and may contain subqueries.
+        """
+        self.checkstale()
+        if self._schema.fieldtype == FIELDTYPE_SCALAR:
+            raise ValueError("with_columns() cannot be used on scalar Objects")
+        existing = set(self._schema.columns.keys())
+        for name in columns:
+            if name in existing:
+                raise ValueError(
+                    f"Computed column '{name}' collides with existing column"
+                )
         return View(self, computed_columns=columns)
 
     def rename(self, columns: Dict[str, str]) -> "View":
@@ -1742,6 +1786,29 @@ class Object:
         from .transforms import cast
         name = alias or f"{column}_{to_type.lower()}"
         return self.with_columns({name: cast(column, to_type, nullable=nullable)})
+
+    def with_isin(
+        self,
+        column: str,
+        other: "Object",
+        *,
+        alias: Optional[str] = None,
+    ) -> "View":
+        """Computed boolean column: 1 if column value is in other Object's values.
+
+        Uses an IN subquery: ``column IN (SELECT value FROM other_table)``.
+
+        Args:
+            column: Source column name to test membership for.
+            other: Object whose values define the allowed set.
+            alias: Result column name (default: '{column}_isin').
+        """
+        other.checkstale()
+        name = alias or f"{column}_isin"
+        other_info = other._get_query_info()
+        subquery = f"SELECT value FROM {other_info.source}"
+        expr = f"{quote_identifier(column)} IN ({subquery})"
+        return self._with_columns_trusted({name: Computed("UInt8", expr)})
 
     def view(
         self,
@@ -2404,6 +2471,22 @@ class View(Object):
                 )
             self._validate_expression(computed.expression)
 
+        merged = dict(self.computed_columns) if self.computed_columns else {}
+        merged.update(columns)
+        return View(self, computed_columns=merged)
+
+    def _with_columns_trusted(self, columns: Dict[str, Computed]) -> "View":
+        """Add computed columns without expression validation (View override).
+
+        For internal use only — see Object._with_columns_trusted.
+        """
+        self.checkstale()
+        existing = set(self._effective_columns.keys())
+        for name in columns:
+            if name in existing:
+                raise ValueError(
+                    f"Computed column '{name}' collides with existing column"
+                )
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
         return View(self, computed_columns=merged)

@@ -1020,6 +1020,32 @@ async def replace_op(info: QueryInfo, pattern: str, replacement: str, ch_client)
     return await _apply_string_op_db(info, "replace", pattern, ch_client, replacement=replacement)
 
 
+# IN (isin) Operations
+# Docs: https://clickhouse.com/docs/sql-reference/operators#in
+
+
+async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
+    """Test if values are in another Object's value set. Returns UInt8 (1 if in, 0 otherwise).
+
+    Generates: value IN (SELECT value FROM other_table)
+    """
+    fieldtype = info.fieldtype
+    schema = Schema(
+        fieldtype=fieldtype,
+        col_fieldtype=fieldtype,
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+    )
+    result = await create_object(schema)
+    subquery = f"SELECT value FROM {other_info.source}"
+    await ch_client.command(f"""
+        INSERT INTO {result.table}
+        SELECT a.aai_id, toUInt8(a.value IN ({subquery})) AS value
+        FROM {info.source} AS a
+    """)
+    oplog_record(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
+    return result
+
+
 # Unary Transform Operations
 # Apply a ClickHouse function to the value column, returning a new Object.
 # Docs:
