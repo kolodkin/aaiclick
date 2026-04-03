@@ -1,9 +1,9 @@
-"""Native chdb benchmark — hand-written SQL, in-memory, materialized results.
+"""Native chdb benchmark — hand-written SQL, Memory engine, materialized results.
 
 Data is loaded from Python dict via PyArrow zero-copy table function.
-All queries materialize results into tables (matching aaiclick's behavior)
-so the comparison is apples-to-apples. chdb-specific optimizations:
-LowCardinality, ORDER BY keys, optimize_aggregation_in_order.
+Uses Memory engine (matching aaiclick) and unique table names (no DROP
+overhead). This is the baseline — aaiclick wraps chdb, so it should
+always be equal or slower than this.
 """
 
 from contextlib import contextmanager
@@ -22,7 +22,7 @@ _counter = 0
 def _next_table():
     global _counter
     _counter += 1
-    return f"bench.result_{_counter}"
+    return f"bench.r_{_counter}"
 
 
 @contextmanager
@@ -30,6 +30,7 @@ def context():
     global _session, _counter
     _session = Session()
     _counter = 0
+    _session.query("CREATE DATABASE IF NOT EXISTS bench ENGINE = Atomic")
     try:
         yield
     finally:
@@ -39,16 +40,15 @@ def context():
 
 
 def convert(data, filter_threshold):
-    _session.query("CREATE DATABASE IF NOT EXISTS bench ENGINE = Atomic")
     _session.query("DROP TABLE IF EXISTS bench.data")
     _session.query("""
         CREATE TABLE bench.data (
             id Int64,
-            category LowCardinality(String),
-            subcategory LowCardinality(String),
+            category String,
+            subcategory String,
             amount Float64,
             quantity Int64
-        ) ENGINE = MergeTree() ORDER BY (category, subcategory)
+        ) ENGINE = Memory
     """)
     arrow_table = pa.table(data)  # noqa: F841 — referenced by SQL below
     _session.query("INSERT INTO bench.data SELECT * FROM Python(arrow_table)")
@@ -56,17 +56,36 @@ def convert(data, filter_threshold):
 
 
 def ingest_only(data, filter_threshold):
-    """Insert-only benchmark: DDL is pre-created, only measure INSERT."""
+    """Insert-only benchmark: create new Memory table each run (no TRUNCATE)."""
+    tbl = _next_table()
+    _session.query(f"""
+        CREATE TABLE {tbl} (
+            id Int64,
+            category String,
+            subcategory String,
+            amount Float64,
+            quantity Int64
+        ) ENGINE = Memory
+    """)
     arrow_table = pa.table(data)  # noqa: F841 — referenced by SQL below
-    _session.query("TRUNCATE TABLE bench.data")
-    _session.query("INSERT INTO bench.data SELECT * FROM Python(arrow_table)")
+    _session.query(f"INSERT INTO {tbl} SELECT * FROM Python(arrow_table)")
+
+
+_result_tables = []
 
 
 def _insert_into(query):
-    """Wrap a SELECT query in CREATE TABLE + INSERT INTO (materialize results)."""
+    """Materialize a SELECT query into a new Memory table (no DROP overhead)."""
     tbl = _next_table()
-    _session.query(f"DROP TABLE IF EXISTS {tbl}")
     _session.query(f"CREATE TABLE {tbl} ENGINE = Memory AS {query}")
+    _result_tables.append(tbl)
+
+
+def cleanup_results():
+    """Drop all accumulated result tables to release memory between benchmarks."""
+    for tbl in _result_tables:
+        _session.query(f"DROP TABLE IF EXISTS {tbl}")
+    _result_tables.clear()
 
 
 def make_benchmarks(filter_threshold):
@@ -87,25 +106,20 @@ def make_benchmarks(filter_threshold):
             "SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)"
         ),
         "Group-by sum": lambda s: _insert_into(
-            "SELECT category, sum(amount) FROM bench.data"
-            " GROUP BY category SETTINGS optimize_aggregation_in_order=1"
+            "SELECT category, sum(amount) FROM bench.data GROUP BY category"
         ),
         "Group-by count": lambda s: _insert_into(
-            "SELECT category, count() FROM bench.data"
-            " GROUP BY category SETTINGS optimize_aggregation_in_order=1"
+            "SELECT category, count() FROM bench.data GROUP BY category"
         ),
         "Group-by multi-agg": lambda s: _insert_into(
             "SELECT category, sum(amount), avg(amount), min(amount), max(amount)"
             " FROM bench.data GROUP BY category"
-            " SETTINGS optimize_aggregation_in_order=1"
         ),
         "Multi-key group-by": lambda s: _insert_into(
             "SELECT category, subcategory, sum(amount) FROM bench.data"
             " GROUP BY category, subcategory"
-            " SETTINGS optimize_aggregation_in_order=1"
         ),
         "High-card group-by": lambda s: _insert_into(
-            "SELECT subcategory, sum(amount) FROM bench.data"
-            " GROUP BY subcategory SETTINGS optimize_aggregation_in_order=1"
+            "SELECT subcategory, sum(amount) FROM bench.data GROUP BY subcategory"
         ),
     }

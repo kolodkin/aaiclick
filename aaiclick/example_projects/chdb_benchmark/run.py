@@ -108,6 +108,7 @@ async def run(num_rows, num_runs):
             lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
         )
         results["Ingest"]["chdb"] = {"time": t, "memory": m}
+        chdb_mod.cleanup_results()
 
         for bench_name in BENCH_NAMES:
             if bench_name == "Ingest" or bench_name not in chdb_benchmarks:
@@ -115,6 +116,7 @@ async def run(num_rows, num_runs):
             console.print(f"  {bench_name} [{chdb_mod.NAME}]...")
             t, m = measure_sync(chdb_benchmarks[bench_name], chdb_dataset, num_runs)
             results[bench_name]["chdb"] = {"time": t, "memory": m}
+            chdb_mod.cleanup_results()
 
     # Phase 2: aaiclick — open context, run all benchmarks, close context
     aai_mod = bench_aaiclick
