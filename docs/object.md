@@ -150,7 +150,7 @@ Pattern matching on String columns. All methods take a Python `str` pattern and 
 
 ## Membership Operator: `isin()`
 
-**Implementation**: `aaiclick/data/object.py` — see `Object.isin()`, `aaiclick/data/operators.py` — see `isin_op()`
+**Implementation**: `aaiclick/data/object/object.py` — see `Object.isin()`, `aaiclick/data/object/operators.py` — see `isin_op()`
 
 Test if each value is a member of another Object's value set. Returns a UInt8 mask (1 = in set, 0 = not in set). Generates a ClickHouse `IN` subquery — all data stays in the database.
 
@@ -440,7 +440,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 | `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
 | `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
 | `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
-| `with_isin(col, other)`                  | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
+| `with_isin(col, other)`                   | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 

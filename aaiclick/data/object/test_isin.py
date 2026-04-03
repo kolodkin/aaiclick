@@ -4,8 +4,6 @@ Tests for isin() operator and with_isin() domain helper.
 Tests membership testing via IN subquery on scalar, array, and dict Objects.
 """
 
-import pytest
-
 from aaiclick import create_object_from_value, ORIENT_RECORDS
 
 

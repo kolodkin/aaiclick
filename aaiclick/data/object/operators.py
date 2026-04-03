@@ -1042,6 +1042,7 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
         SELECT a.aai_id, toUInt8(a.value IN ({subquery})) AS value
         FROM {info.source} AS a
     """)
+    oplog_record(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
     return result
 
 
