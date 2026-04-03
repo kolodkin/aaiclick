@@ -393,6 +393,8 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
 
 ## Documentation Guidelines
 
+**Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
+
 **Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
 
 ```markdown
