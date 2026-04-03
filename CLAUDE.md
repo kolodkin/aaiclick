@@ -322,31 +322,6 @@ See [docs/object.md](docs/object.md) for full operator reference, usage patterns
 
 This pattern ensures all data stays within ClickHouse - Python only orchestrates the SQL operations.
 
-# Distributed Computing & Order Preservation
-
-aaiclick is a **distributed computing framework** where order is preserved via **Snowflake IDs**:
-
-- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
-- **Globally unique**: Every row gets a unique `aai_id` — no duplicates across tables
-- **Insert/Concat behavior**: Generate fresh Snowflake IDs for inserted rows
-  - Order follows **argument order**: self first, then args left-to-right
-  - Fresh IDs guarantee uniqueness — no duplicate `aai_id` values
-  - `DEFAULT generateSnowflakeID()` produces monotonically increasing IDs within each INSERT
-  - `data()` retrieves rows via `ORDER BY aai_id`
-
-**Important**: Order after concat/insert follows **argument order**, not creation order!
-
-**Example showing argument order**:
-```python
-obj_a = await create_object_from_value([1, 2, 3])
-obj_b = await create_object_from_value([4, 5, 6])
-
-result = await obj_a.concat(obj_b)  # Result: [1, 2, 3, 4, 5, 6]
-result = await obj_b.concat(obj_a)  # Result: [4, 5, 6, 1, 2, 3]
-```
-
-Argument order determines result order. The `copy()`, `insert()`, and `concat()` operations all generate fresh Snowflake IDs.
-
 # Future Plans
 
 `docs/future.md` is the single source of truth for unimplemented features. Move planned work there instead of marking it `⚠️ NOT YET IMPLEMENTED` inline. Spec docs may briefly reference it. Remove items when implemented.
