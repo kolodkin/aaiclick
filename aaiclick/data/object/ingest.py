@@ -253,11 +253,11 @@ async def _insert_source(
         f"CAST({col} AS {target_types[col].ch_type()}) AS {col}"
         for col in col_names
     )
-    insert_cols = ", ".join(["aai_id"] + col_names)
+    insert_cols = ", ".join(col_names)
     if info.source.startswith('('):
-        select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{alias_index}"
+        select = f"SELECT {cast_exprs} FROM {info.source} AS s{alias_index}"
     else:
-        select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
+        select = f"SELECT {cast_exprs} FROM {info.source}"
 
     await ch_client.command(f"""
     INSERT INTO {target_table} ({insert_cols})
@@ -272,8 +272,8 @@ async def concat_objects_db(
     """
     Concatenate multiple sources into a new Object, one INSERT per source.
 
-    Preserves existing Snowflake IDs from all sources.
-    Order is maintained via existing Snowflake IDs when data is retrieved.
+    Generates fresh Snowflake IDs for all rows (excludes source aai_id).
+    Order follows argument order: each INSERT gets monotonically increasing IDs.
 
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
@@ -346,7 +346,7 @@ async def insert_objects_db(
     """
     Insert data from multiple sources into target, one INSERT per source.
 
-    Preserves existing Snowflake IDs. Sources may have a subset of target
+    Generates fresh Snowflake IDs for all rows. Sources may have a subset of target
     columns — missing columns get their ClickHouse default values. Sources
     may also include computed columns from Views (via with_columns).
 

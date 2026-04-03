@@ -31,6 +31,13 @@ Both `debug_agent` and `lineage_agent` build context from the oplog graph but ne
 1. **Schema injection** — fetch `DESCRIBE TABLE` for every node before the agentic loop and include in the initial context message.
 2. **`get_column_stats` tool** — replace `get_stats(table, column)` with a schema-first tool that returns stats for all columns without requiring the LLM to know column names upfront.
 
+## Lineage: aai_id Uniqueness Awareness
+
+Now that `insert()` and `concat()` generate fresh Snowflake IDs (instead of preserving source IDs),
+the lineage agent should account for the fact that `aai_id` values differ between source and target
+tables after insert/concat. Row-level tracing across insert/concat boundaries cannot rely on `aai_id`
+matching — the agent needs to use data-value matching or oplog provenance metadata instead.
+
 ---
 
 # Oplog
@@ -46,6 +53,16 @@ On job completion, replace each ephemeral table with a 10-row sample so `operati
 ---
 
 # Data / Object API
+
+## Insert Advisory Lock for Concurrent Workers
+
+In orchestration mode, multiple workers may insert into the same persistent Object concurrently.
+After the `_insert_source()` fix (generating fresh Snowflake IDs instead of preserving source
+IDs), concurrent INSERTs within the same millisecond could produce interleaved IDs, mixing
+rows from different logical inserts.
+
+Use PostgreSQL advisory locks (`SELECT pg_advisory_lock(table_hash)`) to serialize inserts
+per-table in distributed mode. SQLite mode is single-process and needs no lock.
 
 ## `literal()` Computed Helper
 
