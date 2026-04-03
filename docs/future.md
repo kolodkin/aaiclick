@@ -47,6 +47,16 @@ On job completion, replace each ephemeral table with a 10-row sample so `operati
 
 # Data / Object API
 
+## Insert Advisory Lock for Concurrent Workers
+
+In orchestration mode, multiple workers may insert into the same persistent Object concurrently.
+After the `_insert_source()` fix (generating fresh Snowflake IDs instead of preserving source
+IDs), concurrent INSERTs within the same millisecond could produce interleaved IDs, mixing
+rows from different logical inserts.
+
+Use PostgreSQL advisory locks (`SELECT pg_advisory_lock(table_hash)`) to serialize inserts
+per-table in distributed mode. SQLite mode is single-process and needs no lock.
+
 ## `literal()` Computed Helper
 
 Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wrapper over `Computed` for constant columns. `str` → `'value'`, `bool` → `true`/`false`, `int`/`float` → bare numeric. Export alongside `cast` and `split_by_char`.
