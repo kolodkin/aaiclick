@@ -25,8 +25,7 @@ BENCH_NAMES = [
     "Column sum",
     "Column multiply",
     "Filter rows",
-    # Sort excluded: aaiclick view.copy() does not preserve ORDER BY in the
-    # result table (Memory engine reads by aai_id), so the comparison is invalid.
+    "Sort",
     "Count distinct",
     "Group-by sum",
     "Group-by count",

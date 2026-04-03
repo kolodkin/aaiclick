@@ -1,9 +1,9 @@
 """Native chdb benchmark — hand-written SQL, Memory engine, materialized results.
 
 Data is loaded from Python dict via PyArrow zero-copy table function.
-Uses Memory engine (matching aaiclick) and unique table names (no DROP
-overhead). This is the baseline — aaiclick wraps chdb, so it should
-always be equal or slower than this.
+Uses Memory engine (matching aaiclick) and CREATE TABLE + INSERT INTO
+(matching aaiclick's two-step pattern). This is the baseline — aaiclick
+wraps chdb, so it should always be equal or slower than this.
 """
 
 from contextlib import contextmanager
@@ -56,7 +56,7 @@ def convert(data, filter_threshold):
 
 
 def ingest_only(data, filter_threshold):
-    """Insert-only benchmark: create new Memory table each run (no TRUNCATE)."""
+    """Insert-only benchmark: create new Memory table each run."""
     tbl = _next_table()
     _session.query(f"""
         CREATE TABLE {tbl} (
@@ -69,15 +69,17 @@ def ingest_only(data, filter_threshold):
     """)
     arrow_table = pa.table(data)  # noqa: F841 — referenced by SQL below
     _session.query(f"INSERT INTO {tbl} SELECT * FROM Python(arrow_table)")
+    _result_tables.append(tbl)
 
 
 _result_tables = []
 
 
-def _insert_into(query):
-    """Materialize a SELECT query into a new Memory table (no DROP overhead)."""
+def _create_and_insert(create_ddl, insert_query):
+    """Two-step materialize: CREATE TABLE then INSERT INTO (matching aaiclick)."""
     tbl = _next_table()
-    _session.query(f"CREATE TABLE {tbl} ENGINE = Memory AS {query}")
+    _session.query(create_ddl.format(tbl=tbl))
+    _session.query(f"INSERT INTO {tbl} {insert_query}")
     _result_tables.append(tbl)
 
 
@@ -90,33 +92,55 @@ def cleanup_results():
 
 def make_benchmarks(filter_threshold):
     return {
-        "Column sum": lambda s: _insert_into(
-            "SELECT sum(amount) FROM bench.data"
+        "Column sum": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (value Float64) ENGINE = Memory",
+            "SELECT sum(amount) FROM bench.data",
         ),
-        "Column multiply": lambda s: _insert_into(
-            "SELECT amount * quantity AS value FROM bench.data"
+        "Column multiply": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (value Float64) ENGINE = Memory",
+            "SELECT amount * quantity AS value FROM bench.data",
         ),
-        "Filter rows": lambda s: _insert_into(
-            f"SELECT * FROM bench.data WHERE amount > {filter_threshold}"
+        "Filter rows": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (id Int64, category String, subcategory String,"
+            " amount Float64, quantity Int64) ENGINE = Memory",
+            "SELECT * FROM bench.data WHERE amount > {threshold}".format(
+                threshold=filter_threshold
+            ),
         ),
-        "Count distinct": lambda s: _insert_into(
-            "SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)"
+        "Sort": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (id Int64, category String, subcategory String,"
+            " amount Float64, quantity Int64) ENGINE = Memory",
+            "SELECT * FROM bench.data ORDER BY amount DESC",
         ),
-        "Group-by sum": lambda s: _insert_into(
-            "SELECT category, sum(amount) FROM bench.data GROUP BY category"
+        "Count distinct": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (value UInt64) ENGINE = Memory",
+            "SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)",
         ),
-        "Group-by count": lambda s: _insert_into(
-            "SELECT category, count() FROM bench.data GROUP BY category"
+        "Group-by sum": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (category String, amount Float64) ENGINE = Memory",
+            "SELECT category, sum(amount) FROM bench.data GROUP BY category",
         ),
-        "Group-by multi-agg": lambda s: _insert_into(
+        "Group-by count": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (category String, _count UInt64) ENGINE = Memory",
+            "SELECT category, count() FROM bench.data GROUP BY category",
+        ),
+        "Group-by multi-agg": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (category String, amount_sum Float64,"
+            " amount_mean Float64, amount_min Float64, amount_max Float64)"
+            " ENGINE = Memory",
             "SELECT category, sum(amount), avg(amount), min(amount), max(amount)"
-            " FROM bench.data GROUP BY category"
+            " FROM bench.data GROUP BY category",
         ),
-        "Multi-key group-by": lambda s: _insert_into(
+        "Multi-key group-by": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (category String, subcategory String,"
+            " amount Float64) ENGINE = Memory",
             "SELECT category, subcategory, sum(amount) FROM bench.data"
-            " GROUP BY category, subcategory"
+            " GROUP BY category, subcategory",
         ),
-        "High-card group-by": lambda s: _insert_into(
-            "SELECT subcategory, sum(amount) FROM bench.data GROUP BY subcategory"
+        "High-card group-by": lambda s: _create_and_insert(
+            "CREATE TABLE {tbl} (subcategory String, amount Float64)"
+            " ENGINE = Memory",
+            "SELECT subcategory, sum(amount) FROM bench.data"
+            " GROUP BY subcategory",
         ),
     }

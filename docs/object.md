@@ -26,6 +26,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.std()`, `.var()`, `.count()`, `.quantile(q)`   | Aggregation      | Statistical reduction                         | [Aggregation Operators](#aggregation-operators)                      |
 | `.count_if(condition)`                           | Aggregation      | Count rows matching condition(s)              | [Aggregation Operators](#aggregation-operators)                      |
 | `.unique()`                                      | Unique           | Deduplicate values via GROUP BY               | [Unique](#unique)                                                    |
+| `.nunique()`                                     | Unique           | Count distinct values (fused)                 | [Unique](#unique)                                                    |
 | `.match(p)`, `.like(p)`, `.ilike(p)`             | String / Regex   | Pattern matching (returns UInt8 mask)         | [String/Regex Operators](#stringregex-operators)                     |
 | `.extract(p)`, `.replace(p, r)`                  | String / Regex   | Capture group extraction, regex replace       | [String/Regex Operators](#stringregex-operators)                     |
 | `.year()`, `.month()`, `.day_of_week()`          | Unary Transforms | Date/time extraction → new Object             | [Unary Transform Operators](#unary-transform-operators)              |
@@ -124,9 +125,10 @@ Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1
 
 ## Unique
 
-| Method      | ClickHouse Implementation | Notes                          |
-|-------------|---------------------------|--------------------------------|
-| `.unique()` | `GROUP BY`                | Order not guaranteed           |
+| Method       | ClickHouse Implementation                         | Notes                          |
+|--------------|---------------------------------------------------|--------------------------------|
+| `.unique()`  | `GROUP BY`                                        | Order not guaranteed           |
+| `.nunique()` | `SELECT count() FROM (... GROUP BY value)`        | Fused count distinct           |
 
 ## String/Regex Operators
 
@@ -441,7 +443,9 @@ await consolidated.insert(kev_view)
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.copy()`
 
-Creates a new Object with a full copy of the data. Works on both Objects and Views — column selection, WHERE filters, and computed columns are materialized into the new table.
+Creates a new Object with a full copy of the data. Works on both Objects and Views — column selection, WHERE filters, computed columns, and ORDER BY are preserved in the copy.
+
+When copying a sorted View, the result is a View of the new table with the same `order_by` constraint. This ensures `data()` returns rows in the expected sort order. The underlying table retains original `aai_id` values (creation-time ordering), while the View applies the sort on read.
 
 ```python
 # Copy an array Object
@@ -450,6 +454,10 @@ obj_copy = await obj.copy()
 # Materialize a View into a new Object
 arr = await obj["x"].copy()         # array Object from dict column
 subset = await obj.where("x > 5").copy()  # filtered copy
+
+# Sorted copy — ORDER BY is preserved
+sorted_copy = await obj.view(order_by="amount DESC").copy()
+await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
 
 **Tests**: `aaiclick/data/test_copy_parametrized.py`

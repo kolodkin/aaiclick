@@ -701,6 +701,13 @@ class Object:
         else:
             result = await ingest.copy_db(copy_info, self.ch_client)
         oplog_record(result.table, "copy", kwargs={"source": source_table})
+
+        # Preserve ORDER BY: the copied table retains original aai_ids, so
+        # data() reads in creation order by default.  Wrap the result in a
+        # View with the same order_by so the sort is applied on read.
+        if self.order_by:
+            result = View(result, order_by=self.order_by)
+
         return result
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
