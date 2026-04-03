@@ -23,19 +23,19 @@ async def example():
     print("-" * 50)
 
     obj_int = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    print(f"Original data: {await obj_int.data()}\n")
+    print(f"Original data: {await obj_int.data()}\n")  # → [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     # Filter values greater than 5
     view_where = obj_int.view(where="value > 5")
-    print(f"WHERE value > 5: {await view_where.data()}")
+    print(f"WHERE value > 5: {await view_where.data()}")  # → [6, 7, 8, 9, 10]
 
     # Filter values between 3 and 7
     view_where_range = obj_int.view(where="value >= 3 AND value <= 7")
-    print(f"WHERE value >= 3 AND value <= 7: {await view_where_range.data()}")
+    print(f"WHERE value >= 3 AND value <= 7: {await view_where_range.data()}")  # → [3, 4, 5, 6, 7]
 
     # Filter even values
     view_where_even = obj_int.view(where="value % 2 = 0")
-    print(f"WHERE value % 2 = 0 (even): {await view_where_even.data()}")
+    print(f"WHERE value % 2 = 0 (even): {await view_where_even.data()}")  # → [2, 4, 6, 8, 10]
 
     # Example 2: LIMIT and OFFSET with int scalar array
     print("\n" + "=" * 50)
@@ -43,19 +43,19 @@ async def example():
     print("-" * 50)
 
     obj_nums = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80])
-    print(f"Original data: {await obj_nums.data()}\n")
+    print(f"Original data: {await obj_nums.data()}\n")  # → [10, 20, 30, 40, 50, 60, 70, 80]
 
     # Get first 3 elements
     view_limit = obj_nums.view(limit=3)
-    print(f"LIMIT 3: {await view_limit.data()}")
+    print(f"LIMIT 3: {await view_limit.data()}")  # → [10, 20, 30]
 
     # Skip first 2, get next 3
     view_offset_limit = obj_nums.view(offset=2, limit=3)
-    print(f"OFFSET 2 LIMIT 3: {await view_offset_limit.data()}")
+    print(f"OFFSET 2 LIMIT 3: {await view_offset_limit.data()}")  # → [30, 40, 50]
 
     # Skip first 5
     view_offset = obj_nums.view(offset=5)
-    print(f"OFFSET 5: {await view_offset.data()}")
+    print(f"OFFSET 5: {await view_offset.data()}")  # → [60, 70, 80]
 
     # Example 3: ORDER BY with int scalar array
     print("\n" + "=" * 50)
@@ -63,15 +63,15 @@ async def example():
     print("-" * 50)
 
     obj_unsorted = await create_object_from_value([50, 20, 80, 10, 40, 60, 30, 70])
-    print(f"Original data: {await obj_unsorted.data()}\n")
+    print(f"Original data: {await obj_unsorted.data()}\n")  # → [50, 20, 80, 10, 40, 60, 30, 70]
 
     # Sort ascending
     view_asc = obj_unsorted.view(order_by="value ASC")
-    print(f"ORDER BY value ASC: {await view_asc.data()}")
+    print(f"ORDER BY value ASC: {await view_asc.data()}")  # → [10, 20, 30, 40, 50, 60, 70, 80]
 
     # Sort descending
     view_desc = obj_unsorted.view(order_by="value DESC")
-    print(f"ORDER BY value DESC: {await view_desc.data()}")
+    print(f"ORDER BY value DESC: {await view_desc.data()}")  # → [80, 70, 60, 50, 40, 30, 20, 10]
 
     # Example 4: Mixed constraints with int scalar array
     print("\n" + "=" * 50)
@@ -79,19 +79,19 @@ async def example():
     print("-" * 50)
 
     obj_mixed = await create_object_from_value([15, 8, 42, 23, 4, 16, 35, 12, 28, 50])
-    print(f"Original data: {await obj_mixed.data()}\n")
+    print(f"Original data: {await obj_mixed.data()}\n")  # → [15, 8, 42, 23, 4, 16, 35, 12, 28, 50]
 
     # WHERE + LIMIT
     view_where_limit = obj_mixed.view(where="value > 10", limit=4)
-    print(f"WHERE value > 10 LIMIT 4: {await view_where_limit.data()}")
+    print(f"WHERE value > 10 LIMIT 4: {await view_where_limit.data()}")  # → [15, 42, 23, 16]
 
     # WHERE + ORDER BY + LIMIT
     view_complex = obj_mixed.view(where="value >= 15", order_by="value DESC", limit=3)
-    print(f"WHERE value >= 15 ORDER BY value DESC LIMIT 3: {await view_complex.data()}")
+    print(f"WHERE value >= 15 ORDER BY value DESC LIMIT 3: {await view_complex.data()}")  # → [50, 42, 35]
 
     # WHERE + ORDER BY + OFFSET + LIMIT (pagination)
     view_paginate = obj_mixed.view(where="value > 10", order_by="value ASC", offset=2, limit=3)
-    print(f"WHERE value > 10 ORDER BY value ASC OFFSET 2 LIMIT 3: {await view_paginate.data()}")
+    print(f"WHERE value > 10 ORDER BY value ASC OFFSET 2 LIMIT 3: {await view_paginate.data()}")  # → [16, 23, 28]
 
     # Example 5: WHERE clause with dict of scalars
     print("\n" + "=" * 50)
@@ -105,11 +105,11 @@ async def example():
 
     # Filter by age
     view_dict_where = obj_dict_scalar.view(where="age >= 25")
-    print(f"WHERE age >= 25: {await view_dict_where.data()}")
+    print(f"WHERE age >= 25: {await view_dict_where.data()}")  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Filter by score
     view_dict_score = obj_dict_scalar.view(where="score > 90.0")
-    print(f"WHERE score > 90.0: {await view_dict_score.data()}")
+    print(f"WHERE score > 90.0: {await view_dict_score.data()}")  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Example 6: WHERE clause with dict of arrays
     print("\n" + "=" * 50)
@@ -281,17 +281,17 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    print(f"Original data: {await obj.data()}\n")
+    print(f"Original data: {await obj.data()}\n")  # → [1, 2, 3, 4, 5]
 
     view = obj.view(where="value > 2")
-    print(f"View data (value > 2): {await view.data()}")
+    print(f"View data (value > 2): {await view.data()}")  # → [3, 4, 5]
     print(f"Attempting to insert into view...")
 
     try:
         await view.insert(6)
         print("ERROR: Insert should have failed!")
     except RuntimeError as e:
-        print(f"Expected error: {e}")
+        print(f"Expected error: {e}")  # → Cannot insert into a view
 
     # Example 11: Views work with operators
     print("\n" + "=" * 50)
@@ -308,16 +308,16 @@ async def example():
     view_a = obj_a.view(where="value > 5", limit=3)
     view_b = obj_b.view(where="value <= 50", limit=3)
 
-    print(f"View A (value > 5, limit 3): {await view_a.data()}")
-    print(f"View B (value <= 50, limit 3): {await view_b.data()}\n")
+    print(f"View A (value > 5, limit 3): {await view_a.data()}")  # → [6, 7, 8]
+    print(f"View B (value <= 50, limit 3): {await view_b.data()}\n")  # → [10, 20, 30]
 
     # Add views
     result_add = await (view_a + view_b)
-    print(f"View A + View B: {await result_add.data()}")
+    print(f"View A + View B: {await result_add.data()}")  # → [16, 27, 38]
 
     # Multiply views
     result_mul = await (view_a * view_b)
-    print(f"View A * View B: {await result_mul.data()}")
+    print(f"View A * View B: {await result_mul.data()}")  # → [60, 140, 240]
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)

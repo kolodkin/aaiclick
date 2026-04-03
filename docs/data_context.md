@@ -39,13 +39,21 @@ chdb inserts use pyarrow's `Python()` table function. ClickHouse type strings ar
 
 See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
 
+??? info "Which deployment mode?"
+    Start with the default (chdb + SQLite) — it needs zero setup.
+    Switch to distributed (remote ClickHouse + PostgreSQL) when data
+    exceeds local disk or you need multiple workers.
+
 ## Object Lifecycle and Staleness
 
 Objects are managed by a `data_context()` and become **stale** when the context exits. All async methods call `self.checkstale()` — using a stale Object raises `RuntimeError`.
 
 **Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-Create and use Objects within the same `data_context()`. Don't store Objects for use after context exit or pass them between contexts.
+!!! warning "Objects become stale when their context exits"
+    Using a stale Object raises `RuntimeError`. Create and consume Objects
+    within the same `data_context()` block. Don't store them in module-level
+    variables or pass them between contexts.
 
 ## Table Schema and Structure
 

@@ -28,13 +28,13 @@ async def example():
     print(f"Dates: {dates}")
 
     years = await obj.year()
-    print(f"year():        {await years.data()}")
+    print(f"year():        {await years.data()}")  # → [2023, 2024, 2025]
 
     months = await obj.month()
-    print(f"month():       {await months.data()}")
+    print(f"month():       {await months.data()}")  # → [3, 7, 12]
 
     dows = await obj.day_of_week()
-    print(f"day_of_week(): {await dows.data()}")
+    print(f"day_of_week(): {await dows.data()}")  # → [3, 4, 4]
 
     # Example 2: String transforms
     print("\n" + "=" * 50)
@@ -45,10 +45,10 @@ async def example():
     obj = await create_object_from_value(strings)
     print(f"Strings: {strings}")
 
-    print(f"lower():  {await (await obj.lower()).data()}")
-    print(f"upper():  {await (await obj.upper()).data()}")
-    print(f"trim():   {await (await obj.trim()).data()}")
-    print(f"length(): {await (await obj.length()).data()}")
+    print(f"lower():  {await (await obj.lower()).data()}")  # → ['  hello world  ', ' foo ', '  bar  ']
+    print(f"upper():  {await (await obj.upper()).data()}")  # → ['  HELLO WORLD  ', ' FOO ', '  BAR  ']
+    print(f"trim():   {await (await obj.trim()).data()}")  # → ['Hello World', 'FOO', 'bar']
+    print(f"length(): {await (await obj.length()).data()}")  # → [15, 5, 7]
 
     # Example 3: Math transforms
     print("\n" + "=" * 50)
@@ -59,12 +59,12 @@ async def example():
     obj = await create_object_from_value(numbers)
     print(f"Numbers: {numbers}")
 
-    print(f"abs():  {await (await obj.abs()).data()}")
+    print(f"abs():  {await (await obj.abs()).data()}")  # → [9.0, 4.0, 0.0, 4.0, 16.0]
 
     positives = await create_object_from_value([1, 2, 4, 8, 16])
     print(f"\nPositives: {await positives.data()}")
-    print(f"log2(): {await (await positives.log2()).data()}")
-    print(f"sqrt(): {await (await positives.sqrt()).data()}")
+    print(f"log2(): {await (await positives.log2()).data()}")  # → [0.0, 1.0, 2.0, 3.0, 4.0]
+    print(f"sqrt(): {await (await positives.sqrt()).data()}")  # → [1.0, 1.414..., 2.0, 2.828..., 4.0]
 
     # Example 4: Chaining transforms with other operators
     print("\n" + "=" * 50)
@@ -79,16 +79,16 @@ async def example():
     obj = await create_object_from_value(dates)
     years = await obj.year()
     unique_years = await years.unique()
-    print(f"Unique years: {sorted(await unique_years.data())}")
+    print(f"Unique years: {sorted(await unique_years.data())}")  # → [2024, 2025]
 
     year_sum = await years.sum()
-    print(f"Sum of years: {await year_sum.data()}")
+    print(f"Sum of years: {await year_sum.data()}")  # → 6073
 
     words = ["apple", "banana", "cherry", "date"]
     obj = await create_object_from_value(words)
     lengths = await obj.length()
     max_len = await lengths.max()
-    print(f"Longest word length: {await max_len.data()}")
+    print(f"Longest word length: {await max_len.data()}")  # → 6
 
 
 async def amain():

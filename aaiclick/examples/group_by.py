@@ -209,7 +209,7 @@ async def example():
 
     # Further aggregation on result
     total = await amounts.sum()
-    print(f"  Total across all groups: ${await total.data()}")
+    print(f"  Total across all groups: ${await total.data()}")  # → $1230
 
     # Orient as records
     records = await result.data(orient="records")

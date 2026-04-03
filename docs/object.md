@@ -62,7 +62,10 @@ For runnable examples, see `examples/basic_operators.py`.
 
 **Implementation**: `aaiclick/data/object.py` — see `_ensure_object()`
 
-All binary operators accept Python scalars (`int`, `float`, `bool`, `str`) on either side via `_ensure_object()`. This works for both `obj + 5` and `5 + obj`.
+!!! tip "Scalar broadcast"
+    Python scalars work on either side of an operator:
+    `obj * 2` and `2 * obj` both work. The scalar is auto-converted
+    to a single-value Object via `_ensure_object()`.
 
 For runnable examples, see `examples/basic_operators.py`.
 
@@ -288,7 +291,9 @@ Fluent API for building WHERE conditions. `Object.where()` creates a View; `View
 - `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
 - `view.or_where(cond)` — OR-chains: `.where('x > 100').or_where('y < 5')` → `WHERE (x > 100) OR (y < 5)`
 
-**Note**: `or_where()` requires a prior `where()` — raises `ValueError` otherwise.
+!!! warning "`or_where()` requires a prior `where()`"
+    Calling `or_where()` without a preceding `where()` raises `ValueError`.
+    Same applies to `or_having()` on `GroupByQuery`.
 
 ## Column Selection
 

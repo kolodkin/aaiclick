@@ -30,48 +30,48 @@ async def example():
     a = await create_object_from_value([10, 20, 30, 40, 50])
     b = await create_object_from_value([2, 4, 5, 8, 10])
 
-    print(f"a: {await a.data()}")
-    print(f"b: {await b.data()}\n")
+    print(f"a: {await a.data()}")  # → [10, 20, 30, 40, 50]
+    print(f"b: {await b.data()}\n")  # → [2, 4, 5, 8, 10]
 
     result = await (a + b)
-    print(f"a + b  = {await result.data()}")  # [12, 24, 35, 48, 60]
+    print(f"a + b  = {await result.data()}")  # → [12, 24, 35, 48, 60]
 
     result = await (a - b)
-    print(f"a - b  = {await result.data()}")  # [8, 16, 25, 32, 40]
+    print(f"a - b  = {await result.data()}")  # → [8, 16, 25, 32, 40]
 
     result = await (a * b)
-    print(f"a * b  = {await result.data()}")  # [20, 80, 150, 320, 500]
+    print(f"a * b  = {await result.data()}")  # → [20, 80, 150, 320, 500]
 
     result = await (a / b)
-    print(f"a / b  = {await result.data()}")  # [5.0, 5.0, 6.0, 5.0, 5.0]
+    print(f"a / b  = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
     result = await (a // b)
-    print(f"a // b = {await result.data()}")  # [5, 5, 6, 5, 5]
+    print(f"a // b = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
     result = await (a % b)
-    print(f"a %% b = {await result.data()}")  # [0, 0, 0, 0, 0]
+    print(f"a %% b = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
     result = await (a ** b)
-    print(f"a ** b = {await result.data()}")  # [100, 160000, 24300000, ...]
+    print(f"a ** b = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
 
     # Scalar broadcast
     print("\nScalar broadcast")
     print("-" * 60)
 
     a = await create_object_from_value([1, 2, 3, 4, 5])
-    print(f"a: {await a.data()}\n")
+    print(f"a: {await a.data()}\n")  # → [1, 2, 3, 4, 5]
 
     result = await (a * 10)
-    print(f"a * 10  = {await result.data()}")  # [10, 20, 30, 40, 50]
+    print(f"a * 10  = {await result.data()}")  # → [10, 20, 30, 40, 50]
 
     result = await (a + 100)
-    print(f"a + 100 = {await result.data()}")  # [101, 102, 103, 104, 105]
+    print(f"a + 100 = {await result.data()}")  # → [101, 102, 103, 104, 105]
 
     result = await (100 - a)
-    print(f"100 - a = {await result.data()}")  # [99, 98, 97, 96, 95]
+    print(f"100 - a = {await result.data()}")  # → [99, 98, 97, 96, 95]
 
     result = await (2 ** a)
-    print(f"2 ** a  = {await result.data()}")  # [2, 4, 8, 16, 32]
+    print(f"2 ** a  = {await result.data()}")  # → [2, 4, 8, 16, 32]
 
     # Comparison
     print("\nComparison operators")
@@ -80,17 +80,17 @@ async def example():
     x = await create_object_from_value([1, 5, 10, 15, 20])
     y = await create_object_from_value([5, 5, 8, 20, 20])
 
-    print(f"x: {await x.data()}")
-    print(f"y: {await y.data()}\n")
+    print(f"x: {await x.data()}")  # → [1, 5, 10, 15, 20]
+    print(f"y: {await y.data()}\n")  # → [5, 5, 8, 20, 20]
 
     result = await (x == y)
-    print(f"x == y = {await result.data()}")  # [0, 1, 0, 0, 1]
+    print(f"x == y = {await result.data()}")  # → [0, 1, 0, 0, 1]
 
     result = await (x < y)
-    print(f"x < y  = {await result.data()}")  # [1, 0, 0, 1, 0]
+    print(f"x < y  = {await result.data()}")  # → [1, 0, 0, 1, 0]
 
     result = await (x >= y)
-    print(f"x >= y = {await result.data()}")  # [0, 1, 1, 0, 1]
+    print(f"x >= y = {await result.data()}")  # → [0, 1, 1, 0, 1]
 
     # Bitwise
     print("\nBitwise operators")
@@ -99,17 +99,17 @@ async def example():
     m = await create_object_from_value([12, 10, 8])  # 1100, 1010, 1000
     n = await create_object_from_value([10, 12, 4])  # 1010, 1100, 0100
 
-    print(f"m: {await m.data()}")
-    print(f"n: {await n.data()}\n")
+    print(f"m: {await m.data()}")  # → [12, 10, 8]
+    print(f"n: {await n.data()}\n")  # → [10, 12, 4]
 
     result = await (m & n)
-    print(f"m & n = {await result.data()}")  # [8, 8, 0]
+    print(f"m & n = {await result.data()}")  # → [8, 8, 0]
 
     result = await (m | n)
-    print(f"m | n = {await result.data()}")  # [14, 14, 12]
+    print(f"m | n = {await result.data()}")  # → [14, 14, 12]
 
     result = await (m ^ n)
-    print(f"m ^ n = {await result.data()}")  # [6, 6, 12]
+    print(f"m ^ n = {await result.data()}")  # → [6, 6, 12]
 
     # Aggregations
     print("\nAggregations")
@@ -119,19 +119,19 @@ async def example():
     print(f"a: {await a.data()}\n")
 
     total = await a.sum()
-    print(f"sum:  {await total.data()}")  # 150
+    print(f"sum:  {await total.data()}")  # → 150
 
     avg = await a.mean()
-    print(f"mean: {await avg.data()}")  # 30.0
+    print(f"mean: {await avg.data()}")  # → 30.0
 
     mn = await a.min()
-    print(f"min:  {await mn.data()}")  # 10
+    print(f"min:  {await mn.data()}")  # → 10
 
     mx = await a.max()
-    print(f"max:  {await mx.data()}")  # 50
+    print(f"max:  {await mx.data()}")  # → 50
 
     sd = await a.std()
-    print(f"std:  {await sd.data()}")  # 14.142135623730951
+    print(f"std:  {await sd.data()}")  # → 14.142135623730951
 
     # Chained operations
     print("\nChained operations")
@@ -142,12 +142,12 @@ async def example():
 
     total = await a.sum()
     normalized = await (a / total)
-    print(f"normalized (a / sum(a)): {await normalized.data()}")  # [0.066..., 0.133..., 0.2, 0.266..., 0.333...]
+    print(f"normalized (a / sum(a)): {await normalized.data()}")  # → [0, 0, 0, 0, 0]
 
     b = await create_object_from_value([10, 20, 30, 40, 50])
     diff = await (b - a)
     mean_diff = await diff.mean()
-    print(f"mean(b - a): {await mean_diff.data()}")  # 27.0
+    print(f"mean(b - a): {await mean_diff.data()}")  # → 27.0
 
     # Size mismatch
     print("\nSize mismatch raises ValueError")
@@ -173,10 +173,10 @@ async def example():
     print(f"b: {await b.data()}\n")
 
     result = await a.concat(b)
-    print(f"concat(a, b):          {await result.data()}")  # [1, 2, 3, 4, 5, 6]
+    print(f"concat(a, b):          {await result.data()}")  # → [1, 2, 3, 4, 5, 6]
 
     result = await a.concat(b, [7, 8, 9])
-    print(f"concat(a, b, [7,8,9]): {await result.data()}")  # [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    print(f"concat(a, b, [7,8,9]): {await result.data()}")  # → [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     # ── array_map Operators ─────────────────────────────────────
     print("\n\n" + "=" * 60)
@@ -190,42 +190,42 @@ async def example():
     a = await create_object_from_value([10, 20, 30, 40, 50])
     b = await create_object_from_value([2, 4, 5, 8, 10])
 
-    print(f"a: {await a.data()}")
-    print(f"b: {await b.data()}\n")
+    print(f"a: {await a.data()}")  # → [10, 20, 30, 40, 50]
+    print(f"b: {await b.data()}\n")  # → [2, 4, 5, 8, 10]
 
     result = await a.array_map(b, "+")
-    print(f"array_map('+')  = {await result.data()}")  # [12, 24, 35, 48, 60]
+    print(f"array_map('+')  = {await result.data()}")  # → [12, 24, 35, 48, 60]
 
     result = await a.array_map(b, "-")
-    print(f"array_map('-')  = {await result.data()}")  # [8, 16, 25, 32, 40]
+    print(f"array_map('-')  = {await result.data()}")  # → [8, 16, 25, 32, 40]
 
     result = await a.array_map(b, "*")
-    print(f"array_map('*')  = {await result.data()}")  # [20, 80, 150, 320, 500]
+    print(f"array_map('*')  = {await result.data()}")  # → [20, 80, 150, 320, 500]
 
     result = await a.array_map(b, "/")
-    print(f"array_map('/')  = {await result.data()}")  # [5.0, 5.0, 6.0, 5.0, 5.0]
+    print(f"array_map('/')  = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
     result = await a.array_map(b, "//")
-    print(f"array_map('//') = {await result.data()}")  # [5, 5, 6, 5, 5]
+    print(f"array_map('//') = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
     result = await a.array_map(b, "%")
-    print(f"array_map('%%') = {await result.data()}")  # [0, 0, 0, 0, 0]
+    print(f"array_map('%%') = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
     result = await a.array_map(b, "**")
-    print(f"array_map('**') = {await result.data()}")  # [100, 160000, 24300000, ...]
+    print(f"array_map('**') = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
 
     # Scalar broadcast via array_map
     print("\nScalar broadcast via array_map")
     print("-" * 60)
 
     a = await create_object_from_value([1, 2, 3, 4, 5])
-    print(f"a: {await a.data()}\n")
+    print(f"a: {await a.data()}\n")  # → [1, 2, 3, 4, 5]
 
     result = await a.array_map(10, "*")
-    print(f"array_map(10, '*')  = {await result.data()}")  # [10, 20, 30, 40, 50]
+    print(f"array_map(10, '*')  = {await result.data()}")  # → [10, 20, 30, 40, 50]
 
     result = await a.array_map(100, "+")
-    print(f"array_map(100, '+') = {await result.data()}")  # [101, 102, 103, 104, 105]
+    print(f"array_map(100, '+') = {await result.data()}")  # → [101, 102, 103, 104, 105]
 
     # Comparison via array_map
     print("\nComparison via array_map")
@@ -234,17 +234,17 @@ async def example():
     x = await create_object_from_value([1, 5, 10, 15, 20])
     y = await create_object_from_value([5, 5, 8, 20, 20])
 
-    print(f"x: {await x.data()}")
-    print(f"y: {await y.data()}\n")
+    print(f"x: {await x.data()}")  # → [1, 5, 10, 15, 20]
+    print(f"y: {await y.data()}\n")  # → [5, 5, 8, 20, 20]
 
     result = await x.array_map(y, "==")
-    print(f"array_map('==') = {await result.data()}")  # [0, 1, 0, 0, 1]
+    print(f"array_map('==') = {await result.data()}")  # → [0, 1, 0, 0, 1]
 
     result = await x.array_map(y, "<")
-    print(f"array_map('<')  = {await result.data()}")  # [1, 0, 0, 1, 0]
+    print(f"array_map('<')  = {await result.data()}")  # → [1, 0, 0, 1, 0]
 
     result = await x.array_map(y, ">=")
-    print(f"array_map('>=') = {await result.data()}")  # [0, 1, 1, 0, 1]
+    print(f"array_map('>=') = {await result.data()}")  # → [0, 1, 1, 0, 1]
 
     # Bitwise via array_map
     print("\nBitwise via array_map")
@@ -253,17 +253,17 @@ async def example():
     m = await create_object_from_value([12, 10, 8])
     n = await create_object_from_value([10, 12, 4])
 
-    print(f"m: {await m.data()}")
-    print(f"n: {await n.data()}\n")
+    print(f"m: {await m.data()}")  # → [12, 10, 8]
+    print(f"n: {await n.data()}\n")  # → [10, 12, 4]
 
     result = await m.array_map(n, "&")
-    print(f"array_map('&') = {await result.data()}")  # [8, 8, 0]
+    print(f"array_map('&') = {await result.data()}")  # → [8, 8, 0]
 
     result = await m.array_map(n, "|")
-    print(f"array_map('|') = {await result.data()}")  # [14, 14, 12]
+    print(f"array_map('|') = {await result.data()}")  # → [14, 14, 12]
 
     result = await m.array_map(n, "^")
-    print(f"array_map('^') = {await result.data()}")  # [6, 6, 12]
+    print(f"array_map('^') = {await result.data()}")  # → [6, 6, 12]
 
     # Size mismatch via array_map
     print("\nSize mismatch raises error")
