@@ -1,10 +1,6 @@
 Technical Debt
 ---
 
-# ~~`insert()` / `concat()` preserve source `aai_id` values~~ ✅ RESOLVED
-
-Fixed: `_insert_source()` now excludes `aai_id` from SELECT, generating fresh Snowflake IDs via `DEFAULT generateSnowflakeID()`. Order follows argument order. See `docs/future.md` — "Insert Advisory Lock for Concurrent Workers" for the concurrent-insert caveat.
-
 # chdb `url()` Table Function
 
 - **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/data_context/chdb_client.py`)
