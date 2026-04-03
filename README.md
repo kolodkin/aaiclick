@@ -25,7 +25,7 @@ For AI features (lineage tracing, debug agents):
 
 ```bash
 pip install "aaiclick[ai]"
-# or everything:
+# or all extras:
 pip install "aaiclick[all]"
 ```
 
