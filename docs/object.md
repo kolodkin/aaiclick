@@ -78,6 +78,33 @@ For runnable examples, see `examples/basic_operators.py`.
 | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
 | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
+## Arithmetic Type Promotion
+
+**Implementation**: `aaiclick/data/object/operators.py` — see `_promote_arithmetic_type()`
+
+Result types for arithmetic operations match ClickHouse behavior:
+
+| Rule                                       | Example                    | Result Type |
+|--------------------------------------------|----------------------------|-------------|
+| Division and power always return Float64   | `Int64 / Int64`            | `Float64`   |
+| Any operand is float → Float64             | `Bool + Float64`           | `Float64`   |
+| Both Bool/UInt8: add/mul → UInt16          | `Bool + Bool`              | `UInt16`    |
+| Both Bool/UInt8: subtract → Int16 (signed) | `Bool - Bool`              | `Int16`     |
+| One Bool/UInt8, one wider int → wider      | `Bool + Int64`             | `Int64`     |
+| Subtraction of wider ints → Int64 (signed) | `UInt64 - UInt64`          | `Int64`     |
+| Same integer type preserved                | `Int64 + Int64`            | `Int64`     |
+
+Aggregation result types:
+
+| Function       | Bool source | Int source | Float source |
+|----------------|-------------|------------|--------------|
+| `min` / `max`  | `Bool`      | preserves  | preserves    |
+| `sum`          | `UInt64`    | preserves  | `Float64`    |
+| `count`        | `UInt64`    | `UInt64`   | `UInt64`     |
+| `mean` / `std` | `Float64`   | `Float64`  | `Float64`    |
+
+**Validated by**: `aaiclick/data/object/test_type_promotion.py` — compares our hardcoded rules against `SELECT toTypeName(CAST(0, 'T1') op CAST(0, 'T2'))` in ClickHouse.
+
 ## Comparison Operators
 
 | Python Operator | Description           | ClickHouse Equivalent | Python Method |

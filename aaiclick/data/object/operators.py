@@ -223,13 +223,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Determine result type from QueryInfo value_types
     type_a = info_a.value_type
     type_b = info_b.value_type
-
-    if (type_a in INT_TYPES and type_b in FLOAT_TYPES) or (type_a in FLOAT_TYPES and type_b in INT_TYPES):
-        value_type = "Float64"
-    elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
-        value_type = "Float64"
-    else:
-        value_type = "Int64" if type_a == "Bool" or type_b == "Bool" else type_a
+    value_type = _promote_arithmetic_type(operator, type_a, type_b)
 
     # Build schema for result table
     result_nullable = info_a.nullable or info_b.nullable
@@ -314,6 +308,40 @@ AGGREGATION_FUNCTIONS = {
 
 
 INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"}
+
+# Division and power always return Float64 in ClickHouse.
+_FLOAT_RESULT_OPS = frozenset({"/", "**"})
+
+# Small unsigned types (Bool, UInt8) promote to wider types in ClickHouse.
+# Subtraction always produces signed result.
+_SMALL_UNSIGNED = frozenset({"Bool", "UInt8"})
+
+
+def _promote_arithmetic_type(operator: str, type_a: str, type_b: str) -> str:
+    """Determine the ClickHouse result type for an arithmetic operation.
+
+    Matches ClickHouse type promotion rules:
+    - ``/`` and ``**`` always return Float64
+    - int + float → Float64
+    - Bool/UInt8 same-type ``+``/``*`` → UInt16, ``-`` → Int16
+    - Subtraction always promotes to signed (Int64)
+    - Mixed int widths promote to the wider type
+
+    Validated by ``test_type_promotion.py::test_arithmetic_type_promotion``
+    which compares against ``SELECT toTypeName(CAST(0, 'T1') op CAST(0, 'T2'))``.
+    """
+    if operator in _FLOAT_RESULT_OPS:
+        return "Float64"
+    if type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
+        return "Float64"
+    if type_a in _SMALL_UNSIGNED and type_b in _SMALL_UNSIGNED:
+        return "Int16" if operator == "-" else "UInt16"
+    if type_a in _SMALL_UNSIGNED or type_b in _SMALL_UNSIGNED:
+        wider = type_b if type_a in _SMALL_UNSIGNED else type_a
+        return wider
+    if operator == "-":
+        return "Int64"
+    return type_a
 
 
 def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo]) -> str:
@@ -687,12 +715,8 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
 
     if operator in comparison_ops:
         value_type = "UInt8"
-    elif (type_a in INT_TYPES and type_b in FLOAT_TYPES) or (type_a in FLOAT_TYPES and type_b in INT_TYPES):
-        value_type = "Float64"
-    elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
-        value_type = "Float64"
     else:
-        value_type = "Int64" if type_a == "Bool" or type_b == "Bool" else type_a
+        value_type = _promote_arithmetic_type(operator, type_a, type_b)
 
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
