@@ -25,23 +25,21 @@ from chdb.session import Session
 
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
-# external URL calls that chdb's embedded HTTP client hangs on.
+# URL calls that chdb's embedded HTTP client hangs on.
 _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
-
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 
 @asynccontextmanager
 async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
     """Context manager that rewrites ``url('https://...', 'fmt')`` → ``file(...)``.
 
-    Downloads each external URL to a :class:`tempfile.NamedTemporaryFile` via
+    Downloads each URL to a :class:`tempfile.NamedTemporaryFile` via
     :func:`asyncio.to_thread`.  Files are deleted automatically when the
     ``async with`` block exits, whether normally or on exception.
 
-    chdb's embedded ClickHouse hangs indefinitely on external HTTP/HTTPS
-    requests via ``url()``.  Downloading through Python first and loading
-    with ``file()`` is the reliable workaround.
+    chdb's embedded ClickHouse hangs indefinitely on HTTP/HTTPS requests via
+    ``url()``.  Downloading through Python first and loading with ``file()``
+    is the reliable workaround.
     """
     matches = list(_URL_FUNC_RE.finditer(query))
     if not matches:
@@ -53,8 +51,6 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
     try:
         for m in matches:
             url, fmt = m.group(1), m.group(2)
-            if (urlparse(url).hostname or "") in _LOCAL_HOSTS:
-                continue
             suffix = "".join(Path(urlparse(url).path).suffixes)  # e.g. ".tsv.gz"
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
             tmp_files.append(tmp)
