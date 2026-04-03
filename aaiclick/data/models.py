@@ -178,6 +178,7 @@ class QueryInfo:
     fieldtype: str
     value_type: str
     nullable: bool = False
+    constraint_sql: str = ""
 
 
 @dataclass

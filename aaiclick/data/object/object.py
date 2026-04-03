@@ -292,6 +292,11 @@ class Object:
             fieldtype = self._schema.fieldtype
             col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
 
+        # Build constraint suffix (WHERE/ORDER BY/LIMIT/OFFSET) for same-table
+        # operator optimization. Two views from the same table with identical
+        # constraint_sql reference the same rows and can share a single SELECT.
+        constraint_sql = self._build_constraint_sql()
+
         return QueryInfo(
             source=source,
             base_table=self.table,
@@ -299,6 +304,39 @@ class Object:
             fieldtype=fieldtype,
             value_type=col_def.type,
             nullable=col_def.nullable,
+            constraint_sql=constraint_sql,
+        )
+
+    def _build_constraint_sql(self) -> str:
+        """Build the non-column constraints (WHERE/ORDER BY/LIMIT/OFFSET) as SQL suffix.
+
+        Used by _apply_operator_db to detect when two views from the same table
+        share identical constraints and can be combined into a single SELECT.
+        Returns empty string for unconstrained Objects (no WHERE/LIMIT/etc).
+        """
+        parts = []
+        where = self._build_where()
+        if where:
+            parts.append(f"WHERE {where}")
+        if self.order_by:
+            parts.append(f"ORDER BY {self.order_by}")
+        if self.limit is not None:
+            parts.append(f"LIMIT {self.limit}")
+        if self.offset is not None:
+            parts.append(f"OFFSET {self.offset}")
+        return " ".join(parts)
+
+    def same_source_as(self, other: "Object") -> bool:
+        """Check if this object references the same rows as another.
+
+        Returns True when both objects share the same base table and identical
+        view constraints (WHERE, ORDER BY, LIMIT, OFFSET).  Used by the
+        operator fast-path to avoid the expensive JOIN on row_number() when
+        two field selections come from the same underlying data.
+        """
+        return (
+            self.table == other.table
+            and self._build_constraint_sql() == other._build_constraint_sql()
         )
 
     def _get_ingest_query_info(self) -> IngestQueryInfo:
