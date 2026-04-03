@@ -368,7 +368,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         pa_type = arr.type
 
         if pa.types.is_boolean(pa_type):
-            return ColumnInfo("UInt8")
+            return ColumnInfo("Bool")
         elif pa.types.is_timestamp(pa_type):
             return ColumnInfo("DateTime64(3, 'UTC')")
         elif pa.types.is_integer(pa_type):
@@ -379,7 +379,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
             return ColumnInfo("String", low_cardinality=True)
 
     if isinstance(value, bool):
-        return ColumnInfo("UInt8")
+        return ColumnInfo("Bool")
     elif isinstance(value, datetime):
         return ColumnInfo("DateTime64(3, 'UTC')")
     elif isinstance(value, int):

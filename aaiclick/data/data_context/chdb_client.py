@@ -237,18 +237,8 @@ class ChdbClient:
 
 
 def _make_pa_array(col: list, pa_type: pa.DataType | None) -> pa.Array:
-    """Build a pyarrow array, using the schema type with inference fallback.
-
-    Uses the explicit schema type when available. Falls back to pyarrow
-    inference when the schema type is incompatible with the Python data
-    (e.g. Python bools into a UInt8 column — ClickHouse casts on insert).
-    """
-    if pa_type is not None:
-        try:
-            return pa.array(col, type=pa_type)
-        except (pa.ArrowTypeError, pa.ArrowInvalid):
-            pass
-    return pa.array(col)
+    """Build a pyarrow array with the explicit schema type."""
+    return pa.array(col, type=pa_type)
 
 
 class ChdbSyncClient:

@@ -229,7 +229,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
         value_type = "Float64"
     else:
-        value_type = type_a
+        value_type = "Int64" if type_a == "Bool" or type_b == "Bool" else type_a
 
     # Build schema for result table
     result_nullable = info_a.nullable or info_b.nullable
@@ -313,7 +313,7 @@ AGGREGATION_FUNCTIONS = {
 }
 
 
-INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"}
+INT_TYPES = {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"}
 
 
 def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo]) -> str:
@@ -340,6 +340,8 @@ def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo
     if agg_func in ("min", "max", "any"):
         return base_type
     elif agg_func == "sum":
+        if base_type == "Bool":
+            return "UInt64"
         return base_type if base_type in INT_TYPES else "Float64"
     elif agg_func == "count":
         return "UInt64"
@@ -690,7 +692,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     elif type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
         value_type = "Float64"
     else:
-        value_type = type_a
+        value_type = "Int64" if type_a == "Bool" or type_b == "Bool" else type_a
 
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
