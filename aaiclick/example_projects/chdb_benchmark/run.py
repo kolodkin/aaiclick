@@ -102,14 +102,15 @@ async def bench_chdb(raw_data, num_runs, results):
     benchmarks = mod.make_benchmarks(FILTER_THRESHOLD)
 
     with mod.context():
-        # Ingest
+        # First convert creates the table (DDL + INSERT)
+        dataset = mod.convert(raw_data, FILTER_THRESHOLD)
+
+        # Ingest: measure INSERT only (TRUNCATE + INSERT), DDL already done
         print(f"  Ingest [{mod.NAME}]...")
         avg_time, peak_mem = measure_sync(
-            lambda d: mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
+            lambda d: mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
         )
         results["Ingest"][mod.NAME] = {"time": avg_time, "memory": peak_mem}
-
-        dataset = mod.convert(raw_data, FILTER_THRESHOLD)
 
         for bench_name, fn in benchmarks.items():
             print(f"  {bench_name} [{mod.NAME}]...")
@@ -223,8 +224,8 @@ async def run(num_rows, num_runs):
     print("  `SELECT col_a * col_b FROM table`; remaining gap is CREATE TABLE overhead")
     print("- **Filter/Sort**: aaiclick materializes results via `copy()` (INSERT...SELECT);")
     print("  chdb uses `FORMAT Null` to skip serialization entirely")
-    print("- **Count distinct**: aaiclick chains unique() + count() = 4 queries;")
-    print("  chdb uses single `SELECT count() FROM (... GROUP BY ...)`")
+    print("- **Count distinct**: aaiclick `nunique()` uses fused")
+    print("  `SELECT count() FROM (... GROUP BY value)` — matches chdb's pattern")
     print("- **Group-by**: aaiclick adds CREATE TABLE + INSERT overhead per query;")
     print("  chdb also lacks `optimize_aggregation_in_order` (no MergeTree ORDER BY)")
     print("- **Multi-agg**: aaiclick `.agg()` uses a single GROUP BY with all aggregates,")

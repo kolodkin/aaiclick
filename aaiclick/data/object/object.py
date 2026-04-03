@@ -1155,6 +1155,28 @@ class Object:
         info = self._get_query_info()
         return await operators.unique_group(info, self.ch_client)
 
+    async def nunique(self) -> Self:
+        """
+        Count the number of distinct values.
+
+        Fused operation equivalent to ``(await obj.unique()).count()`` but
+        executes a single query: ``SELECT count() FROM (... GROUP BY value)``.
+
+        Uses GROUP BY (not ``uniq()``) for exact results and compatibility
+        with MergeTree sorted data (``optimize_aggregation_in_order``).
+
+        Returns:
+            Self: New scalar Object containing the count of distinct values
+
+        Examples:
+            >>> obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+            >>> result = await obj.nunique()
+            >>> await result.data()  # Returns 4
+        """
+        self.checkstale()
+        info = self._get_query_info()
+        return await operators.nunique_agg(info, self.ch_client)
+
     # Unary Transform Operators
 
     async def _apply_unary_transform(self, transform: str) -> Self:

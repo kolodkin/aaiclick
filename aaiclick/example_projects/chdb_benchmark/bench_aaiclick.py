@@ -42,8 +42,7 @@ async def _sort(obj):
 
 
 async def _count_distinct(obj):
-    uniq = await obj["category"].unique()
-    return await uniq.count()
+    return await obj["category"].nunique()
 
 
 async def _groupby_sum(obj):

@@ -698,6 +698,40 @@ async def unique_group(info: QueryInfo, ch_client):
     return result
 
 
+async def nunique_agg(info: QueryInfo, ch_client):
+    """
+    Count distinct values at database level using GROUP BY subquery.
+
+    Fused operation equivalent to ``unique().count()`` but in a single query:
+    ``SELECT count() FROM (SELECT value FROM source GROUP BY value)``
+
+    Uses GROUP BY (not ``uniq()``) for exact results and compatibility with
+    MergeTree sorted data (``optimize_aggregation_in_order``).
+
+    Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
+
+    Args:
+        info: QueryInfo for source
+        ch_client: ClickHouse client instance
+
+    Returns:
+        New Object with scalar count of distinct values (UInt64)
+    """
+    schema = Schema(
+        fieldtype=FIELDTYPE_SCALAR,
+        col_fieldtype=FIELDTYPE_SCALAR,
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+    )
+    result = await create_object(schema)
+    await ch_client.command(f"""
+        INSERT INTO {result.table} (value)
+        SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
+    """)
+
+    oplog_record(result.table, "nunique", kwargs={"source": info.base_table})
+    return result
+
+
 # arrayMap Operators
 # Docs: https://clickhouse.com/docs/sql-reference/functions/array-functions#arraymapfunc-arr1-
 

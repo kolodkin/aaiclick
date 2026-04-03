@@ -46,6 +46,13 @@ def convert(data, filter_threshold):
     return _session
 
 
+def ingest_only(data, filter_threshold):
+    """Insert-only benchmark: DDL is pre-created, only measure INSERT."""
+    arrow_table = pa.table(data)  # noqa: F841 — referenced by SQL below
+    _session.query("TRUNCATE TABLE bench.data")
+    _session.query("INSERT INTO bench.data SELECT * FROM Python(arrow_table)")
+
+
 def make_benchmarks(filter_threshold):
     return {
         "Column sum": lambda s: s.query(
