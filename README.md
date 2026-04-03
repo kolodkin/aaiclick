@@ -29,9 +29,51 @@ pip install "aaiclick[ai]"
 pip install "aaiclick[all]"
 ```
 
-## Data Operations
+## Orchestration
 
-All computation runs inside ClickHouse — Python only orchestrates:
+Define tasks and jobs with decorators — all data operations execute as ClickHouse queries:
+
+```python
+from aaiclick import create_object_from_value
+from aaiclick.orchestration import job, task, tasks_list
+
+@task
+async def load_sales() -> dict:
+    # Python values become ClickHouse tables automatically
+    return await create_object_from_value({
+        "region": ["US", "EU", "US", "EU", "US"],
+        "amount": [500, 300, 150, 200, 80],
+    })
+
+@task
+async def analyze(sales):
+    # group_by runs as a ClickHouse GROUP BY query
+    by_region = await sales.group_by("region").sum("amount")
+    print(await by_region.data())  # → {'region': ['EU', 'US'], 'amount': [500, 730]}
+
+    # insert appends rows — stays in ClickHouse, no Python round-trip
+    await sales.insert({"region": ["JP"], "amount": [400]})
+
+@job("sales_pipeline")
+def sales_pipeline():
+    sales = load_sales()
+    result = analyze(sales=sales)
+    return tasks_list(sales, result)
+```
+
+Run locally for development or deploy with workers for production:
+
+```bash
+# Test locally
+python -c "from myapp import sales_pipeline; from aaiclick.orchestration import job_test; job_test(sales_pipeline)"
+
+# Production: start workers
+python -m aaiclick worker start
+```
+
+## Data Operation Only Mode
+
+Use `data_context()` directly for interactive work without orchestration:
 
 ```python
 import asyncio
@@ -46,42 +88,9 @@ async def main():
         total = await (prices + prices * tax_rate)
         print(await total.data())  # → [11.0, 22.0, 33.0]
 
-        # Aggregations
         print(await (await total.mean()).data())  # → 22.0
 
 asyncio.run(main())
-```
-
-## Orchestration
-
-Define tasks and jobs with decorators — dependencies are resolved automatically:
-
-```python
-from aaiclick.orchestration import job, task, tasks_list
-
-@task
-async def extract() -> dict:
-    return {"revenue": [100, 200, 300], "region": ["US", "EU", "US"]}
-
-@task
-async def transform(data: dict) -> list:
-    return [r for r, region in zip(data["revenue"], data["region"]) if region == "US"]
-
-@job("revenue_pipeline")
-def revenue_pipeline():
-    raw = extract()
-    filtered = transform(data=raw)
-    return tasks_list(raw, filtered)
-```
-
-Run locally for development or deploy with workers for production:
-
-```bash
-# Test locally
-python -c "from myapp import revenue_pipeline; from aaiclick.orchestration import job_test; job_test(revenue_pipeline)"
-
-# Production: start workers
-python -m aaiclick worker start
 ```
 
 ## Documentation
