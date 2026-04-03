@@ -12,7 +12,7 @@ Technical Debt
 
 - **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
   - **Issue**: `clickhouse-connect>=0.15` emits a `FutureWarning` about the async client being a thread-pool wrapper, recommending the `[async]` prerelease. Since pytest runs with `-W error`, this breaks all distributed tests.
-  - **Workaround**: Added `ignore:The current async client is a thread-pool wrapper:FutureWarning` to pytest `filterwarnings`.
+  - **Workaround**: `warnings.catch_warnings()` suppresses the `FutureWarning` at both call sites (`clickhouse_client.py` and `pg_cleanup.py`), plus a pytest `filterwarnings` entry in `pyproject.toml` as a safety net.
   - **Debt**: Remove the filter once `clickhouse-connect` 1.0 ships the native async client as default.
 
 # GitHub Actions
