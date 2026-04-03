@@ -168,19 +168,17 @@ async def copy_db(copy_info: CopyInfo, ch_client):
 
     alias = " AS s" if copy_info.source_query.startswith('(') else ""
 
-    if copy_info.order_by:
-        # Exclude aai_id so new Snowflake IDs are generated in sorted order.
-        # Use aai_id as secondary sort key for stable sort (ties preserve
-        # creation order / temporal causality).
-        data_cols = [c for c in copy_info.columns if c != "aai_id"]
-        cols_str = ", ".join(data_cols)
-        insert_query = (
-            f"INSERT INTO {result.table} ({cols_str})"
-            f" SELECT {cols_str} FROM {copy_info.source_query}{alias}"
-            f" ORDER BY {copy_info.order_by}, aai_id"
-        )
-    else:
-        insert_query = f"INSERT INTO {result.table} SELECT * FROM {copy_info.source_query}{alias}"
+    # Always exclude aai_id — copies get fresh Snowflake IDs for lineage.
+    # For sorted copies, ORDER BY with aai_id tiebreak ensures stable sort
+    # and new IDs are generated in sorted insertion order.
+    data_cols = [c for c in copy_info.columns if c != "aai_id"]
+    cols_str = ", ".join(data_cols)
+    order_clause = f" ORDER BY {copy_info.order_by}, aai_id" if copy_info.order_by else ""
+    insert_query = (
+        f"INSERT INTO {result.table} ({cols_str})"
+        f" SELECT {cols_str} FROM {copy_info.source_query}{alias}"
+        f"{order_clause}"
+    )
 
     await ch_client.command(insert_query)
     return result
