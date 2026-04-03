@@ -7,7 +7,7 @@ objects that survive across data_context() exits.
 
 import asyncio
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, open_object
 from aaiclick.data.data_context import (
     data_context,
     delete_persistent_object,
@@ -31,11 +31,11 @@ async def example():
 
 async def example_reopen():
     """Reopen a persistent object in a new context."""
-    # Example 2: Reopen in a new data_context — same name= reopens the table
+    # Example 2: Reopen in a new data_context with open_object()
     print("\nExample 2: Reopen in a new data_context")
     print("-" * 50)
 
-    obj = await create_object_from_value([], name="cities")
+    obj = await open_object("cities")
     print(f"Reopened: {obj}")  # → Object(table='p_cities')
     print(f"Data: {await obj.data()}")  # → {'city': ['Tokyo', 'London', 'NYC'], 'pop_m': [14, 9, 8]}
 
