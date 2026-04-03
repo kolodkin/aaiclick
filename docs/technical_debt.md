@@ -12,7 +12,7 @@ Technical Debt
 
 - **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
   - **Issue**: `clickhouse-connect>=0.15` emits a `FutureWarning` about the async client being a thread-pool wrapper, recommending the `[async]` prerelease.
-  - **Workaround**: Module-level `warnings.filterwarnings("ignore", ...)` in `clickhouse_client.py` and `pg_cleanup.py`.
+  - **Workaround**: `warnings.catch_warnings()` around `get_async_client()` calls in `clickhouse_client.py` and `pg_cleanup.py`.
   - **Debt**: Remove the filter once `clickhouse-connect` 1.0 ships the native async client as default.
 
 # GitHub Actions

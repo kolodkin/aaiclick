@@ -25,10 +25,6 @@ from ..env import get_db_url
 
 logger = logging.getLogger(__name__)
 
-# clickhouse-connect >=0.15 emits a FutureWarning about the async client
-# being a thread-pool wrapper. Safe to ignore until 1.0 ships native async.
-warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
-
 DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
@@ -67,7 +63,10 @@ class PgCleanupWorker:
         else:
             from clickhouse_connect import get_async_client
 
-            self._ch_client = await get_async_client(**parse_ch_url())
+            # clickhouse-connect >=0.15 FutureWarning about thread-pool async wrapper
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
+                self._ch_client = await get_async_client(**parse_ch_url())
         self._shutdown = asyncio.Event()
         self._task = asyncio.create_task(self._cleanup_loop())
 

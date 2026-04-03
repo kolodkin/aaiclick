@@ -12,10 +12,6 @@ from urllib3 import PoolManager
 
 from aaiclick.backend import get_ch_url
 
-# clickhouse-connect >=0.15 emits a FutureWarning about the async client
-# being a thread-pool wrapper. Safe to ignore until 1.0 ships native async.
-warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
-
 # Global connection pool shared across all contexts
 _pool: list = [None]
 
@@ -25,6 +21,12 @@ def get_pool() -> PoolManager:
     if _pool[0] is None:
         _pool[0] = PoolManager(num_pools=10, maxsize=10)
     return _pool[0]
+
+
+def _ignore_async_wrapper_warning():
+    """clickhouse-connect >=0.15 FutureWarning about thread-pool async wrapper.
+    Safe to ignore until 1.0 ships native async."""
+    warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
 
 
 async def create_clickhouse_client():
@@ -38,11 +40,13 @@ async def create_clickhouse_client():
         ) from e
 
     parsed = urlparse(get_ch_url())
-    return await get_async_client(
-        pool_mgr=get_pool(),
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 8123,
-        username=parsed.username or "default",
-        password=parsed.password or "",
-        database=parsed.path.lstrip("/") or "default",
-    )
+    with warnings.catch_warnings():
+        _ignore_async_wrapper_warning()
+        return await get_async_client(
+            pool_mgr=get_pool(),
+            host=parsed.hostname or "localhost",
+            port=parsed.port or 8123,
+            username=parsed.username or "default",
+            password=parsed.password or "",
+            database=parsed.path.lstrip("/") or "default",
+        )
