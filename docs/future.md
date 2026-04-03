@@ -59,9 +59,9 @@ Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wra
 
 7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
 example files — 6 of 7 pages need zero new code. Pages: Your First Object, Operations,
-Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. See
-`docs/docs_implementation_plan.md` — "Reuse Strategy: Named Snippets" for the snippet
-marker plan and page-to-source mapping.
+Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. Add
+`# --8<-- [start:name]` / `# --8<-- [end:name]` markers to example `.py` files, then
+include specific sections in tutorial `.md` pages via snippet syntax.
 
 ## Cross-Page Links
 

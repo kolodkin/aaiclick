@@ -18,6 +18,7 @@ Getting Started
 
     ```bash
     pip install "aaiclick[distributed]"
+    python -m aaiclick setup
     export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
     export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
     ```
@@ -41,21 +42,17 @@ from aaiclick.data.data_context import data_context
 
 async def main():
     async with data_context():
-        # Create objects from Python values — schema is inferred automatically
         prices = await create_object_from_value([10.0, 20.0, 30.0])
-        tax_rate = await create_object_from_value(0.1)
 
-        # All computation runs inside ClickHouse
-        tax = await (prices * tax_rate)
-        total = await (prices + tax)
-
+        total = await (prices + prices * 0.1)  # scalars broadcast automatically
         print(await total.data())  # [11.0, 22.0, 33.0]
+        print(await (await total.mean()).data())  # 22.0
 
 asyncio.run(main())
 ```
 
 !!! warning "Always `await` operation results"
-    `prices * tax_rate` returns a coroutine, not an Object.
+    `prices * 0.1` returns a coroutine, not an Object.
     Forgetting `await` gives a confusing error downstream —
     not at the line where you forgot it.
 

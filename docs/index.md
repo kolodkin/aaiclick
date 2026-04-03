@@ -15,9 +15,8 @@ from aaiclick.data.data_context import data_context
 async def main():
     async with data_context():
         prices = await create_object_from_value([10.0, 20.0, 30.0])
-        tax_rate = await create_object_from_value(0.1)
 
-        total = await (prices + prices * tax_rate)
+        total = await (prices + prices * 0.1)  # scalars broadcast automatically
         print(await total.data())  # → [11.0, 22.0, 33.0]
 
         print(await (await total.mean()).data())  # → 22.0
