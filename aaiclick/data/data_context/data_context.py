@@ -431,6 +431,7 @@ async def _create_nested_object(
     await ch.insert(
         obj.table, [[v] for v in flat.values()],
         column_names=keys, column_oriented=True,
+        column_type_names=[columns[k].ch_type() for k in keys],
     )
 
     return obj
@@ -473,7 +474,10 @@ async def _create_nested_records_object(
     all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
     col_data = [[flat[key] for flat in all_flat] for key in keys]
-    await ch.insert(obj.table, col_data, column_names=keys, column_oriented=True)
+    await ch.insert(
+        obj.table, col_data, column_names=keys, column_oriented=True,
+        column_type_names=[columns[k].ch_type() for k in keys],
+    )
 
     return obj
 
@@ -543,6 +547,7 @@ async def create_object_from_value(
                 await ch.insert(
                     obj.table, [val[k] for k in keys],
                     column_names=keys, column_oriented=True,
+                    column_type_names=[columns[k].ch_type() for k in keys],
                 )
 
         else:
@@ -557,6 +562,7 @@ async def create_object_from_value(
             await ch.insert(
                 obj.table, [[v] for v in val.values()],
                 column_names=keys, column_oriented=True,
+                column_type_names=[columns[k].ch_type() for k in keys],
             )
 
     elif isinstance(val, list):
@@ -595,7 +601,10 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             col_data = [[record[key] for record in val] for key in keys]
-            await ch.insert(obj.table, col_data, column_names=keys, column_oriented=True)
+            await ch.insert(
+                obj.table, col_data, column_names=keys, column_oriented=True,
+                column_type_names=[columns[k].ch_type() for k in keys],
+            )
         else:
             col_def = _infer_clickhouse_type(val)
             schema = Schema(
@@ -605,7 +614,10 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             if val:
-                await ch.insert(obj.table, [val], column_names=["value"], column_oriented=True)
+                await ch.insert(
+                    obj.table, [val], column_names=["value"], column_oriented=True,
+                    column_type_names=[col_def.ch_type()],
+                )
 
     else:
         col_def = _infer_clickhouse_type(val)
@@ -616,7 +628,10 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name)
 
-        await ch.insert(obj.table, [[val]], column_names=["value"], column_oriented=True)
+        await ch.insert(
+            obj.table, [[val]], column_names=["value"], column_oriented=True,
+            column_type_names=[col_def.ch_type()],
+        )
 
     oplog_record(obj.table, "create_from_value")
     return obj

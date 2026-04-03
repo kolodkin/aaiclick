@@ -185,14 +185,16 @@ class ChdbClient:
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
         column_oriented: bool = False,
+        column_type_names: Optional[Sequence[str]] = None,
     ) -> None:
         """Bulk insert via pyarrow Python() table function.
 
         Matches clickhouse-connect AsyncClient.insert() signature.
         When ``column_oriented=True``, *data* is a list of columns (zero-copy).
-        When ``False`` (default), *data* is a list of rows — transposed to
-        columns and typed from the table schema so pyarrow handles all
-        ClickHouse types (Array, Map, Nullable, etc.) correctly.
+        When ``False`` (default), *data* is a list of rows (transposed internally).
+
+        When ``column_type_names`` is provided, uses those ClickHouse type
+        strings directly — no ``system.columns`` lookup needed.
         """
         if not data:
             return
@@ -204,7 +206,10 @@ class ChdbClient:
         else:
             cols_data = [list(col) for col in zip(*data)]
 
-        pa_types = self._get_pa_types(table, names)
+        if column_type_names:
+            pa_types = {name: _ch_type_to_pa(ct) for name, ct in zip(names, column_type_names)}
+        else:
+            pa_types = self._get_pa_types(table, names)
         arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
             {name: _make_pa_array(col, pa_types.get(name)) for name, col in zip(names, cols_data)}
         )
