@@ -16,6 +16,7 @@ import time
 import tracemalloc
 
 from . import bench_aaiclick, bench_chdb_native
+from .report import console, print_results
 
 BENCH_NAMES = [
     "Ingest",
@@ -79,76 +80,6 @@ async def measure_async(fn, data, num_runs):
     return sum(times) / num_runs, peak_mem
 
 
-def fmt_time(seconds):
-    if seconds >= 1:
-        return f"{seconds:.2f} sec"
-    if seconds >= 1e-3:
-        return f"{seconds * 1e3:.2f} ms"
-    if seconds >= 1e-6:
-        return f"{seconds * 1e6:.2f} us"
-    return f"{seconds * 1e9:.2f} ns"
-
-
-def fmt_mem(mem_bytes):
-    if mem_bytes < 1024:
-        return f"{mem_bytes}B"
-    if mem_bytes < 1024 * 1024:
-        return f"{mem_bytes / 1024:.1f}KB"
-    return f"{mem_bytes / (1024 * 1024):.1f}MB"
-
-
-def print_results(results, lib_names, num_rows, num_runs):
-    """Print benchmark results as markdown tables."""
-    print(f"\n## Benchmark Results — {num_rows:,} rows, {num_runs} runs\n")
-
-    # Timing table
-    header = "| Operation | " + " | ".join(lib_names) + " | Overhead |"
-    sep = "|" + "|".join(["-" * 22] + ["-" * 14] * len(lib_names) + ["-" * 14]) + "|"
-    print(header)
-    print(sep)
-
-    for bench_name in BENCH_NAMES:
-        lib_results = results.get(bench_name, {})
-        row = [f" {bench_name:<20} "]
-        times = {}
-        for lib in lib_names:
-            if lib in lib_results:
-                t = lib_results[lib]["time"]
-                times[lib] = t
-                row.append(f" {fmt_time(t):>12} ")
-            else:
-                row.append(f" {'—':>12} ")
-
-        # Overhead column: aaiclick time / chdb time
-        if "chdb" in times and "aaiclick" in times and times["chdb"] > 0:
-            ratio = times["aaiclick"] / times["chdb"]
-            if ratio >= 1:
-                row.append(f" {'x%.1f slower' % ratio:>12} ")
-            else:
-                row.append(f" {'x%.1f faster' % (1 / ratio):>12} ")
-        else:
-            row.append(f" {'—':>12} ")
-
-        print("|" + "|".join(row) + "|")
-
-    # Memory table
-    print(f"\n### Peak Memory\n")
-    header = "| Operation | " + " | ".join(lib_names) + " |"
-    sep = "|" + "|".join(["-" * 22] + ["-" * 14] * len(lib_names)) + "|"
-    print(header)
-    print(sep)
-
-    for bench_name in BENCH_NAMES:
-        lib_results = results.get(bench_name, {})
-        row = [f" {bench_name:<20} "]
-        for lib in lib_names:
-            if lib in lib_results:
-                row.append(f" {fmt_mem(lib_results[lib]['memory']):>12} ")
-            else:
-                row.append(f" {'—':>12} ")
-        print("|" + "|".join(row) + "|")
-
-
 async def run(num_rows, num_runs):
     lib_names = [bench_chdb_native.NAME, bench_aaiclick.NAME]
     versions = [
@@ -156,17 +87,15 @@ async def run(num_rows, num_runs):
         f"{bench_aaiclick.NAME} {bench_aaiclick.VERSION}",
     ]
 
-    print(f"## chdb vs aaiclick Benchmark\n")
-    print(f"- Libraries: {', '.join(versions)}")
-    print(f"- Data: {num_rows:,} rows, {num_runs} runs per operation")
-    print(f"- Filter threshold: {FILTER_THRESHOLD}")
-    print(f"- Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}")
-    print(f"- Execution: serial (chdb context → aaiclick context, no overlap)\n")
+    console.print(f"\n[bold]chdb vs aaiclick Benchmark[/bold]")
+    console.print(f"  {', '.join(versions)}")
+    console.print(f"  {num_rows:,} rows, {num_runs} runs per operation")
+    console.print(f"  Filter threshold: {FILTER_THRESHOLD}")
+    console.print(f"  Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}")
+    console.print(f"  Serial execution (chdb context → aaiclick context)\n")
 
     raw_data = generate_raw_data(num_rows)
     results = {name: {} for name in BENCH_NAMES}
-
-    print("### Running benchmarks...\n")
 
     # Phase 1: chdb — open context, run all benchmarks, close context
     chdb_mod = bench_chdb_native
@@ -174,7 +103,7 @@ async def run(num_rows, num_runs):
         chdb_dataset = chdb_mod.convert(raw_data, FILTER_THRESHOLD)
         chdb_benchmarks = chdb_mod.make_benchmarks(FILTER_THRESHOLD)
 
-        print(f"  Ingest [chdb]...")
+        console.print(f"  Ingest [{chdb_mod.NAME}]...")
         t, m = measure_sync(
             lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
         )
@@ -183,7 +112,7 @@ async def run(num_rows, num_runs):
         for bench_name in BENCH_NAMES:
             if bench_name == "Ingest" or bench_name not in chdb_benchmarks:
                 continue
-            print(f"  {bench_name} [chdb]...")
+            console.print(f"  {bench_name} [{chdb_mod.NAME}]...")
             t, m = measure_sync(chdb_benchmarks[bench_name], chdb_dataset, num_runs)
             results[bench_name]["chdb"] = {"time": t, "memory": m}
 
@@ -193,7 +122,7 @@ async def run(num_rows, num_runs):
         aai_dataset = await aai_mod.convert(raw_data, FILTER_THRESHOLD)
         aai_benchmarks = aai_mod.make_benchmarks(FILTER_THRESHOLD)
 
-        print(f"  Ingest [aaiclick]...")
+        console.print(f"  Ingest [{aai_mod.NAME}]...")
         t, m = await measure_async(
             lambda d: aai_mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
         )
@@ -202,29 +131,11 @@ async def run(num_rows, num_runs):
         for bench_name in BENCH_NAMES:
             if bench_name == "Ingest" or bench_name not in aai_benchmarks:
                 continue
-            print(f"  {bench_name} [aaiclick]...")
+            console.print(f"  {bench_name} [{aai_mod.NAME}]...")
             t, m = await measure_async(aai_benchmarks[bench_name], aai_dataset, num_runs)
             results[bench_name]["aaiclick"] = {"time": t, "memory": m}
 
-    print_results(results, lib_names, num_rows, num_runs)
-
-    # Analysis section
-    print("\n### Performance Analysis\n")
-    print("**Sources of aaiclick overhead vs native chdb:**\n")
-    print("- **Ingest**: aaiclick uses `ch.insert()` (column-oriented binary protocol)")
-    print("  vs chdb's `INSERT...SELECT FROM Python(arrow_table)` (PyArrow zero-copy)")
-    print("- **Column sum**: aaiclick issues 2 queries (type lookup + INSERT...SELECT)")
-    print("  vs chdb's single `SELECT sum()`")
-    print("- **Column multiply**: aaiclick detects same-table columns and emits")
-    print("  `SELECT col_a * col_b FROM table`; remaining gap is CREATE TABLE overhead")
-    print("- **Filter/Sort**: both materialize results into tables;")
-    print("  aaiclick uses CREATE TABLE + INSERT, chdb uses CREATE TABLE ... AS SELECT")
-    print("- **Count distinct**: aaiclick `nunique()` uses fused")
-    print("  `SELECT count() FROM (... GROUP BY value)` — matches chdb's pattern")
-    print("- **Group-by**: aaiclick adds CREATE TABLE + INSERT overhead per query;")
-    print("  chdb also lacks `optimize_aggregation_in_order` (no MergeTree ORDER BY)")
-    print("- **Multi-agg**: aaiclick `.agg()` uses a single GROUP BY with all aggregates,")
-    print("  matching chdb's pattern (no per-aggregate overhead)")
+    print_results(results, BENCH_NAMES, lib_names, num_rows, num_runs)
 
 
 def main():
