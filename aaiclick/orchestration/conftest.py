@@ -11,10 +11,11 @@ import tempfile
 
 import pytest
 
+from sqlalchemy import text
 from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
-from aaiclick.orchestration.models import Job, JobStatus
+from aaiclick.orchestration.models import Job, JobStatus, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
 
 # Capture the original database name before any fixture modifies it
@@ -132,8 +133,9 @@ async def orch_ctx(_isolated_db):
     Function-scoped orch context for orchestration tests.
 
     Depends on _isolated_db to ensure the worker has its own database.
-    Cancels all non-terminal jobs on teardown so leftover PENDING tasks
-    don't leak into subsequent tests.
+    Cancels all non-terminal jobs on teardown and force-cancels any
+    orphan PENDING/CLAIMED/RUNNING tasks (e.g. from tests that set a
+    job to COMPLETED/FAILED without executing its tasks).
     """
     from aaiclick.orchestration.execution.claiming import cancel_job
 
@@ -147,3 +149,13 @@ async def orch_ctx(_isolated_db):
             )
             for (job_id,) in result.all():
                 await cancel_job(job_id)
+
+            # Cancel orphan tasks whose job is already terminal but task is not
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = :cancelled "
+                    "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+                ),
+                {"cancelled": TaskStatus.CANCELLED.value},
+            )
+            await session.commit()
