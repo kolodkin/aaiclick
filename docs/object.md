@@ -277,7 +277,28 @@ For `create_object_from_url()` (creates a new Object from a URL), see [DataConte
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated via `DEFAULT generateSnowflakeID()` — source `aai_id` values are not preserved. Order follows argument order. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
+
+## Order Preservation
+
+Order is preserved via **Snowflake IDs** — each row gets a globally unique `aai_id`:
+
+- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
+- **Globally unique**: Every row gets a unique `aai_id` — no duplicates across tables
+- **Insert/Concat behavior**: Generate fresh Snowflake IDs for inserted rows
+  - Order follows **argument order**: self first, then args left-to-right
+  - `DEFAULT generateSnowflakeID()` produces monotonically increasing IDs within each INSERT
+  - `data()` retrieves rows via `ORDER BY aai_id`
+
+```python
+obj_a = await create_object_from_value([1, 2, 3])
+obj_b = await create_object_from_value([4, 5, 6])
+
+result = await obj_a.concat(obj_b)  # Result: [1, 2, 3, 4, 5, 6]
+result = await obj_b.concat(obj_a)  # Result: [4, 5, 6, 1, 2, 3]
+```
+
+The `copy()`, `insert()`, and `concat()` operations all generate fresh Snowflake IDs.
 
 # Data Retrieval
 
