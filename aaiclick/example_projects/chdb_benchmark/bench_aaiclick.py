@@ -37,8 +37,10 @@ async def _filter(obj, filter_threshold):
 
 
 async def _sort(obj):
-    view = obj.view(order_by="amount DESC")
-    return await view.copy()
+    # copy() on sorted View: INSERT...SELECT...ORDER BY excluding aai_id,
+    # so new Snowflake IDs are generated in sorted insertion order.
+    # data() reads by aai_id → sorted by default. Single copy, single sort.
+    return await obj.view(order_by="amount DESC").copy()
 
 
 async def _count_distinct(obj):

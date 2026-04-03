@@ -707,13 +707,6 @@ class Object:
         else:
             result = await ingest.copy_db(copy_info, self.ch_client)
         oplog_record(result.table, "copy", kwargs={"source": source_table})
-
-        # Preserve ORDER BY: the copied table retains original aai_ids, so
-        # data() reads in creation order by default.  Wrap the result in a
-        # View with the same order_by so the sort is applied on read.
-        if self.order_by:
-            result = View(result, order_by=self.order_by)
-
         return result
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
@@ -2518,11 +2511,10 @@ class View(Object):
     def _get_copy_info(self) -> CopyInfo:
         """Get copy info for database-level copy operations.
 
-        Strips ORDER BY from the source query — copy() preserves sort order
-        as a View on the result instead, avoiding a wasted sort during INSERT.
+        ORDER BY is stripped from the source query and passed separately
+        via CopyInfo.order_by — copy_db() uses it to sort during INSERT
+        while excluding aai_id so new IDs are generated in sorted order.
         """
-        # Skip ORDER BY in the source query; copy() wraps the result
-        # in View(result, order_by=...) so the sort is applied on read.
         has_non_order_constraints = bool(
             self.where_clauses
             or self.limit is not None
@@ -2555,6 +2547,7 @@ class View(Object):
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
             col_fieldtype=self._schema.col_fieldtype,
+            order_by=self.order_by,
         )
 
     async def data(self, orient: str = ORIENT_DICT):
