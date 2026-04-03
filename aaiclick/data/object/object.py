@@ -249,13 +249,19 @@ class Object:
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(
+        self,
+        columns: str = "*",
+        default_order_by: Optional[str] = None,
+        skip_order_by: bool = False,
+    ) -> str:
         """
         Build a SELECT query with view constraints applied.
 
         Args:
             columns: Column specification (default "*")
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+            skip_order_by: If True, omit ORDER BY from the query.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -264,10 +270,10 @@ class Object:
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
-        # Use custom order_by if set, otherwise use default
-        order_clause = self.order_by or default_order_by
-        if order_clause:
-            query += f" ORDER BY {order_clause}"
+        if not skip_order_by:
+            order_clause = self.order_by or default_order_by
+            if order_clause:
+                query += f" ORDER BY {order_clause}"
         if self.limit is not None:
             query += f" LIMIT {self.limit}"
         if self.offset is not None:
@@ -2409,7 +2415,12 @@ class View(Object):
         merged.update(columns)
         return View(self, computed_columns=merged)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(
+        self,
+        columns: str = "*",
+        default_order_by: Optional[str] = None,
+        skip_order_by: bool = False,
+    ) -> str:
         """
         Build a SELECT query with view constraints applied.
 
@@ -2422,6 +2433,8 @@ class View(Object):
         Args:
             columns: Column specification (default "*", respected for field selection views)
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
+            skip_order_by: If True, omit ORDER BY from the query. Used by copy()
+                to avoid a wasted sort when the order is preserved as a View.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -2492,10 +2505,10 @@ class View(Object):
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
-        # Use custom order_by if set, otherwise use default
-        order_clause = self.order_by or default_order_by
-        if order_clause:
-            query += f" ORDER BY {order_clause}"
+        if not skip_order_by:
+            order_clause = self.order_by or default_order_by
+            if order_clause:
+                query += f" ORDER BY {order_clause}"
         if self.limit is not None:
             query += f" LIMIT {self.limit}"
         if self.offset is not None:
@@ -2503,8 +2516,26 @@ class View(Object):
         return query
 
     def _get_copy_info(self) -> CopyInfo:
-        """Get copy info for database-level copy operations."""
-        source_query = f"({self._build_select()})" if self.has_constraints else self.table
+        """Get copy info for database-level copy operations.
+
+        Strips ORDER BY from the source query — copy() preserves sort order
+        as a View on the result instead, avoiding a wasted sort during INSERT.
+        """
+        # Skip ORDER BY in the source query; copy() wraps the result
+        # in View(result, order_by=...) so the sort is applied on read.
+        has_non_order_constraints = bool(
+            self.where_clauses
+            or self.limit is not None
+            or self.offset is not None
+            or self.selected_fields
+            or self.computed_columns
+            or self.renamed_columns
+            or self.exploded_columns
+        )
+        if has_non_order_constraints:
+            source_query = f"({self._build_select(skip_order_by=True)})"
+        else:
+            source_query = self.table
         columns = dict(self._schema.columns)
 
         # Include computed columns in destination schema so copy() materializes them
