@@ -8,6 +8,15 @@ Technical Debt
   - **Context**: `copy()` already generates fresh `aai_id` values (excludes `aai_id` from INSERT, lets `DEFAULT generateSnowflakeID()` fire). `insert()` and `concat()` should follow the same pattern for consistency.
   - **Fix**: Exclude `aai_id` from the SELECT in `_insert_source()` so fresh Snowflake IDs are generated for every inserted row. This ensures globally unique IDs and deterministic `ORDER BY aai_id` ordering. The original CLAUDE.md guidance ("preserve existing Snowflake IDs from source data") should be revised — ClickHouse does not guarantee row order without `ORDER BY`, so `aai_id` uniqueness is the only ordering contract.
 
+# chdb `LowCardinality(String)` sort is ~x10 slower than plain `String`
+
+- **`INSERT...SELECT...ORDER BY` on `LowCardinality(String)` columns is ~10x slower than `String` in chdb**
+  - **Symptom**: Sort benchmark shows x15 aaiclick overhead vs native chdb. Root cause: aaiclick infers `LowCardinality(String)` for dictionary-encoded PyArrow string columns, while the native benchmark uses plain `String`. The performance gap is entirely in chdb's handling of `LowCardinality` during sorted inserts (822ms vs 83ms at 1M rows).
+  - **Confirmed**: Identical `INSERT...SELECT...ORDER BY` on the same chdb Session takes 130ms with `String` columns and 1.6 sec with `LowCardinality(String)` — same data, same engine, same query.
+  - **This is a chdb bug**: `LowCardinality` should be faster for sorting (dictionary encoding reduces comparison cost), not 10x slower. Regular ClickHouse server does not exhibit this behavior.
+  - **Workaround options**: (1) Stop inferring `LowCardinality` in `create_object_from_value()`, (2) Cast to plain `String` before sorted operations, (3) Wait for chdb fix.
+  - **Impact**: Sort, filter+copy, and any operation that materializes large `LowCardinality(String)` columns via `INSERT...SELECT`.
+
 # chdb `url()` Table Function
 
 - **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/data_context/chdb_client.py`)

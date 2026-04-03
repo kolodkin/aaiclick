@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
-from aaiclick.backend import is_chdb
+from aaiclick.backend import get_ch_url, is_chdb
 
 
 class QueryResult(Protocol):
@@ -52,12 +52,18 @@ def get_ch_client() -> ChClient:
     return client
 
 
-async def create_ch_client() -> ChClient:
-    """Create a ClickHouse client from AAICLICK_CH_URL."""
-    if is_chdb():
+async def create_ch_client(ch_url: str | None = None) -> ChClient:
+    """Create a ClickHouse client.
+
+    Args:
+        ch_url: Optional connection URL override. If None, uses AAICLICK_CH_URL.
+    """
+    url = ch_url or get_ch_url()
+    if url.startswith("chdb://"):
         from .chdb_client import create_chdb_client
 
-        return create_chdb_client()
+        path = url.removeprefix("chdb://") or None
+        return create_chdb_client(path)
 
     from .clickhouse_client import create_clickhouse_client
 

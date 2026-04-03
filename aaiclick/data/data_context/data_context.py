@@ -92,9 +92,10 @@ async def flush_tables() -> None:
     Raises:
         RuntimeError: If called outside a ``data_context()``.
     """
-    lifecycle = get_data_lifecycle()
-    assert lifecycle is not None, "flush_tables() requires an active data_context()"
-    await lifecycle.flush()
+    lc = get_data_lifecycle()
+    if lc is None:
+        return  # lifecycle=False mode — no worker to flush
+    await lc.flush()
 
 
 def register_object(obj: object) -> None:
@@ -138,12 +139,14 @@ async def delete_object(obj: object) -> None:
 @asynccontextmanager
 async def data_context(
     engine: EngineType | None = None,
+    lifecycle: bool = True,
+    ch_url: str | None = None,
 ) -> AsyncIterator[None]:
     """Async context manager for standalone data operations.
 
     Sets per-resource ContextVars for the duration of the block:
     - ChClient (ch_client.py)
-    - LocalLifecycleHandler (lifecycle.py)
+    - LocalLifecycleHandler (lifecycle.py) — unless ``lifecycle=False``
     - EngineType and object registry (data_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
@@ -151,17 +154,25 @@ async def data_context(
 
     Args:
         engine: ClickHouse table engine. Defaults to Memory (RAM).
+        lifecycle: If False, skip the lifecycle worker (no automatic table
+            cleanup). Tables must be dropped manually. Useful for benchmarks
+            to isolate lifecycle overhead.
+        ch_url: Optional ClickHouse connection URL override. If None, uses
+            AAICLICK_CH_URL env var. Pass ``"chdb://:memory:"`` for an
+            in-memory chdb session.
     """
-    ch_client = await create_ch_client()
+    ch_client = await create_ch_client(ch_url)
     effective_engine = engine if engine is not None else ENGINE_MEMORY
 
-    lifecycle = LocalLifecycleHandler(ch_client)
-    await lifecycle.start()
+    lc_handler = None
+    if lifecycle:
+        lc_handler = LocalLifecycleHandler(ch_client)
+        await lc_handler.start()
 
     objects: Dict[int, weakref.ref] = {}
 
     ch_token = _ch_client_var.set(ch_client)
-    lc_token = _lifecycle_var.set(lifecycle)
+    lc_token = _lifecycle_var.set(lc_handler)
     eng_token = _engine_var.set(effective_engine)
     obj_token = _objects_var.set(objects)
 
@@ -175,7 +186,8 @@ async def data_context(
                 obj._stale = True
         objects.clear()
 
-        await lifecycle.stop()
+        if lc_handler is not None:
+            await lc_handler.stop()
 
         # Reset all ContextVars
         _objects_var.reset(obj_token)
@@ -378,7 +390,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     """
     if isinstance(value, list):
         if not value:
-            return ColumnInfo("String", low_cardinality=True)
+            return ColumnInfo("String")
 
         arr = pa.array(value)
         pa_type = arr.type
@@ -392,7 +404,7 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         elif pa.types.is_floating(pa_type):
             return ColumnInfo("Float64")
         else:
-            return ColumnInfo("String", low_cardinality=True)
+            return ColumnInfo("String")
 
     if isinstance(value, bool):
         return ColumnInfo("Bool")
@@ -403,9 +415,9 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
     elif isinstance(value, float):
         return ColumnInfo("Float64")
     elif isinstance(value, str):
-        return ColumnInfo("String", low_cardinality=True)
+        return ColumnInfo("String")
     else:
-        return ColumnInfo("String", low_cardinality=True)
+        return ColumnInfo("String")
 
 
 def _find_non_empty_nested_sample(records: list, key: str) -> dict:

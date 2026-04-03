@@ -163,8 +163,8 @@ def main():
     parser.add_argument("--runs", type=int, default=10, help="Runs per operation")
     args = parser.parse_args()
 
-    # Use in-memory chdb session for benchmark — matches native chdb's Session()
-    # and avoids stale table catalog from previous runs.
+    # Use in-memory chdb — must be set before any Session is created
+    # (including snowflake ID generator). chdb allows only one path per process.
     os.environ["AAICLICK_CH_URL"] = "chdb://:memory:"
 
     asyncio.run(run(args.rows, args.runs))
