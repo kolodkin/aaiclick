@@ -31,6 +31,13 @@ Both `debug_agent` and `lineage_agent` build context from the oplog graph but ne
 1. **Schema injection** — fetch `DESCRIBE TABLE` for every node before the agentic loop and include in the initial context message.
 2. **`get_column_stats` tool** — replace `get_stats(table, column)` with a schema-first tool that returns stats for all columns without requiring the LLM to know column names upfront.
 
+## Lineage: aai_id Uniqueness Awareness
+
+Now that `insert()` and `concat()` generate fresh Snowflake IDs (instead of preserving source IDs),
+the lineage agent should account for the fact that `aai_id` values differ between source and target
+tables after insert/concat. Row-level tracing across insert/concat boundaries cannot rely on `aai_id`
+matching — the agent needs to use data-value matching or oplog provenance metadata instead.
+
 ---
 
 # Oplog

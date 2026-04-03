@@ -243,7 +243,7 @@ For `create_object_from_url()` (creates a new Object from a URL), see [DataConte
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated via `DEFAULT generateSnowflakeID()` — source `aai_id` values are not preserved. Order follows argument order. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
 
 # Data Retrieval
 

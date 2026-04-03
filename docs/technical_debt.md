@@ -1,13 +1,9 @@
 Technical Debt
 ---
 
-# `insert()` / `concat()` preserve source `aai_id` values
+# ~~`insert()` / `concat()` preserve source `aai_id` values~~ ✅ RESOLVED
 
-- **`_insert_source()`** (`aaiclick/data/object/ingest.py`)
-  - **Issue**: `insert()` and `concat()` copy the source `aai_id` values verbatim (`SELECT aai_id, ... FROM source`). If the same source is inserted twice into one table, or two copies of the same data are concatenated, the target table ends up with **duplicate `aai_id` values**. Since `data()` reads with `ORDER BY aai_id`, duplicates make row ordering non-deterministic.
-  - **Context**: `copy()` already generates fresh `aai_id` values (excludes `aai_id` from INSERT, lets `DEFAULT generateSnowflakeID()` fire). `insert()` and `concat()` should follow the same pattern for consistency.
-  - **Fix**: Exclude `aai_id` from the SELECT in `_insert_source()` so fresh Snowflake IDs are generated for every inserted row. This ensures globally unique IDs and deterministic `ORDER BY aai_id` ordering. The original CLAUDE.md guidance ("preserve existing Snowflake IDs from source data") should be revised — ClickHouse does not guarantee row order without `ORDER BY`, so `aai_id` uniqueness is the only ordering contract.
-  - **Caveat**: With fresh IDs, concurrent inserts from multiple workers into the same table within the same millisecond could produce interleaved Snowflake IDs. See `docs/future.md` — "Insert Advisory Lock for Concurrent Workers".
+Fixed: `_insert_source()` now excludes `aai_id` from SELECT, generating fresh Snowflake IDs via `DEFAULT generateSnowflakeID()`. Order follows argument order. See `docs/future.md` — "Insert Advisory Lock for Concurrent Workers" for the concurrent-insert caveat.
 
 # chdb `url()` Table Function
 
