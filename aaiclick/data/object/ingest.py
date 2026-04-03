@@ -171,11 +171,12 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     # Always exclude aai_id — copies get fresh Snowflake IDs.
     # Preserving source aai_ids would cause duplicates when two copies
     # are inserted into the same table, breaking ORDER BY aai_id.
-    # For sorted copies, ORDER BY with aai_id tiebreak ensures stable sort
-    # and new IDs are generated in sorted insertion order.
+    # For sorted copies, ORDER BY determines insertion order; fresh
+    # generateSnowflakeID() values are monotonic within the INSERT,
+    # so data() (ORDER BY aai_id) returns rows in sorted order.
     data_cols = [c for c in copy_info.columns if c != "aai_id"]
     cols_str = ", ".join(data_cols)
-    order_clause = f" ORDER BY {copy_info.order_by}, aai_id" if copy_info.order_by else ""
+    order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
     insert_query = (
         f"INSERT INTO {result.table} ({cols_str})"
         f" SELECT {cols_str} FROM {copy_info.source_query}{alias}"
