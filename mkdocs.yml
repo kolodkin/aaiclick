@@ -89,4 +89,5 @@ nav:
     - Data: api/data.md
     - Orchestration: api/orchestration.md
     - AI: api/ai.md
+  - Glossary: glossary.md
   - License: LICENSE.md

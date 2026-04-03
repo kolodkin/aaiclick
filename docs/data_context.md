@@ -31,18 +31,31 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 ## Deployment Modes
 
-`AAICLICK_CH_URL` selects the ClickHouse backend: `chdb:///path` (embedded, default) or `clickhouse://user:pass@host:8123/db` (remote server). Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
+`AAICLICK_CH_URL` selects the ClickHouse backend. Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
+
+=== "Local (default)"
+
+    Embedded chdb — no server needed:
+
+    ```bash
+    export AAICLICK_CH_URL="chdb:///~/.aaiclick/chdb_data"
+    export AAICLICK_SQL_URL="sqlite+aiosqlite:///~/.aaiclick/local.db"
+    ```
+
+=== "Distributed"
+
+    Remote ClickHouse + PostgreSQL:
+
+    ```bash
+    export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
+    export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
+    ```
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
 chdb inserts use pyarrow's `Python()` table function. ClickHouse type strings are mapped to pyarrow types via `_ch_type_to_pa()` in `chdb_client.py`, tested by `test_ch_type_to_pa.py`.
 
 See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
-
-??? info "Which deployment mode?"
-    Start with the default (chdb + SQLite) — it needs zero setup.
-    Switch to distributed (remote ClickHouse + PostgreSQL) when data
-    exceeds local disk or you need multiple workers.
 
 ## Object Lifecycle and Staleness
 

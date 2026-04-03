@@ -69,42 +69,42 @@ For runnable examples, see `examples/basic_operators.py`.
 
 For runnable examples, see `examples/basic_operators.py`.
 
-## Arithmetic Operators
+??? note "Arithmetic Operators"
 
-| Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
-|-----------------|----------------|-----------------------|-----------------|-------------------|
-| `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
-| `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
-| `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
-| `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
-| `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
-| `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
-| `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
+    | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
+    |-----------------|----------------|-----------------------|-----------------|-------------------|
+    | `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
+    | `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
+    | `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
+    | `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
+    | `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
+    | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
+    | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 ## Arithmetic Type Promotion
 
 Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/operators.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
 
-## Comparison Operators
+??? note "Comparison Operators"
 
-| Python Operator | Description           | ClickHouse Equivalent | Python Method |
-|-----------------|-----------------------|-----------------------|---------------|
-| `==`            | Equal                 | `=`                   | `__eq__`      |
-| `!=`            | Not Equal             | `!=`                  | `__ne__`      |
-| `<`             | Less Than             | `<`                   | `__lt__`      |
-| `<=`            | Less Than or Equal    | `<=`                  | `__le__`      |
-| `>`             | Greater Than          | `>`                   | `__gt__`      |
-| `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
+    | Python Operator | Description           | ClickHouse Equivalent | Python Method |
+    |-----------------|-----------------------|-----------------------|---------------|
+    | `==`            | Equal                 | `=`                   | `__eq__`      |
+    | `!=`            | Not Equal             | `!=`                  | `__ne__`      |
+    | `<`             | Less Than             | `<`                   | `__lt__`      |
+    | `<=`            | Less Than or Equal    | `<=`                  | `__le__`      |
+    | `>`             | Greater Than          | `>`                   | `__gt__`      |
+    | `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
-Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
+    Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
 
-## Bitwise Operators
+??? note "Bitwise Operators"
 
-| Python Operator | Description | ClickHouse Equivalent | Forward Method | Reverse Method |
-|-----------------|-------------|-----------------------|----------------|----------------|
-| `&`             | Bitwise AND | `bitAnd()`            | `__and__`      | `__rand__`     |
-| `\|`            | Bitwise OR  | `bitOr()`             | `__or__`       | `__ror__`      |
-| `^`             | Bitwise XOR | `bitXor()`            | `__xor__`      | `__rxor__`     |
+    | Python Operator | Description | ClickHouse Equivalent | Forward Method | Reverse Method |
+    |-----------------|-------------|-----------------------|----------------|----------------|
+    | `&`             | Bitwise AND | `bitAnd()`            | `__and__`      | `__rand__`     |
+    | `\|`            | Bitwise OR  | `bitOr()`             | `__or__`       | `__ror__`      |
+    | `^`             | Bitwise XOR | `bitXor()`            | `__xor__`      | `__rxor__`     |
 
 ## Aggregation Operators
 
@@ -239,11 +239,9 @@ Insert data from a URL into an existing Object. Schema created once, multiple wo
 
 For `create_object_from_url()` (creates a new Object from a URL), see [DataContext documentation](data_context.md).
 
-## Shared Insert Mechanics
+??? note "Shared insert mechanics"
 
-**Implementation**: `aaiclick/data/ingest.py` — see `_insert_source()`
-
-Both `insert()` and `concat()` delegate to `_insert_source()` which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. This shared helper takes a `dict[str, ColumnInfo]` mapping data column names to their target types. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()` — the computed SQL expressions are embedded in the View's subquery.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT aai_id, CAST(...) FROM source` per source. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
 
 # Data Retrieval
 
@@ -359,38 +357,28 @@ Flattens Array column(s) into individual rows. Each array element becomes its ow
 
 **Examples**: See `aaiclick/data/object/test_with_columns.py` for usage patterns including basic computed columns, chaining, group_by integration, and error cases.
 
-## Result Schema Rules
-
-The result is always a **View** with dict-like schema (`fieldtype='d'`):
-
-| Source Type           | Behavior                                                          |
-|-----------------------|-------------------------------------------------------------------|
-| Array (`value` col)   | View selects `value` + computed columns → promotes to dict        |
-| Dict (named columns)  | View selects all existing columns + computed columns              |
-| Scalar                | **Rejected** — raises `ValueError`                                |
-| View (single field)   | View selects source field + computed columns                      |
-| View (multi field)    | View selects selected fields + computed columns                   |
-| View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
-
-## Column Name Collision
-
-Computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace. To replace an existing column, work with the raw SQL pattern.
-
-## Implementation Details
-
-**ViewSchema extension**: `ViewSchema` gains a `computed_columns: Optional[Dict[str, Computed]]` field — see `aaiclick/data/models.py`.
-
-**View._build_select()**: When `computed_columns` is set, expands `*` to explicit columns plus `expr AS name` for each computed column — see `aaiclick/data/object.py`.
-
 ## Chaining
 
 `with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
 
-## Security: SQL Expression Validation
+??? note "with_columns() internals"
 
-SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons (prevents statement injection) and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time.
+    **Result Schema Rules** — the result is always a View with dict-like schema (`fieldtype='d'`):
 
-**Implementation**: `aaiclick/data/object.py` — see `_validate_expression()`
+    | Source Type           | Behavior                                                          |
+    |-----------------------|-------------------------------------------------------------------|
+    | Array (`value` col)   | View selects `value` + computed columns → promotes to dict        |
+    | Dict (named columns)  | View selects all existing columns + computed columns              |
+    | Scalar                | **Rejected** — raises `ValueError`                                |
+    | View (single field)   | View selects source field + computed columns                      |
+    | View (multi field)    | View selects selected fields + computed columns                   |
+    | View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
+
+    **Column Name Collision** — computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace.
+
+    **Implementation** — `ViewSchema` gains a `computed_columns` field (`aaiclick/data/models.py`). `View._build_select()` expands `*` to explicit columns plus `expr AS name` for each computed column.
+
+    **Security** — SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time. See `_validate_expression()`.
 
 ## Domain Helpers
 

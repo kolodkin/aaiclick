@@ -3,42 +3,34 @@ Getting Started
 
 # Installation
 
-The base install includes embedded [chdb](https://clickhouse.com/docs/chdb) and SQLite — no external
-servers needed:
+=== "Local (chdb + SQLite)"
 
-```bash
-pip install aaiclick
-```
+    No external servers needed — embedded ClickHouse and SQLite included:
 
-For a distributed deployment against a remote ClickHouse server and PostgreSQL, add the
-`distributed` extra:
+    ```bash
+    pip install aaiclick
+    python -m aaiclick setup
+    ```
 
-```bash
-pip install "aaiclick[distributed]"
-```
+=== "Distributed (ClickHouse + PostgreSQL)"
 
-For AI features (lineage tracing, debug agents):
+    For a remote ClickHouse server and PostgreSQL:
 
-```bash
-pip install "aaiclick[ai]"
-# or everything at once:
-pip install "aaiclick[all]"
-```
+    ```bash
+    pip install "aaiclick[distributed]"
+    export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
+    export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
+    ```
 
-To build the documentation locally:
+=== "AI Features"
 
-```bash
-pip install -r docs/requirements-docs.txt
-mkdocs serve
-```
+    Add lineage tracing and debug agents:
 
-# First Run
-
-Initialize local storage (creates `~/.aaiclick/` with chdb data and SQLite database):
-
-```bash
-python -m aaiclick setup
-```
+    ```bash
+    pip install "aaiclick[ai]"
+    # or everything at once:
+    pip install "aaiclick[all]"
+    ```
 
 # Quick Example
 
