@@ -15,8 +15,8 @@ VERSION = aaiclick.__version__
 IS_ASYNC = True
 
 
-def context(lifecycle=False):
-    return data_context(lifecycle=lifecycle)
+def context():
+    return data_context()
 
 
 async def convert(data, filter_threshold):

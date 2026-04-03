@@ -110,15 +110,4 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 Tables are reference-counted and dropped when no Objects reference them. `data_context()` creates a `LocalLifecycleHandler` (async `AsyncTableWorker` task) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `PgCleanupWorker`.
 
-`flush_tables()` drains the lifecycle worker queue, blocking until all pending DROP TABLE operations complete. Useful for releasing memory deterministically (e.g. between benchmark iterations):
-
-```python
-from aaiclick import flush_tables
-
-async with data_context():
-    result = await some_operation(obj)
-    del result           # schedules DROP via decref
-    await flush_tables() # waits until DROP completes
-```
-
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.

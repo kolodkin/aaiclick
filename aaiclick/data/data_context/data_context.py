@@ -81,23 +81,6 @@ def decref(table_name: str) -> None:
         lifecycle.decref(table_name)
 
 
-async def flush_tables() -> None:
-    """Wait until all pending table drops have completed.
-
-    Drains the lifecycle worker queue so that every decref already
-    scheduled has been processed and the corresponding DROP TABLE
-    executed.  Call this to release memory between benchmark iterations
-    or whenever deterministic cleanup is needed.
-
-    Raises:
-        RuntimeError: If called outside a ``data_context()``.
-    """
-    lc = get_data_lifecycle()
-    if lc is None:
-        return  # lifecycle=False mode — no worker to flush
-    await lc.flush()
-
-
 def register_object(obj: object) -> None:
     """Register an Object so it is marked stale when the enclosing context exits.
 
@@ -139,14 +122,12 @@ async def delete_object(obj: object) -> None:
 @asynccontextmanager
 async def data_context(
     engine: EngineType | None = None,
-    lifecycle: bool = True,
-    ch_url: str | None = None,
 ) -> AsyncIterator[None]:
     """Async context manager for standalone data operations.
 
     Sets per-resource ContextVars for the duration of the block:
     - ChClient (ch_client.py)
-    - LocalLifecycleHandler (lifecycle.py) — unless ``lifecycle=False``
+    - LocalLifecycleHandler (lifecycle.py)
     - EngineType and object registry (data_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
@@ -154,25 +135,17 @@ async def data_context(
 
     Args:
         engine: ClickHouse table engine. Defaults to Memory (RAM).
-        lifecycle: If False, skip the lifecycle worker (no automatic table
-            cleanup). Tables must be dropped manually. Useful for benchmarks
-            to isolate lifecycle overhead.
-        ch_url: Optional ClickHouse connection URL override. If None, uses
-            AAICLICK_CH_URL env var. Pass ``"chdb://:memory:"`` for an
-            in-memory chdb session.
     """
-    ch_client = await create_ch_client(ch_url)
+    ch_client = await create_ch_client()
     effective_engine = engine if engine is not None else ENGINE_MEMORY
 
-    lc_handler = None
-    if lifecycle:
-        lc_handler = LocalLifecycleHandler(ch_client)
-        await lc_handler.start()
+    lifecycle = LocalLifecycleHandler(ch_client)
+    await lifecycle.start()
 
     objects: Dict[int, weakref.ref] = {}
 
     ch_token = _ch_client_var.set(ch_client)
-    lc_token = _lifecycle_var.set(lc_handler)
+    lc_token = _lifecycle_var.set(lifecycle)
     eng_token = _engine_var.set(effective_engine)
     obj_token = _objects_var.set(objects)
 
@@ -186,8 +159,7 @@ async def data_context(
                 obj._stale = True
         objects.clear()
 
-        if lc_handler is not None:
-            await lc_handler.stop()
+        await lifecycle.stop()
 
         # Reset all ContextVars
         _objects_var.reset(obj_token)

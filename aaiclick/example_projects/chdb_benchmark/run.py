@@ -16,8 +16,6 @@ import random
 import time
 import tracemalloc
 
-from aaiclick import flush_tables
-
 from . import bench_aaiclick, bench_chdb_native
 from .report import console, print_results
 
@@ -51,10 +49,8 @@ def generate_raw_data(num_rows):
     }
 
 
-def measure_sync(fn, data, num_runs, cleanup_fn=None):
+def measure_sync(fn, data, num_runs):
     fn(data)  # warmup
-    if cleanup_fn:
-        cleanup_fn()
     times = []
     peak_mem = 0
     for _ in range(num_runs):
@@ -66,15 +62,11 @@ def measure_sync(fn, data, num_runs, cleanup_fn=None):
         tracemalloc.stop()
         times.append(elapsed)
         peak_mem = max(peak_mem, peak)
-        if cleanup_fn:
-            cleanup_fn()
     return sum(times) / num_runs, peak_mem
 
 
-async def measure_async(fn, data, num_runs, cleanup_fn=None):
+async def measure_async(fn, data, num_runs):
     await fn(data)  # warmup
-    if cleanup_fn:
-        await cleanup_fn()
     times = []
     peak_mem = 0
     for _ in range(num_runs):
@@ -86,8 +78,6 @@ async def measure_async(fn, data, num_runs, cleanup_fn=None):
         tracemalloc.stop()
         times.append(elapsed)
         peak_mem = max(peak_mem, peak)
-        if cleanup_fn:
-            await cleanup_fn()
     return sum(times) / num_runs, peak_mem
 
 
@@ -117,19 +107,17 @@ async def run(num_rows, num_runs):
         console.print(f"  Ingest [{chdb_mod.NAME}]...")
         t, m = measure_sync(
             lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
-            cleanup_fn=chdb_mod.cleanup_results,
         )
         results["Ingest"]["chdb"] = {"time": t, "memory": m}
+        chdb_mod.cleanup_results()
 
         for bench_name in BENCH_NAMES:
             if bench_name == "Ingest" or bench_name not in chdb_benchmarks:
                 continue
             console.print(f"  {bench_name} [{chdb_mod.NAME}]...")
-            t, m = measure_sync(
-                chdb_benchmarks[bench_name], chdb_dataset, num_runs,
-                cleanup_fn=chdb_mod.cleanup_results,
-            )
+            t, m = measure_sync(chdb_benchmarks[bench_name], chdb_dataset, num_runs)
             results[bench_name]["chdb"] = {"time": t, "memory": m}
+            chdb_mod.cleanup_results()
 
     # Phase 2: aaiclick — open context, run all benchmarks, close context
     aai_mod = bench_aaiclick
@@ -140,7 +128,6 @@ async def run(num_rows, num_runs):
         console.print(f"  Ingest [{aai_mod.NAME}]...")
         t, m = await measure_async(
             lambda d: aai_mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
-            cleanup_fn=flush_tables,
         )
         results["Ingest"]["aaiclick"] = {"time": t, "memory": m}
 
@@ -148,10 +135,7 @@ async def run(num_rows, num_runs):
             if bench_name == "Ingest" or bench_name not in aai_benchmarks:
                 continue
             console.print(f"  {bench_name} [{aai_mod.NAME}]...")
-            t, m = await measure_async(
-                aai_benchmarks[bench_name], aai_dataset, num_runs,
-                cleanup_fn=flush_tables,
-            )
+            t, m = await measure_async(aai_benchmarks[bench_name], aai_dataset, num_runs)
             results[bench_name]["aaiclick"] = {"time": t, "memory": m}
 
     print_results(results, BENCH_NAMES, lib_names, num_rows, num_runs)
