@@ -277,10 +277,44 @@ def _ch_type_to_pa(ch_type: str) -> pa.DataType:
     if ch_type.startswith("Array("):
         return pa.list_(_ch_type_to_pa(ch_type[6:-1]))
     if ch_type.startswith("Map("):
-        inner = ch_type[4:-1]
-        key_type, val_type = inner.split(", ", 1)
+        key_type, val_type = _split_map_args(ch_type[4:-1])
         return pa.map_(_ch_type_to_pa(key_type), _ch_type_to_pa(val_type))
+    if ch_type.startswith("Tuple("):
+        elem_types = _split_top_level(ch_type[6:-1])
+        return pa.struct(
+            [(f"f{i}", _ch_type_to_pa(t)) for i, t in enumerate(elem_types)]
+        )
     return pa.string()
+
+
+def _split_map_args(inner: str) -> tuple[str, str]:
+    """Split Map(K, V) arguments respecting nested parentheses."""
+    depth = 0
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return inner[:i].strip(), inner[i + 1:].strip()
+    return inner, ""
+
+
+def _split_top_level(inner: str) -> list[str]:
+    """Split comma-separated type arguments respecting nested parentheses."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(inner[start:i].strip())
+            start = i + 1
+    parts.append(inner[start:].strip())
+    return parts
 
 
 def get_chdb_data_path() -> str:
