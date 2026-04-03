@@ -91,11 +91,7 @@ asyncio.run(main())
 
 ## Documentation
 
-- [Getting Started](https://aaiclick.readthedocs.io/en/latest/getting_started/) — installation, setup, quick example
-- [Object API](https://aaiclick.readthedocs.io/en/latest/object/) — operators, aggregations, views, group by
-- [Orchestration](https://aaiclick.readthedocs.io/en/latest/orchestration/) — `@task` and `@job` decorators, workers
-- [Examples](https://aaiclick.readthedocs.io/en/latest/examples/basic_operators/) — runnable scripts for every feature
-- [API Reference](https://aaiclick.readthedocs.io/en/latest/api/data/) — auto-generated from docstrings
+[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/latest/)
 
 ## License
 
