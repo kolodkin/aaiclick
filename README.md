@@ -57,18 +57,17 @@ async def analyze(sales):
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()
+    # analyze waits for load_sales — dependencies resolved from arguments
     result = analyze(sales=sales)
-    return tasks_list(sales, result)
+    return result
+
+if __name__ == "__main__":
+    from aaiclick.orchestration import job_test
+    job_test(sales_pipeline)  # runs all tasks locally for debugging
 ```
 
-Run locally for development or deploy with workers for production:
-
 ```bash
-# Test locally
-python -c "from myapp import sales_pipeline; from aaiclick.orchestration import job_test; job_test(sales_pipeline)"
-
-# Production: start workers
-python -m aaiclick worker start
+python sales_pipeline.py
 ```
 
 ## Data Operation Only Mode
