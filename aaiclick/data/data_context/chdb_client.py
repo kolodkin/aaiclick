@@ -123,7 +123,6 @@ class ChdbClient:
 
     def __init__(self, session: Session):
         self._session = session
-        self._schema_cache: dict[str, dict[str, pa.DataType]] = {}
 
     @property
     def session(self) -> Session:
@@ -207,34 +206,14 @@ class ChdbClient:
             cols_data = [list(col) for col in zip(*data)]
 
         if column_type_names:
-            pa_types = {name: _ch_type_to_pa(ct) for name, ct in zip(names, column_type_names)}
+            pa_types = [_ch_type_to_pa(ct) for ct in column_type_names]
         else:
-            pa_types = self._get_pa_types(table, names)
+            pa_types = [None] * len(names)
         arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: _make_pa_array(col, pa_types.get(name)) for name, col in zip(names, cols_data)}
+            {name: _make_pa_array(col, pa_type) for name, col, pa_type in zip(names, cols_data, pa_types)}
         )
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
-
-    def _get_pa_types(self, table: str, columns: list[str]) -> dict[str, pa.DataType]:
-        """Look up pyarrow types for columns from the table schema.
-
-        Caches per table to avoid repeated system.columns queries.
-        """
-        if table not in self._schema_cache:
-            result = self._session.query(
-                f"SELECT name, type FROM system.columns WHERE table = '{table}'",
-                "Arrowtable",
-            )
-            if result and result.num_rows > 0:
-                d = result.to_pydict()
-                self._schema_cache[table] = {
-                    name: _ch_type_to_pa(ch_type) for name, ch_type in zip(d["name"], d["type"])
-                }
-            else:
-                self._schema_cache[table] = {}
-        schema = self._schema_cache[table]
-        return {col: schema[col] for col in columns if col in schema}
 
     def cleanup(self) -> None:
         """Clean up the chdb session."""

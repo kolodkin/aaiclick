@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS
 
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
@@ -93,13 +94,13 @@ class OplogCollector:
                 ]
                 for ev in self._buffer
             ]
+            _oplog_cols = ["result_table", "operation", "args", "kwargs",
+                           "sql_template", "task_id", "job_id", "created_at"]
             await ch_client.insert(
                 "operation_log",
                 rows,
-                column_names=[
-                    "result_table", "operation", "args", "kwargs",
-                    "sql_template", "task_id", "job_id", "created_at",
-                ],
+                column_names=_oplog_cols,
+                column_type_names=[OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _oplog_cols],
             )
 
         if self._table_buffer:
@@ -107,10 +108,12 @@ class OplogCollector:
                 [tbl, self.job_id, self.task_id, now]
                 for tbl in self._table_buffer
             ]
+            _reg_cols = ["table_name", "job_id", "task_id", "created_at"]
             await ch_client.insert(
                 "table_registry",
                 table_rows,
-                column_names=["table_name", "job_id", "task_id", "created_at"],
+                column_names=_reg_cols,
+                column_type_names=[TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _reg_cols],
             )
 
 
