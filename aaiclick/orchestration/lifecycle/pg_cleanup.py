@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
@@ -63,9 +62,7 @@ class PgCleanupWorker:
         else:
             from clickhouse_connect import get_async_client
 
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
-                self._ch_client = await get_async_client(**parse_ch_url())
+            self._ch_client = await get_async_client(**parse_ch_url())
         self._shutdown = asyncio.Event()
         self._task = asyncio.create_task(self._cleanup_loop())
 
