@@ -82,8 +82,6 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Code Quality
 
-- **Fail on warnings**: pytest is configured with `-W error` flag
-- All warnings are treated as errors in tests
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
