@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
@@ -23,6 +24,10 @@ from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
 from ..env import get_db_url
 
 logger = logging.getLogger(__name__)
+
+# clickhouse-connect >=0.15 emits a FutureWarning about the async client
+# being a thread-pool wrapper. Safe to ignore until 1.0 ships native async.
+warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
 
 DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0

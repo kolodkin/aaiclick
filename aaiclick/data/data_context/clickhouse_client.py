@@ -5,11 +5,16 @@ Creates an AsyncClient for distributed ClickHouse servers using
 clickhouse-connect with a shared urllib3 connection pool.
 """
 
+import warnings
 from urllib.parse import urlparse
 
 from urllib3 import PoolManager
 
 from aaiclick.backend import get_ch_url
+
+# clickhouse-connect >=0.15 emits a FutureWarning about the async client
+# being a thread-pool wrapper. Safe to ignore until 1.0 ships native async.
+warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
 
 # Global connection pool shared across all contexts
 _pool: list = [None]
