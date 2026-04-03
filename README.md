@@ -56,7 +56,7 @@ async def analyze(sales):
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()
-    # analyze waits for load_sales — dependencies resolved from arguments
+    # dependencies resolved from arguments
     result = analyze(sales=sales)
     return result
 
