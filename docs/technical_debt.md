@@ -11,9 +11,9 @@ Technical Debt
 # Flaky `test_claim_respects_group_dependency` in orch-dist
 
 - **`claim_next_task()`** (`aaiclick/orchestration/execution/claiming.py`)
-  - **Issue**: `claim_next_task` claims the next PENDING task across all jobs. Under `pytest -n auto`, multiple tests run in the same xdist worker (same DB). Leftover tasks from a previous test can be claimed by the next test, causing assertion failures on task ID comparisons.
+  - **Issue**: `claim_next_task` claims the next PENDING task across all jobs — correct by design for production workers. But under `pytest -n auto`, multiple tests run sequentially in the same xdist worker (same DB). Leftover PENDING tasks from a prior test can be claimed by the next test, causing assertion failures on task ID comparisons.
   - **Observed**: `test_claim_respects_group_dependency` (`test_worker.py:429`) intermittently fails on orch-dist CI — the worker claims a `failing_task` from a prior test instead of the expected `simple_task`.
-  - **Fix**: Add an optional `job_id` filter to `claim_next_task()` and the `DbHandler.claim_next_task()` implementations (both `pg_handler.py` and `sqlite_handler.py`). Tests should pass their job's ID to scope claims. The production worker (`worker.py:298`) can continue claiming across all jobs.
+  - **Fix**: Improve test isolation — drain or cancel leftover tasks at the start of each test that calls `claim_next_task`, or add a per-test cleanup fixture that cancels all jobs created during the test.
 
 # GitHub Actions
 
