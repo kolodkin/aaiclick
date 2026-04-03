@@ -82,8 +82,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Code Quality
 
-- **Fail on warnings**: pytest is configured with `-W error` flag
-- All warnings are treated as errors in tests
+- **No unhandled warnings**: `filterwarnings = ["error"]` in `pyproject.toml` turns any unhandled warning into a test failure. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` around the call that triggers it. This keeps the suppression scoped and next to the code that causes it.
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 

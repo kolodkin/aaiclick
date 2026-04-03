@@ -8,6 +8,13 @@ Technical Debt
   - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. All URLs (including localhost) are rewritten consistently. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
   - **Debt**: Confirmed broken in chdb 4.1.2 and 26.1.0; no upstream fix. Remove this workaround once chdb's `url()` works reliably. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
+# clickhouse-connect Async FutureWarning
+
+- **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
+  - **Issue**: `clickhouse-connect>=0.15` emits a `FutureWarning` about the async client being a thread-pool wrapper, recommending the `[async]` prerelease.
+  - **Workaround**: `warnings.catch_warnings()` around `get_async_client()` calls in `clickhouse_client.py` and `pg_cleanup.py`.
+  - **Debt**: Remove the filter once `clickhouse-connect` 1.0 ships the native async client as default.
+
 # GitHub Actions
 
 - **`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`** (`.github/workflows/test.yaml`)

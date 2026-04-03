@@ -5,6 +5,7 @@ Creates an AsyncClient for distributed ClickHouse servers using
 clickhouse-connect with a shared urllib3 connection pool.
 """
 
+import warnings
 from urllib.parse import urlparse
 
 from urllib3 import PoolManager
@@ -22,6 +23,12 @@ def get_pool() -> PoolManager:
     return _pool[0]
 
 
+def _ignore_async_wrapper_warning():
+    """clickhouse-connect >=0.15 FutureWarning about thread-pool async wrapper.
+    Safe to ignore until 1.0 ships native async."""
+    warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
+
+
 async def create_clickhouse_client():
     """Create a clickhouse-connect AsyncClient from AAICLICK_CH_URL."""
     try:
@@ -33,11 +40,13 @@ async def create_clickhouse_client():
         ) from e
 
     parsed = urlparse(get_ch_url())
-    return await get_async_client(
-        pool_mgr=get_pool(),
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 8123,
-        username=parsed.username or "default",
-        password=parsed.password or "",
-        database=parsed.path.lstrip("/") or "default",
-    )
+    with warnings.catch_warnings():
+        _ignore_async_wrapper_warning()
+        return await get_async_client(
+            pool_mgr=get_pool(),
+            host=parsed.hostname or "localhost",
+            port=parsed.port or 8123,
+            username=parsed.username or "default",
+            password=parsed.password or "",
+            database=parsed.path.lstrip("/") or "default",
+        )

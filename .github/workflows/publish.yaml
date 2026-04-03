@@ -126,7 +126,6 @@ jobs:
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
-          -W error
           --junitxml=/tmp/pytest-report.xml
 
   test-package:
@@ -242,7 +241,6 @@ jobs:
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
-          -W error
           --junitxml=/tmp/pytest-report.xml
 
   publish:
