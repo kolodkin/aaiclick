@@ -50,7 +50,7 @@ zero duplication.
 | #  | Gap                              | FastAPI Pattern                                                   | SQLAlchemy Pattern                                                    | aaiclick Current                                        | Proposed Fix                                           | Priority | Effort |
 |----|----------------------------------|-------------------------------------------------------------------|-----------------------------------------------------------------------|---------------------------------------------------------|--------------------------------------------------------|----------|--------|
 | 1  | Landing page                     | Hero section, feature cards, badges, code snippet, social proof   | Getting Started links, architectural overview                         | 5-line README included via `--8<--`                     | Dedicated `index.md` with feature cards, badges, wow snippet | P0       | S      |
-| 2  | Example output                   | Shows response bodies inline under each code block                | Shows generated SQL below Python code                                 | Raw `.py` includes, no output                           | Add `??? example "Expected Output"` blocks to each example page | P0       | S      |
+| 2  | Example output                   | Shows response bodies inline under each code block                | Shows generated SQL below Python code                                 | Raw `.py` with no expected output                       | Add `# →` output comments inline next to `print()` calls in `.py` files | P0       | S      |
 | 3  | Admonitions                      | `tip`, `info`, `check`, `warning`, `technical details` throughout | Notes, warnings, deprecated markers on every page                     | Extensions configured, never used                       | Add admonitions to `getting_started.md`, `object.md`, `data_context.md` | P0       | S      |
 | 4  | Progressive tutorial             | 30+ page step-by-step, each page self-contained + sequential      | Unified tutorial building engine → metadata → operations → ORM       | Quick Example → 30KB reference wall                     | Moved to `docs/future.md` — implement after Phase 1 validates approach | —        | —      |
 | 5  | Troubleshooting / FAQ            | —                                                                 | Error reference with root cause analysis, FAQ by workflow              | No error docs; `technical_debt.md` not in nav           | Defer until project matures — not enough user-reported issues yet | P3       | M      |
@@ -79,34 +79,21 @@ Replace README include with a dedicated page:
 - PyPI badge, CI badge, license badge
 - Quick links to Getting Started, Tutorial, Examples
 
-### 1b. Example output blocks (`docs/examples/*.md`)
+### 1b. Inline output comments in example files
 
-For each of the 14 example pages, add:
-
-- Brief intro paragraph explaining what the example covers
-- `??? example "Expected Output"` collapsible block after the code with actual output
-
-Do **not** add `!!! tip` admonitions to example pages — the code speaks for itself.
-
-Template:
-
-```markdown
-# Basic Operators
-
-Arithmetic, comparison, and bitwise operations on Objects.
-For API details, see [Arithmetic Operators](../object.md#arithmetic-operators).
+Add `# →` comments next to `print()` calls in the 14 `.py` example files showing expected
+output. The output is right where the reader's eyes already are — no separate block needed.
 
 ```python
---8<-- "aaiclick/examples/basic_operators.py"
-```                                          (closing fence)
+# Before
+print(f"Addition (a + b): {await result_add.data()}")
 
-??? example "Expected Output"
-
-    ```
-    Example 1: Creating objects from scalar values
-    ...
-    ```
+# After
+print(f"Addition (a + b): {await result_add.data()}")  # → [12.0, 24.0, 35.0]
 ```
+
+The `.md` example pages stay unchanged — they include the full `.py` file via snippet,
+so the output comments appear automatically.
 
 ### 1c. Admonitions in existing guide pages
 
