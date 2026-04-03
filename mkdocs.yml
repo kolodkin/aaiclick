@@ -82,6 +82,7 @@ nav:
     - Explode: examples/explode.md
     - Nested Arrays: examples/nested_arrays.md
     - Nullable Columns: examples/nullable.md
+    - Persistent Objects: examples/persistent.md
     - Orchestration Basics: examples/orchestration_basic.md
     - Orchestration Dynamic: examples/orchestration_dynamic.md
   - API Reference:
