@@ -31,21 +31,6 @@ _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECA
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 
-def _needs_explicit_type(pa_type: pa.DataType) -> bool:
-    """Check if pyarrow inferred an ambiguous type that needs schema lookup.
-
-    Covers: null (all-None), list<null> (empty lists), struct (dicts — pyarrow
-    infers struct but ClickHouse Map needs explicit typing).
-    """
-    if pa.types.is_null(pa_type):
-        return True
-    if pa.types.is_list(pa_type) and pa.types.is_null(pa_type.value_type):
-        return True
-    if pa.types.is_struct(pa_type):
-        return True
-    return False
-
-
 @asynccontextmanager
 async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
     """Context manager that rewrites ``url('https://...', 'fmt')`` → ``file(...)``.
@@ -220,17 +205,9 @@ class ChdbClient:
             cols_data = [list(col) for col in zip(*data)]
 
         pa_types = self._get_pa_types(table, names)
-        pa_columns = {}
-        for name, col in zip(names, cols_data):
-            try:
-                pa_columns[name] = pa.array(col)
-            except pa.ArrowInvalid:
-                pa_columns[name] = pa.array(col, type=pa_types.get(name))
-            else:
-                inferred = pa_columns[name].type
-                if _needs_explicit_type(inferred):
-                    pa_columns[name] = pa.array(col, type=pa_types.get(name))
-        arrow_table = pa.table(pa_columns)  # noqa: F841 — referenced by SQL below
+        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+            {name: _make_pa_array(col, pa_types.get(name)) for name, col in zip(names, cols_data)}
+        )
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
@@ -257,6 +234,21 @@ class ChdbClient:
     def cleanup(self) -> None:
         """Clean up the chdb session."""
         self._session.cleanup()
+
+
+def _make_pa_array(col: list, pa_type: pa.DataType | None) -> pa.Array:
+    """Build a pyarrow array, using the schema type with inference fallback.
+
+    Uses the explicit schema type when available. Falls back to pyarrow
+    inference when the schema type is incompatible with the Python data
+    (e.g. Python bools into a UInt8 column — ClickHouse casts on insert).
+    """
+    if pa_type is not None:
+        try:
+            return pa.array(col, type=pa_type)
+        except (pa.ArrowTypeError, pa.ArrowInvalid):
+            pass
+    return pa.array(col)
 
 
 class ChdbSyncClient:
