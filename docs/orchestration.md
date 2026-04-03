@@ -232,7 +232,7 @@ All Object operations within a task are automatically logged when `data_context(
 
 # Configuration
 
-See CLAUDE.md for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`).
+See [Getting Started](getting_started.md) for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`).
 
 - **Log directory**: `AAICLICK_LOG_DIR`, or OS defaults (`~/.aaiclick/logs` macOS, `/var/log/aaiclick` Linux). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
 - **Setup (local)**: `python -m aaiclick setup`
