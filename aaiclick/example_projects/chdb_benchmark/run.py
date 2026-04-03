@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import asyncio
+import os
 import random
 import time
 import tracemalloc
@@ -161,6 +162,11 @@ def main():
     parser.add_argument("--rows", type=int, default=1_000_000, help="Number of rows")
     parser.add_argument("--runs", type=int, default=10, help="Runs per operation")
     args = parser.parse_args()
+
+    # Use in-memory chdb session for benchmark — matches native chdb's Session()
+    # and avoids stale table catalog from previous runs.
+    os.environ["AAICLICK_CH_URL"] = "chdb://:memory:"
+
     asyncio.run(run(args.rows, args.runs))
 
 
