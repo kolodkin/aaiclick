@@ -88,10 +88,13 @@ async def flush_tables() -> None:
     scheduled has been processed and the corresponding DROP TABLE
     executed.  Call this to release memory between benchmark iterations
     or whenever deterministic cleanup is needed.
+
+    Raises:
+        RuntimeError: If called outside a ``data_context()``.
     """
     lifecycle = get_data_lifecycle()
-    if lifecycle is not None:
-        await lifecycle.flush()
+    assert lifecycle is not None, "flush_tables() requires an active data_context()"
+    await lifecycle.flush()
 
 
 def register_object(obj: object) -> None:
