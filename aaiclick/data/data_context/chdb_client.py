@@ -210,7 +210,7 @@ class ChdbClient:
         else:
             pa_types = [None] * len(names)
         arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: _make_pa_array(col, pa_type) for name, col, pa_type in zip(names, cols_data, pa_types)}
+            {name: pa.array(col, type=pa_type) for name, col, pa_type in zip(names, cols_data, pa_types)}
         )
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
@@ -218,11 +218,6 @@ class ChdbClient:
     def cleanup(self) -> None:
         """Clean up the chdb session."""
         self._session.cleanup()
-
-
-def _make_pa_array(col: list, pa_type: pa.DataType | None) -> pa.Array:
-    """Build a pyarrow array with the explicit schema type."""
-    return pa.array(col, type=pa_type)
 
 
 class ChdbSyncClient:
