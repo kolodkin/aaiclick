@@ -123,6 +123,8 @@ jobs:
         run: >-
           uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
+          -o "filterwarnings=ignore:The current async client is a thread-pool wrapper:FutureWarning"
+          -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
@@ -237,6 +239,8 @@ jobs:
         run: >-
           uv run --no-project pytest --pyargs aaiclick -n auto -v
           -o asyncio_mode=auto
+          -o "filterwarnings=ignore:The current async client is a thread-pool wrapper:FutureWarning"
+          -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           --junitxml=/tmp/pytest-report.xml

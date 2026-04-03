@@ -82,6 +82,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 # Code Quality
 
+- **No unhandled warnings**: `filterwarnings` in `pyproject.toml` ends with `"error"` — any warning not explicitly ignored becomes a test failure. When a third-party library emits a known warning, add a targeted `ignore` entry **before** `"error"` (first match wins). Never use `-W error` in `addopts` — it overrides `filterwarnings` order.
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
