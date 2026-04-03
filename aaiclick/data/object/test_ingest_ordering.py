@@ -6,6 +6,7 @@ follows argument order: self first, then args left-to-right.
 """
 
 from aaiclick import create_object_from_value
+from aaiclick.data.data_context import get_ch_client
 
 
 async def test_concat_follows_argument_order(ctx):
@@ -85,3 +86,36 @@ async def test_concat_multi_arg_order(ctx):
     result = await obj3.concat(obj1, obj2)
     data = await result.data()
     assert data == [5, 6, 1, 2, 3, 4]
+
+
+async def test_insert_same_source_twice_no_duplicate_ids(ctx):
+    """Inserting the same source twice produces unique aai_id values."""
+    obj_a = await create_object_from_value([1, 2])
+    obj_b = await create_object_from_value([3, 4])
+
+    await obj_a.insert(obj_b)
+    await obj_a.insert(obj_b)
+
+    data = await obj_a.data()
+    assert data == [1, 2, 3, 4, 3, 4]
+
+    result = await get_ch_client().query(
+        f"SELECT aai_id FROM {obj_a.table} ORDER BY aai_id"
+    )
+    ids = [row[0] for row in result.result_rows]
+    assert len(ids) == len(set(ids)), f"Duplicate aai_id values: {ids}"
+
+
+async def test_concat_same_source_twice_no_duplicate_ids(ctx):
+    """Concatenating the same source twice produces unique aai_id values."""
+    obj = await create_object_from_value([1, 2])
+
+    result = await obj.concat(obj)
+    data = await result.data()
+    assert data == [1, 2, 1, 2]
+
+    query_result = await get_ch_client().query(
+        f"SELECT aai_id FROM {result.table} ORDER BY aai_id"
+    )
+    ids = [row[0] for row in query_result.result_rows]
+    assert len(ids) == len(set(ids)), f"Duplicate aai_id values: {ids}"
