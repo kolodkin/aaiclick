@@ -14,6 +14,7 @@ from .data_context import (
     delete_object,
     delete_persistent_object,
     delete_persistent_objects,
+    flush_tables,
     get_ch_client,
     get_data_lifecycle,
     get_engine,

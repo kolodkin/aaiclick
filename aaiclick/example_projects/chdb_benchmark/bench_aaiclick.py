@@ -36,11 +36,6 @@ async def _filter(obj, filter_threshold):
     return await view.copy()
 
 
-async def _sort(obj):
-    view = obj.view(order_by="amount DESC")
-    return await view.copy()
-
-
 async def _count_distinct(obj):
     return await obj["category"].nunique()
 
@@ -78,7 +73,6 @@ def make_benchmarks(filter_threshold):
         "Column sum": _col_sum,
         "Column multiply": _col_mul,
         "Filter rows": lambda obj: _filter(obj, filter_threshold),
-        "Sort": _sort,
         "Count distinct": _count_distinct,
         "Group-by sum": _groupby_sum,
         "Group-by count": _groupby_count,

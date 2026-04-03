@@ -81,6 +81,19 @@ def decref(table_name: str) -> None:
         lifecycle.decref(table_name)
 
 
+async def flush_tables() -> None:
+    """Wait until all pending table drops have completed.
+
+    Drains the lifecycle worker queue so that every decref already
+    scheduled has been processed and the corresponding DROP TABLE
+    executed.  Call this to release memory between benchmark iterations
+    or whenever deterministic cleanup is needed.
+    """
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        await lifecycle.flush()
+
+
 def register_object(obj: object) -> None:
     """Register an Object so it is marked stale when the enclosing context exits.
 

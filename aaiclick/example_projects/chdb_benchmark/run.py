@@ -15,6 +15,8 @@ import random
 import time
 import tracemalloc
 
+from aaiclick import flush_tables
+
 from . import bench_aaiclick, bench_chdb_native
 from .report import console, print_results
 
@@ -23,7 +25,8 @@ BENCH_NAMES = [
     "Column sum",
     "Column multiply",
     "Filter rows",
-    "Sort",
+    # Sort excluded: aaiclick view.copy() does not preserve ORDER BY in the
+    # result table (Memory engine reads by aai_id), so the comparison is invalid.
     "Count distinct",
     "Group-by sum",
     "Group-by count",
@@ -129,6 +132,7 @@ async def run(num_rows, num_runs):
             lambda d: aai_mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
         )
         results["Ingest"]["aaiclick"] = {"time": t, "memory": m}
+        await flush_tables()
 
         for bench_name in BENCH_NAMES:
             if bench_name == "Ingest" or bench_name not in aai_benchmarks:
@@ -136,6 +140,7 @@ async def run(num_rows, num_runs):
             console.print(f"  {bench_name} [{aai_mod.NAME}]...")
             t, m = await measure_async(aai_benchmarks[bench_name], aai_dataset, num_runs)
             results[bench_name]["aaiclick"] = {"time": t, "memory": m}
+            await flush_tables()
 
     print_results(results, BENCH_NAMES, lib_names, num_rows, num_runs)
 

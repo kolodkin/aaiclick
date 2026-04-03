@@ -48,6 +48,14 @@ class LifecycleHandler(ABC):
     def decref(self, table_name: str) -> None:
         """Decrement reference count for a table."""
 
+    async def flush(self) -> None:
+        """Wait until all pending table drops have completed.
+
+        Blocks until every incref/decref already in the queue has been
+        processed.  Useful for releasing memory between benchmark
+        iterations or before measuring the next operation.
+        """
+
     def pin(self, table_name: str) -> None:
         """Mark table as result that survives stop(). Default: no-op."""
 
@@ -93,6 +101,9 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def decref(self, table_name: str) -> None:
         self._worker.decref(table_name)
+
+    async def flush(self) -> None:
+        await self._worker.flush()
 
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode

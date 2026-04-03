@@ -99,9 +99,6 @@ def make_benchmarks(filter_threshold):
         "Filter rows": lambda s: _insert_into(
             f"SELECT * FROM bench.data WHERE amount > {filter_threshold}"
         ),
-        "Sort": lambda s: _insert_into(
-            "SELECT * FROM bench.data ORDER BY amount DESC"
-        ),
         "Count distinct": lambda s: _insert_into(
             "SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)"
         ),
