@@ -24,7 +24,6 @@ example_projects/<name>/
 - `__main__.py` imports and calls `main()` from `__init__.py`
 - `<name>.sh` is the user-facing entry point — sets environment, forwards CLI args
 - Orchestration projects: `.sh` registers the job, starts worker, polls status, stops worker
-- Standalone projects (e.g. benchmarks): `.sh` just sets env vars and runs the module
 - Each example project should have a `report.py` file containing final report printout logic
 - The `@job` function returns the terminal task directly (e.g. `return report`) — the framework auto-discovers all upstream tasks via the dependency graph; `report.py` is only responsible for the printout
 - Always prefer `Object.markdown()` for rendering tables in `report.py` — avoid custom table rendering logic
