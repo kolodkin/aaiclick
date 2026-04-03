@@ -168,7 +168,9 @@ async def copy_db(copy_info: CopyInfo, ch_client):
 
     alias = " AS s" if copy_info.source_query.startswith('(') else ""
 
-    # Always exclude aai_id — copies get fresh Snowflake IDs for lineage.
+    # Always exclude aai_id — copies get fresh Snowflake IDs.
+    # Preserving source aai_ids would cause duplicates when two copies
+    # are inserted into the same table, breaking ORDER BY aai_id.
     # For sorted copies, ORDER BY with aai_id tiebreak ensures stable sort
     # and new IDs are generated in sorted insertion order.
     data_cols = [c for c in copy_info.columns if c != "aai_id"]

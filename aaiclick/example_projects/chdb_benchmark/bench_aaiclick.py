@@ -37,9 +37,9 @@ async def _filter(obj, filter_threshold):
 
 
 async def _sort(obj):
-    # copy() on sorted View: INSERT...SELECT...ORDER BY excluding aai_id,
-    # so new Snowflake IDs are generated in sorted insertion order.
-    # data() reads by aai_id → sorted by default. Single copy, single sort.
+    # copy() regenerates aai_ids in sorted insertion order via
+    # INSERT...SELECT...ORDER BY amount DESC, aai_id.
+    # data() reads ORDER BY aai_id → sorted by default.
     return await obj.view(order_by="amount DESC").copy()
 
 
