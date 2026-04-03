@@ -18,6 +18,7 @@ from .explode import amain as explode_example
 from .basic_operators import amain as basic_operators_example
 from .data_manipulation import amain as data_manipulation_example
 from .group_by import amain as group_by_example
+from .isin import amain as isin_example
 from .nested_arrays import amain as nested_arrays_example
 from .nullable import amain as nullable_example
 from .orchestration_basic import amain as orchestration_basic_example
@@ -72,6 +73,7 @@ def main():
         ("Transforms", transforms_example),
         ("Views", views_example),
         ("Group By", group_by_example),
+        ("Isin", isin_example),
         ("Nullable Columns", nullable_example),
         ("Dict Selectors", selectors_example),
         ("Aggregation Table", aggregation_table_example),

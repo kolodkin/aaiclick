@@ -178,7 +178,7 @@ obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2,
 mask = await obj["category"].isin(allowed)
 ```
 
-**Tests**: `aaiclick/data/object/test_isin.py`
+**Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
 
 ## Unary Transform Operators
 
