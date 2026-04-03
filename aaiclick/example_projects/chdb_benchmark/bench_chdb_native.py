@@ -75,11 +75,17 @@ def ingest_only(data, filter_threshold):
 _result_tables = []
 
 
-def _create_and_insert(create_ddl, insert_query):
-    """Two-step materialize: CREATE TABLE then INSERT INTO (matching aaiclick)."""
+def _create_and_insert(create_ddl, insert_query, read_limit=0):
+    """Two-step materialize: CREATE TABLE then INSERT INTO (matching aaiclick).
+
+    When read_limit > 0, also SELECT that many rows from the result to
+    measure end-to-end cost (e.g. sort + read).
+    """
     tbl = _next_table()
     _session.query(create_ddl.format(tbl=tbl))
     _session.query(f"INSERT INTO {tbl} {insert_query}")
+    if read_limit:
+        _session.query(f"SELECT * FROM {tbl} LIMIT {read_limit}")
     _result_tables.append(tbl)
 
 
@@ -111,6 +117,7 @@ def make_benchmarks(filter_threshold):
             "CREATE TABLE {tbl} (id Int64, category String, subcategory String,"
             " amount Float64, quantity Int64) ENGINE = Memory",
             "SELECT * FROM bench.data ORDER BY amount DESC",
+            read_limit=1000,
         ),
         "Count distinct": lambda s: _create_and_insert(
             "CREATE TABLE {tbl} (value UInt64) ENGINE = Memory",

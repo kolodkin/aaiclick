@@ -39,8 +39,9 @@ async def _filter(obj, filter_threshold):
 async def _sort(obj):
     # copy() regenerates aai_ids in sorted insertion order via
     # INSERT...SELECT...ORDER BY amount DESC, aai_id.
-    # data() reads ORDER BY aai_id → sorted by default.
-    return await obj.view(order_by="amount DESC").copy()
+    # Read 1000 rows to verify sort and measure end-to-end cost.
+    sorted_obj = await obj.view(order_by="amount DESC").copy()
+    return await sorted_obj.view(limit=1000).data()
 
 
 async def _count_distinct(obj):
