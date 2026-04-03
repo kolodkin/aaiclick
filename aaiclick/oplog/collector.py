@@ -9,7 +9,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS
 
+_OPLOG_COLS = ["result_table", "operation", "args", "kwargs",
+               "sql_template", "task_id", "job_id", "created_at"]
+_OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
+
+_REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
+_REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
     "oplog_collector", default=None
@@ -96,10 +103,8 @@ class OplogCollector:
             await ch_client.insert(
                 "operation_log",
                 rows,
-                column_names=[
-                    "result_table", "operation", "args", "kwargs",
-                    "sql_template", "task_id", "job_id", "created_at",
-                ],
+                column_names=_OPLOG_COLS,
+                column_type_names=_OPLOG_TYPE_NAMES,
             )
 
         if self._table_buffer:
@@ -110,7 +115,8 @@ class OplogCollector:
             await ch_client.insert(
                 "table_registry",
                 table_rows,
-                column_names=["table_name", "job_id", "task_id", "created_at"],
+                column_names=_REG_COLS,
+                column_type_names=_REG_TYPE_NAMES,
             )
 
 

@@ -35,6 +35,8 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
+chdb inserts use pyarrow's `Python()` table function. ClickHouse type strings are mapped to pyarrow types via `_ch_type_to_pa()` in `chdb_client.py`, tested by `test_ch_type_to_pa.py`.
+
 See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
 
 ## Object Lifecycle and Staleness

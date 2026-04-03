@@ -117,14 +117,6 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
     """Test that worker main loop executes tasks."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
-    # Clear any pending tasks from previous tests first
-    cleanup_worker = await register_worker()
-    while True:
-        old_task = await claim_next_task(cleanup_worker.id)
-        if old_task is None:
-            break
-    await deregister_worker(cleanup_worker.id)
-
     # Create a job
     job = await create_job(
         "test_main_loop_job",
@@ -152,14 +144,6 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
 async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
     """Test that worker main loop handles task failures."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Clear any pending tasks from previous tests first
-    cleanup_worker = await register_worker()
-    while True:
-        old_task = await claim_next_task(cleanup_worker.id)
-        if old_task is None:
-            break
-    await deregister_worker(cleanup_worker.id)
 
     # Create a job with a failing task
     job = await create_job(
@@ -212,12 +196,6 @@ async def test_claim_next_task_basic(orch_ctx):
     # Register worker
     worker = await register_worker()
 
-    # Clear any pending tasks from previous tests
-    while True:
-        old_task = await claim_next_task(worker.id)
-        if old_task is None:
-            break
-
     # Create a job with a task
     job = await create_job(
         "test_claim_job",
@@ -251,12 +229,6 @@ async def test_claim_next_task_skip_locked(orch_ctx):
     worker1 = await register_worker(hostname="worker1", pid=1001)
     worker2 = await register_worker(hostname="worker2", pid=1002)
 
-    # Clear any pending tasks from previous tests
-    while True:
-        old_task = await claim_next_task(worker1.id)
-        if old_task is None:
-            break
-
     # Create multiple jobs with tasks
     job1 = await create_job(
         "test_claim_job1",
@@ -287,12 +259,6 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
 
     # Create worker first
     worker = await register_worker()
-
-    # Clear any pending tasks from previous tests
-    while True:
-        old_task = await claim_next_task(worker.id)
-        if old_task is None:
-            break
 
     # Create first job and start it
     job1 = await create_job(
@@ -334,12 +300,6 @@ async def test_claim_respects_task_dependency(orch_ctx):
     """Test that claim_next_task respects task -> task dependencies."""
     # Register worker
     worker = await register_worker()
-
-    # Clear any pending tasks from previous tests
-    while True:
-        old_task = await claim_next_task(worker.id)
-        if old_task is None:
-            break
 
     # Create job with two dependent tasks
     job = await create_job(
@@ -384,12 +344,6 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
 
     # Register worker
     worker = await register_worker()
-
-    # Clear any pending tasks from previous tests
-    while True:
-        old_task = await claim_next_task(worker.id)
-        if old_task is None:
-            break
 
     # Create job
     job = await create_job(

@@ -162,7 +162,10 @@ async def test_dict_with_array_datetime_column(ctx):
     obj = await create_object(schema)
     ch = get_ch_client()
     data = [[[DT_2024, DT_2025], "batch1"], [[DT_EPOCH], "batch2"]]
-    await ch.insert(obj.table, data, column_names=["timestamps", "label"])
+    await ch.insert(
+        obj.table, data, column_names=["timestamps", "label"],
+        column_type_names=["Array(DateTime64(3, 'UTC'))", "LowCardinality(String)"],
+    )
 
     result = await obj.data()
     assert result["timestamps"] == [[DT_2024, DT_2025], [DT_EPOCH]]
@@ -186,7 +189,7 @@ async def test_explicit_datetime_schema(ctx):
     obj = await create_object(schema)
     ch = get_ch_client()
     data = [[DT_2024], [DT_2025]]
-    await ch.insert(obj.table, data, column_names=["value"])
+    await ch.insert(obj.table, data, column_names=["value"], column_type_names=["DateTime64(3, 'UTC')"])
 
     result = await obj.data()
     assert result == [DT_2024, DT_2025]
@@ -206,7 +209,7 @@ async def test_explicit_datetime_dict_schema(ctx):
     obj = await create_object(schema)
     ch = get_ch_client()
     data = [[DT_2024, 100], [DT_2025, 200]]
-    await ch.insert(obj.table, data, column_names=["event_time", "count"])
+    await ch.insert(obj.table, data, column_names=["event_time", "count"], column_type_names=["DateTime64(3, 'UTC')", "Int64"])
 
     result = await obj.data()
     assert result["event_time"] == [DT_2024, DT_2025]

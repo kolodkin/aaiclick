@@ -81,12 +81,12 @@ def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
     base = col_info.type
     if base == "String":
         return f"JSONExtractString(elem, '{safe_field}')"
+    if base == "Bool":
+        return f"JSONExtractBool(elem, '{safe_field}')"
     if base in INT_TYPES:
         return f"JSONExtractInt(elem, '{safe_field}')"
     if base in FLOAT_TYPES:
         return f"JSONExtractFloat(elem, '{safe_field}')"
-    if base == "Bool":
-        return f"JSONExtractBool(elem, '{safe_field}')"
 
     return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
 

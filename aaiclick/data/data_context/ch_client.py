@@ -33,6 +33,8 @@ class ChClient(Protocol):
         table: str,
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
+        column_oriented: bool = False,
+        column_type_names: Optional[Sequence[str]] = None,
     ) -> None: ...
 
 

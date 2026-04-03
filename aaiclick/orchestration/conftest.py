@@ -11,8 +11,11 @@ import tempfile
 
 import pytest
 
+from sqlmodel import select
+
 from aaiclick.backend import is_sqlite
-from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.orchestration.models import Job, JobStatus
+from aaiclick.orchestration.orch_context import get_sql_session, orch_context
 
 # Capture the original database name before any fixture modifies it
 _BASE_DB = os.environ.get("POSTGRES_DB", "aaiclick")
@@ -129,6 +132,18 @@ async def orch_ctx(_isolated_db):
     Function-scoped orch context for orchestration tests.
 
     Depends on _isolated_db to ensure the worker has its own database.
+    Cancels all non-terminal jobs on teardown so leftover PENDING tasks
+    don't leak into subsequent tests.
     """
+    from aaiclick.orchestration.execution.claiming import cancel_job
+
     async with orch_context():
         yield
+        async with get_sql_session() as session:
+            result = await session.execute(
+                select(Job.id).where(Job.status.notin_([
+                    JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
+                ]))
+            )
+            for (job_id,) in result.all():
+                await cancel_job(job_id)

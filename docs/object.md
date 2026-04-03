@@ -78,6 +78,10 @@ For runnable examples, see `examples/basic_operators.py`.
 | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
 | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
+## Arithmetic Type Promotion
+
+Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/operators.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
+
 ## Comparison Operators
 
 | Python Operator | Description           | ClickHouse Equivalent | Python Method |

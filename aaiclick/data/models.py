@@ -23,7 +23,7 @@ ColumnType = Literal[
 ]
 
 # Type category sets for runtime type checking
-INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
+INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"})
 FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES

@@ -16,11 +16,11 @@ import tempfile
 import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, List, Optional, Sequence
 from urllib.parse import urlparse
 
+import pyarrow as pa
 from chdb.session import Session
 
 
@@ -179,24 +179,37 @@ class ChdbClient:
         table: str,
         data: Sequence[Sequence],
         column_names: Optional[Sequence[str]] = None,
+        column_oriented: bool = False,
+        column_type_names: Optional[Sequence[str]] = None,
     ) -> None:
-        """Bulk insert rows into a table.
+        """Bulk insert via pyarrow Python() table function.
 
-        Matches AsyncClient.insert() — converts Python data to VALUES clause.
+        Matches clickhouse-connect AsyncClient.insert() signature.
+        When ``column_oriented=True``, *data* is a list of columns (zero-copy).
+        When ``False`` (default), *data* is a list of rows (transposed internally).
+
+        When ``column_type_names`` is provided, uses those ClickHouse type
+        strings directly — no ``system.columns`` lookup needed.
         """
         if not data:
             return
 
-        cols = f" ({', '.join(f'`{c}`' for c in column_names)})" if column_names else ""
-        value_rows = []
-        for row in data:
-            formatted = []
-            for val in row:
-                formatted.append(_format_value(val))
-            value_rows.append(f"({', '.join(formatted)})")
+        names = list(column_names) if column_names else [f"c{i}" for i in range(len(data[0]))]
 
-        values_sql = ", ".join(value_rows)
-        self._session.query(f"INSERT INTO {table}{cols} VALUES {values_sql}")
+        if column_oriented:
+            cols_data = list(data)
+        else:
+            cols_data = [list(col) for col in zip(*data)]
+
+        if column_type_names:
+            pa_types = [_ch_type_to_pa(ct) for ct in column_type_names]
+        else:
+            pa_types = [None] * len(names)
+        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
+            {name: pa.array(col, type=pa_type) for name, col, pa_type in zip(names, cols_data, pa_types)}
+        )
+        cols = f" ({', '.join(f'`{c}`' for c in names)})"
+        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
     def cleanup(self) -> None:
         """Clean up the chdb session."""
@@ -230,21 +243,74 @@ class ChdbSyncClient:
         """No-op — session lifecycle managed by ChdbClient."""
 
 
-def _format_value(val: object) -> str:
-    """Format a Python value for a ClickHouse VALUES clause."""
-    if val is None:
-        return "NULL"
-    if isinstance(val, str):
-        escaped = val.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
-    if isinstance(val, bool):
-        return "1" if val else "0"
-    if isinstance(val, datetime):
-        return f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
-    if isinstance(val, (list, tuple)):
-        inner = ", ".join(_format_value(v) for v in val)
-        return f"[{inner}]"
-    return str(val)
+
+_PA_BASE_TYPES: dict[str, pa.DataType] = {
+    "UInt8": pa.uint8(),
+    "UInt16": pa.uint16(),
+    "UInt32": pa.uint32(),
+    "UInt64": pa.uint64(),
+    "Int8": pa.int8(),
+    "Int16": pa.int16(),
+    "Int32": pa.int32(),
+    "Int64": pa.int64(),
+    "Float32": pa.float32(),
+    "Float64": pa.float64(),
+    "String": pa.string(),
+    "Bool": pa.bool_(),
+}
+
+
+def _ch_type_to_pa(ch_type: str) -> pa.DataType:
+    """Convert a ClickHouse type string to a pyarrow DataType."""
+    if ch_type.startswith("Nullable("):
+        return _ch_type_to_pa(ch_type[9:-1])
+    if ch_type.startswith("LowCardinality("):
+        return _ch_type_to_pa(ch_type[15:-1])
+    if ch_type in _PA_BASE_TYPES:
+        return _PA_BASE_TYPES[ch_type]
+    if ch_type.startswith("DateTime64"):
+        return pa.timestamp("ms", tz="UTC")
+    if ch_type.startswith("Array("):
+        return pa.list_(_ch_type_to_pa(ch_type[6:-1]))
+    if ch_type.startswith("Map("):
+        key_type, val_type = _split_map_args(ch_type[4:-1])
+        return pa.map_(_ch_type_to_pa(key_type), _ch_type_to_pa(val_type))
+    if ch_type.startswith("Tuple("):
+        elem_types = _split_top_level(ch_type[6:-1])
+        return pa.struct(
+            [(f"f{i}", _ch_type_to_pa(t)) for i, t in enumerate(elem_types)]
+        )
+    return pa.string()
+
+
+def _split_map_args(inner: str) -> tuple[str, str]:
+    """Split Map(K, V) arguments respecting nested parentheses."""
+    depth = 0
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return inner[:i].strip(), inner[i + 1:].strip()
+    return inner, ""
+
+
+def _split_top_level(inner: str) -> list[str]:
+    """Split comma-separated type arguments respecting nested parentheses."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(inner[start:i].strip())
+            start = i + 1
+    parts.append(inner[start:].strip())
+    return parts
 
 
 def get_chdb_data_path() -> str:

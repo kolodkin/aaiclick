@@ -14,7 +14,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import AsyncIterator, Dict, List, Union
 
-import numpy as np
+import pyarrow as pa
 
 from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
@@ -353,7 +353,7 @@ def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
 
 
 def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnInfo:
-    """Infer ClickHouse column type from Python value using numpy.
+    """Infer ClickHouse column type from Python value using pyarrow.
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
     created explicitly via Schema with ColumnInfo(type, nullable=True).
@@ -364,23 +364,22 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         if not value:
             return ColumnInfo("String", low_cardinality=True)
 
-        if isinstance(value[0], datetime):
+        arr = pa.array(value)
+        pa_type = arr.type
+
+        if pa.types.is_boolean(pa_type):
+            return ColumnInfo("Bool")
+        elif pa.types.is_timestamp(pa_type):
             return ColumnInfo("DateTime64(3, 'UTC')")
-
-        arr = np.array(value)
-        dtype = arr.dtype
-
-        if np.issubdtype(dtype, np.bool_):
-            return ColumnInfo("UInt8")
-        elif np.issubdtype(dtype, np.integer):
+        elif pa.types.is_integer(pa_type):
             return ColumnInfo("Int64")
-        elif np.issubdtype(dtype, np.floating):
+        elif pa.types.is_floating(pa_type):
             return ColumnInfo("Float64")
         else:
             return ColumnInfo("String", low_cardinality=True)
 
     if isinstance(value, bool):
-        return ColumnInfo("UInt8")
+        return ColumnInfo("Bool")
     elif isinstance(value, datetime):
         return ColumnInfo("DateTime64(3, 'UTC')")
     elif isinstance(value, int):
@@ -429,8 +428,11 @@ async def _create_nested_object(
     obj = await create_object(schema, name=name)
 
     keys = list(flat.keys())
-    data = [[flat[k] for k in keys]]
-    await ch.insert(obj.table, data, column_names=keys)
+    await ch.insert(
+        obj.table, [[v] for v in flat.values()],
+        column_names=keys, column_oriented=True,
+        column_type_names=[columns[k].ch_type() for k in keys],
+    )
 
     return obj
 
@@ -471,8 +473,11 @@ async def _create_nested_records_object(
 
     all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
-    data = [[flat[k] for k in keys] for flat in all_flat]
-    await ch.insert(obj.table, data, column_names=keys)
+    col_data = [[flat[key] for flat in all_flat] for key in keys]
+    await ch.insert(
+        obj.table, col_data, column_names=keys, column_oriented=True,
+        column_type_names=[columns[k].ch_type() for k in keys],
+    )
 
     return obj
 
@@ -539,32 +544,26 @@ async def create_object_from_value(
 
             if array_len and array_len > 0:
                 keys = list(val.keys())
-                data = [list(row) for row in zip(*[val[key] for key in keys])]
-                await ch.insert(obj.table, data, column_names=keys)
+                await ch.insert(
+                    obj.table, [val[k] for k in keys],
+                    column_names=keys, column_oriented=True,
+                    column_type_names=[columns[k].ch_type() for k in keys],
+                )
 
         else:
             columns = {"aai_id": ColumnInfo("UInt64")}
-            values = []
-
             for key, value in val.items():
-                col_def = _infer_clickhouse_type(value)
-                columns[key] = col_def
-
-                if isinstance(value, str):
-                    values.append(f"'{value}'")
-                elif isinstance(value, bool):
-                    values.append("1" if value else "0")
-                elif isinstance(value, datetime):
-                    values.append(f"'{value.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'")
-                else:
-                    values.append(str(value))
+                columns[key] = _infer_clickhouse_type(value)
 
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
             obj = await create_object(schema, name=name)
 
-            col_names = [quote_identifier(k) for k in val.keys()]
-            insert_query = f"INSERT INTO {obj.table} ({', '.join(col_names)}) VALUES ({', '.join(values)})"
-            await ch.command(insert_query)
+            keys = list(val.keys())
+            await ch.insert(
+                obj.table, [[v] for v in val.values()],
+                column_names=keys, column_oriented=True,
+                column_type_names=[columns[k].ch_type() for k in keys],
+            )
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
@@ -601,8 +600,11 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
             obj = await create_object(schema, name=name)
 
-            data = [[record[key] for key in keys] for record in val]
-            await ch.insert(obj.table, data, column_names=keys)
+            col_data = [[record[key] for record in val] for key in keys]
+            await ch.insert(
+                obj.table, col_data, column_names=keys, column_oriented=True,
+                column_type_names=[columns[k].ch_type() for k in keys],
+            )
         else:
             col_def = _infer_clickhouse_type(val)
             schema = Schema(
@@ -612,8 +614,10 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             if val:
-                data = [[v] for v in val]
-                await ch.insert(obj.table, data, column_names=["value"])
+                await ch.insert(
+                    obj.table, [val], column_names=["value"], column_oriented=True,
+                    column_type_names=[col_def.ch_type()],
+                )
 
     else:
         col_def = _infer_clickhouse_type(val)
@@ -624,17 +628,10 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name)
 
-        if isinstance(val, str):
-            value_str = f"'{val}'"
-        elif isinstance(val, bool):
-            value_str = "1" if val else "0"
-        elif isinstance(val, datetime):
-            value_str = f"'{val.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}'"
-        else:
-            value_str = str(val)
-
-        insert_query = f"INSERT INTO {obj.table} (value) VALUES ({value_str})"
-        await ch.command(insert_query)
+        await ch.insert(
+            obj.table, [[val]], column_names=["value"], column_oriented=True,
+            column_type_names=[col_def.ch_type()],
+        )
 
     oplog_record(obj.table, "create_from_value")
     return obj
