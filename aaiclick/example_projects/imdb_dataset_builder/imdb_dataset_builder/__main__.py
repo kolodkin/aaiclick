@@ -1,4 +1,4 @@
-"""Entry point for `python -m aaiclick.example_projects.basic_worker`."""
+"""Entry point for `python -m imdb_dataset_builder`."""
 
 import asyncio
 

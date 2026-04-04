@@ -9,10 +9,15 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+PYTHON="${PYTHON:-uv run python}"
+
 echo "=== chdb vs aaiclick Benchmark ==="
 echo
 
 # Use in-memory chdb session for fair comparison with native benchmark
 export AAICLICK_CH_URL="chdb://:memory:"
 
-uv run python -m aaiclick.example_projects.chdb_benchmark "$@"
+$PYTHON -m chdb_benchmark "$@"

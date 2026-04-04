@@ -11,6 +11,6 @@ Operations tested:
 - Count distinct, group-by (single/multi-key, multi-agg, high-cardinality)
 
 Usage:
-    python -m aaiclick.example_projects.chdb_benchmark
-    python -m aaiclick.example_projects.chdb_benchmark --rows 100000 --runs 5
+    python -m chdb_benchmark
+    python -m chdb_benchmark --rows 100000 --runs 5
 """

@@ -16,7 +16,7 @@ https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
 
 Usage:
     # Register job (requires PostgreSQL)
-    python -m aaiclick.example_projects.nyc_taxi_pipeline
+    python -m nyc_taxi_pipeline
 
     # Then run worker to execute
     python -m aaiclick worker start

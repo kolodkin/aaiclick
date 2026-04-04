@@ -12,6 +12,11 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+PYTHON="${PYTHON:-uv run python}"
+
 WORKER_LOG="tmp/imdb_worker.log"
 export AAICLICK_REPORT_FILE="tmp/imdb_report.md"
 mkdir -p tmp
@@ -31,9 +36,9 @@ echo
 # Step 1: Register the job and capture its ID
 echo "Registering job..."
 if [ -n "$LIMIT_ARG" ]; then
-    REGISTER_OUTPUT=$(uv run python -m aaiclick.example_projects.imdb_dataset_builder --params "$LIMIT_ARG")
+    REGISTER_OUTPUT=$($PYTHON -m imdb_dataset_builder --params "$LIMIT_ARG")
 else
-    REGISTER_OUTPUT=$(uv run python -m aaiclick.example_projects.imdb_dataset_builder)
+    REGISTER_OUTPUT=$($PYTHON -m imdb_dataset_builder)
 fi
 echo "$REGISTER_OUTPUT"
 JOB_ID=$(echo "$REGISTER_OUTPUT" | grep -oP 'ID: \K[0-9]+')
@@ -41,14 +46,14 @@ echo
 
 # Step 2: Start background cleanup worker
 echo "Starting background cleanup worker..."
-uv run python -m aaiclick background start &
+$PYTHON -m aaiclick background start &
 BACKGROUND_PID=$!
 echo "Background worker started (PID: $BACKGROUND_PID)"
 echo
 
 # Step 3: Start worker in background, capturing output to log file
 echo "Starting worker..."
-uv run python -m aaiclick worker start > "$WORKER_LOG" 2>&1 &
+$PYTHON -m aaiclick worker start > "$WORKER_LOG" 2>&1 &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
@@ -60,7 +65,7 @@ ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     sleep 5
     ELAPSED=$((ELAPSED + 5))
-    JOB_STATUS=$(uv run python -m aaiclick job get "$JOB_ID" 2>/dev/null | grep "Status:" | awk '{print $2}')
+    JOB_STATUS=$($PYTHON -m aaiclick job get "$JOB_ID" 2>/dev/null | grep "Status:" | awk '{print $2}')
     if [ "$JOB_STATUS" = "COMPLETED" ] || [ "$JOB_STATUS" = "FAILED" ]; then
         break
     fi
@@ -69,7 +74,7 @@ echo
 
 # Step 5: Show job stats
 echo "Job stats:"
-uv run python -m aaiclick job stats "$JOB_ID"
+$PYTHON -m aaiclick job stats "$JOB_ID"
 echo
 
 # Step 6: Stop workers
