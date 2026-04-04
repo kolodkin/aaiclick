@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from sqlalchemy import BigInteger, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -34,6 +34,13 @@ except ImportError:
         """String Enum for Python 3.10 compatibility."""
 
         pass
+
+
+class RunType(StrEnum):
+    """How a job run was triggered."""
+
+    SCHEDULED = "SCHEDULED"
+    MANUAL = "MANUAL"
 
 
 class JobStatus(StrEnum):
@@ -65,6 +72,29 @@ class WorkerStatus(StrEnum):
     STOPPED = "STOPPED"
 
 
+class RegisteredJob(SQLModel, table=True):
+    """
+    RegisteredJob model - catalog of known jobs.
+
+    Stores the job definition (entrypoint, schedule, defaults) separately
+    from individual job runs. The background worker uses cron schedules
+    to create Job rows automatically.
+    """
+
+    __tablename__ = "registered_jobs"
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    name: str = Field(index=True)
+    entrypoint: str = Field()
+    enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
+    schedule: Optional[str] = Field(default=None)
+    default_kwargs: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    next_run_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Job(SQLModel, table=True):
     """
     Job model - represents a workflow execution.
@@ -77,6 +107,11 @@ class Job(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     name: str = Field(index=True)
     status: JobStatus = Field(default=JobStatus.PENDING, index=True)
+    run_type: RunType = Field(default=RunType.MANUAL)
+    registered_job_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
