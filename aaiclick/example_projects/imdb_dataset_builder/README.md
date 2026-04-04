@@ -3,8 +3,6 @@ IMDb Dataset Builder
 
 Large-scale data curation pipeline that loads IMDb title.basics (~10M rows) from the official dataset URL, profiles raw data, filters to quality movies, normalizes genres via explode, and optionally publishes a curated Parquet dataset to Hugging Face.
 
-# How to Run
-
 ```bash
 # Demo mode (500k rows)
 ./imdb_dataset_builder.sh

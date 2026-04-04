@@ -18,8 +18,6 @@ Project Title
 
 One-paragraph description of what the project does and which aaiclick features it demonstrates.
 
-# How to Run
-
 \```bash
 ./<name>.sh
 \```
@@ -27,8 +25,8 @@ One-paragraph description of what the project does and which aaiclick features i
 
 - **Title**: setext heading (underline with `---`)
 - **Description**: one paragraph, concise — what it does, what data it uses
-- **How to Run**: shell script invocation, plus any flags or env vars if applicable
-- No additional sections — keep it minimal
+- **Run command**: bash code block with shell script invocation, plus any flags or env vars if applicable
+- No additional sections or headings — keep it minimal
 
 READMEs are included in the docs site via `docs/example_projects.md` using `pymdownx.snippets`.
 
