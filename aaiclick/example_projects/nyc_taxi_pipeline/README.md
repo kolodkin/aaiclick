@@ -6,5 +6,5 @@ Distributed computing example that loads NYC TLC Yellow Taxi trip data from Parq
 # How to Run
 
 ```bash
-./aaiclick/example_projects/nyc_taxi_pipeline/nyc_taxi_pipeline.sh
+./nyc_taxi_pipeline.sh
 ```

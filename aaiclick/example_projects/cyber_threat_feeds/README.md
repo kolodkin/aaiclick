@@ -6,5 +6,5 @@ Multi-source cybersecurity pipeline that loads CISA KEV, Shodan CVEDB, and FIRST
 # How to Run
 
 ```bash
-./aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds.sh
+./cyber_threat_feeds.sh
 ```

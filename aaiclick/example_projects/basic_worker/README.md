@@ -6,5 +6,5 @@ A minimal orchestration example that registers a job printing 6 ticks at 0.5-sec
 # How to Run
 
 ```bash
-./aaiclick/example_projects/basic_worker/basic_worker.sh
+./basic_worker.sh
 ```

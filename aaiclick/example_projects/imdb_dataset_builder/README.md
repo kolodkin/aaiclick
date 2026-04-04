@@ -7,10 +7,10 @@ Large-scale data curation pipeline that loads IMDb title.basics (~10M rows) from
 
 ```bash
 # Demo mode (500k rows)
-./aaiclick/example_projects/imdb_dataset_builder/imdb_dataset_builder.sh
+./imdb_dataset_builder.sh
 
 # Full dataset (~10M rows)
-./aaiclick/example_projects/imdb_dataset_builder/imdb_dataset_builder.sh --full
+./imdb_dataset_builder.sh --full
 ```
 
 Set `HF_TOKEN` to publish the curated dataset to Hugging Face Hub.

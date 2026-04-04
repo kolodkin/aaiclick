@@ -21,7 +21,7 @@ One-paragraph description of what the project does and which aaiclick features i
 # How to Run
 
 \```bash
-./aaiclick/example_projects/<name>/<name>.sh
+./<name>.sh
 \```
 ```
 

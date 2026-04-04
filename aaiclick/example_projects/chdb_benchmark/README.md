@@ -6,8 +6,8 @@ Compares aaiclick's Object API against native chdb SQL on identical data (1M row
 # How to Run
 
 ```bash
-./aaiclick/example_projects/chdb_benchmark/chdb_benchmark.sh
+./chdb_benchmark.sh
 
 # Custom parameters
-./aaiclick/example_projects/chdb_benchmark/chdb_benchmark.sh --rows 500000 --runs 5
+./chdb_benchmark.sh --rows 500000 --runs 5
 ```
