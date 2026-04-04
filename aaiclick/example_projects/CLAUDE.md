@@ -8,6 +8,30 @@
 - If raw SQL seems necessary, **ask the user for approval first** — it likely means the API needs extending
 - Example projects serve as the public API showcase; they should demonstrate best practices, not internal workarounds
 
+## README Convention
+
+Each example project MUST have a `README.md` with exactly this structure:
+
+```markdown
+Project Title
+---
+
+One-paragraph description of what the project does and which aaiclick features it demonstrates.
+
+# How to Run
+
+\```bash
+./aaiclick/example_projects/<name>/<name>.sh
+\```
+```
+
+- **Title**: setext heading (underline with `---`)
+- **Description**: one paragraph, concise — what it does, what data it uses
+- **How to Run**: shell script invocation, plus any flags or env vars if applicable
+- No additional sections — keep it minimal
+
+READMEs are included in the docs site via `docs/example_projects.md` using `pymdownx.snippets`.
+
 ## Project Structure
 
 Each example project is a Python subpackage with a shell entry point:
