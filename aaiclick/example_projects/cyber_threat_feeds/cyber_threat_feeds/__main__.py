@@ -1,4 +1,4 @@
-"""Entry point for `python -m aaiclick.example_projects.imdb_dataset_builder`."""
+"""Entry point for `python -m cyber_threat_feeds`."""
 
 import asyncio
 

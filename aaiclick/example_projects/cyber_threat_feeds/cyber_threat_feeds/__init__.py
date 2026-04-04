@@ -20,7 +20,7 @@ Data sources:
 
 Usage:
     # Register job (requires PostgreSQL)
-    python -m aaiclick.example_projects.cyber_threat_feeds
+    python -m cyber_threat_feeds
 
     # Then run worker to execute
     python -m aaiclick worker start

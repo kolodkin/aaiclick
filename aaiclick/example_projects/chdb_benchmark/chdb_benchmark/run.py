@@ -5,8 +5,8 @@ context), then all aaiclick benchmarks (with its context). Only one chdb
 engine is active at a time, avoiding compute resource competition.
 
 Usage:
-    python -m aaiclick.example_projects.chdb_benchmark
-    python -m aaiclick.example_projects.chdb_benchmark --rows 500000 --runs 5
+    python -m chdb_benchmark
+    python -m chdb_benchmark --rows 500000 --runs 5
 """
 
 import argparse

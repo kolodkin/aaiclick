@@ -26,7 +26,7 @@ def _resolve_main_module(func: Callable) -> str:
         func: A callable function
 
     Returns:
-        The resolved module path (e.g., 'aaiclick.example_projects.basic_worker_register')
+        The resolved module path (e.g., 'basic_worker')
     """
     # Strategy 1: Try __spec__ (cleanest when available, e.g., python -m)
     main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)

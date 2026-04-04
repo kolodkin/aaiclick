@@ -69,6 +69,7 @@ nav:
     - Orchestration: orchestration.md
     - AI Layer: ai.md
     - Operation Log: oplog.md
+  - Example Projects: example_projects.md
   - Examples:
     - Basic Operators: examples/basic_operators.md
     - Array Operators: examples/array_operators.md

@@ -19,7 +19,7 @@ License: IMDb Non-Commercial Use — https://developer.imdb.com/non-commercial-d
 
 Usage:
     # Register job (requires PostgreSQL or SQLite orchestration backend)
-    python -m aaiclick.example_projects.imdb_dataset_builder
+    python -m imdb_dataset_builder
 
     # Then run worker to execute
     python -m aaiclick worker start
