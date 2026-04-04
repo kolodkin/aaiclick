@@ -380,8 +380,6 @@ Preserves WHERE and computed column constraints when chained on a filtered View.
 
 `group_by()` only accepts column names, not SQL expressions. When you need to group by a derived value (e.g., `toYear(dateAdded)`, `lower(name)`), the workaround is manual: create an intermediate Object, populate it with `INSERT...SELECT`, then group. `with_columns()` automates this pattern.
 
-See `aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds/__init__.py` — `analyze_kev_by_year()` for the manual workaround in production code.
-
 ### Design
 
 `with_columns()` returns a **View** with `expr AS name` aliases in the SELECT list — no new table, no data copy, O(1) creation.
