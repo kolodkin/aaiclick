@@ -107,7 +107,7 @@ class Job(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     name: str = Field(index=True)
     status: JobStatus = Field(default=JobStatus.PENDING, index=True)
-    run_type: RunType = Field(default=RunType.MANUAL)
+    run_type: RunType = Field()
     registered_job_id: Optional[int] = Field(
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),

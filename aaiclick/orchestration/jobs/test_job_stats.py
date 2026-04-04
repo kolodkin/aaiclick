@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 from .stats import JobStats, TaskStats, _fmt_duration, compute_job_stats
-from ..models import Job, JobStatus, Task, TaskStatus
+from ..models import Job, JobStatus, RunType, Task, TaskStatus
 
 
 def _make_job(
@@ -17,6 +17,7 @@ def _make_job(
         id=1,
         name="test_job",
         status=status,
+        run_type=RunType.MANUAL,
         created_at=created_at,
         started_at=started_at,
         completed_at=completed_at,

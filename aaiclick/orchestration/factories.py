@@ -8,7 +8,7 @@ from typing import Callable, Union
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, Task, TaskStatus
+from .models import Job, JobStatus, RunType, Task, TaskStatus
 from .task_registry import get_task_registry
 
 
@@ -161,6 +161,7 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
         id=job_id,
         name=name,
         status=JobStatus.PENDING,
+        run_type=RunType.MANUAL,
         created_at=datetime.utcnow(),
     )
 
