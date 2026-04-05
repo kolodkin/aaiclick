@@ -5,6 +5,11 @@ from typing import Union
 from ..models import Computed
 
 
+def _escape_sql_string(value: str) -> str:
+    """Escape a Python string for use as a single-quoted SQL literal."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
 def literal(value: Union[str, int, float, bool], ch_type: str) -> Computed:
     """Create a Computed column with a constant SQL literal.
 
@@ -21,8 +26,7 @@ def literal(value: Union[str, int, float, bool], ch_type: str) -> Computed:
     if isinstance(value, bool):
         expr = "true" if value else "false"
     elif isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-        expr = f"'{escaped}'"
+        expr = _escape_sql_string(value)
     elif isinstance(value, (int, float)):
         expr = str(value)
     else:
@@ -65,5 +69,5 @@ def split_by_char(col: str, separator: str, element_type: str = "String") -> Com
         split_by_char("genres", ",")
         split_by_char("tags", ",", element_type="LowCardinality(String)")
     """
-    escaped = separator.replace("'", "\\'")
-    return Computed(f"Array({element_type})", f"splitByChar('{escaped}', {col})")
+    sep_escaped = _escape_sql_string(separator)
+    return Computed(f"Array({element_type})", f"splitByChar({sep_escaped}, {col})")

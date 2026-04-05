@@ -493,7 +493,7 @@ kev_view = kev.rename({
     "vendorProject": "vendor",
     "vulnerabilityName": "vulnerability_name",
 }).with_columns({
-    "source": Computed("String", "'kev'"),
+    "source": literal("kev", "String"),
 })
 await consolidated.insert(kev_view)
 ```

@@ -252,34 +252,20 @@ async def test_with_split_by_char_method_alias(ctx):
 # =============================================================================
 
 
-def test_literal_string_returns_computed():
-    c = literal("hello", "String")
-    assert c.type == "String"
-    assert c.expression == "'hello'"
-
-
-def test_literal_int_returns_computed():
-    c = literal(42, "UInt32")
-    assert c.type == "UInt32"
-    assert c.expression == "42"
-
-
-def test_literal_float_returns_computed():
-    c = literal(3.14, "Float64")
-    assert c.type == "Float64"
-    assert c.expression == "3.14"
-
-
-def test_literal_bool_true_returns_computed():
-    c = literal(True, "UInt8")
-    assert c.type == "UInt8"
-    assert c.expression == "true"
-
-
-def test_literal_bool_false_returns_computed():
-    c = literal(False, "UInt8")
-    assert c.type == "UInt8"
-    assert c.expression == "false"
+@pytest.mark.parametrize(
+    "value, ch_type, expected_expr",
+    [
+        pytest.param("hello", "String", "'hello'", id="string"),
+        pytest.param(42, "UInt32", "42", id="int"),
+        pytest.param(3.14, "Float64", "3.14", id="float"),
+        pytest.param(True, "UInt8", "true", id="bool-true"),
+        pytest.param(False, "UInt8", "false", id="bool-false"),
+    ],
+)
+def test_literal_returns_computed(value, ch_type, expected_expr):
+    c = literal(value, ch_type)
+    assert c.type == ch_type
+    assert c.expression == expected_expr
 
 
 def test_literal_string_escapes_quotes():
@@ -287,28 +273,19 @@ def test_literal_string_escapes_quotes():
     assert c.expression == r"'it\'s'"
 
 
-async def test_literal_string_with_columns(ctx):
+@pytest.mark.parametrize(
+    "col_name, value, ch_type, expected",
+    [
+        pytest.param("source", "dataset_a", "String", ["dataset_a", "dataset_a"], id="string"),
+        pytest.param("flag", 1, "UInt8", [1, 1], id="int"),
+        pytest.param("active", True, "UInt8", [1, 1], id="bool"),
+        pytest.param("pi", 3.14, "Float64", [3.14, 3.14], id="float"),
+    ],
+)
+async def test_literal_with_columns(ctx, col_name, value, ch_type, expected):
     obj = await create_object_from_value([{"x": 1}, {"x": 2}])
-    result = await obj.with_columns({"source": literal("dataset_a", "String")}).data()
-    assert result["source"] == ["dataset_a", "dataset_a"]
-
-
-async def test_literal_int_with_columns(ctx):
-    obj = await create_object_from_value([{"x": 10}, {"x": 20}])
-    result = await obj.with_columns({"flag": literal(1, "UInt8")}).data()
-    assert result["flag"] == [1, 1]
-
-
-async def test_literal_bool_with_columns(ctx):
-    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
-    result = await obj.with_columns({"active": literal(True, "UInt8")}).data()
-    assert result["active"] == [1, 1]
-
-
-async def test_literal_float_with_columns(ctx):
-    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
-    result = await obj.with_columns({"pi": literal(3.14, "Float64")}).data()
-    assert result["pi"] == [3.14, 3.14]
+    result = await obj.with_columns({col_name: literal(value, ch_type)}).data()
+    assert result[col_name] == expected
 
 
 def test_literal_unsupported_type():

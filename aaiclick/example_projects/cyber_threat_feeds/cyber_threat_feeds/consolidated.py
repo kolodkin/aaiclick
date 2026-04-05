@@ -7,10 +7,10 @@ from aaiclick.data.models import (
     GB_ANY,
     GB_GROUP_ARRAY_DISTINCT,
     ColumnInfo,
-    Computed,
     Schema,
 )
 from aaiclick.data.object import Object
+from aaiclick.data.object.transforms import literal
 from aaiclick.orchestration import task
 
 _HAS_KEV = "has(sources, 'kev')"
@@ -92,8 +92,8 @@ async def build_consolidated_table(
             "knownRansomwareCampaignUse": "known_ransomware",
         })
         .with_columns({
-            "source": Computed("String", "'kev'"),
-            "is_kev": Computed("Bool", "true"),
+            "source": literal("kev", "String"),
+            "is_kev": literal(True, "Bool"),
         })
     )
     await agg.insert(kev_view)
@@ -102,7 +102,7 @@ async def build_consolidated_table(
     shodan_view = (
         cves
         .rename({"kev": "is_kev"})
-        .with_columns({"source": Computed("String", "'shodan'")})
+        .with_columns({"source": literal("shodan", "String")})
     )
     await agg.insert(shodan_view)
 
@@ -110,7 +110,7 @@ async def build_consolidated_table(
     epss_view = (
         epss
         .rename({"cve": "cve_id", "percentile": "ranking_epss"})
-        .with_columns({"source": Computed("String", "'epss'")})
+        .with_columns({"source": literal("epss", "String")})
     )
     await agg.insert(epss_view)
 
