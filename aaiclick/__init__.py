@@ -22,7 +22,7 @@ from .data import create_object, create_object_from_value, create_object_from_ur
 from .data import Object, View, DataResult
 
 # Helper functions
-from .data import cast, split_by_char
+from .data import cast, literal, split_by_char
 
 # Schema definition
 from .data import Schema, ColumnInfo, ColumnType

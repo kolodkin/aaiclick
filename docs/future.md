@@ -17,10 +17,6 @@ basics.join(ratings, on="tconst", how="left")
 
 Core data operation — table-stakes for any data framework.
 
-## `literal()` Computed Helper
-
-Add `literal(value, type)` to `aaiclick/data/transforms.py` as a convenience wrapper over `Computed` for constant columns. `str` → `'value'`, `bool` → `true`/`false`, `int`/`float` → bare numeric. Export alongside `cast` and `split_by_char`.
-
 ## Insert Advisory Lock for Concurrent Workers
 
 In orchestration mode, multiple workers may insert into the same persistent Object concurrently.

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aaiclick import cast, create_object_from_value, split_by_char
+from aaiclick import cast, create_object_from_value, literal, split_by_char
 
 
 # =============================================================================
@@ -245,3 +245,72 @@ async def test_with_split_by_char_method_alias(ctx):
     obj = await create_object_from_value([{"genres": "Drama,Comedy"}])
     result = await obj.with_split_by_char("genres", ",", alias="genre").explode("genre").data()
     assert sorted(result["genre"]) == ["Comedy", "Drama"]
+
+
+# =============================================================================
+# Computed column helper: literal()
+# =============================================================================
+
+
+async def test_literal_string_returns_computed(ctx):
+    c = literal("hello", "String")
+    assert c.type == "String"
+    assert c.expression == "'hello'"
+
+
+async def test_literal_int_returns_computed(ctx):
+    c = literal(42, "UInt32")
+    assert c.type == "UInt32"
+    assert c.expression == "42"
+
+
+async def test_literal_float_returns_computed(ctx):
+    c = literal(3.14, "Float64")
+    assert c.type == "Float64"
+    assert c.expression == "3.14"
+
+
+async def test_literal_bool_true_returns_computed(ctx):
+    c = literal(True, "UInt8")
+    assert c.type == "UInt8"
+    assert c.expression == "true"
+
+
+async def test_literal_bool_false_returns_computed(ctx):
+    c = literal(False, "UInt8")
+    assert c.type == "UInt8"
+    assert c.expression == "false"
+
+
+async def test_literal_string_escapes_quotes(ctx):
+    c = literal("it's", "String")
+    assert c.expression == r"'it\'s'"
+
+
+async def test_literal_string_with_columns(ctx):
+    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
+    result = await obj.with_columns({"source": literal("dataset_a", "String")}).data()
+    assert result["source"] == ["dataset_a", "dataset_a"]
+
+
+async def test_literal_int_with_columns(ctx):
+    obj = await create_object_from_value([{"x": 10}, {"x": 20}])
+    result = await obj.with_columns({"flag": literal(1, "UInt8")}).data()
+    assert result["flag"] == [1, 1]
+
+
+async def test_literal_bool_with_columns(ctx):
+    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
+    result = await obj.with_columns({"active": literal(True, "UInt8")}).data()
+    assert result["active"] == [1, 1]
+
+
+async def test_literal_float_with_columns(ctx):
+    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
+    result = await obj.with_columns({"pi": literal(3.14, "Float64")}).data()
+    assert result["pi"] == [3.14, 3.14]
+
+
+async def test_literal_unsupported_type(ctx):
+    with pytest.raises(TypeError, match="Unsupported literal type"):
+        literal([1, 2], "Array(UInt8)")

@@ -1,6 +1,33 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
+from typing import Union
+
 from ..models import Computed
+
+
+def literal(value: Union[str, int, float, bool], ch_type: str) -> Computed:
+    """Create a Computed column with a constant SQL literal.
+
+    Args:
+        value: Python value to embed as a SQL literal.
+        ch_type: ClickHouse type for the column, e.g. "String", "UInt8", "Float64".
+
+    Examples:
+        literal("dataset_a", "String")    # Computed("String", "'dataset_a'")
+        literal(42, "UInt32")              # Computed("UInt32", "42")
+        literal(3.14, "Float64")           # Computed("Float64", "3.14")
+        literal(True, "UInt8")             # Computed("UInt8", "true")
+    """
+    if isinstance(value, bool):
+        expr = "true" if value else "false"
+    elif isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        expr = f"'{escaped}'"
+    elif isinstance(value, (int, float)):
+        expr = str(value)
+    else:
+        raise TypeError(f"Unsupported literal type: {type(value).__name__}")
+    return Computed(ch_type, expr)
 
 
 def cast(col: str, to_type: str, nullable: bool = True) -> Computed:
