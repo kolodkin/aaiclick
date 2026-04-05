@@ -252,37 +252,37 @@ async def test_with_split_by_char_method_alias(ctx):
 # =============================================================================
 
 
-async def test_literal_string_returns_computed(ctx):
+def test_literal_string_returns_computed():
     c = literal("hello", "String")
     assert c.type == "String"
     assert c.expression == "'hello'"
 
 
-async def test_literal_int_returns_computed(ctx):
+def test_literal_int_returns_computed():
     c = literal(42, "UInt32")
     assert c.type == "UInt32"
     assert c.expression == "42"
 
 
-async def test_literal_float_returns_computed(ctx):
+def test_literal_float_returns_computed():
     c = literal(3.14, "Float64")
     assert c.type == "Float64"
     assert c.expression == "3.14"
 
 
-async def test_literal_bool_true_returns_computed(ctx):
+def test_literal_bool_true_returns_computed():
     c = literal(True, "UInt8")
     assert c.type == "UInt8"
     assert c.expression == "true"
 
 
-async def test_literal_bool_false_returns_computed(ctx):
+def test_literal_bool_false_returns_computed():
     c = literal(False, "UInt8")
     assert c.type == "UInt8"
     assert c.expression == "false"
 
 
-async def test_literal_string_escapes_quotes(ctx):
+def test_literal_string_escapes_quotes():
     c = literal("it's", "String")
     assert c.expression == r"'it\'s'"
 
@@ -311,6 +311,6 @@ async def test_literal_float_with_columns(ctx):
     assert result["pi"] == [3.14, 3.14]
 
 
-async def test_literal_unsupported_type(ctx):
+def test_literal_unsupported_type():
     with pytest.raises(TypeError, match="Unsupported literal type"):
         literal([1, 2], "Array(UInt8)")
