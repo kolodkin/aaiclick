@@ -127,13 +127,15 @@ async def test_upsert_updates_existing(orch_ctx):
 
 
 async def test_enable_job(orch_ctx):
-    await register_job(
+    created = await register_job(
         name="to_enable",
         entrypoint="myapp.to_enable",
         schedule="0 6 * * *",
         enabled=False,
     )
-    job = await enable_job("to_enable")
+    job_id = await enable_job("to_enable")
+    assert job_id == created.id
+    job = await get_registered_job("to_enable")
     assert job.enabled is True
     assert job.next_run_at is not None
 
@@ -144,12 +146,14 @@ async def test_enable_job_not_found(orch_ctx):
 
 
 async def test_disable_job(orch_ctx):
-    await register_job(
+    created = await register_job(
         name="to_disable",
         entrypoint="myapp.to_disable",
         schedule="0 6 * * *",
     )
-    job = await disable_job("to_disable")
+    job_id = await disable_job("to_disable")
+    assert job_id == created.id
+    job = await get_registered_job("to_disable")
     assert job.enabled is False
     assert job.next_run_at is None
 

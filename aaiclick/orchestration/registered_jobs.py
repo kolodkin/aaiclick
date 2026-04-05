@@ -159,14 +159,14 @@ async def upsert_registered_job(
         return registered_job
 
 
-async def enable_job(name: str) -> RegisteredJob:
+async def enable_job(name: str) -> int:
     """Enable a registered job and recompute next_run_at.
 
     Args:
         name: Job name
 
     Returns:
-        Updated RegisteredJob
+        ID of the enabled registered job
 
     Raises:
         ValueError: If no job with this name exists
@@ -187,18 +187,17 @@ async def enable_job(name: str) -> RegisteredJob:
             job.next_run_at = compute_next_run(job.schedule, now)
         session.add(job)
         await session.commit()
-        await session.refresh(job)
-        return job
+        return job.id
 
 
-async def disable_job(name: str) -> RegisteredJob:
+async def disable_job(name: str) -> int:
     """Disable a registered job and clear next_run_at.
 
     Args:
         name: Job name
 
     Returns:
-        Updated RegisteredJob
+        ID of the disabled registered job
 
     Raises:
         ValueError: If no job with this name exists
@@ -216,8 +215,7 @@ async def disable_job(name: str) -> RegisteredJob:
         job.updated_at = datetime.utcnow()
         session.add(job)
         await session.commit()
-        await session.refresh(job)
-        return job
+        return job.id
 
 
 async def list_registered_jobs(
