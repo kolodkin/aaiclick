@@ -1,20 +1,25 @@
 """CLI entry point for aaiclick package.
 
 Usage:
-    python -m aaiclick setup              # Initialize local dev environment
-    python -m aaiclick setup --ai         # Also pull the configured Ollama model
-    python -m aaiclick migrate            # Run database migrations
-    python -m aaiclick migrate --help     # Show migration help
-    python -m aaiclick worker start       # Start a worker process
-    python -m aaiclick worker list        # List workers
-    python -m aaiclick job get <ref>      # Get job details (by ID or name)
-    python -m aaiclick job stats <ref>    # Show job execution stats
-    python -m aaiclick job cancel <ref>   # Cancel a job
-    python -m aaiclick job list           # List jobs
-    python -m aaiclick data list          # List persistent objects
-    python -m aaiclick data get <name>    # Show persistent object details
-    python -m aaiclick data delete <name> # Delete persistent object
-    python -m aaiclick background start   # Start background cleanup worker
+    python -m aaiclick setup                    # Initialize local dev environment
+    python -m aaiclick setup --ai               # Also pull the configured Ollama model
+    python -m aaiclick migrate                  # Run database migrations
+    python -m aaiclick migrate --help           # Show migration help
+    python -m aaiclick worker start             # Start a worker process
+    python -m aaiclick worker list              # List workers
+    python -m aaiclick job get <ref>            # Get job details (by ID or name)
+    python -m aaiclick job stats <ref>          # Show job execution stats
+    python -m aaiclick job cancel <ref>         # Cancel a job
+    python -m aaiclick job list                 # List jobs
+    python -m aaiclick job enable <name>        # Enable a registered job
+    python -m aaiclick job disable <name>       # Disable a registered job
+    python -m aaiclick register-job <entrypoint> # Register a job
+    python -m aaiclick run-job <name>           # Run a job immediately
+    python -m aaiclick registered-job list      # List registered jobs
+    python -m aaiclick data list                # List persistent objects
+    python -m aaiclick data get <name>          # Show persistent object details
+    python -m aaiclick data delete <name>       # Delete persistent object
+    python -m aaiclick background start         # Start background cleanup worker
 """
 
 import argparse
@@ -252,6 +257,54 @@ def main():
         help="Skip N results (default: 0)",
     )
 
+    # job enable <name>
+    job_enable_parser = job_subparsers.add_parser(
+        "enable",
+        help="Enable a registered job",
+    )
+    job_enable_parser.add_argument("name", type=str, help="Registered job name")
+
+    # job disable <name>
+    job_disable_parser = job_subparsers.add_parser(
+        "disable",
+        help="Disable a registered job",
+    )
+    job_disable_parser.add_argument("name", type=str, help="Registered job name")
+
+    # Add register-job subcommand
+    register_job_parser = subparsers.add_parser(
+        "register-job",
+        help="Register a job in the catalog",
+    )
+    register_job_parser.add_argument("entrypoint", type=str, help="Python dotted path (e.g. myapp.pipelines.etl_job)")
+    register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
+    register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
+    register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+
+    # Add run-job subcommand
+    run_job_parser = subparsers.add_parser(
+        "run-job",
+        help="Run a job immediately (auto-registers if needed)",
+    )
+    run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
+    run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+
+    # Add registered-job subcommand
+    registered_job_parser = subparsers.add_parser(
+        "registered-job",
+        help="Registered job management commands",
+    )
+    registered_job_subparsers = registered_job_parser.add_subparsers(
+        dest="registered_job_command",
+        help="Registered job commands",
+    )
+
+    # registered-job list
+    registered_job_subparsers.add_parser(
+        "list",
+        help="List registered jobs",
+    )
+
     # Add data subcommand
     data_parser = subparsers.add_parser(
         "data",
@@ -364,8 +417,42 @@ def main():
                 offset=args.offset,
             ))
 
+        elif args.job_command == "enable":
+            from aaiclick.orchestration.cli import enable_job_cmd
+
+            asyncio.run(enable_job_cmd(args.name))
+
+        elif args.job_command == "disable":
+            from aaiclick.orchestration.cli import disable_job_cmd
+
+            asyncio.run(disable_job_cmd(args.name))
+
         else:
             job_parser.print_help()
+
+    elif args.command == "register-job":
+        from aaiclick.orchestration.cli import register_job_cmd
+
+        asyncio.run(register_job_cmd(
+            args.entrypoint,
+            name=args.name,
+            schedule=args.schedule,
+            kwargs_json=args.kwargs,
+        ))
+
+    elif args.command == "run-job":
+        from aaiclick.orchestration.cli import run_job_cmd
+
+        asyncio.run(run_job_cmd(args.name, kwargs_json=args.kwargs))
+
+    elif args.command == "registered-job":
+        from aaiclick.orchestration.cli import show_registered_jobs
+
+        if args.registered_job_command == "list":
+            asyncio.run(show_registered_jobs())
+
+        else:
+            registered_job_parser.print_help()
 
     elif args.command == "data":
         if args.data_command == "list":
