@@ -227,7 +227,12 @@ class JobFactory:
         async with orch_context():
             return await self._create_job(**kwargs)
 
-    async def _create_job(self, **kwargs) -> Job:
+    async def _create_job(
+        self,
+        run_type: RunType = RunType.MANUAL,
+        registered_job_id: int | None = None,
+        **kwargs,
+    ) -> Job:
         """Internal method to create job within an OrchContext."""
         # Serialize kwargs for the entry point task
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
@@ -236,7 +241,8 @@ class JobFactory:
             id=get_snowflake_id(),
             name=self.name,
             status=JobStatus.PENDING,
-            run_type=RunType.MANUAL,
+            run_type=run_type,
+            registered_job_id=registered_job_id,
             created_at=datetime.utcnow(),
         )
 

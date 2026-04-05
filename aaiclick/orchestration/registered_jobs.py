@@ -8,8 +8,8 @@ from typing import Any, Dict, Optional
 from croniter import croniter
 from sqlmodel import select
 
-from .models import RegisteredJob
-from .orch_context import get_sql_session
+from .models import Job, JobStatus, RegisteredJob, RunType, Task, TaskStatus
+from .orch_context import commit_tasks, get_sql_session
 from ..snowflake_id import get_snowflake_id
 
 
@@ -236,3 +236,58 @@ async def list_registered_jobs(
             query = query.where(RegisteredJob.enabled == True)  # noqa: E712
         result = await session.execute(query)
         return list(result.scalars().all())
+
+
+async def run_job(
+    name: str,
+    entrypoint: str,
+    *,
+    kwargs: Optional[Dict[str, Any]] = None,
+    run_type: RunType = RunType.MANUAL,
+) -> Job:
+    """Run a job immediately, auto-registering if needed.
+
+    Upserts into registered_jobs (without schedule), merges kwargs
+    over default_kwargs, then creates a Job + entry point Task.
+
+    Args:
+        name: Job name
+        entrypoint: Python dotted path
+        kwargs: Override parameters (merged over default_kwargs)
+        run_type: How the job was triggered (default: MANUAL)
+
+    Returns:
+        Created Job
+    """
+    registered = await get_registered_job(name)
+    if registered is None:
+        registered = await register_job(name=name, entrypoint=entrypoint)
+
+    merged_kwargs = {**(registered.default_kwargs or {}), **(kwargs or {})}
+
+    now = datetime.utcnow()
+    job = Job(
+        id=get_snowflake_id(),
+        name=name,
+        status=JobStatus.PENDING,
+        run_type=run_type,
+        registered_job_id=registered.id,
+        created_at=now,
+    )
+
+    async with get_sql_session() as session:
+        session.add(job)
+        await session.commit()
+
+    entry_task = Task(
+        id=get_snowflake_id(),
+        entrypoint=entrypoint,
+        name=name,
+        kwargs=merged_kwargs,
+        status=TaskStatus.PENDING,
+        created_at=now,
+    )
+
+    await commit_tasks([entry_task], job.id)
+
+    return job

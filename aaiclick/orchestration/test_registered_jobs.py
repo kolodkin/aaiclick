@@ -4,7 +4,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from .models import RegisteredJob
+from sqlmodel import select
+
+from .models import Job, RegisteredJob, RunType, Task
+from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
     disable_job,
@@ -12,6 +15,7 @@ from .registered_jobs import (
     get_registered_job,
     list_registered_jobs,
     register_job,
+    run_job,
     upsert_registered_job,
 )
 
@@ -179,3 +183,55 @@ async def test_list_registered_jobs(orch_ctx):
     assert "list_a" in enabled_names
     assert "list_b" not in enabled_names
     assert "list_c" in enabled_names
+
+
+async def test_run_job_auto_registers(orch_ctx):
+    job = await run_job("auto_reg", "myapp.auto_reg")
+    assert job.run_type == RunType.MANUAL
+    assert job.registered_job_id is not None
+
+    reg = await get_registered_job("auto_reg")
+    assert reg is not None
+    assert reg.entrypoint == "myapp.auto_reg"
+
+
+async def test_run_job_creates_entry_task(orch_ctx):
+    job = await run_job("task_check", "myapp.task_check", kwargs={"x": 1})
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id)
+        )
+        tasks = list(result.scalars().all())
+
+    assert len(tasks) == 1
+    assert tasks[0].entrypoint == "myapp.task_check"
+    assert tasks[0].kwargs == {"x": 1}
+
+
+async def test_run_job_merges_default_kwargs(orch_ctx):
+    await register_job(
+        name="merge_kw",
+        entrypoint="myapp.merge_kw",
+        default_kwargs={"a": 1, "b": 2},
+    )
+    job = await run_job("merge_kw", "myapp.merge_kw", kwargs={"b": 99, "c": 3})
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id)
+        )
+        task = result.scalar_one()
+
+    assert task.kwargs == {"a": 1, "b": 99, "c": 3}
+
+
+async def test_run_job_with_existing_registration(orch_ctx):
+    reg = await register_job(
+        name="existing_reg",
+        entrypoint="myapp.existing",
+        schedule="0 8 * * *",
+    )
+    job = await run_job("existing_reg", "myapp.existing")
+    assert job.registered_job_id == reg.id
+    assert job.run_type == RunType.MANUAL
