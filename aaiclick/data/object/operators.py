@@ -60,7 +60,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from aaiclick.oplog.collector import oplog_record
+from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
 from ..data_context import create_object
 from ..models import Agg, ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
@@ -290,7 +290,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     ON a.rn = b.rn
                 """)
 
-        oplog_record(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+        oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
@@ -312,7 +312,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
 
-    oplog_record(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+    oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
     return result
 
 
@@ -452,7 +452,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     """
     await ch_client.command(insert_query)
 
-    oplog_record(result.table, agg_func, kwargs={"source": info.base_table})
+    oplog_record_sample(result.table, agg_func, kwargs={"source": info.base_table})
     return result
 
 
@@ -728,7 +728,7 @@ async def nunique_agg(info: QueryInfo, ch_client):
         SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
     """)
 
-    oplog_record(result.table, "nunique", kwargs={"source": info.base_table})
+    oplog_record_sample(result.table, "nunique", kwargs={"source": info.base_table})
     return result
 
 
@@ -1042,7 +1042,7 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
         SELECT a.aai_id, toUInt8(a.value IN ({subquery})) AS value
         FROM {info.source} AS a
     """)
-    oplog_record(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
+    oplog_record_sample(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
     return result
 
 

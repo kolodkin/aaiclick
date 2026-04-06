@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.oplog.cleanup import lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
@@ -137,9 +138,7 @@ class BackgroundWorker:
 
             for (table_name,) in rows:
                 try:
-                    await self._ch_client.command(
-                        f"DROP TABLE IF EXISTS {table_name}"
-                    )
+                    await lineage_aware_drop(self._ch_client, table_name)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
                     continue

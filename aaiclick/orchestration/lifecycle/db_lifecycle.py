@@ -2,7 +2,8 @@
 aaiclick.orchestration.db_lifecycle - Database models for distributed lifecycle tracking.
 
 DBLifecycleOp, DBLifecycleMessage, and TableContextRef define the data structures
-used by OrchLifecycleHandler (in context.py) for distributed table reference counting.
+used by OrchLifecycleHandler (in context.py) for distributed table reference counting
+and oplog recording.
 """
 
 from __future__ import annotations
@@ -20,7 +21,31 @@ class DBLifecycleOp(Enum):
     INCREF = auto()
     DECREF = auto()
     PIN = auto()
+    OPLOG_RECORD = auto()
+    OPLOG_SAMPLE = auto()
+    OPLOG_TABLE = auto()
     SHUTDOWN = auto()
+
+
+@dataclass
+class OplogPayload:
+    """Payload for OPLOG_RECORD and OPLOG_SAMPLE messages."""
+
+    result_table: str
+    operation: str
+    kwargs: dict[str, str]
+    sql: str | None = None
+    task_id: int | None = None
+    job_id: int | None = None
+
+
+@dataclass
+class OplogTablePayload:
+    """Payload for OPLOG_TABLE messages."""
+
+    table_name: str
+    task_id: int | None = None
+    job_id: int | None = None
 
 
 @dataclass
@@ -28,7 +53,9 @@ class DBLifecycleMessage:
     """Message passed to handler via queue."""
 
     op: DBLifecycleOp
-    table_name: str
+    table_name: str = ""
+    oplog: OplogPayload | None = None
+    oplog_table: OplogTablePayload | None = None
 
 
 class TableContextRef(SQLModel, table=True):

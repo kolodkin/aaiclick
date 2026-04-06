@@ -11,15 +11,16 @@ from aaiclick.data.data_context import ChClient
 
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
-    id           UInt64 DEFAULT generateSnowflakeID(),
-    result_table String,
-    operation    String,
-    args         Array(String),
-    kwargs       Map(String, String),
-    sql_template Nullable(String),
-    task_id      Nullable(UInt64),
-    job_id       Nullable(UInt64),
-    created_at   DateTime64(3)
+    id              UInt64 DEFAULT generateSnowflakeID(),
+    result_table    String,
+    operation       String,
+    kwargs          Map(String, String),
+    kwargs_aai_ids  Map(String, Array(UInt64)),
+    result_aai_ids  Array(UInt64),
+    sql_template    Nullable(String),
+    task_id         Nullable(UInt64),
+    job_id          Nullable(UInt64),
+    created_at      DateTime64(3)
 ) ENGINE = MergeTree()
 ORDER BY created_at
 TTL created_at + INTERVAL {ttl_days} DAY DELETE
@@ -39,8 +40,9 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "id": "UInt64",  # DEFAULT generateSnowflakeID() — type check only
     "result_table": "String",
     "operation": "String",
-    "args": "Array(String)",
     "kwargs": "Map(String, String)",
+    "kwargs_aai_ids": "Map(String, Array(UInt64))",
+    "result_aai_ids": "Array(UInt64)",
     "sql_template": "Nullable(String)",
     "task_id": "Nullable(UInt64)",
     "job_id": "Nullable(UInt64)",

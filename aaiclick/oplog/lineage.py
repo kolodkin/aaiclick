@@ -22,12 +22,20 @@ def _to_dict(kwargs_raw: Any) -> dict[str, str]:
     return dict(kwargs_raw)
 
 
+def _to_aai_ids_dict(raw: Any) -> dict[str, list[int]]:
+    """Normalize kwargs_aai_ids from ClickHouse Map(String, Array(UInt64)) column."""
+    if isinstance(raw, dict):
+        return {k: list(v) for k, v in raw.items()}
+    return {k: list(v) for k, v in raw}
+
+
 @dataclass
 class OplogNode:
     table: str
     operation: str
-    args: list[str]
     kwargs: dict[str, str]
+    kwargs_aai_ids: dict[str, list[int]]
+    result_aai_ids: list[int]
     sql_template: str | None
     task_id: int | None
     job_id: int | None
@@ -53,10 +61,13 @@ class OplogGraph:
         for node in self.nodes:
             lines.append(f"\n### Table: `{node.table}`")
             lines.append(f"- Operation: `{node.operation}`")
-            if node.args:
-                lines.append(f"- Input tables: {', '.join(f'`{a}`' for a in node.args)}")
             for k, v in node.kwargs.items():
                 lines.append(f"- {k}: `{v}`")
+            for k, ids in node.kwargs_aai_ids.items():
+                if ids:
+                    lines.append(f"- {k}_aai_ids: {ids}")
+            if node.result_aai_ids:
+                lines.append(f"- result_aai_ids: {node.result_aai_ids}")
             if node.sql_template:
                 lines.append(f"- SQL: `{node.sql_template}`")
             if node.task_id is not None:
@@ -106,23 +117,25 @@ async def backward_oplog(
     table_escaped = table.replace("'", "\\'")
     result = await ch_client.query(f"""
         WITH RECURSIVE upstream AS (
-            SELECT result_table, operation, args, kwargs, sql_template, task_id, job_id,
+            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+                   sql_template, task_id, job_id,
                    0 AS depth, [result_table] AS visited
             FROM operation_log
             WHERE result_table = '{table_escaped}'
 
             UNION ALL
 
-            SELECT ol.result_table, ol.operation, ol.args, ol.kwargs,
-                   ol.sql_template, ol.task_id, ol.job_id,
+            SELECT ol.result_table, ol.operation, ol.kwargs, ol.kwargs_aai_ids,
+                   ol.result_aai_ids, ol.sql_template, ol.task_id, ol.job_id,
                    u.depth + 1, arrayConcat(u.visited, [ol.result_table])
             FROM upstream u
             INNER JOIN operation_log ol
-                ON hasAny(arrayConcat(u.args, mapValues(u.kwargs)), [ol.result_table])
+                ON hasAny(mapValues(u.kwargs), [ol.result_table])
             WHERE u.depth < {max_depth}
               AND NOT has(u.visited, ol.result_table)
         )
-        SELECT DISTINCT result_table, operation, args, kwargs, sql_template, task_id, job_id
+        SELECT DISTINCT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+               sql_template, task_id, job_id
         FROM upstream
     """)
 
@@ -130,13 +143,15 @@ async def backward_oplog(
         OplogNode(
             table=result_table,
             operation=operation,
-            args=list(args),
             kwargs=_to_dict(kwargs_raw),
+            kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+            result_aai_ids=list(result_aai_ids_raw),
             sql_template=sql_template,
             task_id=task_id,
             job_id=job_id,
         )
-        for result_table, operation, args, kwargs_raw, sql_template, task_id, job_id
+        for result_table, operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw,
+            sql_template, task_id, job_id
         in result.result_rows
     ]
 
@@ -160,24 +175,26 @@ async def forward_oplog(
 
         placeholders = ", ".join(f"'{t}'" for t in frontier)
         result = await ch_client.query(f"""
-            SELECT result_table, operation, args, kwargs, sql_template, task_id, job_id
+            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+                   sql_template, task_id, job_id
             FROM operation_log
-            WHERE hasAny(args, [{placeholders}])
-               OR arrayExists(v -> v IN ({placeholders}), mapValues(kwargs))
+            WHERE arrayExists(v -> v IN ({placeholders}), mapValues(kwargs))
             ORDER BY created_at ASC
         """)
 
         next_frontier: list[str] = []
         for row in result.result_rows:
-            result_table, operation, args, kwargs, sql_template, task_id, job_id = row
+            (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
+             result_aai_ids_raw, sql_template, task_id, job_id) = row
             if result_table in visited:
                 continue
             visited.add(result_table)
             node = OplogNode(
                 table=result_table,
                 operation=operation,
-                args=list(args),
-                kwargs=_to_dict(kwargs),
+                kwargs=_to_dict(kwargs_raw),
+                kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+                result_aai_ids=list(result_aai_ids_raw),
                 sql_template=sql_template,
                 task_id=task_id,
                 job_id=job_id,
@@ -205,9 +222,85 @@ async def oplog_subgraph(
 
     edges: list[OplogEdge] = []
     for node in nodes:
-        for src in node.args:
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
         for src in node.kwargs.values():
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)
+
+
+@dataclass
+class RowLineageStep:
+    """One step in a row-level lineage trace."""
+
+    table: str
+    aai_id: int
+    operation: str
+    source_aai_ids: dict[str, int]
+
+
+async def backward_oplog_row(
+    table: str,
+    aai_id: int,
+    max_depth: int = 10,
+) -> list[RowLineageStep]:
+    """Trace a specific aai_id backward through the lineage chain.
+
+    Walks the oplog samples: finds the operation that produced this aai_id,
+    extracts the corresponding source aai_ids, then recurses into each source.
+
+    Returns steps in reverse order (most recent operation first).
+    """
+    ch_client = get_ch_client()
+    steps: list[RowLineageStep] = []
+    current_table = table
+    current_id = aai_id
+
+    for _ in range(max_depth):
+        table_escaped = current_table.replace("'", "\\'")
+
+        # Find the operation that produced this aai_id
+        result = await ch_client.query(f"""
+            SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids
+            FROM operation_log
+            WHERE result_table = '{table_escaped}'
+              AND has(result_aai_ids, {current_id})
+            LIMIT 1
+        """)
+
+        if not result.result_rows:
+            break
+
+        operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
+        kwargs = _to_dict(kwargs_raw)
+        kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
+        result_aai_ids = list(result_aai_ids_raw)
+
+        # Find the position of current_id in result_aai_ids
+        try:
+            pos = result_aai_ids.index(current_id)
+        except ValueError:
+            break
+
+        # Extract corresponding source aai_ids at the same position
+        source_aai_ids: dict[str, int] = {}
+        for role, ids in kwargs_aai_ids.items():
+            if pos < len(ids):
+                source_aai_ids[role] = ids[pos]
+
+        steps.append(RowLineageStep(
+            table=current_table,
+            aai_id=current_id,
+            operation=operation,
+            source_aai_ids=source_aai_ids,
+        ))
+
+        # Pick one source to follow (first source with an aai_id)
+        if not source_aai_ids:
+            break
+        first_role = next(iter(source_aai_ids))
+        current_id = source_aai_ids[first_role]
+        current_table = kwargs.get(first_role, "")
+        if not current_table:
+            break
+
+    return steps

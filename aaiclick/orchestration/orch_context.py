@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import queue
+import logging
 import weakref
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
@@ -16,15 +17,26 @@ from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
-from aaiclick.oplog.collector import OplogCollector, _oplog_collector
-from aaiclick.oplog.models import init_oplog_tables
+from aaiclick.oplog.cleanup import lineage_aware_drop
+from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
+from aaiclick.oplog.sampling import sample_lineage
 from ..snowflake_id import get_snowflake_id
 from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
 from .task_registry import _task_registry_var, get_task_registry
 from .models import Group, Task, TasksType
+
+logger = logging.getLogger(__name__)
+
+_OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
+               "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
+_OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
+
+_REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
+_REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
+
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -47,11 +59,18 @@ class OrchLifecycleHandler(LifecycleHandler):
     ):
         self._task_id = task_id
         self._job_id = job_id
-        self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
+        self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._process_loop())
+
+    def _enqueue(self, msg: DBLifecycleMessage) -> None:
+        """Thread-safe enqueue via call_soon_threadsafe."""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, msg)
 
     async def stop(self) -> None:
         """Drain queue then unconditionally delete all refs for this task_id.
@@ -59,7 +78,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         Pin refs use job_id as context_id, so they survive this cleanup.
         Only execution-time refs (incref/decref) are removed.
         """
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN, ""))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
             await self._task
         async with get_sql_session() as session:
@@ -70,14 +89,14 @@ class OrchLifecycleHandler(LifecycleHandler):
             await session.commit()
 
     def incref(self, table_name: str) -> None:
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
         """Mark table as result — inserts a job-scoped ref that survives stop()."""
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
         """Release a job-scoped pinned ref (ownership transfer to consumer)."""
@@ -91,74 +110,139 @@ class OrchLifecycleHandler(LifecycleHandler):
             )
             await session.commit()
 
+    # -- Oplog methods (enqueue to same FIFO as incref/decref) --
+
+    def oplog_record(self, result_table: str, operation: str,
+                     kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_RECORD,
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
+                               self._task_id, self._job_id),
+        ))
+
+    def oplog_record_sample(self, result_table: str, operation: str,
+                            kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_SAMPLE,
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
+                               self._task_id, self._job_id),
+        ))
+
+    def oplog_record_table(self, table_name: str) -> None:
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_TABLE,
+            oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id),
+        ))
+
+    # -- Internal --
+
     async def _create_sample_and_drop(self, table_name: str) -> None:
-        """Create a sample copy of the table, then drop the original."""
+        """Replace table with lineage-referenced rows, then drop original."""
+        await lineage_aware_drop(get_ch_client(), table_name)
+
+    async def _write_oplog_row(self, p: OplogPayload,
+                               kwargs_aai_ids: dict[str, list[int]] | None = None,
+                               result_aai_ids: list[int] | None = None) -> None:
+        """Insert a single oplog row to ClickHouse. Best effort."""
+        now = datetime.now(timezone.utc)
         try:
-            await get_ch_client().command(
-                f"CREATE TABLE IF NOT EXISTS {table_name}_sample "
-                f"ENGINE = MergeTree() ORDER BY tuple() "
-                f"AS SELECT * FROM {table_name} LIMIT 1000"
+            await get_ch_client().insert(
+                "operation_log",
+                [[p.result_table, p.operation, p.kwargs,
+                  kwargs_aai_ids or {}, result_aai_ids or [],
+                  p.sql, p.task_id, p.job_id, now]],
+                column_names=_OPLOG_COLS,
+                column_type_names=_OPLOG_TYPE_NAMES,
             )
         except Exception:
-            pass  # Best effort
+            logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
+
+    async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
+        """Insert a single table_registry row to ClickHouse. Best effort."""
+        now = datetime.now(timezone.utc)
         try:
-            await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
+            await get_ch_client().insert(
+                "table_registry",
+                [[p.table_name, p.job_id, p.task_id, now]],
+                column_names=_REG_COLS,
+                column_type_names=_REG_TYPE_NAMES,
+            )
         except Exception:
-            pass  # Best effort
+            logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
-        loop = asyncio.get_running_loop()
         while True:
-            msg = await loop.run_in_executor(None, self._queue.get)
+            msg = await self._queue.get()
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
-            total = 0
-            async with get_sql_session() as session:
-                if msg.op == DBLifecycleOp.INCREF:
-                    await session.execute(
-                        text(
-                            "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                            "VALUES (:table_name, :context_id, 1) "
-                            "ON CONFLICT (table_name, context_id) "
-                            "DO UPDATE SET refcount = table_context_refs.refcount + 1"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._task_id},
-                    )
-                elif msg.op == DBLifecycleOp.DECREF:
-                    await session.execute(
-                        text(
-                            "UPDATE table_context_refs "
-                            "SET refcount = refcount - 1 "
-                            "WHERE table_name = :table_name AND context_id = :context_id"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._task_id},
-                    )
-                    result = await session.execute(
-                        text(
-                            "SELECT COALESCE(SUM(refcount), 0) "
-                            "FROM table_context_refs "
-                            "WHERE table_name = :table_name"
-                        ),
-                        {"table_name": msg.table_name},
-                    )
-                    total = result.scalar_one() or 0
-                elif msg.op == DBLifecycleOp.PIN:
-                    await session.execute(
-                        text(
-                            "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                            "VALUES (:table_name, :context_id, 1) "
-                            "ON CONFLICT (table_name, context_id) "
-                            "DO UPDATE SET refcount = table_context_refs.refcount + 1"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._job_id},
-                    )
-                await session.commit()
-            if (
-                msg.op == DBLifecycleOp.DECREF
-                and total <= 0
-                and not msg.table_name.startswith("p_")
-            ):
-                await self._create_sample_and_drop(msg.table_name)
+
+            # -- Table lifecycle --
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
+                total = 0
+                async with get_sql_session() as session:
+                    if msg.op == DBLifecycleOp.INCREF:
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
+                                "VALUES (:table_name, :context_id, 1) "
+                                "ON CONFLICT (table_name, context_id) "
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                    elif msg.op == DBLifecycleOp.DECREF:
+                        await session.execute(
+                            text(
+                                "UPDATE table_context_refs "
+                                "SET refcount = refcount - 1 "
+                                "WHERE table_name = :table_name AND context_id = :context_id"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                        result = await session.execute(
+                            text(
+                                "SELECT COALESCE(SUM(refcount), 0) "
+                                "FROM table_context_refs "
+                                "WHERE table_name = :table_name"
+                            ),
+                            {"table_name": msg.table_name},
+                        )
+                        total = result.scalar_one() or 0
+                    elif msg.op == DBLifecycleOp.PIN:
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
+                                "VALUES (:table_name, :context_id, 1) "
+                                "ON CONFLICT (table_name, context_id) "
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._job_id},
+                        )
+                    await session.commit()
+                if (
+                    msg.op == DBLifecycleOp.DECREF
+                    and total <= 0
+                    and not msg.table_name.startswith("p_")
+                ):
+                    await self._create_sample_and_drop(msg.table_name)
+
+            # -- Oplog (immediate write, no buffer) --
+            elif msg.op == DBLifecycleOp.OPLOG_RECORD:
+                await self._write_oplog_row(msg.oplog)
+            elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
+                kwargs_aai_ids, result_aai_ids = {}, []
+                if msg.oplog.kwargs:
+                    try:
+                        kwargs_aai_ids, result_aai_ids = await sample_lineage(
+                            get_ch_client(), msg.oplog.result_table, msg.oplog.kwargs,
+                        )
+                    except Exception:
+                        logger.error("Failed to sample lineage for %s",
+                                     msg.oplog.result_table, exc_info=True)
+                await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
+            elif msg.op == DBLifecycleOp.OPLOG_TABLE:
+                await self._write_table_registry_row(msg.oplog_table)
+
 
 
 @asynccontextmanager
@@ -223,7 +307,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     Creates isolated per-task state:
     - Fresh objects registry for stale-marking on exit
     - OrchLifecycleHandler using task_id as context_id for distributed refcounting
-    - OplogCollector for operation lineage (always active in orch mode)
+    - Oplog recording via OrchLifecycleHandler queue (always active in orch mode)
 
     Oplog is flushed on clean exit; discarded on exception.
     All tracked objects are stale-marked on exit.
@@ -239,24 +323,15 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     await lifecycle.start()
 
     objects: Dict[int, weakref.ref] = {}
-    collector = OplogCollector(task_id=task_id, job_id=job_id)
     await init_oplog_tables(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
-    oplog_token = _oplog_collector.set(collector)
     registry_token = _task_registry_var.set({})
 
-    failed = False
     try:
         yield
-    except Exception:
-        failed = True
-        raise
     finally:
-        if not failed:
-            await collector.flush()
-        _oplog_collector.reset(oplog_token)
         _task_registry_var.reset(registry_token)
 
         # Stale-mark all tracked objects
