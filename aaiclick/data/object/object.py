@@ -119,8 +119,14 @@ class Object:
             incref(self.table)
 
     def __del__(self):
-        """Decrement refcount on deletion."""
+        """Decrement refcount on deletion.
+
+        Skipped when the object is stale (already decreffed at context exit)
+        or during interpreter shutdown.
+        """
         if sys.is_finalizing():
+            return
+        if self._stale:
             return
         if not self._registered:
             return

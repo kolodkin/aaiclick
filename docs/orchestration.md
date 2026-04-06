@@ -206,7 +206,10 @@ Worker Process
 ├── OrchLifecycleHandler (per task, uses get_sql_session())
 │   ├── incref/decref → table_context_refs (context_id = task_id)
 │   ├── pin → table_context_refs (context_id = job_id)
-│   └── stop → DELETE WHERE context_id = task_id
+│   └── stop → drains queue, then DELETE WHERE context_id = task_id
+├── task_scope exit
+│   ├── stale-marks all live objects (prevents __del__ decref)
+│   └── stop() bulk-deletes task-scoped refs (no per-table cleanup trigger)
 ├── BackgroundWorker (own DB engine + CH client)
 │   ├── polls completed/failed jobs → deletes job-scoped refs
 │   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
@@ -220,7 +223,7 @@ Worker Process
 Task A executes
   ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
   ├── PIN result: inserts (t_result, job_id, 1) — survives stop()
-  └── stop() → DELETE WHERE context_id=task_a.id (intermediates cleaned)
+  └── task_scope exit → stale-mark live objects, stop() DELETEs task refs
 
 Task B starts, deserializes task_a.result
   ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
@@ -235,7 +238,9 @@ Job completes → BackgroundWorker deletes remaining refs + drops orphaned table
 
 Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_session()`.
 
-**Sync-to-async bridge**: `Object.__del__` calls incref/decref synchronously → `queue.Queue` → asyncio.Task drains via `run_in_executor`.
+**Deterministic stale-marking**: On `task_scope` exit, all live objects are stale-marked so `__del__` skips decref. `stop()` drains the queue then bulk-deletes task-scoped refs via `DELETE WHERE context_id = task_id`. This avoids per-table DECREF checks that would race with pin/claim ownership transfer. The background worker handles actual table drops.
+
+**Sync-to-async bridge**: `Object.__del__` calls decref synchronously → `call_soon_threadsafe` → asyncio.Queue → `_process_loop()` drains. Only fires for objects GC'd during task execution; objects surviving to context exit are stale-marked so `__del__` is a no-op.
 
 **PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
 

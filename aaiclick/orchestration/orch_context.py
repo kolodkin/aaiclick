@@ -76,10 +76,12 @@ class OrchLifecycleHandler(LifecycleHandler):
             self._loop.call_soon_threadsafe(self._queue.put_nowait, msg)
 
     async def stop(self) -> None:
-        """Drain queue then unconditionally delete all refs for this task_id.
+        """Drain queue then bulk-delete all task-scoped refs.
 
+        Uses a single DELETE rather than per-object DECREF to avoid triggering
+        inline cleanup checks that race with pin/claim ownership transfer.
         Pin refs use job_id as context_id, so they survive this cleanup.
-        Only execution-time refs (incref/decref) are removed.
+        The background worker handles actual table drops.
         """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
@@ -339,15 +341,18 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Stale-mark all tracked objects
+        # Stale-mark all tracked objects still alive so __del__ skips decref.
+        # Refcount cleanup is handled by stop() via bulk DELETE — this avoids
+        # triggering per-table DECREF checks that race with pin/claim.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
+                obj._registered = False
         objects.clear()
         _objects_var.reset(obj_token)
 
-        # Stop lifecycle (drains queue, deletes context refs)
+        # Drain queue then bulk-delete task-scoped refs
         await lifecycle.stop()
         _lifecycle_var.reset(lc_token)
 
