@@ -1,7 +1,6 @@
-"""
-aaiclick.orchestration.pg_cleanup - Background worker for cleanup and scheduling.
+"""Background worker for cleanup and job scheduling.
 
-PgCleanupWorker polls the database for:
+BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
 2. Tables with total refcount <= 0 — drops them in ClickHouse
 3. Dead workers — marks their running tasks as FAILED
@@ -22,10 +21,11 @@ from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
+from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
+from .handler import BackgroundHandler, create_background_handler
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
-class PgCleanupWorker:
+class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
     Performs four operations on each poll:
@@ -57,9 +57,11 @@ class PgCleanupWorker:
         self._engine: AsyncEngine | None = None
         self._ch_client: object | None = None
         self._shutdown: asyncio.Event | None = None
+        self._handler: BackgroundHandler | None = None
 
     async def start(self) -> None:
         self._engine = create_async_engine(get_db_url(), echo=False)
+        self._handler = create_background_handler()
 
         if is_chdb():
             from aaiclick.data.data_context.chdb_client import create_chdb_client
@@ -117,17 +119,7 @@ class PgCleanupWorker:
             if not job_ids:
                 return
 
-            if is_sqlite():
-                for jid in job_ids:
-                    await session.execute(
-                        text("DELETE FROM table_context_refs WHERE context_id = :jid"),
-                        {"jid": jid},
-                    )
-            else:
-                await session.execute(
-                    text("DELETE FROM table_context_refs WHERE context_id = ANY(:job_ids)"),
-                    {"job_ids": job_ids},
-                )
+            await self._handler.delete_job_refs(session, job_ids)
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
@@ -181,42 +173,7 @@ class PgCleanupWorker:
                 return
 
             now = datetime.utcnow()
-
-            if is_sqlite():
-                for wid in dead_worker_ids:
-                    await session.execute(
-                        text("UPDATE workers SET status = 'STOPPED' WHERE id = :wid"),
-                        {"wid": wid},
-                    )
-                    await session.execute(
-                        text(
-                            "UPDATE tasks SET status = 'FAILED', "
-                            "completed_at = :now, "
-                            "error = 'Worker died (heartbeat timeout)' "
-                            "WHERE worker_id = :wid "
-                            "AND status IN ('RUNNING', 'CLAIMED')"
-                        ),
-                        {"wid": wid, "now": now},
-                    )
-            else:
-                await session.execute(
-                    text(
-                        "UPDATE workers SET status = 'STOPPED' "
-                        "WHERE id = ANY(:worker_ids)"
-                    ),
-                    {"worker_ids": dead_worker_ids},
-                )
-                await session.execute(
-                    text(
-                        "UPDATE tasks SET status = 'FAILED', "
-                        "completed_at = :now, "
-                        "error = 'Worker died (heartbeat timeout)' "
-                        "WHERE worker_id = ANY(:worker_ids) "
-                        "AND status IN ('RUNNING', 'CLAIMED')"
-                    ),
-                    {"worker_ids": dead_worker_ids, "now": now},
-                )
-
+            await self._handler.mark_dead_workers(session, dead_worker_ids, now)
             await session.commit()
 
             for wid in dead_worker_ids:

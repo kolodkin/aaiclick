@@ -174,7 +174,7 @@ Worker Process
 │   ├── incref/decref → table_context_refs (context_id = task_id)
 │   ├── pin → table_context_refs (context_id = job_id)
 │   └── stop → DELETE WHERE context_id = task_id
-├── PgCleanupWorker (own PG engine + CH client)
+├── BackgroundWorker (own DB engine + CH client)
 │   ├── polls completed/failed jobs → deletes job-scoped refs
 │   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
 │   └── detects dead workers → marks tasks FAILED
@@ -193,7 +193,7 @@ Task B starts, deserializes task_a.result
   ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
   └── claim → deletes (t_result, job_id, 1)  ← release job ref
 
-Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
+Job completes → BackgroundWorker deletes remaining refs + drops orphaned tables
 ```
 
 ## OrchLifecycleHandler
@@ -206,11 +206,11 @@ Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_se
 
 **PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
 
-## PgCleanupWorker
+## BackgroundWorker
 
-**Implementation**: `aaiclick/orchestration/lifecycle/pg_cleanup.py` — see `PgCleanupWorker` class
+**Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Three cleanup operations per poll: (1) job cleanup — delete job-scoped pin refs for completed/failed jobs; (2) table cleanup — `HAVING SUM(refcount) <= 0` → DROP in CH; (3) dead worker detection — expired heartbeats → mark tasks FAILED, workers STOPPED. Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
+Four operations per poll: (1) job cleanup — delete job-scoped pin refs for completed/failed jobs; (2) table cleanup — `HAVING SUM(refcount) <= 0` → DROP in CH; (3) dead worker detection — expired heartbeats → mark tasks FAILED, workers STOPPED; (4) job scheduling — create Job runs for registered jobs whose `next_run_at` is due. Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ## Write-Ahead Incref
 

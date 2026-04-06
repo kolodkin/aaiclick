@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 from .execution import cancel_job, list_workers, worker_main_loop
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
-from .lifecycle import PgCleanupWorker
+from .background import BackgroundWorker
 from .models import JobStatus
 from .registered_jobs import (
     disable_job,
@@ -95,7 +95,7 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
-    pg_cleanup = PgCleanupWorker()
+    pg_cleanup = BackgroundWorker()
     await pg_cleanup.start()
     try:
         async with orch_context():
@@ -139,7 +139,7 @@ async def start_background(poll_interval: float = 10.0) -> None:
     Args:
         poll_interval: Cleanup poll interval in seconds.
     """
-    cleanup = PgCleanupWorker(poll_interval=poll_interval)
+    cleanup = BackgroundWorker(poll_interval=poll_interval)
     await cleanup.start()
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()

@@ -66,11 +66,11 @@ Adds cron-based scheduling driven by the background worker.
 
 # Phase 4: Scheduler in Background Worker
 
-**Objective**: `PgCleanupWorker` (or renamed `BackgroundWorker`) checks cron schedules.
+**Objective**: `BackgroundWorker` (or renamed `BackgroundWorker`) checks cron schedules.
 
 **Tasks**:
 
-- Add `_check_schedules()` method to `PgCleanupWorker`:
+- Add `_check_schedules()` method to `BackgroundWorker`:
   - Query: `SELECT * FROM registered_jobs WHERE enabled = True AND next_run_at <= NOW()`
   - For each match, optimistic lock: `UPDATE registered_jobs SET next_run_at = :next WHERE id = :id AND next_run_at = :old`
   - If update affected 1 row → create `Job` with `run_type=SCHEDULED` + entry point `Task`

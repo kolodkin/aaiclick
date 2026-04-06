@@ -1,4 +1,4 @@
-"""Tests for scheduled job creation in PgCleanupWorker."""
+"""Tests for scheduled job creation in BackgroundWorker."""
 
 import json
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from aaiclick.orchestration.lifecycle.pg_cleanup import PgCleanupWorker
+from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
@@ -37,8 +37,8 @@ async def test_check_schedules_creates_job(orch_ctx):
         )
         await session.commit()
 
-    # Create a PgCleanupWorker with our test engine
-    worker = PgCleanupWorker()
+    # Create a BackgroundWorker with our test engine
+    worker = BackgroundWorker()
     worker._engine = await _get_engine(orch_ctx)
     worker._ch_client = None
 
@@ -106,7 +106,7 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
         )
         await session.commit()
 
-    worker = PgCleanupWorker()
+    worker = BackgroundWorker()
     worker._engine = await _get_engine(orch_ctx)
     worker._ch_client = None
 
@@ -136,7 +136,7 @@ async def test_check_schedules_skips_disabled_jobs(orch_ctx):
         enabled=False,
     )
 
-    worker = PgCleanupWorker()
+    worker = BackgroundWorker()
     worker._engine = await _get_engine(orch_ctx)
     worker._ch_client = None
 
@@ -161,7 +161,7 @@ async def test_check_schedules_skips_no_schedule_jobs(orch_ctx):
         entrypoint="myapp.no_sched",
     )
 
-    worker = PgCleanupWorker()
+    worker = BackgroundWorker()
     worker._engine = await _get_engine(orch_ctx)
     worker._ch_client = None
 
