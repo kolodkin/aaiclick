@@ -11,9 +11,9 @@ Current oplog captures **table-level** lineage only: "table C was produced by `a
 enough to build a dependency graph but not enough to trace individual values. With row-level
 sampling:
 
-- An AI agent can verify "3.14 + 2.71 = 5.85" on concrete rows
+- An AI agent can trace a specific output row back through the full operation chain to its origins
 - Cleanup preserves semantically meaningful rows (those that appear in lineage) instead of random ones
-- Debugging becomes surgical: trace a specific output row back through the operation chain
+- Lineage graphs become walkable at row level, not just table level
 
 # Design Decisions
 
