@@ -15,7 +15,7 @@ from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from ..orch_context import get_sql_session
-from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner import execute_task, register_returned_tasks, serialize_task_result, update_last_run_status
 from ..models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
@@ -328,7 +328,8 @@ async def worker_main_loop(
                 # Serialize the data portion of the result
                 result_ref = serialize_task_result(data_result, task.job_id)
 
-                # Update task status to COMPLETED
+                # Update run status and task status to COMPLETED
+                await update_last_run_status(task.id, "COMPLETED")
                 await update_task_status(
                     task.id,
                     TaskStatus.COMPLETED,
@@ -353,6 +354,7 @@ async def worker_main_loop(
                         )
                     )
                     max_retries, attempt = row.one()
+                await update_last_run_status(task.id, "FAILED")
                 if attempt < max_retries:
                     await _schedule_retry(task.id, attempt, str(e))
                     print(

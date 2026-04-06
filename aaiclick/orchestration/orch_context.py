@@ -31,10 +31,10 @@ from .models import Group, Task, TasksType
 logger = logging.getLogger(__name__)
 
 _OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
-               "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
+               "result_aai_ids", "sql_template", "task_id", "job_id", "run_id", "created_at"]
 _OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
 
-_REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
+_REG_COLS = ["table_name", "job_id", "task_id", "run_id", "created_at"]
 _REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
 
 
@@ -50,15 +50,18 @@ class OrchLifecycleHandler(LifecycleHandler):
     Args:
         task_id: Task ID used as context_id for grouping this handler's refs.
         job_id: Job ID used as context_id for pin operations.
+        run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
 
     def __init__(
         self,
         task_id: int,
         job_id: int,
+        run_id: int,
     ):
         self._task_id = task_id
         self._job_id = job_id
+        self._run_id = run_id
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -117,7 +120,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_RECORD,
             oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id),
+                               self._task_id, self._job_id, self._run_id),
         ))
 
     def oplog_record_sample(self, result_table: str, operation: str,
@@ -125,13 +128,13 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
             oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id),
+                               self._task_id, self._job_id, self._run_id),
         ))
 
     def oplog_record_table(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_TABLE,
-            oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id),
+            oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id, self._run_id),
         ))
 
     # -- Internal --
@@ -150,7 +153,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 "operation_log",
                 [[p.result_table, p.operation, p.kwargs,
                   kwargs_aai_ids or {}, result_aai_ids or [],
-                  p.sql, p.task_id, p.job_id, now]],
+                  p.sql, p.task_id, p.job_id, p.run_id, now]],
                 column_names=_OPLOG_COLS,
                 column_type_names=_OPLOG_TYPE_NAMES,
             )
@@ -163,7 +166,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         try:
             await get_ch_client().insert(
                 "table_registry",
-                [[p.table_name, p.job_id, p.task_id, now]],
+                [[p.table_name, p.job_id, p.task_id, p.run_id, now]],
                 column_names=_REG_COLS,
                 column_type_names=_REG_TYPE_NAMES,
             )
@@ -301,7 +304,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
+async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[int]:
     """Per-task context nested inside orch_context.
 
     Creates isolated per-task state:
@@ -315,10 +318,15 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     Args:
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
+        run_id: Per-attempt snowflake ID for oplog isolation across retries.
+
+    Yields:
+        The run_id for this execution attempt.
     """
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
+        run_id=run_id,
     )
     await lifecycle.start()
 
@@ -330,7 +338,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     registry_token = _task_registry_var.set({})
 
     try:
-        yield
+        yield run_id
     finally:
         _task_registry_var.reset(registry_token)
 

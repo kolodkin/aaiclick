@@ -52,26 +52,31 @@ class _TeeWriter:
 
 
 @contextmanager
-def capture_task_output(task_id: int):
+def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
-    Context manager to capture stdout and stderr to a task log file.
+    Context manager to capture stdout and stderr to a per-run log file.
 
     Both stdout and stderr are captured to the same log file.
     Output is also preserved to the original streams (tee behavior).
 
+    Log files are organized as: {base}/{job_id}/{task_id}/{run_id}.log
+
     Args:
-        task_id: Task ID used to generate log file path
+        task_id: Task ID used to generate log file path.
+        job_id: Job ID for the directory hierarchy.
+        run_id: Per-attempt snowflake ID — each retry gets its own log file.
 
     Yields:
         str: Path to the log file
 
     Example:
-        with capture_task_output(task.id) as log_path:
+        with capture_task_output(task.id, task.job_id, run_id) as log_path:
             print("This goes to both console and log file")
-            # Result: {get_logs_dir()}/{task_id}.log
+            # Result: {get_logs_dir()}/{job_id}/{task_id}/{run_id}.log
     """
-    log_dir = get_logs_dir()
-    log_path = os.path.join(log_dir, f"{task_id}.log")
+    log_dir = os.path.join(get_logs_dir(), str(job_id), str(task_id))
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    log_path = os.path.join(log_dir, f"{run_id}.log")
 
     original_stdout = sys.stdout
     original_stderr = sys.stderr

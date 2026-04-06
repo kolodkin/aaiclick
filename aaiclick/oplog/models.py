@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS operation_log (
     sql_template    Nullable(String),
     task_id         Nullable(UInt64),
     job_id          Nullable(UInt64),
+    run_id          Nullable(UInt64),
     created_at      DateTime64(3)
 ) ENGINE = MergeTree()
 ORDER BY created_at
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS table_registry (
     table_name   String,
     job_id       Nullable(UInt64),
     task_id      Nullable(UInt64),
+    run_id       Nullable(UInt64),
     created_at   DateTime64(3)
 ) ENGINE = MergeTree()
 ORDER BY (created_at,)
@@ -46,6 +48,7 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "sql_template": "Nullable(String)",
     "task_id": "Nullable(UInt64)",
     "job_id": "Nullable(UInt64)",
+    "run_id": "Nullable(UInt64)",
     "created_at": "DateTime64(3)",
 }
 
@@ -53,6 +56,7 @@ TABLE_REGISTRY_EXPECTED_COLUMNS: dict[str, str] = {
     "table_name": "String",
     "job_id": "Nullable(UInt64)",
     "task_id": "Nullable(UInt64)",
+    "run_id": "Nullable(UInt64)",
     "created_at": "DateTime64(3)",
 }
 

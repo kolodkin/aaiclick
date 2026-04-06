@@ -59,27 +59,6 @@ the lineage agent should account for the fact that `aai_id` values differ betwee
 tables after insert/concat. Row-level tracing across insert/concat boundaries cannot rely on `aai_id`
 matching — the agent needs to use data-value matching or oplog provenance metadata instead.
 
-## Task Run IDs & Oplog Retry Isolation
-
-Today tasks reuse the same `task_id` across retries. Oplog entries from failed and successful
-attempts are mixed together. Add per-attempt tracking:
-
-**Task model** — two parallel array columns:
-```
-run_ids:      [snowflake_1, snowflake_2, snowflake_3]
-run_statuses: ["FAILED",    "FAILED",    "COMPLETED"]
-```
-
-Each attempt appends to both arrays. Current run is the last element. Full retry history in
-one row — no extra table.
-
-**operation_log** — add `run_id Nullable(UInt64)` alongside existing `task_id`/`job_id`.
-`task_scope` generates a new Snowflake `run_id` per attempt and passes it to
-`OrchLifecycleHandler`. On retry, oplog entries for the previous `run_id` can be cleaned up
-or kept for debugging.
-
-Requires: Alembic migration (Task model), ClickHouse schema change (operation_log), updates
-to execution runner, task_scope, and OrchLifecycleHandler.
 
 ## Oplog Data Lifecycle
 
