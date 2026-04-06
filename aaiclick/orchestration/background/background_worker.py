@@ -249,5 +249,6 @@ class BackgroundWorker:
                     },
                 )
 
-                await session.commit()
                 logger.info("Scheduled job '%s' created (job_id=%s)", name, job_id)
+
+            await session.commit()

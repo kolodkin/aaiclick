@@ -95,13 +95,13 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
-    pg_cleanup = BackgroundWorker()
-    await pg_cleanup.start()
+    background = BackgroundWorker()
+    await background.start()
     try:
         async with orch_context():
             await worker_main_loop(max_tasks=max_tasks)
     finally:
-        await pg_cleanup.stop()
+        await background.stop()
 
 
 async def show_job_stats(job_ref: str) -> None:

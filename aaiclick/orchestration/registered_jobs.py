@@ -8,8 +8,9 @@ from typing import Any, Dict, Optional
 from croniter import croniter
 from sqlmodel import select
 
-from .models import Job, JobStatus, RegisteredJob, RunType, Task, TaskStatus
-from .orch_context import commit_tasks, get_sql_session
+from .factories import create_job, create_task
+from .models import RegisteredJob, RunType
+from .orch_context import get_sql_session
 from ..snowflake_id import get_snowflake_id
 
 
@@ -25,6 +26,11 @@ def compute_next_run(cron_expr: str, after: Optional[datetime] = None) -> dateti
     """
     base = after or datetime.utcnow()
     return croniter(cron_expr, base).get_next(datetime)
+
+
+def _next_run_at(schedule: Optional[str], enabled: bool, now: datetime) -> Optional[datetime]:
+    """Compute next_run_at from schedule if enabled, else None."""
+    return compute_next_run(schedule, now) if schedule and enabled else None
 
 
 async def register_job(
@@ -51,8 +57,6 @@ async def register_job(
         ValueError: If a job with this name already exists
     """
     now = datetime.utcnow()
-    next_run = compute_next_run(schedule, now) if schedule and enabled else None
-
     registered_job = RegisteredJob(
         id=get_snowflake_id(),
         name=name,
@@ -60,7 +64,7 @@ async def register_job(
         enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
-        next_run_at=next_run,
+        next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
     )
@@ -132,16 +136,12 @@ async def upsert_registered_job(
             existing.default_kwargs = default_kwargs
             existing.enabled = enabled
             existing.updated_at = now
-            if schedule and enabled:
-                existing.next_run_at = compute_next_run(schedule, now)
-            else:
-                existing.next_run_at = None
+            existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
             await session.commit()
             await session.refresh(existing)
             return existing
 
-        next_run = compute_next_run(schedule, now) if schedule and enabled else None
         registered_job = RegisteredJob(
             id=get_snowflake_id(),
             name=name,
@@ -149,7 +149,7 @@ async def upsert_registered_job(
             enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
-            next_run_at=next_run,
+            next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
         )
@@ -183,8 +183,7 @@ async def enable_job(name: str) -> int:
 
         job.enabled = True
         job.updated_at = now
-        if job.schedule:
-            job.next_run_at = compute_next_run(job.schedule, now)
+        job.next_run_at = _next_run_at(job.schedule, True, now)
         session.add(job)
         await session.commit()
         return job.id
@@ -265,29 +264,10 @@ async def run_job(
 
     merged_kwargs = {**(registered.default_kwargs or {}), **(kwargs or {})}
 
-    now = datetime.utcnow()
-    job = Job(
-        id=get_snowflake_id(),
+    task = create_task(entrypoint, merged_kwargs, name=name)
+    return await create_job(
         name=name,
-        status=JobStatus.PENDING,
+        entry=task,
         run_type=run_type,
         registered_job_id=registered.id,
-        created_at=now,
     )
-
-    async with get_sql_session() as session:
-        session.add(job)
-        await session.commit()
-
-    entry_task = Task(
-        id=get_snowflake_id(),
-        entrypoint=entrypoint,
-        name=name,
-        kwargs=merged_kwargs,
-        status=TaskStatus.PENDING,
-        created_at=now,
-    )
-
-    await commit_tasks([entry_task], job.id)
-
-    return job
