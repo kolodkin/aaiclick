@@ -11,17 +11,17 @@ from aaiclick.orchestration.orch_context import task_scope
 
 async def test_oplog_writes_on_operation(orch_ctx):
     """Operations are written to operation_log with correct metadata."""
-    async with task_scope(task_id=42, job_id=99):
+    async with task_scope(task_id=42, job_id=99, run_id=420):
         obj = await create_object_from_value([5])
         table_name = obj.table
 
     ch = await create_ch_client()
 
     row = (await ch.query(
-        f"SELECT operation, task_id, job_id FROM operation_log "
+        f"SELECT operation, task_id, job_id, run_id FROM operation_log "
         f"WHERE result_table = '{table_name}' LIMIT 1"
     )).result_rows
-    assert row and row[0] == ("create_from_value", 42, 99)
+    assert row and row[0] == ("create_from_value", 42, 99, 420)
 
     reg = (await ch.query(
         f"SELECT table_name FROM table_registry WHERE table_name = '{table_name}' LIMIT 1"
@@ -31,7 +31,7 @@ async def test_oplog_writes_on_operation(orch_ctx):
 
 async def test_concat_records_kwargs(orch_ctx):
     """Concat records source tables as kwargs (source_0, source_1)."""
-    async with task_scope(task_id=1, job_id=1):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
         result = await a.concat(b)
@@ -51,7 +51,7 @@ async def test_concat_records_kwargs(orch_ctx):
 
 async def test_binary_op_populates_lineage_aai_ids(orch_ctx):
     """Binary op (add) populates kwargs_aai_ids and result_aai_ids."""
-    async with task_scope(task_id=1, job_id=1):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([10, 20, 30])
         b = await create_object_from_value([1, 2, 3])
         result = await (a + b)

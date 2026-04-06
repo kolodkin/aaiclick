@@ -291,6 +291,8 @@ class Task(SQLModel, table=True):
     max_retries: int = Field(default=0)
     attempt: int = Field(default=0)
     retry_after: Optional[datetime] = Field(default=None)
+    run_ids: List[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
+    run_statuses: List[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
 
     def model_post_init(self, __context: Any) -> None:
         register_task(self.id, self)

@@ -66,6 +66,8 @@ async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> Non
         task.claimed_at = None
         task.started_at = None
         task.completed_at = None
+        if task.run_statuses:
+            task.run_statuses = [*task.run_statuses[:-1], TaskStatus.FAILED.value]
         session.add(task)
         await session.commit()
 
@@ -320,19 +322,17 @@ async def worker_main_loop(
             )
 
             try:
-                result = await exec_task
+                data_result, log_path = await exec_task
 
-                # Register any returned Task/Group objects to the job
-                data_result = await register_returned_tasks(result, task.id, task.job_id)
+                data_result = await register_returned_tasks(data_result, task.id, task.job_id)
 
-                # Serialize the data portion of the result
                 result_ref = serialize_task_result(data_result, task.job_id)
 
-                # Update task status to COMPLETED
                 await update_task_status(
                     task.id,
                     TaskStatus.COMPLETED,
                     result=result_ref,
+                    log_path=log_path,
                 )
 
                 tasks_executed += 1
@@ -345,7 +345,6 @@ async def worker_main_loop(
 
             except Exception as e:
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
-                # Read current retry state from DB to ensure accurate values
                 async with get_sql_session() as session:
                     row = await session.execute(
                         select(Task.max_retries, Task.attempt).where(

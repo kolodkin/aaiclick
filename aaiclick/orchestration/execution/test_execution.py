@@ -72,11 +72,14 @@ async def test_capture_task_output_stdout(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
         task_id = 12345
+        job_id = 99
+        run_id = 555
 
-        with capture_task_output(task_id) as log_path:
+        with capture_task_output(task_id, job_id, run_id) as log_path:
             print("Hello, world!")
 
         assert os.path.exists(log_path)
+        assert log_path == os.path.join(tmpdir, str(job_id), str(task_id), f"{run_id}.log")
         with open(log_path) as f:
             content = f.read()
             assert "Hello, world!" in content
@@ -88,8 +91,10 @@ async def test_capture_task_output_stderr(orch_ctx, monkeypatch):
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
         task_id = 12346
+        job_id = 99
+        run_id = 556
 
-        with capture_task_output(task_id) as log_path:
+        with capture_task_output(task_id, job_id, run_id) as log_path:
             print("Error message", file=sys.stderr)
 
         with open(log_path) as f:
@@ -295,7 +300,7 @@ async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
 
 
 async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
-    """Test that task execution creates log file."""
+    """Test that task execution creates per-run log file."""
     with tempfile.TemporaryDirectory() as tmpdir:
         monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
 
@@ -308,8 +313,11 @@ async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             task = result.scalar_one()
 
-        log_path = os.path.join(tmpdir, f"{task.id}.log")
+        assert task.run_ids, "Task should have at least one run_id"
+        run_id = task.run_ids[0]
+        log_path = os.path.join(tmpdir, str(job.id), str(task.id), f"{run_id}.log")
         assert os.path.exists(log_path)
+        assert task.log_path == log_path
 
         with open(log_path) as f:
             content = f.read()

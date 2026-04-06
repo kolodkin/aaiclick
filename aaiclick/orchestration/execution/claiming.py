@@ -47,15 +47,19 @@ async def update_task_status(
     status: TaskStatus,
     error: Optional[str] = None,
     result: Optional[dict] = None,
+    log_path: Optional[str] = None,
 ) -> bool:
     """
     Update a task's status and optional error/result.
+
+    Also updates the last entry in run_statuses to match the new status.
 
     Args:
         task_id: Task ID to update
         status: New status
         error: Error message (for FAILED status)
         result: Result reference (for COMPLETED status)
+        log_path: Path to the log file for this run
 
     Returns:
         bool: True if task was found and updated
@@ -80,6 +84,12 @@ async def update_task_status(
                 task.error = error
             if result:
                 task.result = result
+
+        if log_path is not None:
+            task.log_path = log_path
+
+        if task.run_statuses:
+            task.run_statuses = [*task.run_statuses[:-1], status.value]
 
         session.add(task)
         await session.commit()

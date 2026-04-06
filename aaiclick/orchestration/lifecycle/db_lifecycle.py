@@ -37,6 +37,7 @@ class OplogPayload:
     sql: str | None = None
     task_id: int | None = None
     job_id: int | None = None
+    run_id: int | None = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class OplogTablePayload:
     table_name: str
     task_id: int | None = None
     job_id: int | None = None
+    run_id: int | None = None
 
 
 @dataclass

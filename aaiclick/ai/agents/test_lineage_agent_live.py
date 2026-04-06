@@ -20,7 +20,7 @@ from aaiclick.orchestration.orch_context import task_scope
 @pytest.mark.live_llm
 async def test_lineage_and_debug(orch_ctx):
     """explain_lineage and debug_result both complete on a single concat pipeline."""
-    async with task_scope(task_id=1, job_id=1):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([-1, -2, -3])
         result = await a.concat(b)

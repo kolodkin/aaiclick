@@ -16,7 +16,7 @@ async def _run_pipeline():
 
     Must be called inside an active orch_context.
     """
-    async with task_scope(task_id=1, job_id=1):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
         result = await a.concat(b)
