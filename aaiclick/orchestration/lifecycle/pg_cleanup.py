@@ -13,6 +13,7 @@ Completely independent of DataContext and OrchContext — has its own DB engine 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import warnings
 from datetime import datetime, timedelta
@@ -286,7 +287,7 @@ class PgCleanupWorker:
                         "job_id": job_id,
                         "entrypoint": entrypoint,
                         "name": name,
-                        "kwargs": default_kwargs or "{}",
+                        "kwargs": json.dumps(default_kwargs) if default_kwargs else "{}",
                         "now": now,
                     },
                 )
