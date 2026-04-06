@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import queue
 import weakref
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -60,11 +59,18 @@ class OrchLifecycleHandler(LifecycleHandler):
     ):
         self._task_id = task_id
         self._job_id = job_id
-        self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
+        self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._process_loop())
+
+    def _enqueue(self, msg: DBLifecycleMessage) -> None:
+        """Thread-safe enqueue via call_soon_threadsafe."""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, msg)
 
     async def stop(self) -> None:
         """Drain queue then unconditionally delete all refs for this task_id.
@@ -72,7 +78,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         Pin refs use job_id as context_id, so they survive this cleanup.
         Only execution-time refs (incref/decref) are removed.
         """
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
             await self._task
         async with get_sql_session() as session:
@@ -83,14 +89,14 @@ class OrchLifecycleHandler(LifecycleHandler):
             await session.commit()
 
     def incref(self, table_name: str) -> None:
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
         """Mark table as result — inserts a job-scoped ref that survives stop()."""
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
         """Release a job-scoped pinned ref (ownership transfer to consumer)."""
@@ -108,7 +114,7 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     def oplog_record(self, result_table: str, operation: str,
                      kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
-        self._queue.put(DBLifecycleMessage(
+        self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_RECORD,
             oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
                                self._task_id, self._job_id),
@@ -116,14 +122,14 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     def oplog_record_sample(self, result_table: str, operation: str,
                             kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
-        self._queue.put(DBLifecycleMessage(
+        self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
             oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
                                self._task_id, self._job_id),
         ))
 
     def oplog_record_table(self, table_name: str) -> None:
-        self._queue.put(DBLifecycleMessage(
+        self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_TABLE,
             oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id),
         ))
@@ -165,9 +171,8 @@ class OrchLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
-        loop = asyncio.get_running_loop()
         while True:
-            msg = await loop.run_in_executor(None, self._queue.get)
+            msg = await self._queue.get()
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
 
