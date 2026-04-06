@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import weakref
 from contextlib import asynccontextmanager
@@ -27,6 +28,8 @@ from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayl
 from .env import get_db_url
 from .task_registry import _task_registry_var, get_task_registry
 from .models import Group, Task, TasksType
+
+logger = logging.getLogger(__name__)
 
 _OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
                "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
@@ -146,7 +149,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 column_type_names=_OPLOG_TYPE_NAMES,
             )
         except Exception:
-            pass
+            logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
 
     async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
         """Insert a single table_registry row to ClickHouse. Best effort."""
@@ -159,7 +162,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 column_type_names=_REG_TYPE_NAMES,
             )
         except Exception:
-            pass
+            logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
         loop = asyncio.get_running_loop()

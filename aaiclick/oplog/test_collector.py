@@ -47,3 +47,30 @@ async def test_concat_records_kwargs(orch_ctx):
     assert operation == "concat"
     kwargs = dict(kwargs_raw) if not isinstance(kwargs_raw, dict) else kwargs_raw
     assert set(kwargs.values()) == {a_table, b_table}
+
+
+async def test_binary_op_populates_lineage_aai_ids(orch_ctx):
+    """Binary op (add) populates kwargs_aai_ids and result_aai_ids."""
+    async with task_scope(task_id=1, job_id=1):
+        a = await create_object_from_value([10, 20, 30])
+        b = await create_object_from_value([1, 2, 3])
+        result = await (a + b)
+        result_table = result.table
+
+    ch = await create_ch_client()
+    all_ops = (await ch.query(
+        f"SELECT operation, kwargs_aai_ids, result_aai_ids FROM operation_log "
+        f"WHERE result_table = '{result_table}'"
+    )).result_rows
+    assert all_ops, f"No oplog entries found for {result_table}"
+
+    row = [(k, r) for op, k, r in all_ops if op == "+"]
+    assert row, f"No '+' entry; found: {[op for op, _, _ in all_ops]}"
+    kwargs_aai_ids_raw, result_aai_ids = row[0]
+    kwargs_aai_ids_raw, result_aai_ids = row[0]
+    kwargs_aai_ids = dict(kwargs_aai_ids_raw) if not isinstance(kwargs_aai_ids_raw, dict) else kwargs_aai_ids_raw
+
+    assert len(result_aai_ids) > 0, "result_aai_ids should be populated"
+    assert "left" in kwargs_aai_ids, "kwargs_aai_ids should have 'left' key"
+    assert "right" in kwargs_aai_ids, "kwargs_aai_ids should have 'right' key"
+    assert len(kwargs_aai_ids["left"]) == len(result_aai_ids)

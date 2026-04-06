@@ -60,7 +60,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from aaiclick.oplog.collector import oplog_record_sample
+from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
 from ..data_context import create_object
 from ..models import Agg, ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES

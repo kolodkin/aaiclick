@@ -34,7 +34,7 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
-from aaiclick.oplog.collector import oplog_record, oplog_record_table
+from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
 
 
 # Per-resource ContextVars — each set by data_context() on entry, reset on exit.
