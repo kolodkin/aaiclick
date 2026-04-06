@@ -226,3 +226,81 @@ async def oplog_subgraph(
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)
+
+
+@dataclass
+class RowLineageStep:
+    """One step in a row-level lineage trace."""
+
+    table: str
+    aai_id: int
+    operation: str
+    source_aai_ids: dict[str, int]
+
+
+async def backward_oplog_row(
+    table: str,
+    aai_id: int,
+    max_depth: int = 10,
+) -> list[RowLineageStep]:
+    """Trace a specific aai_id backward through the lineage chain.
+
+    Walks the oplog samples: finds the operation that produced this aai_id,
+    extracts the corresponding source aai_ids, then recurses into each source.
+
+    Returns steps in reverse order (most recent operation first).
+    """
+    ch_client = get_ch_client()
+    steps: list[RowLineageStep] = []
+    current_table = table
+    current_id = aai_id
+
+    for _ in range(max_depth):
+        table_escaped = current_table.replace("'", "\\'")
+
+        # Find the operation that produced this aai_id
+        result = await ch_client.query(f"""
+            SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids
+            FROM operation_log
+            WHERE result_table = '{table_escaped}'
+              AND has(result_aai_ids, {current_id})
+            LIMIT 1
+        """)
+
+        if not result.result_rows:
+            break
+
+        operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
+        kwargs = _to_dict(kwargs_raw)
+        kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
+        result_aai_ids = list(result_aai_ids_raw)
+
+        # Find the position of current_id in result_aai_ids
+        try:
+            pos = result_aai_ids.index(current_id)
+        except ValueError:
+            break
+
+        # Extract corresponding source aai_ids at the same position
+        source_aai_ids: dict[str, int] = {}
+        for role, ids in kwargs_aai_ids.items():
+            if pos < len(ids):
+                source_aai_ids[role] = ids[pos]
+
+        steps.append(RowLineageStep(
+            table=current_table,
+            aai_id=current_id,
+            operation=operation,
+            source_aai_ids=source_aai_ids,
+        ))
+
+        # Pick one source to follow (first source with an aai_id)
+        if not source_aai_ids:
+            break
+        first_role = next(iter(source_aai_ids))
+        current_id = source_aai_ids[first_role]
+        current_table = kwargs.get(first_role, "")
+        if not current_table:
+            break
+
+    return steps
