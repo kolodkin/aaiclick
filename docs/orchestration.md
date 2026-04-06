@@ -68,13 +68,15 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 
 | Enum           | Values                                          |
 |----------------|------------------------------------------------|
-| `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED             |
-| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED    |
+| `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
+| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED |
 | `WorkerStatus` | ACTIVE, IDLE, STOPPED                            |
+| `RunType`      | SCHEDULED, MANUAL                                |
 
 ## Entities
 
-- **Job** — a named workflow; fields: `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, `error`
+- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `next_run_at`, `created_at`, `updated_at`
+- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `created_at`, `started_at`, `completed_at`, `error`
 - **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
@@ -122,6 +124,32 @@ Finds the oldest pending task with all dependencies satisfied, atomically claims
 
 Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
 
+# Registered Jobs
+
+**Implementation**: `aaiclick/orchestration/registered_jobs.py`, `aaiclick/orchestration/models.py` — see `RegisteredJob`
+
+Separates job *registration* (catalog of known jobs) from job *execution* (individual runs). Each registered job stores its entrypoint, optional cron schedule, default kwargs, and enabled flag.
+
+## Registration & CRUD
+
+- `register_job(name, entrypoint, schedule, default_kwargs, enabled)` — create a new catalog entry
+- `get_registered_job(name)` — lookup by name
+- `upsert_registered_job(...)` — insert or update
+- `enable_job(name)` / `disable_job(name)` — toggle enabled, recompute `next_run_at`
+- `list_registered_jobs(enabled_only)` — list all or enabled only
+
+## run_job
+
+`run_job(name, entrypoint, kwargs)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task.
+
+## Cron Scheduling
+
+**Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
+
+The `BackgroundWorker` checks `registered_jobs WHERE enabled = true AND next_run_at <= NOW()` on each poll (~10s). Uses optimistic locking on `next_run_at` to prevent duplicate runs across multiple workers. Creates Job with `run_type=SCHEDULED`.
+
+Cron expressions are parsed by `croniter`. `next_run_at` is computed on registration, enable, and after each scheduled run.
+
 # CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
@@ -133,7 +161,12 @@ python -m aaiclick worker list
 python -m aaiclick job get <id>
 python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
-python -m aaiclick background start           # Standalone cleanup worker
+python -m aaiclick job enable <name>          # Enable a registered job
+python -m aaiclick job disable <name>         # Disable a registered job
+python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}']
+python -m aaiclick run-job <name> [--kwargs '{"key": "val"}']
+python -m aaiclick registered-job list        # List registered jobs
+python -m aaiclick background start           # Standalone background worker
 ```
 
 # Orchestration Operators
@@ -174,7 +207,7 @@ Worker Process
 │   ├── incref/decref → table_context_refs (context_id = task_id)
 │   ├── pin → table_context_refs (context_id = job_id)
 │   └── stop → DELETE WHERE context_id = task_id
-├── PgCleanupWorker (own PG engine + CH client)
+├── BackgroundWorker (own DB engine + CH client)
 │   ├── polls completed/failed jobs → deletes job-scoped refs
 │   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
 │   └── detects dead workers → marks tasks FAILED
@@ -193,7 +226,7 @@ Task B starts, deserializes task_a.result
   ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
   └── claim → deletes (t_result, job_id, 1)  ← release job ref
 
-Job completes → PgCleanupWorker deletes remaining refs + drops orphaned tables
+Job completes → BackgroundWorker deletes remaining refs + drops orphaned tables
 ```
 
 ## OrchLifecycleHandler
@@ -206,11 +239,18 @@ Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_se
 
 **PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
 
-## PgCleanupWorker
+## BackgroundWorker
 
-**Implementation**: `aaiclick/orchestration/lifecycle/pg_cleanup.py` — see `PgCleanupWorker` class
+**Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Three cleanup operations per poll: (1) job cleanup — delete job-scoped pin refs for completed/failed jobs; (2) table cleanup — `HAVING SUM(refcount) <= 0` → DROP in CH; (3) dead worker detection — expired heartbeats → mark tasks FAILED, workers STOPPED. Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
+Four operations per poll:
+
+1. **Job cleanup** — delete job-scoped pin refs for completed/failed jobs
+2. **Table cleanup** — `HAVING SUM(refcount) <= 0` → DROP in CH
+3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
+4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+
+Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ## Write-Ahead Incref
 

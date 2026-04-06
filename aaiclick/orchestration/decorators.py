@@ -39,7 +39,7 @@ from ..snowflake_id import get_snowflake_id
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 from .factories import _callable_to_string
-from .models import Group, Job, JobStatus, Task, TaskStatus
+from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
 
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
@@ -227,7 +227,12 @@ class JobFactory:
         async with orch_context():
             return await self._create_job(**kwargs)
 
-    async def _create_job(self, **kwargs) -> Job:
+    async def _create_job(
+        self,
+        run_type: RunType = RunType.MANUAL,
+        registered_job_id: int | None = None,
+        **kwargs,
+    ) -> Job:
         """Internal method to create job within an OrchContext."""
         # Serialize kwargs for the entry point task
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
@@ -236,6 +241,8 @@ class JobFactory:
             id=get_snowflake_id(),
             name=self.name,
             status=JobStatus.PENDING,
+            run_type=run_type,
+            registered_job_id=registered_job_id,
             created_at=datetime.utcnow(),
         )
 

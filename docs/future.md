@@ -61,7 +61,7 @@ matching — the agent needs to use data-value matching or oplog provenance meta
 
 ## Table Lifecycle & Cleanup (Phase 3)
 
-On job completion, replace each ephemeral table with a 10-row sample so `operation_log` references remain valid for AI lineage agents. Rename back to the original table name; persistent tables (`p_` prefix) excluded. Integrate into `PgCleanupWorker`.
+On job completion, replace each ephemeral table with a 10-row sample so `operation_log` references remain valid for AI lineage agents. Rename back to the original table name; persistent tables (`p_` prefix) excluded. Integrate into `BackgroundWorker`. Remove this entry from `future.md` when implemented.
 
 ---
 
