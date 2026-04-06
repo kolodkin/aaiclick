@@ -106,13 +106,16 @@ with a single mechanism: **the lineage sample defines which rows survive**.
 
 **Objective**: Merge oplog sampling into `AsyncTableWorker` so ordering is guaranteed.
 
-- Add `OPLOG_SAMPLE` op to `TableOp` enum
+- Retire `OplogCollector` (`aaiclick/oplog/collector.py`) — all buffering moves into the worker
+- Add `OPLOG_SAMPLE` and `OPLOG_RECORD` ops to `TableOp` enum
 - Extend `TableMessage` to carry sampling context (result table, source tables, N)
+  and plain oplog metadata (for operations without sampling, e.g. filters, create_from_value)
 - Add `_sample_lineage()` method to the worker — runs the sampling query via `self._ch_client`
 - Worker buffers sampled `(kwargs_aai_ids, result_aai_ids)` tuples internally
 - Add `OPLOG_FLUSH` op that batch-inserts buffered oplog entries to `operation_log`
-  (replaces current `OplogCollector.flush()`)
 - Ensure SHUTDOWN drains pending samples before stopping
+- Expose a module-level `oplog_enqueue()` function (replaces `oplog_record()`) that puts
+  messages on the worker queue via `call_soon_threadsafe`
 
 **Sampling strategy** (for binary op `C = A + B`):
 
@@ -187,11 +190,11 @@ row-level lineage.
 
 **Objective**: Wire everything into `data_context()` so oplog activates automatically.
 
-- Add `oplog` parameter to `data_context()` (`bool | OplogCollector`)
+- Add `oplog` parameter to `data_context()` (`bool`)
 - On context entry: start the unified worker with oplog capability
 - On clean exit: flush oplog via `OPLOG_FLUSH` message, await completion
 - On exception: discard buffered samples (skip `OPLOG_FLUSH`)
-- Orchestration's `task_scope()` passes pre-configured collector with `task_id`/`job_id`
+- Orchestration's `task_scope()` passes `task_id`/`job_id` to the worker directly
 
 **Deliverables**: Oplog + lineage active by default. No user code changes needed.
 
@@ -219,7 +222,8 @@ a small set of known IDs, not a full-table `row_number()` scan.
 4. **Pool size for sampling query**: Not needed — the "prefer lineage-connected rows" strategy
    uses targeted `IN` lookups, not full-table scans. Random fallback uses `ORDER BY rand() LIMIT N`.
 
-# Open Questions
+# Resolved Questions (continued)
 
-5. **OplogCollector vs unified worker** — Phase 2 merges oplog into the table worker. Should
-   `OplogCollector` be retired entirely, or kept as a lightweight facade?
+5. **OplogCollector**: Retire entirely. The unified worker handles buffering, sampling, and
+   flushing. `oplog_record()` / `oplog_record_table()` are replaced by direct queue enqueue.
+   Remove `aaiclick/oplog/collector.py` in Phase 2.
