@@ -1,10 +1,8 @@
 """
-Tests for oplog recording via the unified table worker.
+Tests for oplog recording via the lifecycle handler queue.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
@@ -22,8 +20,8 @@ async def test_oplog_lifecycle(orch_ctx):
     assert get_oplog_collector() is None
 
 
-async def test_flush_on_clean_exit(orch_ctx):
-    """On clean exit, operation_log and table_registry are written with correct metadata."""
+async def test_oplog_writes_immediately(orch_ctx):
+    """Operations are written to operation_log immediately (unbuffered)."""
     async with task_scope(task_id=42, job_id=99):
         obj = await create_object_from_value([5])
         table_name = obj.table
@@ -60,21 +58,3 @@ async def test_concat_records_kwargs(orch_ctx):
     assert operation == "concat"
     kwargs = dict(kwargs_raw) if not isinstance(kwargs_raw, dict) else kwargs_raw
     assert set(kwargs.values()) == {a_table, b_table}
-
-
-async def test_no_flush_on_exception(orch_ctx):
-    """On error, oplog is discarded — no entries written to operation_log."""
-    table_name = "some_table_error_test"
-
-    with pytest.raises(RuntimeError, match="test error"):
-        async with task_scope(task_id=1, job_id=1):
-            collector = get_oplog_collector()
-            collector.record(table_name, "test_op")
-            raise RuntimeError("test error")
-
-    # Verify nothing was written to ClickHouse
-    ch = await create_ch_client()
-    rows = (await ch.query(
-        f"SELECT count() FROM operation_log WHERE result_table = '{table_name}'"
-    )).result_rows
-    assert rows[0][0] == 0

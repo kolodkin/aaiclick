@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import queue
 import weakref
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import AsyncIterator, Dict
 
@@ -21,6 +19,7 @@ from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_va
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
+from aaiclick.oplog.sampling import sample_lineage
 from ..snowflake_id import get_snowflake_id
 from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
@@ -36,21 +35,6 @@ _OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
 _REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
 _REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
 
-
-def _sample_size() -> int:
-    return int(os.environ.get("AAICLICK_OPLOG_SAMPLE_SIZE", "10"))
-
-
-@dataclass
-class _OplogBufferEntry:
-    result_table: str
-    operation: str
-    kwargs: dict[str, str]
-    kwargs_aai_ids: dict[str, list[int]] = field(default_factory=dict)
-    result_aai_ids: list[int] = field(default_factory=list)
-    sql: str | None = None
-    task_id: int | None = None
-    job_id: int | None = None
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -75,8 +59,6 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._job_id = job_id
         self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
-        self._oplog_buffer: list[_OplogBufferEntry] = []
-        self._table_buffer: list[OplogTablePayload] = []
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._process_loop())
@@ -144,15 +126,6 @@ class OrchLifecycleHandler(LifecycleHandler):
             oplog_table=OplogTablePayload(table_name, task_id, job_id),
         ))
 
-    async def flush_oplog(self) -> None:
-        event = asyncio.Event()
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.OPLOG_FLUSH, flush_event=event))
-        await event.wait()
-
-    def discard_oplog(self) -> None:
-        self._oplog_buffer.clear()
-        self._table_buffer.clear()
-
     # -- Internal --
 
     async def _create_sample_and_drop(self, table_name: str) -> None:
@@ -169,6 +142,36 @@ class OrchLifecycleHandler(LifecycleHandler):
             await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
         except Exception:
             pass  # Best effort
+
+    async def _write_oplog_row(self, p: OplogPayload,
+                               kwargs_aai_ids: dict[str, list[int]] | None = None,
+                               result_aai_ids: list[int] | None = None) -> None:
+        """Insert a single oplog row to ClickHouse. Best effort."""
+        now = datetime.now(timezone.utc)
+        try:
+            await get_ch_client().insert(
+                "operation_log",
+                [[p.result_table, p.operation, p.kwargs,
+                  kwargs_aai_ids or {}, result_aai_ids or [],
+                  p.sql, p.task_id, p.job_id, now]],
+                column_names=_OPLOG_COLS,
+                column_type_names=_OPLOG_TYPE_NAMES,
+            )
+        except Exception:
+            pass
+
+    async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
+        """Insert a single table_registry row to ClickHouse. Best effort."""
+        now = datetime.now(timezone.utc)
+        try:
+            await get_ch_client().insert(
+                "table_registry",
+                [[p.table_name, p.job_id, p.task_id, now]],
+                column_names=_REG_COLS,
+                column_type_names=_REG_TYPE_NAMES,
+            )
+        except Exception:
+            pass
 
     async def _process_loop(self) -> None:
         loop = asyncio.get_running_loop()
@@ -227,82 +230,22 @@ class OrchLifecycleHandler(LifecycleHandler):
                 ):
                     await self._create_sample_and_drop(msg.table_name)
 
-            # -- Oplog --
+            # -- Oplog (immediate write, no buffer) --
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
-                self._oplog_buffer.append(_OplogBufferEntry(
-                    result_table=msg.oplog.result_table, operation=msg.oplog.operation,
-                    kwargs=msg.oplog.kwargs, sql=msg.oplog.sql,
-                    task_id=msg.oplog.task_id, job_id=msg.oplog.job_id,
-                ))
+                await self._write_oplog_row(msg.oplog)
             elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
-                await self._process_oplog_sample(msg.oplog)
+                kwargs_aai_ids, result_aai_ids = {}, []
+                if msg.oplog.kwargs:
+                    try:
+                        kwargs_aai_ids, result_aai_ids = await sample_lineage(
+                            get_ch_client(), msg.oplog.result_table, msg.oplog.kwargs,
+                        )
+                    except Exception:
+                        pass
+                await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
-                self._table_buffer.append(msg.oplog_table)
-            elif msg.op == DBLifecycleOp.OPLOG_FLUSH:
-                await self._flush_oplog_buffer()
-                if msg.flush_event is not None:
-                    msg.flush_event.set()
+                await self._write_table_registry_row(msg.oplog_table)
 
-    async def _process_oplog_sample(self, p: OplogPayload) -> None:
-        n = _sample_size()
-        kwargs_aai_ids: dict[str, list[int]] = {}
-        result_aai_ids: list[int] = []
-        ch = get_ch_client()
-
-        try:
-            sources = list(p.kwargs.values())
-            roles = list(p.kwargs.keys())
-            if len(sources) == 1:
-                kwargs_aai_ids, result_aai_ids = await _sample_unary(
-                    ch, p.result_table, roles[0], sources[0], n)
-            elif len(sources) == 2:
-                kwargs_aai_ids, result_aai_ids = await _sample_binary(
-                    ch, p.result_table, roles[0], sources[0], roles[1], sources[1], n)
-            elif len(sources) > 2:
-                kwargs_aai_ids, result_aai_ids = await _sample_nary(
-                    ch, p.result_table, roles, sources, n)
-        except Exception:
-            pass  # Best effort
-
-        self._oplog_buffer.append(_OplogBufferEntry(
-            result_table=p.result_table, operation=p.operation,
-            kwargs=p.kwargs, kwargs_aai_ids=kwargs_aai_ids,
-            result_aai_ids=result_aai_ids, sql=p.sql,
-            task_id=p.task_id, job_id=p.job_id,
-        ))
-
-    async def _flush_oplog_buffer(self) -> None:
-        ch = get_ch_client()
-        now = datetime.now(timezone.utc)
-
-        if self._oplog_buffer:
-            rows = [
-                [e.result_table, e.operation, e.kwargs, e.kwargs_aai_ids,
-                 e.result_aai_ids, e.sql, e.task_id, e.job_id, now]
-                for e in self._oplog_buffer
-            ]
-            try:
-                await ch.insert(
-                    "operation_log", rows,
-                    column_names=_OPLOG_COLS, column_type_names=_OPLOG_TYPE_NAMES,
-                )
-            except Exception:
-                pass
-            self._oplog_buffer.clear()
-
-        if self._table_buffer:
-            table_rows = [
-                [p.table_name, p.job_id, p.task_id, now]
-                for p in self._table_buffer
-            ]
-            try:
-                await ch.insert(
-                    "table_registry", table_rows,
-                    column_names=_REG_COLS, column_type_names=_REG_TYPE_NAMES,
-                )
-            except Exception:
-                pass
-            self._table_buffer.clear()
 
 
 @asynccontextmanager
@@ -391,17 +334,9 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     oplog_token = _oplog_collector.set(collector)
     registry_token = _task_registry_var.set({})
 
-    failed = False
     try:
         yield
-    except Exception:
-        failed = True
-        raise
     finally:
-        if not failed:
-            await collector.flush()
-        else:
-            collector.discard()
         _oplog_collector.reset(oplog_token)
         _task_registry_var.reset(registry_token)
 
