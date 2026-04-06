@@ -114,17 +114,23 @@ with a single mechanism: **the lineage sample defines which rows survive**.
   (replaces current `OplogCollector.flush()`)
 - Ensure SHUTDOWN drains pending samples before stopping
 
-**Sampling query** (for binary op `C = A + B`):
+**Sampling strategy** (for binary op `C = A + B`):
 
-```sql
-SELECT r.aai_id, a.aai_id, b.aai_id
-FROM (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn FROM C LIMIT {pool}) r
-JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn FROM A LIMIT {pool}) a ON r.rn = a.rn
-JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn FROM B LIMIT {pool}) b ON r.rn = b.rn
-ORDER BY rand() LIMIT {n}
-```
+1. For each source table, find `aai_id`s already in oplog lineage (prefer connected chains):
+   ```sql
+   SELECT aai_id FROM {source_table}
+   WHERE aai_id IN (
+       SELECT arrayJoin(result_aai_ids) FROM operation_log WHERE result_table = '{source_table}'
+       UNION ALL
+       SELECT arrayJoin(arrayJoin(mapValues(kwargs_aai_ids))) FROM operation_log
+       WHERE hasAny(mapValues(kwargs), ['{source_table}'])
+   )
+   ```
+2. If fewer than N matches, fill with random: `ORDER BY rand() LIMIT {remaining}`
+3. Use the selected source `aai_id`s' positions to find corresponding result `aai_id`s via
+   `row_number() OVER (ORDER BY aai_id)` join
 
-Where `pool` caps the row_number scan for large tables. `n` is the sample size (default 10).
+Sample size N defaults to 10 (`AAICLICK_OPLOG_SAMPLE_SIZE` env var).
 
 **Deliverables**: Single worker handles both lifecycle and oplog. Sampling queries run off the
 main execution path.
@@ -189,16 +195,31 @@ row-level lineage.
 
 **Deliverables**: Oplog + lineage active by default. No user code changes needed.
 
+## Sampling Strategy: Prefer Lineage-Connected Rows
+
+When sampling N `aai_id`s from a source table, prefer IDs that already appear in existing oplog
+lineage entries (`result_aai_ids` or `kwargs_aai_ids`). This maximizes chain connectivity — each
+new operation extends existing traced rows rather than starting fresh random chains.
+
+1. **First preference**: pick `aai_id`s from the source table that appear in previous oplog entries
+   for that table (as `result_aai_ids` or in `kwargs_aai_ids`)
+2. **Fallback**: if fewer than N matches found, fill remaining slots with random rows
+
+This also makes pool-size concerns irrelevant — the primary path is a targeted `IN` lookup against
+a small set of known IDs, not a full-table `row_number()` scan.
+
 ---
+
+# Resolved Questions
+
+1. **Sample size N**: `AAICLICK_OPLOG_SAMPLE_SIZE` env var, default 10. Global, not per-operation.
+2. **Aggregation sampling**: Same N=10, no special case. Shows example input rows for context.
+3. **Filter/where operations**: Record oplog entry (operation + kwargs) but no lineage sampling
+   (empty `kwargs_aai_ids` / `result_aai_ids`). Identity mapping is implicit from operation type.
+4. **Pool size for sampling query**: Not needed — the "prefer lineage-connected rows" strategy
+   uses targeted `IN` lookups, not full-table scans. Random fallback uses `ORDER BY rand() LIMIT N`.
 
 # Open Questions
 
-1. **Sample size N** — Default 10? Configurable per-operation or globally via env var?
-2. **Aggregation sampling** — For `sum(A)`, sample N source `aai_id`s mapping to 1 result. Is N=10
-   enough to be diagnostically useful?
-3. **Filter/where operations** — `aai_id` passes through unchanged (identity mapping). Record
-   lineage (redundant but complete) or skip (implicit from operation type)?
-4. **Pool size for sampling query** — For very large tables, should `row_number()` scan be capped?
-   e.g., sample from first 10K rows only to bound query cost.
 5. **OplogCollector vs unified worker** — Phase 2 merges oplog into the table worker. Should
    `OplogCollector` be retired entirely, or kept as a lightweight facade?
