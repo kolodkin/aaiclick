@@ -184,6 +184,9 @@ class BackgroundWorker:
 
         Uses optimistic locking on next_run_at to prevent duplicate runs
         when multiple background workers are active.
+
+        Uses raw SQL instead of ORM because BackgroundWorker operates
+        independently of OrchContext with its own DB engine.
         """
         now = datetime.utcnow()
 

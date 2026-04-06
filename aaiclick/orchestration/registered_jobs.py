@@ -9,7 +9,7 @@ from croniter import croniter
 from sqlmodel import select
 
 from .factories import create_job, create_task
-from .models import RegisteredJob, RunType
+from .models import Job, RegisteredJob, RunType
 from .orch_context import get_sql_session
 from ..snowflake_id import get_snowflake_id
 
