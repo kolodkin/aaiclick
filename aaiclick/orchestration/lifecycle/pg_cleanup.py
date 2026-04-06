@@ -287,7 +287,7 @@ class PgCleanupWorker:
                         "job_id": job_id,
                         "entrypoint": entrypoint,
                         "name": name,
-                        "kwargs": json.dumps(default_kwargs) if default_kwargs else "{}",
+                        "kwargs": default_kwargs if isinstance(default_kwargs, str) else (json.dumps(default_kwargs) if default_kwargs else "{}"),
                         "now": now,
                     },
                 )
