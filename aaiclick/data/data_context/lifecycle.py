@@ -2,8 +2,8 @@
 aaiclick.data.lifecycle - Abstract lifecycle handler and local implementation.
 
 This module defines the LifecycleHandler interface for Object table lifecycle
-management (incref/decref) and oplog operations, and the LocalLifecycleHandler
-that wraps AsyncTableWorker for single-process local operation.
+management (incref/decref) and the LocalLifecycleHandler that wraps AsyncTableWorker
+for single-process local operation.
 """
 
 from __future__ import annotations
@@ -12,12 +12,7 @@ from abc import ABC, abstractmethod
 from contextvars import ContextVar
 
 from .ch_client import ChClient
-from .table_worker import (
-    AsyncTableWorker,
-    OplogRecordContext,
-    OplogSampleContext,
-    OplogTableContext,
-)
+from .table_worker import AsyncTableWorker
 
 
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
@@ -72,21 +67,6 @@ class LifecycleHandler(ABC):
         """
         raise NotImplementedError("claim() requires a distributed lifecycle handler")
 
-    def enqueue_oplog_sample(self, ctx: OplogSampleContext) -> None:
-        """Enqueue a lineage sampling request. Default: no-op."""
-
-    def enqueue_oplog_record(self, ctx: OplogRecordContext) -> None:
-        """Enqueue a plain oplog record. Default: no-op."""
-
-    def enqueue_oplog_table(self, ctx: OplogTableContext) -> None:
-        """Enqueue a table registry record. Default: no-op."""
-
-    async def flush_oplog(self) -> None:
-        """Flush buffered oplog entries to ClickHouse. Default: no-op."""
-
-    def discard_oplog(self) -> None:
-        """Discard buffered oplog entries without flushing. Default: no-op."""
-
     async def __aenter__(self):
         await self.start()
         return self
@@ -124,21 +104,6 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     async def flush(self) -> None:
         await self._worker.flush()
-
-    def enqueue_oplog_sample(self, ctx: OplogSampleContext) -> None:
-        self._worker.enqueue_oplog_sample(ctx)
-
-    def enqueue_oplog_record(self, ctx: OplogRecordContext) -> None:
-        self._worker.enqueue_oplog_record(ctx)
-
-    def enqueue_oplog_table(self, ctx: OplogTableContext) -> None:
-        self._worker.enqueue_oplog_table(ctx)
-
-    async def flush_oplog(self) -> None:
-        await self._worker.flush_oplog()
-
-    def discard_oplog(self) -> None:
-        self._worker.discard_oplog()
 
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode
