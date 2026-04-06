@@ -243,7 +243,14 @@ Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_se
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Four operations per poll: (1) job cleanup — delete job-scoped pin refs for completed/failed jobs; (2) table cleanup — `HAVING SUM(refcount) <= 0` → DROP in CH; (3) dead worker detection — expired heartbeats → mark tasks FAILED, workers STOPPED; (4) job scheduling — create Job runs for registered jobs whose `next_run_at` is due. Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
+Four operations per poll:
+
+1. **Job cleanup** — delete job-scoped pin refs for completed/failed jobs
+2. **Table cleanup** — `HAVING SUM(refcount) <= 0` → DROP in CH
+3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
+4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+
+Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ## Write-Ahead Incref
 
