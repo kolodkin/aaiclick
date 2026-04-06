@@ -1,22 +1,119 @@
 """
-aaiclick.oplog.collector - OplogCollector for buffering and flushing operation events.
+aaiclick.oplog.collector - Oplog recording via the unified table worker.
+
+The public API (oplog_record, oplog_record_table) routes operation events
+through the LifecycleHandler's worker queue, ensuring lineage sampling
+runs before DECREF drops source tables.
+
+OplogCollector is retained for orchestration mode (task_scope) where
+task_id/job_id context is needed per-task.
 """
 
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS
 
-_OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
-               "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
-_OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
+def _get_lifecycle():
+    """Lazy import to break circular dependency."""
+    from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+    return get_data_lifecycle()
 
-_REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
-_REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
+
+def _make_record_ctx(result_table, operation, kwargs, sql, task_id, job_id):
+    """Lazy import to break circular dependency."""
+    from aaiclick.data.data_context.table_worker import OplogRecordContext
+    return OplogRecordContext(
+        result_table=result_table, operation=operation,
+        kwargs=kwargs, sql=sql, task_id=task_id, job_id=job_id,
+    )
+
+
+def _make_sample_ctx(result_table, operation, kwargs, sql, task_id, job_id):
+    """Lazy import to break circular dependency."""
+    from aaiclick.data.data_context.table_worker import OplogSampleContext
+    return OplogSampleContext(
+        result_table=result_table, operation=operation,
+        kwargs=kwargs, sql=sql, task_id=task_id, job_id=job_id,
+    )
+
+
+def _make_table_ctx(table_name, task_id, job_id):
+    """Lazy import to break circular dependency."""
+    from aaiclick.data.data_context.table_worker import OplogTableContext
+    return OplogTableContext(
+        table_name=table_name, task_id=task_id, job_id=job_id,
+    )
+
+
+class OplogCollector:
+    """Per-task oplog context that routes events to the lifecycle worker.
+
+    Holds task_id/job_id and delegates to the LifecycleHandler. Used by
+    task_scope() to inject orchestration metadata into oplog entries.
+    """
+
+    def __init__(
+        self,
+        task_id: int | None = None,
+        job_id: int | None = None,
+    ) -> None:
+        self.task_id = task_id
+        self.job_id = job_id
+
+    def record(
+        self,
+        result_table: str,
+        operation: str,
+        kwargs: dict[str, str] | None = None,
+        sql: str | None = None,
+    ) -> None:
+        """Route an operation record to the lifecycle worker."""
+        lifecycle = _get_lifecycle()
+        if lifecycle is None:
+            return
+        lifecycle.enqueue_oplog_record(_make_record_ctx(
+            result_table, operation, kwargs or {}, sql,
+            self.task_id, self.job_id,
+        ))
+
+    def record_sample(
+        self,
+        result_table: str,
+        operation: str,
+        kwargs: dict[str, str] | None = None,
+        sql: str | None = None,
+    ) -> None:
+        """Route a lineage sampling request to the lifecycle worker."""
+        lifecycle = _get_lifecycle()
+        if lifecycle is None:
+            return
+        lifecycle.enqueue_oplog_sample(_make_sample_ctx(
+            result_table, operation, kwargs or {}, sql,
+            self.task_id, self.job_id,
+        ))
+
+    def record_table(self, table_name: str) -> None:
+        """Route a table registry record to the lifecycle worker."""
+        lifecycle = _get_lifecycle()
+        if lifecycle is None:
+            return
+        lifecycle.enqueue_oplog_table(_make_table_ctx(
+            table_name, self.task_id, self.job_id,
+        ))
+
+    async def flush(self) -> None:
+        """Flush buffered oplog entries via the lifecycle worker."""
+        lifecycle = _get_lifecycle()
+        if lifecycle is not None:
+            await lifecycle.flush_oplog()
+
+    def discard(self) -> None:
+        """Discard buffered oplog entries without flushing."""
+        lifecycle = _get_lifecycle()
+        if lifecycle is not None:
+            lifecycle.discard_oplog()
+
 
 _oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
     "oplog_collector", default=None
@@ -28,117 +125,28 @@ def get_oplog_collector() -> OplogCollector | None:
     return _oplog_collector.get()
 
 
-@dataclass
-class OperationEvent:
-    result_table: str
-    operation: str
-    kwargs: dict[str, str] = field(default_factory=dict)
-    kwargs_aai_ids: dict[str, list[int]] = field(default_factory=dict)
-    result_aai_ids: list[int] = field(default_factory=list)
-    sql: str | None = None
-
-
-class OplogCollector:
-    """Collects operation events during a data_context session.
-
-    Buffer-based: events are held in memory and batch-inserted into
-    ClickHouse on successful context exit. On failure, the buffer is
-    discarded to avoid partial oplog entries.
-    """
-
-    def __init__(
-        self,
-        task_id: int | None = None,
-        job_id: int | None = None,
-    ) -> None:
-        self._buffer: list[OperationEvent] = []
-        self._table_buffer: list[str] = []
-        self.task_id = task_id
-        self.job_id = job_id
-
-    def record(
-        self,
-        result_table: str,
-        operation: str,
-        kwargs: dict[str, str] | None = None,
-        kwargs_aai_ids: dict[str, list[int]] | None = None,
-        result_aai_ids: list[int] | None = None,
-        sql: str | None = None,
-    ) -> None:
-        """Buffer an operation event (synchronous, zero I/O overhead)."""
-        self._buffer.append(
-            OperationEvent(
-                result_table=result_table,
-                operation=operation,
-                kwargs=kwargs or {},
-                kwargs_aai_ids=kwargs_aai_ids or {},
-                result_aai_ids=result_aai_ids or [],
-                sql=sql,
-            )
-        )
-
-    def record_table(self, table_name: str) -> None:
-        """Register a newly created table in the table_registry buffer."""
-        self._table_buffer.append(table_name)
-
-    async def flush(self) -> None:
-        """Batch-insert buffered events into ClickHouse operation_log and table_registry."""
-        if not self._buffer and not self._table_buffer:
-            return
-
-        ch_client = get_ch_client()
-        now = datetime.now(timezone.utc)
-
-        if self._buffer:
-            rows = [
-                [
-                    ev.result_table,
-                    ev.operation,
-                    ev.kwargs,
-                    ev.kwargs_aai_ids,
-                    ev.result_aai_ids,
-                    ev.sql,
-                    self.task_id,
-                    self.job_id,
-                    now,
-                ]
-                for ev in self._buffer
-            ]
-            await ch_client.insert(
-                "operation_log",
-                rows,
-                column_names=_OPLOG_COLS,
-                column_type_names=_OPLOG_TYPE_NAMES,
-            )
-
-        if self._table_buffer:
-            table_rows = [
-                [tbl, self.job_id, self.task_id, now]
-                for tbl in self._table_buffer
-            ]
-            await ch_client.insert(
-                "table_registry",
-                table_rows,
-                column_names=_REG_COLS,
-                column_type_names=_REG_TYPE_NAMES,
-            )
-
-
 def oplog_record(
     result_table: str,
     operation: str,
     kwargs: dict[str, str] | None = None,
-    kwargs_aai_ids: dict[str, list[int]] | None = None,
-    result_aai_ids: list[int] | None = None,
     sql: str | None = None,
 ) -> None:
     """Record an operation if an OplogCollector is active in the current context."""
     collector = _oplog_collector.get()
     if collector is not None:
-        collector.record(
-            result_table, operation, kwargs=kwargs,
-            kwargs_aai_ids=kwargs_aai_ids, result_aai_ids=result_aai_ids, sql=sql,
-        )
+        collector.record(result_table, operation, kwargs=kwargs, sql=sql)
+
+
+def oplog_record_sample(
+    result_table: str,
+    operation: str,
+    kwargs: dict[str, str] | None = None,
+    sql: str | None = None,
+) -> None:
+    """Record an operation with lineage sampling if an OplogCollector is active."""
+    collector = _oplog_collector.get()
+    if collector is not None:
+        collector.record_sample(result_table, operation, kwargs=kwargs, sql=sql)
 
 
 def oplog_record_table(table_name: str) -> None:

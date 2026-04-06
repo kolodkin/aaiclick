@@ -1,5 +1,5 @@
 """
-Tests for OplogCollector: buffering, flushing, and oplog integration.
+Tests for oplog recording via the unified table worker.
 """
 
 from __future__ import annotations
@@ -22,27 +22,6 @@ async def test_oplog_lifecycle(orch_ctx):
     assert get_oplog_collector() is None
 
 
-async def test_buffer_records_operations(orch_ctx):
-    """Buffer captures exact entries with correct structure for a create/concat pipeline."""
-    async with task_scope(task_id=1, job_id=1):
-        collector = get_oplog_collector()
-        a = await create_object_from_value([1, 2, 3])
-        b = await create_object_from_value([4, 5, 6])
-        result = await a.concat(b)
-
-    by_table = {e.result_table: e for e in collector._buffer}
-    assert set(by_table) == {a.table, b.table, result.table}
-
-    assert by_table[a.table].operation == "create_from_value"
-    assert by_table[b.table].operation == "create_from_value"
-
-    concat_entry = by_table[result.table]
-    assert concat_entry.operation == "concat"
-    assert set(concat_entry.kwargs.values()) == {a.table, b.table}
-
-    assert set(collector._table_buffer) == {a.table, b.table, result.table}
-
-
 async def test_flush_on_clean_exit(orch_ctx):
     """On clean exit, operation_log and table_registry are written with correct metadata."""
     async with task_scope(task_id=42, job_id=99):
@@ -63,20 +42,35 @@ async def test_flush_on_clean_exit(orch_ctx):
     assert reg
 
 
+async def test_concat_records_kwargs(orch_ctx):
+    """Concat records source tables as kwargs (source_0, source_1)."""
+    async with task_scope(task_id=1, job_id=1):
+        a = await create_object_from_value([1, 2, 3])
+        b = await create_object_from_value([4, 5, 6])
+        result = await a.concat(b)
+        a_table, b_table, result_table = a.table, b.table, result.table
+
+    ch = await create_ch_client()
+    row = (await ch.query(
+        f"SELECT operation, kwargs FROM operation_log "
+        f"WHERE result_table = '{result_table}' LIMIT 1"
+    )).result_rows
+    assert row
+    operation, kwargs_raw = row[0]
+    assert operation == "concat"
+    kwargs = dict(kwargs_raw) if not isinstance(kwargs_raw, dict) else kwargs_raw
+    assert set(kwargs.values()) == {a_table, b_table}
+
+
 async def test_no_flush_on_exception(orch_ctx):
-    """On error, flush() is NOT called — no entries written to operation_log."""
-    table_name = None
+    """On error, oplog is discarded — no entries written to operation_log."""
+    table_name = "some_table_error_test"
 
     with pytest.raises(RuntimeError, match="test error"):
         async with task_scope(task_id=1, job_id=1):
             collector = get_oplog_collector()
-            collector.record("some_table", "test_op")
-            table_name = "some_table"
+            collector.record(table_name, "test_op")
             raise RuntimeError("test error")
-
-    # Buffer still has the entry — proves flush was not called (which would not
-    # clear the buffer, but entries would appear in CH if flushed)
-    assert len(collector._buffer) >= 1
 
     # Verify nothing was written to ClickHouse
     ch = await create_ch_client()

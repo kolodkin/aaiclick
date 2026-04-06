@@ -6,6 +6,7 @@ import asyncio
 import queue
 import weakref
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
@@ -15,6 +16,16 @@ from aaiclick.backend import is_postgres
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
+from aaiclick.data.data_context.table_worker import (
+    OplogBufferEntry,
+    OplogRecordContext,
+    OplogSampleContext,
+    OplogTableContext,
+    _OPLOG_COLS,
+    _OPLOG_TYPE_NAMES,
+    _REG_COLS,
+    _REG_TYPE_NAMES,
+)
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import init_oplog_tables
@@ -49,6 +60,8 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._job_id = job_id
         self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
+        self._oplog_buffer: list[OplogBufferEntry] = []
+        self._table_buffer: list[OplogTableContext] = []
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._process_loop())
@@ -90,6 +103,69 @@ class OrchLifecycleHandler(LifecycleHandler):
                 {"table": table_name, "ctx": job_id},
             )
             await session.commit()
+
+    def enqueue_oplog_record(self, ctx: OplogRecordContext) -> None:
+        self._oplog_buffer.append(OplogBufferEntry(
+            result_table=ctx.result_table,
+            operation=ctx.operation,
+            kwargs=ctx.kwargs,
+            kwargs_aai_ids={},
+            result_aai_ids=[],
+            sql=ctx.sql,
+            task_id=ctx.task_id,
+            job_id=ctx.job_id,
+        ))
+
+    def enqueue_oplog_sample(self, ctx: OplogSampleContext) -> None:
+        self._oplog_buffer.append(OplogBufferEntry(
+            result_table=ctx.result_table,
+            operation=ctx.operation,
+            kwargs=ctx.kwargs,
+            kwargs_aai_ids={},
+            result_aai_ids=[],
+            sql=ctx.sql,
+            task_id=ctx.task_id,
+            job_id=ctx.job_id,
+        ))
+
+    def enqueue_oplog_table(self, ctx: OplogTableContext) -> None:
+        self._table_buffer.append(ctx)
+
+    async def flush_oplog(self) -> None:
+        now = datetime.now(timezone.utc)
+        ch_client = get_ch_client()
+
+        if self._oplog_buffer:
+            rows = [
+                [
+                    e.result_table, e.operation, e.kwargs,
+                    e.kwargs_aai_ids, e.result_aai_ids,
+                    e.sql, e.task_id, e.job_id, now,
+                ]
+                for e in self._oplog_buffer
+            ]
+            await ch_client.insert(
+                "operation_log", rows,
+                column_names=_OPLOG_COLS,
+                column_type_names=_OPLOG_TYPE_NAMES,
+            )
+            self._oplog_buffer.clear()
+
+        if self._table_buffer:
+            table_rows = [
+                [ctx.table_name, ctx.job_id, ctx.task_id, now]
+                for ctx in self._table_buffer
+            ]
+            await ch_client.insert(
+                "table_registry", table_rows,
+                column_names=_REG_COLS,
+                column_type_names=_REG_TYPE_NAMES,
+            )
+            self._table_buffer.clear()
+
+    def discard_oplog(self) -> None:
+        self._oplog_buffer.clear()
+        self._table_buffer.clear()
 
     async def _create_sample_and_drop(self, table_name: str) -> None:
         """Create a sample copy of the table, then drop the original."""
@@ -256,6 +332,8 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     finally:
         if not failed:
             await collector.flush()
+        else:
+            collector.discard()
         _oplog_collector.reset(oplog_token)
         _task_registry_var.reset(registry_token)
 

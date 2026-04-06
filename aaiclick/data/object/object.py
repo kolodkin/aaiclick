@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
-from aaiclick.oplog.collector import oplog_record
+from aaiclick.oplog.collector import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..models import (
@@ -706,7 +706,7 @@ class Object:
             result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
         else:
             result = await ingest.copy_db(copy_info, self.ch_client)
-        oplog_record(result.table, "copy", kwargs={"source": source_table})
+        oplog_record_sample(result.table, "copy", kwargs={"source": source_table})
         return result
 
     async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":

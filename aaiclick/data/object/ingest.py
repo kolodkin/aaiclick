@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Awaitable
 
-from aaiclick.oplog.collector import oplog_record
+from aaiclick.oplog.collector import oplog_record_sample
 from ..data_context import create_object
 from ..models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
 from ..sql_utils import quote_identifier
@@ -334,7 +334,7 @@ async def concat_objects_db(
             result.table, info, data_columns, i, ch_client,
         )
 
-    oplog_record(
+    oplog_record_sample(
         result.table, "concat",
         kwargs={f"source_{i}": info.base_table for i, info in enumerate(query_infos)},
     )
@@ -395,7 +395,7 @@ async def insert_objects_db(
         )
 
     for info in source_infos:
-        oplog_record(
+        oplog_record_sample(
             target_info.base_table, "insert",
             kwargs={"source": info.base_table, "target": target_info.base_table},
         )
