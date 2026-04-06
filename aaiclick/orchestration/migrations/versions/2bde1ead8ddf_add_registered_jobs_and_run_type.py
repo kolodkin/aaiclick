@@ -20,6 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add registered_jobs table and run_type/registered_job_id to jobs."""
+    runtype_enum = sa.Enum('SCHEDULED', 'MANUAL', name='runtype')
+    runtype_enum.create(op.get_bind())
+
     op.create_table(
         'registered_jobs',
         sa.Column('id', sa.BigInteger(), primary_key=True),
@@ -36,7 +39,7 @@ def upgrade() -> None:
     op.create_index('ix_registered_jobs_name', 'registered_jobs', ['name'])
     op.create_index('ix_registered_jobs_next_run_at', 'registered_jobs', ['next_run_at'])
 
-    op.add_column('jobs', sa.Column('run_type', sa.String(), nullable=False, server_default='MANUAL'))
+    op.add_column('jobs', sa.Column('run_type', sa.Enum('SCHEDULED', 'MANUAL', name='runtype', create_type=False), nullable=False, server_default='MANUAL'))
     op.add_column('jobs', sa.Column('registered_job_id', sa.BigInteger(), sa.ForeignKey('registered_jobs.id'), nullable=True))
     op.create_index('ix_jobs_registered_job_id', 'jobs', ['registered_job_id'])
 
@@ -50,3 +53,6 @@ def downgrade() -> None:
     op.drop_index('ix_registered_jobs_next_run_at', 'registered_jobs')
     op.drop_index('ix_registered_jobs_name', 'registered_jobs')
     op.drop_table('registered_jobs')
+
+    runtype_enum = sa.Enum('SCHEDULED', 'MANUAL', name='runtype')
+    runtype_enum.drop(op.get_bind())
