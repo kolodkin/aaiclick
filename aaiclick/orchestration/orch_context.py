@@ -17,6 +17,7 @@ from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
+from aaiclick.oplog.cleanup import lineage_aware_drop
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 from aaiclick.oplog.sampling import sample_lineage
 from ..snowflake_id import get_snowflake_id
@@ -127,19 +128,8 @@ class OrchLifecycleHandler(LifecycleHandler):
     # -- Internal --
 
     async def _create_sample_and_drop(self, table_name: str) -> None:
-        """Create a sample copy of the table, then drop the original."""
-        try:
-            await get_ch_client().command(
-                f"CREATE TABLE IF NOT EXISTS {table_name}_sample "
-                f"ENGINE = MergeTree() ORDER BY tuple() "
-                f"AS SELECT * FROM {table_name} LIMIT 1000"
-            )
-        except Exception:
-            pass  # Best effort
-        try:
-            await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
-        except Exception:
-            pass  # Best effort
+        """Replace table with lineage-referenced rows, then drop original."""
+        await lineage_aware_drop(get_ch_client(), table_name)
 
     async def _write_oplog_row(self, p: OplogPayload,
                                kwargs_aai_ids: dict[str, list[int]] | None = None,
