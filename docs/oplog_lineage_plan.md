@@ -142,27 +142,26 @@ with a single mechanism: **the lineage sample defines which rows survive**.
 - Leaf operations (`create_from_value`) use `oplog_record()`
 - `oplog_record_table()` for table registry
 
-## Phase 4: Lineage-Aware Cleanup
+## Phase 4: Lineage-Aware Cleanup ✅ IMPLEMENTED
 
-**Objective**: When dropping a table, preserve rows referenced by lineage instead of random sampling.
+**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`
 
-- On DECREF reaching zero, before DROP:
-  1. Query `operation_log` for all `kwargs_aai_ids` and `result_aai_ids` entries referencing
-     the table (via `kwargs` values matching the table name)
-  2. Collect the set of referenced `aai_id`s
-  3. `CREATE TABLE {table}_sample AS SELECT * FROM {table} WHERE aai_id IN ({referenced_ids})`
-  4. Drop original table
-- If no referenced IDs found, fall back to `LIMIT 10` random sample
-- Persistent tables (`p_` prefix) are excluded as before
+- Shared `lineage_aware_drop(ch_client, table_name)` used by both `OrchLifecycleHandler`
+  (inline on DECREF) and `BackgroundWorker` (polling cleanup)
+- Queries `operation_log` for aai_ids in `result_aai_ids` and `kwargs_aai_ids` referencing the table
+- Preserves those rows in `{table}_sample`; falls back to `LIMIT 10` random if none found
+- Persistent tables (`p_` prefix) excluded as before
 
-## Phase 5: Update Lineage Queries
+## Phase 5: Row-Level Lineage Queries ✅ IMPLEMENTED
 
-**Objective**: Update `backward_oplog()` / `forward_oplog()` / `oplog_subgraph()` to leverage
-row-level lineage.
+**Implementation**: `aaiclick/oplog/lineage.py` — see `backward_oplog_row()`
 
+- `backward_oplog_row(table, aai_id)` traces a specific aai_id backward through the chain
+- Walks oplog samples: finds the operation that produced the aai_id, extracts corresponding
+  source aai_ids at the same position, recurses into sources
+- Returns `list[RowLineageStep]` — each step has table, aai_id, operation, source_aai_ids
 - `OplogNode` already includes `kwargs_aai_ids` and `result_aai_ids` (done in Phase 1)
-- Add `backward_oplog_row(table, aai_id)` — trace a specific row backward through the chain
-- Update `OplogGraph.to_prompt_context()` to include sample data when available
+- `to_prompt_context()` already renders lineage data when available (done in Phase 1)
 
 ---
 
