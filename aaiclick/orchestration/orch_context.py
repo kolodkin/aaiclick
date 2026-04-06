@@ -17,7 +17,6 @@ from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
-from aaiclick.oplog.collector import OplogCollector, _oplog_collector
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 from aaiclick.oplog.sampling import sample_lineage
 from ..snowflake_id import get_snowflake_id
@@ -104,26 +103,25 @@ class OrchLifecycleHandler(LifecycleHandler):
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
     def oplog_record(self, result_table: str, operation: str,
-                     kwargs: dict[str, str] | None = None, sql: str | None = None,
-                     task_id: int | None = None, job_id: int | None = None) -> None:
+                     kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
         self._queue.put(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_RECORD,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql, task_id, job_id),
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
+                               self._task_id, self._job_id),
         ))
 
     def oplog_record_sample(self, result_table: str, operation: str,
-                            kwargs: dict[str, str] | None = None, sql: str | None = None,
-                            task_id: int | None = None, job_id: int | None = None) -> None:
+                            kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
         self._queue.put(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql, task_id, job_id),
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
+                               self._task_id, self._job_id),
         ))
 
-    def oplog_record_table(self, table_name: str,
-                           task_id: int | None = None, job_id: int | None = None) -> None:
+    def oplog_record_table(self, table_name: str) -> None:
         self._queue.put(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_TABLE,
-            oplog_table=OplogTablePayload(table_name, task_id, job_id),
+            oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id),
         ))
 
     # -- Internal --
@@ -310,7 +308,7 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     Creates isolated per-task state:
     - Fresh objects registry for stale-marking on exit
     - OrchLifecycleHandler using task_id as context_id for distributed refcounting
-    - OplogCollector for operation lineage (always active in orch mode)
+    - Oplog recording via OrchLifecycleHandler queue (always active in orch mode)
 
     Oplog is flushed on clean exit; discarded on exception.
     All tracked objects are stale-marked on exit.
@@ -326,18 +324,15 @@ async def task_scope(task_id: int, job_id: int) -> AsyncIterator[None]:
     await lifecycle.start()
 
     objects: Dict[int, weakref.ref] = {}
-    collector = OplogCollector(task_id=task_id, job_id=job_id)
     await init_oplog_tables(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
-    oplog_token = _oplog_collector.set(collector)
     registry_token = _task_registry_var.set({})
 
     try:
         yield
     finally:
-        _oplog_collector.reset(oplog_token)
         _task_registry_var.reset(registry_token)
 
         # Stale-mark all tracked objects

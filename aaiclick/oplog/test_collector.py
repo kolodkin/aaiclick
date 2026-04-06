@@ -6,22 +6,11 @@ from __future__ import annotations
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
-from aaiclick.oplog.collector import get_oplog_collector, OplogCollector
 from aaiclick.orchestration.orch_context import task_scope
 
 
-async def test_oplog_lifecycle(orch_ctx):
-    """Collector is absent outside task_scope, present inside, removed after exit."""
-    assert get_oplog_collector() is None
-
-    async with task_scope(task_id=1, job_id=1):
-        assert isinstance(get_oplog_collector(), OplogCollector)
-
-    assert get_oplog_collector() is None
-
-
-async def test_oplog_writes_immediately(orch_ctx):
-    """Operations are written to operation_log immediately (unbuffered)."""
+async def test_oplog_writes_on_operation(orch_ctx):
+    """Operations are written to operation_log with correct metadata."""
     async with task_scope(task_id=42, job_id=99):
         obj = await create_object_from_value([5])
         table_name = obj.table

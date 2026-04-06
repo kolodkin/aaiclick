@@ -41,7 +41,7 @@ from aaiclick.oplog.collector import oplog_record, oplog_record_table
 # Resources owned by their respective modules:
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
-#   OplogCollector  → collector.py  (_oplog_collector / get_oplog_collector)
+#   Oplog           → oplog/collector.py (delegates to lifecycle handler)
 _engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_MEMORY)
 _objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
 

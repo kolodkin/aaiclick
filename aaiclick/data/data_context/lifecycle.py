@@ -67,6 +67,19 @@ class LifecycleHandler(ABC):
         """
         raise NotImplementedError("claim() requires a distributed lifecycle handler")
 
+    def oplog_record(self, result_table: str, operation: str,
+                     kwargs: dict[str, str] | None = None,
+                     sql: str | None = None) -> None:
+        """Record an oplog entry. No-op in local mode."""
+
+    def oplog_record_sample(self, result_table: str, operation: str,
+                            kwargs: dict[str, str] | None = None,
+                            sql: str | None = None) -> None:
+        """Record an oplog entry with lineage sampling. No-op in local mode."""
+
+    def oplog_record_table(self, table_name: str) -> None:
+        """Record a table registry entry. No-op in local mode."""
+
     async def __aenter__(self):
         await self.start()
         return self
