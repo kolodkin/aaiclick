@@ -232,7 +232,8 @@ class OrchLifecycleHandler(LifecycleHandler):
                             get_ch_client(), msg.oplog.result_table, msg.oplog.kwargs,
                         )
                     except Exception:
-                        pass
+                        logger.error("Failed to sample lineage for %s",
+                                     msg.oplog.result_table, exc_info=True)
                 await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
                 await self._write_table_registry_row(msg.oplog_table)

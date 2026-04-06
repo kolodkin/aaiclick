@@ -7,7 +7,10 @@ and finds corresponding result aai_ids via positional alignment.
 
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def _sample_size() -> int:
@@ -95,6 +98,7 @@ async def _pick_aai_ids(ch_client, table, n):
         """)
         known = [r[0] for r in result.result_rows]
     except Exception:
+        logger.error("Failed to query lineage aai_ids for %s", table, exc_info=True)
         known = []
     if len(known) >= n:
         return known[:n]
@@ -108,4 +112,5 @@ async def _pick_aai_ids(ch_client, table, n):
         """)
         return known + [r[0] for r in result.result_rows]
     except Exception:
+        logger.error("Failed to query random aai_ids for %s", table, exc_info=True)
         return known

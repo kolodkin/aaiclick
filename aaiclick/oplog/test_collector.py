@@ -67,7 +67,6 @@ async def test_binary_op_populates_lineage_aai_ids(orch_ctx):
     row = [(k, r) for op, k, r in all_ops if op == "+"]
     assert row, f"No '+' entry; found: {[op for op, _, _ in all_ops]}"
     kwargs_aai_ids_raw, result_aai_ids = row[0]
-    kwargs_aai_ids_raw, result_aai_ids = row[0]
     kwargs_aai_ids = dict(kwargs_aai_ids_raw) if not isinstance(kwargs_aai_ids_raw, dict) else kwargs_aai_ids_raw
 
     assert len(result_aai_ids) > 0, "result_aai_ids should be populated"

@@ -1,5 +1,5 @@
 """
-aaiclick.oplog.collector - Oplog recording via the lifecycle handler.
+aaiclick.oplog.oplog_api - Oplog recording via the lifecycle handler.
 
 Module-level functions delegate to the active LifecycleHandler.
 In local mode (data_context), the handler's oplog methods are no-ops.
