@@ -7,7 +7,8 @@ used by OrchLifecycleHandler (in context.py) for distributed table reference cou
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from sqlalchemy import BigInteger, Column, String
@@ -20,7 +21,32 @@ class DBLifecycleOp(Enum):
     INCREF = auto()
     DECREF = auto()
     PIN = auto()
+    OPLOG_RECORD = auto()
+    OPLOG_SAMPLE = auto()
+    OPLOG_TABLE = auto()
+    OPLOG_FLUSH = auto()
     SHUTDOWN = auto()
+
+
+@dataclass
+class OplogPayload:
+    """Payload for OPLOG_RECORD and OPLOG_SAMPLE messages."""
+
+    result_table: str
+    operation: str
+    kwargs: dict[str, str]
+    sql: str | None = None
+    task_id: int | None = None
+    job_id: int | None = None
+
+
+@dataclass
+class OplogTablePayload:
+    """Payload for OPLOG_TABLE messages."""
+
+    table_name: str
+    task_id: int | None = None
+    job_id: int | None = None
 
 
 @dataclass
@@ -28,7 +54,10 @@ class DBLifecycleMessage:
     """Message passed to handler via queue."""
 
     op: DBLifecycleOp
-    table_name: str
+    table_name: str = ""
+    oplog: OplogPayload | None = None
+    oplog_table: OplogTablePayload | None = None
+    flush_event: asyncio.Event | None = None
 
 
 class TableContextRef(SQLModel, table=True):

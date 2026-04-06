@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import queue
 import weakref
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
@@ -17,14 +20,37 @@ from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.collector import OplogCollector, _oplog_collector
-from aaiclick.oplog.models import init_oplog_tables
+from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 from ..snowflake_id import get_snowflake_id
 from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
 from .task_registry import _task_registry_var, get_task_registry
 from .models import Group, Task, TasksType
+
+_OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
+               "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
+_OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
+
+_REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
+_REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
+
+
+def _sample_size() -> int:
+    return int(os.environ.get("AAICLICK_OPLOG_SAMPLE_SIZE", "10"))
+
+
+@dataclass
+class _OplogBufferEntry:
+    result_table: str
+    operation: str
+    kwargs: dict[str, str]
+    kwargs_aai_ids: dict[str, list[int]] = field(default_factory=dict)
+    result_aai_ids: list[int] = field(default_factory=list)
+    sql: str | None = None
+    task_id: int | None = None
+    job_id: int | None = None
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -49,6 +75,8 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._job_id = job_id
         self._queue: queue.Queue[DBLifecycleMessage] = queue.Queue()
         self._task: asyncio.Task | None = None
+        self._oplog_buffer: list[_OplogBufferEntry] = []
+        self._table_buffer: list[OplogTablePayload] = []
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._process_loop())
@@ -59,7 +87,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         Pin refs use job_id as context_id, so they survive this cleanup.
         Only execution-time refs (incref/decref) are removed.
         """
-        self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN, ""))
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
             await self._task
         async with get_sql_session() as session:
@@ -91,6 +119,41 @@ class OrchLifecycleHandler(LifecycleHandler):
             )
             await session.commit()
 
+    # -- Oplog methods (enqueue to same FIFO as incref/decref) --
+
+    def oplog_record(self, result_table: str, operation: str,
+                     kwargs: dict[str, str] | None = None, sql: str | None = None,
+                     task_id: int | None = None, job_id: int | None = None) -> None:
+        self._queue.put(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_RECORD,
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql, task_id, job_id),
+        ))
+
+    def oplog_record_sample(self, result_table: str, operation: str,
+                            kwargs: dict[str, str] | None = None, sql: str | None = None,
+                            task_id: int | None = None, job_id: int | None = None) -> None:
+        self._queue.put(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_SAMPLE,
+            oplog=OplogPayload(result_table, operation, kwargs or {}, sql, task_id, job_id),
+        ))
+
+    def oplog_record_table(self, table_name: str,
+                           task_id: int | None = None, job_id: int | None = None) -> None:
+        self._queue.put(DBLifecycleMessage(
+            DBLifecycleOp.OPLOG_TABLE,
+            oplog_table=OplogTablePayload(table_name, task_id, job_id),
+        ))
+
+    async def flush_oplog(self) -> None:
+        event = asyncio.Event()
+        self._queue.put(DBLifecycleMessage(DBLifecycleOp.OPLOG_FLUSH, flush_event=event))
+        await event.wait()
+
+    def discard_oplog(self) -> None:
+        self._oplog_buffer.clear()
+        self._table_buffer.clear()
+
+    # -- Internal --
 
     async def _create_sample_and_drop(self, table_name: str) -> None:
         """Create a sample copy of the table, then drop the original."""
@@ -113,53 +176,133 @@ class OrchLifecycleHandler(LifecycleHandler):
             msg = await loop.run_in_executor(None, self._queue.get)
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
-            total = 0
-            async with get_sql_session() as session:
-                if msg.op == DBLifecycleOp.INCREF:
-                    await session.execute(
-                        text(
-                            "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                            "VALUES (:table_name, :context_id, 1) "
-                            "ON CONFLICT (table_name, context_id) "
-                            "DO UPDATE SET refcount = table_context_refs.refcount + 1"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._task_id},
-                    )
-                elif msg.op == DBLifecycleOp.DECREF:
-                    await session.execute(
-                        text(
-                            "UPDATE table_context_refs "
-                            "SET refcount = refcount - 1 "
-                            "WHERE table_name = :table_name AND context_id = :context_id"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._task_id},
-                    )
-                    result = await session.execute(
-                        text(
-                            "SELECT COALESCE(SUM(refcount), 0) "
-                            "FROM table_context_refs "
-                            "WHERE table_name = :table_name"
-                        ),
-                        {"table_name": msg.table_name},
-                    )
-                    total = result.scalar_one() or 0
-                elif msg.op == DBLifecycleOp.PIN:
-                    await session.execute(
-                        text(
-                            "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                            "VALUES (:table_name, :context_id, 1) "
-                            "ON CONFLICT (table_name, context_id) "
-                            "DO UPDATE SET refcount = table_context_refs.refcount + 1"
-                        ),
-                        {"table_name": msg.table_name, "context_id": self._job_id},
-                    )
-                await session.commit()
-            if (
-                msg.op == DBLifecycleOp.DECREF
-                and total <= 0
-                and not msg.table_name.startswith("p_")
-            ):
-                await self._create_sample_and_drop(msg.table_name)
+
+            # -- Table lifecycle --
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
+                total = 0
+                async with get_sql_session() as session:
+                    if msg.op == DBLifecycleOp.INCREF:
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
+                                "VALUES (:table_name, :context_id, 1) "
+                                "ON CONFLICT (table_name, context_id) "
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                    elif msg.op == DBLifecycleOp.DECREF:
+                        await session.execute(
+                            text(
+                                "UPDATE table_context_refs "
+                                "SET refcount = refcount - 1 "
+                                "WHERE table_name = :table_name AND context_id = :context_id"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                        result = await session.execute(
+                            text(
+                                "SELECT COALESCE(SUM(refcount), 0) "
+                                "FROM table_context_refs "
+                                "WHERE table_name = :table_name"
+                            ),
+                            {"table_name": msg.table_name},
+                        )
+                        total = result.scalar_one() or 0
+                    elif msg.op == DBLifecycleOp.PIN:
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
+                                "VALUES (:table_name, :context_id, 1) "
+                                "ON CONFLICT (table_name, context_id) "
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._job_id},
+                        )
+                    await session.commit()
+                if (
+                    msg.op == DBLifecycleOp.DECREF
+                    and total <= 0
+                    and not msg.table_name.startswith("p_")
+                ):
+                    await self._create_sample_and_drop(msg.table_name)
+
+            # -- Oplog --
+            elif msg.op == DBLifecycleOp.OPLOG_RECORD:
+                self._oplog_buffer.append(_OplogBufferEntry(
+                    result_table=msg.oplog.result_table, operation=msg.oplog.operation,
+                    kwargs=msg.oplog.kwargs, sql=msg.oplog.sql,
+                    task_id=msg.oplog.task_id, job_id=msg.oplog.job_id,
+                ))
+            elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
+                await self._process_oplog_sample(msg.oplog)
+            elif msg.op == DBLifecycleOp.OPLOG_TABLE:
+                self._table_buffer.append(msg.oplog_table)
+            elif msg.op == DBLifecycleOp.OPLOG_FLUSH:
+                await self._flush_oplog_buffer()
+                if msg.flush_event is not None:
+                    msg.flush_event.set()
+
+    async def _process_oplog_sample(self, p: OplogPayload) -> None:
+        n = _sample_size()
+        kwargs_aai_ids: dict[str, list[int]] = {}
+        result_aai_ids: list[int] = []
+        ch = get_ch_client()
+
+        try:
+            sources = list(p.kwargs.values())
+            roles = list(p.kwargs.keys())
+            if len(sources) == 1:
+                kwargs_aai_ids, result_aai_ids = await _sample_unary(
+                    ch, p.result_table, roles[0], sources[0], n)
+            elif len(sources) == 2:
+                kwargs_aai_ids, result_aai_ids = await _sample_binary(
+                    ch, p.result_table, roles[0], sources[0], roles[1], sources[1], n)
+            elif len(sources) > 2:
+                kwargs_aai_ids, result_aai_ids = await _sample_nary(
+                    ch, p.result_table, roles, sources, n)
+        except Exception:
+            pass  # Best effort
+
+        self._oplog_buffer.append(_OplogBufferEntry(
+            result_table=p.result_table, operation=p.operation,
+            kwargs=p.kwargs, kwargs_aai_ids=kwargs_aai_ids,
+            result_aai_ids=result_aai_ids, sql=p.sql,
+            task_id=p.task_id, job_id=p.job_id,
+        ))
+
+    async def _flush_oplog_buffer(self) -> None:
+        ch = get_ch_client()
+        now = datetime.now(timezone.utc)
+
+        if self._oplog_buffer:
+            rows = [
+                [e.result_table, e.operation, e.kwargs, e.kwargs_aai_ids,
+                 e.result_aai_ids, e.sql, e.task_id, e.job_id, now]
+                for e in self._oplog_buffer
+            ]
+            try:
+                await ch.insert(
+                    "operation_log", rows,
+                    column_names=_OPLOG_COLS, column_type_names=_OPLOG_TYPE_NAMES,
+                )
+            except Exception:
+                pass
+            self._oplog_buffer.clear()
+
+        if self._table_buffer:
+            table_rows = [
+                [p.table_name, p.job_id, p.task_id, now]
+                for p in self._table_buffer
+            ]
+            try:
+                await ch.insert(
+                    "table_registry", table_rows,
+                    column_names=_REG_COLS, column_type_names=_REG_TYPE_NAMES,
+                )
+            except Exception:
+                pass
+            self._table_buffer.clear()
 
 
 @asynccontextmanager
