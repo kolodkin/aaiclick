@@ -9,7 +9,7 @@ Object equivalents of View domain helpers (with_year, with_lower, etc.).
 import asyncio
 from datetime import datetime, timezone
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, literal
 from aaiclick.data.data_context import data_context
 
 
@@ -89,6 +89,22 @@ async def example():
     lengths = await obj.length()
     max_len = await lengths.max()
     print(f"Longest word length: {await max_len.data()}")  # → 6
+
+    # Example 5: literal() — constant computed columns
+    print("\n" + "=" * 50)
+    print("Example 5: literal() helper")
+    print("-" * 50)
+
+    obj = await create_object_from_value([{"city": "NYC"}, {"city": "London"}])
+    view = obj.with_columns({
+        "source": literal("survey_2024", "String"),
+        "active": literal(True, "UInt8"),
+        "weight": literal(1.0, "Float64"),
+    })
+    result = await view.data()
+    print(f"source: {result['source']}")  # → ['survey_2024', 'survey_2024']
+    print(f"active: {result['active']}")  # → [1, 1]
+    print(f"weight: {result['weight']}")  # → [1.0, 1.0]
 
 
 async def amain():

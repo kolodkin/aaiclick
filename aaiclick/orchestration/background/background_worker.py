@@ -1,10 +1,10 @@
-"""
-aaiclick.orchestration.pg_cleanup - Background worker for dropping unreferenced CH tables.
+"""Background worker for cleanup and job scheduling.
 
-PgCleanupWorker polls the database for:
+BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
 2. Tables with total refcount <= 0 — drops them in ClickHouse
 3. Dead workers — marks their running tasks as FAILED
+4. Scheduled jobs — creates Job runs when next_run_at is due
 
 Completely independent of DataContext and OrchContext — has its own DB engine and CH client.
 """
@@ -12,16 +12,20 @@ Completely independent of DataContext and OrchContext — has its own DB engine 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import warnings
 from datetime import datetime, timedelta
 
+from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
+from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
+from .handler import BackgroundHandler, create_background_handler
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +33,14 @@ DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
-class PgCleanupWorker:
-    """Background worker that cleans up unreferenced CH tables.
+class BackgroundWorker:
+    """Background worker for cleanup and job scheduling.
 
-    Performs three cleanup operations on each poll:
+    Performs four operations on each poll:
     1. Job cleanup: deletes pin refs for completed/failed jobs
     2. Table cleanup: drops CH tables with total refcount <= 0
     3. Dead worker detection: marks tasks from expired workers as FAILED
+    4. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
 
     Completely independent of DataContext and OrchContext.
     Has own DB engine and CH client.
@@ -52,9 +57,11 @@ class PgCleanupWorker:
         self._engine: AsyncEngine | None = None
         self._ch_client: object | None = None
         self._shutdown: asyncio.Event | None = None
+        self._handler: BackgroundHandler | None = None
 
     async def start(self) -> None:
         self._engine = create_async_engine(get_db_url(), echo=False)
+        self._handler = create_background_handler()
 
         if is_chdb():
             from aaiclick.data.data_context.chdb_client import create_chdb_client
@@ -95,6 +102,7 @@ class PgCleanupWorker:
         await self._cleanup_completed_jobs()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_dead_workers()
+        await self._check_schedules()
 
     async def _cleanup_completed_jobs(self) -> None:
         """Delete job-scoped pin refs for completed/failed jobs."""
@@ -111,17 +119,7 @@ class PgCleanupWorker:
             if not job_ids:
                 return
 
-            if is_sqlite():
-                for jid in job_ids:
-                    await session.execute(
-                        text("DELETE FROM table_context_refs WHERE context_id = :jid"),
-                        {"jid": jid},
-                    )
-            else:
-                await session.execute(
-                    text("DELETE FROM table_context_refs WHERE context_id = ANY(:job_ids)"),
-                    {"job_ids": job_ids},
-                )
+            await self._handler.delete_job_refs(session, job_ids)
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
@@ -175,43 +173,85 @@ class PgCleanupWorker:
                 return
 
             now = datetime.utcnow()
-
-            if is_sqlite():
-                for wid in dead_worker_ids:
-                    await session.execute(
-                        text("UPDATE workers SET status = 'STOPPED' WHERE id = :wid"),
-                        {"wid": wid},
-                    )
-                    await session.execute(
-                        text(
-                            "UPDATE tasks SET status = 'FAILED', "
-                            "completed_at = :now, "
-                            "error = 'Worker died (heartbeat timeout)' "
-                            "WHERE worker_id = :wid "
-                            "AND status IN ('RUNNING', 'CLAIMED')"
-                        ),
-                        {"wid": wid, "now": now},
-                    )
-            else:
-                await session.execute(
-                    text(
-                        "UPDATE workers SET status = 'STOPPED' "
-                        "WHERE id = ANY(:worker_ids)"
-                    ),
-                    {"worker_ids": dead_worker_ids},
-                )
-                await session.execute(
-                    text(
-                        "UPDATE tasks SET status = 'FAILED', "
-                        "completed_at = :now, "
-                        "error = 'Worker died (heartbeat timeout)' "
-                        "WHERE worker_id = ANY(:worker_ids) "
-                        "AND status IN ('RUNNING', 'CLAIMED')"
-                    ),
-                    {"worker_ids": dead_worker_ids, "now": now},
-                )
-
+            await self._handler.mark_dead_workers(session, dead_worker_ids, now)
             await session.commit()
 
             for wid in dead_worker_ids:
                 logger.warning("Worker %s marked as dead (heartbeat timeout)", wid)
+
+    async def _check_schedules(self) -> None:
+        """Create Job runs for registered jobs whose next_run_at is due.
+
+        Uses optimistic locking on next_run_at to prevent duplicate runs
+        when multiple background workers are active.
+
+        Uses raw SQL instead of ORM because BackgroundWorker operates
+        independently of OrchContext with its own DB engine.
+        """
+        now = datetime.utcnow()
+
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT id, name, entrypoint, schedule, default_kwargs, next_run_at "
+                    "FROM registered_jobs "
+                    "WHERE enabled = true AND next_run_at <= :now"
+                ),
+                {"now": now},
+            )
+            due_jobs = result.fetchall()
+
+            for row in due_jobs:
+                reg_id, name, entrypoint, schedule, default_kwargs, old_next_run = row
+
+                # Compute next fire time from cron
+                new_next_run = croniter(schedule, now).get_next(datetime)
+
+                # Optimistic lock: only update if next_run_at hasn't changed
+                lock_result = await session.execute(
+                    text(
+                        "UPDATE registered_jobs "
+                        "SET next_run_at = :new_next, updated_at = :now "
+                        "WHERE id = :reg_id AND next_run_at = :old_next"
+                    ),
+                    {
+                        "new_next": new_next_run,
+                        "now": now,
+                        "reg_id": reg_id,
+                        "old_next": old_next_run,
+                    },
+                )
+
+                if lock_result.rowcount == 0:
+                    continue
+
+                # Won the race — create Job + entry Task
+                job_id = get_snowflake_id()
+                task_id = get_snowflake_id()
+
+                await session.execute(
+                    text(
+                        "INSERT INTO jobs (id, name, status, run_type, registered_job_id, created_at) "
+                        "VALUES (:id, :name, 'PENDING', 'SCHEDULED', :reg_id, :now)"
+                    ),
+                    {"id": job_id, "name": name, "reg_id": reg_id, "now": now},
+                )
+
+                await session.execute(
+                    text(
+                        "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, created_at, max_retries, attempt) "
+                        "VALUES (:id, :job_id, :entrypoint, :name, :kwargs, 'PENDING', :now, 0, 0)"
+                    ),
+                    {
+                        "id": task_id,
+                        "job_id": job_id,
+                        "entrypoint": entrypoint,
+                        "name": name,
+                        "kwargs": default_kwargs if isinstance(default_kwargs, str) else (json.dumps(default_kwargs) if default_kwargs else "{}"),
+                        "now": now,
+                    },
+                )
+
+                logger.info("Scheduled job '%s' created (job_id=%s)", name, job_id)
+
+            await session.commit()

@@ -1,6 +1,37 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
+from typing import Union
+
 from ..models import Computed
+
+
+def _escape_sql_string(value: str) -> str:
+    """Escape a Python string for use as a single-quoted SQL literal."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def literal(value: Union[str, int, float, bool], ch_type: str) -> Computed:
+    """Create a Computed column with a constant SQL literal.
+
+    Args:
+        value: Python value to embed as a SQL literal.
+        ch_type: ClickHouse type for the column, e.g. "String", "UInt8", "Float64".
+
+    Examples:
+        literal("dataset_a", "String")    # Computed("String", "'dataset_a'")
+        literal(42, "UInt32")              # Computed("UInt32", "42")
+        literal(3.14, "Float64")           # Computed("Float64", "3.14")
+        literal(True, "UInt8")             # Computed("UInt8", "true")
+    """
+    if isinstance(value, bool):
+        expr = "true" if value else "false"
+    elif isinstance(value, str):
+        expr = _escape_sql_string(value)
+    elif isinstance(value, (int, float)):
+        expr = str(value)
+    else:
+        raise TypeError(f"Unsupported literal type: {type(value).__name__}")
+    return Computed(ch_type, expr)
 
 
 def cast(col: str, to_type: str, nullable: bool = True) -> Computed:
@@ -38,5 +69,5 @@ def split_by_char(col: str, separator: str, element_type: str = "String") -> Com
         split_by_char("genres", ",")
         split_by_char("tags", ",", element_type="LowCardinality(String)")
     """
-    escaped = separator.replace("'", "\\'")
-    return Computed(f"Array({element_type})", f"splitByChar('{escaped}', {col})")
+    sep_escaped = _escape_sql_string(separator)
+    return Computed(f"Array({element_type})", f"splitByChar({sep_escaped}, {col})")

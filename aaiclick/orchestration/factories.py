@@ -8,7 +8,7 @@ from typing import Callable, Union
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, Task, TaskStatus
+from .models import Job, JobStatus, RunType, Task, TaskStatus
 from .task_registry import get_task_registry
 
 
@@ -132,12 +132,20 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
     return task
 
 
-async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
+async def create_job(
+    name: str,
+    entry: Union[str, Callable, Task],
+    *,
+    run_type: RunType = RunType.MANUAL,
+    registered_job_id: int | None = None,
+) -> Job:
     """Create a Job and commit it to the database.
 
     Args:
         name: Job name
         entry: Callback string, callable function, or Task object
+        run_type: How the job was triggered (MANUAL or SCHEDULED)
+        registered_job_id: FK to registered_jobs (optional)
 
     Returns:
         Job object with id populated after database commit
@@ -161,6 +169,8 @@ async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
         id=job_id,
         name=name,
         status=JobStatus.PENDING,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
         created_at=datetime.utcnow(),
     )
 
