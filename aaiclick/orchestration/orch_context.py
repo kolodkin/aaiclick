@@ -304,7 +304,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[int]:
+async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[None]:
     """Per-task context nested inside orch_context.
 
     Creates isolated per-task state:
@@ -319,9 +319,6 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[in
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
-
-    Yields:
-        The run_id for this execution attempt.
     """
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
@@ -338,7 +335,7 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[in
     registry_token = _task_registry_var.set({})
 
     try:
-        yield run_id
+        yield
     finally:
         _task_registry_var.reset(registry_token)
 

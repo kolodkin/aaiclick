@@ -252,44 +252,30 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         }
 
 
-async def execute_task(task: Task) -> Any:
+async def execute_task(task: Task) -> tuple[Any, str]:
     """
     Execute a single task inside orch_context.
-
-    Imports the callback function, deserializes kwargs inside a task_scope,
-    captures output, and executes the function. Uses the active orch_context
-    for ClickHouse client and distributed lifecycle refcounting.
 
     Generates a per-attempt run_id (snowflake) and appends it to the Task's
     run_ids/run_statuses arrays. Each attempt gets its own log file at
     {base}/{job_id}/{task_id}/{run_id}.log.
 
-    After execution, if the result is an Object or View, it is pinned
-    under the job scope so it survives lifecycle stop().
-
-    Args:
-        task: Task to execute
-
     Returns:
-        Any: Result of the task function
-
-    Raises:
-        Exception: Re-raises any exception from the task function
+        Tuple of (task result, log_path). Caller is responsible for
+        persisting log_path and updating run_statuses to the final status.
     """
     func = import_callback(task.entrypoint)
     run_id = get_snowflake_id()
 
-    # Append run entry to Task (status updated to COMPLETED/FAILED by caller)
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task.id))
         db_task = result.scalar_one_or_none()
         if db_task is not None:
             db_task.run_ids = [*db_task.run_ids, run_id]
-            db_task.run_statuses = [*db_task.run_statuses, "RUNNING"]
+            db_task.run_statuses = [*db_task.run_statuses, TaskStatus.RUNNING.value]
             session.add(db_task)
             await session.commit()
 
-    # Set task context so expander tasks can access job_id/task_id
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
     with capture_task_output(task.id, task.job_id, run_id) as log_path:
@@ -300,7 +286,6 @@ async def execute_task(task: Task) -> Any:
             else:
                 result = func(**kwargs)
 
-            # Pin INSIDE task_scope while lifecycle is still active
             pin_target = result.data if isinstance(result, TaskResult) else result
             if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
                 lifecycle = get_data_lifecycle()
@@ -311,27 +296,7 @@ async def execute_task(task: Task) -> Any:
             # (ContextVar) that was populated during func() is still active.
             data_result = await register_returned_tasks(result, task.id, task.job_id)
 
-    # Store log path on the task
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task.id))
-        db_task = result.scalar_one_or_none()
-        if db_task is not None:
-            db_task.log_path = log_path
-            session.add(db_task)
-            await session.commit()
-
-    return data_result
-
-
-async def update_last_run_status(task_id: int, status: str) -> None:
-    """Update the last entry in a task's run_statuses array."""
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        db_task = result.scalar_one_or_none()
-        if db_task is not None and db_task.run_statuses:
-            db_task.run_statuses = [*db_task.run_statuses[:-1], status]
-            session.add(db_task)
-            await session.commit()
+    return data_result, log_path
 
 
 def _sanitize_for_json(value: Any) -> Any:
@@ -555,21 +520,20 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            data_result = await execute_task(task)
+            data_result, log_path = await execute_task(task)
 
-            # Serialize the data portion of the result
             result_ref = serialize_task_result(data_result, task_job_id)
 
-            await update_last_run_status(task_id, "COMPLETED")
-
             async with get_sql_session() as session:
-                # Reload and update task to COMPLETED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
                 task.result = result_ref
+                task.log_path = log_path
+                if task.run_statuses:
+                    task.run_statuses = [*task.run_statuses[:-1], TaskStatus.COMPLETED.value]
 
                 session.add(task)
                 await session.commit()
@@ -578,16 +542,15 @@ async def run_job_tasks(job: Job) -> None:
             job_failed = True
             error_msg = str(e)
 
-            await update_last_run_status(task_id, "FAILED")
-
             async with get_sql_session() as session:
-                # Reload and update task to FAILED
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
                 task.status = TaskStatus.FAILED
                 task.completed_at = datetime.utcnow()
                 task.error = str(e)
+                if task.run_statuses:
+                    task.run_statuses = [*task.run_statuses[:-1], TaskStatus.FAILED.value]
                 session.add(task)
                 await session.commit()
 
