@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aaiclick import cast, create_object_from_value, split_by_char
+from aaiclick import cast, create_object_from_value, literal, split_by_char
 
 
 # =============================================================================
@@ -245,3 +245,49 @@ async def test_with_split_by_char_method_alias(ctx):
     obj = await create_object_from_value([{"genres": "Drama,Comedy"}])
     result = await obj.with_split_by_char("genres", ",", alias="genre").explode("genre").data()
     assert sorted(result["genre"]) == ["Comedy", "Drama"]
+
+
+# =============================================================================
+# Computed column helper: literal()
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "value, ch_type, expected_expr",
+    [
+        pytest.param("hello", "String", "'hello'", id="string"),
+        pytest.param(42, "UInt32", "42", id="int"),
+        pytest.param(3.14, "Float64", "3.14", id="float"),
+        pytest.param(True, "UInt8", "true", id="bool-true"),
+        pytest.param(False, "UInt8", "false", id="bool-false"),
+    ],
+)
+def test_literal_returns_computed(value, ch_type, expected_expr):
+    c = literal(value, ch_type)
+    assert c.type == ch_type
+    assert c.expression == expected_expr
+
+
+def test_literal_string_escapes_quotes():
+    c = literal("it's", "String")
+    assert c.expression == r"'it\'s'"
+
+
+@pytest.mark.parametrize(
+    "col_name, value, ch_type, expected",
+    [
+        pytest.param("source", "dataset_a", "String", ["dataset_a", "dataset_a"], id="string"),
+        pytest.param("flag", 1, "UInt8", [1, 1], id="int"),
+        pytest.param("active", True, "UInt8", [1, 1], id="bool"),
+        pytest.param("pi", 3.14, "Float64", [3.14, 3.14], id="float"),
+    ],
+)
+async def test_literal_with_columns(ctx, col_name, value, ch_type, expected):
+    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
+    result = await obj.with_columns({col_name: literal(value, ch_type)}).data()
+    assert result[col_name] == expected
+
+
+def test_literal_unsupported_type():
+    with pytest.raises(TypeError, match="Unsupported literal type"):
+        literal([1, 2], "Array(UInt8)")

@@ -41,6 +41,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 | `.where(cond)` / `.or_where(cond)`               | Views            | Fluent WHERE chaining (AND / OR)              | [Chained WHERE Clauses](#chained-where-clauses)                      |
 | `obj[key]` / `obj[[keys]]`                       | Views            | Select column(s) from dict Object → View      | [Column Selection](#column-selection)                                |
 | `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
+| `literal(value, ch_type)`                        | Helpers          | Constant column (`Computed` with SQL literal)  | [Computed Column Expansion](#computed-column-expansion-with_columns) |
 | `.with_year(col)`, `.with_month(col)` …          | Views            | Named shortcuts for common computed columns   | [Domain Helpers](#domain-helpers)                                    |
 | `.with_split_by_char(col, sep)`                  | Views            | Split String column by separator → Array      | [Domain Helpers](#domain-helpers)                                    |
 | `.with_isin(col, other)`                         | Views            | IN subquery computed column → UInt8           | [Domain Helpers](#domain-helpers)                                    |
@@ -386,6 +387,26 @@ Preserves WHERE and computed column constraints when chained on a filtered View.
 
 `with_columns()` is synchronous — it creates a View, no database call needed. No `await`. Works on both Object and View. On Views, preserves existing constraints (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the SELECT list.
 
+### `literal()` Helper
+
+**Implementation**: `aaiclick/data/object/transforms.py` — see `literal()` function
+
+Convenience wrapper for constant columns — handles SQL quoting so you don't have to:
+
+```python
+from aaiclick import literal
+
+# Before: manual quoting
+obj.with_columns({"source": Computed("String", "'dataset_a'")})
+
+# After: literal() handles it
+obj.with_columns({"source": literal("dataset_a", "String")})
+obj.with_columns({"flag": literal(True, "UInt8")})
+obj.with_columns({"weight": literal(1.0, "Float64")})
+```
+
+Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
+
 ## Explode
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.explode()` method
@@ -466,13 +487,15 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 `rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). This enables inserting data from sources with different column naming conventions into a shared target table.
 
 ```python
+from aaiclick import literal
+
 # Rename camelCase columns to snake_case for a consolidated table
 kev_view = kev.rename({
     "cveID": "cve_id",
     "vendorProject": "vendor",
     "vulnerabilityName": "vulnerability_name",
 }).with_columns({
-    "source": Computed("String", "'kev'"),
+    "source": literal("kev", "String"),
 })
 await consolidated.insert(kev_view)
 ```
