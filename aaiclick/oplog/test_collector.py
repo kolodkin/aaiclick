@@ -38,7 +38,7 @@ async def test_buffer_records_operations(orch_ctx):
 
     concat_entry = by_table[result.table]
     assert concat_entry.operation == "concat"
-    assert set(concat_entry.args) == {a.table, b.table}
+    assert set(concat_entry.kwargs.values()) == {a.table, b.table}
 
     assert set(collector._table_buffer) == {a.table, b.table, result.table}
 

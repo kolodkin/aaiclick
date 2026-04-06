@@ -124,7 +124,7 @@ async def trace_upstream(table: str, depth: int = 10) -> str:
         return f"(no upstream operations found for {table})"
     lines = []
     for node in nodes:
-        inputs = ", ".join(node.args + list(node.kwargs.values()))
+        inputs = ", ".join(node.kwargs.values())
         lines.append(f"{node.table} <- {node.operation}({inputs})")
     return "\n".join(lines)
 

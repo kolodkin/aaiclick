@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS
 
-_OPLOG_COLS = ["result_table", "operation", "args", "kwargs",
-               "sql_template", "task_id", "job_id", "created_at"]
+_OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
+               "result_aai_ids", "sql_template", "task_id", "job_id", "created_at"]
 _OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
 
 _REG_COLS = ["table_name", "job_id", "task_id", "created_at"]
@@ -32,8 +32,9 @@ def get_oplog_collector() -> OplogCollector | None:
 class OperationEvent:
     result_table: str
     operation: str
-    args: list[str] = field(default_factory=list)
     kwargs: dict[str, str] = field(default_factory=dict)
+    kwargs_aai_ids: dict[str, list[int]] = field(default_factory=dict)
+    result_aai_ids: list[int] = field(default_factory=list)
     sql: str | None = None
 
 
@@ -59,8 +60,9 @@ class OplogCollector:
         self,
         result_table: str,
         operation: str,
-        args: list[str] | None = None,
         kwargs: dict[str, str] | None = None,
+        kwargs_aai_ids: dict[str, list[int]] | None = None,
+        result_aai_ids: list[int] | None = None,
         sql: str | None = None,
     ) -> None:
         """Buffer an operation event (synchronous, zero I/O overhead)."""
@@ -68,8 +70,9 @@ class OplogCollector:
             OperationEvent(
                 result_table=result_table,
                 operation=operation,
-                args=args or [],
                 kwargs=kwargs or {},
+                kwargs_aai_ids=kwargs_aai_ids or {},
+                result_aai_ids=result_aai_ids or [],
                 sql=sql,
             )
         )
@@ -91,8 +94,9 @@ class OplogCollector:
                 [
                     ev.result_table,
                     ev.operation,
-                    ev.args,
                     ev.kwargs,
+                    ev.kwargs_aai_ids,
+                    ev.result_aai_ids,
                     ev.sql,
                     self.task_id,
                     self.job_id,
@@ -123,14 +127,18 @@ class OplogCollector:
 def oplog_record(
     result_table: str,
     operation: str,
-    args: list[str] | None = None,
     kwargs: dict[str, str] | None = None,
+    kwargs_aai_ids: dict[str, list[int]] | None = None,
+    result_aai_ids: list[int] | None = None,
     sql: str | None = None,
 ) -> None:
     """Record an operation if an OplogCollector is active in the current context."""
     collector = _oplog_collector.get()
     if collector is not None:
-        collector.record(result_table, operation, args=args, kwargs=kwargs, sql=sql)
+        collector.record(
+            result_table, operation, kwargs=kwargs,
+            kwargs_aai_ids=kwargs_aai_ids, result_aai_ids=result_aai_ids, sql=sql,
+        )
 
 
 def oplog_record_table(table_name: str) -> None:

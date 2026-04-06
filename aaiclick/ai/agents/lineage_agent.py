@@ -24,8 +24,6 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
 
     edges: list[OplogEdge] = []
     for node in nodes:
-        for src in node.args:
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
         for src in node.kwargs.values():
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 

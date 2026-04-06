@@ -36,7 +36,7 @@ async def test_backward_oplog(orch_ctx):
 
     concat_node = by_table[result_table]
     assert concat_node.operation == "concat"
-    assert set(concat_node.args) == {a_table, b_table}
+    assert set(concat_node.kwargs.values()) == {a_table, b_table}
 
     for t in (a_table, b_table):
         assert by_table[t].operation == "create_from_value"

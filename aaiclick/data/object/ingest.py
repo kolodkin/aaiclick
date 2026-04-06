@@ -334,7 +334,10 @@ async def concat_objects_db(
             result.table, info, data_columns, i, ch_client,
         )
 
-    oplog_record(result.table, "concat", args=[info.base_table for info in query_infos])
+    oplog_record(
+        result.table, "concat",
+        kwargs={f"source_{i}": info.base_table for i, info in enumerate(query_infos)},
+    )
     return result
 
 
