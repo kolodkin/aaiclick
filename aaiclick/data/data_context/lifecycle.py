@@ -67,6 +67,26 @@ class LifecycleHandler(ABC):
         """
         raise NotImplementedError("claim() requires a distributed lifecycle handler")
 
+    def oplog_record(self, result_table: str, operation: str,
+                     kwargs: dict[str, str] | None = None, sql: str | None = None,
+                     task_id: int | None = None, job_id: int | None = None) -> None:
+        """Buffer an oplog record. Default: no-op."""
+
+    def oplog_record_sample(self, result_table: str, operation: str,
+                            kwargs: dict[str, str] | None = None, sql: str | None = None,
+                            task_id: int | None = None, job_id: int | None = None) -> None:
+        """Buffer an oplog record with lineage sampling. Default: no-op."""
+
+    def oplog_record_table(self, table_name: str,
+                           task_id: int | None = None, job_id: int | None = None) -> None:
+        """Buffer a table registry record. Default: no-op."""
+
+    async def flush_oplog(self) -> None:
+        """Flush buffered oplog entries to ClickHouse. Default: no-op."""
+
+    def discard_oplog(self) -> None:
+        """Discard buffered oplog entries without flushing. Default: no-op."""
+
     async def __aenter__(self):
         await self.start()
         return self
