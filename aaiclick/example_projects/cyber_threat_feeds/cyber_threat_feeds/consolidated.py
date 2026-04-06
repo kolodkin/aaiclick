@@ -10,7 +10,7 @@ from aaiclick.data.models import (
     Schema,
 )
 from aaiclick.data.object import Object
-from aaiclick.data.object.transforms import literal
+from aaiclick import literal
 from aaiclick.orchestration import task
 
 _HAS_KEV = "has(sources, 'kev')"
