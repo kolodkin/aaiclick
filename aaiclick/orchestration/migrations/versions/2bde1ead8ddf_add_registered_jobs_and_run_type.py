@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column('id', sa.BigInteger(), primary_key=True),
         sa.Column('name', sa.String(), nullable=False),
         sa.Column('entrypoint', sa.String(), nullable=False),
-        sa.Column('enabled', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('enabled', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('schedule', sa.String(), nullable=True),
         sa.Column('default_kwargs', sa.JSON(), nullable=True),
         sa.Column('next_run_at', sa.DateTime(), nullable=True),

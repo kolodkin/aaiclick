@@ -234,7 +234,7 @@ class PgCleanupWorker:
                 text(
                     "SELECT id, name, entrypoint, schedule, default_kwargs, next_run_at "
                     "FROM registered_jobs "
-                    "WHERE enabled = 1 AND next_run_at <= :now"
+                    "WHERE enabled = true AND next_run_at <= :now"
                 ),
                 {"now": now},
             )
