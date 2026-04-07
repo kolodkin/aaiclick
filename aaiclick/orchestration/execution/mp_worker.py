@@ -87,7 +87,11 @@ async def _execute_in_child(
     task: Task,
     worker_id: int,
 ) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
-    """Run a task in a child process with heartbeats and timeout."""
+    """ExecuteFn for the multiprocessing worker.
+
+    Spawns a child process to run the task, sends heartbeats from the
+    parent while waiting, and enforces AAICLICK_TASK_TIMEOUT if set.
+    """
     timeout = _get_task_timeout()
     done = asyncio.Event()
     heartbeat_task = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
