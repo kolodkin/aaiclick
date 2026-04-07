@@ -76,9 +76,9 @@ def main():
         ("Group By", group_by_example),
         ("Isin", isin_example),
         ("Nullable Columns", nullable_example),
-        ("Order By", order_by_example),
         ("Dict Selectors", selectors_example),
         ("Aggregation Table", aggregation_table_example),
+        ("Order By", order_by_example),
         ("Orchestration Basic", orchestration_basic_example),
         ("Orchestration Dynamic", orchestration_dynamic_example),
     ]
