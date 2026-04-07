@@ -6,11 +6,14 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
-In local mode, uses a dedicated chdb session configured via
-AAICLICK_SNOWFLAKE_CH_URL (falls back to AAICLICK_CH_URL). The session
-is opened and closed per batch fetch — no lock held between calls. This
-decouples ID generation from the main chdb data session so the worker
-parent process and child process don't conflict on file locks.
+In local mode, uses chdb (embedded ClickHouse). When a shared session is
+already open (inside orch_context/data_context), reuses it. Otherwise opens
+a temporary session and closes it immediately so no file lock is held
+between calls. This allows the multiprocessing worker's parent process to
+generate IDs without blocking the child from opening chdb.
+
+chdb constraint: only one data path per process lifetime. The snowflake
+generator always uses the same path as the main session (AAICLICK_CH_URL).
 
 In distributed mode, uses clickhouse-connect directly.
 
@@ -21,7 +24,6 @@ Snowflake ID format (64 bits):
 - Bits 11-0: Sequence number (12 bits)
 """
 
-import os
 from collections import deque
 from pathlib import Path
 
@@ -40,19 +42,6 @@ MACHINE_ID_SHIFT = SEQUENCE_BITS                   # 12
 
 # Default batch size for pre-fetching IDs from ClickHouse
 _BUFFER_SIZE = 100
-
-
-def _get_snowflake_chdb_path() -> str:
-    """Return the chdb data path for snowflake ID generation.
-
-    Uses AAICLICK_SNOWFLAKE_CH_URL if set, otherwise uses the main
-    AAICLICK_CH_URL path. The session is opened and closed per batch
-    so the lock is not held between calls.
-    """
-    snowflake_url = os.environ.get("AAICLICK_SNOWFLAKE_CH_URL")
-    if snowflake_url is not None:
-        return snowflake_url.removeprefix("chdb://")
-    return get_ch_url().removeprefix("chdb://")
 
 
 class SnowflakeGenerator:
@@ -80,10 +69,11 @@ class SnowflakeGenerator:
     def _fetch_ids_chdb(count: int) -> list[int]:
         from aaiclick.data.data_context.chdb_client import _sessions
 
-        data_path = _get_snowflake_chdb_path()
+        data_path = get_ch_url().removeprefix("chdb://")
 
         # Reuse the shared session if already open (orch_context with_ch=True),
-        # otherwise open a dedicated session and close it after use.
+        # otherwise open a temporary session and close it immediately so no
+        # file lock is held between calls.
         shared = _sessions.get(data_path)
         if shared is not None:
             session = shared
