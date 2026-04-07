@@ -21,6 +21,7 @@ from .group_by import amain as group_by_example
 from .isin import amain as isin_example
 from .nested_arrays import amain as nested_arrays_example
 from .nullable import amain as nullable_example
+from .order_by import amain as order_by_example
 from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
 from .selectors import amain as selectors_example
@@ -75,6 +76,7 @@ def main():
         ("Group By", group_by_example),
         ("Isin", isin_example),
         ("Nullable Columns", nullable_example),
+        ("Order By", order_by_example),
         ("Dict Selectors", selectors_example),
         ("Aggregation Table", aggregation_table_example),
         ("Orchestration Basic", orchestration_basic_example),

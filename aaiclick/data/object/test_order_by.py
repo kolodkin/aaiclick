@@ -3,8 +3,8 @@ Tests for custom order_by support on Object creation.
 """
 
 from aaiclick import create_object_from_value
-from aaiclick.data import Object, Schema, ColumnInfo, create_object, ENGINE_MERGE_TREE
-from aaiclick.data.data_context import data_context, get_ch_client
+from aaiclick.data import Object, Schema, ColumnInfo, create_object
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import build_order_by_clause
 
 
@@ -48,66 +48,57 @@ def test_object_init_no_order_by():
     assert obj._schema.order_by is None
 
 
-async def test_create_object_order_by_table():
-    """Object created with order_by has correct sorting_key in ClickHouse."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
-        ch = get_ch_client()
-        schema = Schema(
-            fieldtype="d",
-            columns={
-                "aai_id": ColumnInfo("UInt64"),
-                "date": ColumnInfo("String"),
-                "value": ColumnInfo("Int64"),
-            },
-            order_by="(date, aai_id)",
-        )
-        obj = await create_object(schema)
+async def test_order_by_upgrades_memory_to_mergetree(ctx):
+    """order_by on a Memory-default context auto-upgrades to MergeTree."""
+    ch = get_ch_client()
+    obj = await create_object_from_value(
+        {"date": ["2024-01-03", "2024-01-01", "2024-01-02"], "val": [30, 10, 20]},
+        order_by=["date"],
+    )
 
-        result = await ch.query(
-            f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
-        assert result.result_rows[0][0] == "date, aai_id"
+    result = await ch.query(
+        f"SELECT engine, sorting_key FROM system.tables WHERE name = '{obj.table}'"
+    )
+    assert result.result_rows[0][0] == "MergeTree"
+    assert result.result_rows[0][1] == "date, aai_id"
 
 
-async def test_create_object_from_value_order_by():
+async def test_create_object_from_value_order_by(ctx):
     """create_object_from_value with order_by creates table with correct sorting_key."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
-        ch = get_ch_client()
-        obj = await create_object_from_value(
-            {"date": ["2024-01-03", "2024-01-01", "2024-01-02"], "val": [30, 10, 20]},
-            order_by=["date"],
-        )
+    ch = get_ch_client()
+    obj = await create_object_from_value(
+        {"date": ["2024-01-03", "2024-01-01", "2024-01-02"], "val": [30, 10, 20]},
+        order_by=["date"],
+    )
 
-        result = await ch.query(
-            f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
-        assert result.result_rows[0][0] == "date, aai_id"
+    result = await ch.query(
+        f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
+    )
+    assert result.result_rows[0][0] == "date, aai_id"
 
 
-async def test_create_object_from_value_multi_order_by():
+async def test_create_object_from_value_multi_order_by(ctx):
     """create_object_from_value with multiple order_by columns."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
-        ch = get_ch_client()
-        obj = await create_object_from_value(
-            {"category": ["b", "a", "a"], "date": ["2024-01-01", "2024-01-02", "2024-01-01"], "val": [1, 2, 3]},
-            order_by=["category", "date"],
-        )
+    ch = get_ch_client()
+    obj = await create_object_from_value(
+        {"category": ["b", "a", "a"], "date": ["2024-01-01", "2024-01-02", "2024-01-01"], "val": [1, 2, 3]},
+        order_by=["category", "date"],
+    )
 
-        result = await ch.query(
-            f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
-        assert result.result_rows[0][0] == "category, date, aai_id"
+    result = await ch.query(
+        f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
+    )
+    assert result.result_rows[0][0] == "category, date, aai_id"
 
 
-async def test_create_object_from_value_no_order_by():
-    """create_object_from_value without order_by uses default tuple()."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
-        ch = get_ch_client()
-        obj = await create_object_from_value(
-            {"date": ["2024-01-01", "2024-01-02"], "val": [10, 20]},
-        )
+async def test_no_order_by_stays_memory(ctx):
+    """Without order_by the default Memory engine is used."""
+    ch = get_ch_client()
+    obj = await create_object_from_value(
+        {"date": ["2024-01-01", "2024-01-02"], "val": [10, 20]},
+    )
 
-        result = await ch.query(
-            f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
-        assert result.result_rows[0][0] == ""
+    result = await ch.query(
+        f"SELECT engine FROM system.tables WHERE name = '{obj.table}'"
+    )
+    assert result.result_rows[0][0] == "Memory"

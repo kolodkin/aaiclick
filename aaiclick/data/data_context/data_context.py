@@ -248,6 +248,10 @@ async def create_object(
         effective_engine = engine or schema.engine or get_engine()
 
     order_by = schema.order_by or "tuple()"
+
+    # Memory engine ignores ORDER BY — upgrade to MergeTree when order_by is set.
+    if effective_engine == "Memory" and schema.order_by:
+        effective_engine = "MergeTree"
     engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
