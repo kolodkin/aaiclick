@@ -21,6 +21,7 @@ from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
 from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
 from ..models import (
     ColumnInfo,
+    FieldSpec,
     ValueScalarType,
     ValueListType,
     ValueType,
@@ -409,6 +410,38 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
         return ColumnInfo("String")
 
 
+def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
+    """Apply a FieldSpec override to an inferred ColumnInfo."""
+    return ColumnInfo(
+        type=spec.type if spec.type is not None else col.type,
+        nullable=spec.nullable,
+        low_cardinality=spec.low_cardinality,
+        array=col.array,
+        description=col.description,
+    )
+
+
+def _apply_field_specs(
+    columns: dict[str, ColumnInfo],
+    fields: dict[str, FieldSpec] | None,
+) -> dict[str, ColumnInfo]:
+    """Apply field specs to inferred columns, validating field names."""
+    if not fields:
+        return columns
+    unknown = set(fields) - set(columns)
+    if unknown:
+        raise ValueError(
+            f"fields references unknown columns: {sorted(unknown)}. "
+            f"Available columns: {sorted(c for c in columns if c != 'aai_id')}"
+        )
+    if "aai_id" in fields:
+        raise ValueError("Cannot override aai_id column with FieldSpec")
+    return {
+        name: _apply_field_spec(col, fields[name]) if name in fields else col
+        for name, col in columns.items()
+    }
+
+
 def _find_non_empty_nested_sample(records: list, key: str) -> dict:
     """Find a non-empty sample for a nested list-of-dicts field across records.
 
@@ -503,6 +536,7 @@ async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
     order_by: list[str] | None = None,
+    fields: dict[str, FieldSpec] | None = None,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -520,6 +554,11 @@ async def create_object_from_value(
         order_by: Optional list of column names for the table ORDER BY clause.
                   ``aai_id`` is always appended as the last ORDER BY column.
                   Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
+        fields: Optional per-column overrides for inferred types. Maps column
+                names to ``FieldSpec`` instances that control nullable,
+                low_cardinality, and type override.
+                Example: ``fields={"name": FieldSpec(low_cardinality=True),
+                "score": FieldSpec(nullable=True)}``
 
     Returns:
         Object: New Object instance with data
@@ -561,6 +600,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def
 
+            columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
@@ -577,6 +617,7 @@ async def create_object_from_value(
             for key, value in val.items():
                 columns[key] = _infer_clickhouse_type(value)
 
+            columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
@@ -619,6 +660,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
 
+            columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
@@ -629,9 +671,12 @@ async def create_object_from_value(
             )
         else:
             col_def = _infer_clickhouse_type(val)
+            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+            columns = _apply_field_specs(columns, fields)
+            col_def = columns["value"]
             schema = Schema(
                 fieldtype=FIELDTYPE_ARRAY,
-                columns={"aai_id": ColumnInfo("UInt64"), "value": col_def},
+                columns=columns,
                 order_by=order_by_clause,
             )
             obj = await create_object(schema, name=name)
@@ -644,10 +689,13 @@ async def create_object_from_value(
 
     else:
         col_def = _infer_clickhouse_type(val)
+        columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        columns = _apply_field_specs(columns, fields)
+        col_def = columns["value"]
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
             col_fieldtype=FIELDTYPE_SCALAR,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": col_def},
+            columns=columns,
             order_by=order_by_clause,
         )
         obj = await create_object(schema, name=name)

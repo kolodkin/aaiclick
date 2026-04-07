@@ -51,6 +51,7 @@ from .models import (
     ColumnInfo,
     ColumnMeta,
     Computed,
+    FieldSpec,
     ColumnType,
     DATE_TYPES,
     GroupByInfo,

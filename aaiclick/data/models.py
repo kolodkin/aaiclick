@@ -72,6 +72,23 @@ class ColumnInfo:
 
 
 
+class FieldSpec(NamedTuple):
+    """Field specification for overriding inferred column properties.
+
+    Used with ``create_object_from_value(fields=...)`` to control nullable
+    and low_cardinality flags without manually specifying the full schema.
+
+    Attributes:
+        nullable: Whether the column allows NULL values.
+        low_cardinality: Whether to use LowCardinality encoding.
+        type: Override the inferred ClickHouse base type (e.g., 'Float32' instead of 'Float64').
+    """
+
+    nullable: bool = False
+    low_cardinality: bool = False
+    type: Optional[str] = None
+
+
 class Computed(NamedTuple):
     """A computed column definition: ClickHouse type + SQL expression."""
 
