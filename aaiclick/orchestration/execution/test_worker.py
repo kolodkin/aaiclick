@@ -15,7 +15,6 @@ from .runner import execute_task
 from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
 from .worker import (
-    check_worker_stop_requested,
     deregister_worker,
     get_worker,
     list_workers,
@@ -60,7 +59,7 @@ async def test_worker_heartbeat(orch_ctx):
     await asyncio.sleep(0.1)
     result = await worker_heartbeat(worker.id)
 
-    assert result is True
+    assert result == WorkerStatus.ACTIVE
 
     # Verify heartbeat was updated
     db_worker = await get_worker(worker.id)
@@ -68,9 +67,9 @@ async def test_worker_heartbeat(orch_ctx):
 
 
 async def test_worker_heartbeat_nonexistent(orch_ctx):
-    """Test heartbeat for non-existent worker returns False."""
+    """Test heartbeat for non-existent worker returns None."""
     result = await worker_heartbeat(999999999)
-    assert result is False
+    assert result is None
 
 
 async def test_deregister_worker(orch_ctx):
@@ -213,34 +212,14 @@ async def test_request_worker_stop_already_stopping(orch_ctx):
     assert result is False
 
 
-async def test_check_worker_stop_requested(orch_ctx):
-    """Test checking stop request status."""
-    worker = await register_worker()
-
-    # Not stopping yet
-    assert await check_worker_stop_requested(worker.id) is False
-
-    # Request stop
-    await request_worker_stop(worker.id)
-    assert await check_worker_stop_requested(worker.id) is True
-
-
-async def test_check_worker_stop_requested_nonexistent(orch_ctx):
-    """Test checking stop for non-existent worker returns False."""
-    assert await check_worker_stop_requested(999999999) is False
-
-
 async def test_heartbeat_preserves_stopping_status(orch_ctx):
     """Test that heartbeat does not reset STOPPING back to ACTIVE."""
     worker = await register_worker()
     await request_worker_stop(worker.id)
 
-    # Heartbeat should succeed but keep STOPPING
+    # Heartbeat should return STOPPING, not reset to ACTIVE
     result = await worker_heartbeat(worker.id)
-    assert result is True
-
-    db_worker = await get_worker(worker.id)
-    assert db_worker.status == WorkerStatus.STOPPING
+    assert result == WorkerStatus.STOPPING
 
 
 async def test_worker_main_loop_stops_on_stop_request(orch_ctx, monkeypatch, tmpdir):

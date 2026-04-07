@@ -107,7 +107,7 @@ async def register_worker(
     return worker
 
 
-async def worker_heartbeat(worker_id: int) -> bool:
+async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
     """
     Update worker's last_heartbeat timestamp.
 
@@ -118,7 +118,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
         worker_id: Worker ID to update
 
     Returns:
-        bool: True if worker was found and updated, False otherwise
+        The worker's current status after update, or None if worker not found.
     """
     async with get_sql_session() as session:
         result = await session.execute(
@@ -127,7 +127,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
         worker = result.scalar_one_or_none()
 
         if worker is None:
-            return False
+            return None
 
         worker.last_heartbeat = datetime.utcnow()
         if worker.status != WorkerStatus.STOPPING:
@@ -135,7 +135,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
         session.add(worker)
         await session.commit()
 
-    return True
+    return worker.status
 
 
 async def request_worker_stop(worker_id: int) -> bool:
@@ -169,26 +169,6 @@ async def request_worker_stop(worker_id: int) -> bool:
         await session.commit()
 
     return True
-
-
-async def check_worker_stop_requested(worker_id: int) -> bool:
-    """
-    Check if a graceful stop has been requested for this worker.
-
-    Args:
-        worker_id: Worker ID to check
-
-    Returns:
-        bool: True if the worker status is STOPPING
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker.status).where(Worker.id == worker_id)
-        )
-        row = result.one_or_none()
-        if row is None:
-            return False
-        return row[0] == WorkerStatus.STOPPING
 
 
 async def deregister_worker(worker_id: int) -> bool:
@@ -347,9 +327,9 @@ async def worker_main_loop(
             # Send heartbeat if needed; also check for graceful stop requests
             now = datetime.utcnow()
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
-                await worker_heartbeat(worker_id)
+                status = await worker_heartbeat(worker_id)
                 last_heartbeat = now
-                if await check_worker_stop_requested(worker_id):
+                if status == WorkerStatus.STOPPING:
                     print(f"Worker {worker_id} received stop request")
                     shutdown_requested = True
                     continue
