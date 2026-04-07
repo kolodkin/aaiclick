@@ -168,16 +168,11 @@ async def orch_ctx_no_ch(monkeypatch, _shared_chdb_dir, _pg_worker_db):
     """Function-scoped orch context without chdb (with_ch=False).
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
-    The parent keeps the shared chdb path (snowflake IDs need it).
-    AAICLICK_MP_CH_URL tells the child which exclusive chdb dir to use.
+    Uses the shared chdb dir — the parent releases its lock before spawning
+    the child (see mp_worker._run_task_in_child).
     """
-    chdb_dir = tempfile.mkdtemp(prefix="aaiclick_orch_mp_chdb_")
-    monkeypatch.setenv("AAICLICK_MP_CH_URL", f"chdb://{chdb_dir}")
-    try:
-        async with _orch_test_env(monkeypatch, _shared_chdb_dir, with_ch=False):
-            yield
-    finally:
-        shutil.rmtree(chdb_dir, ignore_errors=True)
+    async with _orch_test_env(monkeypatch, _shared_chdb_dir, with_ch=False):
+        yield
 
 
 async def _teardown_jobs() -> None:

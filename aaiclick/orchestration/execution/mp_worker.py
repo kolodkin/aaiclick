@@ -19,6 +19,9 @@ from typing import NamedTuple, Optional
 
 from sqlmodel import select
 
+from aaiclick.backend import is_chdb
+from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
+
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
@@ -64,11 +67,6 @@ async def _child_run_task(
     """Set up orch_context, fetch task from DB, execute, send result back."""
     from ..orch_context import orch_context
 
-    # Use dedicated chdb dir if set — avoids locking the parent's shared path.
-    mp_ch_url = os.environ.pop("AAICLICK_MP_CH_URL", None)
-    if mp_ch_url is not None:
-        os.environ["AAICLICK_CH_URL"] = mp_ch_url
-
     async with orch_context():
         async with get_sql_session() as session:
             db_result = await session.execute(
@@ -100,6 +98,10 @@ async def _run_task_in_child(
     """
     raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
     timeout = float(raw_timeout) if raw_timeout is not None else None
+
+    # Release the parent's chdb lock so the child can open the same path.
+    if is_chdb():
+        close_session(get_chdb_data_path())
 
     result_queue = _mp_ctx.Queue()
     proc = _mp_ctx.Process(
