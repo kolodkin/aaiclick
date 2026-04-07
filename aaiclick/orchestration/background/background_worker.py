@@ -177,6 +177,7 @@ class BackgroundWorker:
                 "SELECT name FROM system.tables "
                 "WHERE database = currentDatabase() "
                 "AND name LIKE '%\\_sample' "
+                "AND name NOT LIKE 'p\\_%' "
                 f"AND metadata_modification_time < now() - INTERVAL {ttl_days} DAY"
             )
             for (table_name,) in result.result_rows:

@@ -69,7 +69,7 @@ Graph traversal over `operation_log`. `backward_oplog()` uses `WITH RECURSIVE` f
 
 **Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_expired_samples()`
 
-When `BackgroundWorker` drops an unreferenced ephemeral table, `lineage_aware_drop()` first creates a `{table}_sample` table preserving lineage-referenced rows (or a random 10-row sample as fallback), then drops the original. Sample tables are cleaned up automatically: `BackgroundWorker._cleanup_expired_samples()` drops `_sample` tables older than `AAICLICK_OPLOG_TTL_DAYS` (default 90), since no `operation_log` references remain past that point.
+`lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` preserving lineage-referenced rows (fallback: random 10 rows). `BackgroundWorker._cleanup_expired_samples()` drops sample tables older than `AAICLICK_OPLOG_TTL_DAYS`.
 
 ---
 
