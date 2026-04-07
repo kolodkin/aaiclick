@@ -46,6 +46,7 @@ from ..models import (
     FIELDTYPE_DICT,
     ORIENT_DICT,
     ORIENT_RECORDS,
+    build_order_by_clause,
 )
 from ..data_context import (
     get_ch_client,
@@ -91,6 +92,7 @@ class Object:
         self,
         table: Optional[str] = None,
         schema: Optional[Schema] = None,
+        order_by: Optional[List[str]] = None,
     ):
         """
         Initialize an Object.
@@ -99,10 +101,15 @@ class Object:
             table: Optional table name. If not provided, generates unique table name
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
+            order_by: Optional list of column names for the table ORDER BY clause.
+                      ``aai_id`` is always appended as the last ORDER BY column.
+                      Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
+        if order_by is not None:
+            schema = dataclass_replace(schema, order_by=build_order_by_clause(order_by))
         self._stale = False
         self._schema = dataclass_replace(schema, table=table_name)
         self._registered = False

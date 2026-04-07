@@ -241,6 +241,23 @@ class Schema:
     order_by: Optional[str] = None
 
 
+def build_order_by_clause(columns: List[str]) -> str:
+    """Build an ORDER BY clause string from column names.
+
+    ``aai_id`` is always appended as the last column (and deduplicated
+    if already present).
+
+    Args:
+        columns: Column names for the ORDER BY clause.
+
+    Returns:
+        Parenthesised ORDER BY expression, e.g. ``(date, aai_id)``.
+    """
+    cols = [c for c in columns if c != "aai_id"]
+    cols.append("aai_id")
+    return f"({', '.join(cols)})"
+
+
 @dataclass
 class ViewSchema(Schema):
     """
