@@ -14,10 +14,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_postgres
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
-from aaiclick.data.data_context.data_context import _engine_var, _objects_var
+from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
-from aaiclick.oplog.cleanup import lineage_aware_drop
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 from aaiclick.oplog.sampling import sample_lineage
 from ..snowflake_id import get_snowflake_id
@@ -44,8 +43,10 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     Uses get_sql_session() for DB ops and get_ch_client() for CH ops —
     no private engine or client needed.
-    When DECREF causes total refcount across all contexts to reach 0,
-    it creates a sample copy and drops the CH table.
+
+    Refcount updates are written to SQL immediately.  Actual table drops
+    are **never** triggered inline — the background worker is the sole
+    cleanup authority (``HAVING SUM(refcount) <= 0 → DROP``).
 
     Args:
         task_id: Task ID used as context_id for grouping this handler's refs.
@@ -76,20 +77,16 @@ class OrchLifecycleHandler(LifecycleHandler):
             self._loop.call_soon_threadsafe(self._queue.put_nowait, msg)
 
     async def stop(self) -> None:
-        """Drain queue then unconditionally delete all refs for this task_id.
+        """Drain the lifecycle queue.
 
-        Pin refs use job_id as context_id, so they survive this cleanup.
-        Only execution-time refs (incref/decref) are removed.
+        Non-pinned objects are deterministically decreffed at task_scope exit
+        before this method is called, so their task-scoped refs are already at
+        zero.  Pinned tables keep their job-scoped ref; the background worker
+        handles actual table drops once all refs reach zero.
         """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
             await self._task
-        async with get_sql_session() as session:
-            await session.execute(
-                text("DELETE FROM table_context_refs WHERE context_id = :ctx"),
-                {"ctx": self._task_id},
-            )
-            await session.commit()
 
     def incref(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
@@ -98,18 +95,27 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
-        """Mark table as result — inserts a job-scoped ref that survives stop()."""
+        """Mark table as pinned by setting job_id on its ref row.
+
+        Does not bump refcount — pin protection comes from the job_id marker
+        which prevents the background worker from dropping the table.
+        """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
-        """Release a job-scoped pinned ref (ownership transfer to consumer)."""
+        """Release a pinned ref (ownership transfer to consumer).
+
+        Clears the job_id marker on the ref row so it becomes a plain task ref.
+        The consumer's incref already created its own row.
+        """
         async with get_sql_session() as session:
             await session.execute(
                 text(
-                    "DELETE FROM table_context_refs "
-                    "WHERE table_name = :table AND context_id = :ctx"
+                    "UPDATE table_context_refs "
+                    "SET job_id = NULL "
+                    "WHERE table_name = :table AND job_id = :job_id"
                 ),
-                {"table": table_name, "ctx": job_id},
+                {"table": table_name, "job_id": job_id},
             )
             await session.commit()
 
@@ -138,10 +144,6 @@ class OrchLifecycleHandler(LifecycleHandler):
         ))
 
     # -- Internal --
-
-    async def _create_sample_and_drop(self, table_name: str) -> None:
-        """Replace table with lineage-referenced rows, then drop original."""
-        await lineage_aware_drop(get_ch_client(), table_name)
 
     async def _write_oplog_row(self, p: OplogPayload,
                                kwargs_aai_ids: dict[str, list[int]] | None = None,
@@ -179,9 +181,8 @@ class OrchLifecycleHandler(LifecycleHandler):
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
 
-            # -- Table lifecycle --
+            # -- Table lifecycle (refcount only, no inline drops) --
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
-                total = 0
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         await session.execute(
@@ -202,32 +203,18 @@ class OrchLifecycleHandler(LifecycleHandler):
                             ),
                             {"table_name": msg.table_name, "context_id": self._task_id},
                         )
-                        result = await session.execute(
-                            text(
-                                "SELECT COALESCE(SUM(refcount), 0) "
-                                "FROM table_context_refs "
-                                "WHERE table_name = :table_name"
-                            ),
-                            {"table_name": msg.table_name},
-                        )
-                        total = result.scalar_one() or 0
                     elif msg.op == DBLifecycleOp.PIN:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                                "VALUES (:table_name, :context_id, 1) "
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount, job_id) "
+                                "VALUES (:table_name, :context_id, 0, :job_id) "
                                 "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                                "DO UPDATE SET job_id = :job_id"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._job_id},
+                            {"table_name": msg.table_name, "context_id": self._task_id,
+                             "job_id": self._job_id},
                         )
                     await session.commit()
-                if (
-                    msg.op == DBLifecycleOp.DECREF
-                    and total <= 0
-                    and not msg.table_name.startswith("p_")
-                ):
-                    await self._create_sample_and_drop(msg.table_name)
 
             # -- Oplog (immediate write, no buffer) --
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
@@ -339,15 +326,20 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Stale-mark all tracked objects
+        # Decref all live objects.  Pinned tables are protected by their
+        # job_id marker in table_context_refs — the background worker skips
+        # tables with non-NULL job_id even when refcount reaches 0.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
+                if obj._registered and not obj.persistent:
+                    decref(obj.table)
+                obj._registered = False
         objects.clear()
         _objects_var.reset(obj_token)
 
-        # Stop lifecycle (drains queue, deletes context refs)
+        # Drain remaining lifecycle messages (decrefs enqueued above)
         await lifecycle.stop()
         _lifecycle_var.reset(lc_token)
 

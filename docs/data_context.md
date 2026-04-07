@@ -108,6 +108,8 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler`, `LocalLifecycleHandler`
 
-Tables are reference-counted and dropped when no Objects reference them. `data_context()` creates a `LocalLifecycleHandler` (async `AsyncTableWorker` task) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `BackgroundWorker`.
+Tables are reference-counted and dropped when no Objects reference them. On context exit, live objects are deterministically decreffed and stale-marked — objects GC'd mid-context were already decreffed by `__del__`, and stale objects skip `__del__` decref to prevent double-counting. In orchestration mode, pinned tables are skipped (their job-scoped ref keeps them alive) and the background worker is the sole cleanup authority.
+
+`data_context()` creates a `LocalLifecycleHandler` (async `AsyncTableWorker` task) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `BackgroundWorker`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
