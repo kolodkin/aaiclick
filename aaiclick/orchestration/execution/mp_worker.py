@@ -19,9 +19,6 @@ from typing import NamedTuple, Optional
 
 from sqlmodel import select
 
-from aaiclick.backend import is_chdb
-from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
-
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
@@ -89,7 +86,7 @@ async def _child_run_task(
 
 async def _run_task_in_child(
     task: Task,
-    worker_id: str,
+    worker_id: int,
 ) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
     """ExecuteFn for the multiprocessing worker.
 
@@ -98,10 +95,6 @@ async def _run_task_in_child(
     """
     raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
     timeout = float(raw_timeout) if raw_timeout is not None else None
-
-    # Release the parent's chdb lock so the child can open the same path.
-    if is_chdb():
-        close_session(get_chdb_data_path())
 
     result_queue = _mp_ctx.Queue()
     proc = _mp_ctx.Process(
@@ -122,7 +115,7 @@ async def _run_task_in_child(
         await heartbeat
 
 
-async def _heartbeat_while_waiting(worker_id: str, done: asyncio.Event) -> None:
+async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
     """Send heartbeats in the parent while the child process is running."""
     while not done.is_set():
         try:
@@ -173,7 +166,7 @@ async def _poll_child(
 # ---------------------------------------------------------------------------
 
 async def mp_worker_main_loop(
-    worker_id: Optional[str] = None,
+    worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,

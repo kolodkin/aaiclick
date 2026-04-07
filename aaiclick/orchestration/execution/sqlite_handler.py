@@ -19,7 +19,7 @@ class SqliteDbHandler(DbHandler):
 
     @staticmethod
     async def claim_next_task(
-        session: AsyncSession, worker_id: str, now: datetime
+        session: AsyncSession, worker_id: int, now: datetime
     ) -> Optional[Task]:
         # Step 1: find the next eligible task
         find_result = await session.execute(

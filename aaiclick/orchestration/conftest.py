@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, text
 from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
+from aaiclick.data.data_context.chdb_client import close_session
 from aaiclick.orchestration.execution.claiming import cancel_job
 from aaiclick.orchestration.models import Job, JobStatus, SQLModel, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
@@ -149,6 +150,7 @@ async def _orch_test_env(
                 yield
                 await _teardown_jobs()
         finally:
+            close_session(chdb_path)
             shutil.rmtree(tmp_dir, ignore_errors=True)
     else:
         async with orch_context(with_ch=with_ch):

@@ -39,8 +39,14 @@ async def show_workers() -> None:
             print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
 
 
-async def stop_worker_cmd(worker_id: str) -> None:
+async def stop_worker_cmd(worker_id_str: str) -> None:
     """Request a worker to stop gracefully after its current task."""
+    try:
+        worker_id = int(worker_id_str)
+    except ValueError:
+        print(f"Invalid worker ID: {worker_id_str}")
+        return
+
     async with orch_context(with_ch=False):
         success = await request_worker_stop(worker_id)
         if success:

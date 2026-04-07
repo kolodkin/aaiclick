@@ -22,7 +22,7 @@ class PgBackgroundHandler(BackgroundHandler):
 
     @staticmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[str], now: datetime,
+        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
         await session.execute(
             text(

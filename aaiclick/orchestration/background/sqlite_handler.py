@@ -33,7 +33,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
 
     @staticmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[str], now: datetime,
+        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
         placeholders, params = _in_clause(dead_worker_ids, "wid")
         params["now"] = now

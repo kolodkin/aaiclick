@@ -6,12 +6,13 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
-In local mode, uses chdb (embedded ClickHouse) via get_shared_session().
-In distributed mode, uses clickhouse-connect directly.
+In local mode, uses a dedicated chdb session configured via
+AAICLICK_SNOWFLAKE_CH_URL (falls back to AAICLICK_CH_URL). The session
+is opened and closed per batch fetch — no lock held between calls. This
+decouples ID generation from the main chdb data session so the worker
+parent process and child process don't conflict on file locks.
 
-Important: chdb allows only one data path per process (C++ singleton).
-Calling get_snowflake_id() opens a chdb session on AAICLICK_CH_URL.
-Must only be called inside an active orch_context or data_context.
+In distributed mode, uses clickhouse-connect directly.
 
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
@@ -20,7 +21,9 @@ Snowflake ID format (64 bits):
 - Bits 11-0: Sequence number (12 bits)
 """
 
+import os
 from collections import deque
+from pathlib import Path
 
 from .backend import get_ch_url, is_chdb, parse_ch_url
 
@@ -39,6 +42,19 @@ MACHINE_ID_SHIFT = SEQUENCE_BITS                   # 12
 _BUFFER_SIZE = 100
 
 
+def _get_snowflake_chdb_path() -> str:
+    """Return the chdb data path for snowflake ID generation.
+
+    Uses AAICLICK_SNOWFLAKE_CH_URL if set, otherwise uses the main
+    AAICLICK_CH_URL path. The session is opened and closed per batch
+    so the lock is not held between calls.
+    """
+    snowflake_url = os.environ.get("AAICLICK_SNOWFLAKE_CH_URL")
+    if snowflake_url is not None:
+        return snowflake_url.removeprefix("chdb://")
+    return get_ch_url().removeprefix("chdb://")
+
+
 class SnowflakeGenerator:
     """Snowflake ID generator backed by ClickHouse.
 
@@ -46,7 +62,8 @@ class SnowflakeGenerator:
     serving them from an in-memory buffer for efficiency. When the buffer
     is exhausted, a new batch is fetched automatically.
 
-    Uses chdb (embedded) in local mode, clickhouse-connect in distributed mode.
+    In chdb mode, opens and closes a dedicated session per batch fetch
+    so no file lock is held between calls.
     """
 
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
@@ -61,17 +78,34 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
-        from aaiclick.data.data_context.chdb_client import get_shared_session
+        from aaiclick.data.data_context.chdb_client import _sessions
 
-        session = get_shared_session()
-        result = session.query(
-            f"SELECT generateSnowflakeID() FROM numbers({count})",
-            "TabSeparated",
-        )
-        raw = result.bytes()
-        if not raw:
-            return []
-        return [int(line) for line in raw.decode("utf-8").splitlines() if line]
+        data_path = _get_snowflake_chdb_path()
+
+        # Reuse the shared session if already open (orch_context with_ch=True),
+        # otherwise open a dedicated session and close it after use.
+        shared = _sessions.get(data_path)
+        if shared is not None:
+            session = shared
+            owns_session = False
+        else:
+            from chdb.session import Session
+            Path(data_path).mkdir(parents=True, exist_ok=True)
+            session = Session(data_path)
+            owns_session = True
+
+        try:
+            result = session.query(
+                f"SELECT generateSnowflakeID() FROM numbers({count})",
+                "TabSeparated",
+            )
+            raw = result.bytes()
+            if not raw:
+                return []
+            return [int(line) for line in raw.decode("utf-8").splitlines() if line]
+        finally:
+            if owns_session:
+                session.cleanup()
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
