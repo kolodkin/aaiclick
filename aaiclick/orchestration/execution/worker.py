@@ -215,9 +215,10 @@ async def _cancellation_monitor(task_id: int, proc: asyncio.subprocess.Process) 
 def _subprocess_env() -> dict[str, str]:
     """Build environment for the task subprocess.
 
-    When using chdb, assigns the subprocess its own temp data directory
-    so it doesn't conflict with the parent's chdb lock (held by the
-    snowflake ID generator singleton).
+    When using chdb, gives the subprocess its own temp data directory.
+    chdb's embedded ClickHouse is single-process — the parent may hold
+    an active session on the default data path, preventing the child
+    from opening the same path.
     """
     env = os.environ.copy()
     if is_chdb():
@@ -298,10 +299,9 @@ async def worker_main_loop(
 
                 print(f"Worker {worker_id} dispatching task {task.id}: {task.entrypoint}")
 
-                env = _subprocess_env()
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "-m", _SUBPROCESS_MODULE, str(task.id),
-                    env=env,
+                    env=_subprocess_env(),
                 )
 
                 monitor = asyncio.create_task(
