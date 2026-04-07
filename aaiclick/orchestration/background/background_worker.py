@@ -3,8 +3,9 @@
 BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
 2. Tables with total refcount <= 0 — drops them in ClickHouse
-3. Dead workers — marks their running tasks as FAILED
-4. Scheduled jobs — creates Job runs when next_run_at is due
+3. Expired sample tables — drops _sample tables older than oplog TTL
+4. Dead workers — marks their running tasks as FAILED
+5. Scheduled jobs — creates Job runs when next_run_at is due
 
 Completely independent of DataContext and OrchContext — has its own DB engine and CH client.
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import warnings
 from datetime import datetime, timedelta
 
@@ -37,11 +39,12 @@ DEFAULT_WORKER_TIMEOUT = 90.0
 class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
-    Performs four operations on each poll:
+    Performs five operations on each poll:
     1. Job cleanup: deletes pin refs for completed/failed jobs
     2. Table cleanup: drops CH tables with total refcount <= 0
-    3. Dead worker detection: marks tasks from expired workers as FAILED
-    4. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
+    3. Sample cleanup: drops expired _sample tables older than oplog TTL
+    4. Dead worker detection: marks tasks from expired workers as FAILED
+    5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
 
     Completely independent of DataContext and OrchContext.
     Has own DB engine and CH client.
@@ -102,6 +105,7 @@ class BackgroundWorker:
     async def _do_cleanup(self) -> None:
         await self._cleanup_completed_jobs()
         await self._cleanup_unreferenced_tables()
+        await self._cleanup_expired_samples()
         await self._cleanup_dead_workers()
         await self._check_schedules()
 
@@ -159,6 +163,35 @@ class BackgroundWorker:
                 )
 
             await session.commit()
+
+    async def _cleanup_expired_samples(self) -> None:
+        """Drop sample tables older than the oplog TTL.
+
+        Sample tables ({table}_sample) are created by lineage_aware_drop when
+        ephemeral tables are cleaned up.  Once past the oplog TTL they no longer
+        have matching operation_log rows, so keeping them wastes storage.
+        """
+        ttl_days = int(os.environ.get("AAICLICK_OPLOG_TTL_DAYS", "90"))
+        try:
+            result = await self._ch_client.query(
+                "SELECT name FROM system.tables "
+                "WHERE database = currentDatabase() "
+                "AND name LIKE '%\\_sample' "
+                "AND name NOT LIKE 'p\\_%' "
+                f"AND metadata_modification_time < now() - INTERVAL {ttl_days} DAY"
+            )
+            for (table_name,) in result.result_rows:
+                try:
+                    await self._ch_client.command(
+                        f"DROP TABLE IF EXISTS {table_name}"
+                    )
+                    logger.debug("Dropped expired sample table %s", table_name)
+                except Exception:
+                    logger.warning(
+                        "Failed to drop sample table %s", table_name, exc_info=True
+                    )
+        except Exception:
+            logger.debug("Failed to query expired sample tables", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
         """Detect dead workers and mark their running tasks as FAILED."""

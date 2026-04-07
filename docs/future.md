@@ -60,14 +60,6 @@ tables after insert/concat. Row-level tracing across insert/concat boundaries ca
 matching — the agent needs to use data-value matching or oplog provenance metadata instead.
 
 
-## Oplog Data Lifecycle
-
-`table_registry` and `{table}_sample` tables have no automatic cleanup:
-
-- **`table_registry`**: Add TTL matching `operation_log` (`AAICLICK_OPLOG_TTL_DAYS`, default 90)
-- **`{table}_sample`**: Either add ClickHouse TTL on sample tables at creation, or have
-  `BackgroundWorker` drop sample tables older than the oplog TTL (no lineage references remain)
-
 ---
 
 # Deferred
