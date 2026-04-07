@@ -197,6 +197,16 @@ def main():
         help="List workers",
     )
 
+    # worker stop
+    worker_stop_parser = worker_subparsers.add_parser(
+        "stop",
+        help="Request a worker to stop gracefully",
+    )
+    worker_stop_parser.add_argument(
+        "worker_id",
+        help="Worker ID to stop",
+    )
+
     # Add job subcommand
     job_parser = subparsers.add_parser(
         "job",
@@ -384,13 +394,16 @@ def main():
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "worker":
-        from aaiclick.orchestration.cli import show_workers, start_worker
+        from aaiclick.orchestration.cli import show_workers, start_worker, stop_worker_cmd
 
         if args.worker_command == "start":
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
             asyncio.run(show_workers())
+
+        elif args.worker_command == "stop":
+            asyncio.run(stop_worker_cmd(args.worker_id))
 
         else:
             worker_parser.print_help()

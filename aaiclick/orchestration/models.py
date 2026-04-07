@@ -69,6 +69,7 @@ class WorkerStatus(StrEnum):
 
     ACTIVE = "ACTIVE"
     IDLE = "IDLE"
+    STOPPING = "STOPPING"
     STOPPED = "STOPPED"
 
 

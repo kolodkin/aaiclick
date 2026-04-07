@@ -11,7 +11,7 @@ import json
 import signal
 from typing import Any, Dict, Optional
 
-from .execution import cancel_job, list_workers, worker_main_loop
+from .execution import cancel_job, list_workers, request_worker_stop, worker_main_loop
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
 from .background import BackgroundWorker
@@ -37,6 +37,22 @@ async def show_workers() -> None:
         print("-" * 80)
         for w in workers:
             print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
+
+
+async def stop_worker_cmd(worker_id_str: str) -> None:
+    """Request a worker to stop gracefully after its current task."""
+    try:
+        worker_id = int(worker_id_str)
+    except ValueError:
+        print(f"Invalid worker ID: {worker_id_str}")
+        return
+
+    async with orch_context(with_ch=False):
+        success = await request_worker_stop(worker_id)
+        if success:
+            print(f"Stop requested for worker {worker_id}")
+        else:
+            print(f"Worker {worker_id} not found or already stopped")
 
 
 async def show_job(job_ref: str) -> None:

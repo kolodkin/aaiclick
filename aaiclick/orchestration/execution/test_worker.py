@@ -15,10 +15,12 @@ from .runner import execute_task
 from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
 from .worker import (
+    check_worker_stop_requested,
     deregister_worker,
     get_worker,
     list_workers,
     register_worker,
+    request_worker_stop,
     worker_heartbeat,
     worker_main_loop,
 )
@@ -169,6 +171,104 @@ async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
         task = result.scalar_one()
         assert task.status == TaskStatus.FAILED
         assert task.error is not None
+
+
+# =============================================================================
+# Graceful Stop Tests
+# =============================================================================
+
+
+async def test_request_worker_stop(orch_ctx):
+    """Test requesting a worker to stop sets status to STOPPING."""
+    worker = await register_worker()
+
+    result = await request_worker_stop(worker.id)
+    assert result is True
+
+    db_worker = await get_worker(worker.id)
+    assert db_worker.status == WorkerStatus.STOPPING
+
+
+async def test_request_worker_stop_nonexistent(orch_ctx):
+    """Test requesting stop for non-existent worker returns False."""
+    result = await request_worker_stop(999999999)
+    assert result is False
+
+
+async def test_request_worker_stop_already_stopped(orch_ctx):
+    """Test requesting stop for already-stopped worker returns False."""
+    worker = await register_worker()
+    await deregister_worker(worker.id)
+
+    result = await request_worker_stop(worker.id)
+    assert result is False
+
+
+async def test_request_worker_stop_already_stopping(orch_ctx):
+    """Test requesting stop for already-stopping worker returns False."""
+    worker = await register_worker()
+    await request_worker_stop(worker.id)
+
+    result = await request_worker_stop(worker.id)
+    assert result is False
+
+
+async def test_check_worker_stop_requested(orch_ctx):
+    """Test checking stop request status."""
+    worker = await register_worker()
+
+    # Not stopping yet
+    assert await check_worker_stop_requested(worker.id) is False
+
+    # Request stop
+    await request_worker_stop(worker.id)
+    assert await check_worker_stop_requested(worker.id) is True
+
+
+async def test_check_worker_stop_requested_nonexistent(orch_ctx):
+    """Test checking stop for non-existent worker returns False."""
+    assert await check_worker_stop_requested(999999999) is False
+
+
+async def test_heartbeat_preserves_stopping_status(orch_ctx):
+    """Test that heartbeat does not reset STOPPING back to ACTIVE."""
+    worker = await register_worker()
+    await request_worker_stop(worker.id)
+
+    # Heartbeat should succeed but keep STOPPING
+    result = await worker_heartbeat(worker.id)
+    assert result is True
+
+    db_worker = await get_worker(worker.id)
+    assert db_worker.status == WorkerStatus.STOPPING
+
+
+async def test_worker_main_loop_stops_on_stop_request(orch_ctx, monkeypatch, tmpdir):
+    """Test that the main loop exits when a stop request is detected."""
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
+
+    # Register a worker upfront so we can request stop on its ID
+    worker = await register_worker()
+
+    # Request stop immediately — worker should detect it on first heartbeat
+    await request_worker_stop(worker.id)
+
+    # Force heartbeat to fire immediately by using a 0-second interval
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.worker.HEARTBEAT_INTERVAL", 0
+    )
+
+    tasks_executed = await worker_main_loop(
+        worker_id=worker.id,
+        install_signal_handlers=False,
+        max_empty_polls=50,
+    )
+
+    assert tasks_executed == 0
+
+    # Worker should be fully STOPPED after exit
+    db_worker = await get_worker(worker.id)
+    assert db_worker.status == WorkerStatus.STOPPED
 
 
 # =============================================================================

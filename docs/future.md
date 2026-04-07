@@ -41,10 +41,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Graceful Worker Stop via CLI
-
-Add `aaiclick worker stop` — writes a stop request to the database so the worker finishes its current task then exits cleanly, instead of receiving `SIGTERM` directly.
-
 ## Schema-Aware Agent Context
 
 Both `debug_agent` and `lineage_agent` build context from the oplog graph but never include table schemas, causing the LLM to hallucinate column names. Two improvements:
