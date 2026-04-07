@@ -14,6 +14,7 @@ from ..orch_context import commit_tasks, get_sql_session
 from .runner import execute_task
 from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
+from .mp_worker import mp_worker_main_loop
 from .worker import (
     deregister_worker,
     get_worker,
@@ -21,7 +22,6 @@ from .worker import (
     register_worker,
     request_worker_stop,
     worker_heartbeat,
-    worker_main_loop,
 )
 
 
@@ -114,18 +114,14 @@ async def test_list_workers(orch_ctx):
     assert worker1.id in stopped_ids
 
 
-async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_main_loop_executes_tasks(orch_ctx_no_ch):
     """Test that worker main loop executes tasks."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Create a job
     job = await create_job(
         "test_main_loop_job",
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
     )
 
-    # Run worker with max_tasks=1 (disable signal handlers, limit empty polls for test)
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=5,
@@ -133,7 +129,6 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
 
     assert tasks_executed == 1
 
-    # Verify task was completed
     async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
@@ -142,18 +137,14 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
         assert task.status == TaskStatus.COMPLETED
 
 
-async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_main_loop_handles_failures(orch_ctx_no_ch):
     """Test that worker main loop handles task failures."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Create a job with a failing task
     job = await create_job(
         "test_failing_job",
         "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
     )
 
-    # Run worker with max_tasks=1 (disable signal handlers, limit empty polls for test)
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=5,
@@ -222,22 +213,16 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
     assert result == WorkerStatus.STOPPING
 
 
-async def test_worker_main_loop_stops_on_stop_request(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch):
     """Test that the main loop exits when a stop request is detected."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Register a worker upfront so we can request stop on its ID
     worker = await register_worker()
-
-    # Request stop immediately — worker should detect it on first heartbeat
     await request_worker_stop(worker.id)
 
-    # Force heartbeat to fire immediately by using a 0-second interval
     monkeypatch.setattr(
         "aaiclick.orchestration.execution.worker.HEARTBEAT_INTERVAL", 0
     )
 
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await mp_worker_main_loop(
         worker_id=worker.id,
         install_signal_handlers=False,
         max_empty_polls=50,
@@ -245,7 +230,6 @@ async def test_worker_main_loop_stops_on_stop_request(orch_ctx, monkeypatch, tmp
 
     assert tasks_executed == 0
 
-    # Worker should be fully STOPPED after exit
     db_worker = await get_worker(worker.id)
     assert db_worker.status == WorkerStatus.STOPPED
 

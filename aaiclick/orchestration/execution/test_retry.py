@@ -11,12 +11,12 @@ from ..orch_context import get_sql_session
 from ..decorators import task
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
+from .mp_worker import mp_worker_main_loop
 from .worker import (
     _schedule_retry,
     _try_complete_job,
     deregister_worker,
     register_worker,
-    worker_main_loop,
 )
 
 
@@ -210,11 +210,8 @@ async def test_claim_respects_retry_after(orch_ctx):
     await deregister_worker(worker.id)
 
 
-async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_retries_and_exhausts(orch_ctx_no_ch):
     """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
     job = await create_job(
@@ -225,10 +222,7 @@ async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
         ),
     )
 
-    # Worker will attempt task 3 times (attempt 0 + 2 retries) because
-    # backoff (1-2s) is close to POLL_INTERVAL (1s), so the worker
-    # picks up retried tasks in subsequent poll cycles.
-    await worker_main_loop(
+    await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=5,
@@ -254,11 +248,8 @@ async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch):
     """Task with max_retries=0 fails immediately (no retry)."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
     job = await create_job(
@@ -269,7 +260,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         ),
     )
 
-    await worker_main_loop(
+    await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=3,
@@ -294,19 +285,12 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path):
     """Flaky task fails twice, succeeds on the third attempt via retry."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
-    # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
-    # Create a counter file path for the flaky task
-    counter_file = os.path.join(str(tmpdir), "counter.txt")
+    counter_file = str(tmp_path / "counter.txt")
 
-    # flaky_task reads/increments counter_file, fails if count < 3
-    # With max_retries=2: attempt 0 (count=1 fail), attempt 1 (count=2 fail),
-    # attempt 2 (count=3 success)
     t = create_task(
         "aaiclick.orchestration.fixtures.sample_tasks.flaky_task",
         {"counter_file": counter_file},
@@ -314,8 +298,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmp
     )
     job = await create_job("test_retry_succeeds", t)
 
-    # Worker will retry until success
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=5,

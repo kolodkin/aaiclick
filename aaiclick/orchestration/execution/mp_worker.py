@@ -64,6 +64,11 @@ async def _child_run_task(
     """Set up orch_context, fetch task from DB, execute, send result back."""
     from ..orch_context import orch_context
 
+    # Use dedicated chdb dir if set — avoids locking the parent's shared path.
+    mp_ch_url = os.environ.pop("AAICLICK_MP_CH_URL", None)
+    if mp_ch_url is not None:
+        os.environ["AAICLICK_CH_URL"] = mp_ch_url
+
     async with orch_context():
         async with get_sql_session() as session:
             db_result = await session.execute(

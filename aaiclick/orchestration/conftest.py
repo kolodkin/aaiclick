@@ -164,16 +164,17 @@ async def orch_ctx(monkeypatch, _shared_chdb_dir, _pg_worker_db):
 
 
 @pytest.fixture
-async def orch_ctx_no_ch(monkeypatch, _pg_worker_db):
+async def orch_ctx_no_ch(monkeypatch, _shared_chdb_dir, _pg_worker_db):
     """Function-scoped orch context without chdb (with_ch=False).
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
-    Uses a per-test chdb dir so the child process can lock it exclusively.
-    The parent no longer needs chdb (worker IDs are UUIDs).
+    The parent keeps the shared chdb path (snowflake IDs need it).
+    AAICLICK_MP_CH_URL tells the child which exclusive chdb dir to use.
     """
     chdb_dir = tempfile.mkdtemp(prefix="aaiclick_orch_mp_chdb_")
+    monkeypatch.setenv("AAICLICK_MP_CH_URL", f"chdb://{chdb_dir}")
     try:
-        async with _orch_test_env(monkeypatch, chdb_dir, with_ch=False):
+        async with _orch_test_env(monkeypatch, _shared_chdb_dir, with_ch=False):
             yield
     finally:
         shutil.rmtree(chdb_dir, ignore_errors=True)
