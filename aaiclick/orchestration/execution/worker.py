@@ -138,6 +138,35 @@ async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
     return worker.status
 
 
+async def _set_worker_status(
+    worker_id: int,
+    new_status: WorkerStatus,
+    reject_statuses: tuple[WorkerStatus, ...] = (),
+) -> bool:
+    """Update a worker's status, optionally rejecting certain current statuses.
+
+    Returns True if the worker was found and updated, False if not found
+    or if its current status is in reject_statuses.
+    """
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Worker).where(Worker.id == worker_id)
+        )
+        worker = result.scalar_one_or_none()
+
+        if worker is None:
+            return False
+
+        if worker.status in reject_statuses:
+            return False
+
+        worker.status = new_status
+        session.add(worker)
+        await session.commit()
+
+    return True
+
+
 async def request_worker_stop(worker_id: int) -> bool:
     """
     Request a worker to stop gracefully.
@@ -152,23 +181,11 @@ async def request_worker_stop(worker_id: int) -> bool:
         bool: True if worker was found and set to STOPPING,
               False if not found or already in a terminal state
     """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
-        worker = result.scalar_one_or_none()
-
-        if worker is None:
-            return False
-
-        if worker.status in (WorkerStatus.STOPPED, WorkerStatus.STOPPING):
-            return False
-
-        worker.status = WorkerStatus.STOPPING
-        session.add(worker)
-        await session.commit()
-
-    return True
+    return await _set_worker_status(
+        worker_id,
+        WorkerStatus.STOPPING,
+        reject_statuses=(WorkerStatus.STOPPED, WorkerStatus.STOPPING),
+    )
 
 
 async def deregister_worker(worker_id: int) -> bool:
@@ -184,20 +201,7 @@ async def deregister_worker(worker_id: int) -> bool:
     Returns:
         bool: True if worker was found and updated, False otherwise
     """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
-        worker = result.scalar_one_or_none()
-
-        if worker is None:
-            return False
-
-        worker.status = WorkerStatus.STOPPED
-        session.add(worker)
-        await session.commit()
-
-    return True
+    return await _set_worker_status(worker_id, WorkerStatus.STOPPED)
 
 
 async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
