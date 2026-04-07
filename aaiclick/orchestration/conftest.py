@@ -2,8 +2,9 @@
 Orchestration test configuration.
 
 Each test gets:
-- Dedicated SQLite database (per-test temp file for isolation)
-- Shared chdb data directory (per-session, chdb only allows one path per process)
+- SQLite: dedicated temp database per test
+- PostgreSQL: per-xdist-worker database with Alembic migrations
+- chdb: session-scoped shared directory (chdb allows one path per process)
 """
 
 import os
@@ -44,6 +45,9 @@ def _shared_chdb_dir():
     outside per-test fixtures.
     """
     global _ORCH_CHDB_DIR
+    if not is_sqlite():
+        yield ""
+        return
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
     _ORCH_CHDB_DIR = tmp_dir
     old_url = os.environ.get("AAICLICK_CH_URL")
@@ -56,6 +60,72 @@ def _shared_chdb_dir():
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# -- PostgreSQL per-worker isolation --
+
+
+def _pg_connect(dbname: str):
+    """Connect to PostgreSQL with environment-based credentials."""
+    import psycopg2
+
+    return psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=os.environ.get("POSTGRES_PORT", "5432"),
+        user=os.environ.get("POSTGRES_USER", "aaiclick"),
+        password=os.environ.get("POSTGRES_PASSWORD", "secret"),
+        dbname=dbname,
+    )
+
+
+@pytest.fixture(scope="session")
+def _pg_worker_db():
+    """Create and drop an isolated PostgreSQL database per xdist worker."""
+    if is_sqlite():
+        yield
+        return
+
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+    from aaiclick.orchestration.migrate import get_alembic_config
+    from alembic import command
+
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+    if not worker:
+        config = get_alembic_config()
+        command.upgrade(config, "head")
+        yield
+        return
+
+    db_name = f"{_BASE_DB}_{worker}"
+
+    conn = _pg_connect("postgres")
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cur = conn.cursor()
+    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    cur.execute(f'CREATE DATABASE "{db_name}"')
+    cur.close()
+    conn.close()
+
+    os.environ["POSTGRES_DB"] = db_name
+    sql_url = os.environ.get("AAICLICK_SQL_URL")
+    if sql_url and "postgresql" in sql_url:
+        base = sql_url.rsplit("/", 1)[0]
+        os.environ["AAICLICK_SQL_URL"] = f"{base}/{db_name}"
+
+    config = get_alembic_config()
+    command.upgrade(config, "head")
+
+    yield
+
+    conn = _pg_connect("postgres")
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cur = conn.cursor()
+    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    cur.close()
+    conn.close()
+
+
+# -- Shared test environment --
+
+
 @asynccontextmanager
 async def _orch_test_env(
     monkeypatch: pytest.MonkeyPatch,
@@ -65,9 +135,8 @@ async def _orch_test_env(
 ) -> AsyncIterator[None]:
     """Shared setup/teardown for all orch_ctx variants.
 
-    Creates an isolated SQLite DB per test, reuses the session-scoped chdb
-    dir, enters orch_context, and tears down on exit. For PostgreSQL, uses
-    the CI-provided URL as-is.
+    SQLite: creates an isolated DB per test.
+    PostgreSQL: uses the session-scoped worker DB (via _pg_worker_db).
     """
     if is_sqlite():
         tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_sql_")
@@ -93,14 +162,14 @@ async def _orch_test_env(
 
 
 @pytest.fixture
-async def orch_ctx(monkeypatch, _shared_chdb_dir):
+async def orch_ctx(monkeypatch, _shared_chdb_dir, _pg_worker_db):
     """Function-scoped orch context with full chdb + SQL."""
     async with _orch_test_env(monkeypatch, _shared_chdb_dir):
         yield
 
 
 @pytest.fixture
-async def orch_ctx_no_ch(monkeypatch):
+async def orch_ctx_no_ch(monkeypatch, _pg_worker_db):
     """Function-scoped orch context without chdb (with_ch=False).
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
