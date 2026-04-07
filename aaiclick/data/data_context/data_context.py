@@ -12,6 +12,7 @@ import warnings
 import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from dataclasses import replace
 from datetime import datetime
 from typing import AsyncIterator, Dict, List, Union
 
@@ -412,12 +413,11 @@ def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> Colu
 
 def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
     """Apply a FieldSpec override to an inferred ColumnInfo."""
-    return ColumnInfo(
+    return replace(
+        col,
         type=spec.type if spec.type is not None else col.type,
         nullable=spec.nullable,
         low_cardinality=spec.low_cardinality,
-        array=col.array,
-        description=col.description,
     )
 
 
@@ -428,14 +428,14 @@ def _apply_field_specs(
     """Apply field specs to inferred columns, validating field names."""
     if not fields:
         return columns
+    if "aai_id" in fields:
+        raise ValueError("Cannot override aai_id column with FieldSpec")
     unknown = set(fields) - set(columns)
     if unknown:
         raise ValueError(
             f"fields references unknown columns: {sorted(unknown)}. "
             f"Available columns: {sorted(c for c in columns if c != 'aai_id')}"
         )
-    if "aai_id" in fields:
-        raise ValueError("Cannot override aai_id column with FieldSpec")
     return {
         name: _apply_field_spec(col, fields[name]) if name in fields else col
         for name, col in columns.items()
