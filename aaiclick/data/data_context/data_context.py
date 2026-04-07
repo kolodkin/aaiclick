@@ -160,7 +160,7 @@ async def data_context(
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
-                if obj._registered and not obj.table.startswith("p_"):
+                if obj._registered and not obj.persistent:
                     decref(obj.table)
                     obj._registered = False
         objects.clear()

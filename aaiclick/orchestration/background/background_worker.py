@@ -149,7 +149,6 @@ class BackgroundWorker:
                     await lineage_aware_drop(self._ch_client, table_name)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                    continue
 
                 await session.execute(
                     text(

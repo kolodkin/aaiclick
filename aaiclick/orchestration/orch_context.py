@@ -206,9 +206,10 @@ class OrchLifecycleHandler(LifecycleHandler):
                     elif msg.op == DBLifecycleOp.PIN:
                         await session.execute(
                             text(
-                                "UPDATE table_context_refs "
-                                "SET job_id = :job_id "
-                                "WHERE table_name = :table_name AND context_id = :context_id"
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount, job_id) "
+                                "VALUES (:table_name, :context_id, 0, :job_id) "
+                                "ON CONFLICT (table_name, context_id) "
+                                "DO UPDATE SET job_id = :job_id"
                             ),
                             {"table_name": msg.table_name, "context_id": self._task_id,
                              "job_id": self._job_id},
