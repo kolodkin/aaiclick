@@ -6,7 +6,9 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
-In local mode, uses chdb (embedded ClickHouse) instead of a remote server.
+In local mode, uses chdb (embedded ClickHouse) with a throwaway in-memory
+session — no data path or shared session needed.  In distributed mode, uses
+clickhouse-connect directly.
 
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
@@ -47,40 +49,48 @@ class SnowflakeGenerator:
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
         self._buffer_size = buffer_size
         self._buffer: deque[int] = deque()
-        self._client = None
-
-    def _get_client(self):
-        """Lazily create a sync ClickHouse client (chdb or remote)."""
-        if self._client is None:
-            if is_chdb():
-                from .data.data_context.chdb_client import ChdbSyncClient, create_chdb_session
-
-                session = create_chdb_session()
-                self._client = ChdbSyncClient(session)
-            else:
-                from clickhouse_connect import get_client
-
-                self._client = get_client(**parse_ch_url())
-        return self._client
 
     def _fetch_ids(self, count: int) -> list[int]:
-        """Fetch a batch of Snowflake IDs from ClickHouse."""
-        client = self._get_client()
+        """Fetch a batch of Snowflake IDs from ClickHouse.
+
+        Opens a fresh session/connection, fetches IDs, and closes it.
+        For chdb, uses an empty ``Session()`` (in-memory, no data path).
+        For remote ClickHouse, uses clickhouse-connect directly.
+        """
         if is_chdb():
-            # ChdbSyncClient.command() returns a scalar; use query for multiple rows
-            result = client.command(
-                f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})"
-            )
-            # chdb returns a string like "[123,456,789]" — parse it
-            if isinstance(result, str):
-                result = result.strip("[]")
-                return [int(x) for x in result.split(",") if x.strip()]
-            return [int(result)]
-        else:
+            return self._fetch_ids_chdb(count)
+        return self._fetch_ids_remote(count)
+
+    @staticmethod
+    def _fetch_ids_chdb(count: int) -> list[int]:
+        """Fetch IDs via a throwaway chdb in-memory session."""
+        from chdb.session import Session
+
+        session = Session()
+        result = session.query(
+            f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})",
+            "TabSeparated",
+        )
+        raw = result.bytes()
+        if raw:
+            text = raw.decode("utf-8").strip().strip("[]")
+            if text:
+                return [int(x) for x in text.split(",") if x.strip()]
+        return []
+
+    @staticmethod
+    def _fetch_ids_remote(count: int) -> list[int]:
+        """Fetch IDs via a clickhouse-connect client."""
+        from clickhouse_connect import get_client
+
+        client = get_client(**parse_ch_url())
+        try:
             result = client.query(
                 f"SELECT generateSnowflakeID() FROM numbers({count})"
             )
             return [row[0] for row in result.result_rows]
+        finally:
+            client.close()
 
     def generate(self) -> int:
         """Generate a single Snowflake ID."""
