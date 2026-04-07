@@ -4,9 +4,11 @@ Accepts a task_id, sets up a full orch_context (SQL + ClickHouse),
 loads the task from the database, and runs the complete execution flow:
 import → deserialize → execute → serialize → update status → complete job.
 
-Invoked by the worker via multiprocessing.Process(target=run_task_process, args=(task_id,)).
+Invoked by the worker via asyncio.create_subprocess_exec::
 
-Exit codes (set on multiprocessing.Process.exitcode):
+    python -m aaiclick.orchestration.execution.subprocess_runner <task_id>
+
+Exit codes:
     0 — task completed (status written to DB)
     1 — task failed (status written to DB)
     2 — unexpected crash before DB status could be updated
@@ -16,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import sys
+import traceback
 
 from sqlmodel import select
 
@@ -74,19 +78,13 @@ async def run_task(task_id: int) -> int:
             return 1
 
 
-def run_task_process(task_id: int) -> None:
-    """Multiprocessing entry point. Runs asyncio.run(run_task(...)) and exits.
+def main() -> None:
+    """CLI entry: ``python -m aaiclick.orchestration.execution.subprocess_runner <task_id>``."""
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <task_id>", file=sys.stderr)
+        sys.exit(2)
 
-    Called as: multiprocessing.Process(target=run_task_process, args=(task_id,))
-
-    Installs a SIGTERM handler for graceful cancellation from the worker.
-    With fork, clears the inherited chdb session singleton so the subprocess
-    creates its own fresh session from AAICLICK_CH_URL.
-    """
-    import traceback
-
-    from aaiclick.data.data_context.chdb_client import _sessions
-    _sessions.clear()
+    task_id = int(sys.argv[1])
 
     def _sigterm_handler(signum, frame):
         raise KeyboardInterrupt
@@ -101,4 +99,8 @@ def run_task_process(task_id: int) -> None:
         traceback.print_exc()
         exit_code = 2
 
-    raise SystemExit(exit_code)
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

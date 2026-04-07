@@ -12,12 +12,11 @@ from ..decorators import task
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
 from .worker import (
-    _schedule_retry,
-    _try_complete_job,
     deregister_worker,
     register_worker,
     worker_main_loop,
 )
+from .worker_helpers import schedule_retry, try_complete_job
 
 
 async def _cancel_all_pending_tasks():
@@ -75,7 +74,7 @@ async def test_task_decorator_bare(orch_ctx):
 
 
 async def test_schedule_retry(orch_ctx):
-    """_schedule_retry resets task to PENDING with incremented attempt."""
+    """schedule_retry resets task to PENDING with incremented attempt."""
     job = await create_job(
         "test_retry",
         create_task(
@@ -97,7 +96,7 @@ async def test_schedule_retry(orch_ctx):
 
     # Schedule retry
     before = datetime.utcnow()
-    await _schedule_retry(task_id, 0, "test error")
+    await schedule_retry(task_id, 0, "test error")
 
     # Verify state
     async with get_sql_session() as session:
@@ -136,7 +135,7 @@ async def test_retry_backoff_timing(orch_ctx):
 
     # Attempt 0 -> retry_after ~1s
     before = datetime.utcnow()
-    await _schedule_retry(task_id, 0, "err")
+    await schedule_retry(task_id, 0, "err")
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
@@ -145,7 +144,7 @@ async def test_retry_backoff_timing(orch_ctx):
 
     # Attempt 1 -> retry_after ~2s
     before = datetime.utcnow()
-    await _schedule_retry(task_id, 1, "err")
+    await schedule_retry(task_id, 1, "err")
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
@@ -154,7 +153,7 @@ async def test_retry_backoff_timing(orch_ctx):
 
     # Attempt 2 -> retry_after ~4s
     before = datetime.utcnow()
-    await _schedule_retry(task_id, 2, "err")
+    await schedule_retry(task_id, 2, "err")
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         t = result.scalar_one()
@@ -210,7 +209,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     await deregister_worker(worker.id)
 
 
-async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_retries_and_exhausts(orch_ctx_sql, monkeypatch, tmpdir):
     """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
@@ -254,7 +253,7 @@ async def test_worker_retries_and_exhausts(orch_ctx, monkeypatch, tmpdir):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_no_retries_immediate_fail(orch_ctx_sql, monkeypatch, tmpdir):
     """Task with max_retries=0 fails immediately (no retry)."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
@@ -294,7 +293,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx, monkeypatch, tmpdir):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_retry_succeeds_on_third_attempt(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_sql, monkeypatch, tmpdir):
     """Flaky task fails twice, succeeds on the third attempt via retry."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 

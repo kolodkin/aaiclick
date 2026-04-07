@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import multiprocessing
 import os
 import signal
 import socket
+import sys
+import tempfile
 from datetime import datetime
 from typing import Optional
 
 from sqlmodel import select
 
+from aaiclick.backend import is_chdb
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_task_status
 from ..orch_context import get_sql_session, orch_context
-from .subprocess_runner import run_task_process
-from .worker_helpers import increment_worker_stat, schedule_retry, try_complete_job
+from .worker_helpers import increment_worker_stat, try_complete_job
 from ..models import Task, TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
@@ -26,7 +27,8 @@ HEARTBEAT_INTERVAL = 30
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
 
-
+# Module path for subprocess_runner (invoked via python -m)
+_SUBPROCESS_MODULE = "aaiclick.orchestration.execution.subprocess_runner"
 
 
 async def register_worker(
@@ -196,20 +198,31 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
         return result.scalar_one_or_none()
 
 
-
-
-async def _cancellation_monitor(task_id: int, proc: multiprocessing.Process) -> None:
+async def _cancellation_monitor(task_id: int, proc: asyncio.subprocess.Process) -> None:
     """Poll task status in DB and terminate the subprocess if cancelled.
 
     Runs concurrently with task execution. Checks the database every
     POLL_INTERVAL seconds. When cancel_job() marks the task as CANCELLED,
     this monitor sends SIGTERM to the subprocess.
     """
-    while proc.is_alive():
+    while proc.returncode is None:
         await asyncio.sleep(POLL_INTERVAL)
         if await check_task_cancelled(task_id):
-            proc.terminate()
+            proc.send_signal(signal.SIGTERM)
             return
+
+
+def _subprocess_env() -> dict[str, str]:
+    """Build environment for the task subprocess.
+
+    When using chdb, assigns the subprocess its own temp data directory
+    so it doesn't conflict with the parent's chdb lock (held by the
+    snowflake ID generator singleton).
+    """
+    env = os.environ.copy()
+    if is_chdb():
+        env["AAICLICK_CH_URL"] = f"chdb://{tempfile.mkdtemp(prefix='aaiclick_task_')}"
+    return env
 
 
 async def worker_main_loop(
@@ -222,8 +235,9 @@ async def worker_main_loop(
     Main worker execution loop.
 
     Uses orch_context(with_ch=False) for SQL-only operations (claim, heartbeat).
-    Each claimed task is executed in an isolated subprocess via multiprocessing.Process
-    which creates its own full orch_context (SQL + ClickHouse).
+    Each claimed task is executed in a fresh Python subprocess via
+    asyncio.create_subprocess_exec, which creates its own full orch_context
+    (SQL + ClickHouse).
 
     Args:
         worker_id: Worker ID (registers new worker if None)
@@ -284,28 +298,27 @@ async def worker_main_loop(
 
                 print(f"Worker {worker_id} dispatching task {task.id}: {task.entrypoint}")
 
-                proc = multiprocessing.Process(
-                    target=run_task_process,
-                    args=(task.id,),
-                    daemon=True,
+                env = _subprocess_env()
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", _SUBPROCESS_MODULE, str(task.id),
+                    env=env,
                 )
-                proc.start()
 
                 monitor = asyncio.create_task(
                     _cancellation_monitor(task.id, proc)
                 )
 
                 try:
-                    await asyncio.to_thread(proc.join)
+                    await proc.wait()
 
-                    if proc.exitcode == 0:
+                    if proc.returncode == 0:
                         tasks_executed += 1
                         print(f"Worker {worker_id} completed task {task.id}")
-                    elif proc.exitcode is not None and proc.exitcode != 0:
-                        print(f"Worker {worker_id} task {task.id} subprocess exited with code {proc.exitcode}")
+                    elif proc.returncode is not None and proc.returncode != 0:
+                        print(f"Worker {worker_id} task {task.id} subprocess exited with code {proc.returncode}")
                         # If subprocess crashed without updating DB (exitcode 2),
                         # mark task as failed from the worker side.
-                        if proc.exitcode == 2:
+                        if proc.returncode == 2:
                             await update_task_status(
                                 task.id, TaskStatus.FAILED,
                                 error="Subprocess crashed unexpectedly",

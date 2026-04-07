@@ -7,7 +7,6 @@ Supports two backends:
 """
 
 import os
-import shutil
 import tempfile
 
 import pytest
@@ -15,7 +14,7 @@ import pytest
 from sqlalchemy import text
 from sqlmodel import select
 
-from aaiclick.backend import is_chdb, is_sqlite
+from aaiclick.backend import is_sqlite
 from aaiclick.orchestration.models import Job, JobStatus, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
 
@@ -167,26 +166,13 @@ async def orch_ctx(_isolated_db):
 
 
 @pytest.fixture
-async def orch_ctx_sql(_isolated_db, monkeypatch):
+async def orch_ctx_sql(_isolated_db):
     """Function-scoped SQL-only orch context (no ClickHouse client).
 
     Use for tests that spawn subprocesses needing their own CH client,
     e.g. worker_main_loop tests where the subprocess creates a full
-    orch_context internally.
-
-    When using chdb, sets AAICLICK_CH_URL to an isolated temp directory
-    so the subprocess doesn't conflict with the session-scoped chdb lock
-    held by the ``ctx`` fixture.
+    orch_context internally via a fresh Python interpreter.
     """
-    chdb_dir = None
-    if is_chdb():
-        chdb_dir = tempfile.mkdtemp(prefix="aaiclick_subprocess_chdb_")
-        monkeypatch.setenv("AAICLICK_CH_URL", f"chdb://{chdb_dir}")
-
-    try:
-        async with orch_context(with_ch=False):
-            yield
-            await _orch_cleanup()
-    finally:
-        if chdb_dir is not None:
-            shutil.rmtree(chdb_dir, ignore_errors=True)
+    async with orch_context(with_ch=False):
+        yield
+        await _orch_cleanup()

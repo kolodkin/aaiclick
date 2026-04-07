@@ -1,8 +1,9 @@
 """
 Pytest configuration for aaiclick tests.
 
-This module provides test fixtures. ClickHouse setup is handled by
-scripts/setup_and_test.py or manually via docker-compose.
+This module provides global test fixtures. Package-specific fixtures live in:
+- aaiclick/data/conftest.py          — session-scoped ``ctx`` (data_context)
+- aaiclick/orchestration/conftest.py — ``orch_ctx`` / ``orch_ctx_sql`` for orchestration
 """
 
 import asyncio
@@ -15,7 +16,6 @@ import pytest
 from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_sqlite
-from aaiclick.data.data_context import data_context
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.models import SQLModel
 
@@ -43,22 +43,11 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="session")
-async def ctx():
-    """
-    Session-scoped data context shared across all tests in a worker.
-
-    Objects are cleaned up via refcounting when they go out of scope,
-    so table accumulation is not a concern.
-    """
-    async with data_context():
-        yield
-
-
 @pytest.fixture
 async def orch_ctx():
     """
-    Function-scoped orch context for tests that require orchestration infrastructure.
+    Function-scoped orch context for tests outside the orchestration package
+    (e.g. oplog, ai) that need orchestration infrastructure.
 
     SQLite: creates a temporary database and initialises schema via SQLModel.
     PostgreSQL: assumes migrations have already been applied (by CI or aaiclick setup).
