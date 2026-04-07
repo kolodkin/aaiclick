@@ -350,6 +350,24 @@ def get_shared_session(path: Optional[str] = None) -> Session:
     return _sessions[data_path]
 
 
+def close_session(path: str) -> None:
+    """Remove a cached chdb Session for the given data path.
+
+    Used by test fixtures and child processes after fork to release
+    inherited sessions without affecting the parent process.
+    """
+    _sessions.pop(path, None)
+
+
+def clear_sessions() -> None:
+    """Remove all cached chdb Sessions.
+
+    Used in forked child processes to discard inherited parent sessions
+    before creating fresh ones.
+    """
+    _sessions.clear()
+
+
 def create_chdb_session(path: Optional[str] = None) -> Session:
     """Return the shared chdb Session (singleton per data path)."""
     return get_shared_session(path)

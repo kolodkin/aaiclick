@@ -7,7 +7,7 @@ import os
 import signal
 import socket
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from sqlmodel import select
 
@@ -17,6 +17,10 @@ from .claiming import check_task_cancelled, claim_next_task, update_job_status, 
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from ..models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
+
+# Type for task execution functions used by _worker_loop.
+# Returns (success, result_ref, log_path, error).
+ExecuteFn = Callable[[Task], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -268,14 +272,161 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task) -> None:
             return
 
 
+async def _handle_task_result(
+    task: Task,
+    worker_id: int,
+    success: bool,
+    result_ref: Optional[dict],
+    log_path: Optional[str],
+    error: Optional[str],
+) -> bool:
+    """Process the result of a task execution. Returns True if task succeeded."""
+    if success:
+        await update_task_status(
+            task.id,
+            TaskStatus.COMPLETED,
+            result=result_ref,
+            log_path=log_path,
+        )
+        print(f"Worker {worker_id} completed task {task.id}")
+        await _increment_worker_stat(worker_id, "tasks_completed")
+        await _try_complete_job(task.job_id)
+        return True
+
+    error = error or "Unknown error"
+    print(f"Worker {worker_id} task {task.id} failed: {error}")
+    async with get_sql_session() as session:
+        row = await session.execute(
+            select(Task.max_retries, Task.attempt).where(Task.id == task.id)
+        )
+        max_retries, attempt = row.one()
+    if attempt < max_retries:
+        await _schedule_retry(task.id, attempt, error)
+        print(
+            f"Worker {worker_id} task {task.id} scheduled for retry "
+            f"(attempt {attempt + 1}/{max_retries})"
+        )
+    else:
+        await update_task_status(task.id, TaskStatus.FAILED, error=error)
+        await _increment_worker_stat(worker_id, "tasks_failed")
+        await _try_complete_job(task.job_id)
+    return False
+
+
+async def _worker_loop(
+    execute_fn: ExecuteFn,
+    worker_id: Optional[int] = None,
+    max_tasks: Optional[int] = None,
+    install_signal_handlers: bool = True,
+    max_empty_polls: Optional[int] = None,
+    mode_label: str = "async",
+) -> int:
+    """Shared worker loop used by both async and multiprocessing workers.
+
+    Claims tasks, delegates execution to ``execute_fn``, and handles
+    status updates, retries, and job completion.
+
+    Args:
+        execute_fn: Async callable (Task) -> (success, result_ref, log_path, error).
+        worker_id: Worker ID (registers new worker if None).
+        max_tasks: Maximum tasks to execute (None for unlimited).
+        install_signal_handlers: Install SIGTERM/SIGINT handlers.
+        max_empty_polls: Exit after N consecutive empty polls (test helper).
+        mode_label: Label for log messages (e.g. "async", "mp").
+
+    Returns:
+        Number of tasks successfully executed.
+    """
+    shutdown_requested = False
+
+    def signal_handler(signum, frame):
+        nonlocal shutdown_requested
+        shutdown_requested = True
+
+    if install_signal_handlers:
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
+    if worker_id is None:
+        worker = await register_worker()
+        worker_id = worker.id
+        print(f"Worker {worker_id} registered (host={worker.hostname}, pid={worker.pid}, mode={mode_label})")
+    else:
+        print(f"Worker {worker_id} starting (mode={mode_label})")
+
+    tasks_executed = 0
+    last_heartbeat = datetime.utcnow()
+    empty_polls = 0
+
+    try:
+        while not shutdown_requested:
+            if max_tasks is not None and tasks_executed >= max_tasks:
+                break
+
+            if max_empty_polls is not None and empty_polls >= max_empty_polls:
+                break
+
+            now = datetime.utcnow()
+            if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
+                status = await worker_heartbeat(worker_id)
+                last_heartbeat = now
+                if status == WorkerStatus.STOPPING:
+                    print(f"Worker {worker_id} received stop request")
+                    shutdown_requested = True
+                    continue
+
+            task = await claim_next_task(worker_id)
+
+            if task is None:
+                empty_polls += 1
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
+            empty_polls = 0
+            print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
+            await update_task_status(task.id, TaskStatus.RUNNING)
+
+            success, result_ref, log_path, error = await execute_fn(task)
+            if await _handle_task_result(task, worker_id, success, result_ref, log_path, error):
+                tasks_executed += 1
+
+    finally:
+        await deregister_worker(worker_id)
+        print(f"Worker {worker_id} stopped (executed {tasks_executed} tasks)")
+
+    return tasks_executed
+
+
+async def _execute_in_process(task: Task) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+    """Execute a task in the current async process with cancellation monitoring."""
+    exec_task = asyncio.create_task(execute_task(task))
+    monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
+
+    try:
+        data_result, log_path = await exec_task
+        data_result = await register_returned_tasks(data_result, task.id, task.job_id)
+        result_ref = serialize_task_result(data_result, task.job_id)
+        return True, result_ref, log_path, None
+    except asyncio.CancelledError:
+        print(f"Task {task.id} cancelled")
+        return False, None, None, None
+    except Exception as e:
+        return False, None, None, str(e)
+    finally:
+        monitor.cancel()
+        try:
+            await monitor
+        except asyncio.CancelledError:
+            pass
+
+
 async def worker_main_loop(
     worker_id: Optional[int] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
 ) -> int:
-    """
-    Main worker execution loop.
+    """Main worker execution loop (in-process async execution).
 
     Continuously polls for and executes tasks until shutdown signal
     or max_tasks is reached. Must be called inside an active orch_context.
@@ -289,128 +440,10 @@ async def worker_main_loop(
     Returns:
         int: Number of tasks executed
     """
-    shutdown_requested = False
-
-    def signal_handler(signum, frame):
-        nonlocal shutdown_requested
-        shutdown_requested = True
-
-    # Register signal handlers for graceful shutdown (optional for tests)
-    if install_signal_handlers:
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
-
-    # Default path: auto-register a new worker in the DB.
-    # Tests pass an explicit worker_id to reuse an existing record.
-    if worker_id is None:
-        worker = await register_worker()
-        worker_id = worker.id
-        print(f"Worker {worker_id} registered (host={worker.hostname}, pid={worker.pid})")
-    else:
-        print(f"Worker {worker_id} starting")
-
-    tasks_executed = 0
-    last_heartbeat = datetime.utcnow()
-    empty_polls = 0
-
-    try:
-        while not shutdown_requested:
-            # Check if we've reached max_tasks
-            if max_tasks is not None and tasks_executed >= max_tasks:
-                break
-
-            # Testing-only exit: allow tests to stop the loop after N empty polls
-            # instead of polling forever. In production max_empty_polls is None.
-            if max_empty_polls is not None and empty_polls >= max_empty_polls:
-                break
-
-            # Send heartbeat if needed; also check for graceful stop requests
-            now = datetime.utcnow()
-            if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
-                status = await worker_heartbeat(worker_id)
-                last_heartbeat = now
-                if status == WorkerStatus.STOPPING:
-                    print(f"Worker {worker_id} received stop request")
-                    shutdown_requested = True
-                    continue
-
-            # Try to claim a task
-            task = await claim_next_task(worker_id)
-
-            if task is None:
-                # No tasks available, wait before polling again
-                empty_polls += 1
-                await asyncio.sleep(POLL_INTERVAL)
-                continue
-
-            # Reset empty polls counter when we find a task
-            empty_polls = 0
-
-            print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
-            await update_task_status(task.id, TaskStatus.RUNNING)
-
-            # Wrap execution in an asyncio.Task with a cancellation monitor
-            # so that cancel_job() can interrupt running tasks.
-            async def _run_task(t):
-                return await execute_task(t)
-
-            exec_task = asyncio.create_task(_run_task(task))
-            monitor = asyncio.create_task(
-                _cancellation_monitor(task.id, exec_task)
-            )
-
-            try:
-                data_result, log_path = await exec_task
-
-                data_result = await register_returned_tasks(data_result, task.id, task.job_id)
-
-                result_ref = serialize_task_result(data_result, task.job_id)
-
-                await update_task_status(
-                    task.id,
-                    TaskStatus.COMPLETED,
-                    result=result_ref,
-                    log_path=log_path,
-                )
-
-                tasks_executed += 1
-                print(f"Worker {worker_id} completed task {task.id}")
-                await _increment_worker_stat(worker_id, "tasks_completed")
-                await _try_complete_job(task.job_id)
-
-            except asyncio.CancelledError:
-                print(f"Worker {worker_id} task {task.id} cancelled")
-
-            except Exception as e:
-                print(f"Worker {worker_id} task {task.id} failed: {e}")
-                async with get_sql_session() as session:
-                    row = await session.execute(
-                        select(Task.max_retries, Task.attempt).where(
-                            Task.id == task.id
-                        )
-                    )
-                    max_retries, attempt = row.one()
-                if attempt < max_retries:
-                    await _schedule_retry(task.id, attempt, str(e))
-                    print(
-                        f"Worker {worker_id} task {task.id} scheduled for retry "
-                        f"(attempt {attempt + 1}/{max_retries})"
-                    )
-                else:
-                    await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
-                    await _increment_worker_stat(worker_id, "tasks_failed")
-                    await _try_complete_job(task.job_id)
-
-            finally:
-                monitor.cancel()
-                try:
-                    await monitor
-                except asyncio.CancelledError:
-                    pass
-
-    finally:
-        # Deregister worker on exit
-        await deregister_worker(worker_id)
-        print(f"Worker {worker_id} stopped (executed {tasks_executed} tasks)")
-
-    return tasks_executed
+    return await _worker_loop(
+        execute_fn=_execute_in_process,
+        worker_id=worker_id,
+        max_tasks=max_tasks,
+        install_signal_handlers=install_signal_handlers,
+        max_empty_polls=max_empty_polls,
+    )

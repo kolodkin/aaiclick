@@ -11,7 +11,7 @@ import json
 import signal
 from typing import Any, Dict, Optional
 
-from .execution import cancel_job, list_workers, request_worker_stop, worker_main_loop
+from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
 from .background import BackgroundWorker
@@ -105,17 +105,27 @@ async def show_jobs(
         print(f"\nShowing {offset + 1}-{offset + len(jobs)} of {total}")
 
 
-async def start_worker(max_tasks: Optional[int] = None) -> None:
+async def start_worker(
+    max_tasks: Optional[int] = None,
+    multiprocessing: bool = False,
+) -> None:
     """Start a worker process with cleanup and lifecycle support.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
+        multiprocessing: If True, run each task in a dedicated child process.
+            The main process handles SQLite (claim/status), the child process
+            handles chdb + task execution.  Only one child at a time.
     """
     background = BackgroundWorker()
     await background.start()
     try:
-        async with orch_context():
-            await worker_main_loop(max_tasks=max_tasks)
+        if multiprocessing:
+            async with orch_context(with_ch=False):
+                await mp_worker_main_loop(max_tasks=max_tasks)
+        else:
+            async with orch_context():
+                await worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
 

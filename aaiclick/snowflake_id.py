@@ -57,10 +57,9 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
-        from chdb.session import Session
+        from aaiclick.data.data_context.chdb_client import get_shared_session
 
-        data_path = get_ch_url().removeprefix("chdb://")
-        session = Session(data_path)
+        session = get_shared_session()
         result = session.query(
             f"SELECT generateSnowflakeID() FROM numbers({count})",
             "TabSeparated",
