@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import pytest
 
@@ -32,9 +32,6 @@ def _tmp_log_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
 
 
-_ORCH_CHDB_DIR: Optional[str] = None
-
-
 @pytest.fixture(autouse=True, scope="session")
 def _shared_chdb_dir():
     """Session-scoped chdb data directory (autouse for all orchestration tests).
@@ -44,12 +41,10 @@ def _shared_chdb_dir():
     code reading the env (e.g. snowflake_id) uses the correct path even
     outside per-test fixtures.
     """
-    global _ORCH_CHDB_DIR
     if not is_sqlite():
         yield ""
         return
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
-    _ORCH_CHDB_DIR = tmp_dir
     old_url = os.environ.get("AAICLICK_CH_URL")
     os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
     yield tmp_dir

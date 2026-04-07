@@ -403,7 +403,7 @@ def main():
         from aaiclick.orchestration.cli import show_workers, start_worker, stop_worker_cmd
 
         if args.worker_command == "start":
-            asyncio.run(start_worker(max_tasks=args.max_tasks, multiprocessing=args.mp))
+            asyncio.run(start_worker(max_tasks=args.max_tasks, use_mp=args.mp))
 
         elif args.worker_command == "list":
             asyncio.run(show_workers())

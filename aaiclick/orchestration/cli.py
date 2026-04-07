@@ -107,20 +107,20 @@ async def show_jobs(
 
 async def start_worker(
     max_tasks: Optional[int] = None,
-    multiprocessing: bool = False,
+    use_mp: bool = False,
 ) -> None:
     """Start a worker process with cleanup and lifecycle support.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
-        multiprocessing: If True, run each task in a dedicated child process.
+        use_mp: If True, run each task in a dedicated child process.
             The main process handles SQLite (claim/status), the child process
             handles chdb + task execution.  Only one child at a time.
     """
     background = BackgroundWorker()
     await background.start()
     try:
-        if multiprocessing:
+        if use_mp:
             async with orch_context(with_ch=False):
                 await mp_worker_main_loop(max_tasks=max_tasks)
         else:

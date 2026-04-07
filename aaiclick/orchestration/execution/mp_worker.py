@@ -136,7 +136,7 @@ async def _run_in_child(
             result = await asyncio.to_thread(
                 result_queue.get, timeout=poll_interval,
             )
-            proc.join(timeout=5)
+            await asyncio.to_thread(proc.join)
             return result
         except queue.Empty:
             pass
