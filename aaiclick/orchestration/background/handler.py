@@ -18,8 +18,8 @@ class BackgroundHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def delete_job_refs(session: AsyncSession, job_ids: list[int]) -> None:
-        """Delete table_context_refs for the given completed job IDs."""
+    async def clear_job_pins(session: AsyncSession, job_ids: list[int]) -> None:
+        """Clear job_id on pin refs for completed job IDs."""
         ...
 
     @staticmethod

@@ -107,6 +107,7 @@ async def delete_object(obj: object) -> None:
         obj: Object instance to delete.
     """
     obj._stale = True
+    obj._registered = False
     try:
         objects = _objects_var.get()
     except LookupError:
@@ -152,11 +153,16 @@ async def data_context(
     try:
         yield
     finally:
-        # Mark all tracked objects as stale
+        # Decref and stale-mark all tracked objects still alive.
+        # Dead weakrefs (GC'd during context) were already decreffed by __del__.
+        # Setting _stale prevents a later __del__ from double-decrefing.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
+                if obj._registered and not obj.persistent:
+                    decref(obj.table)
+                    obj._registered = False
         objects.clear()
 
         await lifecycle.stop()

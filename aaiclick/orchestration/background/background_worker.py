@@ -106,13 +106,20 @@ class BackgroundWorker:
         await self._check_schedules()
 
     async def _cleanup_completed_jobs(self) -> None:
-        """Delete job-scoped pin refs for completed/failed jobs."""
+        """Clear job_id on pin refs for completed/failed jobs.
+
+        Sets job_id = NULL so the ref becomes a plain (zero-refcount) task ref
+        eligible for cleanup by _cleanup_unreferenced_tables.
+        """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT id FROM jobs "
-                    "WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') "
-                    "AND id IN (SELECT DISTINCT context_id FROM table_context_refs)"
+                    "SELECT DISTINCT job_id FROM table_context_refs "
+                    "WHERE job_id IS NOT NULL "
+                    "AND job_id IN ("
+                    "  SELECT id FROM jobs "
+                    "  WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
+                    ")"
                 )
             )
             job_ids = [row[0] for row in result.fetchall()]
@@ -120,7 +127,7 @@ class BackgroundWorker:
             if not job_ids:
                 return
 
-            await self._handler.delete_job_refs(session, job_ids)
+            await self._handler.clear_job_pins(session, job_ids)
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
@@ -131,7 +138,8 @@ class BackgroundWorker:
                     "SELECT table_name FROM table_context_refs "
                     "WHERE table_name NOT LIKE 'p\\_%' "
                     "GROUP BY table_name "
-                    "HAVING SUM(refcount) <= 0"
+                    "HAVING SUM(refcount) <= 0 "
+                    "AND MAX(job_id) IS NULL"
                 )
             )
             rows = result.fetchall()
@@ -141,7 +149,6 @@ class BackgroundWorker:
                     await lineage_aware_drop(self._ch_client, table_name)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                    continue
 
                 await session.execute(
                     text(

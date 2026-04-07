@@ -64,9 +64,10 @@ class TableContextRef(SQLModel, table=True):
     """Tracks ClickHouse table reference counts in PostgreSQL.
 
     Composite PK (table_name, context_id) allows multiple contexts to hold
-    independent refs to the same table. context_id is either a handler's
-    auto-generated snowflake ID (for execution refs) or a job_id (for pinned
-    result refs).
+    independent refs to the same table.
+
+    - Task refs: context_id = task_id, job_id = NULL
+    - Pin refs: context_id = task_id, job_id = job_id (non-NULL marks a pin)
     """
 
     __tablename__ = "table_context_refs"
@@ -74,3 +75,4 @@ class TableContextRef(SQLModel, table=True):
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     refcount: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
+    job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
