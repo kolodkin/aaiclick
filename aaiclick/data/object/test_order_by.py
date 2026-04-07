@@ -2,12 +2,10 @@
 Tests for custom order_by support on Object creation.
 """
 
-import warnings
-
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data import Object, Schema, ColumnInfo, create_object, ENGINE_MERGE_TREE
+from aaiclick.data import Object, Schema, ColumnInfo, ENGINE_MERGE_TREE
 from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.models import build_order_by_clause
 

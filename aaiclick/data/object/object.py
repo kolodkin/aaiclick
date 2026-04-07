@@ -108,10 +108,11 @@ class Object:
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
+        replace_kw: dict = {"table": table_name}
         if order_by is not None:
-            schema = dataclass_replace(schema, order_by=build_order_by_clause(order_by))
+            replace_kw["order_by"] = build_order_by_clause(order_by)
         self._stale = False
-        self._schema = dataclass_replace(schema, table=table_name)
+        self._schema = dataclass_replace(schema, **replace_kw)
         self._registered = False
 
     @property
