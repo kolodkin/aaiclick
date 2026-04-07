@@ -27,7 +27,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
     async def delete_job_refs(session: AsyncSession, job_ids: list[int]) -> None:
         placeholders, params = _in_clause(job_ids, "jid")
         await session.execute(
-            text(f"DELETE FROM table_context_refs WHERE context_id IN ({placeholders})"),
+            text(f"UPDATE table_context_refs SET job_id = NULL WHERE job_id IN ({placeholders})"),
             params,
         )
 

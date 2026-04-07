@@ -204,8 +204,8 @@ In distributed mode, Object table lifecycle is managed through PostgreSQL with e
 ```
 Worker Process
 ├── OrchLifecycleHandler (per task, uses get_sql_session())
-│   ├── incref/decref → table_context_refs (context_id = task_id)
-│   ├── pin → table_context_refs (context_id = job_id) + tracked in _pinned set
+│   ├── incref/decref → table_context_refs (context_id = task_id, job_id = NULL)
+│   ├── pin → table_context_refs (context_id = task_id, job_id = job_id) + tracked in _pinned
 │   └── stop → drains queue (no inline drops, no bulk DELETE)
 ├── task_scope exit
 │   ├── decrefs non-pinned live objects (deterministic cleanup)
@@ -223,7 +223,7 @@ Worker Process
 ```
 Task A executes
   ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
-  ├── PIN result: inserts (t_result, job_id, 1) + tracked in _pinned
+  ├── PIN result: inserts (t_result, task_id, 1, job_id=job_id) + tracked in _pinned
   └── task_scope exit:
       ├── decref non-pinned objects → task-scoped refcounts go to 0
       ├── skip pinned objects → job-scoped ref keeps them alive
@@ -231,7 +231,7 @@ Task A executes
 
 Task B starts, deserializes task_a.result
   ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
-  └── claim → deletes (t_result, job_id, 1)  ← release job ref
+  └── claim → clears job_id on pin row  ← release pin marker
 
 Job completes → BackgroundWorker deletes remaining refs + drops orphaned tables
 ```
@@ -246,7 +246,7 @@ Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_se
 
 **Sync-to-async bridge**: `Object.__del__` calls decref synchronously → `call_soon_threadsafe` → asyncio.Queue → `_process_loop()` drains. Only fires for objects GC'd mid-task; objects surviving to context exit are decreffed deterministically and stale-marked.
 
-**PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount`.
+**PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id` (non-NULL marks a pin ref).
 
 ## BackgroundWorker
 

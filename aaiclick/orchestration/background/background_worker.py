@@ -106,13 +106,20 @@ class BackgroundWorker:
         await self._check_schedules()
 
     async def _cleanup_completed_jobs(self) -> None:
-        """Delete job-scoped pin refs for completed/failed jobs."""
+        """Clear job_id on pin refs for completed/failed jobs.
+
+        Sets job_id = NULL so the ref becomes a plain (zero-refcount) task ref
+        eligible for cleanup by _cleanup_unreferenced_tables.
+        """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT id FROM jobs "
-                    "WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') "
-                    "AND id IN (SELECT DISTINCT context_id FROM table_context_refs)"
+                    "SELECT DISTINCT job_id FROM table_context_refs "
+                    "WHERE job_id IS NOT NULL "
+                    "AND job_id IN ("
+                    "  SELECT id FROM jobs "
+                    "  WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
+                    ")"
                 )
             )
             job_ids = [row[0] for row in result.fetchall()]

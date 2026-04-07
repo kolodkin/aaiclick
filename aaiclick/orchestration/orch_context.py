@@ -106,14 +106,19 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
-        """Release a job-scoped pinned ref (ownership transfer to consumer)."""
+        """Release a pinned ref (ownership transfer to consumer).
+
+        Clears the job_id marker on the ref row so it becomes a plain task ref.
+        The consumer's incref already created its own row.
+        """
         async with get_sql_session() as session:
             await session.execute(
                 text(
-                    "DELETE FROM table_context_refs "
-                    "WHERE table_name = :table AND context_id = :ctx"
+                    "UPDATE table_context_refs "
+                    "SET job_id = NULL "
+                    "WHERE table_name = :table AND job_id = :job_id"
                 ),
-                {"table": table_name, "ctx": job_id},
+                {"table": table_name, "job_id": job_id},
             )
             await session.commit()
 
@@ -182,15 +187,18 @@ class OrchLifecycleHandler(LifecycleHandler):
             # -- Table lifecycle (refcount only, no inline drops) --
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
                 async with get_sql_session() as session:
-                    if msg.op == DBLifecycleOp.INCREF:
+                    if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.PIN):
+                        job_id = self._job_id if msg.op == DBLifecycleOp.PIN else None
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                                "VALUES (:table_name, :context_id, 1) "
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount, job_id) "
+                                "VALUES (:table_name, :context_id, 1, :job_id) "
                                 "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1, "
+                                "job_id = COALESCE(:job_id, table_context_refs.job_id)"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id},
+                            {"table_name": msg.table_name, "context_id": self._task_id,
+                             "job_id": job_id},
                         )
                     elif msg.op == DBLifecycleOp.DECREF:
                         await session.execute(
@@ -200,16 +208,6 @@ class OrchLifecycleHandler(LifecycleHandler):
                                 "WHERE table_name = :table_name AND context_id = :context_id"
                             ),
                             {"table_name": msg.table_name, "context_id": self._task_id},
-                        )
-                    elif msg.op == DBLifecycleOp.PIN:
-                        await session.execute(
-                            text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                                "VALUES (:table_name, :context_id, 1) "
-                                "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
-                            ),
-                            {"table_name": msg.table_name, "context_id": self._job_id},
                         )
                     await session.commit()
 

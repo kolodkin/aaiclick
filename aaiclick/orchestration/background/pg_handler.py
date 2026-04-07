@@ -16,7 +16,7 @@ class PgBackgroundHandler(BackgroundHandler):
     @staticmethod
     async def delete_job_refs(session: AsyncSession, job_ids: list[int]) -> None:
         await session.execute(
-            text("DELETE FROM table_context_refs WHERE context_id = ANY(:job_ids)"),
+            text("UPDATE table_context_refs SET job_id = NULL WHERE job_id = ANY(:job_ids)"),
             {"job_ids": job_ids},
         )
 
