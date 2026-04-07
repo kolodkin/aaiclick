@@ -19,9 +19,6 @@ Snowflake ID format (64 bits):
 
 from collections import deque
 
-from chdb.session import Session
-from clickhouse_connect import get_client as get_ch_client
-
 from .backend import is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
@@ -61,6 +58,8 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
+        from chdb.session import Session
+
         session = Session()
         result = session.query(
             f"SELECT generateSnowflakeID() FROM numbers({count})",
@@ -73,7 +72,9 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
-        client = get_ch_client(**parse_ch_url())
+        from clickhouse_connect import get_client
+
+        client = get_client(**parse_ch_url())
         try:
             result = client.query(
                 f"SELECT generateSnowflakeID() FROM numbers({count})"
