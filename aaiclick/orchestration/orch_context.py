@@ -66,7 +66,6 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._pinned: set[str] = set()
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -95,14 +94,12 @@ class OrchLifecycleHandler(LifecycleHandler):
     def decref(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
-    @property
-    def pinned_tables(self) -> set[str]:
-        """Tables pinned by this task (should not be decreffed at exit)."""
-        return self._pinned
-
     def pin(self, table_name: str) -> None:
-        """Mark table as result — inserts a job-scoped ref that survives stop()."""
-        self._pinned.add(table_name)
+        """Mark table as pinned by setting job_id on its ref row.
+
+        Does not bump refcount — pin protection comes from the job_id marker
+        which prevents the background worker from dropping the table.
+        """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
     async def claim(self, table_name: str, job_id: int) -> None:
@@ -187,18 +184,15 @@ class OrchLifecycleHandler(LifecycleHandler):
             # -- Table lifecycle (refcount only, no inline drops) --
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
                 async with get_sql_session() as session:
-                    if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.PIN):
-                        job_id = self._job_id if msg.op == DBLifecycleOp.PIN else None
+                    if msg.op == DBLifecycleOp.INCREF:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount, job_id) "
-                                "VALUES (:table_name, :context_id, 1, :job_id) "
+                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
+                                "VALUES (:table_name, :context_id, 1) "
                                 "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET refcount = table_context_refs.refcount + 1, "
-                                "job_id = COALESCE(:job_id, table_context_refs.job_id)"
+                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id,
-                             "job_id": job_id},
+                            {"table_name": msg.table_name, "context_id": self._task_id},
                         )
                     elif msg.op == DBLifecycleOp.DECREF:
                         await session.execute(
@@ -208,6 +202,16 @@ class OrchLifecycleHandler(LifecycleHandler):
                                 "WHERE table_name = :table_name AND context_id = :context_id"
                             ),
                             {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                    elif msg.op == DBLifecycleOp.PIN:
+                        await session.execute(
+                            text(
+                                "UPDATE table_context_refs "
+                                "SET job_id = :job_id "
+                                "WHERE table_name = :table_name AND context_id = :context_id"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id,
+                             "job_id": self._job_id},
                         )
                     await session.commit()
 
@@ -321,15 +325,14 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Decref non-pinned objects; skip pinned (their job-scoped ref
-        # keeps them alive for downstream consumers).  Stale-mark all so
-        # __del__ is a no-op.
-        pinned = lifecycle.pinned_tables
+        # Decref all live objects.  Pinned tables are protected by their
+        # job_id marker in table_context_refs — the background worker skips
+        # tables with non-NULL job_id even when refcount reaches 0.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
-                if obj._registered and not obj.persistent and obj.table not in pinned:
+                if obj._registered and not obj.persistent:
                     decref(obj.table)
                 obj._registered = False
         objects.clear()

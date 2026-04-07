@@ -205,15 +205,14 @@ In distributed mode, Object table lifecycle is managed through PostgreSQL with e
 Worker Process
 ├── OrchLifecycleHandler (per task, uses get_sql_session())
 │   ├── incref/decref → table_context_refs (context_id = task_id, job_id = NULL)
-│   ├── pin → table_context_refs (context_id = task_id, job_id = job_id) + tracked in _pinned
+│   ├── pin → sets job_id on existing ref row (no refcount change)
 │   └── stop → drains queue (no inline drops, no bulk DELETE)
 ├── task_scope exit
-│   ├── decrefs non-pinned live objects (deterministic cleanup)
-│   ├── skips pinned tables (job-scoped ref keeps them alive)
-│   └── stale-marks all objects → __del__ becomes a no-op
+│   ├── decrefs ALL live objects uniformly (deterministic cleanup)
+│   └── stale-marks all → __del__ becomes a no-op
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── polls completed/failed jobs → deletes job-scoped refs
-│   ├── polls table_context_refs → DROP TABLE where total refcount <= 0
+│   ├── polls completed/failed jobs → clears job_id on pin refs
+│   ├── polls table_context_refs → DROP where refcount <= 0 AND job_id IS NULL
 │   └── detects dead workers → marks tasks FAILED
 └── orch_context() — SQL engine shared via get_sql_session()
 ```
@@ -223,10 +222,10 @@ Worker Process
 ```
 Task A executes
   ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
-  ├── PIN result: inserts (t_result, task_id, 1, job_id=job_id) + tracked in _pinned
+  ├── PIN result: sets job_id on (t_result, task_id) — marks as pinned
   └── task_scope exit:
-      ├── decref non-pinned objects → task-scoped refcounts go to 0
-      ├── skip pinned objects → job-scoped ref keeps them alive
+      ├── decref ALL objects → refcount goes to 0
+      ├── job_id marker protects pinned tables from background cleanup
       └── stale-mark all → __del__ is a no-op
 
 Task B starts, deserializes task_a.result
@@ -242,9 +241,11 @@ Job completes → BackgroundWorker deletes remaining refs + drops orphaned table
 
 Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_session()`.
 
-**Deterministic cleanup at exit**: On `task_scope` exit, non-pinned live objects are decreffed deterministically (no reliance on `__del__`). Pinned tables are skipped — their job-scoped ref keeps them alive for downstream consumers. All objects are stale-marked so `__del__` is a no-op. The `_process_loop` never triggers inline drops; the background worker is the sole cleanup authority.
+**Deterministic cleanup at exit**: On `task_scope` exit, ALL live objects are decreffed uniformly — pinned and non-pinned alike. Pinned tables are protected by their `job_id` marker: the background worker skips tables where `MAX(job_id) IS NOT NULL`. PIN just sets `job_id` on the existing ref row (no refcount bump), and `claim()` clears it. The `_process_loop` never triggers inline drops; the background worker is the sole cleanup authority.
 
 **Sync-to-async bridge**: `Object.__del__` calls decref synchronously → `call_soon_threadsafe` → asyncio.Queue → `_process_loop()` drains. Only fires for objects GC'd mid-task; objects surviving to context exit are decreffed deterministically and stale-marked.
+
+**Pin protection**: `job_id` column in `table_context_refs` marks pinned tables. Background worker cleanup query uses `HAVING SUM(refcount) <= 0 AND MAX(job_id) IS NULL` — tables with active pins are skipped even when refcount is zero. When the job completes, `_cleanup_completed_jobs` clears `job_id`, making the table eligible for cleanup.
 
 **PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id` (non-NULL marks a pin ref).
 

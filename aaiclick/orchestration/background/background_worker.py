@@ -138,7 +138,8 @@ class BackgroundWorker:
                     "SELECT table_name FROM table_context_refs "
                     "WHERE table_name NOT LIKE 'p\\_%' "
                     "GROUP BY table_name "
-                    "HAVING SUM(refcount) <= 0"
+                    "HAVING SUM(refcount) <= 0 "
+                    "AND MAX(job_id) IS NULL"
                 )
             )
             rows = result.fetchall()
