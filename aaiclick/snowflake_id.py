@@ -19,7 +19,7 @@ Snowflake ID format (64 bits):
 
 from collections import deque
 
-from .backend import is_chdb, parse_ch_url
+from .backend import get_ch_url, is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
@@ -60,7 +60,8 @@ class SnowflakeGenerator:
     def _fetch_ids_chdb(count: int) -> list[int]:
         from chdb.session import Session
 
-        session = Session()
+        data_path = get_ch_url().removeprefix("chdb://")
+        session = Session(data_path)
         result = session.query(
             f"SELECT generateSnowflakeID() FROM numbers({count})",
             "TabSeparated",
