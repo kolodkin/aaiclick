@@ -8,6 +8,7 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 import re
+import warnings
 import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -32,6 +33,7 @@ from ..models import (
     ENGINE_DEFAULT,
     ENGINE_MEMORY,
     parse_ch_type,
+    build_order_by_clause,
 )
 from ..sql_utils import quote_identifier
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
@@ -253,6 +255,15 @@ async def create_object(
         effective_engine = engine or schema.engine or get_engine()
 
     order_by = schema.order_by or "tuple()"
+
+    # Memory engine ignores ORDER BY — warn when both are combined.
+    if effective_engine == "Memory" and schema.order_by:
+        warnings.warn(
+            f"order_by={schema.order_by!r} has no effect with Memory engine. "
+            "Use engine='MergeTree' for ORDER BY support.",
+            UserWarning,
+            stacklevel=2,
+        )
     engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
@@ -491,6 +502,7 @@ async def _create_nested_records_object(
 async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
+    order_by: list[str] | None = None,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -505,6 +517,9 @@ async def create_object_from_value(
         name: Optional persistent name. When provided, creates a persistent
               table that survives context exit. If the table already exists,
               data is appended.
+        order_by: Optional list of column names for the table ORDER BY clause.
+                  ``aai_id`` is always appended as the last ORDER BY column.
+                  Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
 
     Returns:
         Object: New Object instance with data
@@ -515,6 +530,7 @@ async def create_object_from_value(
         return val
 
     ch = get_ch_client()
+    order_by_clause = build_order_by_clause(order_by) if order_by is not None else None
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):
@@ -545,7 +561,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
             if array_len and array_len > 0:
@@ -561,7 +577,7 @@ async def create_object_from_value(
             for key, value in val.items():
                 columns[key] = _infer_clickhouse_type(value)
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
             keys = list(val.keys())
@@ -603,7 +619,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample)
 
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
             col_data = [[record[key] for record in val] for key in keys]
@@ -616,6 +632,7 @@ async def create_object_from_value(
             schema = Schema(
                 fieldtype=FIELDTYPE_ARRAY,
                 columns={"aai_id": ColumnInfo("UInt64"), "value": col_def},
+                order_by=order_by_clause,
             )
             obj = await create_object(schema, name=name)
 
@@ -631,6 +648,7 @@ async def create_object_from_value(
             fieldtype=FIELDTYPE_SCALAR,
             col_fieldtype=FIELDTYPE_SCALAR,
             columns={"aai_id": ColumnInfo("UInt64"), "value": col_def},
+            order_by=order_by_clause,
         )
         obj = await create_object(schema, name=name)
 
