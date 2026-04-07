@@ -127,7 +127,7 @@ class BackgroundWorker:
             if not job_ids:
                 return
 
-            await self._handler.delete_job_refs(session, job_ids)
+            await self._handler.clear_job_pins(session, job_ids)
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:

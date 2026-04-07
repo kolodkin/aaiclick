@@ -24,7 +24,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
 
     @staticmethod
-    async def delete_job_refs(session: AsyncSession, job_ids: list[int]) -> None:
+    async def clear_job_pins(session: AsyncSession, job_ids: list[int]) -> None:
         placeholders, params = _in_clause(job_ids, "jid")
         await session.execute(
             text(f"UPDATE table_context_refs SET job_id = NULL WHERE job_id IN ({placeholders})"),
