@@ -201,7 +201,7 @@ class BackgroundWorker:
             result = await session.execute(
                 text(
                     "SELECT id FROM workers "
-                    "WHERE status = 'ACTIVE' "
+                    "WHERE status IN ('ACTIVE', 'STOPPING') "
                     "AND last_heartbeat < :cutoff"
                 ),
                 {"cutoff": cutoff},

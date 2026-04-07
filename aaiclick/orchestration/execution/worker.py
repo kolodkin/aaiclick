@@ -107,18 +107,50 @@ async def register_worker(
     return worker
 
 
-async def worker_heartbeat(worker_id: int) -> bool:
+async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
     """
     Update worker's last_heartbeat timestamp.
 
     Should be called periodically to indicate the worker is alive.
-    Updates both last_heartbeat and ensures status is ACTIVE.
+    Updates last_heartbeat and ensures status is ACTIVE (unless STOPPING).
 
     Args:
         worker_id: Worker ID to update
 
     Returns:
-        bool: True if worker was found and updated, False otherwise
+        The worker's current status after update, or None if worker not found.
+    """
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Worker).where(Worker.id == worker_id)
+        )
+        worker = result.scalar_one_or_none()
+
+        if worker is None:
+            return None
+
+        worker.last_heartbeat = datetime.utcnow()
+        if worker.status != WorkerStatus.STOPPING:
+            worker.status = WorkerStatus.ACTIVE
+        session.add(worker)
+        await session.commit()
+
+    return worker.status
+
+
+async def request_worker_stop(worker_id: int) -> bool:
+    """
+    Request a worker to stop gracefully.
+
+    Sets the worker status to STOPPING. The worker will finish its current
+    task and exit on the next heartbeat check.
+
+    Args:
+        worker_id: Worker ID to stop
+
+    Returns:
+        bool: True if worker was found and set to STOPPING,
+              False if not found or already in a terminal state
     """
     async with get_sql_session() as session:
         result = await session.execute(
@@ -129,8 +161,10 @@ async def worker_heartbeat(worker_id: int) -> bool:
         if worker is None:
             return False
 
-        worker.last_heartbeat = datetime.utcnow()
-        worker.status = WorkerStatus.ACTIVE
+        if worker.status in (WorkerStatus.STOPPED, WorkerStatus.STOPPING):
+            return False
+
+        worker.status = WorkerStatus.STOPPING
         session.add(worker)
         await session.commit()
 
@@ -290,11 +324,15 @@ async def worker_main_loop(
             if max_empty_polls is not None and empty_polls >= max_empty_polls:
                 break
 
-            # Send heartbeat if needed
+            # Send heartbeat if needed; also check for graceful stop requests
             now = datetime.utcnow()
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
-                await worker_heartbeat(worker_id)
+                status = await worker_heartbeat(worker_id)
                 last_heartbeat = now
+                if status == WorkerStatus.STOPPING:
+                    print(f"Worker {worker_id} received stop request")
+                    shutdown_requested = True
+                    continue
 
             # Try to claim a task
             task = await claim_next_task(worker_id)
