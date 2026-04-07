@@ -114,8 +114,8 @@ async def test_list_workers(orch_ctx):
     assert worker1.id in stopped_ids
 
 
-async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
-    """Test that worker main loop executes tasks."""
+async def test_worker_main_loop_executes_tasks(orch_ctx_sql, monkeypatch, tmpdir):
+    """Test that worker main loop executes tasks in a subprocess."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
     # Create a job
@@ -142,8 +142,8 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
         assert task.status == TaskStatus.COMPLETED
 
 
-async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
-    """Test that worker main loop handles task failures."""
+async def test_worker_main_loop_handles_failures(orch_ctx_sql, monkeypatch, tmpdir):
+    """Test that worker main loop handles task failures in a subprocess."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
     # Create a job with a failing task
@@ -222,7 +222,7 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
     assert result == WorkerStatus.STOPPING
 
 
-async def test_worker_main_loop_stops_on_stop_request(orch_ctx, monkeypatch, tmpdir):
+async def test_worker_main_loop_stops_on_stop_request(orch_ctx_sql, monkeypatch, tmpdir):
     """Test that the main loop exits when a stop request is detected."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 

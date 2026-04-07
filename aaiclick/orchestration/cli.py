@@ -108,14 +108,16 @@ async def show_jobs(
 async def start_worker(max_tasks: Optional[int] = None) -> None:
     """Start a worker process with cleanup and lifecycle support.
 
+    The worker manages its own orch_context(with_ch=False) internally.
+    Each task runs in an isolated subprocess with a full orch_context.
+
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
     background = BackgroundWorker()
     await background.start()
     try:
-        async with orch_context():
-            await worker_main_loop(max_tasks=max_tasks)
+        await worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
 

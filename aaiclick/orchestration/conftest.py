@@ -7,6 +7,7 @@ Supports two backends:
 """
 
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -14,7 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlmodel import select
 
-from aaiclick.backend import is_sqlite
+from aaiclick.backend import is_chdb, is_sqlite
 from aaiclick.orchestration.models import Job, JobStatus, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
 
@@ -127,6 +128,29 @@ def _tmp_log_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
 
 
+async def _orch_cleanup() -> None:
+    """Cancel non-terminal jobs and orphan tasks."""
+    from aaiclick.orchestration.execution.claiming import cancel_job
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Job.id).where(Job.status.notin_([
+                JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
+            ]))
+        )
+        for (job_id,) in result.all():
+            await cancel_job(job_id)
+
+        await session.execute(
+            text(
+                "UPDATE tasks SET status = :cancelled "
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+            ),
+            {"cancelled": TaskStatus.CANCELLED.value},
+        )
+        await session.commit()
+
+
 @pytest.fixture
 async def orch_ctx(_isolated_db):
     """
@@ -137,25 +161,32 @@ async def orch_ctx(_isolated_db):
     orphan PENDING/CLAIMED/RUNNING tasks (e.g. from tests that set a
     job to COMPLETED/FAILED without executing its tasks).
     """
-    from aaiclick.orchestration.execution.claiming import cancel_job
-
     async with orch_context():
         yield
-        async with get_sql_session() as session:
-            result = await session.execute(
-                select(Job.id).where(Job.status.notin_([
-                    JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
-                ]))
-            )
-            for (job_id,) in result.all():
-                await cancel_job(job_id)
+        await _orch_cleanup()
 
-            # Cancel orphan tasks whose job is already terminal but task is not
-            await session.execute(
-                text(
-                    "UPDATE tasks SET status = :cancelled "
-                    "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
-                ),
-                {"cancelled": TaskStatus.CANCELLED.value},
-            )
-            await session.commit()
+
+@pytest.fixture
+async def orch_ctx_sql(_isolated_db, monkeypatch):
+    """Function-scoped SQL-only orch context (no ClickHouse client).
+
+    Use for tests that spawn subprocesses needing their own CH client,
+    e.g. worker_main_loop tests where the subprocess creates a full
+    orch_context internally.
+
+    When using chdb, sets AAICLICK_CH_URL to an isolated temp directory
+    so the subprocess doesn't conflict with the session-scoped chdb lock
+    held by the ``ctx`` fixture.
+    """
+    chdb_dir = None
+    if is_chdb():
+        chdb_dir = tempfile.mkdtemp(prefix="aaiclick_subprocess_chdb_")
+        monkeypatch.setenv("AAICLICK_CH_URL", f"chdb://{chdb_dir}")
+
+    try:
+        async with orch_context(with_ch=False):
+            yield
+            await _orch_cleanup()
+    finally:
+        if chdb_dir is not None:
+            shutil.rmtree(chdb_dir, ignore_errors=True)

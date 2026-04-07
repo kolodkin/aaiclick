@@ -4,11 +4,9 @@ Accepts a task_id, sets up a full orch_context (SQL + ClickHouse),
 loads the task from the database, and runs the complete execution flow:
 import → deserialize → execute → serialize → update status → complete job.
 
-Invoked by the worker via::
+Invoked by the worker via multiprocessing.Process(target=run_task_process, args=(task_id,)).
 
-    python -m aaiclick.orchestration.execution.subprocess_runner <task_id>
-
-Exit codes:
+Exit codes (set on multiprocessing.Process.exitcode):
     0 — task completed (status written to DB)
     1 — task failed (status written to DB)
     2 — unexpected crash before DB status could be updated
@@ -18,13 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import signal
-import sys
 
 from sqlmodel import select
 
 from .claiming import update_task_status
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import _increment_worker_stat, _schedule_retry, _try_complete_job
+from .worker_helpers import increment_worker_stat, schedule_retry, try_complete_job
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session, orch_context
 
@@ -53,13 +50,11 @@ async def run_task(task_id: int) -> int:
                 log_path=log_path,
             )
             if task.worker_id is not None:
-                await _increment_worker_stat(task.worker_id, "tasks_completed")
-            await _try_complete_job(task.job_id)
+                await increment_worker_stat(task.worker_id, "tasks_completed")
+            await try_complete_job(task.job_id)
             return 0
 
         except asyncio.CancelledError:
-            # Cancellation is handled by the cancel_job DB flag;
-            # the worker detects non-zero exit for bookkeeping.
             return 1
 
         except Exception as e:
@@ -70,27 +65,32 @@ async def run_task(task_id: int) -> int:
                 max_retries, attempt = row.one()
 
             if attempt < max_retries:
-                await _schedule_retry(task.id, attempt, str(e))
+                await schedule_retry(task.id, attempt, str(e))
             else:
                 await update_task_status(task.id, TaskStatus.FAILED, error=str(e))
                 if task.worker_id is not None:
-                    await _increment_worker_stat(task.worker_id, "tasks_failed")
-                await _try_complete_job(task.job_id)
+                    await increment_worker_stat(task.worker_id, "tasks_failed")
+                await try_complete_job(task.job_id)
             return 1
 
 
-def _sigterm_handler(signum, frame):
-    """Raise KeyboardInterrupt on SIGTERM so asyncio cancels cleanly."""
-    raise KeyboardInterrupt
+def run_task_process(task_id: int) -> None:
+    """Multiprocessing entry point. Runs asyncio.run(run_task(...)) and exits.
 
+    Called as: multiprocessing.Process(target=run_task_process, args=(task_id,))
 
-def main() -> None:
-    """CLI entry point: ``python -m aaiclick.orchestration.execution.subprocess_runner <task_id>``."""
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <task_id>", file=sys.stderr)
-        sys.exit(2)
+    Installs a SIGTERM handler for graceful cancellation from the worker.
+    With fork, clears the inherited chdb session singleton so the subprocess
+    creates its own fresh session from AAICLICK_CH_URL.
+    """
+    import traceback
 
-    task_id = int(sys.argv[1])
+    from aaiclick.data.data_context.chdb_client import _sessions
+    _sessions.clear()
+
+    def _sigterm_handler(signum, frame):
+        raise KeyboardInterrupt
+
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
     try:
@@ -98,10 +98,7 @@ def main() -> None:
     except (KeyboardInterrupt, SystemExit):
         exit_code = 1
     except Exception:
+        traceback.print_exc()
         exit_code = 2
 
-    sys.exit(exit_code)
-
-
-if __name__ == "__main__":
-    main()
+    raise SystemExit(exit_code)
