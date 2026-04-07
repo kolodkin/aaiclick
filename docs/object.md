@@ -535,6 +535,6 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 
 # Operation Provenance (Oplog)
 
-All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are instrumented to record provenance via `OplogCollector`. Activation via `data_context()` is planned for Phase 3. See `docs/oplog.md` for the full specification.
+All Object operations (`create_from_value`, arithmetic, `concat`, `insert`, `copy`, etc.) are instrumented to record provenance via `OplogCollector`. See `docs/oplog.md` for the full specification.
 
 **Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector.record()`, `record_table()`
