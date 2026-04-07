@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import os
 import queue
 from typing import NamedTuple, Optional
 
@@ -21,7 +22,18 @@ from sqlmodel import select
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import _handle_task_result, _worker_loop
+from .worker import HEARTBEAT_INTERVAL, _handle_task_result, _worker_loop, worker_heartbeat
+
+# Default task timeout in seconds (None = no timeout).
+# Override via AAICLICK_TASK_TIMEOUT env var.
+_DEFAULT_TASK_TIMEOUT: Optional[float] = None
+
+
+def _get_task_timeout() -> Optional[float]:
+    raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
+    if raw is not None:
+        return float(raw)
+    return _DEFAULT_TASK_TIMEOUT
 
 
 class _ProcessResult(NamedTuple):
@@ -77,10 +89,30 @@ async def _child_run_task(
         ))
 
 
-async def _execute_in_child(task: Task) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
-    """Run a task in a child process, return (success, result_ref, log_path, error)."""
-    proc_result = await _run_in_child(task.id, task.job_id, timeout=None)
-    return proc_result.success, proc_result.result_ref, proc_result.log_path, proc_result.error
+async def _execute_in_child(
+    task: Task,
+    worker_id: int,
+) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+    """Run a task in a child process with heartbeats and timeout."""
+    timeout = _get_task_timeout()
+    done = asyncio.Event()
+    heartbeat_task = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
+    try:
+        proc_result = await _run_in_child(task.id, task.job_id, timeout)
+        return proc_result.success, proc_result.result_ref, proc_result.log_path, proc_result.error
+    finally:
+        done.set()
+        await heartbeat_task
+
+
+async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
+    """Send heartbeats in the parent while the child process is running."""
+    while not done.is_set():
+        try:
+            await asyncio.wait_for(done.wait(), timeout=HEARTBEAT_INTERVAL)
+            return
+        except asyncio.TimeoutError:
+            await worker_heartbeat(worker_id)
 
 
 async def mp_worker_main_loop(
@@ -93,7 +125,12 @@ async def mp_worker_main_loop(
 
     Must be called inside an active orch_context(with_ch=False) — the main
     process only needs SQLite for claiming and status updates.  chdb is
-    initialized inside each child process.
+    initialized inside each child process. Heartbeats continue while the
+    child is running.
+
+    Task timeout is read from AAICLICK_TASK_TIMEOUT env var (seconds).
+    When a task exceeds the timeout the child process is killed and the
+    task is marked as failed.
 
     Args:
         worker_id: Worker ID (registers new worker if None).
@@ -145,7 +182,7 @@ async def _run_in_child(
 
         if timeout is not None and elapsed >= timeout:
             proc.kill()
-            proc.join(timeout=5)
+            await asyncio.to_thread(proc.join, timeout=5)
             return _ProcessResult(
                 success=False, result_ref=None, log_path=None,
                 error=f"Task timed out after {timeout}s",

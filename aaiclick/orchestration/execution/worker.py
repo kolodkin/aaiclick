@@ -18,9 +18,9 @@ from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from ..models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
-# Type for task execution functions used by _worker_loop.
-# Returns (success, result_ref, log_path, error).
-ExecuteFn = Callable[[Task], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
+# Task execution strategy used by _worker_loop.
+# Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
+ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -386,7 +386,7 @@ async def _worker_loop(
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
             await update_task_status(task.id, TaskStatus.RUNNING)
 
-            success, result_ref, log_path, error = await execute_fn(task)
+            success, result_ref, log_path, error = await execute_fn(task, worker_id)
             if await _handle_task_result(task, worker_id, success, result_ref, log_path, error):
                 tasks_executed += 1
 
@@ -397,7 +397,7 @@ async def _worker_loop(
     return tasks_executed
 
 
-async def _execute_in_process(task: Task) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
