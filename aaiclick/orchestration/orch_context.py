@@ -12,8 +12,9 @@ from typing import AsyncIterator, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.backend import is_postgres
+from aaiclick.backend import is_chdb, is_postgres
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
@@ -286,6 +287,8 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         _engine_var.reset(eng_token)
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
+            if is_chdb():
+                close_session(get_chdb_data_path())
         _task_registry_var.reset(registry_token)
         await engine.dispose()
 
