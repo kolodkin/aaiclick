@@ -25,7 +25,7 @@ from .data import Object, View, DataResult
 from .data import cast, literal, split_by_char
 
 # Schema definition
-from .data import Schema, ColumnInfo, ColumnType
+from .data import Schema, ColumnInfo, ColumnType, FieldSpec
 
 # Field type and orientation constants
 from .data import (
