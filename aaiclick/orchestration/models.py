@@ -125,7 +125,9 @@ class Worker(SQLModel, table=True):
     """
     Worker model - represents a worker process that executes tasks.
 
-    Workers claim tasks from the queue and execute them.
+    Uses UUID strings instead of snowflake IDs so that worker registration
+    does not require a chdb session. This is critical for the multiprocessing
+    worker where the parent process must not open chdb (the child owns it).
     """
 
     __tablename__ = "workers"

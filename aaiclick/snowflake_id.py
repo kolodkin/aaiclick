@@ -6,8 +6,12 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
-In local mode, uses chdb (embedded ClickHouse) with the data path from
-get_ch_url().  In distributed mode, uses clickhouse-connect directly.
+In local mode, uses chdb (embedded ClickHouse) via get_shared_session().
+In distributed mode, uses clickhouse-connect directly.
+
+Important: chdb allows only one data path per process (C++ singleton).
+Calling get_snowflake_id() opens a chdb session on AAICLICK_CH_URL.
+Must only be called inside an active orch_context or data_context.
 
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
