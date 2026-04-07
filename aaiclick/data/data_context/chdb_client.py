@@ -353,19 +353,12 @@ def get_shared_session(path: Optional[str] = None) -> Session:
 def close_session(path: str) -> None:
     """Remove a cached chdb Session for the given data path.
 
-    Used by test fixtures and child processes after fork to release
-    inherited sessions without affecting the parent process.
+    Calls cleanup() on the session before discarding to release native
+    resources (file locks, C++ state).
     """
-    _sessions.pop(path, None)
-
-
-def clear_sessions() -> None:
-    """Remove all cached chdb Sessions.
-
-    Used in forked child processes to discard inherited parent sessions
-    before creating fresh ones.
-    """
-    _sessions.clear()
+    session = _sessions.pop(path, None)
+    if session is not None:
+        session.cleanup()
 
 
 def create_chdb_session(path: Optional[str] = None) -> Session:

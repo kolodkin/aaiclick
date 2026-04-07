@@ -24,16 +24,10 @@ from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .worker import HEARTBEAT_INTERVAL, _handle_task_result, _worker_loop, worker_heartbeat
 
-# Default task timeout in seconds (None = no timeout).
-# Override via AAICLICK_TASK_TIMEOUT env var.
-_DEFAULT_TASK_TIMEOUT: Optional[float] = None
-
-
 def _get_task_timeout() -> Optional[float]:
+    """Read task timeout from AAICLICK_TASK_TIMEOUT env var (seconds)."""
     raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
-    if raw is not None:
-        return float(raw)
-    return _DEFAULT_TASK_TIMEOUT
+    return float(raw) if raw is not None else None
 
 
 class _ProcessResult(NamedTuple):

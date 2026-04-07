@@ -38,16 +38,29 @@ def event_loop():
     loop.close()
 
 
+# Session-scoped chdb dir for orch_ctx fallback (oplog tests etc.).
+# Reuses the orchestration conftest's dir if already set, otherwise
+# creates its own. Must stay consistent because chdb only allows one
+# path per process.
+_fallback_chdb_dir: str | None = None
+
+
 @pytest.fixture(scope="session")
-def _shared_chdb_dir():
-    """Session-scoped chdb data directory for non-orchestration tests."""
+def _orch_chdb_dir():
+    """Provide a chdb path, reusing AAICLICK_CH_URL if already set."""
+    global _fallback_chdb_dir
+    ch_url = os.environ.get("AAICLICK_CH_URL", "")
+    if ch_url.startswith("chdb://"):
+        yield ch_url.removeprefix("chdb://")
+        return
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
+    _fallback_chdb_dir = tmp_dir
     yield tmp_dir
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @pytest.fixture
-async def orch_ctx(monkeypatch, _shared_chdb_dir):
+async def orch_ctx(monkeypatch, _orch_chdb_dir):
     """Function-scoped orch context with dedicated sql_url.
 
     Fallback for tests outside aaiclick/orchestration/ (e.g. oplog tests).
@@ -55,5 +68,5 @@ async def orch_ctx(monkeypatch, _shared_chdb_dir):
     """
     from aaiclick.orchestration.conftest import _orch_test_env
 
-    async with _orch_test_env(monkeypatch, _shared_chdb_dir):
+    async with _orch_test_env(monkeypatch, _orch_chdb_dir):
         yield
