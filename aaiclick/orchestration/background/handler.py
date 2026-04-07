@@ -25,7 +25,7 @@ class BackgroundHandler(ABC):
     @staticmethod
     @abstractmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
+        session: AsyncSession, dead_worker_ids: list[str], now: datetime,
     ) -> None:
         """Mark dead workers as STOPPED and their tasks as FAILED."""
         ...

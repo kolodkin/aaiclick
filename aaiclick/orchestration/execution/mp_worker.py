@@ -24,11 +24,6 @@ from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .worker import HEARTBEAT_INTERVAL, _handle_task_result, _worker_loop, worker_heartbeat
 
-def _get_task_timeout() -> Optional[float]:
-    """Read task timeout from AAICLICK_TASK_TIMEOUT env var (seconds)."""
-    raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
-    return float(raw) if raw is not None else None
-
 
 class _ProcessResult(NamedTuple):
     """Result passed from child process back to main via queue."""
@@ -39,18 +34,20 @@ class _ProcessResult(NamedTuple):
     error: Optional[str]
 
 
-# Use "spawn" context: starts a fresh Python interpreter so the child
-# has no inherited chdb embedded-server state from the parent process.
-# "fork" would inherit the C++ singleton and deadlock or conflict.
+# "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
 _mp_ctx = multiprocessing.get_context("spawn")
 
+
+# ---------------------------------------------------------------------------
+# Child process (runs in spawned process)
+# ---------------------------------------------------------------------------
 
 def _child_process_target(
     task_id: int,
     job_id: int,
     result_queue: multiprocessing.Queue,
 ) -> None:
-    """Entry point for the child process. Runs asyncio event loop."""
+    """Sync entry point for the child process — bridges to async."""
     try:
         asyncio.run(_child_run_task(task_id, job_id, result_queue))
     except BaseException as e:
@@ -64,7 +61,7 @@ async def _child_run_task(
     job_id: int,
     result_queue: multiprocessing.Queue,
 ) -> None:
-    """Execute a task inside its own orch_context in the child process."""
+    """Set up orch_context, fetch task from DB, execute, send result back."""
     from ..orch_context import orch_context
 
     async with orch_context():
@@ -83,27 +80,42 @@ async def _child_run_task(
         ))
 
 
-async def _execute_in_child(
+# ---------------------------------------------------------------------------
+# Parent process
+# ---------------------------------------------------------------------------
+
+async def _run_task_in_child(
     task: Task,
-    worker_id: int,
+    worker_id: str,
 ) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
     """ExecuteFn for the multiprocessing worker.
 
-    Spawns a child process to run the task, sends heartbeats from the
-    parent while waiting, and enforces AAICLICK_TASK_TIMEOUT if set.
+    Spawns a child process, sends heartbeats from the parent while
+    waiting, and enforces AAICLICK_TASK_TIMEOUT if set.
     """
-    timeout = _get_task_timeout()
+    raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
+    timeout = float(raw_timeout) if raw_timeout is not None else None
+
+    result_queue = _mp_ctx.Queue()
+    proc = _mp_ctx.Process(
+        target=_child_process_target,
+        args=(task.id, task.job_id, result_queue),
+        daemon=True,
+    )
+    proc.start()
+
     done = asyncio.Event()
-    heartbeat_task = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
+    heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
+
     try:
-        proc_result = await _run_in_child(task.id, task.job_id, timeout)
-        return proc_result.success, proc_result.result_ref, proc_result.log_path, proc_result.error
+        result = await _poll_child(proc, result_queue, timeout)
+        return result.success, result.result_ref, result.log_path, result.error
     finally:
         done.set()
-        await heartbeat_task
+        await heartbeat
 
 
-async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
+async def _heartbeat_while_waiting(worker_id: str, done: asyncio.Event) -> None:
     """Send heartbeats in the parent while the child process is running."""
     while not done.is_set():
         try:
@@ -113,8 +125,48 @@ async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
             await worker_heartbeat(worker_id)
 
 
+async def _poll_child(
+    proc: multiprocessing.Process,
+    result_queue: multiprocessing.Queue,
+    timeout: Optional[float],
+) -> _ProcessResult:
+    """Poll queue for child result, enforce timeout, detect crashes."""
+    poll_interval = 0.5
+    elapsed = 0.0
+
+    while True:
+        try:
+            result = await asyncio.to_thread(
+                result_queue.get, timeout=poll_interval,
+            )
+            await asyncio.to_thread(proc.join)
+            return result
+        except queue.Empty:
+            pass
+
+        elapsed += poll_interval
+
+        if timeout is not None and elapsed >= timeout:
+            proc.kill()
+            await asyncio.to_thread(proc.join, timeout=5)
+            return _ProcessResult(
+                success=False, result_ref=None, log_path=None,
+                error=f"Task timed out after {timeout}s",
+            )
+
+        if not proc.is_alive():
+            return _ProcessResult(
+                success=False, result_ref=None, log_path=None,
+                error=f"Child process exited with code {proc.exitcode}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 async def mp_worker_main_loop(
-    worker_id: Optional[int] = None,
+    worker_id: Optional[str] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
@@ -140,55 +192,10 @@ async def mp_worker_main_loop(
         Number of tasks successfully executed.
     """
     return await _worker_loop(
-        execute_fn=_execute_in_child,
+        execute_fn=_run_task_in_child,
         worker_id=worker_id,
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,
         max_empty_polls=max_empty_polls,
         mode_label="mp",
     )
-
-
-async def _run_in_child(
-    task_id: int,
-    job_id: int,
-    timeout: Optional[float],
-) -> _ProcessResult:
-    """Spawn a child process, wait for its result, return it."""
-    result_queue = _mp_ctx.Queue()
-    proc = _mp_ctx.Process(
-        target=_child_process_target,
-        args=(task_id, job_id, result_queue),
-        daemon=True,
-    )
-    proc.start()
-
-    poll_interval = 0.5
-    elapsed = 0.0
-
-    while True:
-        try:
-            result = await asyncio.to_thread(
-                result_queue.get, timeout=poll_interval,
-            )
-            await asyncio.to_thread(proc.join)
-            return result
-        except queue.Empty:
-            pass
-
-        elapsed += poll_interval
-
-        if timeout is not None and elapsed >= timeout:
-            proc.kill()
-            await asyncio.to_thread(proc.join, timeout=5)
-            return _ProcessResult(
-                success=False, result_ref=None, log_path=None,
-                error=f"Task timed out after {timeout}s",
-            )
-
-        if not proc.is_alive():
-            exit_code = proc.exitcode
-            return _ProcessResult(
-                success=False, result_ref=None, log_path=None,
-                error=f"Child process exited with code {exit_code}",
-            )

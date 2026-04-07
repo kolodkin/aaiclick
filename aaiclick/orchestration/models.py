@@ -3,8 +3,10 @@ aaiclick.orchestration.models - Data models for orchestration backend.
 
 This module defines SQLModel models for jobs, tasks, workers, groups, and dependencies.
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
+Worker IDs are UUID strings (no chdb dependency for worker registration).
 """
 
+import uuid as uuid_mod
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -128,7 +130,10 @@ class Worker(SQLModel, table=True):
 
     __tablename__ = "workers"
 
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    id: str = Field(
+        default_factory=lambda: str(uuid_mod.uuid4()),
+        sa_column=Column(String(36), primary_key=True),
+    )
     hostname: str = Field(index=True)
     pid: int = Field()
     status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
@@ -285,7 +290,7 @@ class Task(SQLModel, table=True):
     claimed_at: Optional[datetime] = Field(default=None)
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
-    worker_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True))
+    worker_id: Optional[str] = Field(default=None, sa_column=Column(String(36), ForeignKey("workers.id"), index=True, nullable=True))
     result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
     log_path: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)

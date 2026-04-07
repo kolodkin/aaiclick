@@ -18,7 +18,7 @@ class PgDbHandler(DbHandler):
 
     @staticmethod
     async def claim_next_task(
-        session: AsyncSession, worker_id: int, now: datetime
+        session: AsyncSession, worker_id: str, now: datetime
     ) -> Optional[Task]:
         result = await session.execute(
             text(f"""

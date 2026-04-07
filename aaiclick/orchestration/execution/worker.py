@@ -11,8 +11,6 @@ from typing import Awaitable, Callable, Optional
 
 from sqlmodel import select
 
-from aaiclick.snowflake_id import get_snowflake_id
-
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
@@ -20,7 +18,7 @@ from ..models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Task execution strategy used by _worker_loop.
 # Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
-ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
+ExecuteFn = Callable[[Task, str], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -93,9 +91,7 @@ async def register_worker(
     Returns:
         Worker: Registered worker with ID populated
     """
-    worker_id = get_snowflake_id()
     worker = Worker(
-        id=worker_id,
         hostname=hostname or socket.gethostname(),
         pid=pid or os.getpid(),
         status=WorkerStatus.ACTIVE,
@@ -111,7 +107,7 @@ async def register_worker(
     return worker
 
 
-async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
+async def worker_heartbeat(worker_id: str) -> Optional[WorkerStatus]:
     """
     Update worker's last_heartbeat timestamp.
 
@@ -142,7 +138,7 @@ async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
     return worker.status
 
 
-async def request_worker_stop(worker_id: int) -> bool:
+async def request_worker_stop(worker_id: str) -> bool:
     """
     Request a worker to stop gracefully.
 
@@ -175,7 +171,7 @@ async def request_worker_stop(worker_id: int) -> bool:
     return True
 
 
-async def deregister_worker(worker_id: int) -> bool:
+async def deregister_worker(worker_id: str) -> bool:
     """
     Mark a worker as stopped.
 
@@ -226,7 +222,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     return list(workers)
 
 
-async def get_worker(worker_id: int) -> Optional[Worker]:
+async def get_worker(worker_id: str) -> Optional[Worker]:
     """
     Get a worker by ID.
 
@@ -243,7 +239,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
         return result.scalar_one_or_none()
 
 
-async def _increment_worker_stat(worker_id: int, field: str) -> None:
+async def _increment_worker_stat(worker_id: str, field: str) -> None:
     """Increment a worker stat field (tasks_completed or tasks_failed)."""
     async with get_sql_session() as session:
         result = await session.execute(select(Worker).where(Worker.id == worker_id))
@@ -274,7 +270,7 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task) -> None:
 
 async def _handle_task_result(
     task: Task,
-    worker_id: int,
+    worker_id: str,
     success: bool,
     result_ref: Optional[dict],
     log_path: Optional[str],
@@ -315,7 +311,7 @@ async def _handle_task_result(
 
 async def _worker_loop(
     execute_fn: ExecuteFn,
-    worker_id: Optional[int] = None,
+    worker_id: Optional[str] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,
@@ -397,7 +393,7 @@ async def _worker_loop(
     return tasks_executed
 
 
-async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+async def _execute_in_process(task: Task, worker_id: str) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
@@ -421,7 +417,7 @@ async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, Optiona
 
 
 async def worker_main_loop(
-    worker_id: Optional[int] = None,
+    worker_id: Optional[str] = None,
     max_tasks: Optional[int] = None,
     install_signal_handlers: bool = True,
     max_empty_polls: Optional[int] = None,

@@ -13,7 +13,7 @@ from ..models import Job, JobStatus, Task, TaskStatus
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
-async def claim_next_task(worker_id: int) -> Optional[Task]:
+async def claim_next_task(worker_id: str) -> Optional[Task]:
     """
     Atomically claim the next available task for a worker.
 

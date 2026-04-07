@@ -169,6 +169,7 @@ async def orch_ctx_no_ch(monkeypatch, _pg_worker_db):
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
     Uses a per-test chdb dir so the child process can lock it exclusively.
+    The parent no longer needs chdb (worker IDs are UUIDs).
     """
     chdb_dir = tempfile.mkdtemp(prefix="aaiclick_orch_mp_chdb_")
     try:
