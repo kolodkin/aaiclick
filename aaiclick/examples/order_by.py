@@ -5,13 +5,13 @@ This example demonstrates how to use the ``order_by`` parameter when creating
 Objects so the underlying ClickHouse table is physically sorted.
 
 ``aai_id`` is always appended as the last ORDER BY column.
-When ``order_by`` is specified the engine is automatically upgraded from
-Memory to MergeTree.
+Requires a MergeTree-family engine (Memory ignores ORDER BY).
 """
 
 import asyncio
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
+from aaiclick.data import ENGINE_MERGE_TREE
 from aaiclick.data.data_context import data_context, get_ch_client
 
 
@@ -31,7 +31,6 @@ async def example():
         order_by=["date"],
     )
     print(f"Data: {await sales.data(orient=ORIENT_RECORDS)}")
-    # → [{'date': '2024-01-03', 'amount': 300}, {'date': '2024-01-01', 'amount': 100}, {'date': '2024-01-02', 'amount': 200}]
 
     result = await ch.query(
         f"SELECT engine, sorting_key FROM system.tables WHERE name = '{sales.table}'"
@@ -53,7 +52,6 @@ async def example():
         order_by=["category", "date"],
     )
     print(f"Data: {await events.data(orient=ORIENT_RECORDS)}")
-    # → [{'category': 'b', 'date': '2024-01-02', 'value': 4}, {'category': 'a', 'date': '2024-01-02', 'value': 2}, {'category': 'a', 'date': '2024-01-01', 'value': 1}, {'category': 'b', 'date': '2024-01-01', 'value': 3}]
 
     result = await ch.query(
         f"SELECT sorting_key FROM system.tables WHERE name = '{events.table}'"
@@ -69,7 +67,6 @@ async def example():
         {"x": [3, 1, 2], "y": [30, 10, 20]},
     )
     print(f"Data: {await plain.data(orient=ORIENT_RECORDS)}")
-    # → [{'x': 3, 'y': 30}, {'x': 1, 'y': 10}, {'x': 2, 'y': 20}]
 
     result = await ch.query(
         f"SELECT engine FROM system.tables WHERE name = '{plain.table}'"
@@ -79,7 +76,7 @@ async def example():
 
 async def amain():
     """Main entry point that creates data_context() and calls example."""
-    async with data_context():
+    async with data_context(engine=ENGINE_MERGE_TREE):
         await example()
 
 

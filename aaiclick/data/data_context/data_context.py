@@ -8,6 +8,7 @@ within its scope, automatically cleaning up tables when the context exits.
 from __future__ import annotations
 
 import re
+import warnings
 import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -249,9 +250,14 @@ async def create_object(
 
     order_by = schema.order_by or "tuple()"
 
-    # Memory engine ignores ORDER BY — upgrade to MergeTree when order_by is set.
+    # Memory engine ignores ORDER BY — warn when both are combined.
     if effective_engine == "Memory" and schema.order_by:
-        effective_engine = "MergeTree"
+        warnings.warn(
+            f"order_by={schema.order_by!r} has no effect with Memory engine. "
+            "Use engine='MergeTree' for ORDER BY support.",
+            UserWarning,
+            stacklevel=2,
+        )
     engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
