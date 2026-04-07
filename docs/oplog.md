@@ -1,7 +1,7 @@
 Operation Log (oplog)
 ---
 
-The `aaiclick/oplog/` module captures data operation provenance inside ClickHouse with zero AI dependencies. Every object created or transformed within a session is recorded, enabling lineage tracing, debugging, and post-job data sampling. Activation via `data_context()` is planned for Phase 3 — see `docs/future.md`.
+The `aaiclick/oplog/` module captures data operation provenance inside ClickHouse with zero AI dependencies. Every object created or transformed within a session is recorded, enabling lineage tracing, debugging, and post-job data sampling.
 
 ---
 
@@ -21,7 +21,7 @@ All inputs are named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary
 
 ## table_registry
 
-Maps every ephemeral table to its owning `job_id` for post-job cleanup. Persistent tables (`p_` prefix) have no `job_id` and are excluded from cleanup.
+Maps every ephemeral table to its owning `job_id` for post-job cleanup. Persistent tables (`p_` prefix) have no `job_id` and are excluded from cleanup. TTL-managed via `AAICLICK_OPLOG_TTL_DAYS` (default: 90 days), matching `operation_log`.
 
 ## Initialization
 
@@ -34,26 +34,6 @@ Maps every ephemeral table to its owning `job_id` for post-job cleanup. Persiste
 **Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector`, `get_oplog_collector()`
 
 Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to both `operation_log` and `table_registry` on `flush()`. Accessed via ContextVar `_oplog_collector`.
-
-## Activation ⚠️ NOT YET IMPLEMENTED (Phase 3)
-
-The `data_context()` function does not yet accept an `oplog` parameter. OplogCollector activation
-is planned for Phase 3 — see `docs/future.md` — "Operation Provenance Integration (Phase 3)".
-
-Once implemented, the intended API is:
-
-```python
-# Bool — creates a plain OplogCollector()
-async with data_context(oplog=True):
-    ...
-
-# Pre-configured instance — used by orchestration (task_id/job_id already set)
-collector = OplogCollector(task_id=task_id, job_id=job_id)
-async with data_context(oplog=collector):
-    ...
-```
-
-`data_context` will store the collector in the ContextVar, call `flush()` on clean exit, and reset in `finally`. On exception, the buffer is discarded.
 
 ---
 
@@ -85,9 +65,11 @@ Graph traversal over `operation_log`. `backward_oplog()` uses `WITH RECURSIVE` f
 
 ---
 
-# Table Lifecycle & Cleanup
+# Table Lifecycle & Cleanup ✅ IMPLEMENTED
 
-Post-job table sampling (replacing ephemeral tables with 10-row samples after job completion) is planned for Phase 3. See `docs/future.md` — "Oplog: Table Lifecycle & Cleanup".
+**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_expired_samples()`
+
+When `BackgroundWorker` drops an unreferenced ephemeral table, `lineage_aware_drop()` first creates a `{table}_sample` table preserving lineage-referenced rows (or a random 10-row sample as fallback), then drops the original. Sample tables are cleaned up automatically: `BackgroundWorker._cleanup_expired_samples()` drops `_sample` tables older than `AAICLICK_OPLOG_TTL_DAYS` (default 90), since no `operation_log` references remain past that point.
 
 ---
 
