@@ -54,34 +54,25 @@ class SnowflakeGenerator:
         self._buffer: deque[int] = deque()
 
     def _fetch_ids(self, count: int) -> list[int]:
-        """Fetch a batch of Snowflake IDs from ClickHouse.
-
-        Opens a fresh session/connection, fetches IDs, and closes it.
-        For chdb, uses an empty ``Session()`` (in-memory, no data path).
-        For remote ClickHouse, uses clickhouse-connect directly.
-        """
+        """Fetch a batch of Snowflake IDs from ClickHouse."""
         if is_chdb():
             return self._fetch_ids_chdb(count)
         return self._fetch_ids_remote(count)
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
-        """Fetch IDs via a throwaway chdb in-memory session."""
         session = Session()
         result = session.query(
-            f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})",
+            f"SELECT generateSnowflakeID() FROM numbers({count})",
             "TabSeparated",
         )
         raw = result.bytes()
-        if raw:
-            text = raw.decode("utf-8").strip().strip("[]")
-            if text:
-                return [int(x) for x in text.split(",") if x.strip()]
-        return []
+        if not raw:
+            return []
+        return [int(line) for line in raw.decode("utf-8").splitlines() if line]
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
-        """Fetch IDs via a clickhouse-connect client."""
         client = get_ch_client(**parse_ch_url())
         try:
             result = client.query(
