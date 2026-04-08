@@ -140,4 +140,4 @@ async def explain(target_table: str, question: str | None = None) -> str:
 
 # Historical Tables
 
-After job cleanup, each table is replaced with relevant samples (see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently get the preserved sample.
+After job cleanup, each table is replaced with a sample of rows referenced by oplog lineage — inputs and outputs of recorded operations (see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently get the preserved sample.
