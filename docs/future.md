@@ -1,7 +1,7 @@
 Future Plans
 ---
 
-Unimplemented features and planned work across aaiclick, ordered by priority.
+Planned work across aaiclick, ordered by priority.
 
 ---
 
@@ -19,13 +19,9 @@ Core data operation — table-stakes for any data framework.
 
 ## Insert Advisory Lock for Concurrent Workers
 
-In orchestration mode, multiple workers may insert into the same persistent Object concurrently.
-After the `_insert_source()` fix (generating fresh Snowflake IDs instead of preserving source
-IDs), concurrent INSERTs within the same millisecond could produce interleaved IDs, mixing
-rows from different logical inserts.
+Concurrent workers inserting into the same persistent Object can produce interleaved Snowflake IDs within the same millisecond.
 
-Use PostgreSQL advisory locks (`SELECT pg_advisory_lock(table_hash)`) to serialize inserts
-per-table in distributed mode. SQLite mode is single-process and needs no lock.
+Serialize via PostgreSQL advisory locks (`pg_advisory_lock(table_hash)`) per-table. SQLite mode is single-process and needs no lock.
 
 ## Progressive Tutorial
 
@@ -50,10 +46,7 @@ Both `debug_agent` and `lineage_agent` build context from the oplog graph but ne
 
 ## Lineage: aai_id Uniqueness Awareness
 
-Now that `insert()` and `concat()` generate fresh Snowflake IDs (instead of preserving source IDs),
-the lineage agent should account for the fact that `aai_id` values differ between source and target
-tables after insert/concat. Row-level tracing across insert/concat boundaries cannot rely on `aai_id`
-matching — the agent needs to use data-value matching or oplog provenance metadata instead.
+`insert()` and `concat()` generate fresh Snowflake IDs, so `aai_id` values differ between source and target. Row-level tracing across these boundaries needs data-value matching or oplog provenance metadata instead of `aai_id` matching.
 
 
 ---
