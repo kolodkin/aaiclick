@@ -107,22 +107,6 @@ class OrchLifecycleHandler(LifecycleHandler):
         """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
-    async def claim(self, table_name: str, job_id: int) -> None:
-        """Release a pinned ref (ownership transfer to consumer).
-
-        Clears the job_id marker on the ref row so it becomes a plain task ref.
-        The consumer's incref already created its own row.
-        """
-        async with get_sql_session() as session:
-            await session.execute(
-                text(
-                    "UPDATE table_context_refs "
-                    "SET job_id = NULL "
-                    "WHERE table_name = :table AND job_id = :job_id"
-                ),
-                {"table": table_name, "job_id": job_id},
-            )
-            await session.commit()
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -220,13 +204,11 @@ class OrchLifecycleHandler(LifecycleHandler):
                     elif msg.op == DBLifecycleOp.PIN:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, job_id) "
-                                "VALUES (:table_name, :context_id, :job_id) "
-                                "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET job_id = :job_id"
+                                "INSERT INTO table_pin_refs (table_name, job_id) "
+                                "VALUES (:table_name, :job_id) "
+                                "ON CONFLICT (table_name, job_id) DO NOTHING"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id,
-                             "job_id": self._job_id},
+                            {"table_name": msg.table_name, "job_id": self._job_id},
                         )
                     await session.commit()
 

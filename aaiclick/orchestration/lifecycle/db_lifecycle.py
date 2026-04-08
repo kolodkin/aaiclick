@@ -61,23 +61,32 @@ class DBLifecycleMessage:
 
 
 class TableContextRef(SQLModel, table=True):
-    """Registry of tracked ClickHouse tables and their pin state.
+    """Registry of tracked ClickHouse tables.
 
     Composite PK (table_name, context_id) allows multiple contexts to
     register the same table independently.
-
-    Non-NULL job_id marks a pin — the background worker skips pinned tables
-    even when no run refs remain in table_run_refs.
-
-    - Task refs: context_id = task_id, job_id = NULL
-    - Pin refs: context_id = task_id, job_id = job_id (non-NULL marks a pin)
     """
 
     __tablename__ = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+
+
+class TablePinRef(SQLModel, table=True):
+    """Junction table: which jobs hold a pin on which tables.
+
+    pin inserts a row; the background worker deletes rows for
+    completed/failed/cancelled jobs.  Tables with any pin_ref row
+    are skipped during cleanup, even when no run_refs remain.  This
+    bridges the gap between a producer task finishing and all consumer
+    tasks starting (at which point their run_refs protect the table).
+    """
+
+    __tablename__ = "table_pin_refs"
+
+    table_name: str = Field(sa_column=Column(String, primary_key=True))
+    job_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
 
 
 class TableRunRef(SQLModel, table=True):

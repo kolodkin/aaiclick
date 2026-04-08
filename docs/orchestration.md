@@ -213,18 +213,26 @@ Empty input raises `TypeError("reduce() of empty sequence with no initial value"
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`
 
-In distributed mode, Object table lifecycle is managed through two PostgreSQL tables — `table_context_refs` (pin state) and `table_run_refs` (active run references). The background worker is the sole cleanup authority.
+In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
+
+| Table                | PK                        | Purpose                                       |
+|----------------------|---------------------------|-----------------------------------------------|
+| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table  |
+| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)         |
+| `table_pin_refs`     | `(table_name, job_id)`     | Job-scoped pins protecting result tables      |
+
+The background worker is the sole cleanup authority.
 
 ```
 Worker Process (spawns child per task)
 ├── OrchLifecycleHandler (per task, per child process)
 │   ├── incref → insert into table_context_refs + table_run_refs
 │   ├── decref → delete from table_run_refs
-│   └── pin → sets job_id on context_ref row
+│   └── pin → insert into table_pin_refs
 ├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── clears job_id on pin refs (completed/failed jobs)
-│   ├── DROP where no pin AND no run_refs
+│   ├── deletes pin_refs for completed/failed jobs
+│   ├── DROP where no pin_refs AND no run_refs
 │   └── detects dead workers → marks tasks FAILED
 └── orch_context() — shared SQL session
 ```
@@ -233,31 +241,28 @@ Worker Process (spawns child per task)
 
 ```
 Task A executes
-  ├── incref intermediates → context_ref + run_ref rows in SQL
-  ├── PIN result: sets job_id on (t_result, task_a.id) context_ref
+  ├── incref intermediates → context_ref + run_ref rows
+  ├── PIN result → inserts (t_result, job_id) into table_pin_refs
   └── task_scope exit:
       ├── decref ALL objects → deletes run_ref rows for this run_id
-      ├── job_id pin protects result table from background cleanup
+      ├── pin_ref protects result table from background cleanup
       └── stale-mark all → __del__ is a no-op
 
 Task B starts, deserializes task_a.result
-  ├── incref → adds (t_result, task_b.id) context_ref + run_ref
-  └── pin stays — no claim during deserialization
+  └── incref → context_ref + run_ref (pin stays in table_pin_refs)
 
-Job completes → BackgroundWorker clears pins + drops orphaned tables
+Job completes → BackgroundWorker deletes pin_refs + drops orphaned tables
 ```
 
-Pin stays for the entire job duration. When an upstream Object is shared by multiple downstream tasks, the pin protects the table until all consumers finish and the job completes. `_cleanup_completed_jobs` clears pins; `_cleanup_unreferenced_tables` drops tables with no pins and no run_refs.
+Pin stays for the entire job duration. When an upstream Object is shared by multiple downstream tasks, the pin protects the table until all consumers finish and the job completes. `_cleanup_completed_jobs` deletes pin_refs; `_cleanup_unreferenced_tables` drops tables with no pin_refs and no run_refs.
 
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips tables where any context_ref row has non-NULL `job_id`.
+Uses `task_id` as `context_id` for context_refs; pin operations insert into `table_pin_refs` keyed by `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by their `table_pin_refs` row — background worker skips tables with any pin_ref.
 
-**Pin lifecycle**: `pin()` sets `job_id` on existing context_ref row. Pin stays until `_cleanup_completed_jobs` clears it when the job reaches a terminal state.
-
-**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)` with nullable `job_id`; `TableRunRef` — composite PK `(table_name, run_id)`.
+**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, job_id)`.
 
 ## BackgroundWorker
 

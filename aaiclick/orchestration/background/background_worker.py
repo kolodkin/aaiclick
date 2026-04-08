@@ -110,17 +110,16 @@ class BackgroundWorker:
         await self._check_schedules()
 
     async def _cleanup_completed_jobs(self) -> None:
-        """Clear job_id on pin refs for completed/failed jobs.
+        """Delete pin refs for completed/failed/cancelled jobs.
 
-        Sets job_id = NULL so the ref becomes a plain task ref
-        eligible for cleanup by _cleanup_unreferenced_tables.
+        Removes table_pin_refs rows so pinned tables become eligible
+        for cleanup by _cleanup_unreferenced_tables.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT DISTINCT job_id FROM table_context_refs "
-                    "WHERE job_id IS NOT NULL "
-                    "AND job_id IN ("
+                    "SELECT DISTINCT job_id FROM table_pin_refs "
+                    "WHERE job_id IN ("
                     "  SELECT id FROM jobs "
                     "  WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
                     ")"
@@ -137,10 +136,9 @@ class BackgroundWorker:
     async def _cleanup_unreferenced_tables(self) -> None:
         """Drop CH tables with no run refs and no pin.
 
-        A table is only eligible for cleanup when ALL of its context_ref
-        rows have job_id IS NULL (no pin) AND no run_refs exist.  This
-        prevents dropping tables that are still pinned by a producer even
-        when a consumer added an unpinned context_ref row.
+        A table is eligible for cleanup when it has no pin_refs AND no
+        run_refs.  Pin refs are inserted by the producer and deleted by
+        _cleanup_completed_jobs when the job finishes.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -148,9 +146,8 @@ class BackgroundWorker:
                     "SELECT DISTINCT tcr.table_name FROM table_context_refs tcr "
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
                     "AND NOT EXISTS ("
-                    "  SELECT 1 FROM table_context_refs pin "
-                    "  WHERE pin.table_name = tcr.table_name "
-                    "  AND pin.job_id IS NOT NULL"
+                    "  SELECT 1 FROM table_pin_refs tpr "
+                    "  WHERE tpr.table_name = tcr.table_name"
                     ") "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
