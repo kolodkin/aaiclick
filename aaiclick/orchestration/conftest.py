@@ -32,9 +32,9 @@ def _tmp_log_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
 
 
-@pytest.fixture(autouse=True)
-def _fast_worker_polling(monkeypatch):
-    """Use fast polling and retry delays in all orchestration tests."""
+@pytest.fixture
+def fast_poll(monkeypatch):
+    """Reduce polling and retry delays for worker-loop tests."""
     monkeypatch.setattr(
         "aaiclick.orchestration.execution.worker.POLL_INTERVAL", 0.5,
     )

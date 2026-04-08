@@ -1,8 +1,11 @@
 """Tests for local mode worker (in-process async execution with chdb)."""
 
+import pytest
 from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
+
+pytestmark = pytest.mark.usefixtures("fast_poll")
 
 from ..factories import create_job
 from ..models import Task, TaskStatus
