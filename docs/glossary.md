@@ -5,7 +5,7 @@ Glossary
 
 ## `aai_id`
 
-Snowflake ID column present in every Object table. Provides deterministic ordering — `data()` retrieves rows via `ORDER BY aai_id`. All operations generate fresh IDs, so order follows argument/insertion order.
+Snowflake ID column in every Object table for deterministic ordering via `ORDER BY aai_id`. All operations generate fresh IDs.
 
 # C
 
@@ -41,7 +41,7 @@ Metadata tag (`'s'`, `'a'`, `'d'`) stored as a YAML comment on each column. Indi
 
 ## `GroupByQuery`
 
-Intermediate class returned by `obj.group_by("key")`. Supports aggregation methods (`.sum()`, `.mean()`, `.count()`, etc.) and `.having()` filters. Result is a normal dict Object.
+Returned by `obj.group_by("key")`. Supports aggregation (`.sum()`, `.mean()`, etc.) and `.having()` filters. Returns a dict Object.
 
 # M
 

@@ -1,7 +1,7 @@
 AI Layer
 ---
 
-Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
+Optional AI-powered lineage querying and debugging (`pip install aaiclick[ai]`); the core package works identically without it.
 
 **Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 
@@ -109,8 +109,6 @@ async def debug_result(target_table: str, question: str) -> str:
 
 ## Agent Tools
 
-Tools the AI can call for deeper inspection via tool-calling protocol:
-
 Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
 | Tool             | Parameters                          | Returns                          |
@@ -131,10 +129,7 @@ async def explain(target_table: str, question: str | None = None) -> str:
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
     except ImportError:
-        raise ImportError(
-            "AI features require the aaiclick[ai] extra. "
-            "Install with: pip install aaiclick[ai]"
-        )
+        raise ImportError("AI features require aaiclick[ai]: pip install aaiclick[ai]")
     return await explain_lineage(target_table, question)
 ```
 
@@ -142,4 +137,4 @@ async def explain(target_table: str, question: str | None = None) -> str:
 
 # Historical Tables
 
-After job cleanup, each table is replaced with a 10-row sample (same name, same schema — see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently return the preserved sample rows.
+After job cleanup, each table is replaced with a sample of rows referenced by oplog lineage — inputs and outputs of recorded operations (see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently get the preserved sample.

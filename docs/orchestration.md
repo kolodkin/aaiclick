@@ -30,7 +30,7 @@ See `aaiclick/examples/orchestration_basic.py` for a full example.
 
 **Implementation**: `aaiclick/orchestration/decorators.py` — see `TaskFactory` and `JobFactory`
 
-Airflow-style TaskFlow API with automatic dependency detection. Passing a Task result as an argument to another task creates an upstream dependency. Native Python values work alongside Object/View parameters.
+Airflow-style TaskFlow API. Passing a Task result as an argument creates an upstream dependency automatically.
 
 ## @task
 
@@ -38,9 +38,9 @@ Wraps an async function into a `TaskFactory`. Parameters: `name` (default: funct
 
 ## @job
 
-Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` (SQLAlchemy `AsyncEngine`, aiosqlite or asyncpg) and commits all tasks to SQL. Parameter: `name` — accepts positional (`@job("my_job")`), keyword, or bare (`@job`).
+Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and commits all tasks to SQL. Use `@job("name")`, `@job(name="name")`, or bare `@job`.
 
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/execution/debug.py`.
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously (`aaiclick/orchestration/execution/debug.py`).
 
 # Deployment Modes
 
@@ -102,17 +102,13 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **Implementation**: `aaiclick/orchestration/execution/worker.py` — see `worker_main_loop()`
 
-Continuously polls for tasks, executes them, and updates status. Handles auto-registration/deregistration, periodic heartbeats (30s), graceful SIGTERM/SIGINT shutdown, and per-task lifecycle handler creation via `lifecycle_factory`.
+Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
 
 ## Task Claiming
 
 **Implementation**: `aaiclick/orchestration/execution/claiming.py` — see `claim_next_task()`, `pg_handler.py`, `sqlite_handler.py`
 
-Finds the oldest pending task with all dependencies satisfied, atomically claims it, and transitions the parent job PENDING→RUNNING on first claim.
-
-- Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
-- **PostgreSQL**: Single atomic CTE with `FOR UPDATE SKIP LOCKED`
-- **SQLite**: Sequential SELECT + UPDATE — sufficient for single-worker local mode
+Finds the oldest pending task with all dependencies satisfied and atomically claims it. Transitions job PENDING→RUNNING on first claim. PostgreSQL uses `FOR UPDATE SKIP LOCKED`; SQLite uses sequential SELECT + UPDATE.
 
 # Job Management
 
@@ -122,13 +118,13 @@ Finds the oldest pending task with all dependencies satisfied, atomically claims
 - `stats.py` — `compute_job_stats()`, `print_job_stats()`
 - `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
 
-Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
+Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks won't interrupt until they yield.
 
 # Registered Jobs
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`, `aaiclick/orchestration/models.py` — see `RegisteredJob`
 
-Separates job *registration* (catalog of known jobs) from job *execution* (individual runs). Each registered job stores its entrypoint, optional cron schedule, default kwargs, and enabled flag.
+Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, and enabled flag.
 
 ## Registration & CRUD
 
@@ -146,9 +142,7 @@ Separates job *registration* (catalog of known jobs) from job *execution* (indiv
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
 
-The `BackgroundWorker` checks `registered_jobs WHERE enabled = true AND next_run_at <= NOW()` on each poll (~10s). Uses optimistic locking on `next_run_at` to prevent duplicate runs across multiple workers. Creates Job with `run_type=SCHEDULED`.
-
-Cron expressions are parsed by `croniter`. `next_run_at` is computed on registration, enable, and after each scheduled run.
+`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
 
 # CLI
 
@@ -156,32 +150,27 @@ Cron expressions are parsed by `croniter`. `next_run_at` is computed on registra
 
 ## Local Mode (chdb + SQLite)
 
-Single process runs worker + background cleanup together, sharing one chdb
-session.  No infrastructure required — just `setup` and `local start`.
+Single process, no infrastructure required.
 
 ```bash
 python -m aaiclick setup                      # Initialize local DB + chdb
-python -m aaiclick local start                # Worker + background in one process
-python -m aaiclick local start --max-tasks 10
-python -m aaiclick local stop <worker_id>     # Graceful stop
+python -m aaiclick local start [--max-tasks N]
+python -m aaiclick local stop <worker_id>
 ```
 
 ## Distributed Mode (ClickHouse + PostgreSQL)
 
-Workers and background run as independent processes.  Each task executes
-in a dedicated child process for isolation.
+Independent processes; tasks run in child processes for isolation.
 
 ```bash
-python -m aaiclick worker start               # Start a worker process
-python -m aaiclick worker start --max-tasks 10
-python -m aaiclick worker stop <worker_id>    # Graceful stop
+python -m aaiclick worker start [--max-tasks N]
+python -m aaiclick worker stop <worker_id>
 python -m aaiclick worker list
-python -m aaiclick background start           # Standalone background worker
+python -m aaiclick background start
 ```
 
-!!! warning "`worker start` and `background start` require distributed backends"
-    Running these commands in local mode (chdb + SQLite) raises `RuntimeError`.
-    Use `local start` instead.
+!!! warning "`worker start`/`background start` require distributed backends"
+    In local mode, use `local start` instead.
 
 ## Common Commands
 
@@ -210,15 +199,13 @@ python -m aaiclick registered-job list        # List registered jobs
 
 ## reduce()
 
-Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes results via `output.insert()`. All layers and tasks are created at once inside `_expand_reduce`. Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
+Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes via `output.insert()`. All layers created at once; each layer depends on the previous.
 
 ```
 Layer 0  input=N      tasks=⌈N/P⌉   → layer_0_obj
 Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 …continues until 1 row remains
 ```
-
-**Example — 1300 rows, partition=500:** 2 layers, 4 tasks. **Example — 210 rows, partition=10:** 3 layers, 25 tasks.
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
@@ -230,18 +217,15 @@ In distributed mode, Object table lifecycle is managed through PostgreSQL with e
 
 ```
 Worker Process
-├── OrchLifecycleHandler (per task, uses get_sql_session())
-│   ├── incref/decref → table_context_refs (context_id = task_id, job_id = NULL)
-│   ├── pin → sets job_id on existing ref row (no refcount change)
-│   └── stop → drains queue (no inline drops, no bulk DELETE)
-├── task_scope exit
-│   ├── decrefs ALL live objects uniformly (deterministic cleanup)
-│   └── stale-marks all → __del__ becomes a no-op
+├── OrchLifecycleHandler (per task)
+│   ├── incref/decref → table_context_refs
+│   └── pin → sets job_id on existing ref row
+├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── polls completed/failed jobs → clears job_id on pin refs
-│   ├── polls table_context_refs → DROP where refcount <= 0 AND job_id IS NULL
+│   ├── clears job_id on pin refs (completed jobs)
+│   ├── DROP where refcount ≤ 0 AND job_id IS NULL
 │   └── detects dead workers → marks tasks FAILED
-└── orch_context() — SQL engine shared via get_sql_session()
+└── orch_context() — shared SQL session
 ```
 
 ## Ownership Transfer (Pin/Claim)
@@ -266,15 +250,11 @@ Job completes → BackgroundWorker deletes remaining refs + drops orphaned table
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_session()`.
+Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips where `MAX(job_id) IS NOT NULL` (sole cleanup authority).
 
-**Deterministic cleanup at exit**: On `task_scope` exit, ALL live objects are decreffed uniformly — pinned and non-pinned alike. Pinned tables are protected by their `job_id` marker: the background worker skips tables where `MAX(job_id) IS NOT NULL`. PIN just sets `job_id` on the existing ref row (no refcount bump), and `claim()` clears it. The `_process_loop` never triggers inline drops; the background worker is the sole cleanup authority.
+**Pin lifecycle**: `pin()` sets `job_id` on existing ref row (no refcount bump). `claim()` clears it. Job completion clears remaining pins via `_cleanup_completed_jobs`.
 
-**Sync-to-async bridge**: `Object.__del__` calls decref synchronously → `call_soon_threadsafe` → asyncio.Queue → `_process_loop()` drains. Only fires for objects GC'd mid-task; objects surviving to context exit are decreffed deterministically and stale-marked.
-
-**Pin protection**: `job_id` column in `table_context_refs` marks pinned tables. Background worker cleanup query uses `HAVING SUM(refcount) <= 0 AND MAX(job_id) IS NULL` — tables with active pins are skipped even when refcount is zero. When the job completes, `_cleanup_completed_jobs` clears `job_id`, making the table eligible for cleanup.
-
-**PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id` (non-NULL marks a pin ref).
+**PostgreSQL table**: `TableContextRef` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id`.
 
 ## BackgroundWorker
 
@@ -291,9 +271,7 @@ Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ## Write-Ahead Incref
 
-**Implementation**: `aaiclick/data/data_context.py` — see `create_object()`
-
-`create_object()` calls `incref` before `CREATE TABLE`. Crash after incref but before CREATE → cleanup runs `DROP TABLE IF EXISTS` (harmless).
+`create_object()` calls `incref` before `CREATE TABLE` — crash between the two is harmless (`DROP TABLE IF EXISTS`).
 
 ## TableSweeper
 
@@ -301,7 +279,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ## Local Mode
 
-Without an injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [DataContext documentation](data_context.md).
+`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [DataContext](data_context.md).
 
 # Operation Provenance (Oplog)
 
@@ -318,7 +296,7 @@ All Object operations within a task are automatically logged when `data_context(
 | `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
 | `AAICLICK_LOG_DIR` | mode-dependent (see below)           | Task log directory override               |
 
-**Mode detection**: `is_local()` returns `True` when both `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`. All local paths derive from `AAICLICK_LOCAL_ROOT`.
+`is_local()` returns `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`.
 
 **Log directory defaults** (see `aaiclick/orchestration/logging.py` — `get_logs_dir()`):
 

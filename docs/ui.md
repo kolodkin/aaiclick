@@ -17,9 +17,8 @@ All modes share a fixed layout:
 └──────────────────────────────────────────┘
 ```
 
-- **Header**: always visible, contains app logo and prompt input
+- **Header**: always visible, contains app logo and editable prompt input
 - **Content area**: fills remaining viewport, updates reactively based on prompt value
-- Prompt is always editable — user can type directly or click interactive elements to update it
 
 # Navigation
 
