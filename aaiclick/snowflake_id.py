@@ -6,8 +6,16 @@ globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
 batches for efficiency, served one at a time from an in-memory buffer until
 empty, then refilled from ClickHouse.
 
-In local mode, uses chdb (embedded ClickHouse) with the data path from
-get_ch_url().  In distributed mode, uses clickhouse-connect directly.
+In local mode, uses chdb (embedded ClickHouse). When a shared session is
+already open (inside orch_context/data_context), reuses it. Otherwise opens
+a temporary session and closes it immediately so no file lock is held
+between calls. This allows the multiprocessing worker's parent process to
+generate IDs without blocking the child from opening chdb.
+
+chdb constraint: only one data path per process lifetime. The snowflake
+generator always uses the same path as the main session (AAICLICK_CH_URL).
+
+In distributed mode, uses clickhouse-connect directly.
 
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
@@ -17,6 +25,7 @@ Snowflake ID format (64 bits):
 """
 
 from collections import deque
+from pathlib import Path
 
 from .backend import get_ch_url, is_chdb, parse_ch_url
 
@@ -42,7 +51,8 @@ class SnowflakeGenerator:
     serving them from an in-memory buffer for efficiency. When the buffer
     is exhausted, a new batch is fetched automatically.
 
-    Uses chdb (embedded) in local mode, clickhouse-connect in distributed mode.
+    In chdb mode, opens and closes a dedicated session per batch fetch
+    so no file lock is held between calls.
     """
 
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
@@ -57,18 +67,35 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
-        from chdb.session import Session
+        from aaiclick.data.data_context.chdb_client import get_open_session
 
         data_path = get_ch_url().removeprefix("chdb://")
-        session = Session(data_path)
-        result = session.query(
-            f"SELECT generateSnowflakeID() FROM numbers({count})",
-            "TabSeparated",
-        )
-        raw = result.bytes()
-        if not raw:
-            return []
-        return [int(line) for line in raw.decode("utf-8").splitlines() if line]
+
+        # Reuse the shared session if already open (orch_context with_ch=True),
+        # otherwise open a temporary session and close it immediately so no
+        # file lock is held between calls.
+        shared = get_open_session(data_path)
+        if shared is not None:
+            session = shared
+            owns_session = False
+        else:
+            from chdb.session import Session
+            Path(data_path).mkdir(parents=True, exist_ok=True)
+            session = Session(data_path)
+            owns_session = True
+
+        try:
+            result = session.query(
+                f"SELECT generateSnowflakeID() FROM numbers({count})",
+                "TabSeparated",
+            )
+            raw = result.bytes()
+            if not raw:
+                return []
+            return [int(line) for line in raw.decode("utf-8").splitlines() if line]
+        finally:
+            if owns_session:
+                session.cleanup()
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:

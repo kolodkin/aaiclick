@@ -350,6 +350,25 @@ def get_shared_session(path: Optional[str] = None) -> Session:
     return _sessions[data_path]
 
 
+def close_session(path: str) -> None:
+    """Remove a cached chdb Session for the given data path.
+
+    Calls cleanup() on the session before discarding to release native
+    resources (file locks, C++ state).
+    """
+    session = _sessions.pop(path, None)
+    if session is not None:
+        session.cleanup()
+
+
+def get_open_session(path: str) -> Optional[Session]:
+    """Return the cached Session for *path* if already open, else None.
+
+    Unlike get_shared_session(), this never creates a new session.
+    """
+    return _sessions.get(path)
+
+
 def create_chdb_session(path: Optional[str] = None) -> Session:
     """Return the shared chdb Session (singleton per data path)."""
     return get_shared_session(path)
