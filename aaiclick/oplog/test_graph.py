@@ -6,8 +6,12 @@ from __future__ import annotations
 
 import pytest
 
+from aaiclick.conftest import make_oplog_node
 from aaiclick.data.data_context import create_object_from_value
-from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
+from aaiclick.oplog.lineage import (
+    OplogGraph,
+    lineage_context, backward_oplog, forward_oplog, oplog_subgraph,
+)
 from aaiclick.orchestration.orch_context import task_scope
 
 
@@ -64,3 +68,16 @@ async def test_invalid_direction(orch_ctx):
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
             await oplog_subgraph("some_table", direction="sideways")
+
+
+def test_prompt_context_id_breaking_ops_warning():
+    """insert and concat get an aai_id freshness warning; other ops do not."""
+    for op in ("insert", "concat"):
+        node = make_oplog_node("target", op, {"source": "src"})
+        context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
+        assert "fresh aai_id" in context, f"{op} should warn"
+        assert "do NOT match" in context
+
+    node = make_oplog_node("result", "add", {"source_0": "a"})
+    context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
+    assert "fresh aai_id" not in context

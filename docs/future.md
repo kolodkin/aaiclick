@@ -37,14 +37,16 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Schema-Aware Agent Context
+## Schema-Aware Agent Context ✅ IMPLEMENTED
 
-Both `debug_agent` and `lineage_agent` build context from the oplog graph but never include table schemas, causing the LLM to hallucinate column names. Two improvements:
+**Implementation**: `aaiclick/ai/agents/tools.py` — see `get_schemas_for_nodes()` and `get_column_stats()`
 
-1. **Schema injection** — fetch `DESCRIBE TABLE` for every node before the agentic loop and include in the initial context message.
-2. **`get_column_stats` tool** — replace `get_stats(table, column)` with a schema-first tool that returns stats for all columns without requiring the LLM to know column names upfront.
+Both `debug_agent` and `lineage_agent` now include table schemas in their initial context via
+`get_schemas_for_nodes()`, which fetches `DESCRIBE TABLE` for every node in the lineage graph.
+The `get_stats(table, column)` tool has been replaced by `get_column_stats(table)`, which discovers
+columns automatically and returns stats for all of them in a single round-trip.
 
-## Lineage: aai_id Uniqueness Awareness
+## Lineage: aai_id Uniqueness Awareness ✅ IMPLEMENTED
 
 `insert()` and `concat()` generate fresh Snowflake IDs, so `aai_id` values differ between source and target. Row-level tracing across these boundaries needs data-value matching or oplog provenance metadata instead of `aai_id` matching.
 

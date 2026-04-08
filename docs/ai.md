@@ -111,12 +111,12 @@ async def debug_result(target_table: str, question: str) -> str:
 
 Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
-| Tool             | Parameters                          | Returns                          |
-|------------------|-------------------------------------|----------------------------------|
-| `sample_table`   | `table`, `limit=10`, `where=None`   | Formatted rows as text           |
-| `get_schema`     | `table`                             | Column names and types           |
-| `get_stats`      | `table`, `column`                   | count, non_null, min, max        |
-| `trace_upstream` | `table`, `depth=10`                 | Upstream operation graph as text |
+| Tool               | Parameters                          | Returns                                      |
+|--------------------|-------------------------------------|----------------------------------------------|
+| `sample_table`     | `table`, `limit=10`, `where=None`   | Formatted rows as text                       |
+| `get_schema`       | `table`                             | Column names and types                       |
+| `get_column_stats` | `table`                             | count, non_null, min, max for every column   |
+| `trace_upstream`   | `table`, `depth=10`                 | Upstream operation graph as text             |
 
 ---
 

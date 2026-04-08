@@ -4,14 +4,17 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
-from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
-from aaiclick.ai.agents.tools import sample_table
+from aaiclick.oplog.lineage import oplog_subgraph
+from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING
 from aaiclick.ai.config import get_ai_provider
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT = f"""\
 You are a data lineage expert analyzing a data pipeline built on ClickHouse.
 Explain clearly and concisely how the target table was produced, including
-the sequence of operations and the role of each input table."""
+the sequence of operations and the role of each input table.
+
+{AAI_ID_WARNING}"""
 
 
 async def explain_lineage(target_table: str, question: str | None = None) -> str:
@@ -20,17 +23,14 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
     Calls backward_oplog(), samples each node, formats context for LLM.
     Can be called standalone or as a @task in a job.
     """
-    nodes = await backward_oplog(target_table)
-
-    edges: list[OplogEdge] = []
-    for node in nodes:
-        for src in node.kwargs.values():
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
-
-    graph = OplogGraph(nodes=nodes, edges=edges)
+    graph = await oplog_subgraph(target_table, direction="backward")
     context = graph.to_prompt_context()
 
-    for node in nodes:
+    schemas = await get_schemas_for_nodes(graph.nodes)
+    if schemas:
+        context += "\n\n" + schemas
+
+    for node in graph.nodes:
         try:
             sample = await sample_table(node.table, limit=3)
             context += f"\n\nSample rows from `{node.table}`:\n{sample}"
