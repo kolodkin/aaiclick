@@ -21,13 +21,13 @@ Apply in order:
 
 - Replace wordy phrases: "In order to" -> "To", "It is important to note that" -> delete, "This allows you to" -> delete or rephrase.
 - Remove filler sentences that add no information.
-- Prefer bullet lists over prose for reference material.
+- Prefer bullet lists over paragraphs for reference material.
 
 **3. Tighten Structure**
 
 - Delete empty/trivial sections. Merge one-sentence sections into neighbors.
 - Shorten introductions — title + one sentence is enough.
-- Follow heading depth rules from CLAUDE.md.
+- Flatten heading depth: `#` and `##` only. Avoid `###` and deeper — restructure instead.
 
 **4. Reference Code, Don't Duplicate**
 
@@ -39,8 +39,8 @@ Apply in order:
 
 - Content with no other source (design decisions, rationale, gotchas).
 - Non-obvious usage examples and genuine `!!! warning` admonitions.
-- Do NOT change referenced code — only prose.
+- Do NOT change referenced code — only the surrounding text.
 
 ## Output
 
-Show before/after line count and a brief summary of cuts. Stage if approved.
+Show before/after line count and a brief summary of cuts. Commit if approved.
