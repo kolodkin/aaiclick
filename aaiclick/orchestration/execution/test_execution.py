@@ -203,6 +203,7 @@ async def test_serialize_task_result_object(orch_ctx):
         "object_type": "object",
         "table": "t789",
         "job_id": 200,
+        "schema": {"fieldtype": "s", "columns": {}},
     }
 
 
