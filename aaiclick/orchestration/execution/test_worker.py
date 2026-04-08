@@ -164,7 +164,7 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
     assert result == WorkerStatus.STOPPING
 
 
-async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch):
+async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch, fast_poll):
     """Test that the main loop exits when a stop request is detected."""
     worker = await register_worker()
     await request_worker_stop(worker.id)

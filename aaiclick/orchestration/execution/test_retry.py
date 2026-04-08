@@ -1,6 +1,5 @@
 """Tests for task retry logic."""
 
-import os
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
@@ -74,11 +73,8 @@ async def test_task_decorator_bare(orch_ctx):
     assert t.max_retries == 0
 
 
-async def test_schedule_retry(orch_ctx, monkeypatch):
+async def test_schedule_retry(orch_ctx):
     """_schedule_retry resets task to PENDING with incremented attempt."""
-    monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
-    )
     job = await create_job(
         "test_retry",
         create_task(
@@ -121,11 +117,8 @@ async def test_schedule_retry(orch_ctx, monkeypatch):
         assert t.retry_after <= before + timedelta(seconds=2)
 
 
-async def test_retry_backoff_timing(orch_ctx, monkeypatch):
+async def test_retry_backoff_timing(orch_ctx):
     """Backoff doubles each attempt: 1s, 2s, 4s."""
-    monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
-    )
     job = await create_job(
         "test_backoff",
         create_task(
@@ -216,7 +209,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     await deregister_worker(worker.id)
 
 
-async def test_worker_retries_and_exhausts(orch_ctx_no_ch):
+async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
     """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
     await _cancel_all_pending_tasks()
 
@@ -254,7 +247,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch):
+async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
     """Task with max_retries=0 fails immediately (no retry)."""
     await _cancel_all_pending_tasks()
 
@@ -291,7 +284,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch):
         assert j.status == JobStatus.FAILED
 
 
-async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path):
+async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, fast_poll):
     """Flaky task fails twice, succeeds on the third attempt via retry."""
     await _cancel_all_pending_tasks()
 

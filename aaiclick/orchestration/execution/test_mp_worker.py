@@ -1,6 +1,9 @@
 """Tests for multiprocessing worker."""
 
+import pytest
 from sqlmodel import select
+
+pytestmark = pytest.mark.usefixtures("fast_poll")
 
 from ..factories import create_job
 from ..models import Task, TaskStatus
