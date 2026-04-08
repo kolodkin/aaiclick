@@ -90,7 +90,7 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **View ref**: Adds `where`, `limit`, `offset`, `order_by`, `selected_fields` fields.
 
-`job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
+`job_id` marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. Schema is reconstructed from ClickHouse column comments via `_get_table_schema()`.
 
 **Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution/runner.py` — `serialize_task_result()`.
 
@@ -213,59 +213,63 @@ Empty input raises `TypeError("reduce() of empty sequence with no initial value"
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`
 
-In distributed mode, Object table lifecycle is managed through PostgreSQL with explicit ownership transfer via pin/claim.
+In distributed mode, Object table lifecycle is managed through two PostgreSQL tables — `table_context_refs` (pin state) and `table_run_refs` (active run references). The background worker is the sole cleanup authority.
 
 ```
-Worker Process
-├── OrchLifecycleHandler (per task)
-│   ├── incref/decref → table_context_refs
-│   └── pin → sets job_id on existing ref row
+Worker Process (spawns child per task)
+├── OrchLifecycleHandler (per task, per child process)
+│   ├── incref → insert into table_context_refs + table_run_refs
+│   ├── decref → delete from table_run_refs
+│   └── pin → sets job_id on context_ref row
 ├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── clears job_id on pin refs (completed jobs)
-│   ├── DROP where refcount ≤ 0 AND job_id IS NULL
+│   ├── clears job_id on pin refs (completed/failed jobs)
+│   ├── DROP where no pin AND no run_refs
 │   └── detects dead workers → marks tasks FAILED
 └── orch_context() — shared SQL session
 ```
 
-## Ownership Transfer (Pin/Claim)
+## Pin Lifecycle
 
 ```
 Task A executes
-  ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
-  ├── PIN result: sets job_id on (t_result, task_id) — marks as pinned
+  ├── incref intermediates → context_ref + run_ref rows in SQL
+  ├── PIN result: sets job_id on (t_result, task_a.id) context_ref
   └── task_scope exit:
-      ├── decref ALL objects → refcount goes to 0
-      ├── job_id marker protects pinned tables from background cleanup
+      ├── decref ALL objects → deletes run_ref rows for this run_id
+      ├── job_id pin protects result table from background cleanup
       └── stale-mark all → __del__ is a no-op
 
 Task B starts, deserializes task_a.result
-  ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
-  └── claim → clears job_id on pin row  ← release pin marker
+  ├── incref → adds (t_result, task_b.id) context_ref + run_ref
+  └── pin stays — no claim during deserialization
 
-Job completes → BackgroundWorker deletes remaining refs + drops orphaned tables
+Job completes → BackgroundWorker clears pins + drops orphaned tables
 ```
+
+Pin stays for the entire job duration. When an upstream Object is shared by multiple downstream tasks, the pin protects the table until all consumers finish and the job completes. `_cleanup_completed_jobs` clears pins; `_cleanup_unreferenced_tables` drops tables with no pins and no run_refs.
 
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips where `MAX(job_id) IS NOT NULL` (sole cleanup authority).
+Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips tables where any context_ref row has non-NULL `job_id`.
 
-**Pin lifecycle**: `pin()` sets `job_id` on existing ref row (no refcount bump). `claim()` clears it. Job completion clears remaining pins via `_cleanup_completed_jobs`.
+**Pin lifecycle**: `pin()` sets `job_id` on existing context_ref row. Pin stays until `_cleanup_completed_jobs` clears it when the job reaches a terminal state.
 
-**PostgreSQL table**: `TableContextRef` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id`.
+**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)` with nullable `job_id`; `TableRunRef` — composite PK `(table_name, run_id)`.
 
 ## BackgroundWorker
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Four operations per poll:
+Five operations per poll:
 
-1. **Job cleanup** — delete job-scoped pin refs for completed/failed jobs
-2. **Table cleanup** — `HAVING SUM(refcount) <= 0` → DROP in CH
-3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
-4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
+2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
+3. **Sample cleanup** — drop expired `_sample` tables older than oplog TTL
+4. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
+5. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
