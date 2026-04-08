@@ -19,7 +19,7 @@ from aaiclick.data.data_context import (
     register_object,
 )
 from aaiclick.data.object.ingest import _get_table_schema
-from aaiclick.data.models import ColumnInfo, Schema
+from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -110,29 +110,6 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     return result
 
 
-async def _deserialize_schema(ref: dict) -> Schema:
-    """Reconstruct Schema from a serialized Object/View reference.
-
-    Uses the saved schema dict if available (new format). Falls back to
-    querying system.columns for backward compatibility with older task
-    results that lack the schema field.
-    """
-    schema_data = ref.get("schema")
-    if schema_data is not None:
-        columns = {}
-        for name, col_data in schema_data["columns"].items():
-            columns[name] = ColumnInfo(
-                type=col_data["type"],
-                nullable=col_data.get("nullable", False),
-                array=col_data.get("array", False),
-                low_cardinality=col_data.get("low_cardinality", False),
-            )
-        return Schema(fieldtype=schema_data["fieldtype"], columns=columns)
-    # Backward compatibility: reconstruct from ClickHouse metadata
-    fieldtype, columns = await _get_table_schema(ref["table"], get_ch_client())
-    return Schema(fieldtype=fieldtype, columns=columns)
-
-
 async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     """Recursively deserialize a value from JSON format.
 
@@ -201,7 +178,8 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         if obj_type == "object":
             table = value["table"]
             is_persistent = value.get("persistent", False)
-            schema = await _deserialize_schema(value)
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
             if not is_persistent:
                 obj._register()
@@ -214,7 +192,8 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
         elif obj_type == "view":
             table = value["table"]
-            schema = await _deserialize_schema(value)
+            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            schema = Schema(fieldtype=fieldtype, columns=columns)
             source = Object(table=table, schema=schema)
             source._register()
             register_object(source)

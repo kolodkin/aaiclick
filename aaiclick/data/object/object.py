@@ -207,22 +207,7 @@ class Object:
         ref = {"object_type": "object", "table": self.table}
         if self.persistent:
             ref["persistent"] = True
-        ref["schema"] = self._serialize_schema()
         return ref
-
-    def _serialize_schema(self) -> dict:
-        """Serialize schema to a JSON-safe dict for task result storage."""
-        columns = {}
-        for name, col in self._schema.columns.items():
-            entry: dict = {"type": col.type}
-            if col.nullable:
-                entry["nullable"] = True
-            if col.array:
-                entry["array"] = int(col.array)
-            if col.low_cardinality:
-                entry["low_cardinality"] = True
-            columns[name] = entry
-        return {"fieldtype": self._schema.fieldtype, "columns": columns}
 
     @property
     def is_single_field(self) -> bool:
@@ -2431,7 +2416,6 @@ class View(Object):
         }
         if self.persistent:
             ref["persistent"] = True
-        ref["schema"] = self._serialize_schema()
         return ref
 
     def where(self, condition: str) -> "View":
