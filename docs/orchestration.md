@@ -150,32 +150,27 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 
 ## Local Mode (chdb + SQLite)
 
-Single process runs worker + background cleanup together, sharing one chdb
-session.  No infrastructure required — just `setup` and `local start`.
+Single process, no infrastructure required.
 
 ```bash
 python -m aaiclick setup                      # Initialize local DB + chdb
-python -m aaiclick local start                # Worker + background in one process
-python -m aaiclick local start --max-tasks 10
-python -m aaiclick local stop <worker_id>     # Graceful stop
+python -m aaiclick local start [--max-tasks N]
+python -m aaiclick local stop <worker_id>
 ```
 
 ## Distributed Mode (ClickHouse + PostgreSQL)
 
-Workers and background run as independent processes.  Each task executes
-in a dedicated child process for isolation.
+Independent processes; tasks run in child processes for isolation.
 
 ```bash
-python -m aaiclick worker start               # Start a worker process
-python -m aaiclick worker start --max-tasks 10
-python -m aaiclick worker stop <worker_id>    # Graceful stop
+python -m aaiclick worker start [--max-tasks N]
+python -m aaiclick worker stop <worker_id>
 python -m aaiclick worker list
-python -m aaiclick background start           # Standalone background worker
+python -m aaiclick background start
 ```
 
-!!! warning "`worker start` and `background start` require distributed backends"
-    Running these commands in local mode (chdb + SQLite) raises `RuntimeError`.
-    Use `local start` instead.
+!!! warning "`worker start`/`background start` require distributed backends"
+    In local mode, use `local start` instead.
 
 ## Common Commands
 
@@ -222,18 +217,15 @@ In distributed mode, Object table lifecycle is managed through PostgreSQL with e
 
 ```
 Worker Process
-├── OrchLifecycleHandler (per task, uses get_sql_session())
-│   ├── incref/decref → table_context_refs (context_id = task_id, job_id = NULL)
-│   ├── pin → sets job_id on existing ref row (no refcount change)
-│   └── stop → drains queue (no inline drops, no bulk DELETE)
-├── task_scope exit
-│   ├── decrefs ALL live objects uniformly (deterministic cleanup)
-│   └── stale-marks all → __del__ becomes a no-op
+├── OrchLifecycleHandler (per task)
+│   ├── incref/decref → table_context_refs
+│   └── pin → sets job_id on existing ref row
+├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── polls completed/failed jobs → clears job_id on pin refs
-│   ├── polls table_context_refs → DROP where refcount <= 0 AND job_id IS NULL
+│   ├── clears job_id on pin refs (completed jobs)
+│   ├── DROP where refcount ≤ 0 AND job_id IS NULL
 │   └── detects dead workers → marks tasks FAILED
-└── orch_context() — SQL engine shared via get_sql_session()
+└── orch_context() — shared SQL session
 ```
 
 ## Ownership Transfer (Pin/Claim)

@@ -52,9 +52,7 @@ asyncio.run(main())
 ```
 
 !!! warning "Always `await` operation results"
-    `prices * 0.1` returns a coroutine, not an Object.
-    Forgetting `await` gives a confusing error downstream —
-    not at the line where you forgot it.
+    Forgetting `await` causes confusing errors downstream, not at the forgotten line.
 
 # Environment Variables
 

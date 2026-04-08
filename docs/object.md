@@ -54,11 +54,10 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 
 # Operator Support
 
-All operators (`aaiclick/data/object.py` → `aaiclick/data/operators.py`) work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
+All operators work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
 
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work.
-    The scalar is auto-converted to a single-value Object via `_ensure_object()`.
 
 ??? note "Arithmetic Operators"
 
