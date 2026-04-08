@@ -19,10 +19,10 @@ from typing import NamedTuple, Optional
 
 from sqlmodel import select
 
-from ..models import Task, TaskStatus
+from ..models import Task
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import HEARTBEAT_INTERVAL, _handle_task_result, _worker_loop, worker_heartbeat
+from .worker import HEARTBEAT_INTERVAL, _worker_loop, worker_heartbeat
 
 
 class _ProcessResult(NamedTuple):
@@ -108,8 +108,7 @@ async def _run_task_in_child(
     heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
 
     try:
-        result = await _poll_child(proc, result_queue, timeout)
-        return result.success, result.result_ref, result.log_path, result.error
+        return await _poll_child(proc, result_queue, timeout)
     finally:
         done.set()
         await heartbeat

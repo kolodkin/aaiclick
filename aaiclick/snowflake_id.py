@@ -67,14 +67,14 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_chdb(count: int) -> list[int]:
-        from aaiclick.data.data_context.chdb_client import _sessions
+        from aaiclick.data.data_context.chdb_client import get_open_session
 
         data_path = get_ch_url().removeprefix("chdb://")
 
         # Reuse the shared session if already open (orch_context with_ch=True),
         # otherwise open a temporary session and close it immediately so no
         # file lock is held between calls.
-        shared = _sessions.get(data_path)
+        shared = get_open_session(data_path)
         if shared is not None:
             session = shared
             owns_session = False

@@ -361,6 +361,14 @@ def close_session(path: str) -> None:
         session.cleanup()
 
 
+def get_open_session(path: str) -> Optional[Session]:
+    """Return the cached Session for *path* if already open, else None.
+
+    Unlike get_shared_session(), this never creates a new session.
+    """
+    return _sessions.get(path)
+
+
 def create_chdb_session(path: Optional[str] = None) -> Session:
     """Return the shared chdb Session (singleton per data path)."""
     return get_shared_session(path)

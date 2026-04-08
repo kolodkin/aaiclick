@@ -16,7 +16,7 @@ from aaiclick.snowflake_id import get_snowflake_id
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from ..models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
+from ..models import JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Task execution strategy used by _worker_loop.
 # Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
