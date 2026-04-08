@@ -74,8 +74,11 @@ async def test_task_decorator_bare(orch_ctx):
     assert t.max_retries == 0
 
 
-async def test_schedule_retry(orch_ctx):
+async def test_schedule_retry(orch_ctx, monkeypatch):
     """_schedule_retry resets task to PENDING with incremented attempt."""
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
+    )
     job = await create_job(
         "test_retry",
         create_task(
@@ -118,8 +121,11 @@ async def test_schedule_retry(orch_ctx):
         assert t.retry_after <= before + timedelta(seconds=2)
 
 
-async def test_retry_backoff_timing(orch_ctx):
+async def test_retry_backoff_timing(orch_ctx, monkeypatch):
     """Backoff doubles each attempt: 1s, 2s, 4s."""
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
+    )
     job = await create_job(
         "test_backoff",
         create_task(
