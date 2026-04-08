@@ -112,7 +112,7 @@ class BackgroundWorker:
     async def _cleanup_completed_jobs(self) -> None:
         """Clear job_id on pin refs for completed/failed jobs.
 
-        Sets job_id = NULL so the ref becomes a plain (zero-refcount) task ref
+        Sets job_id = NULL so the ref becomes a plain task ref
         eligible for cleanup by _cleanup_unreferenced_tables.
         """
         async with AsyncSession(self._engine) as session:
@@ -139,11 +139,12 @@ class BackgroundWorker:
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT table_name FROM table_context_refs "
-                    "WHERE table_name NOT LIKE 'p\\_%' "
-                    "AND job_id IS NULL "
-                    "AND table_name NOT IN ("
-                    "  SELECT table_name FROM table_run_refs"
+                    "SELECT table_name FROM table_context_refs tcr "
+                    "WHERE tcr.table_name NOT LIKE 'p\\_%' "
+                    "AND tcr.job_id IS NULL "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM table_run_refs trr "
+                    "  WHERE trr.table_name = tcr.table_name"
                     ")"
                 )
             )
@@ -195,7 +196,7 @@ class BackgroundWorker:
             logger.debug("Failed to query expired sample tables", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
-        """Detect dead workers, mark their running tasks as FAILED, and clean orphaned run_ids."""
+        """Detect dead workers, mark their running tasks as FAILED, and clean orphaned run refs."""
         cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
@@ -223,8 +224,10 @@ class BackgroundWorker:
 
             # Remove orphaned run refs from table_run_refs so affected
             # tables become eligible for cleanup.
-            for run_id in orphaned_run_ids:
-                await self._handler.clean_task_run(session, str(run_id))
+            if orphaned_run_ids:
+                await self._handler.clean_task_runs(
+                    session, [str(rid) for rid in orphaned_run_ids],
+                )
 
             await session.commit()
 

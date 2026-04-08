@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler
+from .handler import BackgroundHandler, extract_last_run_ids
 
 
 class PgBackgroundHandler(BackgroundHandler):
@@ -55,9 +54,11 @@ class PgBackgroundHandler(BackgroundHandler):
             ),
             {"worker_ids": dead_worker_ids},
         )
-        run_ids: list[int] = []
-        for (run_ids_json,) in result.fetchall():
-            ids = run_ids_json if isinstance(run_ids_json, list) else json.loads(run_ids_json or "[]")
-            if ids:
-                run_ids.append(ids[-1])
-        return run_ids
+        return extract_last_run_ids(result.fetchall())
+
+    @staticmethod
+    async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
+        await session.execute(
+            text("DELETE FROM table_run_refs WHERE run_id = ANY(:run_ids)"),
+            {"run_ids": run_ids},
+        )

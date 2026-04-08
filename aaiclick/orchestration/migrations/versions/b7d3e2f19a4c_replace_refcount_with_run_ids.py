@@ -30,6 +30,7 @@ def upgrade() -> None:
         sa.Column('run_id', sa.String(), nullable=False),
         sa.PrimaryKeyConstraint('table_name', 'run_id'),
     )
+    op.create_index('ix_table_run_refs_run_id', 'table_run_refs', ['run_id'])
     op.drop_column('table_context_refs', 'refcount')
 
 
@@ -39,4 +40,5 @@ def downgrade() -> None:
         'table_context_refs',
         sa.Column('refcount', sa.BigInteger(), nullable=False, server_default='0'),
     )
+    op.drop_index('ix_table_run_refs_run_id', table_name='table_run_refs')
     op.drop_table('table_run_refs')
