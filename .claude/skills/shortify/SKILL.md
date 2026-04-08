@@ -1,9 +1,9 @@
 ---
-name: trim-docs
-description: Review and shorten markdown docs — cut wordiness, reduce redundancy, reference code instead of duplicating. Use when user asks to trim, shorten, tighten, or condense documentation.
+name: shortify
+description: Review and shorten markdown docs — cut wordiness, reduce redundancy, reference code instead of duplicating. Use when user asks to trim, shorten, tighten, shortify, or condense documentation.
 ---
 
-# trim-docs: Shorten Markdown Documentation
+# shortify: Shorten Markdown Documentation
 
 Review markdown files and make them concise by removing wordiness, redundancy,
 and duplication with existing code.
@@ -11,12 +11,12 @@ and duplication with existing code.
 ## Invocation
 
 ```
-/trim-docs [file-or-glob]
+/shortify [file-or-glob]
 ```
 
-- `/trim-docs docs/object.md` — trim a specific file
-- `/trim-docs docs/*.md` — trim all docs in a directory
-- `/trim-docs` — no argument: ask which files to trim
+- `/shortify docs/object.md` — shortify a specific file
+- `/shortify docs/*.md` — shortify all docs in a directory
+- `/shortify` — no argument: ask which files to shortify
 
 ## Review Checklist
 
