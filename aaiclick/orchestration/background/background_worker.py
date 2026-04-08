@@ -135,13 +135,23 @@ class BackgroundWorker:
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no run refs and no pin."""
+        """Drop CH tables with no run refs and no pin.
+
+        A table is only eligible for cleanup when ALL of its context_ref
+        rows have job_id IS NULL (no pin) AND no run_refs exist.  This
+        prevents dropping tables that are still pinned by a producer even
+        when a consumer added an unpinned context_ref row.
+        """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT table_name FROM table_context_refs tcr "
+                    "SELECT DISTINCT tcr.table_name FROM table_context_refs tcr "
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
-                    "AND tcr.job_id IS NULL "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM table_context_refs pin "
+                    "  WHERE pin.table_name = tcr.table_name "
+                    "  AND pin.job_id IS NOT NULL"
+                    ") "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
                     "  WHERE trr.table_name = tcr.table_name"
