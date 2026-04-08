@@ -82,26 +82,14 @@ def _make_node(table: str, operation: str, kwargs: dict[str, str] | None = None)
     )
 
 
-def test_prompt_context_insert_warning():
-    """insert operations get an aai_id freshness warning in the prompt context."""
-    node = _make_node("target", "insert", {"source": "src", "target": "target"})
-    graph = OplogGraph(nodes=[node], edges=[OplogEdge(source="src", target="target", operation="insert")])
-    context = graph.to_prompt_context()
-    assert "fresh aai_id" in context
-    assert "do NOT match" in context
+def test_prompt_context_id_breaking_ops_warning():
+    """insert and concat get an aai_id freshness warning; other ops do not."""
+    for op in ("insert", "concat"):
+        node = _make_node("target", op, {"source": "src"})
+        context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
+        assert "fresh aai_id" in context, f"{op} should warn"
+        assert "do NOT match" in context
 
-
-def test_prompt_context_concat_warning():
-    """concat operations get an aai_id freshness warning in the prompt context."""
-    node = _make_node("result", "concat", {"source_0": "a", "source_1": "b"})
-    graph = OplogGraph(nodes=[node], edges=[])
-    context = graph.to_prompt_context()
-    assert "fresh aai_id" in context
-
-
-def test_prompt_context_no_warning_for_other_ops():
-    """Non-insert/concat operations do NOT get the aai_id warning."""
-    node = _make_node("result", "add", {"source_0": "a", "source_1": "b"})
-    graph = OplogGraph(nodes=[node], edges=[])
-    context = graph.to_prompt_context()
+    node = _make_node("result", "add", {"source_0": "a"})
+    context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
     assert "fresh aai_id" not in context

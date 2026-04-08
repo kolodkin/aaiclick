@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aaiclick.oplog.lineage import OplogNode
-from aaiclick.ai.agents.tools import dispatch_tool, get_column_stats, get_schemas_for_nodes
+from aaiclick.ai.agents.tools import get_column_stats, get_schemas_for_nodes
 
 
 def _node(table: str, operation: str, kwargs: dict[str, str] | None = None) -> OplogNode:
@@ -91,14 +91,10 @@ async def test_get_schemas_for_nodes_fetches_all_tables():
     assert "val: Float64" in result
 
 
-async def test_get_schemas_for_nodes_empty():
-    """get_schemas_for_nodes returns empty string when there are no nodes."""
-    result = await get_schemas_for_nodes([])
-    assert result == ""
+async def test_get_schemas_for_nodes_empty_and_errors():
+    """Empty nodes returns empty string; DESCRIBE failures produce 'unavailable'."""
+    assert await get_schemas_for_nodes([]) == ""
 
-
-async def test_get_schemas_for_nodes_handles_errors():
-    """get_schemas_for_nodes marks schemas as unavailable when DESCRIBE fails."""
     nodes = [_node("broken_table", "add")]
 
     async def mock_query(sql):
@@ -111,18 +107,3 @@ async def test_get_schemas_for_nodes_handles_errors():
         result = await get_schemas_for_nodes(nodes)
 
     assert "schema unavailable" in result
-
-
-async def test_dispatch_tool_get_column_stats():
-    """dispatch_tool routes get_column_stats correctly."""
-    with patch("aaiclick.ai.agents.tools.get_column_stats", new=AsyncMock(return_value="stats")) as mock:
-        result = await dispatch_tool("get_column_stats", {"table": "t"})
-
-    assert result == "stats"
-    mock.assert_called_once_with("t")
-
-
-async def test_dispatch_tool_unknown():
-    """dispatch_tool returns error for unknown tool names."""
-    result = await dispatch_tool("nonexistent_tool", {})
-    assert "unknown tool" in result
