@@ -5,13 +5,19 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 from __future__ import annotations
 
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
-from aaiclick.ai.agents.tools import sample_table
+from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
 from aaiclick.ai.config import get_ai_provider
 
 _SYSTEM_PROMPT = """\
 You are a data lineage expert analyzing a data pipeline built on ClickHouse.
 Explain clearly and concisely how the target table was produced, including
-the sequence of operations and the role of each input table."""
+the sequence of operations and the role of each input table.
+
+Important: `insert` and `concat` operations generate fresh aai_id values in the
+target table. Source and target aai_ids will NOT match across these boundaries.
+To trace individual rows through an insert/concat, compare actual data values
+(column contents) or use the oplog provenance metadata (kwargs_aai_ids positional
+alignment) — never assume aai_id equality between source and target."""
 
 
 async def explain_lineage(target_table: str, question: str | None = None) -> str:
@@ -29,6 +35,10 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
 
     graph = OplogGraph(nodes=nodes, edges=edges)
     context = graph.to_prompt_context()
+
+    schemas = await get_schemas_for_nodes(nodes)
+    if schemas:
+        context += "\n\n" + schemas
 
     for node in nodes:
         try:

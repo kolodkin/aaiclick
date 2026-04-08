@@ -7,7 +7,10 @@ from __future__ import annotations
 import pytest
 
 from aaiclick.data.data_context import create_object_from_value
-from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
+from aaiclick.oplog.lineage import (
+    OplogGraph, OplogNode, OplogEdge,
+    lineage_context, backward_oplog, forward_oplog, oplog_subgraph,
+)
 from aaiclick.orchestration.orch_context import task_scope
 
 
@@ -64,3 +67,41 @@ async def test_invalid_direction(orch_ctx):
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
             await oplog_subgraph("some_table", direction="sideways")
+
+
+def _make_node(table: str, operation: str, kwargs: dict[str, str] | None = None) -> OplogNode:
+    return OplogNode(
+        table=table,
+        operation=operation,
+        kwargs=kwargs or {},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
+        sql_template=None,
+        task_id=None,
+        job_id=None,
+    )
+
+
+def test_prompt_context_insert_warning():
+    """insert operations get an aai_id freshness warning in the prompt context."""
+    node = _make_node("target", "insert", {"source": "src", "target": "target"})
+    graph = OplogGraph(nodes=[node], edges=[OplogEdge(source="src", target="target", operation="insert")])
+    context = graph.to_prompt_context()
+    assert "fresh aai_id" in context
+    assert "do NOT match" in context
+
+
+def test_prompt_context_concat_warning():
+    """concat operations get an aai_id freshness warning in the prompt context."""
+    node = _make_node("result", "concat", {"source_0": "a", "source_1": "b"})
+    graph = OplogGraph(nodes=[node], edges=[])
+    context = graph.to_prompt_context()
+    assert "fresh aai_id" in context
+
+
+def test_prompt_context_no_warning_for_other_ops():
+    """Non-insert/concat operations do NOT get the aai_id warning."""
+    node = _make_node("result", "add", {"source_0": "a", "source_1": "b"})
+    graph = OplogGraph(nodes=[node], edges=[])
+    context = graph.to_prompt_context()
+    assert "fresh aai_id" not in context

@@ -14,8 +14,9 @@ def _node(table: str, operation: str) -> OplogNode:
     return OplogNode(
         table=table,
         operation=operation,
-        args=[],
         kwargs={},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
         sql_template=None,
         task_id=None,
         job_id=None,
@@ -56,6 +57,7 @@ async def test_debug_result_direct_answer():
         patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=mock_backward),
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
@@ -76,6 +78,7 @@ async def test_debug_result_with_one_tool_call():
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=AsyncMock(return_value="id | val\n1 | x")),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await debug_result("result", "Why are there only 3 rows?")
 
@@ -95,7 +98,32 @@ async def test_debug_result_dispatches_correct_tool():
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=mock_dispatch),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         await debug_result("result", "What is the schema?")
 
     mock_dispatch.assert_called_once_with("get_schema", {"table": "result"})
+
+
+async def test_debug_result_context_includes_schemas():
+    """When schemas are available, they appear in the context sent to the LLM."""
+    nodes = [_node("result", "add")]
+    captured: list[list] = []
+
+    async def mock_completion(**kwargs):
+        captured.append(kwargs["messages"])
+        return _stop_response("done")
+
+    schema_text = "# Table Schemas\n\n`result`:\n  aai_id: UInt64\n  val: Float64"
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
+        patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
+    ):
+        await debug_result("result", "Why?")
+
+    user_msg = captured[0][1]["content"]
+    assert "Table Schemas" in user_msg
+    assert "val: Float64" in user_msg

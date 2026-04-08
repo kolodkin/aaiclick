@@ -53,6 +53,8 @@ class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
     edges: list[OplogEdge] = field(default_factory=list)
 
+    _ID_BREAKING_OPS = frozenset({"insert", "concat"})
+
     def to_prompt_context(self) -> str:
         """Format the graph as human-readable text for LLM consumption."""
         lines = ["# Data Lineage Graph"]
@@ -74,6 +76,13 @@ class OplogGraph:
                 lines.append(f"- Task ID: {node.task_id}")
             if node.job_id is not None:
                 lines.append(f"- Job ID: {node.job_id}")
+            if node.operation in self._ID_BREAKING_OPS:
+                lines.append(
+                    f"- ⚠ `{node.operation}` generates fresh aai_id values — "
+                    "source and target aai_ids do NOT match. "
+                    "Use data-value matching or oplog provenance metadata "
+                    "to trace rows across this boundary."
+                )
 
         if self.edges:
             lines.append(f"\n## Data Flow ({len(self.edges)} edges)")

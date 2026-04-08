@@ -10,12 +10,13 @@ from aaiclick.oplog.lineage import OplogNode
 from aaiclick.ai.agents.lineage_agent import explain_lineage
 
 
-def _node(table: str, operation: str, args: list[str] | None = None) -> OplogNode:
+def _node(table: str, operation: str, kwargs: dict[str, str] | None = None) -> OplogNode:
     return OplogNode(
         table=table,
         operation=operation,
-        args=args or [],
-        kwargs={},
+        kwargs=kwargs or {},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
         sql_template=None,
         task_id=None,
         job_id=None,
@@ -30,13 +31,14 @@ def _mock_provider(answer: str = "Explanation") -> MagicMock:
 
 async def test_explain_lineage_returns_string_and_calls_backward_oplog():
     """explain_lineage() returns the AI answer and calls backward_oplog with the target table."""
-    nodes = [_node("result", "add", ["a", "b"])]
+    nodes = [_node("result", "add", {"source_0": "a", "source_1": "b"})]
     mock_backward = AsyncMock(return_value=nodes)
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=mock_backward),
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="c1\nv1")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("Result")),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await explain_lineage("result")
 
@@ -62,6 +64,7 @@ async def test_explain_lineage_context_and_custom_question():
         patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         await explain_lineage("result", question="Why is this table empty?")
 
@@ -81,6 +84,7 @@ async def test_explain_lineage_sample_error_does_not_raise():
         patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=failing_sample),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("ok")),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await explain_lineage("result")
 
@@ -89,7 +93,10 @@ async def test_explain_lineage_sample_error_does_not_raise():
 
 async def test_explain_lineage_samples_each_node():
     """sample_table() is called once per unique node in the lineage graph."""
-    nodes = [_node("result", "concat", ["a", "b"]), _node("a", "create_from_value")]
+    nodes = [
+        _node("result", "concat", {"source_0": "a", "source_1": "b"}),
+        _node("a", "create_from_value"),
+    ]
     sampled_tables: list[str] = []
 
     async def mock_sample(table, limit=3):
@@ -100,7 +107,33 @@ async def test_explain_lineage_samples_each_node():
         patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
         patch("aaiclick.ai.agents.lineage_agent.sample_table", new=mock_sample),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider()),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         await explain_lineage("result")
 
     assert set(sampled_tables) == {"result", "a"}
+
+
+async def test_explain_lineage_context_includes_schemas():
+    """When schemas are available, they appear in the context sent to the LLM."""
+    nodes = [_node("result", "add")]
+    captured_context: list[str] = []
+
+    async def mock_query(prompt, context="", system=""):
+        captured_context.append(context)
+        return "ok"
+
+    mock_provider = MagicMock()
+    mock_provider.query = mock_query
+    schema_text = "# Table Schemas\n\n`result`:\n  aai_id: UInt64\n  val: Float64"
+
+    with (
+        patch("aaiclick.ai.agents.lineage_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
+        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
+        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
+    ):
+        await explain_lineage("result")
+
+    assert "Table Schemas" in captured_context[0]
+    assert "val: Float64" in captured_context[0]
