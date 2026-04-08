@@ -2,7 +2,7 @@
 
 BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
-2. Tables with empty run_ids arrays — drops them in ClickHouse
+2. Tables with no run refs — drops them in ClickHouse
 3. Expired sample tables — drops _sample tables older than oplog TTL
 4. Dead workers — marks their running tasks as FAILED
 5. Scheduled jobs — creates Job runs when next_run_at is due
@@ -23,7 +23,7 @@ from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
+from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -41,7 +41,7 @@ class BackgroundWorker:
 
     Performs five operations on each poll:
     1. Job cleanup: deletes pin refs for completed/failed jobs
-    2. Table cleanup: drops CH tables with empty run_ids arrays
+    2. Table cleanup: drops CH tables with no run refs
     3. Sample cleanup: drops expired _sample tables older than oplog TTL
     4. Dead worker detection: marks tasks from expired workers as FAILED
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
@@ -135,25 +135,18 @@ class BackgroundWorker:
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables whose run_ids arrays are all empty and have no pin."""
-        if is_sqlite():
-            query = (
-                "SELECT table_name FROM table_context_refs "
-                "WHERE table_name NOT LIKE 'p\\_%' "
-                "GROUP BY table_name "
-                "HAVING MAX(json_array_length(run_ids)) = 0 "
-                "AND MAX(job_id) IS NULL"
-            )
-        else:
-            query = (
-                "SELECT table_name FROM table_context_refs "
-                "WHERE table_name NOT LIKE 'p\\_%' "
-                "GROUP BY table_name "
-                "HAVING MAX(jsonb_array_length(run_ids::jsonb)) = 0 "
-                "AND MAX(job_id) IS NULL"
-            )
+        """Drop CH tables with no run refs and no pin."""
         async with AsyncSession(self._engine) as session:
-            result = await session.execute(text(query))
+            result = await session.execute(
+                text(
+                    "SELECT table_name FROM table_context_refs "
+                    "WHERE table_name NOT LIKE 'p\\_%' "
+                    "AND job_id IS NULL "
+                    "AND table_name NOT IN ("
+                    "  SELECT table_name FROM table_run_refs"
+                    ")"
+                )
+            )
             rows = result.fetchall()
 
             for (table_name,) in rows:
@@ -228,7 +221,7 @@ class BackgroundWorker:
             now = datetime.utcnow()
             await self._handler.mark_dead_workers(session, dead_worker_ids, now)
 
-            # Remove orphaned run_ids from table_context_refs so affected
+            # Remove orphaned run refs from table_run_refs so affected
             # tables become eligible for cleanup.
             for run_id in orphaned_run_ids:
                 await self._handler.clean_task_run(session, str(run_id))

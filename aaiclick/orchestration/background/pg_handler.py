@@ -61,16 +61,3 @@ class PgBackgroundHandler(BackgroundHandler):
             if ids:
                 run_ids.append(ids[-1])
         return run_ids
-
-    @staticmethod
-    async def clean_task_run(session: AsyncSession, run_id: str) -> None:
-        await session.execute(
-            text(
-                "UPDATE table_context_refs SET run_ids = ("
-                "  SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)"
-                "  FROM jsonb_array_elements(run_ids::jsonb) AS elem"
-                "  WHERE elem #>> '{}' != :run_id"
-                ") WHERE run_ids::jsonb @> jsonb_build_array(:run_id)"
-            ),
-            {"run_id": run_id},
-        )

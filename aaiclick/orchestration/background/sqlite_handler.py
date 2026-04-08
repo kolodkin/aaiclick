@@ -72,18 +72,3 @@ class SqliteBackgroundHandler(BackgroundHandler):
             if ids:
                 run_ids.append(ids[-1])
         return run_ids
-
-    @staticmethod
-    async def clean_task_run(session: AsyncSession, run_id: str) -> None:
-        await session.execute(
-            text(
-                "UPDATE table_context_refs SET run_ids = ("
-                "  SELECT COALESCE(json_group_array(j.value), '[]')"
-                "  FROM json_each(run_ids) AS j"
-                "  WHERE j.value != :run_id"
-                ") WHERE EXISTS ("
-                "  SELECT 1 FROM json_each(run_ids) WHERE value = :run_id"
-                ")"
-            ),
-            {"run_id": run_id},
-        )

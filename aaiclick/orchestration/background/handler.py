@@ -8,6 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
@@ -39,10 +40,12 @@ class BackgroundHandler(ABC):
         ...
 
     @staticmethod
-    @abstractmethod
     async def clean_task_run(session: AsyncSession, run_id: str) -> None:
-        """Remove run_id from all run_ids arrays in table_context_refs."""
-        ...
+        """Delete all table_run_refs rows for a given run_id (crash recovery)."""
+        await session.execute(
+            text("DELETE FROM table_run_refs WHERE run_id = :run_id"),
+            {"run_id": run_id},
+        )
 
 
 def create_background_handler() -> BackgroundHandler:

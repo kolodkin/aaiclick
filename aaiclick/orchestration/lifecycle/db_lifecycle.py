@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from sqlalchemy import BigInteger, Column, String
-from sqlmodel import JSON, Column as SmColumn, Field, SQLModel
+from sqlmodel import Field, SQLModel
 
 
 class DBLifecycleOp(Enum):
@@ -61,14 +61,13 @@ class DBLifecycleMessage:
 
 
 class TableContextRef(SQLModel, table=True):
-    """Tracks ClickHouse table references in PostgreSQL via run_id arrays.
+    """Registry of tracked ClickHouse tables and their pin state.
 
-    Composite PK (table_name, context_id) allows multiple contexts to hold
-    independent refs to the same table.
+    Composite PK (table_name, context_id) allows multiple contexts to
+    register the same table independently.
 
-    run_ids is a JSON array of run-ID strings.  incref appends the current
-    run_id; decref removes it.  When the array is empty (and no pin), the
-    background worker drops the ClickHouse table.
+    Non-NULL job_id marks a pin — the background worker skips pinned tables
+    even when no run refs remain in table_run_refs.
 
     - Task refs: context_id = task_id, job_id = NULL
     - Pin refs: context_id = task_id, job_id = job_id (non-NULL marks a pin)
@@ -78,5 +77,19 @@ class TableContextRef(SQLModel, table=True):
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    run_ids: list[str] = Field(default_factory=list, sa_column=SmColumn(JSON, nullable=False, server_default="[]"))
     job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+
+
+class TableRunRef(SQLModel, table=True):
+    """Junction table: which run_ids hold a reference to which tables.
+
+    incref inserts a row; decref deletes it.  clean_task_run deletes all
+    rows for a given run_id (crash recovery).  When no rows remain for a
+    table (and no pin in table_context_refs), the background worker drops
+    the ClickHouse table.
+    """
+
+    __tablename__ = "table_run_refs"
+
+    table_name: str = Field(sa_column=Column(String, primary_key=True))
+    run_id: str = Field(sa_column=Column(String, primary_key=True))

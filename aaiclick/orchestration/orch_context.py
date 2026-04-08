@@ -12,7 +12,7 @@ from typing import AsyncIterator, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.backend import is_chdb, is_postgres, is_sqlite
+from aaiclick.backend import is_chdb, is_postgres
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
 from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
@@ -45,13 +45,13 @@ class OrchLifecycleHandler(LifecycleHandler):
     Uses get_sql_session() for DB ops and get_ch_client() for CH ops —
     no private engine or client needed.
 
-    run_ids array updates are written to SQL immediately.  incref appends the
-    current run_id; decref removes it.  Actual table drops are **never**
-    triggered inline — the background worker is the sole cleanup authority
-    (empty run_ids + no pin → DROP).
+    incref inserts a row into table_run_refs; decref deletes it.
+    Actual table drops are **never** triggered inline — the background
+    worker is the sole cleanup authority (no run refs + no pin → DROP).
 
-    If a task crashes mid-execution, ``clean_task_run(run_id)`` removes the
-    orphaned run_id from all rows, making affected tables eligible for cleanup.
+    If a task crashes mid-execution, ``clean_task_run(run_id)`` deletes
+    all table_run_refs rows for that run_id, making affected tables
+    eligible for cleanup.
 
     Args:
         task_id: Task ID used as context_id for grouping this handler's refs.
@@ -181,71 +181,47 @@ class OrchLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
-        sqlite = is_sqlite()
+        run_id = str(self._run_id)
         while True:
             msg = await self._queue.get()
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
 
-            # -- Table lifecycle (run_ids array, no inline drops) --
+            # -- Table lifecycle (junction table, no inline drops) --
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
-                params = {
-                    "table_name": msg.table_name,
-                    "context_id": self._task_id,
-                    "run_id": str(self._run_id),
-                }
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
-                        if sqlite:
-                            await session.execute(
-                                text(
-                                    "INSERT INTO table_context_refs (table_name, context_id, run_ids) "
-                                    "VALUES (:table_name, :context_id, json_array(:run_id)) "
-                                    "ON CONFLICT (table_name, context_id) "
-                                    "DO UPDATE SET run_ids = json_insert("
-                                    "table_context_refs.run_ids, '$[#]', :run_id)"
-                                ),
-                                params,
-                            )
-                        else:
-                            await session.execute(
-                                text(
-                                    "INSERT INTO table_context_refs (table_name, context_id, run_ids) "
-                                    "VALUES (:table_name, :context_id, jsonb_build_array(:run_id)) "
-                                    "ON CONFLICT (table_name, context_id) "
-                                    "DO UPDATE SET run_ids = "
-                                    "table_context_refs.run_ids::jsonb || jsonb_build_array(:run_id)"
-                                ),
-                                params,
-                            )
+                        # Register table in context refs (idempotent)
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_context_refs (table_name, context_id) "
+                                "VALUES (:table_name, :context_id) "
+                                "ON CONFLICT (table_name, context_id) DO NOTHING"
+                            ),
+                            {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                        # Add run ref
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_run_refs (table_name, run_id) "
+                                "VALUES (:table_name, :run_id) "
+                                "ON CONFLICT (table_name, run_id) DO NOTHING"
+                            ),
+                            {"table_name": msg.table_name, "run_id": run_id},
+                        )
                     elif msg.op == DBLifecycleOp.DECREF:
-                        if sqlite:
-                            await session.execute(
-                                text(
-                                    "UPDATE table_context_refs SET run_ids = ("
-                                    "  SELECT COALESCE(json_group_array(j.value), '[]')"
-                                    "  FROM json_each(run_ids) AS j"
-                                    "  WHERE j.value != :run_id"
-                                    ") WHERE table_name = :table_name AND context_id = :context_id"
-                                ),
-                                params,
-                            )
-                        else:
-                            await session.execute(
-                                text(
-                                    "UPDATE table_context_refs SET run_ids = ("
-                                    "  SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)"
-                                    "  FROM jsonb_array_elements(run_ids::jsonb) AS elem"
-                                    "  WHERE elem #>> '{}' != :run_id"
-                                    ") WHERE table_name = :table_name AND context_id = :context_id"
-                                ),
-                                params,
-                            )
+                        await session.execute(
+                            text(
+                                "DELETE FROM table_run_refs "
+                                "WHERE table_name = :table_name AND run_id = :run_id"
+                            ),
+                            {"table_name": msg.table_name, "run_id": run_id},
+                        )
                     elif msg.op == DBLifecycleOp.PIN:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, run_ids, job_id) "
-                                "VALUES (:table_name, :context_id, '[]', :job_id) "
+                                "INSERT INTO table_context_refs (table_name, context_id, job_id) "
+                                "VALUES (:table_name, :context_id, :job_id) "
                                 "ON CONFLICT (table_name, context_id) "
                                 "DO UPDATE SET job_id = :job_id"
                             ),
@@ -366,10 +342,10 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Decref all live objects (removes this run_id from their run_ids
-        # arrays).  Pinned tables are protected by their job_id marker in
+        # Decref all live objects (deletes this run_id from table_run_refs).
+        # Pinned tables are protected by their job_id marker in
         # table_context_refs — the background worker skips tables with
-        # non-NULL job_id even when run_ids is empty.
+        # non-NULL job_id even when no run refs remain.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:

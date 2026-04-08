@@ -19,22 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Replace integer refcount with JSON run_ids array.
+    """Replace integer refcount with table_run_refs junction table.
 
-    Existing rows get empty arrays — any stale refs are cleaned up
-    by the background worker on the next poll cycle.
+    table_run_refs tracks which run_ids hold references to which tables.
+    table_context_refs keeps only pin state (job_id).
     """
-    op.add_column(
-        'table_context_refs',
-        sa.Column('run_ids', sa.JSON(), nullable=False, server_default='[]'),
+    op.create_table(
+        'table_run_refs',
+        sa.Column('table_name', sa.String(), nullable=False),
+        sa.Column('run_id', sa.String(), nullable=False),
+        sa.PrimaryKeyConstraint('table_name', 'run_id'),
     )
     op.drop_column('table_context_refs', 'refcount')
 
 
 def downgrade() -> None:
-    """Restore integer refcount, drop run_ids."""
+    """Restore integer refcount, drop table_run_refs."""
     op.add_column(
         'table_context_refs',
         sa.Column('refcount', sa.BigInteger(), nullable=False, server_default='0'),
     )
-    op.drop_column('table_context_refs', 'run_ids')
+    op.drop_table('table_run_refs')
