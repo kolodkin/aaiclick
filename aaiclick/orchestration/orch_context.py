@@ -107,6 +107,19 @@ class OrchLifecycleHandler(LifecycleHandler):
         """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
+    async def flush(self) -> None:
+        """Wait until all pending lifecycle messages have been processed.
+
+        Enqueues a FLUSH sentinel and blocks until the processing loop reaches
+        it, guaranteeing that all previously enqueued INCREFs and DECREFs have
+        been committed to the database.
+        """
+        if self._loop is None:
+            return
+        event = asyncio.Event()
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.FLUSH, flush_event=event))
+        await event.wait()
+
     async def claim(self, table_name: str, job_id: int) -> None:
         """Release a pinned ref (ownership transfer to consumer).
 
@@ -229,6 +242,11 @@ class OrchLifecycleHandler(LifecycleHandler):
                              "job_id": self._job_id},
                         )
                     await session.commit()
+
+            # -- Flush barrier --
+            elif msg.op == DBLifecycleOp.FLUSH:
+                if msg.flush_event is not None:
+                    msg.flush_event.set()
 
             # -- Oplog (immediate write, no buffer) --
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
