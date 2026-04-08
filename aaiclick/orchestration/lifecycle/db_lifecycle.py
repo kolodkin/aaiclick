@@ -8,8 +8,7 @@ and oplog recording.
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 
 from sqlalchemy import BigInteger, Column, String
@@ -22,7 +21,6 @@ class DBLifecycleOp(Enum):
     INCREF = auto()
     DECREF = auto()
     PIN = auto()
-    FLUSH = auto()
     OPLOG_RECORD = auto()
     OPLOG_SAMPLE = auto()
     OPLOG_TABLE = auto()
@@ -60,7 +58,6 @@ class DBLifecycleMessage:
     table_name: str = ""
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
-    flush_event: asyncio.Event | None = field(default=None, repr=False)
 
 
 class TableContextRef(SQLModel, table=True):
