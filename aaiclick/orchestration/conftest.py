@@ -36,7 +36,7 @@ def _tmp_log_dir(tmp_path, monkeypatch):
 def _fast_worker_polling(monkeypatch):
     """Use fast polling and retry delays in all orchestration tests."""
     monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.POLL_INTERVAL", 0.05,
+        "aaiclick.orchestration.execution.worker.POLL_INTERVAL", 0.5,
     )
     monkeypatch.setattr(
         "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 0.01,
