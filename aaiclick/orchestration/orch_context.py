@@ -45,9 +45,13 @@ class OrchLifecycleHandler(LifecycleHandler):
     Uses get_sql_session() for DB ops and get_ch_client() for CH ops —
     no private engine or client needed.
 
-    Refcount updates are written to SQL immediately.  Actual table drops
-    are **never** triggered inline — the background worker is the sole
-    cleanup authority (``HAVING SUM(refcount) <= 0 → DROP``).
+    incref inserts a row into table_run_refs; decref deletes it.
+    Actual table drops are **never** triggered inline — the background
+    worker is the sole cleanup authority (no run refs + no pin → DROP).
+
+    If a task crashes mid-execution, ``clean_task_run(run_id)`` deletes
+    all table_run_refs rows for that run_id, making affected tables
+    eligible for cleanup.
 
     Args:
         task_id: Task ID used as context_id for grouping this handler's refs.
@@ -177,38 +181,47 @@ class OrchLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
+        run_id = str(self._run_id)
         while True:
             msg = await self._queue.get()
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
 
-            # -- Table lifecycle (refcount only, no inline drops) --
+            # -- Table lifecycle (junction table, no inline drops) --
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
+                        # Register table in context refs (idempotent)
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount) "
-                                "VALUES (:table_name, :context_id, 1) "
-                                "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET refcount = table_context_refs.refcount + 1"
+                                "INSERT INTO table_context_refs (table_name, context_id) "
+                                "VALUES (:table_name, :context_id) "
+                                "ON CONFLICT (table_name, context_id) DO NOTHING"
                             ),
                             {"table_name": msg.table_name, "context_id": self._task_id},
+                        )
+                        # Add run ref
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_run_refs (table_name, run_id) "
+                                "VALUES (:table_name, :run_id) "
+                                "ON CONFLICT (table_name, run_id) DO NOTHING"
+                            ),
+                            {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.DECREF:
                         await session.execute(
                             text(
-                                "UPDATE table_context_refs "
-                                "SET refcount = refcount - 1 "
-                                "WHERE table_name = :table_name AND context_id = :context_id"
+                                "DELETE FROM table_run_refs "
+                                "WHERE table_name = :table_name AND run_id = :run_id"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id},
+                            {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, refcount, job_id) "
-                                "VALUES (:table_name, :context_id, 0, :job_id) "
+                                "INSERT INTO table_context_refs (table_name, context_id, job_id) "
+                                "VALUES (:table_name, :context_id, :job_id) "
                                 "ON CONFLICT (table_name, context_id) "
                                 "DO UPDATE SET job_id = :job_id"
                             ),
@@ -329,9 +342,10 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Decref all live objects.  Pinned tables are protected by their
-        # job_id marker in table_context_refs — the background worker skips
-        # tables with non-NULL job_id even when refcount reaches 0.
+        # Decref all live objects (deletes this run_id from table_run_refs).
+        # Pinned tables are protected by their job_id marker in
+        # table_context_refs — the background worker skips tables with
+        # non-NULL job_id even when no run refs remain.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:

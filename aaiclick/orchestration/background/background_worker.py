@@ -2,7 +2,7 @@
 
 BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
-2. Tables with total refcount <= 0 — drops them in ClickHouse
+2. Tables with no run refs — drops them in ClickHouse
 3. Expired sample tables — drops _sample tables older than oplog TTL
 4. Dead workers — marks their running tasks as FAILED
 5. Scheduled jobs — creates Job runs when next_run_at is due
@@ -41,7 +41,7 @@ class BackgroundWorker:
 
     Performs five operations on each poll:
     1. Job cleanup: deletes pin refs for completed/failed jobs
-    2. Table cleanup: drops CH tables with total refcount <= 0
+    2. Table cleanup: drops CH tables with no run refs
     3. Sample cleanup: drops expired _sample tables older than oplog TTL
     4. Dead worker detection: marks tasks from expired workers as FAILED
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
@@ -112,7 +112,7 @@ class BackgroundWorker:
     async def _cleanup_completed_jobs(self) -> None:
         """Clear job_id on pin refs for completed/failed jobs.
 
-        Sets job_id = NULL so the ref becomes a plain (zero-refcount) task ref
+        Sets job_id = NULL so the ref becomes a plain task ref
         eligible for cleanup by _cleanup_unreferenced_tables.
         """
         async with AsyncSession(self._engine) as session:
@@ -135,15 +135,17 @@ class BackgroundWorker:
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with total refcount <= 0 across all contexts."""
+        """Drop CH tables with no run refs and no pin."""
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT table_name FROM table_context_refs "
-                    "WHERE table_name NOT LIKE 'p\\_%' "
-                    "GROUP BY table_name "
-                    "HAVING SUM(refcount) <= 0 "
-                    "AND MAX(job_id) IS NULL"
+                    "SELECT table_name FROM table_context_refs tcr "
+                    "WHERE tcr.table_name NOT LIKE 'p\\_%' "
+                    "AND tcr.job_id IS NULL "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM table_run_refs trr "
+                    "  WHERE trr.table_name = tcr.table_name"
+                    ")"
                 )
             )
             rows = result.fetchall()
@@ -194,7 +196,7 @@ class BackgroundWorker:
             logger.debug("Failed to query expired sample tables", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
-        """Detect dead workers and mark their running tasks as FAILED."""
+        """Detect dead workers, mark their running tasks as FAILED, and clean orphaned run refs."""
         cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
@@ -211,8 +213,22 @@ class BackgroundWorker:
             if not dead_worker_ids:
                 return
 
+            # Collect run_ids of tasks that will be marked as FAILED
+            # (currently RUNNING/CLAIMED on dead workers) before marking.
+            orphaned_run_ids = await self._handler.get_dead_worker_run_ids(
+                session, dead_worker_ids,
+            )
+
             now = datetime.utcnow()
             await self._handler.mark_dead_workers(session, dead_worker_ids, now)
+
+            # Remove orphaned run refs from table_run_refs so affected
+            # tables become eligible for cleanup.
+            if orphaned_run_ids:
+                await self._handler.clean_task_runs(
+                    session, [str(rid) for rid in orphaned_run_ids],
+                )
+
             await session.commit()
 
             for wid in dead_worker_ids:

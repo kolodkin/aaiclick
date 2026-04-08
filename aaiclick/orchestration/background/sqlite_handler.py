@@ -7,10 +7,10 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler
+from .handler import BackgroundHandler, extract_last_run_ids
 
 
-def _in_clause(ids: list[int], prefix: str) -> tuple[str, dict]:
+def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause for SQLite.
 
     Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).
@@ -49,5 +49,28 @@ class SqliteBackgroundHandler(BackgroundHandler):
                 f"WHERE worker_id IN ({placeholders}) "
                 f"AND status IN ('RUNNING', 'CLAIMED')"
             ),
+            params,
+        )
+
+    @staticmethod
+    async def get_dead_worker_run_ids(
+        session: AsyncSession, dead_worker_ids: list[int],
+    ) -> list[int]:
+        placeholders, params = _in_clause(dead_worker_ids, "wid")
+        result = await session.execute(
+            text(
+                f"SELECT run_ids FROM tasks "
+                f"WHERE worker_id IN ({placeholders}) "
+                f"AND status IN ('RUNNING', 'CLAIMED')"
+            ),
+            params,
+        )
+        return extract_last_run_ids(result.fetchall())
+
+    @staticmethod
+    async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
+        placeholders, params = _in_clause(run_ids, "rid")
+        await session.execute(
+            text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
             params,
         )
