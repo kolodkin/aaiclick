@@ -206,14 +206,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             if not is_persistent:
                 obj._register()
             register_object(obj)
-            if not is_persistent and "job_id" in value:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    # Flush ensures the INCREF above is committed to the DB
-                    # before claim() releases the pin — prevents the background
-                    # cleanup worker from dropping the table in the gap.
-                    await lifecycle.flush()
-                    await lifecycle.claim(table, value["job_id"])
+            # Pin stays until _cleanup_completed_jobs clears it when the
+            # job finishes.  Calling claim() here would release the pin
+            # after the first consumer, leaving the table unprotected if
+            # multiple downstream tasks share the same upstream Object.
             return obj
 
         elif obj_type == "view":
@@ -232,11 +228,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=value.get("renamed_columns"),
             )
             register_object(view)
-            if "job_id" in value:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    await lifecycle.flush()
-                    await lifecycle.claim(value["table"], value["job_id"])
             return view
 
         else:
