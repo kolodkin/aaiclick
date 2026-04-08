@@ -1,0 +1,9 @@
+[project]
+name = "nyc-taxi-pipeline"
+version = "0.1.0"
+description = "Distributed NYC taxi trip data analysis pipeline"
+requires-python = ">=3.10"
+
+dependencies = [
+    "aaiclick",
+]

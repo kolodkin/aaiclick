@@ -2,7 +2,7 @@
 # chdb vs aaiclick benchmark: compare native chdb SQL against aaiclick Object API.
 #
 # Measures ingest, aggregations, group-by, filter, sort on 1M rows (10 runs).
-# Requires: pip install rich (or see requirements.txt)
+# Requires: rich (see pyproject.toml)
 #
 # Usage: ./chdb_benchmark.sh
 #        ./chdb_benchmark.sh --rows 500000 --runs 5
