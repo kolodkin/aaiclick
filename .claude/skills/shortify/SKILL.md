@@ -1,11 +1,14 @@
 ---
 name: shortify
-description: Review and shorten markdown docs — cut wordiness, redundancy, and code duplication. TRIGGER when writing or editing any .md file, or when user asks to trim, shorten, tighten, shortify, or condense documentation.
+description: Review and shorten markdown docs — cut wordiness, redundancy, and code duplication. TRIGGER on .md file edits inside subdirectories (e.g. docs/, aaiclick/), or when user asks to shorten/condense docs. Skip CLAUDE.md, README.md, CHANGELOG.md, and other root-level .md files.
 ---
 
 # shortify
 
-Apply as a review pass after writing or editing any `.md` file, or manually via `/shortify [file-or-glob]`.
+Apply as a review pass after writing or editing `.md` files in subdirectories, or manually via `/shortify [file-or-glob]`.
+
+**Scope**: `docs/**/*.md`, `aaiclick/**/*.md`, and other subdirectory `.md` files.
+**Skip**: `CLAUDE.md`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, and any root-level `.md` files — these have their own conventions.
 
 ## Checklist
 
