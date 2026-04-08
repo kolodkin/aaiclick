@@ -154,10 +154,38 @@ Cron expressions are parsed by `croniter`. `next_run_at` is computed on registra
 
 **Implementation**: `aaiclick/orchestration/cli.py`, `aaiclick/__main__.py`
 
+## Local Mode (chdb + SQLite)
+
+Single process runs worker + background cleanup together, sharing one chdb
+session.  No infrastructure required — just `setup` and `local start`.
+
 ```bash
-python -m aaiclick worker start               # Start a worker
+python -m aaiclick setup                      # Initialize local DB + chdb
+python -m aaiclick local start                # Worker + background in one process
+python -m aaiclick local start --max-tasks 10
+python -m aaiclick local stop <worker_id>     # Graceful stop
+```
+
+## Distributed Mode (ClickHouse + PostgreSQL)
+
+Workers and background run as independent processes.  Each task executes
+in a dedicated child process for isolation.
+
+```bash
+python -m aaiclick worker start               # Start a worker process
 python -m aaiclick worker start --max-tasks 10
+python -m aaiclick worker stop <worker_id>    # Graceful stop
 python -m aaiclick worker list
+python -m aaiclick background start           # Standalone background worker
+```
+
+!!! warning "`worker start` and `background start` require distributed backends"
+    Running these commands in local mode (chdb + SQLite) raises `RuntimeError`.
+    Use `local start` instead.
+
+## Common Commands
+
+```bash
 python -m aaiclick job get <id>
 python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
@@ -166,7 +194,6 @@ python -m aaiclick job disable <name>         # Disable a registered job
 python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}']
 python -m aaiclick run-job <name> [--kwargs '{"key": "val"}']
 python -m aaiclick registered-job list        # List registered jobs
-python -m aaiclick background start           # Standalone background worker
 ```
 
 # Orchestration Operators
@@ -282,8 +309,24 @@ All Object operations within a task are automatically logged when `data_context(
 
 # Configuration
 
-See [Getting Started](getting_started.md) for connection URL env vars (`AAICLICK_CH_URL`, `AAICLICK_SQL_URL`).
+**Implementation**: `aaiclick/backend.py` — see `get_root()`, `is_local()`
 
-- **Log directory**: `AAICLICK_LOG_DIR`, or OS defaults (`~/.aaiclick/logs` macOS, `/var/log/aaiclick` Linux). See `aaiclick/orchestration/logging.py` — `get_logs_dir()`.
+| Variable           | Default                              | Description                               |
+|--------------------|--------------------------------------|-------------------------------------------|
+| `AAICLICK_ROOT`    | `~/.aaiclick`                        | Base directory for all local-mode state   |
+| `AAICLICK_SQL_URL` | `sqlite+aiosqlite:///{root}/local.db`| SQLAlchemy async URL for orchestration DB |
+| `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
+| `AAICLICK_LOG_DIR` | mode-dependent (see below)           | Task log directory override               |
+
+**Mode detection**: `is_local()` returns `True` when both `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`. All local paths derive from `AAICLICK_ROOT`.
+
+**Log directory defaults** (see `aaiclick/orchestration/logging.py` — `get_logs_dir()`):
+
+| Mode                | Default               |
+|---------------------|-----------------------|
+| Local               | `{AAICLICK_ROOT}/logs`|
+| Distributed (macOS) | `~/.aaiclick/logs`    |
+| Distributed (Linux) | `/var/log/aaiclick`   |
+
 - **Setup (local)**: `python -m aaiclick setup`
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
