@@ -1,6 +1,6 @@
 ---
 name: shortify
-description: Review and shorten markdown docs — cut wordiness, reduce redundancy, reference code instead of duplicating. Use when user asks to trim, shorten, tighten, shortify, or condense documentation.
+description: Review and shorten markdown docs — cut wordiness, reduce redundancy, reference code instead of duplicating. TRIGGER when writing or editing .md files in docs/, or when user asks to trim, shorten, tighten, shortify, or condense documentation.
 ---
 
 # shortify: Shorten Markdown Documentation
@@ -8,15 +8,13 @@ description: Review and shorten markdown docs — cut wordiness, reduce redundan
 Review markdown files and make them concise by removing wordiness, redundancy,
 and duplication with existing code.
 
-## Invocation
+## When to Trigger
 
-```
-/shortify [file-or-glob]
-```
-
-- `/shortify docs/object.md` — shortify a specific file
-- `/shortify docs/*.md` — shortify all docs in a directory
-- `/shortify` — no argument: ask which files to shortify
+- **Automatically**: After writing or editing any `.md` file in `docs/` — apply the checklist below as a review pass before committing.
+- **Manually**: `/shortify [file-or-glob]`
+  - `/shortify docs/object.md` — shortify a specific file
+  - `/shortify docs/*.md` — shortify all docs in a directory
+  - `/shortify` — no argument: ask which files to shortify
 
 ## Review Checklist
 
