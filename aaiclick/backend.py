@@ -4,12 +4,16 @@ aaiclick.backend - Backend detection from connection URLs.
 Two independent connection strings control what aaiclick connects to:
 
 - AAICLICK_SQL_URL: SQLAlchemy async URL for orchestration state
-    Default: sqlite+aiosqlite:///<home>/.aaiclick/local.db
+    Default: sqlite+aiosqlite:///<root>/local.db
     Example: postgresql+asyncpg://user:pass@host:5432/aaiclick
 
 - AAICLICK_CH_URL: ClickHouse connection URL for data operations
-    Default: chdb:///<home>/.aaiclick/chdb_data
+    Default: chdb:///<root>/chdb_data
     Example: clickhouse://user:pass@host:8123/default
+
+All local-mode paths derive from a single root directory:
+
+- AAICLICK_LOCAL_ROOT: Base directory for local state (default: ~/.aaiclick)
 
 Helper functions detect the backend type from the URL scheme.
 """
@@ -19,12 +23,21 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def get_root() -> Path:
+    """Return the base directory for all local-mode state.
+
+    Reads AAICLICK_LOCAL_ROOT env var, defaulting to ``~/.aaiclick``.
+    All local paths (SQLite DB, chdb data, logs) derive from this.
+    """
+    return Path(os.getenv("AAICLICK_LOCAL_ROOT", Path.home() / ".aaiclick"))
+
+
 def get_sql_url() -> str:
     """Return the async SQL URL for orchestration state."""
     url = os.getenv("AAICLICK_SQL_URL")
     if url:
         return url
-    db_path = str(Path.home() / ".aaiclick" / "local.db")
+    db_path = str(get_root() / "local.db")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite+aiosqlite:///{db_path}"
 
@@ -34,7 +47,7 @@ def get_ch_url() -> str:
     url = os.getenv("AAICLICK_CH_URL")
     if url:
         return url
-    chdb_path = str(Path.home() / ".aaiclick" / "chdb_data")
+    chdb_path = str(get_root() / "chdb_data")
     return f"chdb://{chdb_path}"
 
 
@@ -51,6 +64,15 @@ def is_chdb() -> bool:
 def is_postgres() -> bool:
     """True when orchestration uses PostgreSQL."""
     return get_sql_url().startswith("postgresql")
+
+
+def is_local() -> bool:
+    """True when running in local mode (chdb + SQLite).
+
+    Local mode runs everything in a single process to avoid chdb
+    file-lock conflicts between multiple OS processes.
+    """
+    return is_chdb() and is_sqlite()
 
 
 def parse_ch_url() -> dict:

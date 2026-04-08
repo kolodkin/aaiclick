@@ -11,7 +11,9 @@ import json
 import signal
 from typing import Any, Dict, Optional
 
-from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop
+from aaiclick.backend import is_local
+
+from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
 from .background import BackgroundWorker
@@ -106,11 +108,37 @@ async def show_jobs(
 
 
 async def start_worker(max_tasks: Optional[int] = None) -> None:
-    """Start a worker process with cleanup and lifecycle support.
+    """Start a distributed worker process.
 
-    Each task runs in a dedicated child process for isolation.
-    The main process handles SQLite (claim/status), the child process
-    handles chdb + task execution.
+    Each task runs in a dedicated child process for isolation.  The main
+    process handles SQL (claim/status), the child process connects to
+    ClickHouse.  Run ``background start`` separately for table cleanup
+    and job scheduling.
+
+    Requires distributed backends (ClickHouse server + PostgreSQL).
+
+    Args:
+        max_tasks: Maximum tasks to execute (None for unlimited).
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
+    """
+    if is_local():
+        raise RuntimeError(
+            "'worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite)."
+        )
+    async with orch_context(with_ch=False):
+        await mp_worker_main_loop(max_tasks=max_tasks)
+
+
+async def start_local(max_tasks: Optional[int] = None) -> None:
+    """Start worker + background cleanup in a single process (local mode).
+
+    Everything runs in one process: the background worker, task claiming,
+    and task execution all share one chdb session via the process-level
+    singleton.  This avoids the file-lock conflict that occurs when
+    multiple OS processes open the same chdb data directory.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
@@ -118,8 +146,8 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     background = BackgroundWorker()
     await background.start()
     try:
-        async with orch_context(with_ch=False):
-            await mp_worker_main_loop(max_tasks=max_tasks)
+        async with orch_context(with_ch=True):
+            await worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
 
@@ -158,7 +186,15 @@ async def start_background(poll_interval: float = 10.0) -> None:
 
     Args:
         poll_interval: Cleanup poll interval in seconds.
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
     """
+    if is_local():
+        raise RuntimeError(
+            "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
+        )
     cleanup = BackgroundWorker(poll_interval=poll_interval)
     await cleanup.start()
     shutdown = asyncio.Event()

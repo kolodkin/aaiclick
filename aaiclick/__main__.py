@@ -5,8 +5,12 @@ Usage:
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
-    python -m aaiclick worker start             # Start a worker process
+    python -m aaiclick local start              # Start worker + background (local mode)
+    python -m aaiclick local stop <worker_id>   # Stop a local worker
+    python -m aaiclick worker start             # Start a distributed worker process
     python -m aaiclick worker list              # List workers
+    python -m aaiclick worker stop <worker_id>  # Stop a worker gracefully
+    python -m aaiclick background start         # Start background cleanup worker
     python -m aaiclick job get <ref>            # Get job details (by ID or name)
     python -m aaiclick job stats <ref>          # Show job execution stats
     python -m aaiclick job cancel <ref>         # Cancel a job
@@ -19,7 +23,6 @@ Usage:
     python -m aaiclick data list                # List persistent objects
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
-    python -m aaiclick background start         # Start background cleanup worker
 """
 
 import argparse
@@ -93,10 +96,12 @@ def _run_setup(ai: bool = False):
     """Initialize local dev environment."""
     from pathlib import Path
 
-    from aaiclick.backend import get_ch_url, get_sql_url, is_chdb, is_sqlite
+    from aaiclick.backend import get_ch_url, get_root, get_sql_url, is_chdb, is_local, is_sqlite
 
+    print(f"Root:    {get_root()}")
     print(f"CH URL:  {get_ch_url()}")
     print(f"SQL URL: {get_sql_url()}")
+    print(f"Mode:    {'local' if is_local() else 'distributed'}")
 
     if is_chdb():
         from chdb.session import Session
@@ -169,10 +174,42 @@ def main():
         help="Additional arguments for migration command",
     )
 
-    # Add worker subcommand
+    # Add local subcommand (single-process: worker + background)
+    local_parser = subparsers.add_parser(
+        "local",
+        help="Local mode commands (single process, chdb + SQLite)",
+    )
+    local_subparsers = local_parser.add_subparsers(
+        dest="local_command",
+        help="Local commands",
+    )
+
+    # local start
+    local_start_parser = local_subparsers.add_parser(
+        "start",
+        help="Start worker + background in a single process",
+    )
+    local_start_parser.add_argument(
+        "--max-tasks",
+        type=int,
+        default=None,
+        help="Maximum tasks to execute (default: unlimited)",
+    )
+
+    # local stop
+    local_stop_parser = local_subparsers.add_parser(
+        "stop",
+        help="Request a local worker to stop gracefully",
+    )
+    local_stop_parser.add_argument(
+        "worker_id",
+        help="Worker ID to stop",
+    )
+
+    # Add worker subcommand (distributed mode)
     worker_parser = subparsers.add_parser(
         "worker",
-        help="Worker management commands",
+        help="Distributed worker management commands",
     )
     worker_subparsers = worker_parser.add_subparsers(
         dest="worker_command",
@@ -182,7 +219,7 @@ def main():
     # worker start
     worker_start_parser = worker_subparsers.add_parser(
         "start",
-        help="Start a worker process",
+        help="Start a distributed worker process",
     )
     worker_start_parser.add_argument(
         "--max-tasks",
@@ -392,6 +429,18 @@ def main():
         from aaiclick.orchestration.migrate import run_migrations
 
         run_migrations(args.args if hasattr(args, "args") else [])
+
+    elif args.command == "local":
+        from aaiclick.orchestration.cli import start_local, stop_worker_cmd
+
+        if args.local_command == "start":
+            asyncio.run(start_local(max_tasks=args.max_tasks))
+
+        elif args.local_command == "stop":
+            asyncio.run(stop_worker_cmd(args.worker_id))
+
+        else:
+            local_parser.print_help()
 
     elif args.command == "worker":
         from aaiclick.orchestration.cli import show_workers, start_worker, stop_worker_cmd
