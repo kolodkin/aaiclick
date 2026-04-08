@@ -1,7 +1,7 @@
 Future Plans
 ---
 
-Unimplemented features and planned work across aaiclick, ordered by priority.
+Planned work across aaiclick, ordered by priority.
 
 ---
 

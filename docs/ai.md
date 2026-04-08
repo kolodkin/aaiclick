@@ -1,7 +1,7 @@
 AI Layer
 ---
 
-Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
+Optional AI-powered lineage querying and debugging (`pip install aaiclick[ai]`); the core package works identically without it.
 
 **Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 

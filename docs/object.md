@@ -1,11 +1,9 @@
-Object Class Documentation
+Object
 ---
 
 # Overview
 
-**Implementation**: `aaiclick/data/object.py` — see `Object` and `View` classes
-
-The `Object` class represents data stored in ClickHouse tables. Each Object instance corresponds to a ClickHouse table and supports operations through operator overloading that create new tables with results.
+The `Object` class (`aaiclick/data/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
 
 **Key Features:**
 - Operator overloading for arithmetic, comparison, and bitwise operations
@@ -56,11 +54,7 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 
 # Operator Support
 
-**Implementation**: `aaiclick/data/object.py` (dunder methods) delegates to `aaiclick/data/operators.py` (async functions).
-
-All operators work element-wise on both scalar and array data, creating new Object tables with results.
-
-For runnable examples, see `examples/basic_operators.py`.
+All operators (`aaiclick/data/object.py` → `aaiclick/data/operators.py`) work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
 
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work.

@@ -5,7 +5,7 @@ Glossary
 
 ## `aai_id`
 
-Snowflake ID column present in every Object table. Provides deterministic ordering — `data()` retrieves rows via `ORDER BY aai_id`. All operations generate fresh IDs, so order follows argument/insertion order.
+Snowflake ID column in every Object table, providing deterministic ordering via `ORDER BY aai_id` in `data()`. All operations generate fresh IDs, preserving argument/insertion order.
 
 # C
 

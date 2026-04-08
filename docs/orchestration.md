@@ -38,9 +38,9 @@ Wraps an async function into a `TaskFactory`. Parameters: `name` (default: funct
 
 ## @job
 
-Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` (SQLAlchemy `AsyncEngine`, aiosqlite or asyncpg) and commits all tasks to SQL. Parameter: `name` — accepts positional (`@job("my_job")`), keyword, or bare (`@job`).
+Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and commits all tasks to SQL. Use `@job("name")`, `@job(name="name")`, or bare `@job`.
 
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously. See `aaiclick/orchestration/execution/debug.py`.
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously (`aaiclick/orchestration/execution/debug.py`).
 
 # Deployment Modes
 

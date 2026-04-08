@@ -4,7 +4,7 @@
 
 **Implementation**: `aaiclick/data/data_context.py` — see `data_context()`, `create_object()`, `create_object_from_value()`
 
-The `DataContext` manages the ClickHouse client lifecycle, Object tracking, and table lifecycle. It is the entry point for all data operations — Objects are created within a context and become stale when it exits.
+The `DataContext` manages ClickHouse client lifecycle, Object tracking, and table lifecycle — the entry point for all data operations. Objects become stale when the context exits.
 
 ```python
 async with data_context():
@@ -63,11 +63,9 @@ Objects are managed by a `data_context()` and become **stale** when the context 
 
 **Implementation**: `aaiclick/data/object.py` — see `checkstale()`, `stale` property, `_register()`
 
-!!! warning "Objects become stale when their context exits"
-    Using a stale Object raises `RuntimeError`. Create and consume Objects
-    within the same `data_context()` block. Only persistent objects
-    (created with `name=`) survive across contexts — reopen them
-    with `open_object()`.
+!!! warning "Create and consume Objects within the same `data_context()` block"
+    Using a stale Object raises `RuntimeError`. Persistent objects
+    (created with `name=`) survive — reopen via `open_object()`.
 
 ## Table Schema and Structure
 

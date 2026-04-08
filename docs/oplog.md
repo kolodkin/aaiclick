@@ -1,7 +1,7 @@
 Operation Log (oplog)
 ---
 
-The `aaiclick/oplog/` module captures data operation provenance inside ClickHouse with zero AI dependencies. Every object created or transformed within a session is recorded, enabling lineage tracing, debugging, and post-job data sampling.
+The `aaiclick/oplog/` module captures operation provenance inside ClickHouse with zero AI dependencies — every object created or transformed is recorded for lineage tracing, debugging, and post-job data sampling.
 
 ---
 
