@@ -39,15 +39,14 @@ jobs:
 
   test-local:
     runs-on: ubuntu-latest
+    name: ${{ matrix.group }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - group: data-local
-            title: Data Tests (Local/chdb)
+          - group: Data local
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-          - group: orch-local
-            title: Orchestration Tests (Local/SQLite)
+          - group: Orch local
             test-paths: "aaiclick/orchestration/"
 
     steps:
@@ -68,7 +67,7 @@ jobs:
         run: |
           uv run python -m aaiclick setup
 
-      - name: "Run tests: ${{ matrix.title }}"
+      - name: Run tests
         run: |
           mkdir -p tmp
           uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml
@@ -83,15 +82,14 @@ jobs:
 
   test-dist:
     runs-on: ubuntu-latest
+    name: ${{ matrix.group }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - group: data-dist
-            title: Data Tests (Distributed/ClickHouse)
+          - group: Data dist
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-          - group: orch-dist
-            title: Orchestration Tests (Distributed/PostgreSQL)
+          - group: Orch dist
             test-paths: "aaiclick/orchestration/"
 
     services:
@@ -146,7 +144,7 @@ jobs:
           echo "Running database migrations..."
           uv run python -m aaiclick migrate upgrade head
 
-      - name: "Run tests: ${{ matrix.title }}"
+      - name: Run tests
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"

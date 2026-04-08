@@ -24,6 +24,10 @@ from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .worker import HEARTBEAT_INTERVAL, _worker_loop, worker_heartbeat
 
+# How often the parent checks whether the child process has finished.
+# Smaller than POLL_INTERVAL because this polls a local queue, not a database.
+CHILD_POLL_INTERVAL = 0.5
+
 
 class _ProcessResult(NamedTuple):
     """Result passed from child process back to main via queue."""
@@ -130,7 +134,7 @@ async def _poll_child(
     timeout: Optional[float],
 ) -> _ProcessResult:
     """Poll queue for child result, enforce timeout, detect crashes."""
-    poll_interval = 0.5
+    poll_interval = CHILD_POLL_INTERVAL
     elapsed = 0.0
 
     while True:

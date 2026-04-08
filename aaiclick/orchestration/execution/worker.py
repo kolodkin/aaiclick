@@ -28,6 +28,9 @@ HEARTBEAT_INTERVAL = 30
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
 
+# Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
+RETRY_BASE_DELAY = 1
+
 
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
@@ -53,8 +56,7 @@ async def _try_complete_job(job_id: int) -> None:
 
 async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> None:
     """Reset a failed task to PENDING with incremented attempt and backoff delay."""
-    base_delay = 1  # seconds
-    delay = base_delay * (2 ** current_attempt)
+    delay = RETRY_BASE_DELAY * (2 ** current_attempt)
     retry_after = datetime.utcnow() + timedelta(seconds=delay)
 
     async with get_sql_session() as session:

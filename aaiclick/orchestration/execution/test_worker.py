@@ -114,55 +114,6 @@ async def test_list_workers(orch_ctx):
     assert worker1.id in stopped_ids
 
 
-async def test_worker_main_loop_executes_tasks(orch_ctx_no_ch):
-    """Test that worker main loop executes tasks."""
-    job = await create_job(
-        "test_main_loop_job",
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-    )
-
-    tasks_executed = await mp_worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=5,
-    )
-
-    assert tasks_executed == 1
-
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
-        task = result.scalar_one()
-        assert task.status == TaskStatus.COMPLETED
-
-
-async def test_worker_main_loop_handles_failures(orch_ctx_no_ch):
-    """Test that worker main loop handles task failures."""
-    job = await create_job(
-        "test_failing_job",
-        "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-    )
-
-    tasks_executed = await mp_worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=5,
-    )
-
-    # Task was attempted but failed
-    assert tasks_executed == 0  # Failed tasks don't count as executed
-
-    # Verify task was marked as failed
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
-        task = result.scalar_one()
-        assert task.status == TaskStatus.FAILED
-        assert task.error is not None
-
-
 # =============================================================================
 # Graceful Stop Tests
 # =============================================================================

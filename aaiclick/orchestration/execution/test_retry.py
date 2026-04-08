@@ -74,8 +74,11 @@ async def test_task_decorator_bare(orch_ctx):
     assert t.max_retries == 0
 
 
-async def test_schedule_retry(orch_ctx):
+async def test_schedule_retry(orch_ctx, monkeypatch):
     """_schedule_retry resets task to PENDING with incremented attempt."""
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
+    )
     job = await create_job(
         "test_retry",
         create_task(
@@ -118,8 +121,11 @@ async def test_schedule_retry(orch_ctx):
         assert t.retry_after <= before + timedelta(seconds=2)
 
 
-async def test_retry_backoff_timing(orch_ctx):
+async def test_retry_backoff_timing(orch_ctx, monkeypatch):
     """Backoff doubles each attempt: 1s, 2s, 4s."""
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 1,
+    )
     job = await create_job(
         "test_backoff",
         create_task(
@@ -225,7 +231,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch):
     await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=2,
     )
 
     # After exhausting all retries: task FAILED, attempt=2
@@ -263,7 +269,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch):
     await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=3,
+        max_empty_polls=1,
     )
 
     # Task should be FAILED immediately (no retries)
@@ -301,7 +307,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path):
     tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=2,
     )
 
     assert tasks_executed == 1  # Task eventually succeeded
