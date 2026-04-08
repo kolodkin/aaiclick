@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .handler import BackgroundHandler, extract_last_run_ids
 
 
-def _in_clause(ids: list[int], prefix: str) -> tuple[str, dict]:
+def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause for SQLite.
 
     Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).

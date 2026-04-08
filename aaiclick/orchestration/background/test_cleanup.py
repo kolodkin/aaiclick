@@ -141,6 +141,28 @@ async def test_clean_task_run_removes_run_refs():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+async def test_clean_task_runs_batch_removes_multiple_run_ids():
+    """clean_task_runs batch-deletes table_run_refs rows for multiple run_ids."""
+    engine, tmpdir = await _setup_db()
+    try:
+        await _insert_run_ref(engine, "t1", "run_1")
+        await _insert_run_ref(engine, "t1", "run_2")
+        await _insert_run_ref(engine, "t2", "run_2")
+        await _insert_run_ref(engine, "t3", "run_3")
+
+        handler = SqliteBackgroundHandler()
+        async with AsyncSession(engine) as session:
+            await handler.clean_task_runs(session, ["run_1", "run_2"])
+            await session.commit()
+
+        assert await _get_run_refs(engine, "t1") == set()
+        assert await _get_run_refs(engine, "t2") == set()
+        assert await _get_run_refs(engine, "t3") == {"run_3"}
+    finally:
+        await engine.dispose()
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 async def test_clean_task_run_then_cleanup_drops_table():
     """After clean_task_run removes run refs, cleanup drops the table."""
     engine, tmpdir = await _setup_db()
