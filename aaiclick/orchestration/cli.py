@@ -108,17 +108,29 @@ async def show_jobs(
 
 
 async def start_worker(max_tasks: Optional[int] = None) -> None:
-    """Start a worker process with cleanup and lifecycle support.
+    """Start a distributed worker process.
 
-    In local mode (chdb + SQLite) everything runs in a single process:
-    the background worker, task claiming, and task execution all share
-    one chdb session via the process-level singleton.  This avoids the
-    file-lock conflict that occurs when multiple OS processes open the
-    same chdb data directory.
+    Each task runs in a dedicated child process for isolation.  The main
+    process handles SQL (claim/status), the child process connects to
+    ClickHouse.  Run ``background start`` separately for table cleanup
+    and job scheduling.
 
-    In distributed mode (ClickHouse server + PostgreSQL) each task runs
-    in a dedicated child process for isolation.  The main process handles
-    SQL (claim/status), the child process connects to ClickHouse.
+    Requires distributed backends (ClickHouse server + PostgreSQL).
+
+    Args:
+        max_tasks: Maximum tasks to execute (None for unlimited).
+    """
+    async with orch_context(with_ch=False):
+        await mp_worker_main_loop(max_tasks=max_tasks)
+
+
+async def start_local(max_tasks: Optional[int] = None) -> None:
+    """Start worker + background cleanup in a single process (local mode).
+
+    Everything runs in one process: the background worker, task claiming,
+    and task execution all share one chdb session via the process-level
+    singleton.  This avoids the file-lock conflict that occurs when
+    multiple OS processes open the same chdb data directory.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
@@ -126,12 +138,8 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     background = BackgroundWorker()
     await background.start()
     try:
-        if is_chdb():
-            async with orch_context(with_ch=True):
-                await worker_main_loop(max_tasks=max_tasks)
-        else:
-            async with orch_context(with_ch=False):
-                await mp_worker_main_loop(max_tasks=max_tasks)
+        async with orch_context(with_ch=True):
+            await worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
 
