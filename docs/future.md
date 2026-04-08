@@ -52,9 +52,6 @@ columns automatically and returns stats for all of them in a single round-trip.
 
 ## Lineage: aai_id Uniqueness Awareness ✅ IMPLEMENTED
 
-**Implementation**: `aaiclick/oplog/lineage.py` — see `OplogGraph.to_prompt_context()`;
-`aaiclick/ai/agents/debug_agent.py` and `aaiclick/ai/agents/lineage_agent.py` — see system prompts
-
 Both agents' system prompts now include guidance that `insert` and `concat` operations generate
 fresh aai_id values. `OplogGraph.to_prompt_context()` emits per-node warnings for these operations,
 instructing the LLM to use data-value matching or oplog provenance metadata instead of aai_id
