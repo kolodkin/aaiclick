@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TextIO
 
-from aaiclick.backend import get_root
+from aaiclick.backend import get_root, is_local
 
 
 def get_logs_dir() -> str:
@@ -18,16 +18,21 @@ def get_logs_dir() -> str:
     Environment Variables:
         AAICLICK_LOG_DIR: Override default log directory
 
-    Default:
-        {AAICLICK_ROOT}/logs (i.e. ~/.aaiclick/logs)
+    Defaults:
+        Local mode:       {AAICLICK_ROOT}/logs (i.e. ~/.aaiclick/logs)
+        Distributed mode: /var/log/aaiclick (Linux), ~/.aaiclick/logs (macOS)
 
     Returns:
         str: Log directory path
     """
     if custom_dir := os.getenv("AAICLICK_LOG_DIR"):
         log_dir = custom_dir
-    else:
+    elif is_local():
         log_dir = str(get_root() / "logs")
+    elif sys.platform == "darwin":
+        log_dir = os.path.expanduser("~/.aaiclick/logs")
+    else:
+        log_dir = "/var/log/aaiclick"
 
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     return log_dir
