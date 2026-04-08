@@ -30,6 +30,20 @@ class BackgroundHandler(ABC):
         """Mark dead workers as STOPPED and their tasks as FAILED."""
         ...
 
+    @staticmethod
+    @abstractmethod
+    async def get_dead_worker_run_ids(
+        session: AsyncSession, dead_worker_ids: list[int],
+    ) -> list[int]:
+        """Return last run_id of each RUNNING/CLAIMED task on dead workers."""
+        ...
+
+    @staticmethod
+    @abstractmethod
+    async def clean_task_run(session: AsyncSession, run_id: str) -> None:
+        """Remove run_id from all run_ids arrays in table_context_refs."""
+        ...
+
 
 def create_background_handler() -> BackgroundHandler:
     """Create the appropriate handler based on AAICLICK_SQL_URL."""

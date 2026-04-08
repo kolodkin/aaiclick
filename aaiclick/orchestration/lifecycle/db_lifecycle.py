@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 from sqlalchemy import BigInteger, Column, String
-from sqlmodel import Field, SQLModel
+from sqlmodel import JSON, Column as SmColumn, Field, SQLModel
 
 
 class DBLifecycleOp(Enum):
@@ -61,10 +61,14 @@ class DBLifecycleMessage:
 
 
 class TableContextRef(SQLModel, table=True):
-    """Tracks ClickHouse table reference counts in PostgreSQL.
+    """Tracks ClickHouse table references in PostgreSQL via run_id arrays.
 
     Composite PK (table_name, context_id) allows multiple contexts to hold
     independent refs to the same table.
+
+    run_ids is a JSON array of run-ID strings.  incref appends the current
+    run_id; decref removes it.  When the array is empty (and no pin), the
+    background worker drops the ClickHouse table.
 
     - Task refs: context_id = task_id, job_id = NULL
     - Pin refs: context_id = task_id, job_id = job_id (non-NULL marks a pin)
@@ -74,5 +78,5 @@ class TableContextRef(SQLModel, table=True):
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    refcount: int = Field(default=0, sa_column=Column(BigInteger, nullable=False))
+    run_ids: list[str] = Field(default_factory=list, sa_column=SmColumn(JSON, nullable=False, server_default="[]"))
     job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))

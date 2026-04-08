@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import text
@@ -50,4 +51,39 @@ class SqliteBackgroundHandler(BackgroundHandler):
                 f"AND status IN ('RUNNING', 'CLAIMED')"
             ),
             params,
+        )
+
+    @staticmethod
+    async def get_dead_worker_run_ids(
+        session: AsyncSession, dead_worker_ids: list[int],
+    ) -> list[int]:
+        placeholders, params = _in_clause(dead_worker_ids, "wid")
+        result = await session.execute(
+            text(
+                f"SELECT run_ids FROM tasks "
+                f"WHERE worker_id IN ({placeholders}) "
+                f"AND status IN ('RUNNING', 'CLAIMED')"
+            ),
+            params,
+        )
+        run_ids: list[int] = []
+        for (run_ids_json,) in result.fetchall():
+            ids = run_ids_json if isinstance(run_ids_json, list) else json.loads(run_ids_json or "[]")
+            if ids:
+                run_ids.append(ids[-1])
+        return run_ids
+
+    @staticmethod
+    async def clean_task_run(session: AsyncSession, run_id: str) -> None:
+        await session.execute(
+            text(
+                "UPDATE table_context_refs SET run_ids = ("
+                "  SELECT COALESCE(json_group_array(j.value), '[]')"
+                "  FROM json_each(run_ids) AS j"
+                "  WHERE j.value != :run_id"
+                ") WHERE EXISTS ("
+                "  SELECT 1 FROM json_each(run_ids) WHERE value = :run_id"
+                ")"
+            ),
+            {"run_id": run_id},
         )
