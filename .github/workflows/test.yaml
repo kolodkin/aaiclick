@@ -46,12 +46,9 @@ jobs:
           - group: data-local
             title: Data Tests (Local/chdb)
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-          - group: orch-local-core
-            title: Orchestration Core Tests (Local/SQLite)
-            test-paths: "aaiclick/orchestration/ --ignore=aaiclick/orchestration/execution/"
-          - group: orch-local-exec
-            title: Orchestration Execution Tests (Local/SQLite)
-            test-paths: "aaiclick/orchestration/execution/"
+          - group: orch-local
+            title: Orchestration Tests (Local/SQLite)
+            test-paths: "aaiclick/orchestration/"
 
     steps:
       - name: Checkout code
@@ -93,12 +90,9 @@ jobs:
           - group: data-dist
             title: Data Tests (Distributed/ClickHouse)
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
-          - group: orch-dist-core
-            title: Orchestration Core Tests (Distributed/PostgreSQL)
-            test-paths: "aaiclick/orchestration/ --ignore=aaiclick/orchestration/execution/"
-          - group: orch-dist-exec
-            title: Orchestration Execution Tests (Distributed/PostgreSQL)
-            test-paths: "aaiclick/orchestration/execution/"
+          - group: orch-dist
+            title: Orchestration Tests (Distributed/PostgreSQL)
+            test-paths: "aaiclick/orchestration/"
 
     services:
       clickhouse:
