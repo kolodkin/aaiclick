@@ -11,7 +11,9 @@ import json
 import signal
 from typing import Any, Dict, Optional
 
-from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop
+from aaiclick.backend import is_chdb
+
+from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
 from .background import BackgroundWorker
@@ -108,9 +110,15 @@ async def show_jobs(
 async def start_worker(max_tasks: Optional[int] = None) -> None:
     """Start a worker process with cleanup and lifecycle support.
 
-    Each task runs in a dedicated child process for isolation.
-    The main process handles SQLite (claim/status), the child process
-    handles chdb + task execution.
+    In local mode (chdb + SQLite) everything runs in a single process:
+    the background worker, task claiming, and task execution all share
+    one chdb session via the process-level singleton.  This avoids the
+    file-lock conflict that occurs when multiple OS processes open the
+    same chdb data directory.
+
+    In distributed mode (ClickHouse server + PostgreSQL) each task runs
+    in a dedicated child process for isolation.  The main process handles
+    SQL (claim/status), the child process connects to ClickHouse.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
@@ -118,8 +126,12 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
     background = BackgroundWorker()
     await background.start()
     try:
-        async with orch_context(with_ch=False):
-            await mp_worker_main_loop(max_tasks=max_tasks)
+        if is_chdb():
+            async with orch_context(with_ch=True):
+                await worker_main_loop(max_tasks=max_tasks)
+        else:
+            async with orch_context(with_ch=False):
+                await mp_worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
 
