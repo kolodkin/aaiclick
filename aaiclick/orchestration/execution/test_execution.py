@@ -36,7 +36,7 @@ from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, Ta
 
 
 async def test_get_logs_dir_default(orch_ctx, monkeypatch):
-    """Test get_logs_dir returns OS-dependent default."""
+    """Test get_logs_dir returns {AAICLICK_ROOT}/logs by default."""
     monkeypatch.delenv("AAICLICK_LOG_DIR", raising=False)
 
     # Mock Path.mkdir to avoid permission issues in CI
@@ -45,10 +45,9 @@ async def test_get_logs_dir_default(orch_ctx, monkeypatch):
 
     log_dir = get_logs_dir()
 
-    if sys.platform == "darwin":
-        assert log_dir == os.path.expanduser("~/.aaiclick/logs")
-    else:
-        assert log_dir == "/var/log/aaiclick"
+    from aaiclick.backend import get_root
+
+    assert log_dir == str(get_root() / "logs")
 
     # Verify mkdir was called
     mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
