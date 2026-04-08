@@ -103,42 +103,17 @@ class BackgroundWorker:
                 pass
 
     async def _do_cleanup(self) -> None:
-        await self._cleanup_completed_jobs()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_expired_samples()
         await self._cleanup_dead_workers()
         await self._check_schedules()
 
-    async def _cleanup_completed_jobs(self) -> None:
-        """Delete pin refs for completed/failed/cancelled jobs.
-
-        Removes table_pin_refs rows so pinned tables become eligible
-        for cleanup by _cleanup_unreferenced_tables.
-        """
-        async with AsyncSession(self._engine) as session:
-            result = await session.execute(
-                text(
-                    "SELECT DISTINCT job_id FROM table_pin_refs "
-                    "WHERE job_id IN ("
-                    "  SELECT id FROM jobs "
-                    "  WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
-                    ")"
-                )
-            )
-            job_ids = [row[0] for row in result.fetchall()]
-
-            if not job_ids:
-                return
-
-            await self._handler.clear_job_pins(session, job_ids)
-            await session.commit()
-
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no run refs and no pin.
+        """Drop CH tables with no active pins and no run refs.
 
-        A table is eligible for cleanup when it has no pin_refs AND no
-        run_refs.  Pin refs are inserted by the producer and deleted by
-        _cleanup_completed_jobs when the job finishes.
+        A table is eligible when it has no run_refs AND no pin_refs from
+        active (non-terminal) jobs.  Stale pin_refs from completed jobs
+        are ignored and deleted alongside the table's other refs.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -147,7 +122,9 @@ class BackgroundWorker:
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_pin_refs tpr "
-                    "  WHERE tpr.table_name = tcr.table_name"
+                    "  JOIN jobs j ON j.id = tpr.job_id "
+                    "  WHERE tpr.table_name = tcr.table_name "
+                    "  AND j.status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')"
                     ") "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
@@ -166,6 +143,13 @@ class BackgroundWorker:
                 await session.execute(
                     text(
                         "DELETE FROM table_context_refs "
+                        "WHERE table_name = :table_name"
+                    ),
+                    {"table_name": table_name},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM table_pin_refs "
                         "WHERE table_name = :table_name"
                     ),
                     {"table_name": table_name},

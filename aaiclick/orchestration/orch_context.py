@@ -100,13 +100,20 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
-        """Mark table as pinned by setting job_id on its ref row.
+        """Insert a pin ref for this table.
 
-        Does not bump refcount — pin protection comes from the job_id marker
-        which prevents the background worker from dropping the table.
+        Pin protection comes from the table_pin_refs row which prevents
+        the background worker from dropping the table.
         """
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
 
+    def unpin(self, table_name: str) -> None:
+        """Remove the pin ref for this table.
+
+        Enqueued through the FIFO queue so it executes AFTER any preceding
+        INCREF, ensuring the run_ref is committed before the pin is released.
+        """
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.UNPIN, table_name))
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -172,7 +179,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 break
 
             # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         # Register table in context refs (idempotent)
@@ -207,6 +214,14 @@ class OrchLifecycleHandler(LifecycleHandler):
                                 "INSERT INTO table_pin_refs (table_name, job_id) "
                                 "VALUES (:table_name, :job_id) "
                                 "ON CONFLICT (table_name, job_id) DO NOTHING"
+                            ),
+                            {"table_name": msg.table_name, "job_id": self._job_id},
+                        )
+                    elif msg.op == DBLifecycleOp.UNPIN:
+                        await session.execute(
+                            text(
+                                "DELETE FROM table_pin_refs "
+                                "WHERE table_name = :table_name AND job_id = :job_id"
                             ),
                             {"table_name": msg.table_name, "job_id": self._job_id},
                         )

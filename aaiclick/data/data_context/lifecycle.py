@@ -59,6 +59,9 @@ class LifecycleHandler(ABC):
     def pin(self, table_name: str) -> None:
         """Mark table as result that survives stop(). Default: no-op."""
 
+    def unpin(self, table_name: str) -> None:
+        """Remove pin for a table. Default: no-op."""
+
     def oplog_record(self, result_table: str, operation: str,
                      kwargs: dict[str, str] | None = None,
                      sql: str | None = None) -> None:

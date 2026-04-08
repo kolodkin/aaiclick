@@ -35,12 +35,6 @@ class BackgroundHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def clear_job_pins(session: AsyncSession, job_ids: list[int]) -> None:
-        """Clear job_id on pin refs for completed job IDs."""
-        ...
-
-    @staticmethod
-    @abstractmethod
     async def mark_dead_workers(
         session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:

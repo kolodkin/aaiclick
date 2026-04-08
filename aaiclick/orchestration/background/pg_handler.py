@@ -14,13 +14,6 @@ class PgBackgroundHandler(BackgroundHandler):
     """PostgreSQL: batch operations with ANY() array operator."""
 
     @staticmethod
-    async def clear_job_pins(session: AsyncSession, job_ids: list[int]) -> None:
-        await session.execute(
-            text("DELETE FROM table_pin_refs WHERE job_id = ANY(:job_ids)"),
-            {"job_ids": job_ids},
-        )
-
-    @staticmethod
     async def mark_dead_workers(
         session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
