@@ -56,11 +56,6 @@ asyncio.run(main())
     Forgetting `await` gives a confusing error downstream —
     not at the line where you forgot it.
 
-??? info "Automatic cleanup"
-    All objects created inside `data_context()` are cleaned up on exit —
-    no manual table management required. Don't store Objects for use after
-    the context exits.
-
 # Environment Variables
 
 | Variable                | Default                                    | Description                                                              |

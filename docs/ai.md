@@ -109,8 +109,6 @@ async def debug_result(target_table: str, question: str) -> str:
 
 ## Agent Tools
 
-Tools the AI can call for deeper inspection via tool-calling protocol:
-
 Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
 | Tool             | Parameters                          | Returns                          |
@@ -142,4 +140,4 @@ async def explain(target_table: str, question: str | None = None) -> str:
 
 # Historical Tables
 
-After job cleanup, each table is replaced with a 10-row sample (same name, same schema — see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently return the preserved sample rows.
+After job cleanup, each table is replaced with a 10-row sample (see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently get the preserved sample.

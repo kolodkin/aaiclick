@@ -61,7 +61,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 
 **Implementation**: `aaiclick/oplog/lineage.py` — see `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`, `OplogGraph.to_prompt_context()`
 
-Graph traversal over `operation_log`. `backward_oplog()` uses `WITH RECURSIVE` for single-roundtrip upstream tracing via `mapValues(kwargs)`. `OplogGraph.to_prompt_context()` formats the graph as plain text for LLM consumption, including `kwargs_aai_ids` and `result_aai_ids` when available.
+Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage via recursive CTE. `OplogGraph.to_prompt_context()` formats the graph as plain text for LLM consumption.
 
 ---
 

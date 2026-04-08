@@ -31,7 +31,7 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 ## Deployment Modes
 
-`AAICLICK_CH_URL` selects the ClickHouse backend. Both satisfy the `ChClient` protocol (`aaiclick/data/ch_client.py`), so all Object operations work identically. `create_ch_client()` dispatches based on `is_chdb()`.
+`AAICLICK_CH_URL` selects the ClickHouse backend. Both satisfy the `ChClient` protocol, so all Object operations work identically.
 
 === "Local (default)"
 
@@ -53,7 +53,7 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
-chdb inserts use pyarrow's `Python()` table function. ClickHouse type strings are mapped to pyarrow types via `_ch_type_to_pa()` in `chdb_client.py`, tested by `test_ch_type_to_pa.py`.
+chdb inserts use pyarrow's `Python()` table function. Type mapping: `_ch_type_to_pa()` in `chdb_client.py`.
 
 See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
 
@@ -152,8 +152,8 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 **Implementation**: `aaiclick/data/lifecycle.py` — see `LifecycleHandler`, `LocalLifecycleHandler`
 
-Tables are reference-counted and dropped when no Objects reference them. On context exit, live objects are deterministically decreffed and stale-marked — objects GC'd mid-context were already decreffed by `__del__`, and stale objects skip `__del__` decref to prevent double-counting. In orchestration mode, pinned tables are skipped (their job-scoped ref keeps them alive) and the background worker is the sole cleanup authority.
+Tables are reference-counted and dropped when unreferenced. On context exit, live objects are decreffed and stale-marked. In orchestration mode, pinned tables are protected by their job-scoped ref; the background worker handles cleanup.
 
-`data_context()` creates a `LocalLifecycleHandler` (async `AsyncTableWorker` task) that drops tables immediately on refcount 0. In distributed mode, the worker injects `OrchLifecycleHandler` instead, which writes refcounts to SQL and defers cleanup to `BackgroundWorker`.
+`data_context()` creates `LocalLifecycleHandler` (drops tables on refcount 0). In distributed mode, `OrchLifecycleHandler` writes refcounts to SQL and defers cleanup to `BackgroundWorker`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.

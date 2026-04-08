@@ -58,20 +58,13 @@ For context management, deployment modes, table schemas, data types, lifecycle t
 
 **Implementation**: `aaiclick/data/object.py` (dunder methods) delegates to `aaiclick/data/operators.py` (async functions).
 
-All operators work element-wise on both scalar and array data. Each operator creates a new Object table with the result via `_apply_operator()` using SQL templates (`apply_op_scalar.sql`, `apply_op_array.sql`).
+All operators work element-wise on both scalar and array data, creating new Object tables with results.
 
 For runnable examples, see `examples/basic_operators.py`.
-
-## Scalar Broadcast
-
-**Implementation**: `aaiclick/data/object.py` — see `_ensure_object()`
 
 !!! tip "Scalar broadcast"
-    Python scalars work on either side of an operator:
-    `obj * 2` and `2 * obj` both work. The scalar is auto-converted
-    to a single-value Object via `_ensure_object()`.
-
-For runnable examples, see `examples/basic_operators.py`.
+    Python scalars work on either side: `obj * 2` and `2 * obj` both work.
+    The scalar is auto-converted to a single-value Object via `_ensure_object()`.
 
 ??? note "Arithmetic Operators"
 
@@ -112,7 +105,7 @@ Arithmetic result types match ClickHouse's native promotion rules. See `_promote
 
 ## Aggregation Operators
 
-Reduce an array to a scalar Object. All computation in ClickHouse, streaming O(1) memory.
+Reduce an array to a scalar Object.
 
 | Method         | ClickHouse Function | Notes                |
 |----------------|---------------------|----------------------|
@@ -185,7 +178,7 @@ mask = await obj["category"].isin(allowed)
 
 **Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
 
-Apply a ClickHouse function element-wise to the value column, returning a new Object. These are the Object-level equivalents of [Domain Helpers](#domain-helpers) (`with_year`, `with_lower`, etc.) which operate on Views.
+Apply a ClickHouse function element-wise to the value column, returning a new Object. Object-level equivalents of [Domain Helpers](#domain-helpers) which operate on Views.
 
 | Method          | ClickHouse Function | Result Type | Category  |
 |-----------------|---------------------|-------------|-----------|
@@ -278,18 +271,11 @@ For `create_object_from_url()` (creates a new Object from a URL), see [DataConte
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) which executes one `INSERT INTO target (cols) SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated via `DEFAULT generateSnowflakeID()` — source `aai_id` values are not preserved. Order follows argument order. Computed columns from Views are already resolved to `ColumnInfo` by the time they reach `_insert_source()`.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated; source `aai_id` values are not preserved. Order follows argument order.
 
 ## Order Preservation
 
-Order is preserved via **Snowflake IDs** — each row gets a globally unique `aai_id`:
-
-- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
-- **Globally unique**: Every row gets a unique `aai_id` — no duplicates across tables
-- **Insert/Concat behavior**: Generate fresh Snowflake IDs for inserted rows
-  - Order follows **argument order**: self first, then args left-to-right
-  - `DEFAULT generateSnowflakeID()` produces monotonically increasing IDs within each INSERT
-  - `data()` retrieves rows via `ORDER BY aai_id`
+Order is preserved via **Snowflake IDs** — each row gets a globally unique, timestamp-encoded `aai_id`. All operations (`copy()`, `insert()`, `concat()`) generate fresh IDs. Order follows argument order: self first, then args left-to-right. `data()` retrieves rows via `ORDER BY aai_id`.
 
 ```python
 obj_a = await create_object_from_value([1, 2, 3])
@@ -298,8 +284,6 @@ obj_b = await create_object_from_value([4, 5, 6])
 result = await obj_a.concat(obj_b)  # Result: [1, 2, 3, 4, 5, 6]
 result = await obj_b.concat(obj_a)  # Result: [4, 5, 6, 1, 2, 3]
 ```
-
-The `copy()`, `insert()`, and `concat()` operations all generate fresh Snowflake IDs.
 
 # Data Retrieval
 
@@ -377,7 +361,7 @@ Preserves WHERE and computed column constraints when chained on a filtered View.
 
 ## Computed Column Expansion: `with_columns()`
 
-`with_columns()` adds derived columns (SQL expressions) to an Object as a lightweight View — no new table, no data copy, O(1) creation. The result can be used with `group_by()`, `where()`, or any other operator.
+`with_columns()` adds derived columns (SQL expressions) as a lightweight View — no new table, no data copy.
 
 ### API
 
@@ -385,7 +369,7 @@ Preserves WHERE and computed column constraints when chained on a filtered View.
 
 **Implementation**: `aaiclick/data/models.py` — see `Computed` class (NamedTuple with `type` and `expression` fields). Import as `from aaiclick.data.models import Computed`.
 
-`with_columns()` is synchronous — it creates a View, no database call needed. No `await`. Works on both Object and View. On Views, preserves existing constraints (WHERE, LIMIT, OFFSET, ORDER BY) and adds computed columns to the SELECT list.
+Synchronous — creates a View, no `await` needed. Works on both Object and View. On Views, preserves existing constraints and adds computed columns to the SELECT list.
 
 ### `literal()` Helper
 
@@ -419,36 +403,15 @@ Flattens Array column(s) into individual rows. Each array element becomes its ow
 
 **Tests**: `aaiclick/data/object/test_explode.py`
 
-**Parameters**: `columns: dict[str, Computed]` — mapping of column name to `Computed(type, expression)`. Expression is passed verbatim to ClickHouse.
-
-**Returns**: View with original columns + computed expression aliases.
-
-**Raises**: `ValueError` if column name collides with existing, if called on scalar Object, or if columns dict is empty. `RuntimeError` if Object is stale.
-
-**Examples**: See `aaiclick/data/object/test_with_columns.py` for usage patterns including basic computed columns, chaining, group_by integration, and error cases.
-
 ## Chaining
 
 `with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
 
 ??? note "with_columns() internals"
 
-    **Result Schema Rules** — the result is always a View with dict-like schema (`fieldtype='d'`):
+    Result is always a View with dict-like schema. Array sources promote to dict; scalar sources raise `ValueError`. Column name collisions raise `ValueError` — `with_columns()` adds, never replaces.
 
-    | Source Type           | Behavior                                                          |
-    |-----------------------|-------------------------------------------------------------------|
-    | Array (`value` col)   | View selects `value` + computed columns → promotes to dict        |
-    | Dict (named columns)  | View selects all existing columns + computed columns              |
-    | Scalar                | **Rejected** — raises `ValueError`                                |
-    | View (single field)   | View selects source field + computed columns                      |
-    | View (multi field)    | View selects selected fields + computed columns                   |
-    | View (with WHERE)     | WHERE preserved, computed columns added to SELECT                 |
-
-    **Column Name Collision** — computed column names must not collide with existing column names. `with_columns()` adds new columns, it doesn't replace.
-
-    **Implementation** — `ViewSchema` gains a `computed_columns` field (`aaiclick/data/models.py`). `View._build_select()` expands `*` to explicit columns plus `expr AS name` for each computed column.
-
-    **Security** — SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons and subqueries (`SELECT` keyword). Type mismatches are caught by ClickHouse at query time. See `_validate_expression()`.
+    SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons and `SELECT`. Type mismatches are caught by ClickHouse at query time.
 
 ## Domain Helpers
 
@@ -484,7 +447,7 @@ Each helper auto-names the result column and auto-selects the ClickHouse type. A
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.rename()` method
 
-`rename()` returns a **View** whose SELECT list aliases old column names to new ones (`old AS new`). This enables inserting data from sources with different column naming conventions into a shared target table.
+Returns a **View** aliasing old column names to new ones (`old AS new`). Synchronous, no `await`.
 
 ```python
 from aaiclick import literal
@@ -500,13 +463,7 @@ kev_view = kev.rename({
 await consolidated.insert(kev_view)
 ```
 
-**Key behaviors**:
-
-- Synchronous — creates a View, no database call needed. No `await`.
-- Chainable with `with_columns()`, `where()`, `select()`, and other View operations.
-- `aai_id` cannot be renamed.
-- New names must not collide with non-renamed column names.
-- `insert()` skips extra source columns not present in the target — no need to `select()` away unwanted columns.
+Chainable with `with_columns()`, `where()`, and other View operations. `aai_id` cannot be renamed. New names must not collide with non-renamed columns.
 
 **Tests**: `aaiclick/data/object/test_rename.py`
 
@@ -514,9 +471,7 @@ await consolidated.insert(kev_view)
 
 **Implementation**: `aaiclick/data/object.py` — see `Object.copy()`
 
-Creates a new Object with a full copy of the data. Works on both Objects and Views — column selection, WHERE filters, computed columns, and ORDER BY are preserved in the copy.
-
-When copying a sorted View, the result is a View of the new table with the same `order_by` constraint. This ensures `data()` returns rows in the expected sort order. The underlying table retains original `aai_id` values (creation-time ordering), while the View applies the sort on read.
+Creates a new Object with a full copy of the data. Works on both Objects and Views — column selection, WHERE filters, computed columns, and ORDER BY are preserved. Sorted Views produce a sorted View of the new table.
 
 ```python
 # Copy an array Object

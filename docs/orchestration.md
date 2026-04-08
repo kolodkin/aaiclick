@@ -102,17 +102,13 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **Implementation**: `aaiclick/orchestration/execution/worker.py` — see `worker_main_loop()`
 
-Continuously polls for tasks, executes them, and updates status. Handles auto-registration/deregistration, periodic heartbeats (30s), graceful SIGTERM/SIGINT shutdown, and per-task lifecycle handler creation via `lifecycle_factory`.
+Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
 
 ## Task Claiming
 
 **Implementation**: `aaiclick/orchestration/execution/claiming.py` — see `claim_next_task()`, `pg_handler.py`, `sqlite_handler.py`
 
-Finds the oldest pending task with all dependencies satisfied, atomically claims it, and transitions the parent job PENDING→RUNNING on first claim.
-
-- Prioritizes oldest running jobs (`ORDER BY j.started_at ASC`)
-- **PostgreSQL**: Single atomic CTE with `FOR UPDATE SKIP LOCKED`
-- **SQLite**: Sequential SELECT + UPDATE — sufficient for single-worker local mode
+Finds the oldest pending task with all dependencies satisfied and atomically claims it. Transitions job PENDING→RUNNING on first claim. PostgreSQL uses `FOR UPDATE SKIP LOCKED`; SQLite uses sequential SELECT + UPDATE.
 
 # Job Management
 
@@ -128,7 +124,7 @@ Workers detect cancellation by polling task status and cancelling the asyncio.Ta
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`, `aaiclick/orchestration/models.py` — see `RegisteredJob`
 
-Separates job *registration* (catalog of known jobs) from job *execution* (individual runs). Each registered job stores its entrypoint, optional cron schedule, default kwargs, and enabled flag.
+Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, and enabled flag.
 
 ## Registration & CRUD
 
@@ -146,9 +142,7 @@ Separates job *registration* (catalog of known jobs) from job *execution* (indiv
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
 
-The `BackgroundWorker` checks `registered_jobs WHERE enabled = true AND next_run_at <= NOW()` on each poll (~10s). Uses optimistic locking on `next_run_at` to prevent duplicate runs across multiple workers. Creates Job with `run_type=SCHEDULED`.
-
-Cron expressions are parsed by `croniter`. `next_run_at` is computed on registration, enable, and after each scheduled run.
+`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
 
 # CLI
 
@@ -210,15 +204,13 @@ python -m aaiclick registered-job list        # List registered jobs
 
 ## reduce()
 
-Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes results via `output.insert()`. All layers and tasks are created at once inside `_expand_reduce`. Each `Group("layer_L+1")` depends on `Group("layer_L")` completing.
+Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes via `output.insert()`. All layers created at once; each layer depends on the previous.
 
 ```
 Layer 0  input=N      tasks=⌈N/P⌉   → layer_0_obj
 Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 …continues until 1 row remains
 ```
-
-**Example — 1300 rows, partition=500:** 2 layers, 4 tasks. **Example — 210 rows, partition=10:** 3 layers, 25 tasks.
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
@@ -266,15 +258,11 @@ Job completes → BackgroundWorker deletes remaining refs + drops orphaned table
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. SQL via `get_sql_session()`.
+Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, ALL live objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips tables where `MAX(job_id) IS NOT NULL`. The background worker is the sole cleanup authority (no inline drops).
 
-**Deterministic cleanup at exit**: On `task_scope` exit, ALL live objects are decreffed uniformly — pinned and non-pinned alike. Pinned tables are protected by their `job_id` marker: the background worker skips tables where `MAX(job_id) IS NOT NULL`. PIN just sets `job_id` on the existing ref row (no refcount bump), and `claim()` clears it. The `_process_loop` never triggers inline drops; the background worker is the sole cleanup authority.
+**Pin lifecycle**: `pin()` sets `job_id` on existing ref row (no refcount bump). `claim()` clears it. Job completion clears remaining pins via `_cleanup_completed_jobs`.
 
-**Sync-to-async bridge**: `Object.__del__` calls decref synchronously → `call_soon_threadsafe` → asyncio.Queue → `_process_loop()` drains. Only fires for objects GC'd mid-task; objects surviving to context exit are decreffed deterministically and stale-marked.
-
-**Pin protection**: `job_id` column in `table_context_refs` marks pinned tables. Background worker cleanup query uses `HAVING SUM(refcount) <= 0 AND MAX(job_id) IS NULL` — tables with active pins are skipped even when refcount is zero. When the job completes, `_cleanup_completed_jobs` clears `job_id`, making the table eligible for cleanup.
-
-**PostgreSQL table**: `TableContextRef` in `lifecycle/db_lifecycle.py` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id` (non-NULL marks a pin ref).
+**PostgreSQL table**: `TableContextRef` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id`.
 
 ## BackgroundWorker
 
