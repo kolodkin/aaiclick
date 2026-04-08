@@ -96,10 +96,12 @@ def _run_setup(ai: bool = False):
     """Initialize local dev environment."""
     from pathlib import Path
 
-    from aaiclick.backend import get_ch_url, get_sql_url, is_chdb, is_sqlite
+    from aaiclick.backend import get_ch_url, get_root, get_sql_url, is_chdb, is_local, is_sqlite
 
+    print(f"Root:    {get_root()}")
     print(f"CH URL:  {get_ch_url()}")
     print(f"SQL URL: {get_sql_url()}")
+    print(f"Mode:    {'local' if is_local() else 'distributed'}")
 
     if is_chdb():
         from chdb.session import Session

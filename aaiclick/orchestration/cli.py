@@ -11,7 +11,7 @@ import json
 import signal
 from typing import Any, Dict, Optional
 
-from aaiclick.backend import is_chdb
+from aaiclick.backend import is_local
 
 from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
 from .orch_context import orch_context
@@ -119,7 +119,15 @@ async def start_worker(max_tasks: Optional[int] = None) -> None:
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
     """
+    if is_local():
+        raise RuntimeError(
+            "'worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite)."
+        )
     async with orch_context(with_ch=False):
         await mp_worker_main_loop(max_tasks=max_tasks)
 
@@ -178,7 +186,15 @@ async def start_background(poll_interval: float = 10.0) -> None:
 
     Args:
         poll_interval: Cleanup poll interval in seconds.
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
     """
+    if is_local():
+        raise RuntimeError(
+            "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
+        )
     cleanup = BackgroundWorker(poll_interval=poll_interval)
     await cleanup.start()
     shutdown = asyncio.Event()

@@ -6,29 +6,28 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TextIO
 
+from aaiclick.backend import get_root
+
 
 def get_logs_dir() -> str:
     """
-    Get task log directory with OS-dependent defaults.
+    Get task log directory.
 
     The directory is created if it doesn't exist.
 
     Environment Variables:
         AAICLICK_LOG_DIR: Override default log directory
 
-    Defaults:
-        macOS: ~/.aaiclick/logs
-        Linux: /var/log/aaiclick
+    Default:
+        {AAICLICK_ROOT}/logs (i.e. ~/.aaiclick/logs)
 
     Returns:
         str: Log directory path
     """
     if custom_dir := os.getenv("AAICLICK_LOG_DIR"):
         log_dir = custom_dir
-    elif sys.platform == "darwin":
-        log_dir = os.path.expanduser("~/.aaiclick/logs")
     else:
-        log_dir = "/var/log/aaiclick"
+        log_dir = str(get_root() / "logs")
 
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     return log_dir
