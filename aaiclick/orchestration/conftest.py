@@ -41,6 +41,9 @@ def _fast_worker_polling(monkeypatch):
     monkeypatch.setattr(
         "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 0.01,
     )
+    monkeypatch.setattr(
+        "aaiclick.orchestration.execution.mp_worker.CHILD_POLL_INTERVAL", 0.1,
+    )
 
 
 @pytest.fixture(autouse=True, scope="session")

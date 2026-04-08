@@ -231,7 +231,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch):
     await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=2,
     )
 
     # After exhausting all retries: task FAILED, attempt=2
@@ -269,7 +269,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch):
     await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=3,
+        max_empty_polls=1,
     )
 
     # Task should be FAILED immediately (no retries)
@@ -307,7 +307,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path):
     tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=2,
     )
 
     assert tasks_executed == 1  # Task eventually succeeded

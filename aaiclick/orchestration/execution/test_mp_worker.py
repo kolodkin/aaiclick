@@ -18,7 +18,7 @@ async def test_mp_worker_executes_task(orch_ctx_no_ch):
     tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=1,
     )
 
     assert tasks_executed == 1
@@ -41,7 +41,7 @@ async def test_mp_worker_handles_failure(orch_ctx_no_ch):
     tasks_executed = await mp_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
-        max_empty_polls=5,
+        max_empty_polls=1,
     )
 
     assert tasks_executed == 0
@@ -59,7 +59,7 @@ async def test_mp_worker_no_tasks(orch_ctx_no_ch):
     """Test that mp worker exits after max_empty_polls with no tasks."""
     tasks_executed = await mp_worker_main_loop(
         install_signal_handlers=False,
-        max_empty_polls=3,
+        max_empty_polls=1,
     )
 
     assert tasks_executed == 0
