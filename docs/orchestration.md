@@ -30,7 +30,7 @@ See `aaiclick/examples/orchestration_basic.py` for a full example.
 
 **Implementation**: `aaiclick/orchestration/decorators.py` — see `TaskFactory` and `JobFactory`
 
-Airflow-style TaskFlow API with automatic dependency detection. Passing a Task result as an argument to another task creates an upstream dependency. Native Python values work alongside Object/View parameters.
+Airflow-style TaskFlow API. Passing a Task result as an argument creates an upstream dependency automatically.
 
 ## @task
 
@@ -118,7 +118,7 @@ Finds the oldest pending task with all dependencies satisfied and atomically cla
 - `stats.py` — `compute_job_stats()`, `print_job_stats()`
 - `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
 
-Workers detect cancellation by polling task status and cancelling the asyncio.Task. **Known limitation**: CPU-bound tasks without `await` points won't be interrupted until they yield.
+Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks won't interrupt until they yield.
 
 # Registered Jobs
 
@@ -258,7 +258,7 @@ Job completes → BackgroundWorker deletes remaining refs + drops orphaned table
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, ALL live objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips tables where `MAX(job_id) IS NOT NULL`. The background worker is the sole cleanup authority (no inline drops).
+Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips where `MAX(job_id) IS NOT NULL` (sole cleanup authority).
 
 **Pin lifecycle**: `pin()` sets `job_id` on existing ref row (no refcount bump). `claim()` clears it. Job completion clears remaining pins via `_cleanup_completed_jobs`.
 
@@ -279,9 +279,7 @@ Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
 ## Write-Ahead Incref
 
-**Implementation**: `aaiclick/data/data_context.py` — see `create_object()`
-
-`create_object()` calls `incref` before `CREATE TABLE`. Crash after incref but before CREATE → cleanup runs `DROP TABLE IF EXISTS` (harmless).
+`create_object()` calls `incref` before `CREATE TABLE` — crash between the two is harmless (`DROP TABLE IF EXISTS`).
 
 ## TableSweeper
 
@@ -289,7 +287,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ## Local Mode
 
-Without an injected lifecycle handler, `data_context()` creates `LocalLifecycleHandler` wrapping `TableWorker` — background thread, immediate DROP on refcount 0, no PostgreSQL required. See [DataContext documentation](data_context.md).
+`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [DataContext](data_context.md).
 
 # Operation Provenance (Oplog)
 
@@ -306,7 +304,7 @@ All Object operations within a task are automatically logged when `data_context(
 | `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
 | `AAICLICK_LOG_DIR` | mode-dependent (see below)           | Task log directory override               |
 
-**Mode detection**: `is_local()` returns `True` when both `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`. All local paths derive from `AAICLICK_LOCAL_ROOT`.
+`is_local()` returns `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`.
 
 **Log directory defaults** (see `aaiclick/orchestration/logging.py` — `get_logs_dir()`):
 
