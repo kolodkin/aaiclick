@@ -313,18 +313,18 @@ All Object operations within a task are automatically logged when `data_context(
 
 | Variable           | Default                              | Description                               |
 |--------------------|--------------------------------------|-------------------------------------------|
-| `AAICLICK_ROOT`    | `~/.aaiclick`                        | Base directory for all local-mode state   |
+| `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                        | Base directory for all local-mode state   |
 | `AAICLICK_SQL_URL` | `sqlite+aiosqlite:///{root}/local.db`| SQLAlchemy async URL for orchestration DB |
 | `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
 | `AAICLICK_LOG_DIR` | mode-dependent (see below)           | Task log directory override               |
 
-**Mode detection**: `is_local()` returns `True` when both `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`. All local paths derive from `AAICLICK_ROOT`.
+**Mode detection**: `is_local()` returns `True` when both `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`. All local paths derive from `AAICLICK_LOCAL_ROOT`.
 
 **Log directory defaults** (see `aaiclick/orchestration/logging.py` — `get_logs_dir()`):
 
 | Mode                | Default               |
 |---------------------|-----------------------|
-| Local               | `{AAICLICK_ROOT}/logs`|
+| Local               | `{AAICLICK_LOCAL_ROOT}/logs`|
 | Distributed (macOS) | `~/.aaiclick/logs`    |
 | Distributed (Linux) | `/var/log/aaiclick`   |
 

@@ -13,7 +13,7 @@ Two independent connection strings control what aaiclick connects to:
 
 All local-mode paths derive from a single root directory:
 
-- AAICLICK_ROOT: Base directory for local state (default: ~/.aaiclick)
+- AAICLICK_LOCAL_ROOT: Base directory for local state (default: ~/.aaiclick)
 
 Helper functions detect the backend type from the URL scheme.
 """
@@ -26,10 +26,10 @@ from urllib.parse import urlparse
 def get_root() -> Path:
     """Return the base directory for all local-mode state.
 
-    Reads AAICLICK_ROOT env var, defaulting to ``~/.aaiclick``.
+    Reads AAICLICK_LOCAL_ROOT env var, defaulting to ``~/.aaiclick``.
     All local paths (SQLite DB, chdb data, logs) derive from this.
     """
-    return Path(os.getenv("AAICLICK_ROOT", Path.home() / ".aaiclick"))
+    return Path(os.getenv("AAICLICK_LOCAL_ROOT", Path.home() / ".aaiclick"))
 
 
 def get_sql_url() -> str:

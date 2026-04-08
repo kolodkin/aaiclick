@@ -19,7 +19,7 @@ def get_logs_dir() -> str:
         AAICLICK_LOG_DIR: Override default log directory
 
     Defaults:
-        Local mode:       {AAICLICK_ROOT}/logs (i.e. ~/.aaiclick/logs)
+        Local mode:       {AAICLICK_LOCAL_ROOT}/logs (i.e. ~/.aaiclick/logs)
         Distributed mode: /var/log/aaiclick (Linux), ~/.aaiclick/logs (macOS)
 
     Returns:
