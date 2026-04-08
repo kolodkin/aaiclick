@@ -4,6 +4,7 @@ aaiclick.ai.agents.tools - Tools exposed to AI agents for table inspection.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from aaiclick.data.data_context import get_ch_client
@@ -149,28 +150,30 @@ async def get_schemas_for_nodes(nodes: list[OplogNode]) -> str:
 
     Returns a formatted string with schemas for all tables, suitable for
     injection into the initial LLM context so the model never needs to
-    guess column names.
+    guess column names. Queries run in parallel via asyncio.gather.
     """
     if not nodes:
         return ""
-    ch_client = get_ch_client()
+
     seen: set[str] = set()
-    sections: list[str] = []
-
+    tables: list[str] = []
     for node in nodes:
-        tables = [node.table] + list(node.kwargs.values())
-        for tbl in tables:
-            if tbl in seen:
-                continue
-            seen.add(tbl)
-            tbl_escaped = tbl.replace("'", "\\'")
-            try:
-                result = await ch_client.query(f"DESCRIBE TABLE {tbl_escaped}")
-                cols = [f"  {row[0]}: {row[1]}" for row in result.result_rows]
-                sections.append(f"`{tbl}`:\n" + "\n".join(cols))
-            except Exception:
-                sections.append(f"`{tbl}`: (schema unavailable)")
+        for tbl in [node.table] + list(node.kwargs.values()):
+            if tbl not in seen:
+                seen.add(tbl)
+                tables.append(tbl)
 
+    async def _describe(tbl: str) -> str:
+        try:
+            schema = await get_schema(tbl)
+            if "not found" in schema:
+                return f"`{tbl}`: (schema unavailable)"
+            indented = "\n".join(f"  {line}" for line in schema.split("\n"))
+            return f"`{tbl}`:\n{indented}"
+        except Exception:
+            return f"`{tbl}`: (schema unavailable)"
+
+    sections = await asyncio.gather(*(_describe(tbl) for tbl in tables))
     if not sections:
         return ""
     return "# Table Schemas\n\n" + "\n\n".join(sections)

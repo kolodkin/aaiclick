@@ -6,21 +6,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.oplog.lineage import OplogNode
+from aaiclick.conftest import make_oplog_node
 from aaiclick.ai.agents.tools import get_column_stats, get_schemas_for_nodes
-
-
-def _node(table: str, operation: str, kwargs: dict[str, str] | None = None) -> OplogNode:
-    return OplogNode(
-        table=table,
-        operation=operation,
-        kwargs=kwargs or {},
-        kwargs_aai_ids={},
-        result_aai_ids=[],
-        sql_template=None,
-        task_id=None,
-        job_id=None,
-    )
 
 
 def _mock_query_result(rows, column_names=None):
@@ -62,26 +49,11 @@ async def test_get_column_stats_empty_table():
 async def test_get_schemas_for_nodes_fetches_all_tables():
     """get_schemas_for_nodes fetches DESCRIBE TABLE for every unique table in nodes."""
     nodes = [
-        _node("result", "add", {"source_0": "a", "source_1": "b"}),
-        _node("a", "create_from_value"),
+        make_oplog_node("result", "add", {"source_0": "a", "source_1": "b"}),
+        make_oplog_node("a", "create_from_value"),
     ]
 
-    describe_results = {
-        "result": _mock_query_result([("aai_id", "UInt64"), ("val", "Float64")]),
-        "a": _mock_query_result([("aai_id", "UInt64"), ("val", "Float64")]),
-        "b": _mock_query_result([("aai_id", "UInt64"), ("val", "Float64")]),
-    }
-
-    async def mock_query(sql):
-        for tbl_name, res in describe_results.items():
-            if tbl_name in sql:
-                return res
-        return _mock_query_result([])
-
-    mock_client = MagicMock()
-    mock_client.query = mock_query
-
-    with patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client):
+    with patch("aaiclick.ai.agents.tools.get_schema", new=AsyncMock(return_value="aai_id: UInt64\nval: Float64")):
         result = await get_schemas_for_nodes(nodes)
 
     assert "# Table Schemas" in result
@@ -92,18 +64,12 @@ async def test_get_schemas_for_nodes_fetches_all_tables():
 
 
 async def test_get_schemas_for_nodes_empty_and_errors():
-    """Empty nodes returns empty string; DESCRIBE failures produce 'unavailable'."""
+    """Empty nodes returns empty string; get_schema failures produce 'unavailable'."""
     assert await get_schemas_for_nodes([]) == ""
 
-    nodes = [_node("broken_table", "add")]
+    nodes = [make_oplog_node("broken_table", "add")]
 
-    async def mock_query(sql):
-        raise RuntimeError("table not found")
-
-    mock_client = MagicMock()
-    mock_client.query = mock_query
-
-    with patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client):
+    with patch("aaiclick.ai.agents.tools.get_schema", new=AsyncMock(side_effect=RuntimeError("fail"))):
         result = await get_schemas_for_nodes(nodes)
 
     assert "schema unavailable" in result

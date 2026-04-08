@@ -15,6 +15,7 @@ import tempfile
 import pytest
 
 from aaiclick.backend import is_chdb
+from aaiclick.oplog.lineage import OplogNode
 
 
 def pytest_configure(config):
@@ -53,6 +54,24 @@ def _orch_chdb_dir():
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
     yield tmp_dir
     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def make_oplog_node(
+    table: str,
+    operation: str,
+    kwargs: dict[str, str] | None = None,
+) -> OplogNode:
+    """Create an OplogNode with sensible defaults for tests."""
+    return OplogNode(
+        table=table,
+        operation=operation,
+        kwargs=kwargs or {},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
+        sql_template=None,
+        task_id=None,
+        job_id=None,
+    )
 
 
 @pytest.fixture

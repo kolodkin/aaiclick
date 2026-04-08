@@ -9,20 +9,17 @@ from typing import Any
 
 from litellm import acompletion
 
-from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
+from aaiclick.oplog.lineage import oplog_subgraph
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING
 from aaiclick.ai.config import get_ai_provider
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT = f"""\
 You are a data debugging expert analyzing a ClickHouse data pipeline.
 Use the available tools to investigate the data and answer the user's question.
 Be specific, cite actual values, and trace root causes.
 
-Important: `insert` and `concat` operations generate fresh aai_id values in the
-target table. Source and target aai_ids will NOT match across these boundaries.
-To trace individual rows through an insert/concat, compare actual data values
-(column contents) or use the oplog provenance metadata (kwargs_aai_ids positional
-alignment) — never assume aai_id equality between source and target."""
+{AAI_ID_WARNING}"""
 
 _MAX_TOOL_ROUNDS = 10
 
@@ -36,17 +33,10 @@ async def debug_result(target_table: str, question: str) -> str:
         "Why are there only 3 rows instead of 10?"
         "Which input caused the NaN values?"
     """
-    nodes = await backward_oplog(target_table)
-
-    edges: list[OplogEdge] = []
-    for node in nodes:
-        for src in node.kwargs.values():
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
-
-    graph = OplogGraph(nodes=nodes, edges=edges)
+    graph = await oplog_subgraph(target_table, direction="backward")
     context = graph.to_prompt_context()
 
-    schemas = await get_schemas_for_nodes(nodes)
+    schemas = await get_schemas_for_nodes(graph.nodes)
     if schemas:
         context += "\n\n" + schemas
 
