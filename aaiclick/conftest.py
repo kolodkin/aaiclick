@@ -38,23 +38,19 @@ def event_loop():
     loop.close()
 
 
-# Session-scoped chdb dir for orch_ctx fallback (oplog tests etc.).
-# Reuses the orchestration conftest's dir if already set, otherwise
-# creates its own. Must stay consistent because chdb only allows one
-# path per process.
-_fallback_chdb_dir: str | None = None
-
-
 @pytest.fixture(scope="session")
 def _orch_chdb_dir():
-    """Provide a chdb path, reusing AAICLICK_CH_URL if already set."""
-    global _fallback_chdb_dir
+    """Provide a chdb path, reusing AAICLICK_CH_URL if already set.
+
+    chdb only allows one data path per process. If the orchestration
+    conftest already set AAICLICK_CH_URL (autouse session fixture),
+    reuse that path. Otherwise create a temp dir.
+    """
     ch_url = os.environ.get("AAICLICK_CH_URL", "")
     if ch_url.startswith("chdb://"):
         yield ch_url.removeprefix("chdb://")
         return
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
-    _fallback_chdb_dir = tmp_dir
     yield tmp_dir
     shutil.rmtree(tmp_dir, ignore_errors=True)
 

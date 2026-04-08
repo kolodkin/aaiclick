@@ -3,7 +3,6 @@ aaiclick.orchestration.models - Data models for orchestration backend.
 
 This module defines SQLModel models for jobs, tasks, workers, groups, and dependencies.
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
-Worker IDs are UUID strings (no chdb dependency for worker registration).
 """
 
 from datetime import datetime
