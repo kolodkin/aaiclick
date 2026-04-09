@@ -100,20 +100,33 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
-        """Insert a pin ref for this table.
+        """Pin a table for the current task (self-pin).
 
-        Pin protection comes from the table_pin_refs row which prevents
-        the background worker from dropping the table.
+        Used by reduce operator to protect intermediate layer tables.
         """
-        self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.PIN, table_name, pin_task_id=self._task_id,
+        ))
+
+    def pin_for(self, table_name: str, consumer_task_id: int) -> None:
+        """Pin a table for a specific consumer task.
+
+        Inserts (table_name, consumer_task_id) into table_pin_refs.
+        Called from TaskFactory.__call__ when an Object is passed as input.
+        """
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.PIN, table_name, pin_task_id=consumer_task_id,
+        ))
 
     def unpin(self, table_name: str) -> None:
-        """Remove the pin ref for this table.
+        """Remove this task's pin ref for a table.
 
         Enqueued through the FIFO queue so it executes AFTER any preceding
         INCREF, ensuring the run_ref is committed before the pin is released.
         """
-        self._enqueue(DBLifecycleMessage(DBLifecycleOp.UNPIN, table_name))
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.UNPIN, table_name, pin_task_id=self._task_id,
+        ))
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -209,32 +222,21 @@ class OrchLifecycleHandler(LifecycleHandler):
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
-                        # Fan out: insert one pin per downstream consumer task
-                        result = await session.execute(
+                        await session.execute(
                             text(
-                                "SELECT next_id FROM dependencies "
-                                "WHERE previous_id = :task_id "
-                                "AND previous_type = 'task' AND next_type = 'task'"
+                                "INSERT INTO table_pin_refs (table_name, task_id) "
+                                "VALUES (:table_name, :task_id) "
+                                "ON CONFLICT (table_name, task_id) DO NOTHING"
                             ),
-                            {"task_id": self._task_id},
+                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                         )
-                        consumer_ids = [row[0] for row in result.fetchall()]
-                        for cid in consumer_ids:
-                            await session.execute(
-                                text(
-                                    "INSERT INTO table_pin_refs (table_name, task_id) "
-                                    "VALUES (:table_name, :task_id) "
-                                    "ON CONFLICT (table_name, task_id) DO NOTHING"
-                                ),
-                                {"table_name": msg.table_name, "task_id": cid},
-                            )
                     elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(
                             text(
                                 "DELETE FROM table_pin_refs "
                                 "WHERE table_name = :table_name AND task_id = :task_id"
                             ),
-                            {"table_name": msg.table_name, "task_id": self._task_id},
+                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                         )
                     await session.commit()
 

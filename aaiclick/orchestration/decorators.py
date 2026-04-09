@@ -54,6 +54,18 @@ def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
             _collect_upstreams(v, upstream_tasks)
 
 
+def _collect_objects(value: Any, objects: List[Object]) -> None:
+    """Recursively collect Object instances from nested structures."""
+    if isinstance(value, Object) and not value.persistent:
+        objects.append(value)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _collect_objects(v, objects)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _collect_objects(v, objects)
+
+
 def _serialize_value(value: Any) -> Any:
     """Serialize a value for storage in task kwargs.
 
@@ -151,6 +163,20 @@ class TaskFactory:
         # Set up dependencies: upstream >> task
         for upstream in upstream_tasks:
             upstream >> task
+
+        # Pin Object inputs for this consumer task.
+        # Objects in kwargs are live tables that must survive until this
+        # task starts and increfs them during deserialization.
+        input_objects: List[Object] = []
+        for value in kwargs.values():
+            _collect_objects(value, input_objects)
+        if input_objects:
+            from aaiclick.data.data_context import get_data_lifecycle
+
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                for obj in input_objects:
+                    lifecycle.pin_for(obj.table, task_id)
 
         return task
 

@@ -274,12 +274,6 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             else:
                 result = func(**kwargs)
 
-            pin_target = result.data if isinstance(result, TaskResult) else result
-            if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    lifecycle.pin(pin_target.table)
-
             # Register returned tasks INSIDE task_scope so the registry
             # (ContextVar) that was populated during func() is still active.
             data_result = await register_returned_tasks(result, task.id, task.job_id)

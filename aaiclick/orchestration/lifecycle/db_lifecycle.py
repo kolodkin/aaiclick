@@ -57,6 +57,7 @@ class DBLifecycleMessage:
 
     op: DBLifecycleOp
     table_name: str = ""
+    pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
 
