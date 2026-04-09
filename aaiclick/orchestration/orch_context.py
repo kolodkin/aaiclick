@@ -108,16 +108,6 @@ class OrchLifecycleHandler(LifecycleHandler):
             DBLifecycleOp.PIN, table_name, pin_task_id=self._task_id,
         ))
 
-    def pin_for(self, table_name: str, consumer_task_id: int) -> None:
-        """Pin a table for a specific consumer task.
-
-        Inserts (table_name, consumer_task_id) into table_pin_refs.
-        Called from TaskFactory.__call__ when an Object is passed as input.
-        """
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.PIN, table_name, pin_task_id=consumer_task_id,
-        ))
-
     def unpin(self, table_name: str) -> None:
         """Remove this task's pin ref for a table.
 

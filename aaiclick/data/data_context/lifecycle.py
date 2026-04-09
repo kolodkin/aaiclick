@@ -59,9 +59,6 @@ class LifecycleHandler(ABC):
     def pin(self, table_name: str) -> None:
         """Mark table as result that survives stop(). Default: no-op."""
 
-    def pin_for(self, table_name: str, consumer_task_id: int) -> None:
-        """Pin a table for a specific consumer task. Default: no-op."""
-
     def unpin(self, table_name: str) -> None:
         """Remove this task's pin for a table. Default: no-op."""
 
