@@ -109,11 +109,11 @@ class BackgroundWorker:
         await self._check_schedules()
 
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no pin refs and no run refs.
+        """Drop CH tables with no active pins and no run refs.
 
-        A table is eligible when no consumer task holds a pin AND no
-        run_refs exist.  Each consumer removes its pin during
-        deserialization (after incref), so pins drain naturally.
+        A table is eligible when it has no run_refs AND no pin_refs
+        from non-terminal tasks.  Stale pin_refs from completed/failed
+        tasks are ignored and cleaned up alongside the table.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -122,7 +122,9 @@ class BackgroundWorker:
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_pin_refs tpr "
-                    "  WHERE tpr.table_name = tcr.table_name"
+                    "  JOIN tasks t ON t.id = tpr.task_id "
+                    "  WHERE tpr.table_name = tcr.table_name "
+                    "  AND t.status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')"
                     ") "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
@@ -141,6 +143,13 @@ class BackgroundWorker:
                 await session.execute(
                     text(
                         "DELETE FROM table_context_refs "
+                        "WHERE table_name = :table_name"
+                    ),
+                    {"table_name": table_name},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM table_pin_refs "
                         "WHERE table_name = :table_name"
                     ),
                     {"table_name": table_name},

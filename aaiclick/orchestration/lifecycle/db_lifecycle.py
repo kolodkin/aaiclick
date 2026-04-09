@@ -21,7 +21,6 @@ class DBLifecycleOp(Enum):
     INCREF = auto()
     DECREF = auto()
     PIN = auto()
-    UNPIN = auto()
     OPLOG_RECORD = auto()
     OPLOG_SAMPLE = auto()
     OPLOG_TABLE = auto()

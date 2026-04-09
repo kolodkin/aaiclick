@@ -129,26 +129,31 @@ async def _run_and_verify(pipeline_fn):
         db_job = (await session.execute(select(Job).where(Job.id == job_obj.id))).scalar_one()
         assert db_job.status == JobStatus.COMPLETED, f"Job failed: {db_job.error}"
 
-        # After job completes: all pins should be drained (each consumer unpinned)
-        pin_refs = await _get_pin_refs(session)
-        assert len(pin_refs) == 0, f"Stale pin_refs after job completion: {pin_refs}"
-
         # After job completes: no active run_refs should remain
         run_refs = await _get_run_refs(session)
         assert len(run_refs) == 0, f"Stale run_refs after job completion: {run_refs}"
 
-        # Context refs should still exist (tables not yet cleaned up)
+        # Pin_refs may still exist (stale, from completed tasks) — that's OK,
+        # the background worker ignores pins from terminal tasks.
+        pin_refs = await _get_pin_refs(session)
+
+        # Context refs and pin_refs should still exist (tables not yet cleaned up)
         context_tables = await _get_context_tables(session)
         temp_tables = {t for t in context_tables if t.startswith("t_")}
         assert len(temp_tables) > 0, "Expected context_refs for temp tables before cleanup"
 
     # Run background cleanup — should drop all unreferenced tables
+    # (ignores stale pin_refs from completed tasks, cleans them alongside the table)
     await _run_cleanup()
 
     async with get_sql_session() as session:
         context_tables = await _get_context_tables(session)
         temp_tables = {t for t in context_tables if t.startswith("t_")}
         assert len(temp_tables) == 0, f"Tables not cleaned up: {temp_tables}"
+
+        # Pin_refs should be cleaned up alongside their tables
+        pin_refs = await _get_pin_refs(session)
+        assert len(pin_refs) == 0, f"Stale pin_refs after cleanup: {pin_refs}"
 
 
 # --- Tests ---

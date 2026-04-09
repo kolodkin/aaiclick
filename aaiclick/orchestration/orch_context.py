@@ -118,16 +118,6 @@ class OrchLifecycleHandler(LifecycleHandler):
             DBLifecycleOp.PIN, table_name, pin_task_id=consumer_task_id,
         ))
 
-    def unpin(self, table_name: str) -> None:
-        """Remove this task's pin ref for a table.
-
-        Enqueued through the FIFO queue so it executes AFTER any preceding
-        INCREF, ensuring the run_ref is committed before the pin is released.
-        """
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.UNPIN, table_name, pin_task_id=self._task_id,
-        ))
-
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
     def oplog_record(self, result_table: str, operation: str,
@@ -192,7 +182,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 break
 
             # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         # Register table in context refs (idempotent)
@@ -227,14 +217,6 @@ class OrchLifecycleHandler(LifecycleHandler):
                                 "INSERT INTO table_pin_refs (table_name, task_id) "
                                 "VALUES (:table_name, :task_id) "
                                 "ON CONFLICT (table_name, task_id) DO NOTHING"
-                            ),
-                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
-                        )
-                    elif msg.op == DBLifecycleOp.UNPIN:
-                        await session.execute(
-                            text(
-                                "DELETE FROM table_pin_refs "
-                                "WHERE table_name = :table_name AND task_id = :task_id"
                             ),
                             {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                         )

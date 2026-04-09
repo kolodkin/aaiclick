@@ -88,10 +88,31 @@ async def _get_run_refs(engine, table_name):
         return {row[0] for row in result.fetchall()}
 
 
+async def _insert_task(engine, task_id, job_id=1, status="PENDING"):
+    """Insert a task row for pin ref tests."""
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO tasks (id, job_id, entrypoint, name, status, kwargs, max_retries, attempt, created_at) "
+                "VALUES (:id, :jid, 'test.task', 'test', :status, '{}', 0, 0, CURRENT_TIMESTAMP)"
+            ),
+            {"id": task_id, "jid": job_id, "status": status},
+        )
+        await session.execute(
+            text(
+                "INSERT OR IGNORE INTO jobs (id, name, status, run_type, created_at) "
+                "VALUES (:id, 'test_job', 'RUNNING', 'MANUAL', CURRENT_TIMESTAMP)"
+            ),
+            {"id": job_id},
+        )
+        await session.commit()
+
+
 async def test_cleanup_skips_pinned_tables():
-    """Tables with a pin_ref are NOT dropped even when no run refs exist."""
+    """Tables with a pin_ref from a PENDING task are NOT dropped."""
     engine, tmpdir = await _setup_db()
     try:
+        await _insert_task(engine, 300, status="PENDING")
         await _insert_context_ref(engine, "t_unpinned", 100)
         await _insert_context_ref(engine, "t_pinned", 200)
         await _insert_pin_ref(engine, "t_pinned", 300)
