@@ -209,21 +209,32 @@ class OrchLifecycleHandler(LifecycleHandler):
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
-                        await session.execute(
+                        # Fan out: insert one pin per downstream consumer task
+                        result = await session.execute(
                             text(
-                                "INSERT INTO table_pin_refs (table_name, job_id) "
-                                "VALUES (:table_name, :job_id) "
-                                "ON CONFLICT (table_name, job_id) DO NOTHING"
+                                "SELECT next_id FROM dependencies "
+                                "WHERE previous_id = :task_id "
+                                "AND previous_type = 'task' AND next_type = 'task'"
                             ),
-                            {"table_name": msg.table_name, "job_id": self._job_id},
+                            {"task_id": self._task_id},
                         )
+                        consumer_ids = [row[0] for row in result.fetchall()]
+                        for cid in consumer_ids:
+                            await session.execute(
+                                text(
+                                    "INSERT INTO table_pin_refs (table_name, task_id) "
+                                    "VALUES (:table_name, :task_id) "
+                                    "ON CONFLICT (table_name, task_id) DO NOTHING"
+                                ),
+                                {"table_name": msg.table_name, "task_id": cid},
+                            )
                     elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(
                             text(
                                 "DELETE FROM table_pin_refs "
-                                "WHERE table_name = :table_name AND job_id = :job_id"
+                                "WHERE table_name = :table_name AND task_id = :task_id"
                             ),
-                            {"table_name": msg.table_name, "job_id": self._job_id},
+                            {"table_name": msg.table_name, "task_id": self._task_id},
                         )
                     await session.commit()
 

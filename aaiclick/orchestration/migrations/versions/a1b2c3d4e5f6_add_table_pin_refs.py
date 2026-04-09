@@ -22,12 +22,12 @@ def upgrade() -> None:
     """Create table_pin_refs and drop job_id from table_context_refs.
 
     Pin state moves from a nullable column on table_context_refs to a
-    dedicated junction table keyed by (table_name, job_id).
+    dedicated junction table keyed by (table_name, task_id).
     """
     op.create_table(
         'table_pin_refs',
         sa.Column('table_name', sa.String, primary_key=True),
-        sa.Column('job_id', sa.BigInteger, primary_key=True),
+        sa.Column('task_id', sa.BigInteger, primary_key=True),
     )
     op.drop_index('ix_table_context_refs_job_id', table_name='table_context_refs')
     op.drop_column('table_context_refs', 'job_id')

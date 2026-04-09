@@ -45,28 +45,15 @@ async def _insert_context_ref(engine, table_name, context_id):
         await session.commit()
 
 
-async def _insert_pin_ref(engine, table_name, job_id):
+async def _insert_pin_ref(engine, table_name, task_id):
     """Insert a row into table_pin_refs (pin protection)."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO table_pin_refs (table_name, job_id) "
-                "VALUES (:t, :j)"
+                "INSERT INTO table_pin_refs (table_name, task_id) "
+                "VALUES (:t, :tid)"
             ),
-            {"t": table_name, "j": job_id},
-        )
-        await session.commit()
-
-
-async def _insert_job(engine, job_id, status="RUNNING"):
-    """Insert a job row for pin ref tests."""
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, :name, :status, 'MANUAL', CURRENT_TIMESTAMP)"
-            ),
-            {"id": job_id, "name": f"test_job_{job_id}", "status": status},
+            {"t": table_name, "tid": task_id},
         )
         await session.commit()
 
@@ -102,13 +89,12 @@ async def _get_run_refs(engine, table_name):
 
 
 async def test_cleanup_skips_pinned_tables():
-    """Tables with a pin_ref from an active job are NOT dropped."""
+    """Tables with a pin_ref are NOT dropped even when no run refs exist."""
     engine, tmpdir = await _setup_db()
     try:
-        await _insert_job(engine, 999, status="RUNNING")
         await _insert_context_ref(engine, "t_unpinned", 100)
         await _insert_context_ref(engine, "t_pinned", 200)
-        await _insert_pin_ref(engine, "t_pinned", 999)
+        await _insert_pin_ref(engine, "t_pinned", 300)
 
         worker = BackgroundWorker()
         worker._engine = engine
