@@ -37,6 +37,25 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## `PENDING_CLEANUP` Task Status for Retry Lifecycle
+
+Add a `PENDING_CLEANUP` status between task failure and retry:
+
+```
+RUNNING → PENDING_CLEANUP (on failure) → PENDING (after cleanup) or FAILED (no retries)
+```
+
+Currently, failed tasks with retries go directly to `PENDING`. This leaves stale `run_refs` and `pin_refs` from the failed run that are cleaned by `clean_task_run` inline.
+
+With `PENDING_CLEANUP`, the background worker handles all ref cleanup:
+1. Task fails → status = `PENDING_CLEANUP`
+2. Background worker finds `PENDING_CLEANUP` tasks, runs `clean_task_run(run_id)` to delete both `run_refs` and `pin_refs`
+3. Sets status to `PENDING` (retries remaining) or `FAILED` (no retries)
+
+Benefits: offloads ref cleanup from task execution to the background worker. Aligns `pin_refs` with `run_refs` — both keyed by `run_id`, both cleaned by `clean_task_run`.
+
+Requires: new enum value, migration (PostgreSQL enum ALTER), retry logic change, background worker cleanup phase.
+
 ## Schema-Aware Agent Context ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/ai/agents/tools.py` — see `get_schemas_for_nodes()` and `get_column_stats()`
