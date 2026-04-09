@@ -54,7 +54,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "pyproject.toml\nuv.lock\naaiclick/example_projects/cyber_threat_feeds/uv.lock"
 
       - name: Install dependencies
         run: |
@@ -68,6 +68,7 @@ jobs:
 
       - name: Run Cyber Threat Feeds Pipeline
         env:
+          PYTHON: "uv run --project ${{ github.workspace }} python"
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost

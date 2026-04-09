@@ -39,8 +39,9 @@ example_projects/<name>/
 ├── <name>/              # Python package (runnable via `python -m <name>`)
 │   ├── __init__.py      # Main logic: @job/@task definitions or standalone async workflow
 │   ├── __main__.py      # Entry point for `python -m <name>`
-│   ├── report.py        # Report rendering (rich tables, Object.markdown(), or print)
-│   └── requirements.txt # Extra dependencies not in aaiclick core (optional)
+│   └── report.py        # Report rendering (rich tables, Object.markdown(), or print)
+├── pyproject.toml       # Project metadata and dependencies
+├── uv.lock              # Locked dependency versions
 ├── <name>.sh            # Shell runner: sets env vars, calls python -m, manages workers
 └── README.md            # Title, description, how to run (see README Convention above)
 ```
@@ -59,7 +60,7 @@ example_projects/<name>/
 Projects can be copied out of the monorepo and run independently:
 
 1. Copy the `<name>/` project directory
-2. `pip install aaiclick`
+2. `uv sync` (installs dependencies from `pyproject.toml` + `uv.lock`)
 3. `./name.sh` (or `cd <name> && python -m <name>`)
 
 ## Task Return Values

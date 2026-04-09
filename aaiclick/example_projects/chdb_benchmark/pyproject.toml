@@ -1,0 +1,10 @@
+[project]
+name = "chdb-benchmark"
+version = "0.1.0"
+description = "Benchmark comparing aaiclick Object API against native chdb SQL"
+requires-python = ">=3.10"
+
+dependencies = [
+    "aaiclick",
+    "rich>=13.0",
+]
