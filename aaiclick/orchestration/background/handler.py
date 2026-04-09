@@ -5,7 +5,6 @@ Concrete implementations live in sqlite_handler.py and pg_handler.py.
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import NamedTuple
@@ -28,21 +27,6 @@ class PendingCleanupTask(NamedTuple):
     max_retries: int
 
 
-def extract_last_run_ids(rows: list) -> list[int]:
-    """Extract the last run_id from each task's run_ids JSON array.
-
-    Used by get_dead_worker_run_ids implementations to parse the
-    tasks.run_ids JSON column (list of ints) and return the last
-    element of each (the in-progress run that was interrupted).
-    """
-    result: list[int] = []
-    for (run_ids_json,) in rows:
-        ids = run_ids_json if isinstance(run_ids_json, list) else json.loads(run_ids_json or "[]")
-        if ids:
-            result.append(ids[-1])
-    return result
-
-
 class BackgroundHandler(ABC):
     """Abstract base for backend-specific background cleanup SQL."""
 
@@ -52,14 +36,6 @@ class BackgroundHandler(ABC):
         session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
         """Mark dead workers as STOPPED and their tasks as PENDING_CLEANUP."""
-        ...
-
-    @staticmethod
-    @abstractmethod
-    async def get_dead_worker_run_ids(
-        session: AsyncSession, dead_worker_ids: list[int],
-    ) -> list[int]:
-        """Return last run_id of each RUNNING/CLAIMED task on dead workers."""
         ...
 
     @staticmethod

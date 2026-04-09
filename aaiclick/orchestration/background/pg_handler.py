@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, PendingCleanupTask, extract_last_run_ids
+from .handler import BackgroundHandler, PendingCleanupTask
 
 
 class PgBackgroundHandler(BackgroundHandler):
@@ -33,20 +33,6 @@ class PgBackgroundHandler(BackgroundHandler):
             ),
             {"worker_ids": dead_worker_ids},
         )
-
-    @staticmethod
-    async def get_dead_worker_run_ids(
-        session: AsyncSession, dead_worker_ids: list[int],
-    ) -> list[int]:
-        result = await session.execute(
-            text(
-                "SELECT run_ids FROM tasks "
-                "WHERE worker_id = ANY(:worker_ids) "
-                "AND status IN ('RUNNING', 'CLAIMED')"
-            ),
-            {"worker_ids": dead_worker_ids},
-        )
-        return extract_last_run_ids(result.fetchall())
 
     @staticmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:

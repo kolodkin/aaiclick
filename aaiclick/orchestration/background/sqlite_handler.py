@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, PendingCleanupTask, extract_last_run_ids
+from .handler import BackgroundHandler, PendingCleanupTask
 
 
 def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
@@ -43,21 +43,6 @@ class SqliteBackgroundHandler(BackgroundHandler):
             ),
             params,
         )
-
-    @staticmethod
-    async def get_dead_worker_run_ids(
-        session: AsyncSession, dead_worker_ids: list[int],
-    ) -> list[int]:
-        placeholders, params = _in_clause(dead_worker_ids, "wid")
-        result = await session.execute(
-            text(
-                f"SELECT run_ids FROM tasks "
-                f"WHERE worker_id IN ({placeholders}) "
-                f"AND status IN ('RUNNING', 'CLAIMED')"
-            ),
-            params,
-        )
-        return extract_last_run_ids(result.fetchall())
 
     @staticmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:

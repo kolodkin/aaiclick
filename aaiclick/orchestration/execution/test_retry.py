@@ -13,7 +13,6 @@ from ..models import Job, JobStatus, Task, TaskStatus
 from .mp_worker import mp_worker_main_loop
 from .worker import (
     _set_pending_cleanup,
-    _try_complete_job,
     deregister_worker,
     register_worker,
 )
