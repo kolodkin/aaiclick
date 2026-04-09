@@ -125,13 +125,12 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            # Batch-clean all run_refs and pin_refs in two DELETE statements
+            # Clean run_refs (batched) and pin_refs (per-task) for all failed tasks
             run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
-            task_ids_to_clean = [t.task_id for t in tasks]
             if run_ids_to_clean:
                 await self._handler.clean_task_runs(session, run_ids_to_clean)
-            for tid in task_ids_to_clean:
-                await self._handler.clean_task_pins(session, tid)
+            for t in tasks:
+                await self._handler.clean_task_pins(session, t.task_id)
 
             # Transition each task and collect jobs that need completion check
             failed_job_ids: set[int] = set()
