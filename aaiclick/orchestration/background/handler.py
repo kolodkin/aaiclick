@@ -38,7 +38,7 @@ class BackgroundHandler(ABC):
     async def mark_dead_workers(
         session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
-        """Mark dead workers as STOPPED and their tasks as FAILED."""
+        """Mark dead workers as STOPPED and their tasks as PENDING_CLEANUP."""
         ...
 
     @staticmethod
@@ -58,9 +58,47 @@ class BackgroundHandler(ABC):
         )
 
     @staticmethod
+    async def clean_task_pins(session: AsyncSession, task_id: int) -> None:
+        """Delete all table_pin_refs rows for a given task_id.
+
+        Cleans pin refs that upstream producers created for this task as
+        a downstream consumer.  Called during PENDING_CLEANUP processing
+        so stale pins don't block table cleanup.
+        """
+        await session.execute(
+            text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
+            {"task_id": task_id},
+        )
+
+    @staticmethod
     @abstractmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
         """Batch-delete table_run_refs rows for multiple run_ids."""
+        ...
+
+    @staticmethod
+    @abstractmethod
+    async def get_pending_cleanup_tasks(
+        session: AsyncSession,
+    ) -> list[tuple[int, int, int, str, list, int]]:
+        """Return tasks in PENDING_CLEANUP status.
+
+        Returns list of (task_id, job_id, worker_id, error, run_ids, attempt, max_retries)
+        tuples for processing by the background worker.
+        """
+        ...
+
+    @staticmethod
+    @abstractmethod
+    async def transition_pending_cleanup(
+        session: AsyncSession,
+        task_id: int,
+        *,
+        has_retries: bool,
+        attempt: int,
+        retry_after: datetime,
+    ) -> None:
+        """Transition a PENDING_CLEANUP task to PENDING or FAILED."""
         ...
 
 

@@ -1,4 +1,4 @@
-"""Tests for task retry logic."""
+"""Tests for task retry logic with PENDING_CLEANUP lifecycle."""
 
 from datetime import datetime, timedelta
 
@@ -12,20 +12,21 @@ from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
 from .mp_worker import mp_worker_main_loop
 from .worker import (
-    _schedule_retry,
+    _set_pending_cleanup,
     _try_complete_job,
     deregister_worker,
     register_worker,
 )
+from ..background.test_pending_cleanup import run_pending_cleanup
 
 
 async def _cancel_all_pending_tasks():
-    """Cancel all pending/running tasks to prevent interference between tests."""
+    """Cancel all pending/running/pending_cleanup tasks to prevent interference."""
     async with get_sql_session() as session:
         await session.execute(
             text(
                 "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
-                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
             ),
             {"now": datetime.utcnow()},
         )
@@ -73,17 +74,16 @@ async def test_task_decorator_bare(orch_ctx):
     assert t.max_retries == 0
 
 
-async def test_schedule_retry(orch_ctx):
-    """_schedule_retry resets task to PENDING with incremented attempt."""
+async def test_set_pending_cleanup(orch_ctx):
+    """_set_pending_cleanup transitions a task to PENDING_CLEANUP with error."""
     job = await create_job(
-        "test_retry",
+        "test_pending_cleanup",
         create_task(
             "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
             max_retries=3,
         ),
     )
 
-    # Get the task and simulate it being claimed/running
     async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
@@ -91,79 +91,20 @@ async def test_schedule_retry(orch_ctx):
         t = result.scalar_one()
         task_id = t.id
 
-    # Mark as running first
     await update_task_status(task_id, TaskStatus.RUNNING)
+    await _set_pending_cleanup(task_id, "test error")
 
-    # Schedule retry
-    before = datetime.utcnow()
-    await _schedule_retry(task_id, 0, "test error")
-
-    # Verify state
     async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id)
         )
         t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING
-        assert t.attempt == 1
+        assert t.status == TaskStatus.PENDING_CLEANUP
         assert t.error == "test error"
-        assert t.worker_id is None
-        assert t.claimed_at is None
-        assert t.started_at is None
-        assert t.completed_at is None
-        assert t.retry_after is not None
-        # Backoff: 1s * 2^0 = 1s
-        assert t.retry_after >= before + timedelta(seconds=0.9)
-        assert t.retry_after <= before + timedelta(seconds=2)
-
-
-async def test_retry_backoff_timing(orch_ctx):
-    """Backoff doubles each attempt: 1s, 2s, 4s."""
-    job = await create_job(
-        "test_backoff",
-        create_task(
-            "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-            max_retries=3,
-        ),
-    )
-
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
-        task_id = result.scalar_one().id
-
-    # Attempt 0 -> retry_after ~1s
-    before = datetime.utcnow()
-    await _schedule_retry(task_id, 0, "err")
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        t = result.scalar_one()
-        delay_0 = (t.retry_after - before).total_seconds()
-        assert 0.9 <= delay_0 <= 2.0
-
-    # Attempt 1 -> retry_after ~2s
-    before = datetime.utcnow()
-    await _schedule_retry(task_id, 1, "err")
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        t = result.scalar_one()
-        delay_1 = (t.retry_after - before).total_seconds()
-        assert 1.9 <= delay_1 <= 3.0
-
-    # Attempt 2 -> retry_after ~4s
-    before = datetime.utcnow()
-    await _schedule_retry(task_id, 2, "err")
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        t = result.scalar_one()
-        delay_2 = (t.retry_after - before).total_seconds()
-        assert 3.9 <= delay_2 <= 5.0
 
 
 async def test_claim_respects_retry_after(orch_ctx):
     """Tasks with future retry_after are not claimed."""
-    # Cancel all pending/running tasks from previous tests
     await _cancel_all_pending_tasks()
 
     job = await create_job(
@@ -209,6 +150,31 @@ async def test_claim_respects_retry_after(orch_ctx):
     await deregister_worker(worker.id)
 
 
+async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:
+    """Run worker + cleanup cycles until the task reaches a terminal state.
+
+    Each cycle: check status → run worker (executes one task) → run background cleanup.
+    Raises AssertionError if max_cycles is exhausted without reaching a terminal state.
+    """
+    for _ in range(max_cycles):
+        async with get_sql_session() as session:
+            result = await session.execute(
+                select(Task.status).where(Task.job_id == job_id)
+            )
+            status = result.scalar_one()
+            if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                return
+
+        await mp_worker_main_loop(
+            max_tasks=1,
+            install_signal_handlers=False,
+            max_empty_polls=1,
+        )
+        await run_pending_cleanup()
+
+    raise AssertionError(f"Task did not reach terminal state after {max_cycles} cycles")
+
+
 async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
     """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
     await _cancel_all_pending_tasks()
@@ -221,11 +187,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
         ),
     )
 
-    await mp_worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=2,
-    )
+    await _run_until_terminal(job.id)
 
     # After exhausting all retries: task FAILED, attempt=2
     async with get_sql_session() as session:
@@ -248,7 +210,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
 
 
 async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
-    """Task with max_retries=0 fails immediately (no retry)."""
+    """Task with max_retries=0 fails immediately after background cleanup."""
     await _cancel_all_pending_tasks()
 
     job = await create_job(
@@ -265,7 +227,17 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
         max_empty_polls=1,
     )
 
-    # Task should be FAILED immediately (no retries)
+    # Task should be in PENDING_CLEANUP after worker
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id)
+        )
+        t = result.scalar_one()
+        assert t.status == TaskStatus.PENDING_CLEANUP
+
+    # Background cleanup transitions to FAILED
+    await run_pending_cleanup()
+
     async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.job_id == job.id)
@@ -297,13 +269,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, 
     )
     job = await create_job("test_retry_succeeds", t)
 
-    tasks_executed = await mp_worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=2,
-    )
-
-    assert tasks_executed == 1  # Task eventually succeeded
+    await _run_until_terminal(job.id)
 
     # Task should be COMPLETED after 3 attempts
     async with get_sql_session() as session:

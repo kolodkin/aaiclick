@@ -6,7 +6,7 @@ import asyncio
 import os
 import signal
 import socket
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Awaitable, Callable, Optional
 
 from sqlmodel import select
@@ -28,9 +28,6 @@ HEARTBEAT_INTERVAL = 30
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
 
-# Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
-RETRY_BASE_DELAY = 1
-
 
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
@@ -43,8 +40,8 @@ async def _try_complete_job(job_id: int) -> None:
         if not statuses:
             return
 
-        # If any task is still pending, claimed, or running, job is not done
-        if any(s in (TaskStatus.PENDING, TaskStatus.CLAIMED, TaskStatus.RUNNING) for s in statuses):
+        # If any task is still pending, claimed, running, or awaiting cleanup, job is not done
+        if any(s in (TaskStatus.PENDING, TaskStatus.CLAIMED, TaskStatus.RUNNING, TaskStatus.PENDING_CLEANUP) for s in statuses):
             return
 
         # All tasks are in terminal state
@@ -54,24 +51,15 @@ async def _try_complete_job(job_id: int) -> None:
             await update_job_status(job_id, JobStatus.COMPLETED)
 
 
-async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> None:
-    """Reset a failed task to PENDING with incremented attempt and backoff delay."""
-    delay = RETRY_BASE_DELAY * (2 ** current_attempt)
-    retry_after = datetime.utcnow() + timedelta(seconds=delay)
-
+async def _set_pending_cleanup(task_id: int, error: str) -> None:
+    """Transition a failed task to PENDING_CLEANUP for background ref cleanup."""
     async with get_sql_session() as session:
         result = await session.execute(
             select(Task).where(Task.id == task_id).with_for_update()
         )
         task = result.scalar_one()
-        task.status = TaskStatus.PENDING
-        task.attempt = current_attempt + 1
-        task.retry_after = retry_after
+        task.status = TaskStatus.PENDING_CLEANUP
         task.error = error
-        task.worker_id = None
-        task.claimed_at = None
-        task.started_at = None
-        task.completed_at = None
         if task.run_statuses:
             task.run_statuses = [*task.run_statuses[:-1], TaskStatus.FAILED.value]
         session.add(task)
@@ -297,21 +285,9 @@ async def _handle_task_result(
 
     error = error or "Unknown error"
     print(f"Worker {worker_id} task {task.id} failed: {error}")
-    async with get_sql_session() as session:
-        row = await session.execute(
-            select(Task.max_retries, Task.attempt).where(Task.id == task.id)
-        )
-        max_retries, attempt = row.one()
-    if attempt < max_retries:
-        await _schedule_retry(task.id, attempt, error)
-        print(
-            f"Worker {worker_id} task {task.id} scheduled for retry "
-            f"(attempt {attempt + 1}/{max_retries})"
-        )
-    else:
-        await update_task_status(task.id, TaskStatus.FAILED, error=error)
-        await _increment_worker_stat(worker_id, "tasks_failed")
-        await _try_complete_job(task.job_id)
+    await _set_pending_cleanup(task.id, error)
+    await _increment_worker_stat(worker_id, "tasks_failed")
+    print(f"Worker {worker_id} task {task.id} set to PENDING_CLEANUP")
     return False
 
 

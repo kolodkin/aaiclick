@@ -26,13 +26,12 @@ class PgBackgroundHandler(BackgroundHandler):
         )
         await session.execute(
             text(
-                "UPDATE tasks SET status = 'FAILED', "
-                "completed_at = :now, "
+                "UPDATE tasks SET status = 'PENDING_CLEANUP', "
                 "error = 'Worker died (heartbeat timeout)' "
                 "WHERE worker_id = ANY(:worker_ids) "
                 "AND status IN ('RUNNING', 'CLAIMED')"
             ),
-            {"worker_ids": dead_worker_ids, "now": now},
+            {"worker_ids": dead_worker_ids},
         )
 
     @staticmethod
@@ -55,3 +54,45 @@ class PgBackgroundHandler(BackgroundHandler):
             text("DELETE FROM table_run_refs WHERE run_id = ANY(:run_ids)"),
             {"run_ids": run_ids},
         )
+
+    @staticmethod
+    async def get_pending_cleanup_tasks(
+        session: AsyncSession,
+    ) -> list[tuple[int, int, int, str, list, int]]:
+        result = await session.execute(
+            text(
+                "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
+                "FROM tasks WHERE status = 'PENDING_CLEANUP'"
+            ),
+        )
+        return [(row[0], row[1], row[2], row[3], row[4] or [], row[5], row[6]) for row in result.fetchall()]
+
+    @staticmethod
+    async def transition_pending_cleanup(
+        session: AsyncSession,
+        task_id: int,
+        *,
+        has_retries: bool,
+        attempt: int,
+        retry_after: datetime,
+    ) -> None:
+        if has_retries:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'PENDING', "
+                    "attempt = :attempt, retry_after = :retry_after, "
+                    "worker_id = NULL, claimed_at = NULL, "
+                    "started_at = NULL, completed_at = NULL "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'FAILED', "
+                    "completed_at = :now "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "now": datetime.utcnow()},
+            )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import text
@@ -35,8 +36,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
         )
         await session.execute(
             text(
-                f"UPDATE tasks SET status = 'FAILED', "
-                f"completed_at = :now, "
+                f"UPDATE tasks SET status = 'PENDING_CLEANUP', "
                 f"error = 'Worker died (heartbeat timeout)' "
                 f"WHERE worker_id IN ({placeholders}) "
                 f"AND status IN ('RUNNING', 'CLAIMED')"
@@ -66,3 +66,51 @@ class SqliteBackgroundHandler(BackgroundHandler):
             text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
             params,
         )
+
+    @staticmethod
+    async def get_pending_cleanup_tasks(
+        session: AsyncSession,
+    ) -> list[tuple[int, int, int, str, list, int]]:
+        result = await session.execute(
+            text(
+                "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
+                "FROM tasks WHERE status = 'PENDING_CLEANUP'"
+            ),
+        )
+        rows = result.fetchall()
+        parsed = []
+        for row in rows:
+            task_id, job_id, worker_id, error, run_ids_raw, attempt, max_retries = row
+            run_ids = run_ids_raw if isinstance(run_ids_raw, list) else json.loads(run_ids_raw or "[]")
+            parsed.append((task_id, job_id, worker_id, error, run_ids, attempt, max_retries))
+        return parsed
+
+    @staticmethod
+    async def transition_pending_cleanup(
+        session: AsyncSession,
+        task_id: int,
+        *,
+        has_retries: bool,
+        attempt: int,
+        retry_after: datetime,
+    ) -> None:
+        if has_retries:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'PENDING', "
+                    "attempt = :attempt, retry_after = :retry_after, "
+                    "worker_id = NULL, claimed_at = NULL, "
+                    "started_at = NULL, completed_at = NULL "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'FAILED', "
+                    "completed_at = :now "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "now": datetime.utcnow()},
+            )

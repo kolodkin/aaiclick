@@ -62,6 +62,7 @@ class TaskStatus(StrEnum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    PENDING_CLEANUP = "PENDING_CLEANUP"
 
 
 class WorkerStatus(StrEnum):

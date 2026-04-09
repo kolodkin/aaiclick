@@ -30,6 +30,9 @@ from aaiclick.snowflake_id import get_snowflake_id
 from ..env import get_db_url
 from .handler import BackgroundHandler, create_background_handler
 
+# Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
+RETRY_BASE_DELAY = 1
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 10.0
@@ -103,10 +106,87 @@ class BackgroundWorker:
                 pass
 
     async def _do_cleanup(self) -> None:
+        await self._process_pending_cleanup()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_expired_samples()
         await self._cleanup_dead_workers()
         await self._check_schedules()
+
+    async def _process_pending_cleanup(self) -> None:
+        """Process tasks in PENDING_CLEANUP status.
+
+        For each PENDING_CLEANUP task:
+        1. Clean run_refs for the failed run_id
+        2. Clean pin_refs for the task (stale upstream pins)
+        3. Transition to PENDING (retries remaining) or FAILED (exhausted)
+        4. Check job completion when transitioning to FAILED
+        """
+        async with AsyncSession(self._engine) as session:
+            tasks = await self._handler.get_pending_cleanup_tasks(session)
+
+            for task_id, job_id, worker_id, error, run_ids, attempt, max_retries in tasks:
+                # Clean run_refs for the last (failed) run
+                if run_ids:
+                    last_run_id = str(run_ids[-1])
+                    await self._handler.clean_task_run(session, last_run_id)
+
+                # Clean pin_refs for this task (upstream producer pins)
+                await self._handler.clean_task_pins(session, task_id)
+
+                has_retries = attempt < max_retries
+                retry_after = datetime.utcnow() + timedelta(
+                    seconds=RETRY_BASE_DELAY * (2 ** attempt),
+                )
+                await self._handler.transition_pending_cleanup(
+                    session, task_id,
+                    has_retries=has_retries,
+                    attempt=attempt + 1,
+                    retry_after=retry_after,
+                )
+
+                if has_retries:
+                    logger.info(
+                        "Task %s cleaned and scheduled for retry "
+                        "(attempt %d/%d)", task_id, attempt + 1, max_retries,
+                    )
+                else:
+                    logger.info("Task %s cleaned and marked FAILED", task_id)
+                    await self._try_complete_job(session, job_id)
+
+            await session.commit()
+
+    async def _try_complete_job(self, session: AsyncSession, job_id: int) -> None:
+        """Check if all tasks for a job are in terminal state and update job status."""
+        result = await session.execute(
+            text("SELECT status FROM tasks WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        )
+        statuses = [row[0] for row in result.fetchall()]
+        if not statuses:
+            return
+
+        non_terminal = {"PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"}
+        if any(s in non_terminal for s in statuses):
+            return
+
+        now = datetime.utcnow()
+        if any(s == "FAILED" for s in statuses):
+            await session.execute(
+                text(
+                    "UPDATE jobs SET status = 'FAILED', completed_at = :now, "
+                    "error = 'One or more tasks failed' "
+                    "WHERE id = :job_id"
+                ),
+                {"job_id": job_id, "now": now},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE jobs SET status = 'COMPLETED', completed_at = :now "
+                    "WHERE id = :job_id"
+                ),
+                {"job_id": job_id, "now": now},
+            )
 
     async def _cleanup_unreferenced_tables(self) -> None:
         """Drop CH tables with no pin refs and no run refs.
@@ -193,7 +273,10 @@ class BackgroundWorker:
             logger.debug("Failed to query expired sample tables", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
-        """Detect dead workers, mark their running tasks as FAILED, and clean orphaned run refs."""
+        """Detect dead workers, mark their running tasks as PENDING_CLEANUP.
+
+        Ref cleanup is handled by _process_pending_cleanup on the next cycle.
+        """
         cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
@@ -210,22 +293,8 @@ class BackgroundWorker:
             if not dead_worker_ids:
                 return
 
-            # Collect run_ids of tasks that will be marked as FAILED
-            # (currently RUNNING/CLAIMED on dead workers) before marking.
-            orphaned_run_ids = await self._handler.get_dead_worker_run_ids(
-                session, dead_worker_ids,
-            )
-
             now = datetime.utcnow()
             await self._handler.mark_dead_workers(session, dead_worker_ids, now)
-
-            # Remove orphaned run refs from table_run_refs so affected
-            # tables become eligible for cleanup.
-            if orphaned_run_ids:
-                await self._handler.clean_task_runs(
-                    session, [str(rid) for rid in orphaned_run_ids],
-                )
-
             await session.commit()
 
             for wid in dead_worker_ids:
