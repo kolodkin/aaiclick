@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, extract_last_run_ids
+from .handler import BackgroundHandler, PendingCleanupTask, extract_last_run_ids
 
 
 class PgBackgroundHandler(BackgroundHandler):
@@ -58,41 +58,11 @@ class PgBackgroundHandler(BackgroundHandler):
     @staticmethod
     async def get_pending_cleanup_tasks(
         session: AsyncSession,
-    ) -> list[tuple[int, int, int, str, list, int]]:
+    ) -> list[PendingCleanupTask]:
         result = await session.execute(
             text(
                 "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
                 "FROM tasks WHERE status = 'PENDING_CLEANUP'"
             ),
         )
-        return [(row[0], row[1], row[2], row[3], row[4] or [], row[5], row[6]) for row in result.fetchall()]
-
-    @staticmethod
-    async def transition_pending_cleanup(
-        session: AsyncSession,
-        task_id: int,
-        *,
-        has_retries: bool,
-        attempt: int,
-        retry_after: datetime,
-    ) -> None:
-        if has_retries:
-            await session.execute(
-                text(
-                    "UPDATE tasks SET status = 'PENDING', "
-                    "attempt = :attempt, retry_after = :retry_after, "
-                    "worker_id = NULL, claimed_at = NULL, "
-                    "started_at = NULL, completed_at = NULL "
-                    "WHERE id = :task_id"
-                ),
-                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE tasks SET status = 'FAILED', "
-                    "completed_at = :now "
-                    "WHERE id = :task_id"
-                ),
-                {"task_id": task_id, "now": datetime.utcnow()},
-            )
+        return [PendingCleanupTask._make((*row[:4], row[4] or [], *row[5:])) for row in result.fetchall()]

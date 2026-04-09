@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, extract_last_run_ids
+from .handler import BackgroundHandler, PendingCleanupTask, extract_last_run_ids
 
 
 def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
@@ -70,47 +70,18 @@ class SqliteBackgroundHandler(BackgroundHandler):
     @staticmethod
     async def get_pending_cleanup_tasks(
         session: AsyncSession,
-    ) -> list[tuple[int, int, int, str, list, int]]:
+    ) -> list[PendingCleanupTask]:
         result = await session.execute(
             text(
                 "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
                 "FROM tasks WHERE status = 'PENDING_CLEANUP'"
             ),
         )
-        rows = result.fetchall()
-        parsed = []
-        for row in rows:
-            task_id, job_id, worker_id, error, run_ids_raw, attempt, max_retries = row
-            run_ids = run_ids_raw if isinstance(run_ids_raw, list) else json.loads(run_ids_raw or "[]")
-            parsed.append((task_id, job_id, worker_id, error, run_ids, attempt, max_retries))
-        return parsed
-
-    @staticmethod
-    async def transition_pending_cleanup(
-        session: AsyncSession,
-        task_id: int,
-        *,
-        has_retries: bool,
-        attempt: int,
-        retry_after: datetime,
-    ) -> None:
-        if has_retries:
-            await session.execute(
-                text(
-                    "UPDATE tasks SET status = 'PENDING', "
-                    "attempt = :attempt, retry_after = :retry_after, "
-                    "worker_id = NULL, claimed_at = NULL, "
-                    "started_at = NULL, completed_at = NULL "
-                    "WHERE id = :task_id"
-                ),
-                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE tasks SET status = 'FAILED', "
-                    "completed_at = :now "
-                    "WHERE id = :task_id"
-                ),
-                {"task_id": task_id, "now": datetime.utcnow()},
-            )
+        return [
+            PendingCleanupTask._make((
+                *row[:4],
+                row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                *row[5:],
+            ))
+            for row in result.fetchall()
+        ]

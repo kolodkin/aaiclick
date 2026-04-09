@@ -28,6 +28,7 @@ from aaiclick.oplog.cleanup import lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
+from ..models import JobStatus, TaskStatus
 from .handler import BackgroundHandler, create_background_handler
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -123,35 +124,42 @@ class BackgroundWorker:
         """
         async with AsyncSession(self._engine) as session:
             tasks = await self._handler.get_pending_cleanup_tasks(session)
+            failed_job_ids: set[int] = set()
 
-            for task_id, job_id, worker_id, error, run_ids, attempt, max_retries in tasks:
-                # Clean run_refs for the last (failed) run
-                if run_ids:
-                    last_run_id = str(run_ids[-1])
+            for task in tasks:
+                if task.run_ids:
+                    last_run_id = str(task.run_ids[-1])
                     await self._handler.clean_task_run(session, last_run_id)
 
-                # Clean pin_refs for this task (upstream producer pins)
-                await self._handler.clean_task_pins(session, task_id)
+                await self._handler.clean_task_pins(session, task.task_id)
 
-                has_retries = attempt < max_retries
-                retry_after = datetime.utcnow() + timedelta(
-                    seconds=RETRY_BASE_DELAY * (2 ** attempt),
-                )
-                await self._handler.transition_pending_cleanup(
-                    session, task_id,
-                    has_retries=has_retries,
-                    attempt=attempt + 1,
-                    retry_after=retry_after,
-                )
-
+                has_retries = task.attempt < task.max_retries
                 if has_retries:
+                    retry_after = datetime.utcnow() + timedelta(
+                        seconds=RETRY_BASE_DELAY * (2 ** task.attempt),
+                    )
+                    await self._handler.transition_pending_cleanup(
+                        session, task.task_id,
+                        has_retries=True,
+                        attempt=task.attempt + 1,
+                        retry_after=retry_after,
+                    )
                     logger.info(
                         "Task %s cleaned and scheduled for retry "
-                        "(attempt %d/%d)", task_id, attempt + 1, max_retries,
+                        "(attempt %d/%d)", task.task_id, task.attempt + 1, task.max_retries,
                     )
                 else:
-                    logger.info("Task %s cleaned and marked FAILED", task_id)
-                    await self._try_complete_job(session, job_id)
+                    await self._handler.transition_pending_cleanup(
+                        session, task.task_id,
+                        has_retries=False,
+                        attempt=task.attempt + 1,
+                        retry_after=datetime.utcnow(),
+                    )
+                    logger.info("Task %s cleaned and marked FAILED", task.task_id)
+                    failed_job_ids.add(task.job_id)
+
+            for job_id in failed_job_ids:
+                await self._try_complete_job(session, job_id)
 
             await session.commit()
 
@@ -165,27 +173,30 @@ class BackgroundWorker:
         if not statuses:
             return
 
-        non_terminal = {"PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"}
+        non_terminal = {
+            TaskStatus.PENDING, TaskStatus.CLAIMED,
+            TaskStatus.RUNNING, TaskStatus.PENDING_CLEANUP,
+        }
         if any(s in non_terminal for s in statuses):
             return
 
         now = datetime.utcnow()
-        if any(s == "FAILED" for s in statuses):
+        if any(s == TaskStatus.FAILED for s in statuses):
             await session.execute(
                 text(
-                    "UPDATE jobs SET status = 'FAILED', completed_at = :now, "
+                    "UPDATE jobs SET status = :failed, completed_at = :now, "
                     "error = 'One or more tasks failed' "
                     "WHERE id = :job_id"
                 ),
-                {"job_id": job_id, "now": now},
+                {"job_id": job_id, "now": now, "failed": JobStatus.FAILED.value},
             )
         else:
             await session.execute(
                 text(
-                    "UPDATE jobs SET status = 'COMPLETED', completed_at = :now "
+                    "UPDATE jobs SET status = :completed, completed_at = :now "
                     "WHERE id = :job_id"
                 ),
-                {"job_id": job_id, "now": now},
+                {"job_id": job_id, "now": now, "completed": JobStatus.COMPLETED.value},
             )
 
     async def _cleanup_unreferenced_tables(self) -> None:
@@ -222,13 +233,6 @@ class BackgroundWorker:
                 await session.execute(
                     text(
                         "DELETE FROM table_context_refs "
-                        "WHERE table_name = :table_name"
-                    ),
-                    {"table_name": table_name},
-                )
-                await session.execute(
-                    text(
-                        "DELETE FROM table_pin_refs "
                         "WHERE table_name = :table_name"
                     ),
                     {"table_name": table_name},

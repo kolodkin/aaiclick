@@ -8,11 +8,24 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import NamedTuple
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
+
+
+class PendingCleanupTask(NamedTuple):
+    """Row returned by get_pending_cleanup_tasks."""
+
+    task_id: int
+    job_id: int
+    worker_id: int
+    error: str
+    run_ids: list
+    attempt: int
+    max_retries: int
 
 
 def extract_last_run_ids(rows: list) -> list[int]:
@@ -80,16 +93,11 @@ class BackgroundHandler(ABC):
     @abstractmethod
     async def get_pending_cleanup_tasks(
         session: AsyncSession,
-    ) -> list[tuple[int, int, int, str, list, int]]:
-        """Return tasks in PENDING_CLEANUP status.
-
-        Returns list of (task_id, job_id, worker_id, error, run_ids, attempt, max_retries)
-        tuples for processing by the background worker.
-        """
+    ) -> list[PendingCleanupTask]:
+        """Return tasks in PENDING_CLEANUP status."""
         ...
 
     @staticmethod
-    @abstractmethod
     async def transition_pending_cleanup(
         session: AsyncSession,
         task_id: int,
@@ -99,7 +107,26 @@ class BackgroundHandler(ABC):
         retry_after: datetime,
     ) -> None:
         """Transition a PENDING_CLEANUP task to PENDING or FAILED."""
-        ...
+        if has_retries:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'PENDING', "
+                    "attempt = :attempt, retry_after = :retry_after, "
+                    "worker_id = NULL, claimed_at = NULL, "
+                    "started_at = NULL, completed_at = NULL "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET status = 'FAILED', "
+                    "completed_at = :now "
+                    "WHERE id = :task_id"
+                ),
+                {"task_id": task_id, "now": datetime.utcnow()},
+            )
 
 
 def create_background_handler() -> BackgroundHandler:

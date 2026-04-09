@@ -7,68 +7,16 @@ Also tests clean_task_run for crash recovery.
 
 from __future__ import annotations
 
-import os
-import shutil
-import tempfile
 from unittest.mock import AsyncMock
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.orchestration.models import SQLModel
 
-
-async def _setup_db():
-    """Create a temp SQLite DB with schema, return (async_engine, tmpdir)."""
-    tmpdir = tempfile.mkdtemp(prefix="aaiclick_bgtest_")
-    db_path = os.path.join(tmpdir, "test.db")
-    sync_engine = create_engine(f"sqlite:///{db_path}")
-    SQLModel.metadata.create_all(sync_engine)
-    sync_engine.dispose()
-    async_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-    return async_engine, tmpdir
-
-
-async def _insert_context_ref(engine, table_name, context_id):
-    """Insert a row into table_context_refs."""
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO table_context_refs (table_name, context_id) "
-                "VALUES (:t, :c)"
-            ),
-            {"t": table_name, "c": context_id},
-        )
-        await session.commit()
-
-
-async def _insert_pin_ref(engine, table_name, task_id):
-    """Insert a row into table_pin_refs (pin protection)."""
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO table_pin_refs (table_name, task_id) "
-                "VALUES (:t, :tid)"
-            ),
-            {"t": table_name, "tid": task_id},
-        )
-        await session.commit()
-
-
-async def _insert_run_ref(engine, table_name, run_id):
-    """Insert a row into table_run_refs (run-level reference)."""
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO table_run_refs (table_name, run_id) "
-                "VALUES (:t, :r)"
-            ),
-            {"t": table_name, "r": run_id},
-        )
-        await session.commit()
+from .conftest import insert_context_ref, insert_pin_ref, insert_run_ref
 
 
 async def _get_context_tables(engine):
@@ -88,115 +36,90 @@ async def _get_run_refs(engine, table_name):
         return {row[0] for row in result.fetchall()}
 
 
-async def test_cleanup_skips_pinned_tables():
+async def test_cleanup_skips_pinned_tables(bg_db):
     """Tables with a pin_ref are NOT dropped even when no run refs exist."""
-    engine, tmpdir = await _setup_db()
-    try:
-        await _insert_context_ref(engine, "t_unpinned", 100)
-        await _insert_context_ref(engine, "t_pinned", 200)
-        await _insert_pin_ref(engine, "t_pinned", 300)
+    await insert_context_ref(bg_db, "t_unpinned", 100)
+    await insert_context_ref(bg_db, "t_pinned", 200)
+    await insert_pin_ref(bg_db, "t_pinned", 300)
 
-        worker = BackgroundWorker()
-        worker._engine = engine
-        worker._handler = SqliteBackgroundHandler()
-        worker._ch_client = AsyncMock()
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
 
-        await worker._cleanup_unreferenced_tables()
+    await worker._cleanup_unreferenced_tables()
 
-        remaining = await _get_context_tables(engine)
-        assert "t_pinned" in remaining, "Pinned table was dropped"
-        assert "t_unpinned" not in remaining, "Unpinned table was not cleaned up"
-    finally:
-        await engine.dispose()
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    remaining = await _get_context_tables(bg_db)
+    assert "t_pinned" in remaining, "Pinned table was dropped"
+    assert "t_unpinned" not in remaining, "Unpinned table was not cleaned up"
 
 
-async def test_cleanup_skips_tables_with_active_runs():
+async def test_cleanup_skips_tables_with_active_runs(bg_db):
     """Tables with run refs in table_run_refs are NOT dropped."""
-    engine, tmpdir = await _setup_db()
-    try:
-        await _insert_context_ref(engine, "t_active", 100)
-        await _insert_run_ref(engine, "t_active", "run_1")
-        await _insert_context_ref(engine, "t_empty", 200)
+    await insert_context_ref(bg_db, "t_active", 100)
+    await insert_run_ref(bg_db, "t_active", "run_1")
+    await insert_context_ref(bg_db, "t_empty", 200)
 
-        worker = BackgroundWorker()
-        worker._engine = engine
-        worker._handler = SqliteBackgroundHandler()
-        worker._ch_client = AsyncMock()
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
 
-        await worker._cleanup_unreferenced_tables()
+    await worker._cleanup_unreferenced_tables()
 
-        remaining = await _get_context_tables(engine)
-        assert "t_active" in remaining, "Active table was dropped"
-        assert "t_empty" not in remaining, "Empty table was not cleaned up"
-    finally:
-        await engine.dispose()
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    remaining = await _get_context_tables(bg_db)
+    assert "t_active" in remaining, "Active table was dropped"
+    assert "t_empty" not in remaining, "Empty table was not cleaned up"
 
 
-async def test_clean_task_run_removes_run_refs():
+async def test_clean_task_run_removes_run_refs(bg_db):
     """clean_task_run deletes all table_run_refs rows for that run_id."""
-    engine, tmpdir = await _setup_db()
-    try:
-        await _insert_run_ref(engine, "t1", "run_1")
-        await _insert_run_ref(engine, "t1", "run_2")
-        await _insert_run_ref(engine, "t2", "run_1")
-        await _insert_run_ref(engine, "t3", "run_3")
+    await insert_run_ref(bg_db, "t1", "run_1")
+    await insert_run_ref(bg_db, "t1", "run_2")
+    await insert_run_ref(bg_db, "t2", "run_1")
+    await insert_run_ref(bg_db, "t3", "run_3")
 
-        async with AsyncSession(engine) as session:
-            await BackgroundHandler.clean_task_run(session, "run_1")
-            await session.commit()
+    async with AsyncSession(bg_db) as session:
+        await BackgroundHandler.clean_task_run(session, "run_1")
+        await session.commit()
 
-        assert await _get_run_refs(engine, "t1") == {"run_2"}
-        assert await _get_run_refs(engine, "t2") == set()
-        assert await _get_run_refs(engine, "t3") == {"run_3"}
-    finally:
-        await engine.dispose()
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    assert await _get_run_refs(bg_db, "t1") == {"run_2"}
+    assert await _get_run_refs(bg_db, "t2") == set()
+    assert await _get_run_refs(bg_db, "t3") == {"run_3"}
 
 
-async def test_clean_task_runs_batch_removes_multiple_run_ids():
+async def test_clean_task_runs_batch_removes_multiple_run_ids(bg_db):
     """clean_task_runs batch-deletes table_run_refs rows for multiple run_ids."""
-    engine, tmpdir = await _setup_db()
-    try:
-        await _insert_run_ref(engine, "t1", "run_1")
-        await _insert_run_ref(engine, "t1", "run_2")
-        await _insert_run_ref(engine, "t2", "run_2")
-        await _insert_run_ref(engine, "t3", "run_3")
+    await insert_run_ref(bg_db, "t1", "run_1")
+    await insert_run_ref(bg_db, "t1", "run_2")
+    await insert_run_ref(bg_db, "t2", "run_2")
+    await insert_run_ref(bg_db, "t3", "run_3")
 
-        handler = SqliteBackgroundHandler()
-        async with AsyncSession(engine) as session:
-            await handler.clean_task_runs(session, ["run_1", "run_2"])
-            await session.commit()
+    handler = SqliteBackgroundHandler()
+    async with AsyncSession(bg_db) as session:
+        await handler.clean_task_runs(session, ["run_1", "run_2"])
+        await session.commit()
 
-        assert await _get_run_refs(engine, "t1") == set()
-        assert await _get_run_refs(engine, "t2") == set()
-        assert await _get_run_refs(engine, "t3") == {"run_3"}
-    finally:
-        await engine.dispose()
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    assert await _get_run_refs(bg_db, "t1") == set()
+    assert await _get_run_refs(bg_db, "t2") == set()
+    assert await _get_run_refs(bg_db, "t3") == {"run_3"}
 
 
-async def test_clean_task_run_then_cleanup_drops_table():
+async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     """After clean_task_run removes run refs, cleanup drops the table."""
-    engine, tmpdir = await _setup_db()
-    try:
-        await _insert_context_ref(engine, "t_orphan", 100)
-        await _insert_run_ref(engine, "t_orphan", "crashed_run")
+    await insert_context_ref(bg_db, "t_orphan", 100)
+    await insert_run_ref(bg_db, "t_orphan", "crashed_run")
 
-        async with AsyncSession(engine) as session:
-            await BackgroundHandler.clean_task_run(session, "crashed_run")
-            await session.commit()
+    async with AsyncSession(bg_db) as session:
+        await BackgroundHandler.clean_task_run(session, "crashed_run")
+        await session.commit()
 
-        worker = BackgroundWorker()
-        worker._engine = engine
-        worker._handler = SqliteBackgroundHandler()
-        worker._ch_client = AsyncMock()
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
 
-        await worker._cleanup_unreferenced_tables()
+    await worker._cleanup_unreferenced_tables()
 
-        remaining = await _get_context_tables(engine)
-        assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
-    finally:
-        await engine.dispose()
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    remaining = await _get_context_tables(bg_db)
+    assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
