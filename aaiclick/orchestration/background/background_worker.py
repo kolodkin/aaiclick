@@ -116,23 +116,26 @@ class BackgroundWorker:
     async def _process_pending_cleanup(self) -> None:
         """Process tasks in PENDING_CLEANUP status.
 
-        For each PENDING_CLEANUP task:
-        1. Clean run_refs for the failed run_id
-        2. Clean pin_refs for the task (stale upstream pins)
-        3. Transition to PENDING (retries remaining) or FAILED (exhausted)
-        4. Check job completion when transitioning to FAILED
+        1. Batch-clean run_refs and pin_refs for all failed tasks
+        2. Transition each to PENDING (retries remaining) or FAILED (exhausted)
+        3. Check job completion for jobs with newly-FAILED tasks
         """
         async with AsyncSession(self._engine) as session:
             tasks = await self._handler.get_pending_cleanup_tasks(session)
+            if not tasks:
+                return
+
+            # Batch-clean all run_refs and pin_refs in two DELETE statements
+            run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
+            task_ids_to_clean = [t.task_id for t in tasks]
+            if run_ids_to_clean:
+                await self._handler.clean_task_runs(session, run_ids_to_clean)
+            for tid in task_ids_to_clean:
+                await self._handler.clean_task_pins(session, tid)
+
+            # Transition each task and collect jobs that need completion check
             failed_job_ids: set[int] = set()
-
             for task in tasks:
-                if task.run_ids:
-                    last_run_id = str(task.run_ids[-1])
-                    await self._handler.clean_task_run(session, last_run_id)
-
-                await self._handler.clean_task_pins(session, task.task_id)
-
                 has_retries = task.attempt < task.max_retries
                 if has_retries:
                     retry_after = datetime.utcnow() + timedelta(

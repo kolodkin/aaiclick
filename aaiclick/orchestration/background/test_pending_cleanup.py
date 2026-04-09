@@ -18,12 +18,11 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
-from .conftest import insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_pin_ref, insert_run_ref
 
 
 async def _insert_task(engine, task_id, job_id, *, status, attempt=0, max_retries=0,
                        run_ids="[]", error=None, worker_id=None):
-    """Insert a task row for testing."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
@@ -43,7 +42,6 @@ async def _insert_task(engine, task_id, job_id, *, status, attempt=0, max_retrie
 
 
 async def _insert_job(engine, job_id, *, status="RUNNING"):
-    """Insert a job row for testing."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
@@ -56,7 +54,6 @@ async def _insert_job(engine, job_id, *, status="RUNNING"):
 
 
 async def _get_task_status(engine, task_id):
-    """Return (status, attempt, retry_after, error, worker_id, completed_at) for a task."""
     async with AsyncSession(engine) as session:
         result = await session.execute(
             text(
@@ -68,18 +65,7 @@ async def _get_task_status(engine, task_id):
         return result.fetchone()
 
 
-async def _get_run_refs(engine, table_name):
-    """Return set of run_ids for a table in table_run_refs."""
-    async with AsyncSession(engine) as session:
-        result = await session.execute(
-            text("SELECT run_id FROM table_run_refs WHERE table_name = :t"),
-            {"t": table_name},
-        )
-        return {row[0] for row in result.fetchall()}
-
-
 async def _get_pin_refs(engine, task_id):
-    """Return set of table_names pinned for a task."""
     async with AsyncSession(engine) as session:
         result = await session.execute(
             text("SELECT table_name FROM table_pin_refs WHERE task_id = :tid"),
@@ -89,7 +75,6 @@ async def _get_pin_refs(engine, task_id):
 
 
 async def _get_job_status(engine, job_id):
-    """Return job status."""
     async with AsyncSession(engine) as session:
         result = await session.execute(
             text("SELECT status FROM jobs WHERE id = :id"),
@@ -147,7 +132,7 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
     assert retry_after is not None
     assert worker_id is None
 
-    assert await _get_run_refs(bg_db, "t_intermediate") == set()
+    assert await get_run_refs(bg_db, "t_intermediate") == set()
 
 
 async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
@@ -170,7 +155,7 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     assert status == "FAILED"
     assert completed_at is not None
 
-    assert await _get_run_refs(bg_db, "t_table") == set()
+    assert await get_run_refs(bg_db, "t_table") == set()
 
 
 async def test_pending_cleanup_cleans_pin_refs(bg_db):

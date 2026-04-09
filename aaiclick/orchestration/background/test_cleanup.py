@@ -16,23 +16,12 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
-from .conftest import insert_context_ref, insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref
 
 
 async def _get_context_tables(engine):
-    """Return set of table_names still in table_context_refs."""
     async with AsyncSession(engine) as session:
         result = await session.execute(text("SELECT DISTINCT table_name FROM table_context_refs"))
-        return {row[0] for row in result.fetchall()}
-
-
-async def _get_run_refs(engine, table_name):
-    """Return set of run_ids for a table in table_run_refs."""
-    async with AsyncSession(engine) as session:
-        result = await session.execute(
-            text("SELECT run_id FROM table_run_refs WHERE table_name = :t"),
-            {"t": table_name},
-        )
         return {row[0] for row in result.fetchall()}
 
 
@@ -83,9 +72,9 @@ async def test_clean_task_run_removes_run_refs(bg_db):
         await BackgroundHandler.clean_task_run(session, "run_1")
         await session.commit()
 
-    assert await _get_run_refs(bg_db, "t1") == {"run_2"}
-    assert await _get_run_refs(bg_db, "t2") == set()
-    assert await _get_run_refs(bg_db, "t3") == {"run_3"}
+    assert await get_run_refs(bg_db, "t1") == {"run_2"}
+    assert await get_run_refs(bg_db, "t2") == set()
+    assert await get_run_refs(bg_db, "t3") == {"run_3"}
 
 
 async def test_clean_task_runs_batch_removes_multiple_run_ids(bg_db):
@@ -100,9 +89,9 @@ async def test_clean_task_runs_batch_removes_multiple_run_ids(bg_db):
         await handler.clean_task_runs(session, ["run_1", "run_2"])
         await session.commit()
 
-    assert await _get_run_refs(bg_db, "t1") == set()
-    assert await _get_run_refs(bg_db, "t2") == set()
-    assert await _get_run_refs(bg_db, "t3") == {"run_3"}
+    assert await get_run_refs(bg_db, "t1") == set()
+    assert await get_run_refs(bg_db, "t2") == set()
+    assert await get_run_refs(bg_db, "t3") == {"run_3"}
 
 
 async def test_clean_task_run_then_cleanup_drops_table(bg_db):

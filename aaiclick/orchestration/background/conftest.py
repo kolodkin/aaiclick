@@ -28,7 +28,6 @@ async def bg_db():
 
 
 async def insert_context_ref(engine, table_name, context_id):
-    """Insert a row into table_context_refs."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
@@ -41,7 +40,6 @@ async def insert_context_ref(engine, table_name, context_id):
 
 
 async def insert_pin_ref(engine, table_name, task_id):
-    """Insert a row into table_pin_refs."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
@@ -54,7 +52,6 @@ async def insert_pin_ref(engine, table_name, task_id):
 
 
 async def insert_run_ref(engine, table_name, run_id):
-    """Insert a row into table_run_refs."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
@@ -64,3 +61,12 @@ async def insert_run_ref(engine, table_name, run_id):
             {"t": table_name, "r": run_id},
         )
         await session.commit()
+
+
+async def get_run_refs(engine, table_name):
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("SELECT run_id FROM table_run_refs WHERE table_name = :t"),
+            {"t": table_name},
+        )
+        return {row[0] for row in result.fetchall()}
