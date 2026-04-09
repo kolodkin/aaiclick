@@ -103,45 +103,28 @@ class BackgroundWorker:
                 pass
 
     async def _do_cleanup(self) -> None:
-        await self._cleanup_completed_jobs()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_expired_samples()
         await self._cleanup_dead_workers()
         await self._check_schedules()
 
-    async def _cleanup_completed_jobs(self) -> None:
-        """Clear job_id on pin refs for completed/failed jobs.
+    async def _cleanup_unreferenced_tables(self) -> None:
+        """Drop CH tables with no pin refs and no run refs.
 
-        Sets job_id = NULL so the ref becomes a plain task ref
-        eligible for cleanup by _cleanup_unreferenced_tables.
+        Each consumer task has its own pin_ref row (created by producer
+        fan-out, removed by consumer's unpin during deserialization).
+        A table is eligible when all consumers have unpinned AND no
+        run_refs remain.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT DISTINCT job_id FROM table_context_refs "
-                    "WHERE job_id IS NOT NULL "
-                    "AND job_id IN ("
-                    "  SELECT id FROM jobs "
-                    "  WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
-                    ")"
-                )
-            )
-            job_ids = [row[0] for row in result.fetchall()]
-
-            if not job_ids:
-                return
-
-            await self._handler.clear_job_pins(session, job_ids)
-            await session.commit()
-
-    async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no run refs and no pin."""
-        async with AsyncSession(self._engine) as session:
-            result = await session.execute(
-                text(
-                    "SELECT table_name FROM table_context_refs tcr "
+                    "SELECT DISTINCT tcr.table_name FROM table_context_refs tcr "
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
-                    "AND tcr.job_id IS NULL "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM table_pin_refs tpr "
+                    "  WHERE tpr.table_name = tcr.table_name"
+                    ") "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
                     "  WHERE trr.table_name = tcr.table_name"
@@ -159,6 +142,20 @@ class BackgroundWorker:
                 await session.execute(
                     text(
                         "DELETE FROM table_context_refs "
+                        "WHERE table_name = :table_name"
+                    ),
+                    {"table_name": table_name},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM table_pin_refs "
+                        "WHERE table_name = :table_name"
+                    ),
+                    {"table_name": table_name},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM table_pin_refs "
                         "WHERE table_name = :table_name"
                     ),
                     {"table_name": table_name},

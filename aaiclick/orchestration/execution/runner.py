@@ -88,24 +88,19 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     """
     task_id = ref["task_id"]
     db_result = await session.execute(
-        select(Task.result, Task.status, Task.job_id).where(Task.id == task_id)
+        select(Task.result, Task.status).where(Task.id == task_id)
     )
     row = db_result.one_or_none()
 
     if row is None:
         raise ValueError(f"Upstream task {task_id} not found")
 
-    result, status, job_id = row
+    result, status = row
     if status != TaskStatus.COMPLETED:
         raise ValueError(f"Upstream task {task_id} is not completed (status: {status})")
 
     if result is None:
         return None
-
-    # Result is already serialized - deserialize it
-    # Add job_id for lifecycle claim if it's an Object/View
-    if isinstance(result, dict) and "object_type" in result:
-        result["job_id"] = job_id
 
     return result
 
@@ -146,7 +141,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     if value.get("ref_type") == "group_results":
         group_id = value["group_id"]
         result = await session.execute(
-            select(Task.result, Task.job_id)
+            select(Task.result)
             .where(
                 Task.group_id == group_id,
                 Task.status == TaskStatus.COMPLETED,
@@ -155,10 +150,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         )
         rows = result.all()
         deserialized = []
-        for row in rows:
-            task_result, job_id = row
-            if task_result is not None and isinstance(task_result, dict):
-                task_result["job_id"] = job_id
+        for (task_result,) in rows:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
@@ -182,12 +174,12 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
             if not is_persistent:
-                obj._register()
+                obj._register()  # enqueues INCREF
             register_object(obj)
-            if not is_persistent and "job_id" in value:
+            if not is_persistent:
                 lifecycle = get_data_lifecycle()
                 if lifecycle is not None:
-                    await lifecycle.claim(table, value["job_id"])
+                    lifecycle.unpin(table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == "view":
@@ -195,7 +187,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
             source = Object(table=table, schema=schema)
-            source._register()
+            source._register()  # enqueues INCREF
             register_object(source)
             view = View(
                 source=source,
@@ -207,10 +199,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=value.get("renamed_columns"),
             )
             register_object(view)
-            if "job_id" in value:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    await lifecycle.claim(value["table"], value["job_id"])
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                lifecycle.unpin(table)  # FIFO: after INCREF
             return view
 
         else:
@@ -229,9 +220,6 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
     - Object/View references: Reconstructed and registered with DataContext
     - Native Python values: Passed through unchanged
     - Nested structures: Lists and dicts are recursively processed
-
-    For parameters with job_id, releases the job-scoped pin ref
-    via lifecycle.claim() (ownership transfer from orchestration to consumer).
 
     Args:
         serialized_params: Task kwargs from database (JSON-deserialized)
@@ -286,6 +274,11 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             else:
                 result = func(**kwargs)
 
+            # Pin result table for all downstream consumer tasks.
+            # At this point we know the table_name (from the Object) but
+            # not which tasks will consume it — that's only known via the
+            # dependencies table. The PIN handler fans out: queries
+            # downstream task_ids and inserts one pin_ref per consumer.
             pin_target = result.data if isinstance(result, TaskResult) else result
             if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
                 lifecycle = get_data_lifecycle()
@@ -314,8 +307,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
     """
     Serialize a task result to JSON-storable format.
 
-    Handles Object and View types by creating reference dicts that include
-    job_id for ownership tracking during deserialization (lifecycle.claim).
+    Handles Object and View types by creating reference dicts.
 
     Args:
         result: Task function return value

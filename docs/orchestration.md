@@ -90,7 +90,7 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **View ref**: Adds `where`, `limit`, `offset`, `order_by`, `selected_fields` fields.
 
-`job_id` enables ownership tracking — `lifecycle.claim()` releases the job-scoped pin ref during deserialization.
+`job_id` marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. Schema is reconstructed from ClickHouse column comments via `_get_table_schema()`.
 
 **Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution/runner.py` — `serialize_task_result()`.
 
@@ -213,59 +213,76 @@ Empty input raises `TypeError("reduce() of empty sequence with no initial value"
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`
 
-In distributed mode, Object table lifecycle is managed through PostgreSQL with explicit ownership transfer via pin/claim.
+In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
+
+| Table                | PK                         | Purpose                                              |
+|----------------------|----------------------------|------------------------------------------------------|
+| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table         |
+| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)                |
+| `table_pin_refs`     | `(table_name, task_id)`    | Per-consumer pins protecting result tables           |
+
+The background worker is the sole cleanup authority.
 
 ```
-Worker Process
-├── OrchLifecycleHandler (per task)
-│   ├── incref/decref → table_context_refs
-│   └── pin → sets job_id on existing ref row
+Worker Process (spawns child per task)
+├── OrchLifecycleHandler (per task, per child process)
+│   ├── incref → insert into table_context_refs + table_run_refs
+│   ├── decref → delete from table_run_refs
+│   ├── pin → fan out: insert one pin_ref per downstream consumer
+│   └── unpin → delete own pin_ref
 ├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── clears job_id on pin refs (completed jobs)
-│   ├── DROP where refcount ≤ 0 AND job_id IS NULL
+│   ├── DROP where no pin_refs AND no run_refs
+│   ├── deletes context_refs + pin_refs alongside dropped tables
 │   └── detects dead workers → marks tasks FAILED
 └── orch_context() — shared SQL session
 ```
 
-## Ownership Transfer (Pin/Claim)
+## Pin Lifecycle
+
+Only at runtime — when a producer task returns an Object — do we know
+both the `table_name` and the upstream `task_id`. The downstream consumer
+task_ids are discovered via the dependencies table. This is the only point
+where the table→task mapping exists.
 
 ```
-Task A executes
-  ├── incref intermediates → (table_name, task_a.id, N) rows in SQL
-  ├── PIN result: sets job_id on (t_result, task_id) — marks as pinned
-  └── task_scope exit:
-      ├── decref ALL objects → refcount goes to 0
-      ├── job_id marker protects pinned tables from background cleanup
-      └── stale-mark all → __del__ is a no-op
+Task A executes, returns Object(table=T)
+  ├── PIN fans out via dependencies table:
+  │   SELECT next_id FROM dependencies WHERE previous_id = A.id
+  │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
+  └── task_scope exit: decref all → run_refs removed, pin_refs protect T
 
-Task B starts, deserializes task_a.result
-  ├── incref → (t_result, task_b.id, 1)  ← consumer owns it
-  └── claim → clears job_id on pin row  ← release pin marker
+Task B starts, deserializes T
+  ├── incref → run_ref(T, B.run_id)     ← FIFO queue
+  └── unpin → delete pin_ref(T, B.task_id)  ← FIFO: after incref
 
-Job completes → BackgroundWorker deletes remaining refs + drops orphaned tables
+Task C starts, deserializes T
+  ├── incref → run_ref(T, C.run_id)
+  └── unpin → delete pin_ref(T, C.task_id)
+
+All consumers started → 0 pin_refs, run_refs protect during execution
+All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
 ```
 
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id`; pin operations use `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by `job_id` — background worker skips where `MAX(job_id) IS NOT NULL` (sole cleanup authority).
+Uses `task_id` as `context_id` for context_refs. Pin fans out to downstream consumers via dependencies table. Unpin removes the consumer's own pin_ref row.
 
-**Pin lifecycle**: `pin()` sets `job_id` on existing ref row (no refcount bump). `claim()` clears it. Job completion clears remaining pins via `_cleanup_completed_jobs`.
-
-**PostgreSQL table**: `TableContextRef` — composite PK `(table_name, context_id)` with `refcount` and nullable `job_id`.
+**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 
 ## BackgroundWorker
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Four operations per poll:
+Five operations per poll:
 
-1. **Job cleanup** — delete job-scoped pin refs for completed/failed jobs
-2. **Table cleanup** — `HAVING SUM(refcount) <= 0` → DROP in CH
-3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
-4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
+2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
+3. **Sample cleanup** — drop expired `_sample` tables older than oplog TTL
+4. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
+5. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 

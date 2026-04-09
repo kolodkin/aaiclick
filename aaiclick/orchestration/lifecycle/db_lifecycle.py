@@ -21,6 +21,7 @@ class DBLifecycleOp(Enum):
     INCREF = auto()
     DECREF = auto()
     PIN = auto()
+    UNPIN = auto()
     OPLOG_RECORD = auto()
     OPLOG_SAMPLE = auto()
     OPLOG_TABLE = auto()
@@ -56,28 +57,36 @@ class DBLifecycleMessage:
 
     op: DBLifecycleOp
     table_name: str = ""
+    pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
 
 
 class TableContextRef(SQLModel, table=True):
-    """Registry of tracked ClickHouse tables and their pin state.
+    """Registry of tracked ClickHouse tables.
 
     Composite PK (table_name, context_id) allows multiple contexts to
     register the same table independently.
-
-    Non-NULL job_id marks a pin — the background worker skips pinned tables
-    even when no run refs remain in table_run_refs.
-
-    - Task refs: context_id = task_id, job_id = NULL
-    - Pin refs: context_id = task_id, job_id = job_id (non-NULL marks a pin)
     """
 
     __tablename__ = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+
+
+class TablePinRef(SQLModel, table=True):
+    """Junction table: which consumer tasks hold a pin on which tables.
+
+    Producer inserts one row per downstream consumer task. Each consumer
+    deletes its own row during deserialization (after incref commits the
+    run_ref). Table is droppable when no pin_refs AND no run_refs remain.
+    """
+
+    __tablename__ = "table_pin_refs"
+
+    table_name: str = Field(sa_column=Column(String, primary_key=True))
+    task_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
 
 
 class TableRunRef(SQLModel, table=True):

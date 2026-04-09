@@ -100,29 +100,30 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
-        """Mark table as pinned by setting job_id on its ref row.
+        """Pin a table for all downstream consumer tasks.
 
-        Does not bump refcount — pin protection comes from the job_id marker
-        which prevents the background worker from dropping the table.
+        The PIN handler fans out: queries the dependencies table to find
+        all tasks that depend on the current task, then inserts one
+        pin_ref(table_name, consumer_task_id) per consumer.
+
+        Only at runtime (when the producer returns an Object) do we know
+        both the table_name and the upstream task_id. The downstream
+        consumer task_ids are discovered via the dependencies table —
+        this is the only point where table→task mapping exists.
         """
-        self._enqueue(DBLifecycleMessage(DBLifecycleOp.PIN, table_name))
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.PIN, table_name, pin_task_id=self._task_id,
+        ))
 
-    async def claim(self, table_name: str, job_id: int) -> None:
-        """Release a pinned ref (ownership transfer to consumer).
+    def unpin(self, table_name: str) -> None:
+        """Remove this task's pin ref for a table.
 
-        Clears the job_id marker on the ref row so it becomes a plain task ref.
-        The consumer's incref already created its own row.
+        Enqueued through the FIFO queue so it executes AFTER any preceding
+        INCREF, ensuring the run_ref is committed before the pin is released.
         """
-        async with get_sql_session() as session:
-            await session.execute(
-                text(
-                    "UPDATE table_context_refs "
-                    "SET job_id = NULL "
-                    "WHERE table_name = :table AND job_id = :job_id"
-                ),
-                {"table": table_name, "job_id": job_id},
-            )
-            await session.commit()
+        self._enqueue(DBLifecycleMessage(
+            DBLifecycleOp.UNPIN, table_name, pin_task_id=self._task_id,
+        ))
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -188,7 +189,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 break
 
             # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN):
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         # Register table in context refs (idempotent)
@@ -218,15 +219,32 @@ class OrchLifecycleHandler(LifecycleHandler):
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
+                        # Fan out: one pin_ref per downstream consumer task.
+                        result = await session.execute(
+                            text(
+                                "SELECT next_id FROM dependencies "
+                                "WHERE previous_id = :task_id "
+                                "AND previous_type = 'task' AND next_type = 'task'"
+                            ),
+                            {"task_id": msg.pin_task_id},
+                        )
+                        consumer_ids = [row[0] for row in result.fetchall()]
+                        for cid in consumer_ids:
+                            await session.execute(
+                                text(
+                                    "INSERT INTO table_pin_refs (table_name, task_id) "
+                                    "VALUES (:table_name, :task_id) "
+                                    "ON CONFLICT (table_name, task_id) DO NOTHING"
+                                ),
+                                {"table_name": msg.table_name, "task_id": cid},
+                            )
+                    elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id, job_id) "
-                                "VALUES (:table_name, :context_id, :job_id) "
-                                "ON CONFLICT (table_name, context_id) "
-                                "DO UPDATE SET job_id = :job_id"
+                                "DELETE FROM table_pin_refs "
+                                "WHERE table_name = :table_name AND task_id = :task_id"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id,
-                             "job_id": self._job_id},
+                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                         )
                     await session.commit()
 

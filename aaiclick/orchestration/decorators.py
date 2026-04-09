@@ -54,6 +54,7 @@ def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
             _collect_upstreams(v, upstream_tasks)
 
 
+
 def _serialize_value(value: Any) -> Any:
     """Serialize a value for storage in task kwargs.
 

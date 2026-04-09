@@ -1,7 +1,7 @@
 """Tests for background worker cleanup logic.
 
-Verifies that _cleanup_unreferenced_tables respects the job_id pin guard
-and the table_run_refs junction table for run-level reference tracking.
+Verifies that _cleanup_unreferenced_tables respects table_pin_refs
+and table_run_refs for table protection.
 Also tests clean_task_run for crash recovery.
 """
 
@@ -32,15 +32,28 @@ async def _setup_db():
     return async_engine, tmpdir
 
 
-async def _insert_context_ref(engine, table_name, context_id, job_id=None):
-    """Insert a row into table_context_refs (registry + pin)."""
+async def _insert_context_ref(engine, table_name, context_id):
+    """Insert a row into table_context_refs."""
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO table_context_refs (table_name, context_id, job_id) "
-                "VALUES (:t, :c, :j)"
+                "INSERT INTO table_context_refs (table_name, context_id) "
+                "VALUES (:t, :c)"
             ),
-            {"t": table_name, "c": context_id, "j": job_id},
+            {"t": table_name, "c": context_id},
+        )
+        await session.commit()
+
+
+async def _insert_pin_ref(engine, table_name, task_id):
+    """Insert a row into table_pin_refs (pin protection)."""
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO table_pin_refs (table_name, task_id) "
+                "VALUES (:t, :tid)"
+            ),
+            {"t": table_name, "tid": task_id},
         )
         await session.commit()
 
@@ -76,11 +89,12 @@ async def _get_run_refs(engine, table_name):
 
 
 async def test_cleanup_skips_pinned_tables():
-    """Tables with job_id set (pinned) are NOT dropped even when no run refs exist."""
+    """Tables with a pin_ref are NOT dropped even when no run refs exist."""
     engine, tmpdir = await _setup_db()
     try:
         await _insert_context_ref(engine, "t_unpinned", 100)
-        await _insert_context_ref(engine, "t_pinned", 200, job_id=999)
+        await _insert_context_ref(engine, "t_pinned", 200)
+        await _insert_pin_ref(engine, "t_pinned", 300)
 
         worker = BackgroundWorker()
         worker._engine = engine
