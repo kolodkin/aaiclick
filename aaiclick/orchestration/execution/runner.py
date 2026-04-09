@@ -174,8 +174,12 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
             if not is_persistent:
-                obj._register()
+                obj._register()  # enqueues INCREF
             register_object(obj)
+            if not is_persistent:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    lifecycle.unpin(table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == "view":
@@ -183,7 +187,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
             source = Object(table=table, schema=schema)
-            source._register()
+            source._register()  # enqueues INCREF
             register_object(source)
             view = View(
                 source=source,
@@ -195,6 +199,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=value.get("renamed_columns"),
             )
             register_object(view)
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                lifecycle.unpin(table)  # FIFO: after INCREF
             return view
 
         else:
