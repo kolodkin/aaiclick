@@ -1,0 +1,9 @@
+[project]
+name = "basic-worker"
+version = "0.1.0"
+description = "Minimal orchestration example with job registration and worker execution"
+requires-python = ">=3.10"
+
+dependencies = [
+    "aaiclick",
+]
