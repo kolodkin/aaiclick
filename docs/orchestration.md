@@ -215,11 +215,11 @@ Empty input raises `TypeError("reduce() of empty sequence with no initial value"
 
 In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
 
-| Table                | PK                        | Purpose                                       |
-|----------------------|---------------------------|-----------------------------------------------|
-| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table  |
-| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)         |
-| `table_pin_refs`     | `(table_name, job_id)`     | Job-scoped pins protecting result tables      |
+| Table                | PK                         | Purpose                                              |
+|----------------------|----------------------------|------------------------------------------------------|
+| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table         |
+| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)                |
+| `table_pin_refs`     | `(table_name, task_id)`    | Per-consumer pins protecting result tables           |
 
 The background worker is the sole cleanup authority.
 
@@ -228,41 +228,49 @@ Worker Process (spawns child per task)
 ├── OrchLifecycleHandler (per task, per child process)
 │   ├── incref → insert into table_context_refs + table_run_refs
 │   ├── decref → delete from table_run_refs
-│   └── pin → insert into table_pin_refs
+│   ├── pin → fan out: insert one pin_ref per downstream consumer
+│   └── unpin → delete own pin_ref
 ├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
-│   ├── deletes pin_refs for completed/failed jobs
 │   ├── DROP where no pin_refs AND no run_refs
+│   ├── deletes context_refs + pin_refs alongside dropped tables
 │   └── detects dead workers → marks tasks FAILED
 └── orch_context() — shared SQL session
 ```
 
 ## Pin Lifecycle
 
+Only at runtime — when a producer task returns an Object — do we know
+both the `table_name` and the upstream `task_id`. The downstream consumer
+task_ids are discovered via the dependencies table. This is the only point
+where the table→task mapping exists.
+
 ```
-Task A executes
-  ├── incref intermediates → context_ref + run_ref rows
-  ├── PIN result → inserts (t_result, job_id) into table_pin_refs
-  └── task_scope exit:
-      ├── decref ALL objects → deletes run_ref rows for this run_id
-      ├── pin_ref protects result table from background cleanup
-      └── stale-mark all → __del__ is a no-op
+Task A executes, returns Object(table=T)
+  ├── PIN fans out via dependencies table:
+  │   SELECT next_id FROM dependencies WHERE previous_id = A.id
+  │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
+  └── task_scope exit: decref all → run_refs removed, pin_refs protect T
 
-Task B starts, deserializes task_a.result
-  └── incref → context_ref + run_ref (pin stays in table_pin_refs)
+Task B starts, deserializes T
+  ├── incref → run_ref(T, B.run_id)     ← FIFO queue
+  └── unpin → delete pin_ref(T, B.task_id)  ← FIFO: after incref
 
-Job completes → BackgroundWorker deletes pin_refs + drops orphaned tables
+Task C starts, deserializes T
+  ├── incref → run_ref(T, C.run_id)
+  └── unpin → delete pin_ref(T, C.task_id)
+
+All consumers started → 0 pin_refs, run_refs protect during execution
+All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
 ```
-
-Pin stays for the entire job duration. When an upstream Object is shared by multiple downstream tasks, the pin protects the table until all consumers finish and the job completes. `_cleanup_completed_jobs` deletes pin_refs; `_cleanup_unreferenced_tables` drops tables with no pin_refs and no run_refs.
 
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id` for context_refs; pin operations insert into `table_pin_refs` keyed by `job_id`. On `task_scope` exit, all objects are decreffed uniformly. Pinned tables are protected by their `table_pin_refs` row — background worker skips tables with any pin_ref.
+Uses `task_id` as `context_id` for context_refs. Pin fans out to downstream consumers via dependencies table. Unpin removes the consumer's own pin_ref row.
 
-**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, job_id)`.
+**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 
 ## BackgroundWorker
 

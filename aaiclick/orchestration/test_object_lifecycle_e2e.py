@@ -172,6 +172,15 @@ async def _run_and_verify(pipeline_fn):
             temp_tables = {t for t in context_tables if t.startswith("t_")}
             assert len(temp_tables) > 0, "Expected context_refs before cleanup"
 
+        # Verify pin/unpin pairs (per-consumer: producer fans out, consumer unpins)
+        pin_inserts = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+        pin_deletes = [e for e in events if e.table == "table_pin_refs" and e.action == "DELETE"]
+        assert len(pin_inserts) > 0, "No PINs recorded"
+        assert len(pin_deletes) > 0, "No UNPINs recorded"
+        assert len(pin_inserts) == len(pin_deletes), (
+            f"PIN/UNPIN mismatch: {len(pin_inserts)} pins vs {len(pin_deletes)} unpins"
+        )
+
         # Verify incref/decref pairs
         run_inserts = [e for e in events if e.table == "table_run_refs" and e.action == "INSERT"]
         run_deletes = [e for e in events if e.table == "table_run_refs" and e.action == "DELETE"]
@@ -180,6 +189,11 @@ async def _run_and_verify(pipeline_fn):
         assert len(run_inserts) == len(run_deletes), (
             f"INCREF/DECREF mismatch: {len(run_inserts)} inserts vs {len(run_deletes)} deletes"
         )
+
+        # After job completes: all pins drained, no run_refs
+        async with get_sql_session() as session:
+            pin_refs = await _get_pin_refs(session)
+            assert len(pin_refs) == 0, f"Stale pin_refs after job: {pin_refs}"
 
         # Run background cleanup
         await _run_cleanup()
@@ -202,29 +216,35 @@ async def _run_and_verify(pipeline_fn):
 
 
 async def test_single_consumer(orch_ctx):
-    """A → B: Object survives for single consumer."""
+    """A → B: one pin for the single consumer, one unpin."""
     events = await _run_and_verify(single_consumer_pipeline)
-    # Verify incref/decref balance
-    runs = [e for e in events if e.table == "table_run_refs"]
-    assert len(runs) > 0, "No run_ref activity"
+    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    # produce() result → read_sum(): 1 consumer pin
+    assert len(pins) >= 1
 
 
 async def test_fan_out(orch_ctx):
-    """A → (B, C) → D: Object survives for both consumers."""
+    """A → (B, C) → D: produce() result pinned for both double() and add_ten()."""
     events = await _run_and_verify(fan_out_pipeline)
-    runs = [e for e in events if e.table == "table_run_refs"]
-    assert len(runs) > 0, "No run_ref activity"
+    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    # produce() fans out to double + add_ten = 2 pins for that table
+    assert len(pins) >= 2
 
 
 async def test_chain(orch_ctx):
-    """A → B → C: each intermediate Object survives."""
+    """A → B → C: each link gets its own pin."""
     events = await _run_and_verify(chain_pipeline)
-    runs = [e for e in events if e.table == "table_run_refs"]
-    assert len(runs) > 0, "No run_ref activity"
+    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    # produce→double: 1 pin, double→read_sum: 1 pin
+    assert len(pins) >= 2
 
 
 async def test_diamond(orch_ctx):
-    """A → (B, C) → D: diamond with shared Object."""
+    """A → (B, C) → D: diamond with per-consumer pins."""
     events = await _run_and_verify(diamond_pipeline)
-    runs = [e for e in events if e.table == "table_run_refs"]
-    assert len(runs) > 0, "No run_ref activity"
+    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    # produce→(double, add_ten): 2 pins
+    # double→add_objects: 1 pin
+    # add_ten→add_objects: 1 pin
+    # add_objects→read_sum: 1 pin
+    assert len(pins) >= 5

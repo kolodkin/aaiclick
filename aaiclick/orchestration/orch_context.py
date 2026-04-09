@@ -100,9 +100,16 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
     def pin(self, table_name: str) -> None:
-        """Pin a table for the current task (self-pin).
+        """Pin a table for all downstream consumer tasks.
 
-        Used by reduce operator to protect intermediate layer tables.
+        The PIN handler fans out: queries the dependencies table to find
+        all tasks that depend on the current task, then inserts one
+        pin_ref(table_name, consumer_task_id) per consumer.
+
+        Only at runtime (when the producer returns an Object) do we know
+        both the table_name and the upstream task_id. The downstream
+        consumer task_ids are discovered via the dependencies table —
+        this is the only point where table→task mapping exists.
         """
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.PIN, table_name, pin_task_id=self._task_id,
@@ -212,14 +219,25 @@ class OrchLifecycleHandler(LifecycleHandler):
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
-                        await session.execute(
+                        # Fan out: one pin_ref per downstream consumer task.
+                        result = await session.execute(
                             text(
-                                "INSERT INTO table_pin_refs (table_name, task_id) "
-                                "VALUES (:table_name, :task_id) "
-                                "ON CONFLICT (table_name, task_id) DO NOTHING"
+                                "SELECT next_id FROM dependencies "
+                                "WHERE previous_id = :task_id "
+                                "AND previous_type = 'task' AND next_type = 'task'"
                             ),
-                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
+                            {"task_id": msg.pin_task_id},
                         )
+                        consumer_ids = [row[0] for row in result.fetchall()]
+                        for cid in consumer_ids:
+                            await session.execute(
+                                text(
+                                    "INSERT INTO table_pin_refs (table_name, task_id) "
+                                    "VALUES (:table_name, :task_id) "
+                                    "ON CONFLICT (table_name, task_id) DO NOTHING"
+                                ),
+                                {"table_name": msg.table_name, "task_id": cid},
+                            )
                     elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(
                             text(

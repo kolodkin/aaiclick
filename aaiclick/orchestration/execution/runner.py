@@ -174,8 +174,12 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             schema = Schema(fieldtype=fieldtype, columns=columns)
             obj = Object(table=table, schema=schema)
             if not is_persistent:
-                obj._register()
+                obj._register()  # enqueues INCREF
             register_object(obj)
+            if not is_persistent:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    lifecycle.unpin(table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == "view":
@@ -183,7 +187,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             fieldtype, columns = await _get_table_schema(table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
             source = Object(table=table, schema=schema)
-            source._register()
+            source._register()  # enqueues INCREF
             register_object(source)
             view = View(
                 source=source,
@@ -195,6 +199,9 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=value.get("renamed_columns"),
             )
             register_object(view)
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                lifecycle.unpin(table)  # FIFO: after INCREF
             return view
 
         else:
@@ -266,6 +273,17 @@ async def execute_task(task: Task) -> tuple[Any, str]:
                 result = await func(**kwargs)
             else:
                 result = func(**kwargs)
+
+            # Pin result table for all downstream consumer tasks.
+            # At this point we know the table_name (from the Object) but
+            # not which tasks will consume it — that's only known via the
+            # dependencies table. The PIN handler fans out: queries
+            # downstream task_ids and inserts one pin_ref per consumer.
+            pin_target = result.data if isinstance(result, TaskResult) else result
+            if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    lifecycle.pin(pin_target.table)
 
             # Register returned tasks INSIDE task_scope so the registry
             # (ContextVar) that was populated during func() is still active.
