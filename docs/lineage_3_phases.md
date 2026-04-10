@@ -85,49 +85,49 @@ exactly the rows the user cares about.
 
 Re-run part of the job on the targeted subset to produce a full row-level trace.
 
-## Prerequisite: Task Tags and Clear Task
+## Input Tasks via Persistent Tables
 
-### Task Tags
-
-New `tags` parameter on the `@task` decorator. A list of strings stored on
-the Task model. General-purpose mechanism; lineage reserves one tag:
+No tags or labels needed. A task is an **input task** when all its returned
+Objects are persistent (`p_` prefix). The system detects this automatically
+from the task's result metadata.
 
 ```python
-@task(tags=["input"])
-async def fetch_kev_catalog(url: str) -> Object: ...
+@task
+async def fetch_kev_catalog(url: str) -> Object:
+    return await create_object_from_value(data, name="kev_catalog")  # → p_kev_catalog
 
 @task
-async def merge_sources(kev: Object, scores: Object) -> Object: ...
+async def merge_sources(kev: Object, scores: Object) -> Object:
+    return await kev.concat(scores)  # → ephemeral table
 ```
 
-The `"input"` tag marks a task as a data boundary -- its output tables are
-treated as given during replay. This is a user declaration, not an automatic
-classification. A pipeline may have multiple input tasks, and not all of them
-are ingest (e.g., a task that reads from a persistent Object is also an input).
+`fetch_kev_catalog` is an input task (returns persistent Object).
+`merge_sources` is not (returns ephemeral Object).
 
-### Clear Task
+Persistent tables survive cleanup, so their data is always available for
+replay. Ephemeral tables may be gone — the system walks the task graph
+backward and stops at input tasks whose output is guaranteed to exist.
 
-Before replay, the user (or system) picks an **input task** -- the task where
-replay starts. This is not necessarily an `"input"`-tagged task. The choice
-depends on the question:
+## Clear Task
 
-| Question                          | Input task            | Why                                       |
+Before replay, the system identifies input tasks in the upstream path and
+clears everything downstream. The choice of where to start depends on the
+question:
+
+| Question                          | Input task boundary   | Why                                       |
 |-----------------------------------|-----------------------|-------------------------------------------|
-| Why NULLs in the merged table?    | merge task            | Source data is fine, problem is in merging |
-| Why is CVE-X missing entirely?    | ingest task           | Maybe ingest never fetched it              |
-| Why wrong scores after transform? | transform task        | Raw scores are correct, transform is wrong |
+| Why NULLs in the merged table?    | merge task            | `p_kev_catalog`, `p_scores` exist         |
+| Why is CVE-X missing entirely?    | ingest task           | Re-fetch into `p_kev_catalog`             |
+| Why wrong scores after transform? | transform task        | `p_raw_scores` exists                     |
 
-**Clear** resets the input task and all its downstream tasks to PENDING --
-same concept as Airflow's "clear task". Upstream tasks are untouched; their
-output tables remain as-is and become the inputs for the replay.
-
-Not all ingest tasks are input boundaries. If the question points to a
-processing step, clearing starts there -- no need to re-fetch external data.
+**Clear** resets the selected task and all its downstream tasks to PENDING --
+same concept as Airflow's "clear task". Input tasks' persistent tables remain
+as-is and become the replay inputs.
 
 ## Replay
 
-1. Clear the input task + downstream
-2. Re-run from the input task, scoped to the `aai_id`s found in Phase 2
+1. Clear the target task + downstream
+2. Re-run from that task, scoped to the `aai_id`s found in Phase 2
 3. Record lineage at each step -- smart sampling, not random
 
 This is a **replay**, not a query against existing oplog data. The original job
@@ -137,11 +137,6 @@ answer the question.
 **Smart sampling**: during replay, every operation samples the targeted rows
 (not a random subset). The result is a complete trace from source to output for
 exactly the rows the user cares about.
-
-**Why replay instead of querying existing oplog?** The original job's oplog has
-random samples in `kwargs_aai_ids` / `result_aai_ids`. The specific rows from
-Phase 2 are unlikely to appear in those random samples. Replay guarantees the
-targeted rows are tracked through every operation.
 
 **Answers**: for this specific row, what operation produced it, what were its
 source values, and where in the pipeline did the data appear or disappear.
@@ -161,6 +156,5 @@ source values, and where in the pipeline did the data appear or disappear.
 
 | Prerequisite               | Status              | Notes                                              |
 |----------------------------|---------------------|----------------------------------------------------|
-| Task tags on `@task`       | Not yet implemented | `tags` field on Task model + decorator             |
 | Clear task + downstream    | Not yet implemented | Reset selected task and all downstream to PENDING  |
 | Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
