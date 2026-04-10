@@ -16,6 +16,8 @@ Requires:
 import asyncio
 import os
 
+from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
 from aaiclick.oplog.lineage import lineage_context, oplog_subgraph
@@ -27,9 +29,7 @@ from aaiclick.orchestration import (
     task,
     tasks_list,
 )
-
-
-# --- Pipeline tasks ---
+from aaiclick.orchestration.orch_context import orch_context
 
 
 @task
@@ -57,9 +57,6 @@ async def add_bonus(revenue: Object) -> Object:
     return await (revenue + bonus)
 
 
-# --- Job definition ---
-
-
 @job("revenue_pipeline")
 def revenue_pipeline():
     """Compute total revenue with bonus from prices and quantities."""
@@ -70,13 +67,8 @@ def revenue_pipeline():
     return tasks_list(prices, quantities, revenue, total)
 
 
-# --- Example runner ---
-
-
 async def example():
     """Run the pipeline, then query lineage and print AI response."""
-
-    # Step 1: Run the job
     print("Step 1: Running the revenue pipeline")
     print("-" * 50)
 
@@ -86,7 +78,6 @@ async def example():
     assert pipeline.status == JobStatus.COMPLETED, f"Job failed: {pipeline.error}"
     print(f"Job '{pipeline.name}' completed (ID: {pipeline.id})")
 
-    # Find the result table from the last task
     tasks = await get_tasks_for_job(pipeline.id)
     for t in tasks:
         print(f"  Task '{t.name}': status={t.status.value}, result={t.result}")
@@ -95,7 +86,6 @@ async def example():
     target_table = last_task.result["table"]
     print(f"\nTarget table for lineage: {target_table}")
 
-    # Step 2: Query the lineage graph
     print("\n" + "=" * 50)
     print("Step 2: Backward lineage graph")
     print("-" * 50)
@@ -103,24 +93,20 @@ async def example():
     async with lineage_context():
         graph = await oplog_subgraph(target_table, direction="backward")
 
-        print(f"\n{len(graph.nodes)} operations, {len(graph.edges)} edges\n")
+        print(f"\n{len(graph.nodes)} operations, {len(graph.edges)} edges\n")  # → 5 operations, 4 edges
         for edge in graph.edges:
             print(f"  {edge.source} -> {edge.target}  (via {edge.operation})")
 
-        # Step 3: Print the prompt context (what the AI sees)
         prompt_context = graph.to_prompt_context()
         print("\n" + "=" * 50)
         print("Step 3: Prompt context sent to AI")
         print("-" * 50)
         print(prompt_context)
 
-        # Step 4: AI agent response (requires a reachable LLM)
         if os.environ.get("AAICLICK_AI_MODEL"):
             print("\n" + "=" * 50)
             print("Step 4: AI lineage explanation")
             print("-" * 50)
-
-            from aaiclick.ai.agents.lineage_agent import explain_lineage
 
             question = "How was this table produced? What arithmetic was applied?"
             print(f"\nQuestion: {question}")
@@ -131,8 +117,6 @@ async def example():
             print("\n" + "=" * 50)
             print("Step 5: AI debug agent")
             print("-" * 50)
-
-            from aaiclick.ai.agents.debug_agent import debug_result
 
             debug_question = "Why is the largest value 205 instead of 250?"
             print(f"\nQuestion: {debug_question}")
@@ -145,8 +129,6 @@ async def example():
 
 async def amain():
     """Main entry point that creates orch_context() and calls example."""
-    from aaiclick.orchestration.orch_context import orch_context
-
     async with orch_context():
         await example()
 

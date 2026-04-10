@@ -192,7 +192,7 @@ jobs:
             module: aaiclick.ai.examples.run_all
             summary-title: AI Examples Output
             needs-postgres: true
-            extras: all
+            extras: "distributed --extra ai"
 
     services:
       clickhouse:
@@ -250,7 +250,7 @@ jobs:
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve &
-          sleep 3
+          until ollama list >/dev/null 2>&1; do sleep 1; done
           ollama pull llama3.2:3b
 
       - name: Run examples
