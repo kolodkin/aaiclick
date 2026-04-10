@@ -37,24 +37,32 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## `PENDING_CLEANUP` Task Status for Retry Lifecycle
+## `PENDING_CLEANUP` Task Status for Retry Lifecycle ✅ IMPLEMENTED
 
-Add a `PENDING_CLEANUP` status between task failure and retry:
+**Implementation**: `aaiclick/orchestration/models.py` — see `TaskStatus.PENDING_CLEANUP`
+
+Task failure now transitions through `PENDING_CLEANUP` before reaching `PENDING` or `FAILED`:
 
 ```
 RUNNING → PENDING_CLEANUP (on failure) → PENDING (after cleanup) or FAILED (no retries)
 ```
 
-Currently, failed tasks with retries go directly to `PENDING`. This leaves stale `run_refs` and `pin_refs` from the failed run that are cleaned by `clean_task_run` inline.
+The background worker (`BackgroundWorker._process_pending_cleanup`) handles all ref cleanup:
 
-With `PENDING_CLEANUP`, the background worker handles all ref cleanup:
-1. Task fails → status = `PENDING_CLEANUP`
-2. Background worker finds `PENDING_CLEANUP` tasks, runs `clean_task_run(run_id)` to delete both `run_refs` and `pin_refs`
-3. Sets status to `PENDING` (retries remaining) or `FAILED` (no retries)
+1. Worker sets failed task to `PENDING_CLEANUP` — see `worker._set_pending_cleanup()`
+2. Background worker finds `PENDING_CLEANUP` tasks, cleans `run_refs` via `clean_task_run(run_id)` and `pin_refs` via `clean_task_pins(task_id)`
+3. Transitions to `PENDING` (retries remaining, with exponential backoff) or `FAILED` (exhausted)
 
-Benefits: offloads ref cleanup from task execution to the background worker. Aligns `pin_refs` with `run_refs` — both keyed by `run_id`, both cleaned by `clean_task_run`.
+Dead worker detection also uses `PENDING_CLEANUP` — orphaned tasks from crashed workers go through the same cleanup path instead of being marked `FAILED` directly.
 
-Requires: new enum value, migration (PostgreSQL enum ALTER), retry logic change, background worker cleanup phase.
+## Deduplicate `_try_complete_job`
+
+`_try_complete_job` exists in two places with identical logic (check if all tasks are terminal, mark job COMPLETED or FAILED):
+
+- `worker._try_complete_job(job_id)` — uses ORM via `get_sql_session()`, requires active `orch_context`
+- `BackgroundWorker._try_complete_job(session, job_id)` — uses raw SQL on a passed session, independent of `orch_context`
+
+The background worker operates with its own engine outside `orch_context`, so it cannot call the worker version directly. Unify by extracting a shared session-accepting helper that both callers use.
 
 ## Schema-Aware Agent Context ✅ IMPLEMENTED
 

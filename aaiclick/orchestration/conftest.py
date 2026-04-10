@@ -39,7 +39,7 @@ def fast_poll(monkeypatch):
         "aaiclick.orchestration.execution.worker.POLL_INTERVAL", 0.5,
     )
     monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.RETRY_BASE_DELAY", 0.01,
+        "aaiclick.orchestration.background.background_worker.RETRY_BASE_DELAY", 0.01,
     )
     monkeypatch.setattr(
         "aaiclick.orchestration.execution.mp_worker.CHILD_POLL_INTERVAL", 0.1,
@@ -203,7 +203,7 @@ async def _teardown_jobs() -> None:
         await session.execute(
             text(
                 "UPDATE tasks SET status = :cancelled "
-                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
             ),
             {"cancelled": TaskStatus.CANCELLED.value},
         )

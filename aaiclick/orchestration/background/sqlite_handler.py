@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, extract_last_run_ids
+from .handler import BackgroundHandler, PendingCleanupTask
 
 
 def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
@@ -35,8 +36,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
         )
         await session.execute(
             text(
-                f"UPDATE tasks SET status = 'FAILED', "
-                f"completed_at = :now, "
+                f"UPDATE tasks SET status = 'PENDING_CLEANUP', "
                 f"error = 'Worker died (heartbeat timeout)' "
                 f"WHERE worker_id IN ({placeholders}) "
                 f"AND status IN ('RUNNING', 'CLAIMED')"
@@ -45,24 +45,28 @@ class SqliteBackgroundHandler(BackgroundHandler):
         )
 
     @staticmethod
-    async def get_dead_worker_run_ids(
-        session: AsyncSession, dead_worker_ids: list[int],
-    ) -> list[int]:
-        placeholders, params = _in_clause(dead_worker_ids, "wid")
-        result = await session.execute(
-            text(
-                f"SELECT run_ids FROM tasks "
-                f"WHERE worker_id IN ({placeholders}) "
-                f"AND status IN ('RUNNING', 'CLAIMED')"
-            ),
-            params,
-        )
-        return extract_last_run_ids(result.fetchall())
-
-    @staticmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
         placeholders, params = _in_clause(run_ids, "rid")
         await session.execute(
             text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
             params,
         )
+
+    @staticmethod
+    async def get_pending_cleanup_tasks(
+        session: AsyncSession,
+    ) -> list[PendingCleanupTask]:
+        result = await session.execute(
+            text(
+                "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
+                "FROM tasks WHERE status = 'PENDING_CLEANUP'"
+            ),
+        )
+        return [
+            PendingCleanupTask._make((
+                *row[:4],
+                row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                *row[5:],
+            ))
+            for row in result.fetchall()
+        ]

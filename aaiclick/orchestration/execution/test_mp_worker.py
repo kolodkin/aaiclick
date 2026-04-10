@@ -54,7 +54,7 @@ async def test_mp_worker_handles_failure(orch_ctx_no_ch):
             select(Task).where(Task.job_id == job.id)
         )
         task = result.scalar_one()
-        assert task.status == TaskStatus.FAILED
+        assert task.status == TaskStatus.PENDING_CLEANUP
         assert task.error is not None
 
 

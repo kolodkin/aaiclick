@@ -166,7 +166,7 @@ async def cancel_job(job_id: int) -> bool:
                 "UPDATE tasks SET status = :cancelled_status, "
                 "completed_at = :now "
                 "WHERE job_id = :job_id "
-                "AND status IN ('PENDING', 'CLAIMED', 'RUNNING')"
+                "AND status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
             ),
             {
                 "cancelled_status": TaskStatus.CANCELLED.value,
