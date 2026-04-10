@@ -38,16 +38,32 @@ needed. The WHERE clause targets exactly the rows the user cares about.
 
 ---
 
-# Phase 3 -- Row Trace (row scope)
+# Phase 3 -- Row Trace (replay scope)
 
-Take the `aai_id`s found in Phase 2 and run `backward_oplog_row()` to trace
-each one through the operation chain. At every hop, inspect the actual values
-in the intermediate table.
+Re-run the job on the targeted subset to produce a full row-level trace.
+
+**Steps**:
+
+1. Take the task graph from Phase 1
+2. Skip ingest tasks -- source data already exists in the tables
+3. Re-run processing tasks only, scoped to the `aai_id`s found in Phase 2
+4. Record lineage at each step -- smart sampling, not random
+
+This is a **replay**, not a query against existing oplog data. The original job
+may have processed millions of rows; the replay processes only the rows that
+answer the question.
+
+**Smart sampling**: during replay, every operation samples the targeted rows
+(not a random subset). The result is a complete trace from source to output for
+exactly the rows the user cares about.
+
+**Why replay instead of querying existing oplog?** The original job's oplog has
+random samples in `kwargs_aai_ids` / `result_aai_ids`. The specific rows from
+Phase 2 are unlikely to appear in those random samples. Replay guarantees the
+targeted rows are tracked through every operation.
 
 **Answers**: for this specific row, what operation produced it, what were its
 source values, and where in the pipeline did the data appear or disappear.
-
-**Available today**: `aaiclick/oplog/lineage.py` -- see `backward_oplog_row()`
 
 ---
 
@@ -66,8 +82,8 @@ row-level debugging should use the three-phase flow.
 
 # Current State
 
-| Phase   | Status                 | Notes                                                    |
-|---------|------------------------|----------------------------------------------------------|
-| Phase 1 | Implemented            | `backward_oplog()`, `forward_oplog()`, `OplogGraph`      |
-| Phase 2 | Not yet implemented    | Needs: graph walker + WHERE application at each node     |
-| Phase 3 | Partially implemented  | `backward_oplog_row()` exists; needs Phase 2 as input    |
+| Phase   | Status              | Notes                                                         |
+|---------|---------------------|---------------------------------------------------------------|
+| Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
+| Phase 2 | Not yet implemented | Needs: graph walker + WHERE application at each node          |
+| Phase 3 | Not yet implemented | Needs: job replay mechanism (skip ingest, smart sampling)     |
