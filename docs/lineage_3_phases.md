@@ -42,11 +42,31 @@ needed. The WHERE clause targets exactly the rows the user cares about.
 
 Re-run part of the job on the targeted subset to produce a full row-level trace.
 
-## Prerequisite: Clear Task
+## Prerequisite: Task Tags and Clear Task
+
+### Task Tags
+
+New `tags` parameter on the `@task` decorator. A list of strings stored on
+the Task model. General-purpose mechanism; lineage reserves one tag:
+
+```python
+@task(tags=["input"])
+async def fetch_kev_catalog(url: str) -> Object: ...
+
+@task
+async def merge_sources(kev: Object, scores: Object) -> Object: ...
+```
+
+The `"input"` tag marks a task as a data boundary -- its output tables are
+treated as given during replay. This is a user declaration, not an automatic
+classification. A pipeline may have multiple input tasks, and not all of them
+are ingest (e.g., a task that reads from a persistent Object is also an input).
+
+### Clear Task
 
 Before replay, the user (or system) picks an **input task** -- the task where
-replay starts. This is not necessarily an ingest task. The choice depends on
-the question:
+replay starts. This is not necessarily an `"input"`-tagged task. The choice
+depends on the question:
 
 | Question                          | Input task            | Why                                       |
 |-----------------------------------|-----------------------|-------------------------------------------|
@@ -110,5 +130,6 @@ row-level debugging should use the three-phase flow.
 
 | Prerequisite               | Status              | Notes                                              |
 |----------------------------|---------------------|----------------------------------------------------|
+| Task tags on `@task`       | Not yet implemented | `tags` field on Task model + decorator             |
 | Clear task + downstream    | Not yet implemented | Reset selected task and all downstream to PENDING  |
 | Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
