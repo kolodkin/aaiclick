@@ -1,7 +1,8 @@
 Lineage: Three-Phase Debugging
 ---
 
-How did this data get here? Every lineage question reduces to this.
+Every lineage question reduces to this: How did this data get here?
+Why is that data missing here?
 The answer requires three phases, each building on the previous.
 
 ---
