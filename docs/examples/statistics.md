@@ -1,5 +1,5 @@
 # Statistics
 
 ```python
---8<-- "aaiclick/examples/statistics.py"
+--8<-- "aaiclick/data/examples/statistics.py"
 ```

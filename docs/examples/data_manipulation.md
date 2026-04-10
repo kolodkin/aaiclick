@@ -1,5 +1,5 @@
 # Data Manipulation
 
 ```python
---8<-- "aaiclick/examples/data_manipulation.py"
+--8<-- "aaiclick/data/examples/data_manipulation.py"
 ```

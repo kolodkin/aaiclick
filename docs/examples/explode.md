@@ -1,5 +1,5 @@
 # Explode
 
 ```python
---8<-- "aaiclick/examples/explode.py"
+--8<-- "aaiclick/data/examples/explode.py"
 ```

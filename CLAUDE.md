@@ -165,7 +165,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
         result[alias] = compute(source_col, agg_func)
     ```
 
-- **Example files** (`aaiclick/examples/*.py`): Add `# →` output comments inline next to `print()` calls that show computed results. Only annotate data results — not headers, separators, or static text. Skip loop bodies.
+- **Example files** (`aaiclick/data/examples/*.py`, `aaiclick/orchestration/examples/*.py`): Add `# →` output comments inline next to `print()` calls that show computed results. Only annotate data results — not headers, separators, or static text. Skip loop bodies.
   ```python
   # GOOD — result is visible where the reader's eyes are
   print(f"Addition (a + b): {await result.data()}")  # → [12.0, 24.0, 35.0]
