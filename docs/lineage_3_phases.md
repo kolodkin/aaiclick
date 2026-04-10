@@ -6,37 +6,30 @@ The answer requires three phases, each building on the previous.
 
 ---
 
-# Phase 0 -- Remove Row-Scope Sampling
+# Phase 0 -- Stop Random Sampling
 
-The three-phase design replaces random pre-sampling with on-demand,
-question-driven sampling. Before implementing Phases 2-3, remove the
-existing row-scope lineage machinery:
-
-**operation_log columns to remove**:
-
-- `kwargs_aai_ids` — `Map(String, Array(UInt64))` sampled source row IDs
-- `result_aai_ids` — `Array(UInt64)` sampled result row IDs
+Stop populating `kwargs_aai_ids` and `result_aai_ids` with random samples.
+The columns stay on `operation_log` — Phase 2 will repopulate them with
+targeted data. Until then they remain empty.
 
 **Code to remove**:
 
-| File                     | What                                                              |
-|--------------------------|-------------------------------------------------------------------|
-| `oplog/lineage.py`       | `backward_oplog_row()`, `RowLineageStep`                         |
-| `oplog/sampling.py`      | `sample_lineage()`, `_pick_aai_ids()` — sampling helpers         |
-| `oplog/cleanup.py`       | `lineage_aware_drop()`, `_get_lineage_aai_ids()` — sample preservation |
-| `oplog/collector.py`     | sampling logic in `record()` that populates `kwargs_aai_ids` / `result_aai_ids` |
-| `background_worker.py`   | `_cleanup_expired_samples()` — sample table cleanup              |
-| `oplog/models.py`        | `kwargs_aai_ids` and `result_aai_ids` in DDL and schema validation |
+| File                   | What                                                         |
+|------------------------|--------------------------------------------------------------|
+| `oplog/lineage.py`     | `backward_oplog_row()`, `RowLineageStep`                     |
+| `oplog/sampling.py`    | `sample_lineage()`, `_pick_aai_ids()` — random sampling helpers |
+| `oplog/collector.py`   | sampling logic in `record()` that populates the two columns  |
 
 **Config to remove**:
 
 - `AAICLICK_OPLOG_SAMPLE_SIZE` env var
 
-**Requires**: Alembic migration to drop the two columns from `operation_log`.
+**Keep as-is**:
 
-The `operation_log` table keeps all other fields (`operation`, `kwargs`,
-`sql_template`, `task_id`, `job_id`, `created_at`). Phase 1 graph queries
-are unaffected — they only use table-level metadata.
+- `kwargs_aai_ids` and `result_aai_ids` columns on `operation_log` — Phase 2 will populate them
+- `lineage_aware_drop()` in `cleanup.py` — handles empty arrays gracefully (falls back to random rows)
+- `_cleanup_expired_samples()` — still needed for table lifecycle
+- All Phase 1 graph queries — they only use table-level metadata
 
 ---
 
@@ -143,7 +136,7 @@ source values, and where in the pipeline did the data appear or disappear.
 
 | Phase   | Status              | Notes                                                         |
 |---------|---------------------|---------------------------------------------------------------|
-| Phase 0 | Not yet implemented | Remove row-scope sampling + migration                         |
+| Phase 0 | Not yet implemented | Stop random sampling; columns stay, writers go away           |
 | Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
 | Phase 2 | Not yet implemented | Needs: graph walker + WHERE application at each node          |
 | Phase 3 | Not yet implemented | Needs: clear task + downstream, replay with smart sampling    |
