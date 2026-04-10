@@ -3,9 +3,10 @@
 BackgroundWorker polls the database for:
 1. Completed/failed jobs — deletes their job-scoped pin refs
 2. Tables with no run refs — drops them in ClickHouse
-3. Expired sample tables — drops _sample tables older than oplog TTL
-4. Dead workers — marks their running tasks as FAILED
-5. Scheduled jobs — creates Job runs when next_run_at is due
+3. Expired sample tables — drops _sample tables older than job TTL
+4. Expired jobs — deletes all job data (CH tables, oplog, SQL metadata)
+5. Dead workers — marks their running tasks as FAILED
+6. Scheduled jobs — creates Job runs when next_run_at is due
 
 Completely independent of DataContext and OrchContext — has its own DB engine and CH client.
 """
@@ -29,7 +30,7 @@ from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
 from ..models import JobStatus, TaskStatus
-from .handler import BackgroundHandler, create_background_handler
+from .handler import BackgroundHandler, create_background_handler, in_clause
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
 RETRY_BASE_DELAY = 1
@@ -43,12 +44,13 @@ DEFAULT_WORKER_TIMEOUT = 90.0
 class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
-    Performs five operations on each poll:
+    Performs six operations on each poll:
     1. Job cleanup: deletes pin refs for completed/failed jobs
     2. Table cleanup: drops CH tables with no run refs
-    3. Sample cleanup: drops expired _sample tables older than oplog TTL
-    4. Dead worker detection: marks tasks from expired workers as FAILED
-    5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
+    3. Sample cleanup: drops expired _sample tables older than job TTL
+    4. Expired job deletion: deletes all data for jobs past AAICLICK_JOB_TTL_DAYS
+    5. Dead worker detection: marks tasks from expired workers as FAILED
+    6. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
 
     Completely independent of DataContext and OrchContext.
     Has own DB engine and CH client.
@@ -110,6 +112,7 @@ class BackgroundWorker:
         await self._process_pending_cleanup()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_expired_samples()
+        await self._cleanup_expired_jobs()
         await self._cleanup_dead_workers()
         await self._check_schedules()
 
@@ -250,19 +253,18 @@ class BackgroundWorker:
             await session.commit()
 
     async def _cleanup_expired_samples(self) -> None:
-        """Drop sample tables older than the oplog TTL.
+        """Drop sample tables older than the job TTL.
 
         Sample tables ({table}_sample) are created by lineage_aware_drop when
-        ephemeral tables are cleaned up.  Once past the oplog TTL they no longer
+        ephemeral tables are cleaned up.  Once past the job TTL they no longer
         have matching operation_log rows, so keeping them wastes storage.
         """
-        ttl_days = int(os.environ.get("AAICLICK_OPLOG_TTL_DAYS", "90"))
+        ttl_days = int(os.environ.get("AAICLICK_JOB_TTL_DAYS", "90"))
         try:
             result = await self._ch_client.query(
                 "SELECT name FROM system.tables "
                 "WHERE database = currentDatabase() "
                 "AND name LIKE '%\\_sample' "
-                "AND name NOT LIKE 'p\\_%' "
                 f"AND metadata_modification_time < now() - INTERVAL {ttl_days} DAY"
             )
             for (table_name,) in result.result_rows:
@@ -277,6 +279,154 @@ class BackgroundWorker:
                     )
         except Exception:
             logger.debug("Failed to query expired sample tables", exc_info=True)
+
+    async def _cleanup_expired_jobs(self) -> None:
+        """Delete all data for jobs whose completed_at is older than AAICLICK_JOB_TTL_DAYS.
+
+        For each expired job:
+        1. Drop all ClickHouse tables registered to the job (including persistent)
+        2. Drop associated sample tables
+        3. Delete operation_log and table_registry entries for the job
+        4. Delete SQL metadata (dependencies, tasks, groups, ref tables, job)
+        """
+        ttl_days = int(os.environ.get("AAICLICK_JOB_TTL_DAYS", "90"))
+        cutoff = datetime.utcnow() - timedelta(days=ttl_days)
+
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT id FROM jobs "
+                    "WHERE status IN (:completed, :failed, :cancelled) "
+                    "AND completed_at < :cutoff"
+                ),
+                {
+                    "completed": JobStatus.COMPLETED.value,
+                    "failed": JobStatus.FAILED.value,
+                    "cancelled": JobStatus.CANCELLED.value,
+                    "cutoff": cutoff,
+                },
+            )
+            expired_job_ids = [row[0] for row in result.fetchall()]
+
+        if not expired_job_ids:
+            return
+
+        for job_id in expired_job_ids:
+            try:
+                await self._delete_job_data(job_id)
+                logger.info("Deleted expired job %s and all associated data", job_id)
+            except Exception:
+                logger.warning("Failed to delete expired job %s", job_id, exc_info=True)
+
+    async def _delete_job_data(self, job_id: int) -> None:
+        """Delete all CH and SQL data for a single job."""
+        # 1. Find all CH tables belonging to this job from table_registry
+        try:
+            result = await self._ch_client.query(
+                "SELECT DISTINCT table_name FROM table_registry "
+                f"WHERE job_id = {job_id}"
+            )
+            table_names = [row[0] for row in result.result_rows]
+        except Exception:
+            logger.debug("Failed to query table_registry for job %s", job_id, exc_info=True)
+            table_names = []
+
+        # 2. Drop CH tables and their samples
+        for table_name in table_names:
+            try:
+                await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+            except Exception:
+                logger.debug("Failed to drop table %s", table_name, exc_info=True)
+            try:
+                await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}_sample")
+            except Exception:
+                logger.debug("Failed to drop sample %s_sample", table_name, exc_info=True)
+
+        # 3. Delete operation_log and table_registry entries for this job
+        try:
+            await self._ch_client.command(
+                f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}"
+            )
+        except Exception:
+            logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
+        try:
+            await self._ch_client.command(
+                f"ALTER TABLE table_registry DELETE WHERE job_id = {job_id}"
+            )
+        except Exception:
+            logger.debug("Failed to delete table_registry for job %s", job_id, exc_info=True)
+
+        # 4. Delete SQL metadata
+        async with AsyncSession(self._engine) as session:
+            # Get task IDs for this job
+            result = await session.execute(
+                text("SELECT id FROM tasks WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            )
+            task_ids = [row[0] for row in result.fetchall()]
+
+            if task_ids:
+                # Delete dependencies referencing these tasks
+                ph, params = in_clause(task_ids, "tid")
+                await session.execute(
+                    text(
+                        f"DELETE FROM dependencies "
+                        f"WHERE (previous_id IN ({ph}) AND previous_type = 'task') "
+                        f"OR (next_id IN ({ph}) AND next_type = 'task')"
+                    ),
+                    params,
+                )
+
+            # Delete ref tables for tables belonging to this job
+            if table_names:
+                ph, params = in_clause(table_names, "tn")
+                await session.execute(
+                    text(f"DELETE FROM table_context_refs WHERE table_name IN ({ph})"),
+                    params,
+                )
+                await session.execute(
+                    text(f"DELETE FROM table_pin_refs WHERE table_name IN ({ph})"),
+                    params,
+                )
+                await session.execute(
+                    text(f"DELETE FROM table_run_refs WHERE table_name IN ({ph})"),
+                    params,
+                )
+
+            # Delete tasks
+            await session.execute(
+                text("DELETE FROM tasks WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            )
+
+            # Delete groups (and their dependencies)
+            result = await session.execute(
+                text("SELECT id FROM groups WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            )
+            group_ids = [row[0] for row in result.fetchall()]
+            if group_ids:
+                ph, params = in_clause(group_ids, "gid")
+                await session.execute(
+                    text(
+                        f"DELETE FROM dependencies "
+                        f"WHERE (previous_id IN ({ph}) AND previous_type = 'group') "
+                        f"OR (next_id IN ({ph}) AND next_type = 'group')"
+                    ),
+                    params,
+                )
+                await session.execute(
+                    text("DELETE FROM groups WHERE job_id = :job_id"),
+                    {"job_id": job_id},
+                )
+
+            # Delete the job itself
+            await session.execute(
+                text("DELETE FROM jobs WHERE id = :job_id"),
+                {"job_id": job_id},
+            )
+
+            await session.commit()
 
     async def _cleanup_dead_workers(self) -> None:
         """Detect dead workers, mark their running tasks as PENDING_CLEANUP.

@@ -11,13 +11,13 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ## operation_log
 
-Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `kwargs_aai_ids` (Map), `result_aai_ids` (Array), `sql_template`, `task_id`, `job_id`, `created_at`. TTL via `AAICLICK_OPLOG_TTL_DAYS` (default 90d). ORDER BY `created_at` (nullable `job_id` excluded from sorting key).
+Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `kwargs_aai_ids` (Map), `result_aai_ids` (Array), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `created_at` (nullable `job_id` excluded from sorting key). Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
 All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops). `kwargs_aai_ids` and `result_aai_ids` track sampled row-level lineage by key.
 
 ## table_registry
 
-Maps every ephemeral table to its owning `job_id` for post-job cleanup. Persistent tables (`p_` prefix) have no `job_id` and are excluded from cleanup. TTL-managed via `AAICLICK_OPLOG_TTL_DAYS` (default: 90 days), matching `operation_log`.
+Maps every table to its owning `job_id` for post-job cleanup. Both ephemeral (`t_`) and persistent (`p_`) tables are registered with the job that created them. All entries are deleted by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires.
 
 ## Initialization
 
@@ -65,7 +65,7 @@ Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage
 
 **Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_expired_samples()`
 
-`lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` preserving lineage-referenced rows (fallback: random 10 rows). `BackgroundWorker._cleanup_expired_samples()` drops sample tables older than `AAICLICK_OPLOG_TTL_DAYS`.
+`lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` preserving lineage-referenced rows (fallback: random 10 rows). `BackgroundWorker._cleanup_expired_samples()` drops sample tables older than `AAICLICK_JOB_TTL_DAYS`. `BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
 
 ---
 
@@ -73,5 +73,5 @@ Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage
 
 | Variable                     | Default | Description                              |
 |------------------------------|---------|------------------------------------------|
-| `AAICLICK_OPLOG_TTL_DAYS`    | `90`    | TTL for `operation_log` rows in days     |
+| `AAICLICK_JOB_TTL_DAYS`      | `90`    | Days after job completion before all job data is deleted |
 | `AAICLICK_OPLOG_SAMPLE_SIZE` | `10`    | Number of `aai_id`s sampled per operation|
