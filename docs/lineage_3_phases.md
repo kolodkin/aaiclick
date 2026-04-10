@@ -56,9 +56,24 @@ The user asks a concrete question:
 | How come negative values in table T?     | `value < 0`                      | T and its upstream tables    |
 | No rows with vendor score < X?           | `vendor_score < X`               | source table, output table   |
 
-The question becomes one or more WHERE clauses. Walk the graph from Phase 1
-and apply each WHERE at the relevant tables. This finds the specific `aai_id`s
-that matter -- not random samples, but rows targeted by the question.
+The question becomes a `dict[str, str]` — table name to WHERE clause:
+
+```python
+# "Why does CVE-2024-001 have no KEV data?"
+targets = {
+    "t_kev_catalog": "cve_id = 'CVE-2024-001'",
+    "t_merged": "vendor IS NULL",
+}
+
+# "How come negative values in table T?"
+targets = {
+    "t_scores": "cvss < 0",
+    "t_raw_feed": "cvss < 0",
+}
+```
+
+Walk the graph from Phase 1, apply each WHERE at the matching table, collect
+the `aai_id`s. That's the entire targeting mechanism.
 
 **Key insight**: the question *is* the pin. No pre-sampling or pre-pinning
 needed. The WHERE clause targets exactly the rows the user cares about.
