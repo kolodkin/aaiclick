@@ -245,6 +245,14 @@ jobs:
         run: |
           uv run python -m aaiclick migrate upgrade head
 
+      - name: Install Ollama
+        if: matrix.group == 'AI examples'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 3
+          ollama pull llama3.2:3b
+
       - name: Run examples
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
@@ -260,6 +268,7 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+          AAICLICK_AI_MODEL: ${{ matrix.group == 'AI examples' && 'ollama/llama3.2:3b' || '' }}
         run: |
           mkdir -p tmp
           uv run python -m ${{ matrix.module }} 2>&1 | tee tmp/examples_output.txt
