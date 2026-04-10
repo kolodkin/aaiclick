@@ -40,14 +40,32 @@ needed. The WHERE clause targets exactly the rows the user cares about.
 
 # Phase 3 -- Row Trace (replay scope)
 
-Re-run the job on the targeted subset to produce a full row-level trace.
+Re-run part of the job on the targeted subset to produce a full row-level trace.
 
-**Steps**:
+## Prerequisite: Clear Task
 
-1. Take the task graph from Phase 1
-2. Skip ingest tasks -- source data already exists in the tables
-3. Re-run processing tasks only, scoped to the `aai_id`s found in Phase 2
-4. Record lineage at each step -- smart sampling, not random
+Before replay, the user (or system) picks an **input task** -- the task where
+replay starts. This is not necessarily an ingest task. The choice depends on
+the question:
+
+| Question                          | Input task            | Why                                       |
+|-----------------------------------|-----------------------|-------------------------------------------|
+| Why NULLs in the merged table?    | merge task            | Source data is fine, problem is in merging |
+| Why is CVE-X missing entirely?    | ingest task           | Maybe ingest never fetched it              |
+| Why wrong scores after transform? | transform task        | Raw scores are correct, transform is wrong |
+
+**Clear** resets the input task and all its downstream tasks to PENDING --
+same concept as Airflow's "clear task". Upstream tasks are untouched; their
+output tables remain as-is and become the inputs for the replay.
+
+Not all ingest tasks are input boundaries. If the question points to a
+processing step, clearing starts there -- no need to re-fetch external data.
+
+## Replay
+
+1. Clear the input task + downstream
+2. Re-run from the input task, scoped to the `aai_id`s found in Phase 2
+3. Record lineage at each step -- smart sampling, not random
 
 This is a **replay**, not a query against existing oplog data. The original job
 may have processed millions of rows; the replay processes only the rows that
@@ -86,4 +104,11 @@ row-level debugging should use the three-phase flow.
 |---------|---------------------|---------------------------------------------------------------|
 | Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
 | Phase 2 | Not yet implemented | Needs: graph walker + WHERE application at each node          |
-| Phase 3 | Not yet implemented | Needs: job replay mechanism (skip ingest, smart sampling)     |
+| Phase 3 | Not yet implemented | Needs: clear task + downstream, replay with smart sampling    |
+
+## Prerequisites
+
+| Prerequisite               | Status              | Notes                                              |
+|----------------------------|---------------------|----------------------------------------------------|
+| Clear task + downstream    | Not yet implemented | Reset selected task and all downstream to PENDING  |
+| Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
