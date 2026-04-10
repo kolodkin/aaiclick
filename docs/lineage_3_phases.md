@@ -6,13 +6,27 @@ The answer requires three phases, each building on the previous.
 
 ---
 
-# Phase 0 -- Stop Random Sampling
+# Phase 0 -- Introduce Sampling Strategy
 
-Stop populating `kwargs_aai_ids` and `result_aai_ids` with random samples.
-The columns stay on `operation_log` — Phase 2 will repopulate them with
-targeted data. Until then they remain empty.
+Replace random sampling with a `dict[str, str]` strategy interface — table
+name to WHERE clause. The strategy determines which rows get sampled at each
+table in the graph.
 
-**Code to remove**:
+```python
+# Strategy type: table name → WHERE clause
+SamplingStrategy = dict[str, str]
+
+# Default: empty — no targeting, columns stay empty
+strategy: SamplingStrategy = {}
+
+# Phase 2 AI agent will produce:
+strategy = {
+    "t_kev_catalog": "cve_id = 'CVE-2024-001'",
+    "t_merged": "vendor IS NULL",
+}
+```
+
+**Code to remove** (random sampling):
 
 | File                   | What                                                         |
 |------------------------|--------------------------------------------------------------|
@@ -26,7 +40,7 @@ targeted data. Until then they remain empty.
 
 **Keep as-is**:
 
-- `kwargs_aai_ids` and `result_aai_ids` columns on `operation_log` — Phase 2 will populate them
+- `kwargs_aai_ids` and `result_aai_ids` columns on `operation_log` — populated when strategy is provided
 - `lineage_aware_drop()` in `cleanup.py` — handles empty arrays gracefully (falls back to random rows)
 - `_cleanup_expired_samples()` — still needed for table lifecycle
 - All Phase 1 graph queries — they only use table-level metadata
@@ -45,38 +59,24 @@ operations, SQL templates, and task/job IDs. No row sampling needed.
 
 ---
 
-# Phase 2 -- Targeted Sample (question scope)
+# Phase 2 -- AI Agent Produces the Strategy
 
-The user asks a concrete question:
+The AI agent takes a natural language question + the graph from Phase 1, and
+outputs a `SamplingStrategy` (`dict[str, str]`).
 
-| Question                                 | WHERE clause                      | Applied along                |
-|------------------------------------------|-----------------------------------|------------------------------|
-| Why does CVE-X have no KEV data?         | `cve_id = 'CVE-X'`               | KEV source table             |
-| Why no data before 12/04?                | `date < '2024-12-04'`            | each table in the graph      |
-| How come negative values in table T?     | `value < 0`                      | T and its upstream tables    |
-| No rows with vendor score < X?           | `vendor_score < X`               | source table, output table   |
+| Question                                 | Agent output                                                          |
+|------------------------------------------|-----------------------------------------------------------------------|
+| Why does CVE-X have no KEV data?         | `{"t_kev_catalog": "cve_id = 'CVE-X'", "t_merged": "vendor IS NULL"}` |
+| Why no data before 12/04?                | `{"t_raw_feed": "date < '2024-12-04'", "t_output": "date < '2024-12-04'"}` |
+| How come negative values in table T?     | `{"t_scores": "cvss < 0", "t_raw_feed": "cvss < 0"}`                  |
+| No rows with vendor score < X?           | `{"t_source": "vendor_score < 5", "t_output": "vendor_score < 5"}`    |
 
-The question becomes a `dict[str, str]` — table name to WHERE clause:
-
-```python
-# "Why does CVE-2024-001 have no KEV data?"
-targets = {
-    "t_kev_catalog": "cve_id = 'CVE-2024-001'",
-    "t_merged": "vendor IS NULL",
-}
-
-# "How come negative values in table T?"
-targets = {
-    "t_scores": "cvss < 0",
-    "t_raw_feed": "cvss < 0",
-}
-```
-
-Walk the graph from Phase 1, apply each WHERE at the matching table, collect
-the `aai_id`s. That's the entire targeting mechanism.
+The agent has access to the graph structure (tables, operations, schemas) and
+translates the user's question into WHERE clauses on the right tables.
 
 **Key insight**: the question *is* the pin. No pre-sampling or pre-pinning
-needed. The WHERE clause targets exactly the rows the user cares about.
+needed. The AI agent maps the question to the strategy, the strategy targets
+exactly the rows the user cares about.
 
 ---
 
@@ -151,9 +151,9 @@ source values, and where in the pipeline did the data appear or disappear.
 
 | Phase   | Status              | Notes                                                         |
 |---------|---------------------|---------------------------------------------------------------|
-| Phase 0 | Not yet implemented | Stop random sampling; columns stay, writers go away           |
+| Phase 0 | Not yet implemented | Introduce `SamplingStrategy`; remove random sampling          |
 | Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
-| Phase 2 | Not yet implemented | Needs: graph walker + WHERE application at each node          |
+| Phase 2 | Not yet implemented | AI agent: question + graph → `SamplingStrategy`               |
 | Phase 3 | Not yet implemented | Needs: clear task + downstream, replay with smart sampling    |
 
 ## Prerequisites for Phase 3
