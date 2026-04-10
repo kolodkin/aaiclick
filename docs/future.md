@@ -55,6 +55,15 @@ The background worker (`BackgroundWorker._process_pending_cleanup`) handles all 
 
 Dead worker detection also uses `PENDING_CLEANUP` — orphaned tasks from crashed workers go through the same cleanup path instead of being marked `FAILED` directly.
 
+## Deduplicate `_try_complete_job`
+
+`_try_complete_job` exists in two places with identical logic (check if all tasks are terminal, mark job COMPLETED or FAILED):
+
+- `worker._try_complete_job(job_id)` — uses ORM via `get_sql_session()`, requires active `orch_context`
+- `BackgroundWorker._try_complete_job(session, job_id)` — uses raw SQL on a passed session, independent of `orch_context`
+
+The background worker operates with its own engine outside `orch_context`, so it cannot call the worker version directly. Unify by extracting a shared session-accepting helper that both callers use.
+
 ## Schema-Aware Agent Context ✅ IMPLEMENTED
 
 **Implementation**: `aaiclick/ai/agents/tools.py` — see `get_schemas_for_nodes()` and `get_column_stats()`
