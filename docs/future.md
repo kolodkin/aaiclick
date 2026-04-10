@@ -78,6 +78,12 @@ columns automatically and returns stats for all of them in a single round-trip.
 `insert()` and `concat()` generate fresh Snowflake IDs, so `aai_id` values differ between source and target. Row-level tracing across these boundaries needs data-value matching or oplog provenance metadata instead of `aai_id` matching.
 
 
+## Lineage: Three-Phase Debugging
+
+Question-driven lineage debugging in three phases: graph structure (have today), targeted sampling via WHERE clauses derived from the user's question, and row-level trace using those targeted samples. Replaces random pre-sampling with on-demand, question-driven sampling.
+
+**Design**: `docs/lineage_3_phases.md`
+
 ---
 
 # Deferred
