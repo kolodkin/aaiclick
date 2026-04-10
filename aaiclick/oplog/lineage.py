@@ -55,39 +55,67 @@ class OplogGraph:
 
     _ID_BREAKING_OPS = frozenset({"insert", "concat"})
 
+    def _build_labels(self) -> dict[str, str]:
+        """Assign human-readable labels to each table based on its operation."""
+        labels: dict[str, str] = {}
+        source_counter = 0
+        op_counters: dict[str, int] = {}
+        source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+        for node in reversed(self.nodes):
+            if node.table in labels:
+                continue
+            if node.operation == "create_from_value":
+                letter = source_letters[source_counter % len(source_letters)]
+                labels[node.table] = f"source_{letter}"
+                source_counter += 1
+            else:
+                op = node.operation.replace("+", "add").replace("*", "multiply").replace(
+                    "-", "subtract").replace("/", "divide")
+                count = op_counters.get(op, 0)
+                op_counters[op] = count + 1
+                labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
+
+        return labels
+
+    def _label(self, table: str, labels: dict[str, str]) -> str:
+        """Return 'label (table)' if a label exists, else just table."""
+        lbl = labels.get(table)
+        return f"{lbl} ({table})" if lbl else table
+
     def to_prompt_context(self) -> str:
-        """Format the graph as human-readable text for LLM consumption."""
+        """Format the graph as human-readable text for LLM consumption.
+
+        Tables are assigned short labels (source_A, multiply_result, etc.)
+        so the LLM can refer to them by role instead of raw IDs.
+        """
+        labels = self._build_labels()
         lines = ["# Data Lineage Graph"]
+
+        lines.append("\n## Table Labels")
+        for table, label in labels.items():
+            lines.append(f"- `{table}` → **{label}**")
 
         lines.append(f"\n## Operations ({len(self.nodes)})")
         for node in self.nodes:
-            lines.append(f"\n### Table: `{node.table}`")
+            lines.append(f"\n### {self._label(node.table, labels)}")
             lines.append(f"- Operation: `{node.operation}`")
             for k, v in node.kwargs.items():
-                lines.append(f"- {k}: `{v}`")
-            for k, ids in node.kwargs_aai_ids.items():
-                if ids:
-                    lines.append(f"- {k}_aai_ids: {ids}")
-            if node.result_aai_ids:
-                lines.append(f"- result_aai_ids: {node.result_aai_ids}")
+                lines.append(f"- {k}: {self._label(v, labels)}")
             if node.sql_template:
                 lines.append(f"- SQL: `{node.sql_template}`")
-            if node.task_id is not None:
-                lines.append(f"- Task ID: {node.task_id}")
-            if node.job_id is not None:
-                lines.append(f"- Job ID: {node.job_id}")
             if node.operation in self._ID_BREAKING_OPS:
                 lines.append(
                     f"- ⚠ `{node.operation}` generates fresh aai_id values — "
-                    "source and target aai_ids do NOT match. "
-                    "Use data-value matching or oplog provenance metadata "
-                    "to trace rows across this boundary."
+                    "source and target aai_ids do NOT match."
                 )
 
         if self.edges:
             lines.append(f"\n## Data Flow ({len(self.edges)} edges)")
             for edge in self.edges:
-                lines.append(f"- `{edge.source}` → `{edge.target}` (via `{edge.operation}`)")
+                src = labels.get(edge.source, edge.source)
+                dst = labels.get(edge.target, edge.target)
+                lines.append(f"- **{src}** → **{dst}** (via `{edge.operation}`)")
 
         return "\n".join(lines)
 
