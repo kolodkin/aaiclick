@@ -6,15 +6,17 @@ from __future__ import annotations
 
 from aaiclick.oplog.lineage import oplog_subgraph
 from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
-from aaiclick.ai.agents.prompts import AAI_ID_WARNING
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
 
 _SYSTEM_PROMPT = f"""\
-You are a data lineage expert analyzing a data pipeline built on ClickHouse.
-Explain clearly and concisely how the target table was produced, including
-the sequence of operations and the role of each input table.
+You are a data lineage expert analyzing a ClickHouse data pipeline.
+Explain how the target table was produced as a short numbered list of steps.
+Each step: operation, input tables, output table.
 
-{AAI_ID_WARNING}"""
+{AAI_ID_WARNING}
+
+{OUTPUT_FORMAT}"""
 
 
 async def explain_lineage(target_table: str, question: str | None = None) -> str:
