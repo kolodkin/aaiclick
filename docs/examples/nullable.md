@@ -1,5 +1,5 @@
 # Nullable Columns
 
 ```python
---8<-- "aaiclick/examples/nullable.py"
+--8<-- "aaiclick/data/examples/nullable.py"
 ```

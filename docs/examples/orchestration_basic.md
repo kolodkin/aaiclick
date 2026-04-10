@@ -1,5 +1,5 @@
 # Orchestration Basics
 
 ```python
---8<-- "aaiclick/examples/orchestration_basic.py"
+--8<-- "aaiclick/orchestration/examples/orchestration_basic.py"
 ```

@@ -1,5 +1,5 @@
 """
-Run all aaiclick examples using multiprocessing across available CPUs.
+Run all aaiclick data examples using multiprocessing across available CPUs.
 
 Each example runs in its own process via its amain() entrypoint, capturing
 output to .tmp/<example_name>.txt. Results are printed in execution order.
@@ -14,16 +14,15 @@ from typing import Callable, Coroutine
 
 from .aggregation_table import amain as aggregation_table_example
 from .array_operators import amain as array_operators_example
-from .explode import amain as explode_example
 from .basic_operators import amain as basic_operators_example
 from .data_manipulation import amain as data_manipulation_example
+from .explode import amain as explode_example
 from .group_by import amain as group_by_example
 from .isin import amain as isin_example
 from .nested_arrays import amain as nested_arrays_example
 from .nullable import amain as nullable_example
 from .order_by import amain as order_by_example
-from .orchestration_basic import amain as orchestration_basic_example
-from .orchestration_dynamic import amain as orchestration_dynamic_example
+from .persistent import amain as persistent_example
 from .selectors import amain as selectors_example
 from .statistics import amain as statistics_example
 from .transforms import amain as transforms_example
@@ -79,8 +78,7 @@ def main():
         ("Dict Selectors", selectors_example),
         ("Aggregation Table", aggregation_table_example),
         ("Order By", order_by_example),
-        ("Orchestration Basic", orchestration_basic_example),
-        ("Orchestration Dynamic", orchestration_dynamic_example),
+        ("Persistent Objects", persistent_example),
     ]
 
     results: dict[str, pathlib.Path] = {}
@@ -98,7 +96,7 @@ def main():
     for title, _ in examples:
         _print_collapsible(title, results[title])
 
-    print("**ALL EXAMPLES COMPLETED SUCCESSFULLY**")
+    print("**ALL DATA EXAMPLES COMPLETED SUCCESSFULLY**")
 
 
 if __name__ == "__main__":

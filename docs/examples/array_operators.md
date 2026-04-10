@@ -1,5 +1,5 @@
 # Array Operators
 
 ```python
---8<-- "aaiclick/examples/array_operators.py"
+--8<-- "aaiclick/data/examples/array_operators.py"
 ```

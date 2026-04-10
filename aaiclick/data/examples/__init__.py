@@ -1,0 +1,3 @@
+"""
+aaiclick.data examples package.
+"""

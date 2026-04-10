@@ -341,7 +341,7 @@ Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
 
 ## Explode
 
-Flattens Array column(s) into individual rows (scalar columns duplicated). Returns a **View** — downstream operators fuse into a single query. Exploded columns change from `Array(T)` to `T`. See `aaiclick/examples/explode.py`.
+Flattens Array column(s) into individual rows (scalar columns duplicated). Returns a **View** — downstream operators fuse into a single query. Exploded columns change from `Array(T)` to `T`. See `aaiclick/data/examples/explode.py`.
 
 **Tests**: `aaiclick/data/object/test_explode.py`
 

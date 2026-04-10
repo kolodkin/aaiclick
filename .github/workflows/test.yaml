@@ -173,6 +173,19 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    name: ${{ matrix.group }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: Data examples
+            module: aaiclick.data.examples.run_all
+            summary-title: Data Examples Output
+            needs-postgres: false
+          - group: Orch examples
+            module: aaiclick.orchestration.examples.run_all
+            summary-title: Orchestration Examples Output
+            needs-postgres: true
 
     services:
       clickhouse:
@@ -219,6 +232,7 @@ jobs:
           uv sync --frozen --extra dev --python 3.10
 
       - name: Run database migrations
+        if: matrix.needs-postgres
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
@@ -241,11 +255,11 @@ jobs:
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
         run: |
           mkdir -p tmp
-          uv run python -m aaiclick.examples.run_all 2>&1 | tee tmp/examples_output.txt
+          uv run python -m ${{ matrix.module }} 2>&1 | tee tmp/examples_output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Add example outputs to summary
         if: always()
         run: |
-          uv run python .github/scripts/generate_summary.py
+          uv run python .github/scripts/generate_summary.py --title "${{ matrix.summary-title }}"
 

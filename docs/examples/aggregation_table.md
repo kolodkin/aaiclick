@@ -1,5 +1,5 @@
 # Aggregation Table
 
 ```python
---8<-- "aaiclick/examples/aggregation_table.py"
+--8<-- "aaiclick/data/examples/aggregation_table.py"
 ```

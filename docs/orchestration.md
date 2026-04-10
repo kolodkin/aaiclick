@@ -24,7 +24,7 @@ j = pipeline(x=3, y=4)
 job_test(j)  # execute synchronously (testing/local)
 ```
 
-See `aaiclick/examples/orchestration_basic.py` for a full example.
+See `aaiclick/orchestration/examples/orchestration_basic.py` for a full example.
 
 # Decorators
 

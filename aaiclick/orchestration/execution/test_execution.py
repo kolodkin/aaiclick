@@ -24,7 +24,7 @@ from aaiclick.orchestration.execution.runner import (
 )
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
-from aaiclick.examples.orchestration_dynamic import (
+from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )

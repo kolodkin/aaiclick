@@ -1,5 +1,5 @@
 # Basic Operators
 
 ```python
---8<-- "aaiclick/examples/basic_operators.py"
+--8<-- "aaiclick/data/examples/basic_operators.py"
 ```
