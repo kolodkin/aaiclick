@@ -7,6 +7,29 @@ The answer requires three phases, each building on the previous.
 
 ---
 
+# Table Preservation Modes
+
+Three run modes controlling which tables survive after a job completes.
+Same task execution, different cleanup behavior.
+
+| Mode         | What survives after job              | Use case                     |
+|--------------|--------------------------------------|------------------------------|
+| **Normal**   | Persistent tables only               | Production runs (as today)   |
+| **Full**     | All tables                           | Development / debugging      |
+| **Strategy** | Persistent + strategy-matched rows   | Lineage replay (Phase 2+3)  |
+
+**Normal** is the current default — ephemeral tables are dropped by the
+background worker when refs clear, persistent tables (`p_` prefix) survive.
+
+**Full** preserves all tables. Useful during development to inspect
+intermediate results. Storage-expensive, not for production.
+
+**Strategy** is the lineage mode — the `SamplingStrategy` (`dict[str, str]`)
+determines which rows to preserve at each table. You don't pay the storage
+cost of keeping everything, but the rows that answer your question survive.
+
+---
+
 # Phase 0 -- Introduce Sampling Strategy
 
 Replace random sampling with a `dict[str, str]` strategy interface — table
@@ -158,3 +181,16 @@ source values, and where in the pipeline did the data appear or disappear.
 |----------------------------|---------------------|----------------------------------------------------|
 | Clear task + downstream    | Not yet implemented | Reset selected task and all downstream to PENDING  |
 | Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
+
+## Documentation Updates
+
+Each phase should update the relevant docs as it lands:
+
+| Phase   | Docs to update                                                          |
+|---------|-------------------------------------------------------------------------|
+| Phase 0 | `docs/oplog.md` — remove sampling references, add strategy interface   |
+| Phase 0 | `docs/data_context.md` — document preservation modes (normal/full/strategy) |
+| Phase 1 | Already documented in `docs/oplog.md`                                   |
+| Phase 2 | `docs/ai.md` — add strategy agent to agent tools table                  |
+| Phase 3 | `docs/orchestration.md` — document clear task + replay mechanism        |
+| Phase 3 | `docs/data_context.md` — document input task detection via persistent Objects |
