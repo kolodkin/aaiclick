@@ -3,9 +3,10 @@ AI lineage example for aaiclick.
 
 This example demonstrates how to use AI-powered lineage explanation
 and debugging agents. It shows:
-1. Building a data pipeline inside a task_scope (which records oplog entries)
-2. Using explain_lineage() to get an AI explanation of how a table was produced
-3. Using debug_result() to ask questions about intermediate data
+1. Defining a data pipeline as @task/@job
+2. Running the job with ajob_test()
+3. Querying backward lineage on the result table
+4. Printing the prompt context and AI agent response
 
 Requires:
   - pip install aaiclick[ai]
@@ -13,89 +14,133 @@ Requires:
 """
 
 import asyncio
+import os
 
 from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object import Object
 from aaiclick.oplog.lineage import lineage_context, oplog_subgraph
-from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration import (
+    JobStatus,
+    ajob_test,
+    get_tasks_for_job,
+    job,
+    task,
+    tasks_list,
+)
 
 
-async def example(run_ai: bool = True):
-    """Build a pipeline and demonstrate lineage queries.
+# --- Pipeline tasks ---
 
-    Args:
-        run_ai: When True, call AI agents for natural-language explanations.
-                Set to False to show only the raw lineage graph (no LLM needed).
-    """
-    # --- Step 1: Build a data pipeline inside task_scope ---
-    # task_scope records every operation in the operation log (oplog),
-    # which the AI agents later query to reconstruct lineage.
-    print("Step 1: Building a data pipeline")
+
+@task
+async def create_prices() -> Object:
+    """Source: daily product prices."""
+    return await create_object_from_value([10.0, 20.0, 30.0, 40.0, 50.0])
+
+
+@task
+async def create_quantities() -> Object:
+    """Source: daily quantities sold."""
+    return await create_object_from_value([2.0, 3.0, 1.0, 5.0, 4.0])
+
+
+@task
+async def compute_revenue(prices: Object, quantities: Object) -> Object:
+    """Revenue = prices * quantities."""
+    return await (prices * quantities)
+
+
+@task
+async def add_bonus(revenue: Object) -> Object:
+    """Total = revenue + flat bonus per item."""
+    bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0])
+    return await (revenue + bonus)
+
+
+# --- Job definition ---
+
+
+@job("revenue_pipeline")
+def revenue_pipeline():
+    """Compute total revenue with bonus from prices and quantities."""
+    prices = create_prices()
+    quantities = create_quantities()
+    revenue = compute_revenue(prices=prices, quantities=quantities)
+    total = add_bonus(revenue=revenue)
+    return tasks_list(prices, quantities, revenue, total)
+
+
+# --- Example runner ---
+
+
+async def example():
+    """Run the pipeline, then query lineage and print AI response."""
+
+    # Step 1: Run the job
+    print("Step 1: Running the revenue pipeline")
     print("-" * 50)
 
-    async with task_scope(task_id=1, job_id=1, run_id=100):
-        prices = await create_object_from_value([10.0, 20.0, 30.0, 40.0, 50.0])
-        print(f"Created prices: {await prices.data()}")  # -> [10.0, 20.0, 30.0, 40.0, 50.0]
+    pipeline = await revenue_pipeline()
+    await ajob_test(pipeline)
 
-        quantities = await create_object_from_value([2.0, 3.0, 1.0, 5.0, 4.0])
-        print(f"Created quantities: {await quantities.data()}")  # -> [2.0, 3.0, 1.0, 5.0, 4.0]
+    assert pipeline.status == JobStatus.COMPLETED, f"Job failed: {pipeline.error}"
+    print(f"Job '{pipeline.name}' completed (ID: {pipeline.id})")
 
-        revenue = await (prices * quantities)
-        print(f"Computed revenue (prices * quantities): {await revenue.data()}")  # -> [20.0, 60.0, 30.0, 200.0, 200.0]
+    # Find the result table from the last task
+    tasks = await get_tasks_for_job(pipeline.id)
+    for t in tasks:
+        print(f"  Task '{t.name}': status={t.status.value}, result={t.result}")
 
-        bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0])
-        total = await (revenue + bonus)
-        print(f"Computed total (revenue + bonus): {await total.data()}")  # -> [25.0, 65.0, 35.0, 205.0, 205.0]
+    last_task = tasks[-1]
+    target_table = last_task.result["table"]
+    print(f"\nTarget table for lineage: {target_table}")
 
-        target_table = total.table
-
-    # --- Step 2: Query the lineage graph ---
-    # After data_context exits, use lineage_context to query the oplog.
+    # Step 2: Query the lineage graph
     print("\n" + "=" * 50)
-    print("Step 2: Querying the lineage graph")
+    print("Step 2: Backward lineage graph")
     print("-" * 50)
 
     async with lineage_context():
         graph = await oplog_subgraph(target_table, direction="backward")
 
-        print(f"\nLineage graph: {len(graph.nodes)} operations, {len(graph.edges)} edges\n")
-
+        print(f"\n{len(graph.nodes)} operations, {len(graph.edges)} edges\n")
         for edge in graph.edges:
             print(f"  {edge.source} -> {edge.target}  (via {edge.operation})")
 
-        # --- Step 3: AI-powered explanation ---
-        if run_ai:
+        # Step 3: Print the prompt context (what the AI sees)
+        prompt_context = graph.to_prompt_context()
+        print("\n" + "=" * 50)
+        print("Step 3: Prompt context sent to AI")
+        print("-" * 50)
+        print(prompt_context)
+
+        # Step 4: AI agent response (requires a reachable LLM)
+        if os.environ.get("AAICLICK_AI_MODEL"):
             print("\n" + "=" * 50)
-            print("Step 3: AI lineage explanation")
+            print("Step 4: AI lineage explanation")
             print("-" * 50)
 
             from aaiclick.ai.agents.lineage_agent import explain_lineage
 
-            explanation = await explain_lineage(
-                target_table,
-                question="How was this table produced? What arithmetic was applied?",
-            )
-            print(f"\nAI explanation:\n{explanation}")
+            question = "How was this table produced? What arithmetic was applied?"
+            print(f"\nQuestion: {question}")
 
-            # --- Step 4: AI-powered debugging ---
+            explanation = await explain_lineage(target_table, question=question)
+            print(f"\nAI response:\n{explanation}")
+
             print("\n" + "=" * 50)
-            print("Step 4: AI debugging agent")
+            print("Step 5: AI debug agent")
             print("-" * 50)
 
             from aaiclick.ai.agents.debug_agent import debug_result
 
-            answer = await debug_result(
-                target_table,
-                "Why is the largest value 205 instead of 250?",
-            )
-            print(f"\nAI debug answer:\n{answer}")
-        else:
-            print("\n(Skipping AI agents -- set run_ai=True and configure AAICLICK_AI_MODEL)")
+            debug_question = "Why is the largest value 205 instead of 250?"
+            print(f"\nQuestion: {debug_question}")
 
-        # --- Print raw lineage context ---
-        print("\n" + "=" * 50)
-        print("Raw lineage context (sent to AI)")
-        print("-" * 50)
-        print(graph.to_prompt_context())
+            answer = await debug_result(target_table, debug_question)
+            print(f"\nAI response:\n{answer}")
+        else:
+            print("\n(Set AAICLICK_AI_MODEL to enable AI agent responses)")
 
 
 async def amain():
@@ -103,7 +148,7 @@ async def amain():
     from aaiclick.orchestration.orch_context import orch_context
 
     async with orch_context():
-        await example(run_ai=False)
+        await example()
 
 
 if __name__ == "__main__":
