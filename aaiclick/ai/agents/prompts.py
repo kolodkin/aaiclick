@@ -14,8 +14,6 @@ OUTPUT_FORMAT = (
     "Output rules:\n"
     "- Be concise: short sentences, no filler.\n"
     "- Structure: use numbered steps or bullet points.\n"
-    "- ALWAYS use the label names (source_A, multiply_result, etc.) from\n"
-    "  the Table Labels section. NEVER output raw table IDs like `t_7448...`.\n"
     "- Describe the arithmetic flow: what operation, what inputs, what output.\n"
     "- Cite actual data values from samples when relevant.\n"
     "- Do NOT repeat the raw context back. Summarize it.\n"

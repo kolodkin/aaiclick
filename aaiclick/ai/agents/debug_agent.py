@@ -9,7 +9,7 @@ from typing import Any
 
 from litellm import acompletion
 
-from aaiclick.oplog.lineage import oplog_subgraph
+from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
@@ -36,6 +36,7 @@ async def debug_result(target_table: str, question: str) -> str:
         "Which input caused the NaN values?"
     """
     graph = await oplog_subgraph(target_table, direction="backward")
+    labels = graph.build_labels()
     context = graph.to_prompt_context()
 
     schemas = await get_schemas_for_nodes(graph.nodes)
@@ -66,7 +67,7 @@ async def debug_result(target_table: str, question: str) -> str:
         message = choice.message
 
         if choice.finish_reason != "tool_calls" or not message.tool_calls:
-            return message.content or ""
+            return OplogGraph.replace_labels(message.content or "", labels)
 
         messages.append({
             "role": "assistant",
@@ -96,4 +97,4 @@ async def debug_result(target_table: str, question: str) -> str:
     if provider._api_key:
         final_kwargs["api_key"] = provider._api_key
     response = await acompletion(**final_kwargs)
-    return response.choices[0].message.content or ""
+    return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)

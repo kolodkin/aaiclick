@@ -55,8 +55,13 @@ class OplogGraph:
 
     _ID_BREAKING_OPS = frozenset({"insert", "concat"})
 
-    def _build_labels(self) -> dict[str, str]:
-        """Assign human-readable labels to each table based on its operation."""
+    def build_labels(self) -> dict[str, str]:
+        """Assign human-readable labels to each table based on its operation.
+
+        Returns a mapping from table ID to label (e.g. source_A, multiply_result).
+        Used for post-processing agent responses — NOT injected into the prompt
+        so the LLM can still reference real table names in tool calls.
+        """
         labels: dict[str, str] = {}
         source_counter = 0
         op_counters: dict[str, int] = {}
@@ -78,30 +83,23 @@ class OplogGraph:
 
         return labels
 
-    def _label(self, table: str, labels: dict[str, str]) -> str:
-        """Return 'label (table)' if a label exists, else just table."""
-        lbl = labels.get(table)
-        return f"{lbl} ({table})" if lbl else table
+    @staticmethod
+    def replace_labels(text: str, labels: dict[str, str]) -> str:
+        """Replace raw table IDs in text with human-readable labels."""
+        for table_id, label in labels.items():
+            text = text.replace(table_id, label)
+        return text
 
     def to_prompt_context(self) -> str:
-        """Format the graph as human-readable text for LLM consumption.
-
-        Tables are assigned short labels (source_A, multiply_result, etc.)
-        so the LLM can refer to them by role instead of raw IDs.
-        """
-        labels = self._build_labels()
+        """Format the graph as human-readable text for LLM consumption."""
         lines = ["# Data Lineage Graph"]
-
-        lines.append("\n## Table Labels")
-        for table, label in labels.items():
-            lines.append(f"- `{table}` → **{label}**")
 
         lines.append(f"\n## Operations ({len(self.nodes)})")
         for node in self.nodes:
-            lines.append(f"\n### {self._label(node.table, labels)}")
+            lines.append(f"\n### Table: `{node.table}`")
             lines.append(f"- Operation: `{node.operation}`")
             for k, v in node.kwargs.items():
-                lines.append(f"- {k}: {self._label(v, labels)}")
+                lines.append(f"- {k}: `{v}`")
             if node.sql_template:
                 lines.append(f"- SQL: `{node.sql_template}`")
             if node.operation in self._ID_BREAKING_OPS:
@@ -113,9 +111,7 @@ class OplogGraph:
         if self.edges:
             lines.append(f"\n## Data Flow ({len(self.edges)} edges)")
             for edge in self.edges:
-                src = labels.get(edge.source, edge.source)
-                dst = labels.get(edge.target, edge.target)
-                lines.append(f"- **{src}** → **{dst}** (via `{edge.operation}`)")
+                lines.append(f"- `{edge.source}` → `{edge.target}` (via `{edge.operation}`)")
 
         return "\n".join(lines)
 
