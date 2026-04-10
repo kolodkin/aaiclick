@@ -182,10 +182,17 @@ jobs:
             module: aaiclick.data.examples.run_all
             summary-title: Data Examples Output
             needs-postgres: false
+            extras: distributed
           - group: Orch examples
             module: aaiclick.orchestration.examples.run_all
             summary-title: Orchestration Examples Output
             needs-postgres: true
+            extras: distributed
+          - group: AI examples
+            module: aaiclick.ai.examples.run_all
+            summary-title: AI Examples Output
+            needs-postgres: true
+            extras: all
 
     services:
       clickhouse:
@@ -229,7 +236,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra dev --python 3.10
+          uv sync --frozen --extra ${{ matrix.extras }} --python 3.10
 
       - name: Run database migrations
         if: matrix.needs-postgres
