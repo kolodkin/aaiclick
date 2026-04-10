@@ -6,6 +6,40 @@ The answer requires three phases, each building on the previous.
 
 ---
 
+# Phase 0 -- Remove Row-Scope Sampling
+
+The three-phase design replaces random pre-sampling with on-demand,
+question-driven sampling. Before implementing Phases 2-3, remove the
+existing row-scope lineage machinery:
+
+**operation_log columns to remove**:
+
+- `kwargs_aai_ids` — `Map(String, Array(UInt64))` sampled source row IDs
+- `result_aai_ids` — `Array(UInt64)` sampled result row IDs
+
+**Code to remove**:
+
+| File                     | What                                                              |
+|--------------------------|-------------------------------------------------------------------|
+| `oplog/lineage.py`       | `backward_oplog_row()`, `RowLineageStep`                         |
+| `oplog/sampling.py`      | `sample_lineage()`, `_pick_aai_ids()` — sampling helpers         |
+| `oplog/cleanup.py`       | `lineage_aware_drop()`, `_get_lineage_aai_ids()` — sample preservation |
+| `oplog/collector.py`     | sampling logic in `record()` that populates `kwargs_aai_ids` / `result_aai_ids` |
+| `background_worker.py`   | `_cleanup_expired_samples()` — sample table cleanup              |
+| `oplog/models.py`        | `kwargs_aai_ids` and `result_aai_ids` in DDL and schema validation |
+
+**Config to remove**:
+
+- `AAICLICK_OPLOG_SAMPLE_SIZE` env var
+
+**Requires**: Alembic migration to drop the two columns from `operation_log`.
+
+The `operation_log` table keeps all other fields (`operation`, `kwargs`,
+`sql_template`, `task_id`, `job_id`, `created_at`). Phase 1 graph queries
+are unaffected — they only use table-level metadata.
+
+---
+
 # Phase 1 -- Graph (table scope)
 
 Run `backward_oplog()` from the target table. Returns the DAG of tables,
@@ -105,28 +139,16 @@ source values, and where in the pipeline did the data appear or disappear.
 
 ---
 
-# Why Not Pre-Sample?
-
-Random sampling collects `aai_id`s at operation time, but without a concrete
-question the samples are just numbers. They don't help debug anything because
-there is no question driving the investigation. Targeted sampling (Phase 2)
-flips the model: sample on demand, guided by the question.
-
-Pre-sampled `aai_id`s in `kwargs_aai_ids` / `result_aai_ids` remain useful for
-structural validation (confirming operations ran and produced output), but
-row-level debugging should use the three-phase flow.
-
----
-
 # Current State
 
 | Phase   | Status              | Notes                                                         |
 |---------|---------------------|---------------------------------------------------------------|
+| Phase 0 | Not yet implemented | Remove row-scope sampling + migration                         |
 | Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
 | Phase 2 | Not yet implemented | Needs: graph walker + WHERE application at each node          |
 | Phase 3 | Not yet implemented | Needs: clear task + downstream, replay with smart sampling    |
 
-## Prerequisites
+## Prerequisites for Phase 3
 
 | Prerequisite               | Status              | Notes                                              |
 |----------------------------|---------------------|----------------------------------------------------|
