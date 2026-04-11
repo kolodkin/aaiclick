@@ -21,6 +21,7 @@ env:
 jobs:
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -39,6 +40,7 @@ jobs:
 
   test-local:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
@@ -74,7 +76,7 @@ jobs:
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && hashFiles('tmp/pytest-report.xml') != ''
         with:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
@@ -82,6 +84,7 @@ jobs:
 
   test-dist:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
@@ -165,7 +168,7 @@ jobs:
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && hashFiles('tmp/pytest-report.xml') != ''
         with:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
@@ -173,6 +176,7 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
