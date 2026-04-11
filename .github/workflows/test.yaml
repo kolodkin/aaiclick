@@ -253,6 +253,17 @@ jobs:
         if: matrix.group == 'AI examples'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Cache Ollama models
+        if: matrix.group == 'AI examples'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-3b
+
+      - name: Pull Ollama model
+        if: matrix.group == 'AI examples'
+        run: |
           ollama serve &
           until ollama list >/dev/null 2>&1; do sleep 1; done
           ollama pull llama3.2:3b

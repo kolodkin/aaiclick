@@ -96,7 +96,7 @@ class OplogGraph:
 
         Builds a lookup from both full table IDs (t_123...) and their bare
         numeric parts (123...), then replaces all snowflake-shaped tokens
-        in a single regex pass. Unknown IDs are replaced with ``…``.
+        in a single regex pass. Unrecognized IDs are left unchanged.
         """
         lookup: dict[str, str] = {}
         for table_id, label in labels.items():
@@ -105,7 +105,7 @@ class OplogGraph:
                 lookup[table_id[2:]] = label
 
         def _sub(m: re.Match) -> str:
-            return lookup.get(m.group(), "…")
+            return lookup.get(m.group(), m.group())
 
         return OplogGraph._SNOWFLAKE_RE.sub(_sub, text)
 

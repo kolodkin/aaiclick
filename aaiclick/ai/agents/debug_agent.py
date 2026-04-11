@@ -4,6 +4,7 @@ aaiclick.ai.agents.debug_agent - LLM-powered result debugging with tool calling.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -82,9 +83,11 @@ async def debug_result(target_table: str, question: str) -> str:
             ],
         })
 
-        for tc in message.tool_calls:
-            args = json.loads(tc.function.arguments)
-            result = await dispatch_tool(tc.function.name, args)
+        tool_results = await asyncio.gather(
+            *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments))
+              for tc in message.tool_calls)
+        )
+        for tc, result in zip(message.tool_calls, tool_results):
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
