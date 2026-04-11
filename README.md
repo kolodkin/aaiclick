@@ -4,7 +4,16 @@ A Python framework that translates Python code into ClickHouse operations for bi
 
 ## Overview
 
-aaiclick provides a Python API for big data computing backed by ClickHouse. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries. An orchestration layer (Airflow-inspired) manages task dependencies and scheduling, while the Object API (Pandas/SQLAlchemy-inspired) keeps the interface familiar. Runs locally with embedded chdb + SQLite, or scales out with remote ClickHouse + PostgreSQL.
+aaiclick is a data orchestration framework built with three principles in mind:
+
+1. **Simplicity** — Python-native syntax and dynamic task execution.
+2. **Performance** — Utilizes ClickHouse's powerful distributed engine. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries.
+3. **AI Lineage Superpower** — Query your data flow. How did this value get here? Why don't we see that value there? Trace lineage across operations and debug pipelines with AI-powered agents.
+
+Local (in-process, zero setup) and distributed (Docker Compose provided) deployments.
+Runs locally with embedded chdb + SQLite, or scales out with remote ClickHouse + PostgreSQL.
+
+**Early stage — looking for early adopters to join the ride and provide feedback.**
 
 ## Installation
 
