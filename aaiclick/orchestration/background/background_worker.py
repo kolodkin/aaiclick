@@ -44,6 +44,21 @@ DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
+_REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
+
+
+async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> None:
+    """Delete all ref-table rows for the given table names."""
+    if not table_names:
+        return
+    ph, params = in_clause(table_names, "tn")
+    for ref_table in _REF_TABLES:
+        await session.execute(
+            text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
+            params,
+        )
+
+
 class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
@@ -248,20 +263,7 @@ class BackgroundWorker:
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
 
-                await session.execute(
-                    text(
-                        "DELETE FROM table_context_refs "
-                        "WHERE table_name = :table_name"
-                    ),
-                    {"table_name": table_name},
-                )
-                await session.execute(
-                    text(
-                        "DELETE FROM table_pin_refs "
-                        "WHERE table_name = :table_name"
-                    ),
-                    {"table_name": table_name},
-                )
+            await _delete_table_refs(session, table_names)
 
             await session.commit()
 
@@ -377,20 +379,7 @@ class BackgroundWorker:
                 )
 
             # Delete ref tables for tables belonging to this job
-            if table_names:
-                ph, params = in_clause(table_names, "tn")
-                await session.execute(
-                    text(f"DELETE FROM table_context_refs WHERE table_name IN ({ph})"),
-                    params,
-                )
-                await session.execute(
-                    text(f"DELETE FROM table_pin_refs WHERE table_name IN ({ph})"),
-                    params,
-                )
-                await session.execute(
-                    text(f"DELETE FROM table_run_refs WHERE table_name IN ({ph})"),
-                    params,
-                )
+            await _delete_table_refs(session, table_names)
 
             # Delete tasks
             await session.execute(
