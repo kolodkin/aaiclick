@@ -211,6 +211,7 @@ __marimo__/
 
 # Temporary CI output files
 tmp/
+.tmp/
 
 # GitHub CLI downloads
 gh_*.tar.gz
