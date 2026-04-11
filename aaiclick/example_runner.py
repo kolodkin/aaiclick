@@ -7,10 +7,14 @@ output to .tmp/<example_name>.txt. Results are printed in execution order.
 
 import asyncio
 import contextlib
+import multiprocessing
 import os
 import pathlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, Coroutine
+
+# "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
+_mp_ctx = multiprocessing.get_context("spawn")
 
 TMP_DIR = pathlib.Path(".tmp")
 
@@ -53,7 +57,7 @@ def run_all(examples: ExampleList, banner: str):
     results: dict[str, pathlib.Path] = {}
     max_workers = min(len(examples), os.cpu_count() or 1)
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as executor:
         futures = {
             executor.submit(run_example, title, func): title
             for title, func in examples

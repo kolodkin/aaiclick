@@ -93,7 +93,7 @@ async def example():
     async with lineage_context():
         graph = await oplog_subgraph(target_table, direction="backward")
 
-        print(f"\n{len(graph.nodes)} operations, {len(graph.edges)} edges\n")
+        print(f"\n{len(graph.nodes)} operations, {len(graph.edges)} edges\n")  # → 5 operations, 4 edges
         for edge in graph.edges:
             print(f"  {edge.source} -> {edge.target}  (via {edge.operation})")
 
