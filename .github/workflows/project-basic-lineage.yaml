@@ -1,0 +1,74 @@
+name: project-basic-lineage
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  AAICLICK_AI_MODEL: ollama/llama3.2:3b
+
+jobs:
+  basic-lineage:
+    runs-on: ubuntu-latest
+
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        env:
+          OLLAMA_HOST: 0.0.0.0
+        ports:
+          - 11434:11434
+        volumes:
+          - /home/runner/.ollama:/root/.ollama
+        options: >-
+          --health-cmd "bash -c 'echo > /dev/tcp/localhost/11434'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml\naaiclick/example_projects/basic_lineage/uv.lock"
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen --extra ai --python 3.10
+
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-3b
+
+      - name: Setup local backend and pull model
+        run: uv run python -m aaiclick setup --ai
+
+      - name: Run Basic Lineage Example
+        env:
+          PYTHON: "uv run --project ${{ github.workspace }} python"
+          AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+        run: |
+          mkdir -p tmp
+          aaiclick/example_projects/basic_lineage/basic_lineage.sh 2>&1 | tee tmp/basic-lineage_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Add output to summary
+        if: always()
+        run: |
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Basic Lineage Example</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat tmp/basic-lineage_output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY

@@ -192,11 +192,6 @@ jobs:
             summary-title: Orchestration Examples Output
             needs-postgres: true
             extras: distributed
-          - group: AI examples
-            module: aaiclick.ai.examples.run_all
-            summary-title: AI Examples Output
-            needs-postgres: true
-            extras: "distributed --extra ai"
 
     services:
       clickhouse:
@@ -249,25 +244,6 @@ jobs:
         run: |
           uv run python -m aaiclick migrate upgrade head
 
-      - name: Install Ollama
-        if: matrix.group == 'AI examples'
-        run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-
-      - name: Cache Ollama models
-        if: matrix.group == 'AI examples'
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-llama3.2-3b
-
-      - name: Pull Ollama model
-        if: matrix.group == 'AI examples'
-        run: |
-          ollama serve &
-          until ollama list >/dev/null 2>&1; do sleep 1; done
-          ollama pull llama3.2:3b
-
       - name: Run examples
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
@@ -283,7 +259,6 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
-          AAICLICK_AI_MODEL: ${{ matrix.group == 'AI examples' && 'ollama/llama3.2:3b' || '' }}
         run: |
           mkdir -p tmp
           uv run python -m ${{ matrix.module }} 2>&1 | tee tmp/examples_output.txt

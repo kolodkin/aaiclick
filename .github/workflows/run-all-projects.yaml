@@ -34,6 +34,13 @@ jobs:
       actions: read
       checks: write
 
+  basic-lineage:
+    uses: ./.github/workflows/project-basic-lineage.yaml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+
   ai-tests:
     uses: ./.github/workflows/project-ai-tests.yaml
     permissions:
