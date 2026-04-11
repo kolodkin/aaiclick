@@ -280,10 +280,11 @@ async def create_object(
     register_object(obj)  # Object lifecycle: track for stale marking on exit
     await get_ch_client().command(create_query)
 
-    # Register every new non-persistent table in table_registry for cleanup worker.
+    # Register table in table_registry for cleanup worker.
+    # In orch mode this records the job_id so all tables (including persistent)
+    # are scoped to their job and cleaned up when the job expires.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
-    if not obj.persistent:
-        oplog_record_table(obj.table)
+    oplog_record_table(obj.table)
 
     return obj
 

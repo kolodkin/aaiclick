@@ -8,17 +8,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, PendingCleanupTask
-
-
-def _in_clause(ids: list, prefix: str) -> tuple[str, dict]:
-    """Build a parameterized IN clause for SQLite.
-
-    Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).
-    """
-    params = {f"{prefix}{i}": v for i, v in enumerate(ids)}
-    placeholders = ", ".join(f":{k}" for k in params)
-    return placeholders, params
+from .handler import BackgroundHandler, PendingCleanupTask, in_clause
 
 
 class SqliteBackgroundHandler(BackgroundHandler):
@@ -28,7 +18,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
     async def mark_dead_workers(
         session: AsyncSession, dead_worker_ids: list[int], now: datetime,
     ) -> None:
-        placeholders, params = _in_clause(dead_worker_ids, "wid")
+        placeholders, params = in_clause(dead_worker_ids, "wid")
         params["now"] = now
         await session.execute(
             text(f"UPDATE workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),
@@ -46,7 +36,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
 
     @staticmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
-        placeholders, params = _in_clause(run_ids, "rid")
+        placeholders, params = in_clause(run_ids, "rid")
         await session.execute(
             text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
             params,
