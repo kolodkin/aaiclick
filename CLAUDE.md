@@ -365,48 +365,6 @@ or restating what surrounding prose already says. Collapsible `???` for optional
     No lookaheads or lookbehinds.
 ```
 
-## Documentation Patterns
-
-**For Implemented Features**:
-```markdown
-## Feature Name ✅ IMPLEMENTED
-
-**Implementation**: `path/to/file.py` - see `ClassName.method()` or `function_name()`
-
-Brief description with link to code instead of duplicating implementation details.
-See actual code for complete implementation.
-```
-
-**For Unimplemented Features**:
-```markdown
-## Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
-
-Detailed specification with code examples, data models, and API design.
-This serves as the design document for future implementation.
-```
-
-**For Data Models**:
-```markdown
-## ModelName
-
-**Implementation**: `aaiclick/module/models.py` - see `ModelName` class
-
-**Note**: Actual implementation details (e.g., "uses UPPERCASE enums", "BIGINT for IDs")
-
-```python
-# Show actual code structure from implementation
-class ModelName:
-    field: Type = ...
-```
-```
-
-## Example: Orchestration Backend
-
-See `docs/orchestration.md` for the full specification:
-
-- **Specification**: Comprehensive design document referencing actual code
-- **No Duplication**: Implemented features point to code instead of duplicating
-
 # Making Changes
 
 1. Read relevant files before editing
