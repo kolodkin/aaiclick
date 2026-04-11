@@ -4,6 +4,8 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
+import asyncio
+
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
@@ -33,12 +35,17 @@ async def explain_lineage(target_table: str, question: str | None = None) -> str
     if schemas:
         context += "\n\n" + schemas
 
-    for node in graph.nodes:
-        try:
-            sample = await sample_table(node.table, limit=3)
-            context += f"\n\nSample rows from `{node.table}`:\n{sample}"
-        except Exception:
-            pass
+    samples = await asyncio.gather(
+        *(sample_table(node.table, limit=3) for node in graph.nodes),
+        return_exceptions=True,
+    )
+    parts = [
+        f"\n\nSample rows from `{node.table}`:\n{sample}"
+        for node, sample in zip(graph.nodes, samples)
+        if not isinstance(sample, Exception)
+    ]
+    if parts:
+        context += "".join(parts)
 
     prompt = question or f"Explain how the table `{target_table}` was produced."
     provider = get_ai_provider()

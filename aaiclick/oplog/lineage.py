@@ -49,6 +49,11 @@ class OplogEdge:
     operation: str
 
 
+_OP_LABEL_NAMES: dict[str, str] = {
+    "+": "add", "-": "subtract", "*": "multiply", "/": "divide",
+}
+
+
 @dataclass
 class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
@@ -76,8 +81,7 @@ class OplogGraph:
                 labels[node.table] = f"source_{letter}"
                 source_counter += 1
             else:
-                op = node.operation.replace("+", "add").replace("*", "multiply").replace(
-                    "-", "subtract").replace("/", "divide")
+                op = _OP_LABEL_NAMES.get(node.operation, node.operation)
                 count = op_counters.get(op, 0)
                 op_counters[op] = count + 1
                 labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
