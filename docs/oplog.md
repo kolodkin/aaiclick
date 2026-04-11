@@ -63,9 +63,9 @@ Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage
 
 # Table Lifecycle & Cleanup ✅ IMPLEMENTED
 
-**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_expired_samples()`
+**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_expired_jobs()`
 
-`lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` preserving lineage-referenced rows (fallback: random 10 rows). `BackgroundWorker._cleanup_expired_samples()` drops sample tables older than `AAICLICK_JOB_TTL_DAYS`. `BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
+All cleanup is job-driven. `lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` preserving lineage-referenced rows (fallback: random 10 rows) and registers the sample in `table_registry` with the owning job's metadata. `BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, samples, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago. Orphaned resources (no job association) are cleaned up after the same TTL.
 
 ---
 

@@ -9,40 +9,77 @@ lineage references exist.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_FALLBACK_SAMPLE = 10
 
 
-async def lineage_aware_drop(ch_client: object, table_name: str) -> None:
+class TableOwner(NamedTuple):
+    """Ownership metadata for a table, copied from table_registry."""
+
+    job_id: int | None = None
+    task_id: int | None = None
+    run_id: int | None = None
+
+
+async def lineage_aware_drop(
+    ch_client: object,
+    table_name: str,
+    owner: TableOwner | None = None,
+) -> None:
     """Replace a table with its lineage-referenced rows, then drop the original.
 
     1. Query operation_log for aai_ids referenced by this table
     2. If found, create a sample table with those rows
     3. If not found, fall back to LIMIT 10 random sample
-    4. Drop the original table
+    4. Register the sample in table_registry with owner metadata
+    5. Drop the original table
 
     Best effort — exceptions are logged but do not propagate.
+
+    Args:
+        ch_client: Async ClickHouse client.
+        table_name: Table to drop.
+        owner: Ownership metadata (job_id, task_id, run_id) from the
+            original table's registry entry. When set, the sample table
+            is registered in table_registry so it gets cleaned up when
+            the job expires.
     """
+    sample_created = False
+    sample_name = f"{table_name}_sample"
     try:
         referenced_ids = await _get_lineage_aai_ids(ch_client, table_name)
 
         if referenced_ids:
             ids_list = ", ".join(str(i) for i in referenced_ids)
             await ch_client.command(
-                f"CREATE TABLE IF NOT EXISTS {table_name}_sample "
+                f"CREATE TABLE IF NOT EXISTS {sample_name} "
                 f"ENGINE = MergeTree() ORDER BY tuple() "
                 f"AS SELECT * FROM {table_name} WHERE aai_id IN ({ids_list})"
             )
         else:
             await ch_client.command(
-                f"CREATE TABLE IF NOT EXISTS {table_name}_sample "
+                f"CREATE TABLE IF NOT EXISTS {sample_name} "
                 f"ENGINE = MergeTree() ORDER BY tuple() "
                 f"AS SELECT * FROM {table_name} LIMIT {DEFAULT_FALLBACK_SAMPLE}"
             )
+        sample_created = True
     except Exception:
         logger.debug("Failed to create sample for %s", table_name, exc_info=True)
+
+    if sample_created and owner is not None and owner.job_id is not None:
+        job_val = str(owner.job_id)
+        task_val = str(owner.task_id) if owner.task_id is not None else "NULL"
+        run_val = str(owner.run_id) if owner.run_id is not None else "NULL"
+        try:
+            await ch_client.command(
+                "INSERT INTO table_registry (table_name, job_id, task_id, run_id, created_at) "
+                f"VALUES ('{sample_name}', {job_val}, {task_val}, {run_val}, now64(3))"
+            )
+        except Exception:
+            logger.debug("Failed to register sample %s", sample_name, exc_info=True)
 
     try:
         await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
