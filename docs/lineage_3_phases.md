@@ -106,7 +106,8 @@ exactly the rows the user cares about.
 
 # Phase 3 -- Row Trace (replay scope)
 
-Re-run part of the job on the targeted subset to produce a full row-level trace.
+Re-run the entire job with a `SamplingStrategy` applied. The strategy from
+Phase 2 tells each operation which rows to track.
 
 ## Input Tasks via Persistent Tables
 
@@ -131,31 +132,12 @@ Persistent tables survive cleanup, so their data is always available for
 replay. Ephemeral tables may be gone — the system walks the task graph
 backward and stops at input tasks whose output is guaranteed to exist.
 
-## Clear Task
-
-Before replay, the system identifies input tasks in the upstream path and
-clears everything downstream. The choice of where to start depends on the
-question:
-
-| Question                          | Input task boundary   | Why                                       |
-|-----------------------------------|-----------------------|-------------------------------------------|
-| Why NULLs in the merged table?    | merge task            | `p_kev_catalog`, `p_scores` exist         |
-| Why is CVE-X missing entirely?    | ingest task           | Re-fetch into `p_kev_catalog`             |
-| Why wrong scores after transform? | transform task        | `p_raw_scores` exists                     |
-
-**Clear** resets the selected task and all its downstream tasks to PENDING --
-same concept as Airflow's "clear task". Input tasks' persistent tables remain
-as-is and become the replay inputs.
-
 ## Replay
 
-1. Clear the target task + downstream
-2. Re-run from that task, scoped to the `aai_id`s found in Phase 2
-3. Record lineage at each step -- smart sampling, not random
-
-This is a **replay**, not a query against existing oplog data. The original job
-may have processed millions of rows; the replay processes only the rows that
-answer the question.
+1. Re-run the entire job with the `SamplingStrategy` from Phase 2
+2. At each operation, sample the targeted rows (not random)
+3. After replay, the oplog contains a complete row-level trace for the
+   strategy-matched rows
 
 **Smart sampling**: during replay, every operation samples the targeted rows
 (not a random subset). The result is a complete trace from source to output for
@@ -173,13 +155,12 @@ source values, and where in the pipeline did the data appear or disappear.
 | Phase 0 | Not yet implemented | Introduce `SamplingStrategy`; remove random sampling          |
 | Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
 | Phase 2 | Not yet implemented | AI agent: question + graph → `SamplingStrategy`               |
-| Phase 3 | Not yet implemented | Needs: clear task + downstream, replay with smart sampling    |
+| Phase 3 | Not yet implemented | Re-run entire job with strategy-driven smart sampling         |
 
 ## Prerequisites for Phase 3
 
 | Prerequisite               | Status              | Notes                                              |
 |----------------------------|---------------------|----------------------------------------------------|
-| Clear task + downstream    | Not yet implemented | Reset selected task and all downstream to PENDING  |
 | Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
 
 ## Documentation Updates
@@ -192,5 +173,5 @@ Each phase should update the relevant docs as it lands:
 | Phase 0 | `docs/data_context.md` — document preservation modes (normal/full/strategy) |
 | Phase 1 | Already documented in `docs/oplog.md`                                   |
 | Phase 2 | `docs/ai.md` — add strategy agent to agent tools table                  |
-| Phase 3 | `docs/orchestration.md` — document clear task + replay mechanism        |
+| Phase 3 | `docs/orchestration.md` — document replay mechanism                     |
 | Phase 3 | `docs/data_context.md` — document input task detection via persistent Objects |

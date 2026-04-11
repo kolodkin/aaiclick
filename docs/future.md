@@ -84,6 +84,10 @@ Question-driven lineage debugging in three phases: graph structure (have today),
 
 **Design**: `docs/lineage_3_phases.md`
 
+## Clear Task + Downstream
+
+Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
+
 ---
 
 # Deferred
