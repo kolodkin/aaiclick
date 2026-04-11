@@ -365,12 +365,4 @@ or restating what surrounding prose already says. Collapsible `???` for optional
     No lookaheads or lookbehinds.
 ```
 
-# Making Changes
-
-1. Read relevant files before editing
-2. Make focused, minimal changes
-3. Update tests if needed
-4. Commit with descriptive messages
-5. Push to feature branch
-6. Run `check-pr` skill to verify CI passes
 
