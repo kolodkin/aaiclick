@@ -53,8 +53,8 @@ strategy = {
 - `AAICLICK_OPLOG_SAMPLE_SIZE` env var
 
 **Keep as-is**: `kwargs_aai_ids` / `result_aai_ids` columns (Phase 2 populates
-them), `lineage_aware_drop()` (handles empty arrays), `_cleanup_expired_samples()`,
-and all Phase 1 graph queries.
+them), `lineage_aware_drop()` (handles empty arrays), and all Phase 1 graph
+queries. Cleanup is now job-driven via `_cleanup_expired_jobs()`.
 
 ---
 
@@ -139,7 +139,7 @@ Each phase should update the relevant docs as it lands:
 
 | Phase   | Docs to update                                                          |
 |---------|-------------------------------------------------------------------------|
-| Phase 0 | `docs/oplog.md` — remove sampling references, add strategy interface   |
+| Phase 0 | `docs/oplog.md` — remove `AAICLICK_OPLOG_SAMPLE_SIZE`, add strategy interface |
 | Phase 0 | `docs/data_context.md` — document preservation modes (normal/full/strategy) |
 | Phase 1 | Already documented in `docs/oplog.md`                                   |
 | Phase 2 | `docs/ai.md` — add strategy agent to agent tools table                  |
