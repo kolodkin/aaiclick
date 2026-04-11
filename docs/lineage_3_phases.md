@@ -18,16 +18,6 @@ Same task execution, different cleanup behavior.
 | **Full**     | All tables                           | Development / debugging      |
 | **Strategy** | Persistent + strategy-matched rows   | Lineage replay (Phase 2+3)  |
 
-**Normal** is the current default — ephemeral tables are dropped by the
-background worker when refs clear, persistent tables (`p_` prefix) survive.
-
-**Full** preserves all tables. Useful during development to inspect
-intermediate results. Storage-expensive, not for production.
-
-**Strategy** is the lineage mode — the `SamplingStrategy` (`dict[str, str]`)
-determines which rows to preserve at each table. You don't pay the storage
-cost of keeping everything, but the rows that answer your question survive.
-
 ---
 
 # Phase 0 -- Introduce Sampling Strategy
@@ -43,7 +33,7 @@ SamplingStrategy = dict[str, str]
 # Default: empty — no targeting, columns stay empty
 strategy: SamplingStrategy = {}
 
-# Phase 2 AI agent will produce:
+# Phase 2 output:
 strategy = {
     "t_kev_catalog": "cve_id = 'CVE-2024-001'",
     "t_merged": "vendor IS NULL",
@@ -62,12 +52,9 @@ strategy = {
 
 - `AAICLICK_OPLOG_SAMPLE_SIZE` env var
 
-**Keep as-is**:
-
-- `kwargs_aai_ids` and `result_aai_ids` columns on `operation_log` — populated when strategy is provided
-- `lineage_aware_drop()` in `cleanup.py` — handles empty arrays gracefully (falls back to random rows)
-- `_cleanup_expired_samples()` — still needed for table lifecycle
-- All Phase 1 graph queries — they only use table-level metadata
+**Keep as-is**: `kwargs_aai_ids` / `result_aai_ids` columns (Phase 2 populates
+them), `lineage_aware_drop()` (handles empty arrays), `_cleanup_expired_samples()`,
+and all Phase 1 graph queries.
 
 ---
 
@@ -88,19 +75,12 @@ operations, SQL templates, and task/job IDs. No row sampling needed.
 The AI agent takes a natural language question + the graph from Phase 1, and
 outputs a `SamplingStrategy` (`dict[str, str]`).
 
-| Question                                 | Agent output                                                          |
-|------------------------------------------|-----------------------------------------------------------------------|
-| Why does CVE-X have no KEV data?         | `{"t_kev_catalog": "cve_id = 'CVE-X'", "t_merged": "vendor IS NULL"}` |
-| Why no data before 12/04?                | `{"t_raw_feed": "date < '2024-12-04'", "t_output": "date < '2024-12-04'"}` |
-| How come negative values in table T?     | `{"t_scores": "cvss < 0", "t_raw_feed": "cvss < 0"}`                  |
-| No rows with vendor score < X?           | `{"t_source": "vendor_score < 5", "t_output": "vendor_score < 5"}`    |
+| Question                             | Agent output                                                           |
+|--------------------------------------|------------------------------------------------------------------------|
+| Why does CVE-X have no KEV data?     | `{"t_kev_catalog": "cve_id = 'CVE-X'", "t_merged": "vendor IS NULL"}` |
+| How come negative values in table T? | `{"t_scores": "cvss < 0", "t_raw_feed": "cvss < 0"}`                  |
 
-The agent has access to the graph structure (tables, operations, schemas) and
-translates the user's question into WHERE clauses on the right tables.
-
-**Key insight**: the question *is* the pin. No pre-sampling or pre-pinning
-needed. The AI agent maps the question to the strategy, the strategy targets
-exactly the rows the user cares about.
+The question *is* the pin — no pre-sampling needed.
 
 ---
 
@@ -125,26 +105,16 @@ async def merge_sources(kev: Object, scores: Object) -> Object:
     return await kev.concat(scores)  # → ephemeral table
 ```
 
-`fetch_kev_catalog` is an input task (returns persistent Object).
-`merge_sources` is not (returns ephemeral Object).
-
-Persistent tables survive cleanup, so their data is always available for
-replay. Ephemeral tables may be gone — the system walks the task graph
-backward and stops at input tasks whose output is guaranteed to exist.
+Persistent tables survive cleanup, so replay always has its inputs.
+The system walks the task graph backward and stops at input tasks.
 
 ## Replay
 
 1. Re-run the entire job with the `SamplingStrategy` from Phase 2
 2. At each operation, sample the targeted rows (not random)
-3. After replay, the oplog contains a complete row-level trace for the
-   strategy-matched rows
 
-**Smart sampling**: during replay, every operation samples the targeted rows
-(not a random subset). The result is a complete trace from source to output for
-exactly the rows the user cares about.
-
-**Answers**: for this specific row, what operation produced it, what were its
-source values, and where in the pipeline did the data appear or disappear.
+After replay, the oplog contains a complete source-to-output trace for the
+strategy-matched rows.
 
 ---
 
