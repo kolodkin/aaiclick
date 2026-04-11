@@ -140,7 +140,18 @@ def _run_setup(ai: bool = False):
         else:
             print(f"\nAI model: {model} (not an Ollama model — nothing to pull)")
 
+    # Write setup_done flag
+    root = get_root()
+    Path(root).mkdir(parents=True, exist_ok=True)
+    (root / "setup_done").write_text("")
     print("Setup complete.")
+
+
+def setup_done() -> bool:
+    """Return True if setup has already been run."""
+    from aaiclick.backend import get_root as _get_root
+
+    return (_get_root() / "setup_done").exists()
 
 
 def main():

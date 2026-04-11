@@ -140,9 +140,20 @@ async def start_local(max_tasks: Optional[int] = None) -> None:
     singleton.  This avoids the file-lock conflict that occurs when
     multiple OS processes open the same chdb data directory.
 
+    Automatically runs setup if it hasn't been run yet.
+
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
+    from aaiclick.__main__ import setup_done
+
+    if not setup_done():
+        from aaiclick.__main__ import _run_setup
+
+        print("Setup not yet run — running setup automatically...\n")
+        _run_setup()
+        print()
+
     background = BackgroundWorker()
     await background.start()
     try:
