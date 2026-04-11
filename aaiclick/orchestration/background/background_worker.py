@@ -269,7 +269,7 @@ class BackgroundWorker:
         """Look up ownership metadata from table_registry for a list of table names."""
         if not table_names:
             return {}
-        escaped = ", ".join(f"'{t}'" for t in table_names)
+        escaped = ", ".join("'" + t.replace("'", "\\'") + "'" for t in table_names)
         try:
             result = await self._ch_client.query(
                 f"SELECT table_name, job_id, task_id, run_id FROM table_registry "

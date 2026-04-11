@@ -70,13 +70,14 @@ async def lineage_aware_drop(
         logger.debug("Failed to create sample for %s", table_name, exc_info=True)
 
     if sample_created and owner is not None and owner.job_id is not None:
+        sample_escaped = sample_name.replace("'", "\\'")
         job_val = str(owner.job_id)
         task_val = str(owner.task_id) if owner.task_id is not None else "NULL"
         run_val = str(owner.run_id) if owner.run_id is not None else "NULL"
         try:
             await ch_client.command(
                 "INSERT INTO table_registry (table_name, job_id, task_id, run_id, created_at) "
-                f"VALUES ('{sample_name}', {job_val}, {task_val}, {run_val}, now64(3))"
+                f"VALUES ('{sample_escaped}', {job_val}, {task_val}, {run_val}, now64(3))"
             )
         except Exception:
             logger.debug("Failed to register sample %s", sample_name, exc_info=True)
