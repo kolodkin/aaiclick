@@ -81,7 +81,6 @@ jobs:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
-          fail-on-empty: false
 
   test-dist:
     runs-on: ubuntu-latest
@@ -174,7 +173,6 @@ jobs:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
-          fail-on-empty: false
 
   examples:
     runs-on: ubuntu-latest
