@@ -76,11 +76,12 @@ jobs:
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
-        if: always() && hashFiles('tmp/pytest-report.xml') != ''
+        if: always()
         with:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
+          fail-on-empty: false
 
   test-dist:
     runs-on: ubuntu-latest
@@ -168,11 +169,12 @@ jobs:
 
       - name: Publish test results
         uses: dorny/test-reporter@v2
-        if: always() && hashFiles('tmp/pytest-report.xml') != ''
+        if: always()
         with:
           name: "Pytest Results (${{ matrix.group }})"
           path: tmp/pytest-report.xml
           reporter: java-junit
+          fail-on-empty: false
 
   examples:
     runs-on: ubuntu-latest
