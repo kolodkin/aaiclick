@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+import re
 from typing import Any, AsyncIterator
 
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
@@ -48,12 +49,65 @@ class OplogEdge:
     operation: str
 
 
+_OP_LABEL_NAMES: dict[str, str] = {
+    "+": "add", "-": "subtract", "*": "multiply", "/": "divide",
+}
+
+
 @dataclass
 class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
     edges: list[OplogEdge] = field(default_factory=list)
 
     _ID_BREAKING_OPS = frozenset({"insert", "concat"})
+
+    def build_labels(self) -> dict[str, str]:
+        """Assign human-readable labels to each table based on its operation.
+
+        Returns a mapping from table ID to label (e.g. source_A, multiply_result).
+        Used for post-processing agent responses — NOT injected into the prompt
+        so the LLM can still reference real table names in tool calls.
+        """
+        labels: dict[str, str] = {}
+        source_counter = 0
+        op_counters: dict[str, int] = {}
+        source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+        for node in reversed(self.nodes):
+            if node.table in labels:
+                continue
+            if node.operation == "create_from_value":
+                letter = source_letters[source_counter % len(source_letters)]
+                labels[node.table] = f"source_{letter}"
+                source_counter += 1
+            else:
+                op = _OP_LABEL_NAMES.get(node.operation, node.operation)
+                count = op_counters.get(op, 0)
+                op_counters[op] = count + 1
+                labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
+
+        return labels
+
+    _SNOWFLAKE_RE = re.compile(r"\bt_\d{16,20}\b|\b\d{16,20}\b")
+
+    @staticmethod
+    def replace_labels(text: str, labels: dict[str, str]) -> str:
+        """Replace raw table IDs and snowflake IDs in text with labels.
+
+        Builds a lookup from both full table IDs (t_123...) and their bare
+        numeric parts (123...), then replaces all snowflake-shaped tokens
+        in a single regex pass. Unrecognized IDs are left unchanged.
+        """
+        lookup: dict[str, str] = {}
+        for table_id, label in labels.items():
+            lookup[table_id] = label
+            if table_id.startswith("t_"):
+                lookup[table_id[2:]] = label
+
+        def _sub(m: re.Match) -> str:
+            return lookup.get(m.group(), m.group())
+
+        return OplogGraph._SNOWFLAKE_RE.sub(_sub, text)
 
     def to_prompt_context(self) -> str:
         """Format the graph as human-readable text for LLM consumption."""
@@ -65,23 +119,12 @@ class OplogGraph:
             lines.append(f"- Operation: `{node.operation}`")
             for k, v in node.kwargs.items():
                 lines.append(f"- {k}: `{v}`")
-            for k, ids in node.kwargs_aai_ids.items():
-                if ids:
-                    lines.append(f"- {k}_aai_ids: {ids}")
-            if node.result_aai_ids:
-                lines.append(f"- result_aai_ids: {node.result_aai_ids}")
             if node.sql_template:
                 lines.append(f"- SQL: `{node.sql_template}`")
-            if node.task_id is not None:
-                lines.append(f"- Task ID: {node.task_id}")
-            if node.job_id is not None:
-                lines.append(f"- Job ID: {node.job_id}")
             if node.operation in self._ID_BREAKING_OPS:
                 lines.append(
                     f"- ⚠ `{node.operation}` generates fresh aai_id values — "
-                    "source and target aai_ids do NOT match. "
-                    "Use data-value matching or oplog provenance metadata "
-                    "to trace rows across this boundary."
+                    "source and target aai_ids do NOT match."
                 )
 
         if self.edges:

@@ -4,22 +4,23 @@ aaiclick.ai.agents.debug_agent - LLM-powered result debugging with tool calling.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
-from litellm import acompletion
-
-from aaiclick.oplog.lineage import oplog_subgraph
+from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
-from aaiclick.ai.agents.prompts import AAI_ID_WARNING
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
 
 _SYSTEM_PROMPT = f"""\
 You are a data debugging expert analyzing a ClickHouse data pipeline.
-Use the available tools to investigate the data and answer the user's question.
-Be specific, cite actual values, and trace root causes.
+Use the available tools to investigate data and answer the question.
+Be specific: cite actual values and trace the root cause.
 
-{AAI_ID_WARNING}"""
+{AAI_ID_WARNING}
+
+{OUTPUT_FORMAT}"""
 
 _MAX_TOOL_ROUNDS = 10
 
@@ -34,6 +35,7 @@ async def debug_result(target_table: str, question: str) -> str:
         "Which input caused the NaN values?"
     """
     graph = await oplog_subgraph(target_table, direction="backward")
+    labels = graph.build_labels()
     context = graph.to_prompt_context()
 
     schemas = await get_schemas_for_nodes(graph.nodes)
@@ -52,19 +54,12 @@ async def debug_result(target_table: str, question: str) -> str:
     # Each iteration appends tool results to the conversation and re-queries the model.
     # Loop exits early when the model stops requesting tools (finish_reason != "tool_calls").
     for _ in range(_MAX_TOOL_ROUNDS):
-        kwargs: dict[str, Any] = {
-            "model": provider.model,
-            "messages": messages,
-            "tools": TOOL_DEFINITIONS,
-        }
-        if provider._api_key:
-            kwargs["api_key"] = provider._api_key
-        response = await acompletion(**kwargs)
+        response = await provider.complete(messages, tools=TOOL_DEFINITIONS)
         choice = response.choices[0]
         message = choice.message
 
         if choice.finish_reason != "tool_calls" or not message.tool_calls:
-            return message.content or ""
+            return OplogGraph.replace_labels(message.content or "", labels)
 
         messages.append({
             "role": "assistant",
@@ -79,9 +74,11 @@ async def debug_result(target_table: str, question: str) -> str:
             ],
         })
 
-        for tc in message.tool_calls:
-            args = json.loads(tc.function.arguments)
-            result = await dispatch_tool(tc.function.name, args)
+        tool_results = await asyncio.gather(
+            *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments))
+              for tc in message.tool_calls)
+        )
+        for tc, result in zip(message.tool_calls, tool_results):
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
@@ -90,8 +87,5 @@ async def debug_result(target_table: str, question: str) -> str:
 
     # Max rounds reached — ask for final answer without tools
     messages.append({"role": "user", "content": "Please provide your final answer."})
-    final_kwargs: dict[str, Any] = {"model": provider.model, "messages": messages}
-    if provider._api_key:
-        final_kwargs["api_key"] = provider._api_key
-    response = await acompletion(**final_kwargs)
-    return response.choices[0].message.content or ""
+    response = await provider.complete(messages)
+    return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)

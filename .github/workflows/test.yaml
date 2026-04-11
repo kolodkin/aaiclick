@@ -21,6 +21,7 @@ env:
 jobs:
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -39,6 +40,7 @@ jobs:
 
   test-local:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
@@ -82,6 +84,7 @@ jobs:
 
   test-dist:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
@@ -173,6 +176,7 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
       fail-fast: false
@@ -182,10 +186,17 @@ jobs:
             module: aaiclick.data.examples.run_all
             summary-title: Data Examples Output
             needs-postgres: false
+            extras: distributed
           - group: Orch examples
             module: aaiclick.orchestration.examples.run_all
             summary-title: Orchestration Examples Output
             needs-postgres: true
+            extras: distributed
+          - group: AI examples
+            module: aaiclick.ai.examples.run_all
+            summary-title: AI Examples Output
+            needs-postgres: true
+            extras: "distributed --extra ai"
 
     services:
       clickhouse:
@@ -229,7 +240,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra dev --python 3.10
+          uv sync --frozen --extra ${{ matrix.extras }} --python 3.10
 
       - name: Run database migrations
         if: matrix.needs-postgres
@@ -237,6 +248,25 @@ jobs:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: |
           uv run python -m aaiclick migrate upgrade head
+
+      - name: Install Ollama
+        if: matrix.group == 'AI examples'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Cache Ollama models
+        if: matrix.group == 'AI examples'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-3b
+
+      - name: Pull Ollama model
+        if: matrix.group == 'AI examples'
+        run: |
+          ollama serve &
+          until ollama list >/dev/null 2>&1; do sleep 1; done
+          ollama pull llama3.2:3b
 
       - name: Run examples
         env:
@@ -253,6 +283,7 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+          AAICLICK_AI_MODEL: ${{ matrix.group == 'AI examples' && 'ollama/llama3.2:3b' || '' }}
         run: |
           mkdir -p tmp
           uv run python -m ${{ matrix.module }} 2>&1 | tee tmp/examples_output.txt

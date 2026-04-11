@@ -9,3 +9,13 @@ AAI_ID_WARNING = (
     "(column contents) or use the oplog provenance metadata (kwargs_aai_ids positional\n"
     "alignment) — never assume aai_id equality between source and target."
 )
+
+OUTPUT_FORMAT = (
+    "Output rules:\n"
+    "- Be concise: short sentences, no filler.\n"
+    "- Structure: use numbered steps or bullet points.\n"
+    "- Describe the arithmetic flow: what operation, what inputs, what output.\n"
+    "- Cite actual data values from samples when relevant.\n"
+    "- Do NOT repeat the raw context back. Summarize it.\n"
+    "- Maximum 10-15 lines."
+)

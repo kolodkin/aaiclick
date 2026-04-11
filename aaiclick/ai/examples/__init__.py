@@ -1,0 +1,3 @@
+"""
+aaiclick.ai examples package.
+"""
