@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+import re
 from typing import Any, AsyncIterator
 
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
@@ -83,12 +84,26 @@ class OplogGraph:
 
         return labels
 
+    _SNOWFLAKE_RE = re.compile(r"\bt_\d{16,20}\b|\b\d{16,20}\b")
+
     @staticmethod
     def replace_labels(text: str, labels: dict[str, str]) -> str:
-        """Replace raw table IDs in text with human-readable labels."""
+        """Replace raw table IDs and snowflake IDs in text with labels.
+
+        Builds a lookup from both full table IDs (t_123...) and their bare
+        numeric parts (123...), then replaces all snowflake-shaped tokens
+        in a single regex pass. Unknown IDs are replaced with ``…``.
+        """
+        lookup: dict[str, str] = {}
         for table_id, label in labels.items():
-            text = text.replace(table_id, label)
-        return text
+            lookup[table_id] = label
+            if table_id.startswith("t_"):
+                lookup[table_id[2:]] = label
+
+        def _sub(m: re.Match) -> str:
+            return lookup.get(m.group(), "…")
+
+        return OplogGraph._SNOWFLAKE_RE.sub(_sub, text)
 
     def to_prompt_context(self) -> str:
         """Format the graph as human-readable text for LLM consumption."""
