@@ -153,8 +153,7 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 Single process, no infrastructure required.
 
 ```bash
-python -m aaiclick setup                      # Initialize local DB + chdb
-python -m aaiclick local start [--max-tasks N]
+python -m aaiclick local start [--max-tasks N]  # auto-runs setup if needed
 python -m aaiclick local stop <worker_id>
 ```
 
