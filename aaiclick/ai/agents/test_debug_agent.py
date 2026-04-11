@@ -1,5 +1,5 @@
 """
-Tests for debug_result — mocks oplog_subgraph, acompletion, and dispatch_tool.
+Tests for debug_result — mocks oplog_subgraph, provider.complete, and dispatch_tool.
 """
 
 from __future__ import annotations
@@ -9,6 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph
 from aaiclick.ai.agents.debug_agent import debug_result
+
+
+def _mock_provider(*responses):
+    """Create a mock AIProvider whose complete() returns responses in order."""
+    provider = MagicMock()
+    if len(responses) == 1:
+        provider.complete = AsyncMock(return_value=responses[0])
+    else:
+        provider.complete = AsyncMock(side_effect=list(responses))
+    return provider
 
 
 def _stop_response(content: str) -> MagicMock:
@@ -39,23 +49,19 @@ async def test_debug_result_direct_answer():
     """Model answers without tools: oplog_subgraph is called and result contains the AI answer."""
     graph = _mock_graph(make_oplog_node("result", "add"))
     mock_subgraph = AsyncMock(return_value=graph)
-    captured: list[list] = []
-
-    async def mock_completion(**kwargs):
-        captured.append(kwargs["messages"])
-        return _stop_response("Because input was negative")
+    provider = _mock_provider(_stop_response("Because input was negative"))
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=mock_subgraph),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
     assert result == "Because input was negative"
     mock_subgraph.assert_called_once_with("result", direction="backward")
-    all_content = " ".join(str(m.get("content") or "") for m in captured[0])
+    messages = provider.complete.call_args[0][0]
+    all_content = " ".join(str(m.get("content") or "") for m in messages)
     assert "Why is this value negative?" in all_content
 
 
@@ -67,9 +73,8 @@ async def test_debug_result_with_one_tool_call():
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=AsyncMock(return_value="id | val\n1 | x")),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         result = await debug_result("result", "Why are there only 3 rows?")
@@ -87,9 +92,8 @@ async def test_debug_result_dispatches_correct_tool():
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=mock_dispatch),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         await debug_result("result", "What is the schema?")
@@ -100,22 +104,17 @@ async def test_debug_result_dispatches_correct_tool():
 async def test_debug_result_context_includes_schemas():
     """When schemas are available, they appear in the context sent to the LLM."""
     graph = _mock_graph(make_oplog_node("result", "add"))
-    captured: list[list] = []
-
-    async def mock_completion(**kwargs):
-        captured.append(kwargs["messages"])
-        return _stop_response("done")
-
     schema_text = "# Table Schemas\n\n`result`:\n  aai_id: UInt64\n  val: Float64"
+    provider = _mock_provider(_stop_response("done"))
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
     ):
         await debug_result("result", "Why?")
 
-    user_msg = captured[0][1]["content"]
+    messages = provider.complete.call_args[0][0]
+    user_msg = messages[1]["content"]
     assert "Table Schemas" in user_msg
     assert "val: Float64" in user_msg

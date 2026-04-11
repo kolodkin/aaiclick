@@ -8,8 +8,6 @@ import asyncio
 import json
 from typing import Any
 
-from litellm import acompletion
-
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
@@ -56,14 +54,7 @@ async def debug_result(target_table: str, question: str) -> str:
     # Each iteration appends tool results to the conversation and re-queries the model.
     # Loop exits early when the model stops requesting tools (finish_reason != "tool_calls").
     for _ in range(_MAX_TOOL_ROUNDS):
-        kwargs: dict[str, Any] = {
-            "model": provider.model,
-            "messages": messages,
-            "tools": TOOL_DEFINITIONS,
-        }
-        if provider._api_key:
-            kwargs["api_key"] = provider._api_key
-        response = await acompletion(**kwargs)
+        response = await provider.complete(messages, tools=TOOL_DEFINITIONS)
         choice = response.choices[0]
         message = choice.message
 
@@ -96,8 +87,5 @@ async def debug_result(target_table: str, question: str) -> str:
 
     # Max rounds reached — ask for final answer without tools
     messages.append({"role": "user", "content": "Please provide your final answer."})
-    final_kwargs: dict[str, Any] = {"model": provider.model, "messages": messages}
-    if provider._api_key:
-        final_kwargs["api_key"] = provider._api_key
-    response = await acompletion(**final_kwargs)
+    response = await provider.complete(messages)
     return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
