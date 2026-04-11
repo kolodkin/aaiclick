@@ -55,16 +55,20 @@ def run_all(examples: ExampleList, banner: str):
     TMP_DIR.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, pathlib.Path] = {}
-    max_workers = min(len(examples), os.cpu_count() or 1)
 
-    with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as executor:
-        futures = {
-            executor.submit(run_example, title, func): title
-            for title, func in examples
-        }
-        for future in as_completed(futures):
-            title = futures[future]
-            results[title] = future.result()
+    if len(examples) == 1:
+        title, func = examples[0]
+        results[title] = run_example(title, func)
+    else:
+        max_workers = min(len(examples), os.cpu_count() or 1)
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as executor:
+            futures = {
+                executor.submit(run_example, title, func): title
+                for title, func in examples
+            }
+            for future in as_completed(futures):
+                title = futures[future]
+                results[title] = future.result()
 
     for title, _ in examples:
         _print_collapsible(title, results[title])
