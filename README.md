@@ -4,7 +4,7 @@ A Python framework that translates Python code into ClickHouse operations for bi
 
 ## Overview
 
-aaiclick is a data orchestration framework built with three principles in mind:
+aaiclick is a data orchestration framework built to make distributed computing easy, with three principles in mind:
 
 1. **Simplicity** — Python-native syntax and dynamic task execution.
 2. **Performance** — Utilizes ClickHouse's powerful distributed engine. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries.
