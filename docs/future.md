@@ -78,6 +78,16 @@ columns automatically and returns stats for all of them in a single round-trip.
 `insert()` and `concat()` generate fresh Snowflake IDs, so `aai_id` values differ between source and target. Row-level tracing across these boundaries needs data-value matching or oplog provenance metadata instead of `aai_id` matching.
 
 
+## Lineage: Three-Phase Debugging
+
+Question-driven lineage debugging in three phases: graph structure (have today), targeted sampling via WHERE clauses derived from the user's question, and row-level trace using those targeted samples. Replaces random pre-sampling with on-demand, question-driven sampling.
+
+**Design**: `docs/lineage_3_phases.md`
+
+## Clear Task + Downstream
+
+Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
+
 ---
 
 # Deferred
