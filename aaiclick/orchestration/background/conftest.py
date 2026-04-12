@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -25,6 +26,18 @@ async def bg_db():
     yield engine
     await engine.dispose()
     shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+async def insert_job(engine, job_id, *, status="RUNNING"):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO jobs (id, name, status, run_type, created_at) "
+                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
+            ),
+            {"id": job_id, "status": status, "now": datetime.utcnow()},
+        )
+        await session.commit()
 
 
 async def insert_context_ref(engine, table_name, context_id):

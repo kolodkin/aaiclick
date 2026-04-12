@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
+from ..models import JobStatus, TaskStatus
+
+JOB_FAILED_ERROR = "One or more tasks failed"
+
 
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
@@ -23,6 +27,62 @@ def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     params = {f"{prefix}{i}": v for i, v in enumerate(ids)}
     placeholders = ", ".join(f":{k}" for k in params)
     return placeholders, params
+
+
+async def try_complete_job(session: AsyncSession, job_id: int) -> None:
+    """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
+
+    No-op while any task is still PENDING, CLAIMED, RUNNING, or PENDING_CLEANUP.
+    The terminal check is aggregated inside SQL (one row returned regardless
+    of task count) so this stays O(1) on the worker hot path even for large
+    jobs. Uses raw SQL on the passed session so it works both inside and
+    outside an active ``orch_context``. The caller is responsible for committing.
+    """
+    result = await session.execute(
+        text(
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  SUM(CASE WHEN status IN "
+            "    (:pending, :claimed, :running, :pending_cleanup) "
+            "    THEN 1 ELSE 0 END) AS non_terminal, "
+            "  SUM(CASE WHEN status = :failed THEN 1 ELSE 0 END) AS failed "
+            "FROM tasks WHERE job_id = :job_id"
+        ),
+        {
+            "job_id": job_id,
+            "pending": TaskStatus.PENDING.value,
+            "claimed": TaskStatus.CLAIMED.value,
+            "running": TaskStatus.RUNNING.value,
+            "pending_cleanup": TaskStatus.PENDING_CLEANUP.value,
+            "failed": TaskStatus.FAILED.value,
+        },
+    )
+    total, non_terminal, failed = result.one()
+    if not total or non_terminal:
+        return
+
+    now = datetime.utcnow()
+    if failed:
+        await session.execute(
+            text(
+                "UPDATE jobs SET status = :status, completed_at = :now, "
+                "error = :error WHERE id = :job_id"
+            ),
+            {
+                "job_id": job_id,
+                "now": now,
+                "status": JobStatus.FAILED.value,
+                "error": JOB_FAILED_ERROR,
+            },
+        )
+    else:
+        await session.execute(
+            text(
+                "UPDATE jobs SET status = :status, completed_at = :now "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": job_id, "now": now, "status": JobStatus.COMPLETED.value},
+        )
 
 
 class PendingCleanupTask(NamedTuple):
@@ -96,22 +156,31 @@ class BackgroundHandler(ABC):
         if has_retries:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = 'PENDING', "
+                    "UPDATE tasks SET status = :status, "
                     "attempt = :attempt, retry_after = :retry_after, "
                     "worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
                     "WHERE id = :task_id"
                 ),
-                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
+                {
+                    "task_id": task_id,
+                    "attempt": attempt,
+                    "retry_after": retry_after,
+                    "status": TaskStatus.PENDING.value,
+                },
             )
         else:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = 'FAILED', "
+                    "UPDATE tasks SET status = :status, "
                     "completed_at = :now "
                     "WHERE id = :task_id"
                 ),
-                {"task_id": task_id, "now": datetime.utcnow()},
+                {
+                    "task_id": task_id,
+                    "now": datetime.utcnow(),
+                    "status": TaskStatus.FAILED.value,
+                },
             )
 
 
