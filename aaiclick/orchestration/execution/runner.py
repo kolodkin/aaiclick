@@ -257,18 +257,17 @@ async def execute_task(task: Task) -> tuple[Any, str]:
 
     sampling_strategy: dict[str, str] | None = None
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task, Job)
-            .join(Job, Job.id == Task.job_id)
-            .where(Task.id == task.id),
-        )
-        row = result.one_or_none()
-        if row is not None:
-            db_task, job = row
+        result = await session.execute(select(Task).where(Task.id == task.id))
+        db_task = result.scalar_one_or_none()
+        if db_task is not None:
             db_task.run_ids = [*db_task.run_ids, run_id]
             db_task.run_statuses = [*db_task.run_statuses, TaskStatus.RUNNING.value]
             session.add(db_task)
             await session.commit()
+
+        job_row = await session.execute(select(Job).where(Job.id == task.job_id))
+        job = job_row.scalar_one_or_none()
+        if job is not None:
             sampling_strategy = job.sampling_strategy
 
     set_current_task_info(task_id=task.id, job_id=task.job_id)
