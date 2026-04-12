@@ -3,12 +3,14 @@
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Union
+from typing import Callable, Optional, Union
 
+from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.snowflake_id import get_snowflake_id
 
+from .env import get_default_preservation_mode
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, RunType, Task, TaskStatus
+from .models import Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
 from .task_registry import get_task_registry
 
 
@@ -138,6 +140,8 @@ async def create_job(
     *,
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
+    preservation_mode: Optional[PreservationMode] = None,
+    sampling_strategy: Optional[SamplingStrategy] = None,
 ) -> Job:
     """Create a Job and commit it to the database.
 
@@ -146,6 +150,12 @@ async def create_job(
         entry: Callback string, callable function, or Task object
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
+        preservation_mode: Which tables survive after the job completes.
+            Defaults to the value of ``AAICLICK_DEFAULT_PRESERVATION_MODE``
+            or ``PreservationMode.NONE``.
+        sampling_strategy: Per-table WHERE clauses that tell the oplog which
+            rows to track. Required when ``preservation_mode`` is
+            ``STRATEGY``; rejected in every other mode.
 
     Returns:
         Job object with id populated after database commit
@@ -161,6 +171,19 @@ async def create_job(
         task = create_task("mymodule.task1", {"param": "value"})
         job = await create_job("my_job", task)
     """
+    resolved_mode = preservation_mode or get_default_preservation_mode()
+    if resolved_mode is PreservationMode.STRATEGY:
+        if not sampling_strategy:
+            raise ValueError(
+                "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
+            )
+    else:
+        if sampling_strategy:
+            raise ValueError(
+                f"sampling_strategy is only valid with preservation_mode=STRATEGY "
+                f"(got preservation_mode={resolved_mode.value})"
+            )
+
     # Generate job ID
     job_id = get_snowflake_id()
 
@@ -171,6 +194,8 @@ async def create_job(
         status=JobStatus.PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
+        preservation_mode=resolved_mode,
+        sampling_strategy=sampling_strategy if sampling_strategy else None,
         created_at=datetime.utcnow(),
     )
 

@@ -136,7 +136,7 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task.
+`run_job(name, entrypoint, kwargs, preservation_mode, sampling_strategy)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task. `preservation_mode` and `sampling_strategy` are persisted on the `Job` row and drive cleanup / oplog sampling at execution time — see [DataContext — Preservation Modes](data_context.md#preservation-modes).
 
 ## Cron Scheduling
 
@@ -180,7 +180,7 @@ python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --of
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
 python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}']
-python -m aaiclick run-job <name> [--kwargs '{"key": "val"}']
+python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL|STRATEGY] [--sampling-strategy '{"p_foo": "x = 1"}']
 python -m aaiclick registered-job list        # List registered jobs
 ```
 

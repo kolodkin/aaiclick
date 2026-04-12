@@ -1,0 +1,45 @@
+"""add_preservation_mode_and_sampling_strategy_to_jobs
+
+Revision ID: 3e1b4e54721c
+Revises: d2a4f6b8c1e3
+Create Date: 2026-04-12 15:29:13.146444
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '3e1b4e54721c'
+down_revision: Union[str, Sequence[str], None] = 'd2a4f6b8c1e3'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Add preservation_mode and sampling_strategy to jobs."""
+    op.add_column(
+        'jobs',
+        sa.Column(
+            'preservation_mode',
+            sa.String(),
+            nullable=False,
+            server_default='NONE',
+        ),
+    )
+    op.add_column(
+        'jobs',
+        sa.Column(
+            'sampling_strategy',
+            sa.JSON(),
+            nullable=True,
+        ),
+    )
+
+
+def downgrade() -> None:
+    """Remove preservation_mode and sampling_strategy from jobs."""
+    op.drop_column('jobs', 'sampling_strategy')
+    op.drop_column('jobs', 'preservation_mode')

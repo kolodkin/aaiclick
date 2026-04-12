@@ -19,14 +19,14 @@ from aaiclick.data.data_context.data_context import _engine_var, _objects_var, d
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
-from aaiclick.oplog.sampling import sample_lineage
+from aaiclick.oplog.sampling import SamplingStrategy, apply_strategy
 from ..snowflake_id import get_snowflake_id
 from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
 from .sql_context import get_sql_session, _sql_engine_var
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
+from .models import Group, PreservationMode, Task, TasksType
 from .task_registry import _task_registry_var, get_task_registry
-from .models import Group, Task, TasksType
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +64,15 @@ class OrchLifecycleHandler(LifecycleHandler):
         task_id: int,
         job_id: int,
         run_id: int,
+        *,
+        preservation_mode: PreservationMode = PreservationMode.NONE,
+        sampling_strategy: SamplingStrategy | None = None,
     ):
         self._task_id = task_id
         self._job_id = job_id
         self._run_id = run_id
+        self._preservation_mode = preservation_mode
+        self._sampling_strategy: SamplingStrategy = sampling_strategy or {}
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -137,10 +142,20 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     def oplog_record_sample(self, result_table: str, operation: str,
                             kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
+        # Outside STRATEGY mode there's nothing to sample — fall back to a
+        # plain OPLOG_RECORD so kwargs_aai_ids / result_aai_ids stay empty.
+        if self._preservation_mode is not PreservationMode.STRATEGY or not self._sampling_strategy:
+            self._enqueue(DBLifecycleMessage(
+                DBLifecycleOp.OPLOG_RECORD,
+                oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
+                                   self._task_id, self._job_id, self._run_id),
+            ))
+            return
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
             oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id, self._run_id),
+                               self._task_id, self._job_id, self._run_id,
+                               sampling_strategy=dict(self._sampling_strategy)),
         ))
 
     def oplog_record_table(self, table_name: str) -> None:
@@ -252,15 +267,12 @@ class OrchLifecycleHandler(LifecycleHandler):
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
                 await self._write_oplog_row(msg.oplog)
             elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
-                kwargs_aai_ids, result_aai_ids = {}, []
-                if msg.oplog.kwargs:
-                    try:
-                        kwargs_aai_ids, result_aai_ids = await sample_lineage(
-                            get_ch_client(), msg.oplog.result_table, msg.oplog.kwargs,
-                        )
-                    except Exception:
-                        logger.error("Failed to sample lineage for %s",
-                                     msg.oplog.result_table, exc_info=True)
+                kwargs_aai_ids, result_aai_ids = await apply_strategy(
+                    get_ch_client(),
+                    msg.oplog.result_table,
+                    msg.oplog.kwargs,
+                    msg.oplog.sampling_strategy or {},
+                )
                 await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
                 await self._write_table_registry_row(msg.oplog_table)
@@ -325,7 +337,14 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[None]:
+async def task_scope(
+    task_id: int,
+    job_id: int,
+    run_id: int,
+    *,
+    preservation_mode: PreservationMode = PreservationMode.NONE,
+    sampling_strategy: SamplingStrategy | None = None,
+) -> AsyncIterator[None]:
     """Per-task context nested inside orch_context.
 
     Creates isolated per-task state:
@@ -340,11 +359,18 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
+        preservation_mode: Table preservation mode for this task, loaded
+            from the owning ``Job``. Defaults to ``NONE``.
+        sampling_strategy: Active sampling strategy, loaded from the
+            owning ``Job``. Only consulted when ``preservation_mode`` is
+            ``STRATEGY``.
     """
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
+        preservation_mode=preservation_mode,
+        sampling_strategy=sampling_strategy,
     )
     await lifecycle.start()
 

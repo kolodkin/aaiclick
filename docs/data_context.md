@@ -143,3 +143,30 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 Tables are reference-counted and dropped when unreferenced. On context exit, live objects are decreffed and stale-marked. `LocalLifecycleHandler` drops tables on refcount 0; in distributed mode, `OrchLifecycleHandler` defers cleanup to `BackgroundWorker`.
 
 See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
+
+## Preservation Modes
+
+**Implementation**: `aaiclick/orchestration/models.py` — see `PreservationMode`
+
+Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in all three modes — only the cleanup step differs.
+
+| Mode         | What survives after job              | Use case                       |
+|--------------|--------------------------------------|--------------------------------|
+| `NONE`       | Persistent tables only (default)     | Production runs (as today)     |
+| `FULL`       | All tables until the job TTL expires | Development / debugging        |
+| `STRATEGY`   | Persistent + rows matched by `sampling_strategy` | Lineage replay (Phase 2+3) |
+
+The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`, `STRATEGY`) and overridden per submission:
+
+```python
+from aaiclick.orchestration import PreservationMode
+from aaiclick.orchestration.registered_jobs import run_job
+
+await run_job(
+    "debug_run",
+    "myapp.pipelines.etl",
+    preservation_mode=PreservationMode.FULL,
+)
+```
+
+The `STRATEGY` mode additionally requires a `sampling_strategy: dict[str, str]` mapping table names to WHERE clauses — see `docs/oplog.md` for the query semantics.

@@ -8,8 +8,10 @@ from typing import Any, Dict, Optional
 from croniter import croniter
 from sqlmodel import select
 
+from aaiclick.oplog.sampling import SamplingStrategy
+
 from .factories import create_job, create_task
-from .models import Job, RegisteredJob, RunType
+from .models import Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 from ..snowflake_id import get_snowflake_id
 
@@ -243,6 +245,8 @@ async def run_job(
     *,
     kwargs: Optional[Dict[str, Any]] = None,
     run_type: RunType = RunType.MANUAL,
+    preservation_mode: Optional[PreservationMode] = None,
+    sampling_strategy: Optional[SamplingStrategy] = None,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
 
@@ -254,6 +258,10 @@ async def run_job(
         entrypoint: Python dotted path
         kwargs: Override parameters (merged over default_kwargs)
         run_type: How the job was triggered (default: MANUAL)
+        preservation_mode: Table preservation mode for this run. Defaults
+            to the value of ``AAICLICK_DEFAULT_PRESERVATION_MODE``.
+        sampling_strategy: Per-table WHERE clauses; required when
+            ``preservation_mode=STRATEGY``.
 
     Returns:
         Created Job
@@ -270,4 +278,6 @@ async def run_job(
         entry=task,
         run_type=run_type,
         registered_job_id=registered.id,
+        preservation_mode=preservation_mode,
+        sampling_strategy=sampling_strategy,
     )

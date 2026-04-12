@@ -346,6 +346,17 @@ def main():
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+    run_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
+    )
+    run_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Sampling strategy as JSON object (required when preservation_mode=STRATEGY)",
+    )
 
     # Add registered-job subcommand
     registered_job_parser = subparsers.add_parser(
@@ -516,7 +527,12 @@ def main():
     elif args.command == "run-job":
         from aaiclick.orchestration.cli import run_job_cmd
 
-        asyncio.run(run_job_cmd(args.name, kwargs_json=args.kwargs))
+        asyncio.run(run_job_cmd(
+            args.name,
+            kwargs_json=args.kwargs,
+            preservation_mode=args.preservation_mode,
+            sampling_strategy_json=args.sampling_strategy,
+        ))
 
     elif args.command == "registered-job":
         from aaiclick.orchestration.cli import show_registered_jobs
