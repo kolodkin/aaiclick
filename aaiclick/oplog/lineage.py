@@ -63,6 +63,13 @@ class OplogGraph:
 
     _ID_BREAKING_OPS = frozenset({"insert", "concat"})
 
+    @property
+    def tables(self) -> set[str]:
+        """Return every table that appears in the graph as a node or a kwarg source."""
+        return {n.table for n in self.nodes} | {
+            src for n in self.nodes for src in n.kwargs.values() if src
+        }
+
     def build_labels(self) -> dict[str, str]:
         """Assign human-readable labels to each table based on its operation.
 

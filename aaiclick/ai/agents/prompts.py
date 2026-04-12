@@ -28,7 +28,7 @@ clauses. The executor will run each clause as
 populate row-level lineage in the operation log.
 
 Rules:
-- Output ONLY a JSON object, no prose before or after. No markdown fences.
+- Output ONLY a JSON object, no prose before or after.
 - Keys MUST be table names that appear in the provided lineage graph.
 - Values MUST be raw ClickHouse WHERE clauses (no `WHERE` keyword).
 - Reference only columns that appear in the provided schemas for that table.

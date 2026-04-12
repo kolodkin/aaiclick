@@ -1,5 +1,5 @@
 """
-Tests for ``produce_strategy`` — mocks provider + schema lookup, no live CH.
+Tests for ``produce_strategy`` — mocks provider, schema lookup, and CH dry-run.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import pytest
 
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.ai.agents.strategy_agent import produce_strategy
+from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 
 
 def _graph(*nodes) -> OplogGraph:
@@ -26,16 +26,25 @@ def _mock_provider(*responses: str):
     return provider
 
 
-async def _run(raw_outputs, graph, question="Why?", dry_run=False):
+def _passing_ch_client():
+    """CH client whose LIMIT 0 query always succeeds (returns an empty row set)."""
+    ch = AsyncMock()
+    ch.query = AsyncMock(return_value=AsyncMock(result_rows=[]))
+    return ch
+
+
+async def _run(raw_outputs, graph, question="Why?", ch_client=None):
     provider = _mock_provider(*raw_outputs)
+    ch = ch_client or _passing_ch_client()
     with (
         patch("aaiclick.ai.agents.strategy_agent.get_ai_provider", return_value=provider),
         patch(
             "aaiclick.ai.agents.strategy_agent.get_schemas_for_nodes",
             new=AsyncMock(return_value=""),
         ),
+        patch("aaiclick.ai.agents.strategy_agent.get_ch_client", return_value=ch),
     ):
-        return await produce_strategy(question, graph, dry_run=dry_run), provider
+        return await produce_strategy(question, graph), provider
 
 
 async def test_well_formed_json():
@@ -123,42 +132,44 @@ async def test_dry_run_catches_sql_errors():
     graph = _graph(make_oplog_node("result", "add", {"source": "p_in"}))
     ch_client = AsyncMock()
     ch_client.query = AsyncMock(side_effect=RuntimeError("syntax error near 'x'"))
-    provider = _mock_provider(
-        '{"p_in": "invalid ==="}',
-        '{"p_in": "invalid ==="}',
-    )
-    with (
-        patch("aaiclick.ai.agents.strategy_agent.get_ai_provider", return_value=provider),
-        patch(
-            "aaiclick.ai.agents.strategy_agent.get_schemas_for_nodes",
-            new=AsyncMock(return_value=""),
-        ),
-        patch(
-            "aaiclick.ai.agents.strategy_agent.get_ch_client",
-            return_value=ch_client,
-        ),
-    ):
-        with pytest.raises(ValueError, match="failed validation"):
-            await produce_strategy("Why?", graph, dry_run=True)
+    with pytest.raises(ValueError, match="failed validation"):
+        await _run(
+            ['{"p_in": "invalid ==="}', '{"p_in": "invalid ==="}'],
+            graph,
+            ch_client=ch_client,
+        )
 
 
 async def test_dry_run_accepts_valid_clauses():
     graph = _graph(make_oplog_node("result", "add", {"source": "p_in"}))
-    ch_client = AsyncMock()
-    ch_client.query = AsyncMock(return_value=AsyncMock(result_rows=[]))
-    provider = _mock_provider('{"p_in": "id = 1"}')
-    with (
-        patch("aaiclick.ai.agents.strategy_agent.get_ai_provider", return_value=provider),
-        patch(
-            "aaiclick.ai.agents.strategy_agent.get_schemas_for_nodes",
-            new=AsyncMock(return_value=""),
-        ),
-        patch(
-            "aaiclick.ai.agents.strategy_agent.get_ch_client",
-            return_value=ch_client,
-        ),
-    ):
-        strategy = await produce_strategy("Why?", graph, dry_run=True)
+    ch_client = _passing_ch_client()
+    strategy, _ = await _run(
+        ['{"p_in": "id = 1"}'], graph, ch_client=ch_client,
+    )
     assert strategy == {"p_in": "id = 1"}
-    # The dry-run sent a single LIMIT 0 query.
     assert "LIMIT 0" in ch_client.query.call_args[0][0]
+
+
+async def test_dry_run_parallelizes_queries():
+    graph = _graph(
+        make_oplog_node("t_merge", "concat", {"left": "p_a", "right": "p_b"}),
+    )
+    ch_client = _passing_ch_client()
+    await _run(
+        ['{"p_a": "id = 1", "p_b": "id = 2"}'],
+        graph,
+        ch_client=ch_client,
+    )
+    # Both entries dry-run — gather should have dispatched exactly 2 queries.
+    assert ch_client.query.call_count == 2
+
+
+def test_format_strategy_empty():
+    assert format_strategy({}) == ""
+
+
+def test_format_strategy_populated():
+    out = format_strategy({"p_in": "x = 1", "t_out": "y IS NULL"})
+    assert "p_in: x = 1" in out
+    assert "t_out: y IS NULL" in out
+    assert out.startswith("\n\nSampling strategy")

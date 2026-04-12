@@ -10,6 +10,7 @@ unknown columns are caught before the strategy is used for replay.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -31,7 +32,7 @@ async def produce_strategy(
     question: str,
     graph: OplogGraph,
     *,
-    dry_run: bool = True,
+    schemas: str | None = None,
 ) -> SamplingStrategy:
     """Ask the LLM to translate ``question`` into a ``SamplingStrategy``.
 
@@ -43,10 +44,9 @@ async def produce_strategy(
         question: Natural-language question from the user.
         graph: ``OplogGraph`` built by ``oplog_subgraph()`` for the target
             table. Used to constrain valid keys and to load column schemas.
-        dry_run: When true (default), each clause is validated via
-            ``SELECT aai_id FROM <table> WHERE <clause> LIMIT 0`` before
-            being returned. Set to ``False`` in tests that don't have a
-            live ClickHouse client.
+        schemas: Pre-rendered schema block for the graph's tables. Pass
+            the result of ``get_schemas_for_nodes(graph.nodes)`` to reuse
+            an existing fetch; left as ``None`` the agent fetches its own.
 
     Returns:
         ``SamplingStrategy`` — a (possibly empty) dict of table → WHERE
@@ -58,44 +58,47 @@ async def produce_strategy(
             a table outside the graph, or fails validation even after a
             retry.
     """
-    known_tables = _graph_tables(graph)
-    schemas = await get_schemas_for_nodes(graph.nodes)
+    known_tables = graph.tables
+    if schemas is None:
+        schemas = await get_schemas_for_nodes(graph.nodes)
     context = f"{graph.to_prompt_context()}\n\n{schemas}".rstrip()
 
     provider = get_ai_provider()
-    prompt = f"Question: {question}"
-    raw = await provider.query(prompt, context=context, system=STRATEGY_SYSTEM_PROMPT)
+    base_prompt = f"Question: {question}"
+    retry_error: ValueError | None = None
 
-    last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
+        prompt = (
+            base_prompt if retry_error is None
+            else f"Your previous output failed validation: {retry_error}\n"
+                 f"Return a corrected JSON object. {base_prompt}"
+        )
+        raw = await provider.query(prompt, context=context, system=STRATEGY_SYSTEM_PROMPT)
         try:
             strategy = _parse(raw, known_tables)
-            if dry_run and strategy:
+            if strategy:
                 await _dry_run(strategy)
             return strategy
         except ValueError as exc:
-            last_error = exc
             logger.warning("strategy agent output invalid: %s", exc)
             if attempt == _MAX_RETRIES:
-                break
-            raw = await provider.query(
-                f"Your previous output failed validation: {exc}\n"
-                f"Return a corrected JSON object. {prompt}",
-                context=context,
-                system=STRATEGY_SYSTEM_PROMPT,
-            )
-    raise ValueError(f"strategy agent failed to produce valid output: {last_error}")
+                raise
+            retry_error = exc
+
+    # Unreachable: the last iteration either returns or re-raises.
+    raise AssertionError("produce_strategy exited the retry loop without a result")
 
 
-def _graph_tables(graph: OplogGraph) -> set[str]:
-    """Collect every table name that appears in the graph (nodes + sources)."""
-    tables: set[str] = set()
-    for node in graph.nodes:
-        tables.add(node.table)
-        for src in node.kwargs.values():
-            if src:
-                tables.add(src)
-    return tables
+def format_strategy(strategy: SamplingStrategy) -> str:
+    """Render a strategy as a context block for the debug agent.
+
+    Returns an empty string for an empty strategy so callers can always
+    append the result unconditionally.
+    """
+    if not strategy:
+        return ""
+    body = "\n".join(f"  {table}: {clause}" for table, clause in strategy.items())
+    return f"\n\nSampling strategy (proposed row filter):\n{body}"
 
 
 def _parse(raw: str, known_tables: set[str]) -> SamplingStrategy:
@@ -104,7 +107,7 @@ def _parse(raw: str, known_tables: set[str]) -> SamplingStrategy:
     try:
         decoded: Any = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"output is not valid JSON: {exc}") from None
+        raise ValueError(f"output is not valid JSON: {exc}") from exc
 
     if not isinstance(decoded, dict):
         raise ValueError(f"expected a JSON object, got {type(decoded).__name__}")
@@ -133,9 +136,9 @@ _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 def _extract_json(raw: str) -> str:
     """Return the substring that looks like a JSON object.
 
-    Tolerates leading/trailing prose or markdown fences even though the
-    prompt asks for a bare object — the cost of tolerance is tiny and
-    the cost of rejecting legitimate-but-wrapped output is a full retry.
+    Tolerates leading/trailing prose or markdown fences; the tolerance
+    cost is tiny and the cost of rejecting legitimate-but-wrapped output
+    is a full retry.
     """
     stripped = raw.strip()
     if stripped.startswith("```"):
@@ -149,14 +152,23 @@ def _extract_json(raw: str) -> str:
 
 
 async def _dry_run(strategy: SamplingStrategy) -> None:
-    """Run each clause as a ``LIMIT 0`` query to surface syntax errors."""
+    """Run every clause as a ``LIMIT 0`` query in parallel to surface syntax errors."""
     ch_client = get_ch_client()
-    for table, clause in strategy.items():
+
+    async def _check(table: str, clause: str) -> tuple[str, BaseException | None]:
         try:
             await ch_client.query(
                 f"SELECT aai_id FROM {table} WHERE {clause} LIMIT 0"
             )
+            return table, None
         except Exception as exc:
+            return table, exc
+
+    results = await asyncio.gather(
+        *(_check(table, clause) for table, clause in strategy.items())
+    )
+    for table, exc in results:
+        if exc is not None:
             raise ValueError(
                 f"clause for {table!r} failed validation: {exc}"
-            ) from None
+            ) from exc
