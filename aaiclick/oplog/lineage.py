@@ -216,12 +216,38 @@ async def forward_oplog(
 ) -> list[OplogNode]:
     """Trace all downstream operations that consumed `table`.
 
-    Returns nodes in BFS order starting from operations that used `table`.
+    Includes the starting table as the seed node (for symmetry with
+    `backward_oplog`, which includes the target), followed by downstream
+    consumers in BFS order.
     """
     ch_client = get_ch_client()
     visited: set[str] = set()
     frontier = [table]
     nodes: list[OplogNode] = []
+
+    # Seed with the starting table's own oplog record so its label is available.
+    table_escaped = table.replace("'", "\\'")
+    seed = await ch_client.query(f"""
+        SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+               sql_template, task_id, job_id
+        FROM operation_log
+        WHERE result_table = '{table_escaped}'
+        LIMIT 1
+    """)
+    for row in seed.result_rows:
+        (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
+         result_aai_ids_raw, sql_template, task_id, job_id) = row
+        visited.add(result_table)
+        nodes.append(OplogNode(
+            table=result_table,
+            operation=operation,
+            kwargs=_to_dict(kwargs_raw),
+            kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+            result_aai_ids=list(result_aai_ids_raw),
+            sql_template=sql_template,
+            task_id=task_id,
+            job_id=job_id,
+        ))
 
     for _ in range(max_depth):
         if not frontier:
