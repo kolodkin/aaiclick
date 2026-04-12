@@ -470,9 +470,9 @@ class BackgroundWorker:
                 text(
                     "SELECT id, name, entrypoint, schedule, default_kwargs, next_run_at "
                     "FROM registered_jobs "
-                    "WHERE enabled = true AND next_run_at <= :now"
+                    "WHERE enabled = :enabled AND next_run_at <= :now"
                 ),
-                {"now": now},
+                {"enabled": True, "now": now},
             )
             due_jobs = result.fetchall()
 
