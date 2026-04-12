@@ -54,131 +54,87 @@ async def apply_strategy(
         return {}, []
 
     sources = [(role, table) for role, table in kwargs.items() if table]
-    touched_result = result_table in strategy
-    touched_source = any(table in strategy for _, table in sources)
-    if not touched_result and not touched_source:
+    driver = _pick_driver(result_table, sources, strategy)
+    if driver is None:
         return {}, []
 
     try:
         if not sources:
-            return await _apply_nullary(ch_client, result_table, strategy)
-        if len(sources) == 1:
-            return await _apply_unary(ch_client, result_table, sources[0], strategy)
-        return await _apply_nary(ch_client, result_table, sources, strategy)
+            rows = await _select_ids(ch_client, result_table, driver[1])
+            return {}, rows
+        return await _apply_positional(
+            ch_client, result_table, sources, driver,
+        )
     except Exception:
         logger.error("Failed to apply strategy for %s", result_table, exc_info=True)
         return {}, []
 
 
-async def _apply_nullary(
-    ch_client: object,
-    result_table: str,
-    strategy: SamplingStrategy,
-) -> tuple[dict[str, list[int]], list[int]]:
-    """Operation with no kwarg sources (e.g. create_from_value).
-
-    Only ``result_table`` can drive the match.
-    """
-    clause = strategy.get(result_table)
-    if not clause:
-        return {}, []
-    result_ids = await _select_ids(ch_client, result_table, clause)
-    return {}, result_ids
-
-
-async def _apply_unary(
-    ch_client: object,
-    result_table: str,
-    source: tuple[str, str],
-    strategy: SamplingStrategy,
-) -> tuple[dict[str, list[int]], list[int]]:
-    """Operation with one source kwarg.
-
-    Positional alignment: i-th source row ↔ i-th result row.
-    """
-    role, source_table = source
-    source_clause = strategy.get(source_table)
-    result_clause = strategy.get(result_table)
-
-    # Prefer the source clause when present — source targeting is the
-    # common case ("these are the rows I care about at the input").
-    if source_clause:
-        driver_table, driver_clause = source_table, source_clause
-    elif result_clause:
-        driver_table, driver_clause = result_table, result_clause
-    else:
-        return {}, []
-
-    rows = await ch_client.query(f"""
-        SELECT s.aai_id, r.aai_id
-        FROM (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn
-              FROM {source_table}) s
-        INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn
-                    FROM {result_table}) r
-        ON s.rn = r.rn
-        WHERE {'s' if driver_table == source_table else 'r'}.aai_id IN (
-            SELECT aai_id FROM {driver_table} WHERE {driver_clause}
-        )
-    """)
-    source_ids = [row[0] for row in rows.result_rows]
-    result_ids = [row[1] for row in rows.result_rows]
-    return {role: source_ids}, result_ids
-
-
-async def _apply_nary(
-    ch_client: object,
+def _pick_driver(
     result_table: str,
     sources: list[tuple[str, str]],
     strategy: SamplingStrategy,
-) -> tuple[dict[str, list[int]], list[int]]:
-    """Operation with two or more source kwargs (e.g. concat, binary ops).
+) -> tuple[str, str] | None:
+    """Return ``(table, clause)`` for the first matched table.
 
-    Positional join across all sources plus the result table.
+    Source-side matches win — source targeting is the common case
+    ("these are the rows I care about at the input"). Insertion order in
+    ``sources`` decides which source clause wins when multiple match.
+    Falls back to the result-table clause, then returns ``None``.
     """
-    # Pick the first driver clause that matches — caller's strategy
-    # determines priority by insertion order.
-    driver: tuple[str, str] | None = None  # (table, clause)
     for _, src_table in sources:
         clause = strategy.get(src_table)
         if clause:
-            driver = (src_table, clause)
-            break
-    if driver is None and result_table in strategy:
-        driver = (result_table, strategy[result_table])
-    if driver is None:
-        return {}, []
+            return src_table, clause
+    result_clause = strategy.get(result_table)
+    if result_clause:
+        return result_table, result_clause
+    return None
 
+
+async def _apply_positional(
+    ch_client: object,
+    result_table: str,
+    sources: list[tuple[str, str]],
+    driver: tuple[str, str],
+) -> tuple[dict[str, list[int]], list[int]]:
+    """Positional join across all sources and the result table.
+
+    Emits one query of the form::
+
+        SELECT s0.aai_id, ..., r.aai_id
+        FROM (row-numbered sources) sN
+        INNER JOIN (row-numbered result) r ON r.rn = s0.rn
+        WHERE <driver_alias>.aai_id IN (SELECT aai_id FROM <driver> WHERE <clause>)
+
+    Handles 1..N sources uniformly.
+    """
     driver_table, driver_clause = driver
 
-    # Build a positional join across every source and the result.
-    joins = []
-    selects = []
+    parts: list[str] = []
+    selects: list[str] = []
+    driver_alias: str | None = None
     for i, (_, src_table) in enumerate(sources):
         alias = f"s{i}"
         selects.append(f"{alias}.aai_id")
-        if i == 0:
-            joins.append(
-                f"(SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
-                f"FROM {src_table}) {alias}"
-            )
-        else:
-            joins.append(
-                f"INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
-                f"FROM {src_table}) {alias} ON {alias}.rn = s0.rn"
-            )
+        subquery = (
+            f"(SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
+            f"FROM {src_table}) {alias}"
+        )
+        parts.append(subquery if i == 0 else f"INNER JOIN {subquery} ON {alias}.rn = s0.rn")
+        if src_table == driver_table and driver_alias is None:
+            driver_alias = alias
+
     selects.append("r.aai_id")
-    joins.append(
+    parts.append(
         f"INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
         f"FROM {result_table}) r ON r.rn = s0.rn"
     )
-
-    # Find which alias corresponds to the driver table (or use r for result).
-    driver_alias = "r" if driver_table == result_table else next(
-        f"s{i}" for i, (_, src) in enumerate(sources) if src == driver_table
-    )
+    if driver_table == result_table:
+        driver_alias = "r"
 
     sql = (
-        f"SELECT {', '.join(selects)} FROM " + " ".join(joins) +
+        f"SELECT {', '.join(selects)} FROM " + " ".join(parts) +
         f" WHERE {driver_alias}.aai_id IN ("
         f"SELECT aai_id FROM {driver_table} WHERE {driver_clause})"
     )

@@ -25,7 +25,7 @@ from .execution.db_handler import create_db_handler, get_db_handler, _db_handler
 from .sql_context import get_sql_session, _sql_engine_var
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
-from .models import Group, PreservationMode, Task, TasksType
+from .models import Group, Task, TasksType
 from .task_registry import _task_registry_var, get_task_registry
 
 logger = logging.getLogger(__name__)
@@ -65,13 +65,14 @@ class OrchLifecycleHandler(LifecycleHandler):
         job_id: int,
         run_id: int,
         *,
-        preservation_mode: PreservationMode = PreservationMode.NONE,
         sampling_strategy: SamplingStrategy | None = None,
     ):
         self._task_id = task_id
         self._job_id = job_id
         self._run_id = run_id
-        self._preservation_mode = preservation_mode
+        # Empty strategy means OPLOG_SAMPLE falls back to a plain OPLOG_RECORD.
+        # `create_job()` already enforces that a non-empty strategy implies
+        # STRATEGY mode, so the mode itself is never needed on the handler.
         self._sampling_strategy: SamplingStrategy = sampling_strategy or {}
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
@@ -132,30 +133,44 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
+    def _make_payload(
+        self,
+        result_table: str,
+        operation: str,
+        kwargs: dict[str, str] | None,
+        sql: str | None,
+        *,
+        sampling_strategy: SamplingStrategy | None = None,
+    ) -> OplogPayload:
+        return OplogPayload(
+            result_table=result_table,
+            operation=operation,
+            kwargs=kwargs or {},
+            sql=sql,
+            task_id=self._task_id,
+            job_id=self._job_id,
+            run_id=self._run_id,
+            sampling_strategy=sampling_strategy,
+        )
+
     def oplog_record(self, result_table: str, operation: str,
                      kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_RECORD,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id, self._run_id),
+            oplog=self._make_payload(result_table, operation, kwargs, sql),
         ))
 
     def oplog_record_sample(self, result_table: str, operation: str,
                             kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
-        # Outside STRATEGY mode there's nothing to sample — fall back to a
-        # plain OPLOG_RECORD so kwargs_aai_ids / result_aai_ids stay empty.
-        if self._preservation_mode is not PreservationMode.STRATEGY or not self._sampling_strategy:
-            self._enqueue(DBLifecycleMessage(
-                DBLifecycleOp.OPLOG_RECORD,
-                oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                                   self._task_id, self._job_id, self._run_id),
-            ))
+        if not self._sampling_strategy:
+            self.oplog_record(result_table, operation, kwargs, sql)
             return
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id, self._run_id,
-                               sampling_strategy=dict(self._sampling_strategy)),
+            oplog=self._make_payload(
+                result_table, operation, kwargs, sql,
+                sampling_strategy=self._sampling_strategy,
+            ),
         ))
 
     def oplog_record_table(self, table_name: str) -> None:
@@ -342,7 +357,6 @@ async def task_scope(
     job_id: int,
     run_id: int,
     *,
-    preservation_mode: PreservationMode = PreservationMode.NONE,
     sampling_strategy: SamplingStrategy | None = None,
 ) -> AsyncIterator[None]:
     """Per-task context nested inside orch_context.
@@ -359,17 +373,13 @@ async def task_scope(
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
-        preservation_mode: Table preservation mode for this task, loaded
-            from the owning ``Job``. Defaults to ``NONE``.
-        sampling_strategy: Active sampling strategy, loaded from the
-            owning ``Job``. Only consulted when ``preservation_mode`` is
-            ``STRATEGY``.
+        sampling_strategy: Active sampling strategy, loaded from the owning
+            ``Job``. An empty/``None`` strategy disables row-level sampling.
     """
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
-        preservation_mode=preservation_mode,
         sampling_strategy=sampling_strategy,
     )
     await lifecycle.start()

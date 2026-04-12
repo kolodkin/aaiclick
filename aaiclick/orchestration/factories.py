@@ -172,22 +172,17 @@ async def create_job(
         job = await create_job("my_job", task)
     """
     resolved_mode = preservation_mode or get_default_preservation_mode()
-    if resolved_mode is PreservationMode.STRATEGY:
-        if not sampling_strategy:
-            raise ValueError(
-                "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
-            )
-    else:
-        if sampling_strategy:
-            raise ValueError(
-                f"sampling_strategy is only valid with preservation_mode=STRATEGY "
-                f"(got preservation_mode={resolved_mode.value})"
-            )
+    if resolved_mode is PreservationMode.STRATEGY and not sampling_strategy:
+        raise ValueError(
+            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
+        )
+    if resolved_mode is not PreservationMode.STRATEGY and sampling_strategy:
+        raise ValueError(
+            f"sampling_strategy is only valid with preservation_mode=STRATEGY "
+            f"(got preservation_mode={resolved_mode.value})"
+        )
 
-    # Generate job ID
     job_id = get_snowflake_id()
-
-    # Create Job object
     job = Job(
         id=job_id,
         name=name,
@@ -195,7 +190,7 @@ async def create_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=resolved_mode,
-        sampling_strategy=sampling_strategy if sampling_strategy else None,
+        sampling_strategy=sampling_strategy,
         created_at=datetime.utcnow(),
     )
 

@@ -26,13 +26,14 @@ from datetime import datetime, timedelta
 from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlmodel import select
 
 from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus, PreservationMode, TaskStatus
+from ..models import Job, JobStatus, PreservationMode, TaskStatus
 from .handler import BackgroundHandler, create_background_handler, in_clause
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -298,22 +299,10 @@ class BackgroundWorker:
         """Return ``{job_id: PreservationMode}`` for the given jobs."""
         if not job_ids:
             return {}
-        ph, params = in_clause(list(job_ids), "jid")
         result = await session.execute(
-            text(f"SELECT id, preservation_mode FROM jobs WHERE id IN ({ph})"),
-            params,
+            select(Job.id, Job.preservation_mode).where(Job.id.in_(job_ids)),
         )
-        out: dict[int, PreservationMode] = {}
-        for row in result.fetchall():
-            try:
-                out[row[0]] = PreservationMode(row[1])
-            except ValueError:
-                logger.warning(
-                    "Job %s has unknown preservation_mode=%r; treating as NONE",
-                    row[0], row[1],
-                )
-                out[row[0]] = PreservationMode.NONE
-        return out
+        return {row[0]: row[1] for row in result.all()}
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
         """Look up ownership metadata from table_registry for a list of table names."""

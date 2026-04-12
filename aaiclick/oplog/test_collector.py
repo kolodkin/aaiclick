@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
-from aaiclick.orchestration.models import PreservationMode
 from aaiclick.orchestration.orch_context import task_scope
 
 
@@ -86,7 +85,6 @@ async def test_strategy_mode_populates_matching_rows(orch_ctx):
         task_id=1,
         job_id=1,
         run_id=100,
-        preservation_mode=PreservationMode.STRATEGY,
         sampling_strategy={left_table: "value = 10"},
     ):
         a = await create_object_from_value([10, 20, 30], name="strat_left")
