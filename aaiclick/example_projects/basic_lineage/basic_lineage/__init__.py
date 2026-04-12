@@ -7,6 +7,7 @@ Runs the pipeline, traces backward lineage from the final result, then asks
 an LLM to explain how the result was produced.
 """
 
+from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
@@ -58,16 +59,30 @@ async def main():
         target_table = add_bonus_task.result["table"]
 
         async with lineage_context():
-            graph = await oplog_subgraph(target_table, direction="backward")
+            backward_graph = await oplog_subgraph(target_table, direction="backward")
             explanation = await explain_lineage(
                 target_table,
                 question="How was this table produced? What arithmetic was applied?",
-                graph=graph,
+                graph=backward_graph,
+            )
+
+            # Forward lineage from an input source — shows downstream consumers.
+            create_prices_task = next(t for t in tasks if t.name == "create_prices")
+            source_table = create_prices_task.result["table"]
+            forward_graph = await oplog_subgraph(source_table, direction="forward")
+
+            # Debug agent — answers "why" questions by inspecting intermediate data.
+            debug_answer = await debug_result(
+                target_table,
+                question="Which row has the highest value and which inputs drove it?",
             )
 
         print_report(
             tasks=tasks,
             target_table=target_table,
-            graph=graph,
+            backward_graph=backward_graph,
+            forward_graph=forward_graph,
+            source_table=source_table,
             explanation=explanation,
+            debug_answer=debug_answer,
         )
