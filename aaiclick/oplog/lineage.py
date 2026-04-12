@@ -69,24 +69,39 @@ class OplogGraph:
         Returns a mapping from table ID to label (e.g. source_A, multiply_result).
         Used for post-processing agent responses — NOT injected into the prompt
         so the LLM can still reference real table names in tool calls.
+
+        Also labels edge endpoints that are not in `nodes` (e.g. sibling inputs
+        referenced by forward-direction graphs) as generic `source_*` so every
+        edge renders with a human name.
         """
         labels: dict[str, str] = {}
         source_counter = 0
         op_counters: dict[str, int] = {}
         source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+        def _next_source_label() -> str:
+            nonlocal source_counter
+            letter = source_letters[source_counter % len(source_letters)]
+            source_counter += 1
+            return f"source_{letter}"
+
         for node in reversed(self.nodes):
             if node.table in labels:
                 continue
             if node.operation == "create_from_value":
-                letter = source_letters[source_counter % len(source_letters)]
-                labels[node.table] = f"source_{letter}"
-                source_counter += 1
+                labels[node.table] = _next_source_label()
             else:
                 op = _OP_LABEL_NAMES.get(node.operation, node.operation)
                 count = op_counters.get(op, 0)
                 op_counters[op] = count + 1
                 labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
+
+        # Label any edge endpoint that wasn't covered by a node — these are
+        # sibling inputs referenced by kwargs but not in the traversal path.
+        for edge in self.edges:
+            for table in (edge.source, edge.target):
+                if table not in labels:
+                    labels[table] = _next_source_label()
 
         return labels
 
@@ -283,40 +298,6 @@ async def forward_oplog(
             next_frontier.append(result_table)
 
         frontier = next_frontier
-
-    # Fetch sibling inputs — tables referenced as kwargs of downstream nodes
-    # but never produced from `table` itself. These are needed so build_labels
-    # can assign source_* labels to every edge endpoint.
-    siblings: set[str] = set()
-    for node in nodes:
-        for src in node.kwargs.values():
-            if src not in visited:
-                siblings.add(src)
-
-    if siblings:
-        placeholders = ", ".join(f"'{t}'" for t in siblings)
-        result = await ch_client.query(f"""
-            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
-                   sql_template, task_id, job_id
-            FROM operation_log
-            WHERE result_table IN ({placeholders})
-        """)
-        for row in result.result_rows:
-            (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
-             result_aai_ids_raw, sql_template, task_id, job_id) = row
-            if result_table in visited:
-                continue
-            visited.add(result_table)
-            nodes.append(OplogNode(
-                table=result_table,
-                operation=operation,
-                kwargs=_to_dict(kwargs_raw),
-                kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
-                result_aai_ids=list(result_aai_ids_raw),
-                sql_template=sql_template,
-                task_id=task_id,
-                job_id=job_id,
-            ))
 
     return nodes
 
