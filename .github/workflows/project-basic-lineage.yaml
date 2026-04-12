@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ollama/models
-          key: ollama-llama3.2-3b
+          key: ollama-${{ env.AAICLICK_AI_MODEL }}
 
       - name: Setup local backend and pull model
         run: uv run python -m aaiclick setup --ai

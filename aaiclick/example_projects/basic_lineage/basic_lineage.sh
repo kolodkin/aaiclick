@@ -1,5 +1,5 @@
 #!/bin/bash
-# AI lineage example: build a revenue pipeline, explain and debug with LLM.
+# AI lineage example: build a revenue pipeline, then explain it with an LLM.
 #
 # Requires: ollama running with a model (default: llama3.2:3b)
 #
