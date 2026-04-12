@@ -229,18 +229,14 @@ class BackgroundWorker:
             # Batch-lookup ownership from table_registry in ClickHouse
             owner_map = await self._lookup_table_owners(table_names)
 
-            # Resolve preservation mode per owning job so FULL jobs skip the drop.
             owning_job_ids = {o.job_id for o in owner_map.values() if o.job_id is not None}
             mode_map = await self._lookup_job_preservation_modes(session, owning_job_ids)
 
             dropped_tables: list[str] = []
             for table_name in table_names:
                 owner = owner_map.get(table_name)
-                mode = (
-                    mode_map.get(owner.job_id, PreservationMode.NONE)
-                    if owner is not None and owner.job_id is not None
-                    else PreservationMode.NONE
-                )
+                job_id = owner.job_id if owner else None
+                mode = mode_map.get(job_id, PreservationMode.NONE)
                 if mode is PreservationMode.FULL:
                     # Keep the table alive until the job expires.
                     continue
