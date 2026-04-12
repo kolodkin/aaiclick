@@ -37,38 +37,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## `PENDING_CLEANUP` Task Status for Retry Lifecycle ✅ IMPLEMENTED
-
-**Implementation**: `aaiclick/orchestration/models.py` — see `TaskStatus.PENDING_CLEANUP`
-
-Task failure now transitions through `PENDING_CLEANUP` before reaching `PENDING` or `FAILED`:
-
-```
-RUNNING → PENDING_CLEANUP (on failure) → PENDING (after cleanup) or FAILED (no retries)
-```
-
-The background worker (`BackgroundWorker._process_pending_cleanup`) handles all ref cleanup:
-
-1. Worker sets failed task to `PENDING_CLEANUP` — see `worker._set_pending_cleanup()`
-2. Background worker finds `PENDING_CLEANUP` tasks, cleans `run_refs` via `clean_task_run(run_id)` and `pin_refs` via `clean_task_pins(task_id)`
-3. Transitions to `PENDING` (retries remaining, with exponential backoff) or `FAILED` (exhausted)
-
-Dead worker detection also uses `PENDING_CLEANUP` — orphaned tasks from crashed workers go through the same cleanup path instead of being marked `FAILED` directly.
-
-## Schema-Aware Agent Context ✅ IMPLEMENTED
-
-**Implementation**: `aaiclick/ai/agents/tools.py` — see `get_schemas_for_nodes()` and `get_column_stats()`
-
-Both `debug_agent` and `lineage_agent` now include table schemas in their initial context via
-`get_schemas_for_nodes()`, which fetches `DESCRIBE TABLE` for every node in the lineage graph.
-The `get_stats(table, column)` tool has been replaced by `get_column_stats(table)`, which discovers
-columns automatically and returns stats for all of them in a single round-trip.
-
-## Lineage: aai_id Uniqueness Awareness ✅ IMPLEMENTED
-
-`insert()` and `concat()` generate fresh Snowflake IDs, so `aai_id` values differ between source and target. Row-level tracing across these boundaries needs data-value matching or oplog provenance metadata instead of `aai_id` matching.
-
-
 ## Lineage: Three-Phase Debugging
 
 Question-driven lineage debugging in three phases: graph structure (have today), targeted sampling via WHERE clauses derived from the user's question, and row-level trace using those targeted samples. Replaces random pre-sampling with on-demand, question-driven sampling.
