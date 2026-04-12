@@ -13,9 +13,6 @@ import pathlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, Coroutine
 
-# "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
-_mp_ctx = multiprocessing.get_context("spawn")
-
 TMP_DIR = pathlib.Path(".tmp")
 
 ExampleList = list[tuple[str, Callable[[], Coroutine]]]
@@ -61,7 +58,9 @@ def run_all(examples: ExampleList, banner: str):
         results[title] = run_example(title, func)
     else:
         max_workers = min(len(examples), os.cpu_count() or 1)
-        with ProcessPoolExecutor(max_workers=max_workers, mp_context=_mp_ctx) as executor:
+        # "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
+        mp_ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_ctx) as executor:
             futures = {
                 executor.submit(run_example, title, func): title
                 for title, func in examples
