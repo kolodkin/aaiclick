@@ -16,6 +16,8 @@ from aaiclick.backend import is_sqlite
 
 from ..models import JobStatus, TaskStatus
 
+JOB_FAILED_ERROR = "One or more tasks failed"
+
 
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
@@ -64,10 +66,14 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
         await session.execute(
             text(
                 "UPDATE jobs SET status = :status, completed_at = :now, "
-                "error = 'One or more tasks failed' "
-                "WHERE id = :job_id"
+                "error = :error WHERE id = :job_id"
             ),
-            {"job_id": job_id, "now": now, "status": JobStatus.FAILED.value},
+            {
+                "job_id": job_id,
+                "now": now,
+                "status": JobStatus.FAILED.value,
+                "error": JOB_FAILED_ERROR,
+            },
         )
     else:
         await session.execute(
@@ -150,22 +156,31 @@ class BackgroundHandler(ABC):
         if has_retries:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = 'PENDING', "
+                    "UPDATE tasks SET status = :status, "
                     "attempt = :attempt, retry_after = :retry_after, "
                     "worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
                     "WHERE id = :task_id"
                 ),
-                {"task_id": task_id, "attempt": attempt, "retry_after": retry_after},
+                {
+                    "task_id": task_id,
+                    "attempt": attempt,
+                    "retry_after": retry_after,
+                    "status": TaskStatus.PENDING.value,
+                },
             )
         else:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = 'FAILED', "
+                    "UPDATE tasks SET status = :status, "
                     "completed_at = :now "
                     "WHERE id = :task_id"
                 ),
-                {"task_id": task_id, "now": datetime.utcnow()},
+                {
+                    "task_id": task_id,
+                    "now": datetime.utcnow(),
+                    "status": TaskStatus.FAILED.value,
+                },
             )
 
 
