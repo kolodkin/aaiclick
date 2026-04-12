@@ -107,6 +107,40 @@ async def debug_result(target_table: str, question: str) -> str:
     """
 ```
 
+`debug_result` invokes the strategy agent up-front to build a row-level filter
+from the question; when it succeeds the suggested filter is added to the LLM
+context, enabling the debug agent to reference specific rows. Strategy
+failures are non-fatal — the debug agent falls back to schema + graph context.
+
+## Strategy Agent
+
+```python
+# aaiclick/ai/agents/strategy_agent.py
+
+async def produce_strategy(
+    question: str,
+    graph: OplogGraph,
+    *,
+    dry_run: bool = True,
+) -> SamplingStrategy:
+    """Translate a question + lineage graph into a SamplingStrategy
+    (``dict[table_name, where_clause]``) suitable for Phase 3 replay.
+    """
+```
+
+The strategy agent is the Phase 2 entry point for question-driven lineage
+debugging. Given a natural-language question and the ``OplogGraph`` for the
+target table, it asks the LLM for a JSON object that maps table names to raw
+ClickHouse WHERE clauses. The returned dict is then used (eventually, under
+``PreservationMode.STRATEGY``) to populate row-level ``kwargs_aai_ids`` in
+the oplog, enabling exact row tracing.
+
+Each emitted clause is dry-run against ClickHouse (``SELECT aai_id FROM
+<table> WHERE <clause> LIMIT 0``) before the strategy is returned. Malformed
+JSON, unknown table keys, and bad SQL all trigger a single retry with the
+validation error fed back to the model. Pass ``dry_run=False`` to skip the
+ClickHouse round trip in environments without a live client.
+
 ## Agent Tools
 
 Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:

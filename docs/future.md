@@ -37,6 +37,14 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## Move `table_registry` from ClickHouse to SQL
+
+`table_registry` (table → owning `job_id` / `task_id` / `run_id`) currently lives in ClickHouse alongside `operation_log`, but it's cleanup metadata — not append-only audit. Every consumer is a keyed lookup or owner join during background cleanup, which already reads `table_context_refs` / `table_pin_refs` / `table_run_refs` from SQL.
+
+Moving it to SQL collapses `_cleanup_unreferenced_tables` to a single query that joins unreferenced tables → registry → jobs, enabling mode-aware filtering in-database (e.g. `WHERE j.preservation_mode != 'FULL'`). The background worker stops needing a ClickHouse client for metadata scans; it only needs CH to issue the `DROP TABLE` itself. Also unblocks cleaner Phase 3 replay queries.
+
+**Work**: Alembic migration creating `table_registry` in SQL; one-time copy from CH on upgrade; flip `OrchLifecycleHandler._write_table_registry_row` to a SQL INSERT; rewrite `_lookup_table_owners` / `_cleanup_unreferenced_tables` / `_cleanup_expired_jobs` scans; drop the CH-side table.
+
 ## Deduplicate `_try_complete_job`
 
 `_try_complete_job` exists in two places with identical logic (check if all tasks are terminal, mark job COMPLETED or FAILED):

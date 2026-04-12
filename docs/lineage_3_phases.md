@@ -77,7 +77,9 @@ operations, SQL templates, and task/job IDs. No row sampling needed.
 
 ---
 
-# Phase 2 -- AI Agent Produces the Strategy
+# Phase 2 -- AI Agent Produces the Strategy ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/ai/agents/strategy_agent.py` — see `produce_strategy()`
 
 The AI agent takes a natural language question + the graph from Phase 1, and
 outputs a `SamplingStrategy` (`dict[str, str]`).
@@ -87,7 +89,10 @@ outputs a `SamplingStrategy` (`dict[str, str]`).
 | Why does CVE-X have no KEV data?     | `{"t_kev_catalog": "cve_id = 'CVE-X'", "t_merged": "vendor IS NULL"}` |
 | How come negative values in table T? | `{"t_scores": "cvss < 0", "t_raw_feed": "cvss < 0"}`                  |
 
-The question *is* the pin — no pre-sampling needed.
+The question *is* the pin — no pre-sampling needed. The agent validates
+every emitted clause via a ClickHouse `LIMIT 0` dry run, retries once on
+malformed JSON or unknown tables, and is wired into `debug_result()` so
+questions automatically produce strategies alongside the debug context.
 
 ---
 
@@ -127,12 +132,12 @@ strategy-matched rows.
 
 # Current State
 
-| Phase   | Status              | Notes                                                         |
-|---------|---------------------|---------------------------------------------------------------|
-| Phase 0 | Not yet implemented | Introduce `SamplingStrategy`; remove random sampling          |
-| Phase 1 | Implemented         | `backward_oplog()`, `forward_oplog()`, `OplogGraph`           |
-| Phase 2 | Not yet implemented | AI agent: question + graph → `SamplingStrategy`               |
-| Phase 3 | Not yet implemented | Re-run entire job with strategy-driven smart sampling         |
+| Phase   | Status              | Notes                                                          |
+|---------|---------------------|----------------------------------------------------------------|
+| Phase 0 | ✅ Implemented       | `SamplingStrategy` + `PreservationMode` + strategy-driven oplog |
+| Phase 1 | ✅ Implemented       | `backward_oplog()`, `forward_oplog()`, `OplogGraph`            |
+| Phase 2 | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
+| Phase 3 | Not yet implemented | Re-run entire job with strategy-driven smart sampling          |
 
 ## Prerequisites for Phase 3
 

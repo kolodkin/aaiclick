@@ -121,7 +121,9 @@ No action required. Phase 2 consumes `OplogGraph` directly.
 
 ---
 
-# Phase 2 — Strategy-Producing Agent
+# Phase 2 — Strategy-Producing Agent ✅ IMPLEMENTED
+
+**Implementation**: `aaiclick/ai/agents/strategy_agent.py` — see `produce_strategy()`
 
 **Objective**: Given a natural-language question + an `OplogGraph`, the agent
 emits a `SamplingStrategy` that targets the rows relevant to the question.
