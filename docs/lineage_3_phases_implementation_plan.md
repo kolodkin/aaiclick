@@ -26,47 +26,60 @@ and give jobs a three-way run mode that controls cleanup behavior.
    - Add to `aaiclick/orchestration/models.py` alongside `JobStatus`, `TaskStatus`
    - Variants: `NORMAL`, `FULL`, `STRATEGY`
    - Thread through `Job` model as a column (nullable → defaults to `NORMAL`)
-   - Alembic migration via `alembic revision --autogenerate -m "add job preservation_mode"`
+   - Alembic migration via `alembic revision --autogenerate -m "add job preservation_mode and strategy"`
 
-3. **Strategy-driven oplog sampling**
+3. **Strategy as a job run parameter**
+   - Add `strategy: SamplingStrategy` column to `Job` model — JSON-encoded, nullable
+   - Accept `strategy` (and `preservation_mode`) in every job submission entry point: `registered_jobs.submit_job()`, `orchestration/cli.py` `run`/`submit` commands, `execution/debug.py` local runner
+   - CLI flag: `--strategy '<json>'` or `--strategy-file <path>`
+   - When omitted, fall back to the env var `AAICLICK_DEFAULT_SAMPLING_STRATEGY` (JSON string) parsed once at submission time; if that's also unset, default is `{}`
+   - Same fallback logic for `preservation_mode` via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `normal`/`full`/`strategy`); if strategy is non-empty and mode is unset, auto-select `STRATEGY`
+   - Centralize the env-var parsing in `aaiclick/orchestration/config.py` (new module or existing config file) so submission sites call one helper
+
+4. **Strategy-driven oplog sampling**
    - Replace `sample_lineage()` in `aaiclick/oplog/sampling.py` with `apply_strategy()`
    - New signature: `apply_strategy(ch_client, result_table, kwargs, strategy) -> (kwargs_aai_ids, result_aai_ids)`
    - When `strategy` has no entry matching `result_table` or any `kwargs.values()`, return `({}, [])`
    - When matched, translate the WHERE clause into a `SELECT aai_id FROM <table> WHERE <clause>` and align positions via the existing row-number join pattern
    - Delete `_pick_aai_ids()` — random fallback is gone
 
-4. **Wire strategy through the lifecycle queue**
-   - `OrchContext._task_runner_impl` (`aaiclick/orchestration/orch_context.py`) — attach `strategy` to `OplogPayload` when the job's preservation mode is `STRATEGY`
+5. **Wire strategy through the lifecycle queue**
+   - `OrchContext` (`aaiclick/orchestration/orch_context.py`) — load `Job.strategy` at task start and stash it on the context (alongside `job_id`/`run_id`)
+   - `oplog_record_sample()` — read the context's strategy and attach it to `OplogPayload`
    - `_process_msg` OPLOG_SAMPLE branch — call `apply_strategy()` instead of `sample_lineage()`
    - When preservation mode is `NORMAL` or `FULL`, skip sampling entirely (pass empty dicts)
 
-5. **Cleanup behavior per mode**
+6. **Cleanup behavior per mode**
    - `BackgroundWorker._cleanup_unreferenced_tables` (`aaiclick/orchestration/background/background_worker.py`)
      - `NORMAL`: existing behavior — drop unpinned non-`p_` tables via `lineage_aware_drop()`
      - `FULL`: skip drop entirely while the job is alive; only `_cleanup_expired_jobs()` collects them at TTL
      - `STRATEGY`: drop but keep strategy-matched rows — `lineage_aware_drop()` already preserves `operation_log`-referenced ids, which is exactly the strategy output
    - `lineage_aware_drop()` — remove the `LIMIT 10` random fallback; when no lineage ids exist, just drop
 
-6. **Remove dead code and config**
+7. **Remove dead code and config**
    - `backward_oplog_row()` and `RowLineageStep` from `aaiclick/oplog/lineage.py` — Phase 3 will reintroduce a strategy-aware replacement
    - Update `aaiclick/oplog/__init__.py` re-exports
    - `AAICLICK_OPLOG_SAMPLE_SIZE` env var from `sampling.py` and `docs/oplog.md`
    - `DEFAULT_FALLBACK_SAMPLE` from `cleanup.py`
 
-7. **Tests**
+8. **Tests**
    - `aaiclick/oplog/test_sampling.py` — `apply_strategy()` with matching / non-matching tables, multi-kwarg ops, empty strategy
    - `aaiclick/orchestration/test_preservation_mode.py` — submit jobs in each mode, verify which tables survive after completion
+   - `aaiclick/orchestration/test_job_parameters.py` — submission honors `strategy` / `preservation_mode` args, falls back to env vars, and env vars parse correctly (valid JSON, invalid JSON rejected, unknown mode rejected)
    - Extend `aaiclick/oplog/test_collector.py` — assert `kwargs_aai_ids` / `result_aai_ids` stay empty under `NORMAL` mode
    - Delete `backward_oplog_row` tests
 
-8. **Docs**
-   - `docs/oplog.md` — drop `AAICLICK_OPLOG_SAMPLE_SIZE` row, describe `SamplingStrategy`
+9. **Docs**
+   - `docs/oplog.md` — drop `AAICLICK_OPLOG_SAMPLE_SIZE` row, describe `SamplingStrategy`, document `AAICLICK_DEFAULT_SAMPLING_STRATEGY` and `AAICLICK_DEFAULT_PRESERVATION_MODE`
    - `docs/data_context.md` — new section "Preservation Modes" with the three-mode table from `lineage_3_phases.md`
+   - `docs/orchestration.md` — add `strategy` / `preservation_mode` to the job submission parameter reference
 
 ## Deliverables
 
 - `SamplingStrategy` type alias exported from `aaiclick.oplog`
 - `PreservationMode` enum exported from `aaiclick.orchestration`
+- Job submission accepts `strategy` and `preservation_mode` as run parameters, persisted on `Job`
+- `AAICLICK_DEFAULT_SAMPLING_STRATEGY` and `AAICLICK_DEFAULT_PRESERVATION_MODE` env-var defaults
 - All random-sampling code paths removed
 - Alembic migration applied locally and via `/generate-migration`
 - Green test suite including new preservation-mode tests
@@ -76,6 +89,8 @@ and give jobs a three-way run mode that controls cleanup behavior.
 - A job submitted with `preservation_mode=NORMAL` behaves exactly as today (persistent tables only survive)
 - A job submitted with `preservation_mode=FULL` leaves every intermediate table in place until TTL
 - A job submitted with `preservation_mode=STRATEGY` leaves only strategy-matched rows
+- `submit_job(..., strategy={"t_foo": "x = 1"})` persists the strategy on the `Job` row and drives sampling at every OPLOG_SAMPLE call
+- Setting `AAICLICK_DEFAULT_SAMPLING_STRATEGY='{"t_foo": "x = 1"}'` applies to every job that doesn't pass an explicit strategy
 - No references to `AAICLICK_OPLOG_SAMPLE_SIZE` remain
 - No `grep` hits for `sample_lineage|_pick_aai_ids|backward_oplog_row|RowLineageStep`
 
@@ -152,33 +167,28 @@ source-to-output row trace for the targeted rows.
    - A task qualifies when all its returned Objects resolve to persistent tables (`p_` prefix) — check via `table_registry` lookup in `aaiclick/orchestration/execution/runner.py` result post-processing
    - No user annotation required — detection is automatic
 
-2. **Replay API**
-   - Add `replay_job(job_id, strategy)` to `aaiclick/orchestration/registered_jobs.py` (or a new `replay.py` module)
-   - Behavior:
-     1. Load the original job's task graph
-     2. Walk backward from terminal tasks, stopping at input tasks (their outputs are persistent — reuse in place)
-     3. Create a new `Job` row with `preservation_mode=STRATEGY` and a `replay_of` pointer to the original
-     4. Schedule all non-input tasks for execution against the persistent inputs
+2. **Replay API — thin wrapper over job submission**
+   - Phase 0 already made `strategy` and `preservation_mode` first-class job run parameters, so replay is just a resubmission with those fields populated
+   - Add `replay_job(job_id, strategy)` to `aaiclick/orchestration/registered_jobs.py` that:
+     1. Loads the original job's task graph
+     2. Walks backward from terminal tasks, stopping at input tasks (their outputs are persistent — reuse in place)
+     3. Calls the normal `submit_job()` path with `strategy=strategy`, `preservation_mode=STRATEGY`, and a `replay_of` pointer to the original
    - Alembic migration for `jobs.replay_of` nullable foreign key
 
-3. **Strategy propagation**
-   - `OrchContext` — add `strategy: SamplingStrategy` field populated from `Job.strategy` (JSON column) at job start
-   - Pass through to `OplogPayload` during every `oplog_record_sample()` call (already wired in Phase 0)
-
-4. **Row-trace query**
+3. **Row-trace query**
    - Reintroduce `backward_oplog_row(table, aai_id)` in `aaiclick/oplog/lineage.py` — now strategy-aware, walking the non-empty `kwargs_aai_ids` / `result_aai_ids` populated by replay
    - Return a `RowLineageStep` chain ending at input tables
 
-5. **CLI / agent integration**
-   - `aaiclick replay <job_id> --strategy <json>` command in `aaiclick/orchestration/cli.py`
+4. **CLI / agent integration**
+   - `aaiclick replay <job_id> --strategy <json>` command in `aaiclick/orchestration/cli.py` (thin wrapper over the existing `submit` command's `--strategy` flag from Phase 0)
    - `debug_agent` end-to-end: question → `produce_strategy()` → `replay_job()` → `backward_oplog_row()` → explanation with row-level evidence
 
-6. **Tests**
+5. **Tests**
    - `aaiclick/orchestration/test_replay.py` — submit a 3-task job, replay with a strategy, assert the new job has populated `kwargs_aai_ids` matching the strategy and untouched persistent inputs
    - Input-task detection unit tests — persistent-only task, mixed persistent+ephemeral task, all-ephemeral task
    - End-to-end test in `aaiclick/ai/agents/test_debug_agent.py` using a mocked provider that returns a canned strategy
 
-7. **Docs**
+6. **Docs**
    - `docs/orchestration.md` — new "Replay" section describing `replay_job()` and input-task detection
    - `docs/data_context.md` — document input-task detection via persistent Objects
    - `docs/lineage_3_phases.md` — update Phase 3 + prerequisites to ✅ with implementation references
