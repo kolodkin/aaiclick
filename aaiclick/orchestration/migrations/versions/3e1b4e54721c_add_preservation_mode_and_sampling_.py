@@ -20,11 +20,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add preservation_mode and sampling_strategy to jobs."""
+    preservation_mode = sa.Enum(
+        'NONE', 'FULL', 'STRATEGY',
+        name='preservationmode',
+    )
+    preservation_mode.create(op.get_bind(), checkfirst=True)
     op.add_column(
         'jobs',
         sa.Column(
             'preservation_mode',
-            sa.String(),
+            preservation_mode,
             nullable=False,
             server_default='NONE',
         ),
@@ -43,3 +48,4 @@ def downgrade() -> None:
     """Remove preservation_mode and sampling_strategy from jobs."""
     op.drop_column('jobs', 'sampling_strategy')
     op.drop_column('jobs', 'preservation_mode')
+    sa.Enum(name='preservationmode').drop(op.get_bind(), checkfirst=True)
