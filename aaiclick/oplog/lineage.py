@@ -7,7 +7,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 import re
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
+
+LineageDirection = Literal["backward", "forward"]
 
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
 
@@ -261,7 +263,7 @@ async def forward_oplog(
 
 async def oplog_subgraph(
     table: str,
-    direction: str = "backward",
+    direction: LineageDirection = "backward",
     max_depth: int = 10,
 ) -> OplogGraph:
     """Return a structured OplogGraph for visualization or AI context."""

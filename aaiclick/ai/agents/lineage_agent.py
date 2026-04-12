@@ -21,13 +21,19 @@ Each step: operation, input tables, output table.
 {OUTPUT_FORMAT}"""
 
 
-async def explain_lineage(target_table: str, question: str | None = None) -> str:
+async def explain_lineage(
+    target_table: str,
+    question: str | None = None,
+    graph: OplogGraph | None = None,
+) -> str:
     """Trace and explain how target_table was produced.
 
     Calls backward_oplog(), samples each node, formats context for LLM.
     Post-processes the response to replace raw table IDs with labels.
+    Pass `graph` to reuse a pre-built lineage graph and skip the traversal.
     """
-    graph = await oplog_subgraph(target_table, direction="backward")
+    if graph is None:
+        graph = await oplog_subgraph(target_table, direction="backward")
     labels = graph.build_labels()
     context = graph.to_prompt_context()
 

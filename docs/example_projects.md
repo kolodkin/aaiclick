@@ -5,6 +5,10 @@ End-to-end projects demonstrating aaiclick orchestration with real-world data.
 Each project lives in `aaiclick/example_projects/<name>/` and includes a shell
 script as the single entry point.
 
+=== "Basic Lineage"
+
+    --8<-- "aaiclick/example_projects/basic_lineage/README.md"
+
 === "Basic Worker"
 
     --8<-- "aaiclick/example_projects/basic_worker/README.md"

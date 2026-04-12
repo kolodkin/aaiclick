@@ -106,6 +106,23 @@ async def test_explain_lineage_samples_each_node():
     assert set(sampled_tables) == {"result", "a"}
 
 
+async def test_explain_lineage_with_prebuilt_graph_skips_subgraph():
+    """Passing graph= skips the oplog_subgraph call, avoiding duplicate traversal."""
+    graph = _mock_graph(make_oplog_node("result", "add"))
+    mock_subgraph = AsyncMock(return_value=graph)
+
+    with (
+        patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=mock_subgraph),
+        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
+        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("ok")),
+        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+    ):
+        result = await explain_lineage("result", graph=graph)
+
+    assert result == "ok"
+    mock_subgraph.assert_not_called()
+
+
 async def test_explain_lineage_context_includes_schemas():
     """When schemas are available, they appear in the context sent to the LLM."""
     graph = _mock_graph(make_oplog_node("result", "add"))
