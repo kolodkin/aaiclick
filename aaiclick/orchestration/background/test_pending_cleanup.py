@@ -18,7 +18,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
-from .conftest import get_run_refs, insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
 
 
 async def _insert_task(engine, task_id, job_id, *, status, attempt=0, max_retries=0,
@@ -37,18 +37,6 @@ async def _insert_task(engine, task_id, job_id, *, status, attempt=0, max_retrie
                 "attempt": attempt, "run_ids": run_ids, "error": error,
                 "worker_id": worker_id,
             },
-        )
-        await session.commit()
-
-
-async def _insert_job(engine, job_id, *, status="RUNNING"):
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
-            ),
-            {"id": job_id, "status": status, "now": datetime.utcnow()},
         )
         await session.commit()
 
@@ -111,7 +99,7 @@ async def run_pending_cleanup() -> None:
 
 async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
     """PENDING_CLEANUP task with retries → PENDING with incremented attempt."""
-    await _insert_job(bg_db, 1000)
+    await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db, 100, 1000,
         status="PENDING_CLEANUP",
@@ -137,7 +125,7 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
 
 async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     """PENDING_CLEANUP task with no retries → FAILED."""
-    await _insert_job(bg_db, 1000)
+    await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db, 100, 1000,
         status="PENDING_CLEANUP",
@@ -160,7 +148,7 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
 
 async def test_pending_cleanup_cleans_pin_refs(bg_db):
     """PENDING_CLEANUP processing removes pin_refs for the task."""
-    await _insert_job(bg_db, 1000)
+    await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db, 100, 1000,
         status="PENDING_CLEANUP",
@@ -181,7 +169,7 @@ async def test_pending_cleanup_cleans_pin_refs(bg_db):
 
 async def test_pending_cleanup_completes_job_when_all_failed(bg_db):
     """Job transitions to FAILED when last task transitions from PENDING_CLEANUP to FAILED."""
-    await _insert_job(bg_db, 1000, status="RUNNING")
+    await insert_job(bg_db, 1000, status="RUNNING")
     await _insert_task(bg_db, 100, 1000, status="COMPLETED")
     await _insert_task(
         bg_db, 101, 1000,
@@ -199,7 +187,7 @@ async def test_pending_cleanup_completes_job_when_all_failed(bg_db):
 
 async def test_pending_cleanup_does_not_complete_job_with_retries(bg_db):
     """Job stays RUNNING when PENDING_CLEANUP task transitions to PENDING (has retries)."""
-    await _insert_job(bg_db, 1000, status="RUNNING")
+    await insert_job(bg_db, 1000, status="RUNNING")
     await _insert_task(
         bg_db, 100, 1000,
         status="PENDING_CLEANUP",
@@ -216,7 +204,7 @@ async def test_pending_cleanup_does_not_complete_job_with_retries(bg_db):
 
 async def test_pending_cleanup_retry_backoff(bg_db):
     """Retry backoff doubles each attempt: 1s, 2s, 4s."""
-    await _insert_job(bg_db, 1000)
+    await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db, 100, 1000,
         status="PENDING_CLEANUP",

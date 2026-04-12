@@ -9,22 +9,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.handler import JOB_FAILED_ERROR, try_complete_job
 
-
-async def _insert_job(engine, job_id, status="RUNNING"):
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
-            ),
-            {"id": job_id, "status": status, "now": datetime.utcnow()},
-        )
-        await session.commit()
+from .conftest import insert_job
 
 
 async def _insert_tasks(engine, job_id, statuses):
@@ -65,7 +56,7 @@ async def _run_try_complete(engine, job_id):
 
 async def test_try_complete_job_empty_job_is_noop(bg_db):
     """Job with no tasks is a no-op — stays as-is."""
-    await _insert_job(bg_db, 1, status="RUNNING")
+    await insert_job(bg_db, 1)
 
     await _run_try_complete(bg_db, 1)
 
@@ -77,7 +68,7 @@ async def test_try_complete_job_empty_job_is_noop(bg_db):
 
 async def test_try_complete_job_all_completed_marks_completed(bg_db):
     """All tasks COMPLETED → job COMPLETED with completed_at set."""
-    await _insert_job(bg_db, 1)
+    await insert_job(bg_db, 1)
     await _insert_tasks(bg_db, 1, ["COMPLETED", "COMPLETED", "COMPLETED"])
 
     await _run_try_complete(bg_db, 1)
@@ -90,7 +81,7 @@ async def test_try_complete_job_all_completed_marks_completed(bg_db):
 
 async def test_try_complete_job_any_failed_marks_failed(bg_db):
     """Any FAILED task among terminal statuses → job FAILED with error message."""
-    await _insert_job(bg_db, 1)
+    await insert_job(bg_db, 1)
     await _insert_tasks(bg_db, 1, ["COMPLETED", "FAILED", "COMPLETED"])
 
     await _run_try_complete(bg_db, 1)
@@ -101,59 +92,22 @@ async def test_try_complete_job_any_failed_marks_failed(bg_db):
     assert error == JOB_FAILED_ERROR
 
 
-async def test_try_complete_job_pending_is_noop(bg_db):
-    """Any PENDING task → no-op, job stays RUNNING."""
-    await _insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "PENDING"])
+@pytest.mark.parametrize("non_terminal", ["PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"])
+async def test_try_complete_job_non_terminal_is_noop(bg_db, non_terminal):
+    """Any non-terminal task → job stays RUNNING, no completed_at set."""
+    await insert_job(bg_db, 1)
+    await _insert_tasks(bg_db, 1, ["COMPLETED", non_terminal])
 
     await _run_try_complete(bg_db, 1)
 
-    status, completed_at, error = await _get_job(bg_db, 1)
+    status, completed_at, _ = await _get_job(bg_db, 1)
     assert status == "RUNNING"
     assert completed_at is None
 
 
-async def test_try_complete_job_claimed_is_noop(bg_db):
-    """Any CLAIMED task → no-op."""
-    await _insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "CLAIMED"])
-
-    await _run_try_complete(bg_db, 1)
-
-    status, _, _ = await _get_job(bg_db, 1)
-    assert status == "RUNNING"
-
-
-async def test_try_complete_job_running_is_noop(bg_db):
-    """Any RUNNING task → no-op."""
-    await _insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "RUNNING"])
-
-    await _run_try_complete(bg_db, 1)
-
-    status, _, _ = await _get_job(bg_db, 1)
-    assert status == "RUNNING"
-
-
-async def test_try_complete_job_pending_cleanup_is_noop(bg_db):
-    """Any PENDING_CLEANUP task → no-op (cleanup still in flight)."""
-    await _insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "PENDING_CLEANUP"])
-
-    await _run_try_complete(bg_db, 1)
-
-    status, _, _ = await _get_job(bg_db, 1)
-    assert status == "RUNNING"
-
-
 async def test_try_complete_job_cancelled_counts_as_terminal_non_failed(bg_db):
-    """CANCELLED tasks are terminal and not failed → job COMPLETED.
-
-    In practice cancellation is initiated via ``cancel_job()`` which transitions
-    the job itself to CANCELLED, so ``try_complete_job`` rarely sees CANCELLED
-    tasks. This test documents the contract for the edge case where it does.
-    """
-    await _insert_job(bg_db, 1)
+    """CANCELLED tasks are terminal and not failed → job COMPLETED."""
+    await insert_job(bg_db, 1)
     await _insert_tasks(bg_db, 1, ["COMPLETED", "CANCELLED"])
 
     await _run_try_complete(bg_db, 1)
