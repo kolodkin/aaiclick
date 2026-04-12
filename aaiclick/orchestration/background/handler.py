@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
+from ..models import JobStatus, TaskStatus
+
 
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
@@ -23,6 +25,52 @@ def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     params = {f"{prefix}{i}": v for i, v in enumerate(ids)}
     placeholders = ", ".join(f":{k}" for k in params)
     return placeholders, params
+
+
+_NON_TERMINAL_TASK_STATUSES = {
+    TaskStatus.PENDING,
+    TaskStatus.CLAIMED,
+    TaskStatus.RUNNING,
+    TaskStatus.PENDING_CLEANUP,
+}
+
+
+async def try_complete_job(session: AsyncSession, job_id: int) -> None:
+    """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
+
+    No-op while any task is still PENDING, CLAIMED, RUNNING, or PENDING_CLEANUP.
+    Uses raw SQL on the passed session so it works both inside and outside an
+    active ``orch_context``. The caller is responsible for committing.
+    """
+    result = await session.execute(
+        text("SELECT status FROM tasks WHERE job_id = :job_id"),
+        {"job_id": job_id},
+    )
+    statuses = [row[0] for row in result.fetchall()]
+    if not statuses:
+        return
+
+    if any(s in _NON_TERMINAL_TASK_STATUSES for s in statuses):
+        return
+
+    now = datetime.utcnow()
+    if any(s == TaskStatus.FAILED for s in statuses):
+        await session.execute(
+            text(
+                "UPDATE jobs SET status = :status, completed_at = :now, "
+                "error = 'One or more tasks failed' "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": job_id, "now": now, "status": JobStatus.FAILED.value},
+        )
+    else:
+        await session.execute(
+            text(
+                "UPDATE jobs SET status = :status, completed_at = :now "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": job_id, "now": now, "status": JobStatus.COMPLETED.value},
+        )
 
 
 class PendingCleanupTask(NamedTuple):

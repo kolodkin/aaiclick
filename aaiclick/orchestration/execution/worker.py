@@ -13,10 +13,11 @@ from sqlmodel import select
 
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
+from .claiming import check_task_cancelled, claim_next_task, update_task_status
+from ..background.handler import try_complete_job
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from ..models import JobStatus, Task, TaskStatus, Worker, WorkerStatus
+from ..models import Task, TaskStatus, Worker, WorkerStatus
 
 # Task execution strategy used by _worker_loop.
 # Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
@@ -32,23 +33,8 @@ POLL_INTERVAL = 1
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task.status).where(Task.job_id == job_id)
-        )
-        statuses = [row[0] for row in result.all()]
-
-        if not statuses:
-            return
-
-        # If any task is still pending, claimed, running, or awaiting cleanup, job is not done
-        if any(s in (TaskStatus.PENDING, TaskStatus.CLAIMED, TaskStatus.RUNNING, TaskStatus.PENDING_CLEANUP) for s in statuses):
-            return
-
-        # All tasks are in terminal state
-        if any(s == TaskStatus.FAILED for s in statuses):
-            await update_job_status(job_id, JobStatus.FAILED, error="One or more tasks failed")
-        else:
-            await update_job_status(job_id, JobStatus.COMPLETED)
+        await try_complete_job(session, job_id)
+        await session.commit()
 
 
 async def _set_pending_cleanup(task_id: int, error: str) -> None:

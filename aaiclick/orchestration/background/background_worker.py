@@ -32,8 +32,8 @@ from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus, TaskStatus
-from .handler import BackgroundHandler, create_background_handler, in_clause
+from ..models import JobStatus
+from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
 RETRY_BASE_DELAY = 1
@@ -180,45 +180,9 @@ class BackgroundWorker:
                     failed_job_ids.add(task.job_id)
 
             for job_id in failed_job_ids:
-                await self._try_complete_job(session, job_id)
+                await try_complete_job(session, job_id)
 
             await session.commit()
-
-    async def _try_complete_job(self, session: AsyncSession, job_id: int) -> None:
-        """Check if all tasks for a job are in terminal state and update job status."""
-        result = await session.execute(
-            text("SELECT status FROM tasks WHERE job_id = :job_id"),
-            {"job_id": job_id},
-        )
-        statuses = [row[0] for row in result.fetchall()]
-        if not statuses:
-            return
-
-        non_terminal = {
-            TaskStatus.PENDING, TaskStatus.CLAIMED,
-            TaskStatus.RUNNING, TaskStatus.PENDING_CLEANUP,
-        }
-        if any(s in non_terminal for s in statuses):
-            return
-
-        now = datetime.utcnow()
-        if any(s == TaskStatus.FAILED for s in statuses):
-            await session.execute(
-                text(
-                    "UPDATE jobs SET status = :failed, completed_at = :now, "
-                    "error = 'One or more tasks failed' "
-                    "WHERE id = :job_id"
-                ),
-                {"job_id": job_id, "now": now, "failed": JobStatus.FAILED.value},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE jobs SET status = :completed, completed_at = :now "
-                    "WHERE id = :job_id"
-                ),
-                {"job_id": job_id, "now": now, "completed": JobStatus.COMPLETED.value},
-            )
 
     async def _cleanup_unreferenced_tables(self) -> None:
         """Drop CH tables with no pin refs and no run refs.
