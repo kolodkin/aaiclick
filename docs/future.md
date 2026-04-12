@@ -45,15 +45,6 @@ Moving it to SQL collapses `_cleanup_unreferenced_tables` to a single query that
 
 **Work**: Alembic migration creating `table_registry` in SQL; one-time copy from CH on upgrade; flip `OrchLifecycleHandler._write_table_registry_row` to a SQL INSERT; rewrite `_lookup_table_owners` / `_cleanup_unreferenced_tables` / `_cleanup_expired_jobs` scans; drop the CH-side table.
 
-## Deduplicate `_try_complete_job`
-
-`_try_complete_job` exists in two places with identical logic (check if all tasks are terminal, mark job COMPLETED or FAILED):
-
-- `worker._try_complete_job(job_id)` — uses ORM via `get_sql_session()`, requires active `orch_context`
-- `BackgroundWorker._try_complete_job(session, job_id)` — uses raw SQL on a passed session, independent of `orch_context`
-
-The background worker operates with its own engine outside `orch_context`, so it cannot call the worker version directly. Unify by extracting a shared session-accepting helper that both callers use.
-
 ## Lineage: Three-Phase Debugging
 
 Question-driven lineage debugging in three phases: graph structure (have today), targeted sampling via WHERE clauses derived from the user's question, and row-level trace using those targeted samples. Replaces random pre-sampling with on-demand, question-driven sampling.
