@@ -284,6 +284,40 @@ async def forward_oplog(
 
         frontier = next_frontier
 
+    # Fetch sibling inputs — tables referenced as kwargs of downstream nodes
+    # but never produced from `table` itself. These are needed so build_labels
+    # can assign source_* labels to every edge endpoint.
+    siblings: set[str] = set()
+    for node in nodes:
+        for src in node.kwargs.values():
+            if src not in visited:
+                siblings.add(src)
+
+    if siblings:
+        placeholders = ", ".join(f"'{t}'" for t in siblings)
+        result = await ch_client.query(f"""
+            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+                   sql_template, task_id, job_id
+            FROM operation_log
+            WHERE result_table IN ({placeholders})
+        """)
+        for row in result.result_rows:
+            (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
+             result_aai_ids_raw, sql_template, task_id, job_id) = row
+            if result_table in visited:
+                continue
+            visited.add(result_table)
+            nodes.append(OplogNode(
+                table=result_table,
+                operation=operation,
+                kwargs=_to_dict(kwargs_raw),
+                kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+                result_aai_ids=list(result_aai_ids_raw),
+                sql_template=sql_template,
+                task_id=task_id,
+                job_id=job_id,
+            ))
+
     return nodes
 
 
