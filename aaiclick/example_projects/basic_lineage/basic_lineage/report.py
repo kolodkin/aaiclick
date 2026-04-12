@@ -6,10 +6,14 @@ from aaiclick.oplog.lineage import OplogGraph
 from aaiclick.orchestration.models import Task
 
 
-def _print_graph(graph: OplogGraph, title: str, target: str) -> None:
-    labels = graph.build_labels()
+def _print_graph(
+    graph: OplogGraph,
+    title: str,
+    root: str,
+    labels: dict[str, str],
+) -> None:
     print(f"\n## {title}\n")
-    print(f"- Target: `{labels.get(target, target)}`")
+    print(f"- Root: `{labels.get(root, root)}`")
     print(f"- Operations: {len(graph.nodes)}")
     print(f"- Edges: {len(graph.edges)}\n")
     for edge in graph.edges:
@@ -29,20 +33,21 @@ def print_report(
     debug_answer: str,
 ) -> None:
     """Print the full example report as markdown."""
-    labels = backward_graph.build_labels()
+    backward_labels = backward_graph.build_labels()
+    forward_labels = forward_graph.build_labels()
 
     print("## Pipeline Tasks\n")
     for t in tasks:
         if t.result:
             table = t.result.get("table", "")
-            label = labels.get(table, "")
+            label = backward_labels.get(table, "")
             suffix = f" ({label})" if label else ""
             print(f"- **{t.name}**: {t.status.value}{suffix}")
         else:
             print(f"- **{t.name}**: {t.status.value}")
 
-    _print_graph(backward_graph, "Backward Lineage Graph", target_table)
-    _print_graph(forward_graph, "Forward Lineage Graph", source_table)
+    _print_graph(backward_graph, "Backward Lineage Graph", target_table, backward_labels)
+    _print_graph(forward_graph, "Forward Lineage Graph", source_table, forward_labels)
 
     print("\n## AI Explanation (backward lineage)\n")
     print("**Question**: How was this table produced? What arithmetic was applied?\n")
