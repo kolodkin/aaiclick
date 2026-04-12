@@ -30,13 +30,6 @@ HEARTBEAT_INTERVAL = 30
 POLL_INTERVAL = 1
 
 
-async def _try_complete_job(job_id: int) -> None:
-    """Check if all tasks for a job are done and update job status accordingly."""
-    async with get_sql_session() as session:
-        await try_complete_job(session, job_id)
-        await session.commit()
-
-
 async def _set_pending_cleanup(task_id: int, error: str) -> None:
     """Transition a failed task to PENDING_CLEANUP for background ref cleanup."""
     async with get_sql_session() as session:
@@ -266,7 +259,9 @@ async def _handle_task_result(
         )
         print(f"Worker {worker_id} completed task {task.id}")
         await _increment_worker_stat(worker_id, "tasks_completed")
-        await _try_complete_job(task.job_id)
+        async with get_sql_session() as session:
+            await try_complete_job(session, task.job_id)
+            await session.commit()
         return True
 
     error = error or "Unknown error"

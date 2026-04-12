@@ -27,34 +27,40 @@ def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     return placeholders, params
 
 
-_NON_TERMINAL_TASK_STATUSES = {
-    TaskStatus.PENDING,
-    TaskStatus.CLAIMED,
-    TaskStatus.RUNNING,
-    TaskStatus.PENDING_CLEANUP,
-}
-
-
 async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
 
     No-op while any task is still PENDING, CLAIMED, RUNNING, or PENDING_CLEANUP.
-    Uses raw SQL on the passed session so it works both inside and outside an
-    active ``orch_context``. The caller is responsible for committing.
+    The terminal check is aggregated inside SQL (one row returned regardless
+    of task count) so this stays O(1) on the worker hot path even for large
+    jobs. Uses raw SQL on the passed session so it works both inside and
+    outside an active ``orch_context``. The caller is responsible for committing.
     """
     result = await session.execute(
-        text("SELECT status FROM tasks WHERE job_id = :job_id"),
-        {"job_id": job_id},
+        text(
+            "SELECT "
+            "  COUNT(*) AS total, "
+            "  SUM(CASE WHEN status IN "
+            "    (:pending, :claimed, :running, :pending_cleanup) "
+            "    THEN 1 ELSE 0 END) AS non_terminal, "
+            "  SUM(CASE WHEN status = :failed THEN 1 ELSE 0 END) AS failed "
+            "FROM tasks WHERE job_id = :job_id"
+        ),
+        {
+            "job_id": job_id,
+            "pending": TaskStatus.PENDING.value,
+            "claimed": TaskStatus.CLAIMED.value,
+            "running": TaskStatus.RUNNING.value,
+            "pending_cleanup": TaskStatus.PENDING_CLEANUP.value,
+            "failed": TaskStatus.FAILED.value,
+        },
     )
-    statuses = [row[0] for row in result.fetchall()]
-    if not statuses:
-        return
-
-    if any(s in _NON_TERMINAL_TASK_STATUSES for s in statuses):
+    total, non_terminal, failed = result.one()
+    if not total or non_terminal:
         return
 
     now = datetime.utcnow()
-    if any(s == TaskStatus.FAILED for s in statuses):
+    if failed:
         await session.execute(
             text(
                 "UPDATE jobs SET status = :status, completed_at = :now, "
