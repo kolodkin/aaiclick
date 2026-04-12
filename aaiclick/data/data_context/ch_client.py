@@ -18,6 +18,7 @@ class QueryResult(Protocol):
     """Protocol for ClickHouse query results."""
 
     result_rows: list[tuple]
+    column_names: list[str]
 
 
 class ChClient(Protocol):
