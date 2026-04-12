@@ -5,6 +5,8 @@ Every lineage question reduces to this: How did this data get here?
 Why is that data missing here?
 The answer requires three phases, each building on the previous.
 
+**Implementation plan**: `docs/lineage_3_phases_implementation_plan.md`
+
 ---
 
 # Table Preservation Modes
