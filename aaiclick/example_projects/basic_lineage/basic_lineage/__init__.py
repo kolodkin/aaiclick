@@ -61,17 +61,18 @@ async def main():
         source_table = next(t for t in tasks if t.name == "create_prices").result["table"]
 
         async with lineage_context():
-            backward_graph, forward_graph, debug_answer = await asyncio.gather(
+            backward_graph, forward_graph = await asyncio.gather(
                 oplog_subgraph(target_table, direction="backward"),
                 oplog_subgraph(source_table, direction="forward"),
-                debug_result(
-                    target_table,
-                    question="Which row has the highest value and which inputs drove it?",
-                ),
             )
             explanation = await explain_lineage(
                 target_table,
                 question="How was this table produced? What arithmetic was applied?",
+                graph=backward_graph,
+            )
+            debug_answer = await debug_result(
+                target_table,
+                question="Which row has the highest value and which inputs drove it?",
                 graph=backward_graph,
             )
 
