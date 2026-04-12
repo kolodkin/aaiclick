@@ -16,9 +16,14 @@ Same task execution, different cleanup behavior.
 
 | Mode         | What survives after job              | Use case                     |
 |--------------|--------------------------------------|------------------------------|
-| **Normal**   | Persistent tables only               | Production runs (as today)   |
+| **None**     | Persistent tables only               | Production runs (as today)   |
 | **Full**     | All tables                           | Development / debugging      |
 | **Strategy** | Persistent + strategy-matched rows   | Lineage replay (Phase 2+3)  |
+
+Preservation mode is a global default set via `AAICLICK_DEFAULT_PRESERVATION_MODE`
+(keyword: `NONE` / `FULL` / `STRATEGY`), overridable per job at submission time.
+The sampling strategy itself (`dict[str, str]`) is a separate per-job parameter —
+no env default, since strategies are question-specific.
 
 ---
 
