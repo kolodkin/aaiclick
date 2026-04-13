@@ -37,20 +37,45 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Job-Scoped Persistent Table Names
+## Two-Tier Persistent Tables: `p_*` (user-managed) + `j_<job_id>_*` (job-scoped)
 
-Rename the `p_<name>` convention to `j_<job_id>_<name>`. Today, `create_object_from_value(val, name="kev_catalog")` creates `p_kev_catalog` — globally shared across jobs, with append-on-existing-table semantics. That's a design smell: two parallel jobs collide on the name, and the e2e test under Orch dist had to work around it with a hand-generated snowflake suffix.
+Today only one "persistent" tier exists — `p_<name>` created via `create_object_from_value(val, name=...)`. It serves two conflicting goals:
 
-Encoding the owning `job_id` into the name makes the scope explicit:
+1. **User-managed durable data** ("survives everything, only the user deletes it")
+2. **Pinned intermediate outputs** ("survives one job's cleanup so downstream tasks can reference it by name")
 
-- Two jobs passing the same `name=` get isolated namespaces automatically.
-- `_cleanup_expired_jobs()` drops a job's tables with `SHOW TABLES LIKE 'j_<id>_%'` — no `table_registry` lookup for these.
-- `is_input_task()` detection keeps its current semantics (prefix check flips from `p_` to `j_`).
-- Phase 3b replay references the original job's persistent tables explicitly as `j_<original_job_id>_<name>`.
+The two goals are both needed but have opposite cleanup rules, and the current code half-supports both:
 
-**Breaking change**: any code that relied on `p_foo` being shared across jobs (or on the append-on-existing-table behavior) needs to migrate. The "shared across jobs" use case — if it matters — could be re-added as a separate `shared/<name>` convention later.
+- `_cleanup_unreferenced_tables()` correctly skips `p_*` (they don't get refcount-dropped), so goal 1 looks honored mid-job.
+- But `_delete_job_data()` at `background_worker.py:323` drops **every** table registered to an expired job via `table_registry`, which today includes `p_*` — so `AAICLICK_JOB_TTL_DAYS` silently nukes user-managed persistent tables. Pre-existing bug.
+- And two parallel jobs using `name="kev_catalog"` both write to `p_kev_catalog` (append-on-existing), which is surprising at best.
 
-**Work**: update `create_object_from_value()` name handling in `aaiclick/data/data_context/data_context.py`; flip the `persistent` property + prefix checks in `aaiclick/data/object/object.py`, `aaiclick/orchestration/lineage.py::is_input_task`, `aaiclick/oplog/cleanup.py`, and `aaiclick/orchestration/background/background_worker.py`; update every example (basic-lineage, cyber-threat-feeds, imdb, nyc-taxi) + tests; docs across `data_context.md`, `object.md`, `orchestration.md`, `lineage_3_phases.md`. Wide blast radius — ship in its own PR.
+**Proposed split**:
+
+| Tier         | Prefix             | Lifetime                                           | API                                                             |
+|--------------|--------------------|----------------------------------------------------|-----------------------------------------------------------------|
+| User tables  | `p_<name>`         | Forever; only the user deletes via `data delete`  | `create_object_from_value(val, name="foo")` (unchanged)         |
+| Job-scoped   | `j_<job_id>_<name>` | Until the owning job TTL-expires                  | `create_object_from_value(val, name="foo", scope="job")` or new helper |
+
+**Invariant changes**:
+
+- `p_*` is **exempt** from `_delete_job_data()` / `_cleanup_expired_jobs()` — add a `NOT LIKE 'p\_%'` guard in the `table_registry` drop list (or stop registering `p_*` in `table_registry` in the first place and rely on a separate `persistent_tables` catalog).
+- `j_<job_id>_<name>` is **always** cleaned up at job TTL via a pure prefix match (`SHOW TABLES LIKE 'j_<id>_%'`) — no `table_registry` lookup needed.
+- Two parallel jobs never collide on `j_<id>_<name>` because `job_id` is globally unique.
+- `is_input_task()` detects **either** tier as an input: persistent tables that survive cleanup are valid replay inputs.
+
+**Replay (Phase 3b) implications**: a replay job references the original's job-scoped inputs as `j_<original_job_id>_<name>`. User-tier `p_<name>` is already referenced by name. Both are stable across the replay.
+
+**Work**:
+- `aaiclick/data/data_context/data_context.py` — add `scope` kwarg to `create_object_from_value()`; route `scope="job"` through a job-id-aware name builder (pulls from orch context).
+- `aaiclick/data/object/object.py` — `persistent` property recognizes both `p_*` and `j_*`; add an `is_user_persistent` / `is_job_scoped` split if callers need to distinguish.
+- `aaiclick/orchestration/background/background_worker.py` — `_delete_job_data()` excludes `p_*` from the drop list; `_cleanup_expired_jobs()` adds a `SHOW TABLES LIKE 'j_<id>_%'` pass.
+- `aaiclick/orchestration/lineage.py::is_input_task` — recognize both prefixes.
+- `aaiclick/oplog/cleanup.py` — same prefix check update.
+- Examples that use `name=` for intermediate outputs (basic-lineage, cyber-threat-feeds, imdb, nyc-taxi) migrate to `scope="job"` where appropriate; genuinely user-facing catalog tables stay as `p_*`.
+- Docs across `data_context.md`, `object.md`, `orchestration.md`, `lineage_3_phases.md`.
+
+Wide blast radius — ship in its own PR. Pairs naturally with the `table_registry` → SQL move below.
 
 ## Move `table_registry` from ClickHouse to SQL
 
