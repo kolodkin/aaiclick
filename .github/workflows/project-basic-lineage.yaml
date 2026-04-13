@@ -11,7 +11,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  AAICLICK_AI_MODEL: ollama/mistral-nemo
+  AAICLICK_AI_MODEL: ollama/llama3.1:8b
 
 jobs:
   basic-lineage:
@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ollama/models
-          key: ollama-mistral-nemo
+          key: ollama-llama3.1-8b
 
       - name: Setup local backend and pull model
         run: uv run python -m aaiclick setup --ai
