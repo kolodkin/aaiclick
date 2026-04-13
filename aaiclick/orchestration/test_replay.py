@@ -180,10 +180,13 @@ async def _insert_synthetic_job(
     job_name: str,
     make_left_result: dict,
     make_right_result: dict,
-    add_kwargs: dict,
     add_result: dict,
 ) -> tuple[int, int, int, int]:
     """Insert a flat 3-task graph (make_left, make_right, _add) + deps.
+
+    The ``add_them`` task's kwargs are built here using the pre-allocated
+    input task IDs, so callers don't need to patch placeholder refs after
+    the insert.
 
     Returns ``(job_id, make_left_id, make_right_id, add_id)``.
     """
@@ -191,6 +194,11 @@ async def _insert_synthetic_job(
     ml_id = get_snowflake_id()
     mr_id = get_snowflake_id()
     add_id = get_snowflake_id()
+
+    add_kwargs = {
+        "left": {"ref_type": "upstream", "task_id": ml_id},
+        "right": {"ref_type": "upstream", "task_id": mr_id},
+    }
 
     async with get_sql_session() as session:
         session.add(
@@ -260,24 +268,8 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
             "table": "p_synth_right",
             "persistent": True,
         },
-        add_kwargs={
-            "left": {"ref_type": "upstream", "task_id": 0},  # placeholder
-            "right": {"ref_type": "upstream", "task_id": 0},
-        },
         add_result={"object_type": "object", "table": "t_synth_sum"},
     )
-
-    # Fix up the placeholder upstream task_ids now that we know them.
-    async with get_sql_session() as session:
-        add_task = (
-            await session.execute(select(Task).where(Task.id == add_id))
-        ).scalar_one()
-        add_task.kwargs = {
-            "left": {"ref_type": "upstream", "task_id": ml_id},
-            "right": {"ref_type": "upstream", "task_id": mr_id},
-        }
-        session.add(add_task)
-        await session.commit()
 
     strategy = {"p_synth_left": "value = 10"}
     replayed = await replay_job(job_id, sampling_strategy=strategy)
@@ -339,7 +331,6 @@ async def test_replay_job_requires_non_empty_strategy(orch_ctx_no_ch):
             "table": "p_y",
             "persistent": True,
         },
-        add_kwargs={},
         add_result={"object_type": "object", "table": "t_sum"},
     )
     with pytest.raises(ValueError, match="non-empty sampling_strategy"):

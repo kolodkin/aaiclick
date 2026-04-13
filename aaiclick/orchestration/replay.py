@@ -23,6 +23,7 @@ from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .factories import resolve_job_config
+from .jobs.queries import get_job, get_tasks_for_job
 from .lineage import is_input_task
 from .models import Dependency, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
@@ -57,8 +58,8 @@ def _persistent_ref_from_input_task(task: Task) -> Dict[str, Any]:
 
         {"object_type": "object", "table": "p_...", "persistent": true, ...}
 
-    Returns a fresh dict (no ``job_id`` — replay deserialization looks up
-    the current job).
+    ``get_job_result()`` in ``jobs/queries.py`` injects ``job_id`` on
+    read, so we strip it here — the replayed tasks belong to a new job.
     """
     result = dict(task.result)
     result.pop("job_id", None)
@@ -100,7 +101,7 @@ def _rewrite_value(
     if value.get("ref_type") == "upstream":
         old_id = value["task_id"]
         if old_id in input_task_refs:
-            return _persistent_ref_from_input_task_dict(input_task_refs[old_id])
+            return dict(input_task_refs[old_id])
         if old_id in wiring_targets:
             return _rewrite_value(
                 wiring_targets[old_id],
@@ -124,16 +125,6 @@ def _rewrite_value(
         )
         for k, v in value.items()
     }
-
-
-def _persistent_ref_from_input_task_dict(ref: Dict[str, Any]) -> Dict[str, Any]:
-    """Shallow copy of an already-extracted persistent ref.
-
-    Kept separate from ``_persistent_ref_from_input_task`` so the per-task
-    extraction only runs once (in ``replay_job``) while per-reference
-    rewrites in ``_rewrite_value`` get fresh dicts.
-    """
-    return dict(ref)
 
 
 async def replay_job(
@@ -179,17 +170,10 @@ async def replay_job(
             "without a strategy carries no lineage information"
         )
 
-    async with get_sql_session() as session:
-        original = (
-            await session.execute(select(Job).where(Job.id == original_job_id))
-        ).scalar_one_or_none()
-        if original is None:
-            raise ValueError(f"Job {original_job_id} not found")
+    if await get_job(original_job_id) is None:
+        raise ValueError(f"Job {original_job_id} not found")
 
-        task_rows = (
-            await session.execute(select(Task).where(Task.job_id == original_job_id))
-        ).scalars().all()
-        dep_rows = await _load_task_dependencies(session, [t.id for t in task_rows])
+    task_rows = await get_tasks_for_job(original_job_id)
 
     input_task_refs: Dict[int, Dict[str, Any]] = {}
     wiring_targets: Dict[int, Any] = {}
@@ -209,7 +193,6 @@ async def replay_job(
             "every task is either an input task or a wiring task"
         )
 
-    # Validate resolved config up front so we fail before inserting anything.
     config = resolve_job_config(
         PreservationMode.STRATEGY, sampling_strategy, registered=None
     )
@@ -231,26 +214,27 @@ async def replay_job(
         created_at=datetime.utcnow(),
     )
 
-    cloned_tasks: list[Task] = []
-    for original_task in compute_tasks:
-        new_kwargs = _rewrite_value(
-            original_task.kwargs or {},
-            task_id_map=task_id_map,
-            input_task_refs=input_task_refs,
-            wiring_targets=wiring_targets,
+    cloned_tasks: list[Task] = [
+        Task(
+            id=task_id_map[original_task.id],
+            job_id=new_job_id,
+            entrypoint=original_task.entrypoint,
+            name=original_task.name,
+            kwargs=_rewrite_value(
+                original_task.kwargs or {},
+                task_id_map=task_id_map,
+                input_task_refs=input_task_refs,
+                wiring_targets=wiring_targets,
+            ),
+            status=TaskStatus.PENDING,
+            created_at=datetime.utcnow(),
+            max_retries=original_task.max_retries,
         )
-        cloned_tasks.append(
-            Task(
-                id=task_id_map[original_task.id],
-                job_id=new_job_id,
-                entrypoint=original_task.entrypoint,
-                name=original_task.name,
-                kwargs=new_kwargs,
-                status=TaskStatus.PENDING,
-                created_at=datetime.utcnow(),
-                max_retries=original_task.max_retries,
-            )
-        )
+        for original_task in compute_tasks
+    ]
+
+    async with get_sql_session() as session:
+        dep_rows = await _load_task_dependencies(session, [t.id for t in task_rows])
 
     cloned_deps = _clone_dependencies(
         dep_rows,
@@ -261,10 +245,8 @@ async def replay_job(
 
     async with get_sql_session() as session:
         session.add(new_job)
-        for task in cloned_tasks:
-            session.add(task)
-        for dep in cloned_deps:
-            session.add(dep)
+        session.add_all(cloned_tasks)
+        session.add_all(cloned_deps)
         await session.commit()
 
     return new_job
