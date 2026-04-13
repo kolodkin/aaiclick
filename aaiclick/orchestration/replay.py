@@ -15,10 +15,18 @@ plan — see ``docs/lineage_3_phases.md`` for the big picture and
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
+from sqlalchemy.orm import aliased
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from aaiclick.data.object.refs import (
+    JOB_ID,
+    TASK_ID,
+    is_upstream_ref,
+    upstream_ref,
+)
 from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -29,50 +37,58 @@ from .models import Dependency, Job, JobStatus, PreservationMode, RunType, Task,
 from .orch_context import get_sql_session
 
 
-def _is_wiring_task(task: Task) -> bool:
-    """Return ``True`` when a task produced no data of its own.
+class _RewriteCtx(NamedTuple):
+    """Lookup tables consumed by ``_rewrite_value`` during kwarg rewriting.
 
-    Wiring tasks are job entry points that spawn child tasks at runtime
-    (``@job`` / ``TaskResult(tasks=[...])``). ``register_returned_tasks``
-    commits the children and collapses the parent's stored result to
-    ``None``. Less commonly, a task may also return a bare ``Task``
-    reference, which serializes to an upstream ref.
-
-    Either shape is a wiring task: it does no data work itself, so
-    cloning + re-executing would re-spawn children with fresh IDs that
-    would clash with the replay's cloned compute tasks.
+    - ``task_id_map`` — original compute task id → cloned compute task id.
+    - ``input_task_refs`` — input task id → persistent Object ref to inline.
+    - ``wiring_targets`` — wiring task id → that task's stored result,
+      which is transitively resolved on encounter.
     """
+
+    task_id_map: Dict[int, int]
+    input_task_refs: Dict[int, Dict[str, Any]]
+    wiring_targets: Dict[int, Any]
+
+
+def _is_wiring_task(task: Task, *, dynamic_parent_ids: set[int]) -> bool:
+    """Return ``True`` when a task is a runtime child-spawning wiring task.
+
+    A wiring task satisfies *both* conditions:
+
+    1. Its result carries no data — either ``None`` (the
+       ``register_returned_tasks`` collapse shape) or an upstream ref
+       (the rare "task returned a bare Task" shape).
+    2. It has at least one downstream child that was committed *after*
+       the task started running. A legitimate compute task that just
+       happens to return ``None`` has no such dynamic children, so it
+       stays classified as a compute task and gets cloned properly.
+
+    ``dynamic_parent_ids`` is precomputed in one query by
+    ``_load_dynamic_parent_ids`` so this predicate stays pure.
+    """
+    if task.id not in dynamic_parent_ids:
+        return False
     if task.result is None:
         return True
-    return (
-        isinstance(task.result, dict)
-        and task.result.get("ref_type") == "upstream"
-    )
+    return is_upstream_ref(task.result)
 
 
 def _persistent_ref_from_input_task(task: Task) -> Dict[str, Any]:
     """Extract a persistent Object ref from an input task's stored result.
 
     The caller has already verified ``is_input_task(task)`` so we know
-    ``task.result`` is a dict shaped like::
-
-        {"object_type": "object", "table": "p_...", "persistent": true, ...}
+    ``task.result`` is a persistent Object ref dict.
 
     ``get_job_result()`` in ``jobs/queries.py`` injects ``job_id`` on
     read, so we strip it here — the replayed tasks belong to a new job.
     """
     result = dict(task.result)
-    result.pop("job_id", None)
+    result.pop(JOB_ID, None)
     return result
 
 
-def _rewrite_value(
-    value: Any,
-    *,
-    task_id_map: Dict[int, int],
-    input_task_refs: Dict[int, Dict[str, Any]],
-    wiring_targets: Dict[int, Any],
-) -> Any:
+def _rewrite_value(value: Any, ctx: _RewriteCtx) -> Any:
     """Recursively rewrite a serialized kwarg value for the replayed graph.
 
     Upstream refs are mapped per the tables below; every other shape
@@ -86,45 +102,24 @@ def _rewrite_value(
     | Wiring task         | whatever the wiring task resolved to  |
     """
     if isinstance(value, list):
-        return [
-            _rewrite_value(
-                v,
-                task_id_map=task_id_map,
-                input_task_refs=input_task_refs,
-                wiring_targets=wiring_targets,
-            )
-            for v in value
-        ]
+        return [_rewrite_value(v, ctx) for v in value]
     if not isinstance(value, dict):
         return value
 
-    if value.get("ref_type") == "upstream":
-        old_id = value["task_id"]
-        if old_id in input_task_refs:
-            return dict(input_task_refs[old_id])
-        if old_id in wiring_targets:
-            return _rewrite_value(
-                wiring_targets[old_id],
-                task_id_map=task_id_map,
-                input_task_refs=input_task_refs,
-                wiring_targets=wiring_targets,
-            )
-        if old_id in task_id_map:
-            return {"ref_type": "upstream", "task_id": task_id_map[old_id]}
+    if is_upstream_ref(value):
+        old_id = value[TASK_ID]
+        if old_id in ctx.input_task_refs:
+            return dict(ctx.input_task_refs[old_id])
+        if old_id in ctx.wiring_targets:
+            return _rewrite_value(ctx.wiring_targets[old_id], ctx)
+        if old_id in ctx.task_id_map:
+            return upstream_ref(ctx.task_id_map[old_id])
         raise ValueError(
             f"Upstream task {old_id} referenced by replayed task is neither "
             "an input task, a wiring task, nor a cloned compute task"
         )
 
-    return {
-        k: _rewrite_value(
-            v,
-            task_id_map=task_id_map,
-            input_task_refs=input_task_refs,
-            wiring_targets=wiring_targets,
-        )
-        for k, v in value.items()
-    }
+    return {k: _rewrite_value(v, ctx) for k, v in value.items()}
 
 
 async def replay_job(
@@ -175,6 +170,10 @@ async def replay_job(
 
     task_rows = await get_tasks_for_job(original_job_id)
 
+    async with get_sql_session() as session:
+        dynamic_parent_ids = await _load_dynamic_parent_ids(session, original_job_id)
+        dep_rows = await _load_task_dependencies(session, [t.id for t in task_rows])
+
     input_task_refs: Dict[int, Dict[str, Any]] = {}
     wiring_targets: Dict[int, Any] = {}
     compute_tasks: list[Task] = []
@@ -182,7 +181,7 @@ async def replay_job(
     for task in task_rows:
         if is_input_task(task):
             input_task_refs[task.id] = _persistent_ref_from_input_task(task)
-        elif _is_wiring_task(task):
+        elif _is_wiring_task(task, dynamic_parent_ids=dynamic_parent_ids):
             wiring_targets[task.id] = task.result
         else:
             compute_tasks.append(task)
@@ -200,6 +199,11 @@ async def replay_job(
     task_id_map: Dict[int, int] = {
         task.id: get_snowflake_id() for task in compute_tasks
     }
+    rewrite_ctx = _RewriteCtx(
+        task_id_map=task_id_map,
+        input_task_refs=input_task_refs,
+        wiring_targets=wiring_targets,
+    )
 
     new_job_id = get_snowflake_id()
     new_job = Job(
@@ -220,21 +224,13 @@ async def replay_job(
             job_id=new_job_id,
             entrypoint=original_task.entrypoint,
             name=original_task.name,
-            kwargs=_rewrite_value(
-                original_task.kwargs or {},
-                task_id_map=task_id_map,
-                input_task_refs=input_task_refs,
-                wiring_targets=wiring_targets,
-            ),
+            kwargs=_rewrite_value(original_task.kwargs or {}, rewrite_ctx),
             status=TaskStatus.PENDING,
             created_at=datetime.utcnow(),
             max_retries=original_task.max_retries,
         )
         for original_task in compute_tasks
     ]
-
-    async with get_sql_session() as session:
-        dep_rows = await _load_task_dependencies(session, [t.id for t in task_rows])
 
     cloned_deps = _clone_dependencies(
         dep_rows,
@@ -250,6 +246,32 @@ async def replay_job(
         await session.commit()
 
     return new_job
+
+
+async def _load_dynamic_parent_ids(session: AsyncSession, job_id: int) -> set[int]:
+    """Return the ids of tasks that spawned child tasks at runtime.
+
+    A child was committed at runtime iff its ``created_at`` is on or
+    after the parent's ``started_at`` — static children created by the
+    job submitter always predate the parent starting to run. This join
+    lets the wiring-task classifier stay a pure in-memory predicate.
+    """
+    parent = aliased(Task)
+    child = aliased(Task)
+    result = await session.execute(
+        select(parent.id)
+        .distinct()
+        .join(Dependency, Dependency.previous_id == parent.id)
+        .join(child, child.id == Dependency.next_id)
+        .where(
+            parent.job_id == job_id,
+            Dependency.previous_type == "task",
+            Dependency.next_type == "task",
+            parent.started_at.isnot(None),
+            child.created_at >= parent.started_at,
+        )
+    )
+    return {row[0] for row in result.all()}
 
 
 async def _load_task_dependencies(session, task_ids: list[int]) -> list[Dependency]:

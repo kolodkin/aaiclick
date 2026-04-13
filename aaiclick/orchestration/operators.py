@@ -37,6 +37,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.refs import OBJECT_TYPE, TABLE, VIEW
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import TaskFactory, task
@@ -112,8 +113,8 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
         child = _map_part(
             cbk=cbk,
             part={
-                "object_type": "view",
-                "table": table_name,
+                OBJECT_TYPE: VIEW,
+                TABLE: table_name,
                 "limit": partition,
                 "offset": i * partition,
                 "order_by": "aai_id",
@@ -230,8 +231,8 @@ def _build_layer_group(
         part_task = _reduce_part(
             cbk=cbk,
             part={
-                "object_type": "view",
-                "table": src.table,
+                OBJECT_TYPE: VIEW,
+                TABLE: src.table,
                 "limit": partition,
                 "offset": i * partition,
                 "order_by": "aai_id",

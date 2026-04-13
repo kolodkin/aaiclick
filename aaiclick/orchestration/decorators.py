@@ -34,6 +34,7 @@ from functools import wraps
 from typing import Any, Callable, List, Union
 
 from aaiclick.data.object import Object
+from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake_id import get_snowflake_id
 from .orch_context import commit_tasks, get_sql_session, orch_context
@@ -70,9 +71,9 @@ def _serialize_value(value: Any) -> Any:
         Serialized value suitable for JSON storage
     """
     if isinstance(value, Task):
-        return {"ref_type": "upstream", "task_id": value.id}
+        return upstream_ref(value.id)
     elif isinstance(value, Group):
-        return {"ref_type": "group_results", "group_id": value.id}
+        return group_results_ref(value.id)
     elif isinstance(value, Object):
         return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
@@ -81,8 +82,8 @@ def _serialize_value(value: Any) -> Any:
         return {k: _serialize_value(v) for k, v in value.items()}
     elif callable(value):
         if isinstance(value, TaskFactory):
-            return {"ref_type": "callable", "entrypoint": value.entrypoint}
-        return {"ref_type": "callable", "entrypoint": _callable_to_string(value)}
+            return callable_ref(value.entrypoint)
+        return callable_ref(_callable_to_string(value))
     else:
         # Native Python types: str, int, float, bool, None
         return value

@@ -32,6 +32,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.replay import (
+    _RewriteCtx,
     _clone_dependencies,
     _is_wiring_task,
     _persistent_ref_from_input_task,
@@ -58,20 +59,35 @@ def _task_row(task_id, result=None, kwargs=None, name="t", entrypoint="mod.fn") 
 
 
 def test_is_wiring_task_none_result():
-    """Task whose result is None (collapsed by register_returned_tasks)."""
-    assert _is_wiring_task(_task_row(1, result=None)) is True
+    """None-result task with dynamically-spawned children is wiring."""
+    assert (
+        _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids={1})
+        is True
+    )
+
+
+def test_is_wiring_task_none_result_no_dynamic_children():
+    """None-result task that did NOT spawn children at runtime is NOT
+    wiring — e.g. a legitimate compute task that happened to return
+    None. It should be cloned and re-executed rather than skipped."""
+    assert (
+        _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids=set())
+        is False
+    )
 
 
 def test_is_wiring_task_upstream_ref_result():
-    """Task that returned a bare Task ref (serialized as upstream)."""
+    """Task that returned a bare Task ref AND spawned children is wiring."""
     task_row = _task_row(1, result={"ref_type": "upstream", "task_id": 99})
-    assert _is_wiring_task(task_row) is True
+    assert _is_wiring_task(task_row, dynamic_parent_ids={1}) is True
 
 
 def test_is_wiring_task_object_result():
-    """Compute tasks with Object results are not wiring."""
+    """Compute tasks with Object results are never wiring, even if they
+    happened to produce dynamic children — the data result takes
+    precedence because replay can reuse it."""
     task_row = _task_row(1, result={"object_type": "object", "table": "t_1"})
-    assert _is_wiring_task(task_row) is False
+    assert _is_wiring_task(task_row, dynamic_parent_ids={1}) is False
 
 
 def test_persistent_ref_strips_job_id():
@@ -93,15 +109,28 @@ def test_persistent_ref_strips_job_id():
     }
 
 
+def _empty_ctx(
+    *,
+    task_id_map=None,
+    input_task_refs=None,
+    wiring_targets=None,
+) -> _RewriteCtx:
+    return _RewriteCtx(
+        task_id_map=task_id_map or {},
+        input_task_refs=input_task_refs or {},
+        wiring_targets=wiring_targets or {},
+    )
+
+
 def test_rewrite_value_replaces_input_ref():
     """An upstream ref targeting an input task becomes an inlined Object ref."""
     rewritten = _rewrite_value(
         {"left": {"ref_type": "upstream", "task_id": 10}},
-        task_id_map={},
-        input_task_refs={
-            10: {"object_type": "object", "table": "p_foo", "persistent": True}
-        },
-        wiring_targets={},
+        _empty_ctx(
+            input_task_refs={
+                10: {"object_type": "object", "table": "p_foo", "persistent": True}
+            },
+        ),
     )
     assert rewritten == {
         "left": {"object_type": "object", "table": "p_foo", "persistent": True},
@@ -112,9 +141,7 @@ def test_rewrite_value_remaps_compute_ref():
     """An upstream ref targeting a cloned compute task gets its new id."""
     rewritten = _rewrite_value(
         {"x": {"ref_type": "upstream", "task_id": 20}},
-        task_id_map={20: 2000},
-        input_task_refs={},
-        wiring_targets={},
+        _empty_ctx(task_id_map={20: 2000}),
     )
     assert rewritten == {"x": {"ref_type": "upstream", "task_id": 2000}}
 
@@ -124,9 +151,7 @@ def test_rewrite_value_unknown_ref_raises():
     with pytest.raises(ValueError, match="neither an input task"):
         _rewrite_value(
             {"x": {"ref_type": "upstream", "task_id": 99}},
-            task_id_map={},
-            input_task_refs={},
-            wiring_targets={},
+            _empty_ctx(),
         )
 
 
@@ -139,9 +164,7 @@ def test_rewrite_value_preserves_nested_structures():
             "lst": [1, {"ref_type": "upstream", "task_id": 10}],
             "obj": {"object_type": "object", "table": "t_x"},
         },
-        task_id_map={10: 100},
-        input_task_refs={},
-        wiring_targets={},
+        _empty_ctx(task_id_map={10: 100}),
     )
     assert rewritten == {
         "n": 42,

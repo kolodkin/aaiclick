@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from sqlmodel import func, select
 
+from aaiclick.data.object.refs import JOB_ID, OBJECT_TYPE
+
 from ..orch_context import get_sql_session
 from ..execution.runner import _deserialize_value
 from ..models import Job, JobStatus, Task
@@ -161,8 +163,8 @@ async def get_job_result(job: Job) -> Any:
     if result is None:
         raise ValueError(f"Job {job.id} (name='{job.name}') has no result")
 
-    if isinstance(result, dict) and result.get("object_type"):
-        result["job_id"] = task_job_id
+    if isinstance(result, dict) and result.get(OBJECT_TYPE):
+        result[JOB_ID] = task_job_id
 
     async with get_sql_session() as session:
         return await _deserialize_value(result, session)

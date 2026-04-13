@@ -14,6 +14,13 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
+from .refs import (
+    OBJECT,
+    OBJECT_TYPE,
+    PERSISTENT,
+    TABLE,
+    VIEW,
+)
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -204,9 +211,9 @@ class Object:
 
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
-        ref = {"object_type": "object", "table": self.table}
+        ref = {OBJECT_TYPE: OBJECT, TABLE: self.table}
         if self.persistent:
-            ref["persistent"] = True
+            ref[PERSISTENT] = True
         return ref
 
     @property
@@ -2405,8 +2412,8 @@ class View(Object):
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
         ref = {
-            "object_type": "view",
-            "table": self.table,
+            OBJECT_TYPE: VIEW,
+            TABLE: self.table,
             "where": self._build_where(),
             "limit": self.limit,
             "offset": self.offset,
@@ -2415,7 +2422,7 @@ class View(Object):
             "renamed_columns": self._renamed_columns,
         }
         if self.persistent:
-            ref["persistent"] = True
+            ref[PERSISTENT] = True
         return ref
 
     def where(self, condition: str) -> "View":
