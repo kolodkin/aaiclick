@@ -25,6 +25,7 @@ from .registered_jobs import (
     register_job,
     run_job,
 )
+from .replay import replay_job
 
 
 async def show_workers() -> None:
@@ -302,6 +303,38 @@ async def run_job_cmd(
             sampling_strategy=strategy,
         )
     print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
+
+
+async def replay_job_cmd(
+    job_ref: str,
+    *,
+    sampling_strategy_json: str,
+    name: Optional[str] = None,
+) -> None:
+    """Replay a completed job with a sampling strategy.
+
+    Clones the original job's task graph, skips input tasks (reusing
+    their persistent outputs in place), and submits the clone as a
+    new job running under ``PreservationMode.STRATEGY``.
+    """
+    strategy = json.loads(sampling_strategy_json)
+    if not isinstance(strategy, dict):
+        raise ValueError("--sampling-strategy must decode to a JSON object")
+
+    async with orch_context(with_ch=False):
+        job = await resolve_job(job_ref)
+        if job is None:
+            print(f"Job not found: {job_ref}")
+            return
+        replayed = await replay_job(
+            job.id,
+            sampling_strategy=strategy,
+            name=name,
+        )
+    print(
+        f"Replayed job {job.id} as new job '{replayed.name}' "
+        f"(id={replayed.id}, replay_of={replayed.replay_of})"
+    )
 
 
 async def enable_job_cmd(name: str) -> None:

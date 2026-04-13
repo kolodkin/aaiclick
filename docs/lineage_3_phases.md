@@ -126,13 +126,18 @@ Input-task detection (`is_input_task`) is the foundation for Phase 3b:
 given a `Task` row, return `True` if its result is a persistent Object
 (`p_*` table). Used by replay to decide which tasks to skip.
 
-## Phase 3b -- Task-Graph Replay
+## Phase 3b -- Task-Graph Replay ✅ IMPLEMENTED
 
-Not yet implemented. Clones a completed job's task graph, skips input
-tasks (reusing their persistent outputs in place), rewrites child task
-kwargs to point at the persistent tables directly, and submits the
-clone as a new job with `preservation_mode=STRATEGY` and a `replay_of`
-pointer to the original.
+**Implementation**:
+- `aaiclick/orchestration/replay.py` — `replay_job()`
+- `aaiclick/orchestration/cli.py` — `replay_job_cmd()` (`aaiclick replay <id>`)
+- `aaiclick/orchestration/migrations/versions/720e8470168f_add_job_replay_of.py`
+
+Clones a completed job's task graph, skips input tasks (reusing their
+persistent outputs in place), rewrites child task kwargs to point at
+the persistent tables directly, and submits the clone as a new job
+with `preservation_mode=STRATEGY` and a `replay_of` pointer to the
+original.
 
 **Design sketch**:
 
@@ -156,11 +161,6 @@ Replay steps:
 
 After replay, the oplog contains a complete source-to-output trace for the
 strategy-matched rows.
-
-Workaround until Phase 3b lands: resubmit the original pipeline manually
-with `run_job(..., preservation_mode=STRATEGY, sampling_strategy=...)` or
-the `--preservation-mode STRATEGY --sampling-strategy '<json>'` CLI flags
-from Phase 0.
 
 ---
 
@@ -223,14 +223,14 @@ Phase 0).
 | Phase 1  | ✅ Implemented       | `backward_oplog()`, `forward_oplog()`, `OplogGraph`            |
 | Phase 2  | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
 | Phase 3a | ✅ Implemented       | `backward_oplog_row()`, `is_input_task()`, `trace_row` agent tool |
-| Phase 3b | Not yet implemented | `replay_job()` + `aaiclick replay` CLI — auto-resubmit with persistent-input reuse |
+| Phase 3b | ✅ Implemented       | `replay_job()` + `aaiclick replay` CLI — auto-resubmit with persistent-input reuse |
 | Phase 4  | ✅ Implemented       | `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy` + precedence chain |
 
 ## Prerequisites for Phase 3
 
 | Prerequisite               | Status              | Notes                                              |
 |----------------------------|---------------------|----------------------------------------------------|
-| Scoped replay (row subset) | Not yet implemented | Re-run tasks on targeted `aai_id`s only            |
+| Scoped replay (row subset) | ✅ Implemented       | `replay_job()` + STRATEGY-mode oplog sampling      |
 
 ## Documentation Updates
 

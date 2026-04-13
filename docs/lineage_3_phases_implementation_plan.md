@@ -211,9 +211,13 @@ machinery.
 
 ---
 
-# Phase 3b — Task-Graph Replay
+# Phase 3b — Task-Graph Replay ✅ IMPLEMENTED
 
-**Not yet implemented.** Complex enough to warrant its own PR.
+**Implementation**:
+- `aaiclick/orchestration/replay.py` — see `replay_job()`
+- `aaiclick/orchestration/cli.py` — see `replay_job_cmd()`
+- `aaiclick/orchestration/migrations/versions/720e8470168f_add_job_replay_of.py`
+- `aaiclick/orchestration/test_replay.py` — unit + DB + end-to-end coverage
 
 **Objective**: Re-execute the job that produced a target table with a
 `SamplingStrategy` attached, without re-running input tasks (whose
