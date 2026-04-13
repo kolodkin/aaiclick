@@ -131,13 +131,14 @@ given a `Task` row, return `True` if its result is a persistent Object
 **Implementation**:
 - `aaiclick/orchestration/replay.py` — `replay_job()`
 - `aaiclick/orchestration/cli.py` — `replay_job_cmd()` (`aaiclick replay <id>`)
-- `aaiclick/orchestration/migrations/versions/720e8470168f_add_job_replay_of.py`
 
 Clones a completed job's task graph, skips input tasks (reusing their
 persistent outputs in place), rewrites child task kwargs to point at
 the persistent tables directly, and submits the clone as a new job
-with `preservation_mode=STRATEGY` and a `replay_of` pointer to the
-original.
+with `preservation_mode=STRATEGY`. No schema change is needed — a
+replayed job is just another STRATEGY-mode run of the same pipeline,
+inheriting the original's `name` and distinguished from it only by
+its fresh snowflake id.
 
 **Design sketch**:
 

@@ -297,7 +297,8 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
     strategy = {"p_synth_left": "value = 10"}
     replayed = await replay_job(job_id, sampling_strategy=strategy)
 
-    assert replayed.replay_of == job_id
+    assert replayed.name == "synthetic"  # inherited from the original
+    assert replayed.id != job_id
     assert replayed.preservation_mode == PreservationMode.STRATEGY
     assert replayed.sampling_strategy == strategy
     assert replayed.status == JobStatus.PENDING
@@ -446,7 +447,8 @@ async def test_replay_job_end_to_end(orch_ctx):
     strategy = {left_table: "value = 10"}
     replayed = await replay_job(original.id, sampling_strategy=strategy)
 
-    assert replayed.replay_of == original.id
+    assert replayed.name == original.name  # inherited
+    assert replayed.id != original.id
     assert replayed.preservation_mode == PreservationMode.STRATEGY
     assert replayed.sampling_strategy == strategy
 

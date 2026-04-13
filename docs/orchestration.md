@@ -168,11 +168,11 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 1. Load the original job's `Task` and `Dependency` rows from SQL.
 2. Classify each task using `is_input_task()` (`aaiclick/orchestration/lineage.py`):
     - **Input tasks** — result is a persistent Object (`p_*` table). Skipped; the persistent table is reused in place.
-    - **Wiring tasks** — result is `None` or an upstream ref. Skipped; the task only spawned children at runtime and contributes no data.
+    - **Wiring tasks** — result is `None` or an upstream ref, AND the task spawned children at runtime. Skipped; the task only routed children at runtime and contributes no data.
     - **Compute tasks** — everything else. Cloned with a fresh snowflake ID.
 3. Rewrite each cloned task's kwargs: every upstream ref pointing at an input task is replaced by an inlined persistent Object ref; refs pointing at other compute tasks are remapped to the cloned IDs.
 4. Clone the dependency graph, dropping any edge whose endpoints touch an input or wiring task.
-5. Insert the new `Job` row (with `replay_of` pointing at the original) along with the cloned tasks and dependencies.
+5. Insert the new `Job` along with the cloned tasks and dependencies — it's just another STRATEGY-mode run of the same pipeline, inheriting the original's `name` and distinguished from it only by its fresh snowflake id.
 
 The replayed job is independent of the original's registered-job baseline — replay always supplies `preservation_mode` and `sampling_strategy` explicitly, so registered defaults never leak in.
 

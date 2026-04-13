@@ -338,8 +338,7 @@ async def replay_job_cmd(
             name=name,
         )
     print(
-        f"Replayed job {job.id} as new job '{replayed.name}' "
-        f"(id={replayed.id}, replay_of={replayed.replay_of})"
+        f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})"
     )
 
 

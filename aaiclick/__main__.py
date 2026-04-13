@@ -383,7 +383,7 @@ def main():
     replay_parser.add_argument(
         "--name",
         default=None,
-        help="Override name for the replayed job (default: replay_of_<id>)",
+        help="Override name for the replayed job (default: inherit the original's name)",
     )
 
     # Add registered-job subcommand

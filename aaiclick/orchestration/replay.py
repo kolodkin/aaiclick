@@ -4,8 +4,10 @@ aaiclick.orchestration.replay - Task-graph replay with sampling strategies.
 Clones a completed job's task graph, skips input tasks (whose persistent
 outputs are reused in place), rewrites child task kwargs to point at
 those persistent tables directly, and submits the clone as a new job
-with ``preservation_mode=STRATEGY`` and ``replay_of`` pointing at the
-original job.
+with ``preservation_mode=STRATEGY``. The replayed job inherits the
+original's name — it's just another STRATEGY-mode run of the same
+pipeline, distinguished from the original only by its fresh snowflake
+id.
 
 This is the third and final step of the lineage three-phase debugging
 plan — see ``docs/lineage_3_phases.md`` for the big picture and
@@ -138,9 +140,9 @@ async def replay_job(
     an inline persistent Object ref.
 
     The resulting Job runs under ``PreservationMode.STRATEGY`` with the
-    supplied ``sampling_strategy``, and its ``replay_of`` column points
-    at ``original_job_id``. Registered-job defaults are never consulted —
-    replay always supplies both params explicitly.
+    supplied ``sampling_strategy`` and inherits the original's ``name``.
+    Registered-job defaults are never consulted — replay always supplies
+    both params explicitly.
 
     Args:
         original_job_id: Job to replay. Must exist.
@@ -149,7 +151,7 @@ async def replay_job(
             pointless (it would just re-run the job with no lineage
             recording beyond NONE mode).
         name: Optional override for the new job's name. Defaults to
-            ``"replay_of_{original_job_id}"``.
+            the original job's name.
 
     Returns:
         The newly created ``Job`` row with status ``PENDING``. Tasks +
@@ -165,7 +167,8 @@ async def replay_job(
             "without a strategy carries no lineage information"
         )
 
-    if await get_job(original_job_id) is None:
+    original = await get_job(original_job_id)
+    if original is None:
         raise ValueError(f"Job {original_job_id} not found")
 
     task_rows = await get_tasks_for_job(original_job_id)
@@ -208,13 +211,12 @@ async def replay_job(
     new_job_id = get_snowflake_id()
     new_job = Job(
         id=new_job_id,
-        name=name or f"replay_of_{original_job_id}",
+        name=name or original.name,
         status=JobStatus.PENDING,
         run_type=RunType.MANUAL,
         registered_job_id=None,
         preservation_mode=config.preservation_mode,
         sampling_strategy=config.sampling_strategy,
-        replay_of=original_job_id,
         created_at=datetime.utcnow(),
     )
 
