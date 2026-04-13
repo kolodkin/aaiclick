@@ -1,6 +1,7 @@
 """Factory functions for creating orchestration objects."""
 
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Union
@@ -10,8 +11,62 @@ from aaiclick.snowflake_id import get_snowflake_id
 
 from .env import get_default_preservation_mode
 from .orch_context import get_sql_session
-from .models import Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
 from .task_registry import get_task_registry
+
+
+@dataclass(frozen=True)
+class ResolvedJobConfig:
+    """Resolved preservation mode + sampling strategy after precedence chain."""
+
+    preservation_mode: PreservationMode
+    sampling_strategy: Optional[SamplingStrategy]
+
+
+def resolve_job_config(
+    explicit_mode: Optional[PreservationMode],
+    explicit_strategy: Optional[SamplingStrategy],
+    registered: Optional[RegisteredJob] = None,
+) -> ResolvedJobConfig:
+    """Resolve ``preservation_mode`` / ``sampling_strategy`` for a job run.
+
+    Precedence (highest first):
+
+    1. Explicit ``explicit_mode`` / ``explicit_strategy`` argument
+    2. ``registered.preservation_mode`` / ``registered.sampling_strategy``
+    3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var (mode only)
+    4. ``PreservationMode.NONE`` + empty strategy (hardcoded fallback)
+
+    The explicit override is considered "set" when it's not ``None`` —
+    this lets callers pass ``None`` to mean "inherit from the next level"
+    without colliding with "I explicitly want no strategy".
+
+    Raises:
+        ValueError: When the resolved mode is ``STRATEGY`` but no
+            non-empty strategy was resolved, or when a non-empty
+            strategy was resolved under a non-STRATEGY mode.
+    """
+    mode = explicit_mode
+    if mode is None and registered is not None:
+        mode = registered.preservation_mode
+    if mode is None:
+        mode = get_default_preservation_mode()
+
+    strategy = explicit_strategy
+    if strategy is None and registered is not None:
+        strategy = registered.sampling_strategy
+
+    if mode is PreservationMode.STRATEGY and not strategy:
+        raise ValueError(
+            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
+        )
+    if mode is not PreservationMode.STRATEGY and strategy:
+        raise ValueError(
+            f"sampling_strategy is only valid with preservation_mode=STRATEGY "
+            f"(got preservation_mode={mode.value})"
+        )
+
+    return ResolvedJobConfig(preservation_mode=mode, sampling_strategy=strategy)
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -142,6 +197,7 @@ async def create_job(
     registered_job_id: int | None = None,
     preservation_mode: Optional[PreservationMode] = None,
     sampling_strategy: Optional[SamplingStrategy] = None,
+    registered: Optional[RegisteredJob] = None,
 ) -> Job:
     """Create a Job and commit it to the database.
 
@@ -151,11 +207,16 @@ async def create_job(
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
         preservation_mode: Which tables survive after the job completes.
-            Defaults to the value of ``AAICLICK_DEFAULT_PRESERVATION_MODE``
-            or ``PreservationMode.NONE``.
+            Overrides the registered job's default; falls through to the
+            ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
+            ``PreservationMode.NONE``.
         sampling_strategy: Per-table WHERE clauses that tell the oplog which
-            rows to track. Required when ``preservation_mode`` is
+            rows to track. Follows the same precedence chain as
+            ``preservation_mode``. Required when the resolved mode is
             ``STRATEGY``; rejected in every other mode.
+        registered: Optional ``RegisteredJob`` to source level-2 defaults
+            from. When supplied, ``registered.preservation_mode`` and
+            ``registered.sampling_strategy`` become the fallback values.
 
     Returns:
         Job object with id populated after database commit
@@ -171,16 +232,7 @@ async def create_job(
         task = create_task("mymodule.task1", {"param": "value"})
         job = await create_job("my_job", task)
     """
-    resolved_mode = preservation_mode or get_default_preservation_mode()
-    if resolved_mode is PreservationMode.STRATEGY and not sampling_strategy:
-        raise ValueError(
-            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
-        )
-    if resolved_mode is not PreservationMode.STRATEGY and sampling_strategy:
-        raise ValueError(
-            f"sampling_strategy is only valid with preservation_mode=STRATEGY "
-            f"(got preservation_mode={resolved_mode.value})"
-        )
+    config = resolve_job_config(preservation_mode, sampling_strategy, registered)
 
     job_id = get_snowflake_id()
     job = Job(
@@ -189,8 +241,8 @@ async def create_job(
         status=JobStatus.PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preservation_mode=resolved_mode,
-        sampling_strategy=sampling_strategy,
+        preservation_mode=config.preservation_mode,
+        sampling_strategy=config.sampling_strategy,
         created_at=datetime.utcnow(),
     )
 

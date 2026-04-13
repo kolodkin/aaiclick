@@ -338,6 +338,17 @@ def main():
     register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+    register_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Default preservation mode for every run of this job (runs can override)",
+    )
+    register_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Default sampling strategy as JSON (required when preservation_mode=STRATEGY)",
+    )
 
     # Add run-job subcommand
     run_job_parser = subparsers.add_parser(
@@ -522,6 +533,8 @@ def main():
             name=args.name,
             schedule=args.schedule,
             kwargs_json=args.kwargs,
+            preservation_mode=args.preservation_mode,
+            sampling_strategy_json=args.sampling_strategy,
         ))
 
     elif args.command == "run-job":

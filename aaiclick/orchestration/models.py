@@ -108,6 +108,11 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: Optional[str] = Field(default=None)
     default_kwargs: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    preservation_mode: Optional[PreservationMode] = Field(default=None)
+    sampling_strategy: Optional[Dict[str, str]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
     next_run_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

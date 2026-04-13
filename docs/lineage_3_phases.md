@@ -164,7 +164,13 @@ from Phase 0.
 
 ---
 
-# Phase 4 -- Registered-Job Configuration Defaults
+# Phase 4 -- Registered-Job Configuration Defaults ✅ IMPLEMENTED
+
+**Implementation**:
+- `aaiclick/orchestration/models.py` — `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy` columns
+- `aaiclick/orchestration/factories.py` — `resolve_job_config()` + `ResolvedJobConfig`
+- `aaiclick/orchestration/registered_jobs.py` — `register_job()` / `upsert_registered_job()` / `run_job()` accept and propagate both params
+- `aaiclick/orchestration/migrations/versions/8ec83b0c3148_...` — Alembic migration reusing the Phase 0 `preservationmode` ENUM
 
 Hoist `preservation_mode` and `sampling_strategy` onto `RegisteredJob` as
 job-definition defaults, following the same pattern `default_kwargs`
@@ -218,7 +224,7 @@ Phase 0).
 | Phase 2  | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
 | Phase 3a | ✅ Implemented       | `backward_oplog_row()`, `is_input_task()`, `trace_row` agent tool |
 | Phase 3b | Not yet implemented | `replay_job()` + `aaiclick replay` CLI — auto-resubmit with persistent-input reuse |
-| Phase 4  | Not yet implemented | `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy` + precedence chain |
+| Phase 4  | ✅ Implemented       | `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy` + precedence chain |
 
 ## Prerequisites for Phase 3
 

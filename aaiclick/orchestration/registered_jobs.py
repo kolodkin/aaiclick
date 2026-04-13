@@ -35,6 +35,32 @@ def _next_run_at(schedule: Optional[str], enabled: bool, now: datetime) -> Optio
     return compute_next_run(schedule, now) if schedule and enabled else None
 
 
+def _validate_registered_defaults(
+    preservation_mode: Optional[PreservationMode],
+    sampling_strategy: Optional[SamplingStrategy],
+) -> None:
+    """Reject impossible combos at registration time.
+
+    A registered job that sets ``preservation_mode=STRATEGY`` must also
+    carry a non-empty default strategy (otherwise every run inherits an
+    invalid config). A strategy without ``STRATEGY`` mode is rejected
+    symmetrically.
+    """
+    if preservation_mode is PreservationMode.STRATEGY and not sampling_strategy:
+        raise ValueError(
+            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
+        )
+    if (
+        preservation_mode is not None
+        and preservation_mode is not PreservationMode.STRATEGY
+        and sampling_strategy
+    ):
+        raise ValueError(
+            f"sampling_strategy is only valid with preservation_mode=STRATEGY "
+            f"(got preservation_mode={preservation_mode.value})"
+        )
+
+
 async def register_job(
     *,
     name: str,
@@ -42,6 +68,8 @@ async def register_job(
     schedule: Optional[str] = None,
     default_kwargs: Optional[Dict[str, Any]] = None,
     enabled: bool = True,
+    preservation_mode: Optional[PreservationMode] = None,
+    sampling_strategy: Optional[SamplingStrategy] = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -49,15 +77,23 @@ async def register_job(
         name: Unique job name
         entrypoint: Python dotted path (e.g. "myapp.pipelines.etl_job")
         schedule: Cron expression for scheduled runs (optional)
-        default_kwargs: Default parameters for scheduled runs (optional)
+        default_kwargs: Default kwargs for scheduled runs (optional)
         enabled: Whether the job is enabled (default: True)
+        preservation_mode: Default preservation mode for every run of
+            this job. Individual runs can override via ``run_job()``.
+        sampling_strategy: Default sampling strategy for every run of
+            this job. Required when ``preservation_mode=STRATEGY``.
 
     Returns:
         Created RegisteredJob
 
     Raises:
-        ValueError: If a job with this name already exists
+        ValueError: If a job with this name already exists, or if
+            ``preservation_mode`` / ``sampling_strategy`` violate the
+            mode↔strategy invariant.
     """
+    _validate_registered_defaults(preservation_mode, sampling_strategy)
+
     now = datetime.utcnow()
     registered_job = RegisteredJob(
         id=get_snowflake_id(),
@@ -66,6 +102,8 @@ async def register_job(
         enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
+        preservation_mode=preservation_mode,
+        sampling_strategy=sampling_strategy,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -108,11 +146,14 @@ async def upsert_registered_job(
     schedule: Optional[str] = None,
     default_kwargs: Optional[Dict[str, Any]] = None,
     enabled: bool = True,
+    preservation_mode: Optional[PreservationMode] = None,
+    sampling_strategy: Optional[SamplingStrategy] = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, and enabled. Otherwise creates a new entry.
+    default_kwargs, preservation_mode, sampling_strategy, and enabled.
+    Otherwise creates a new entry.
 
     Args:
         name: Unique job name
@@ -120,10 +161,14 @@ async def upsert_registered_job(
         schedule: Cron expression (optional)
         default_kwargs: Default parameters (optional)
         enabled: Whether the job is enabled
+        preservation_mode: Default preservation mode for every run
+        sampling_strategy: Default sampling strategy for every run
 
     Returns:
         The created or updated RegisteredJob
     """
+    _validate_registered_defaults(preservation_mode, sampling_strategy)
+
     now = datetime.utcnow()
 
     async with get_sql_session() as session:
@@ -136,6 +181,8 @@ async def upsert_registered_job(
             existing.entrypoint = entrypoint
             existing.schedule = schedule
             existing.default_kwargs = default_kwargs
+            existing.preservation_mode = preservation_mode
+            existing.sampling_strategy = sampling_strategy
             existing.enabled = enabled
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
@@ -151,6 +198,8 @@ async def upsert_registered_job(
             enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
+            preservation_mode=preservation_mode,
+            sampling_strategy=sampling_strategy,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -253,15 +302,19 @@ async def run_job(
     Upserts into registered_jobs (without schedule), merges kwargs
     over default_kwargs, then creates a Job + entry point Task.
 
+    The preservation mode and sampling strategy resolve via the
+    four-level precedence chain (see ``factories.resolve_job_config``):
+    explicit arg > registered-job default > env var > hardcoded NONE.
+
     Args:
         name: Job name
         entrypoint: Python dotted path
         kwargs: Override parameters (merged over default_kwargs)
         run_type: How the job was triggered (default: MANUAL)
-        preservation_mode: Table preservation mode for this run. Defaults
-            to the value of ``AAICLICK_DEFAULT_PRESERVATION_MODE``.
-        sampling_strategy: Per-table WHERE clauses; required when
-            ``preservation_mode=STRATEGY``.
+        preservation_mode: Level-1 override for the registered job's
+            baseline. Pass ``None`` to inherit.
+        sampling_strategy: Level-1 override for the registered job's
+            baseline strategy. Pass ``None`` to inherit.
 
     Returns:
         Created Job
@@ -280,4 +333,5 @@ async def run_job(
         registered_job_id=registered.id,
         preservation_mode=preservation_mode,
         sampling_strategy=sampling_strategy,
+        registered=registered,
     )

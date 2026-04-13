@@ -224,6 +224,8 @@ async def register_job_cmd(
     name: Optional[str] = None,
     schedule: Optional[str] = None,
     kwargs_json: Optional[str] = None,
+    preservation_mode: Optional[str] = None,
+    sampling_strategy_json: Optional[str] = None,
 ) -> None:
     """Register a job in the catalog."""
     resolved_name = name or entrypoint.rsplit(".", 1)[-1]
@@ -231,18 +233,34 @@ async def register_job_cmd(
     if kwargs_json:
         default_kwargs = json.loads(kwargs_json)
 
+    mode: Optional[PreservationMode] = None
+    if preservation_mode is not None:
+        mode = PreservationMode(preservation_mode.upper())
+
+    strategy: Optional[Dict[str, str]] = None
+    if sampling_strategy_json:
+        strategy = json.loads(sampling_strategy_json)
+        if not isinstance(strategy, dict):
+            raise ValueError("--sampling-strategy must decode to a JSON object")
+
     async with orch_context(with_ch=False):
         job = await register_job(
             name=resolved_name,
             entrypoint=entrypoint,
             schedule=schedule,
             default_kwargs=default_kwargs,
+            preservation_mode=mode,
+            sampling_strategy=strategy,
         )
     print(f"Registered job '{job.name}' (id={job.id})")
     if job.schedule:
-        print(f"  Schedule:    {job.schedule}")
+        print(f"  Schedule:         {job.schedule}")
+    if job.preservation_mode:
+        print(f"  Preservation:     {job.preservation_mode.value}")
+    if job.sampling_strategy:
+        print(f"  Sampling strategy: {job.sampling_strategy}")
     if job.next_run_at:
-        print(f"  Next run at: {job.next_run_at}")
+        print(f"  Next run at:      {job.next_run_at}")
 
 
 async def run_job_cmd(

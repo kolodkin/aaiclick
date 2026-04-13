@@ -294,7 +294,14 @@ this path and adds persistent-input reuse.
 
 ---
 
-# Phase 4 — Registered-Job Configuration Defaults
+# Phase 4 — Registered-Job Configuration Defaults ✅ IMPLEMENTED
+
+**Implementation**:
+- `aaiclick/orchestration/models.py` — `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy`
+- `aaiclick/orchestration/factories.py` — see `resolve_job_config()`, `ResolvedJobConfig`
+- `aaiclick/orchestration/registered_jobs.py` — see `register_job()`, `upsert_registered_job()`, `run_job()`, `_validate_registered_defaults()`
+- `aaiclick/orchestration/cli.py` — see `register_job_cmd()`
+- `aaiclick/orchestration/migrations/versions/8ec83b0c3148_add_preservation_defaults_to_registered_.py`
 
 **Objective**: Hoist `preservation_mode` and `sampling_strategy` onto
 `RegisteredJob` as job-definition defaults, so each run inherits from
