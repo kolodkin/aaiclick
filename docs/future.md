@@ -37,6 +37,21 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## Job-Scoped Persistent Table Names
+
+Rename the `p_<name>` convention to `j_<job_id>_<name>`. Today, `create_object_from_value(val, name="kev_catalog")` creates `p_kev_catalog` — globally shared across jobs, with append-on-existing-table semantics. That's a design smell: two parallel jobs collide on the name, and the e2e test under Orch dist had to work around it with a hand-generated snowflake suffix.
+
+Encoding the owning `job_id` into the name makes the scope explicit:
+
+- Two jobs passing the same `name=` get isolated namespaces automatically.
+- `_cleanup_expired_jobs()` drops a job's tables with `SHOW TABLES LIKE 'j_<id>_%'` — no `table_registry` lookup for these.
+- `is_input_task()` detection keeps its current semantics (prefix check flips from `p_` to `j_`).
+- Phase 3b replay references the original job's persistent tables explicitly as `j_<original_job_id>_<name>`.
+
+**Breaking change**: any code that relied on `p_foo` being shared across jobs (or on the append-on-existing-table behavior) needs to migrate. The "shared across jobs" use case — if it matters — could be re-added as a separate `shared/<name>` convention later.
+
+**Work**: update `create_object_from_value()` name handling in `aaiclick/data/data_context/data_context.py`; flip the `persistent` property + prefix checks in `aaiclick/data/object/object.py`, `aaiclick/orchestration/lineage.py::is_input_task`, `aaiclick/oplog/cleanup.py`, and `aaiclick/orchestration/background/background_worker.py`; update every example (basic-lineage, cyber-threat-feeds, imdb, nyc-taxi) + tests; docs across `data_context.md`, `object.md`, `orchestration.md`, `lineage_3_phases.md`. Wide blast radius — ship in its own PR.
+
 ## Move `table_registry` from ClickHouse to SQL
 
 `table_registry` (table → owning `job_id` / `task_id` / `run_id`) currently lives in ClickHouse alongside `operation_log`, but it's cleanup metadata — not append-only audit. Every consumer is a keyed lookup or owner join during background cleanup, which already reads `table_context_refs` / `table_pin_refs` / `table_run_refs` from SQL.
