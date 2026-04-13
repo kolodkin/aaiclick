@@ -172,34 +172,101 @@ emits a `SamplingStrategy` that targets the rows relevant to the question.
 
 ---
 
-# Phase 3 — Strategy-Driven Replay
+# Phase 3a — Row Trace Primitives ✅ IMPLEMENTED
+
+**Implementation**:
+- `aaiclick/oplog/lineage.py` — `backward_oplog_row()`, `RowLineageStep`
+- `aaiclick/orchestration/lineage.py` — `is_input_task()`
+- `aaiclick/ai/agents/tools.py` — `trace_row` agent tool
+
+**Objective**: Ship the row-level primitives so STRATEGY-mode jobs have
+a usable trace end-to-end today, without waiting on the full replay
+machinery.
+
+## Shipped
+
+1. **`is_input_task(task: Task) -> bool`** — pure function over the
+   serialized result on the `Task` row. Returns `True` when the result
+   is a persistent Object (`p_*` table with `persistent: true`). The
+   foundation for Phase 3b's replay-skips-input-tasks logic.
+
+2. **`backward_oplog_row(table, aai_id, max_depth=10)`** — walks one
+   hop at a time through `operation_log.kwargs_aai_ids` /
+   `result_aai_ids`. Returns `[]` when the job ran in NONE mode (empty
+   arrays). Returns ordered `RowLineageStep`s otherwise.
+
+3. **`trace_row` agent tool** — exposes `backward_oplog_row` to the LLM
+   so `debug_result` can request row-level provenance for strategy-matched
+   rows.
+
+## Tests
+
+- `aaiclick/orchestration/test_lineage.py` — `is_input_task` covering
+  unrun task, persistent/ephemeral Object results, upstream refs, native
+  values, pydantic results, missing `p_` prefix guards
+- `aaiclick/oplog/test_graph.py` — `backward_oplog_row` end-to-end under
+  STRATEGY mode and empty-return under NONE mode
+- `aaiclick/ai/agents/test_tools.py` — `trace_row` formatter + strategy
+  hint message
+
+---
+
+# Phase 3b — Task-Graph Replay
+
+**Not yet implemented.** Complex enough to warrant its own PR.
 
 **Objective**: Re-execute the job that produced a target table with a
-`SamplingStrategy` attached, so the oplog accumulates a complete
-source-to-output row trace for the targeted rows.
+`SamplingStrategy` attached, without re-running input tasks (whose
+outputs are already persistent).
 
 ## Tasks
 
-1. **Input task detection**
-   - Extend `Task` metadata (or derive at runtime) with `is_input: bool`
-   - A task qualifies when all its returned Objects resolve to persistent tables (`p_` prefix) — check via `table_registry` lookup in `aaiclick/orchestration/execution/runner.py` result post-processing
-   - No user annotation required — detection is automatic
+1. **Replay API** — `replay_job(original_job_id, sampling_strategy)`:
+   - Loads the original job's task graph (tasks + dependencies)
+   - Uses `is_input_task()` to split the graph into input tasks (skipped)
+     and compute tasks (cloned)
+   - Allocates fresh snowflake IDs for cloned tasks, maintains an
+     `old_id → new_id` map
+   - Rewrites cloned tasks' kwargs: `{"ref_type": "upstream", "task_id": X}`
+     where `X` is an input task becomes a direct Object ref
+     `{"object_type": "object", "table": "p_xxx", "persistent": true}`
+   - Clones dependencies with remapped ids, dropping any edge that
+     terminated on an input task
+   - Submits as a new Job with `preservation_mode=STRATEGY`,
+     `sampling_strategy=...`, and `replay_of=original_job_id`
 
-2. **Replay API — thin wrapper over job submission**
-   - Phase 0 already made `preservation_mode` and `sampling_strategy` first-class job run parameters, so replay is just a resubmission with those fields populated
-   - Add `replay_job(job_id, sampling_strategy)` to `aaiclick/orchestration/registered_jobs.py` that:
-     1. Loads the original job's task graph
-     2. Walks backward from terminal tasks, stopping at input tasks (their outputs are persistent — reuse in place)
-     3. Calls the normal `submit_job()` path with `sampling_strategy=sampling_strategy`, `preservation_mode=STRATEGY`, and a `replay_of` pointer to the original
-   - Alembic migration for `jobs.replay_of` nullable foreign key
+2. **Alembic migration** — `jobs.replay_of` nullable FK to `jobs.id`.
 
-3. **Row-trace query**
-   - Reintroduce `backward_oplog_row(table, aai_id)` in `aaiclick/oplog/lineage.py` — now strategy-aware, walking the non-empty `kwargs_aai_ids` / `result_aai_ids` populated by replay
-   - Return a `RowLineageStep` chain ending at input tables
+3. **CLI** — `aaiclick replay <job_id> --sampling-strategy <json>` in
+   `aaiclick/orchestration/cli.py`. Thin wrapper over `replay_job()`.
 
-4. **CLI / agent integration**
-   - `aaiclick replay <job_id> --sampling-strategy <json>` command in `aaiclick/orchestration/cli.py` (thin wrapper over the existing `submit` command's flags from Phase 0)
-   - `debug_agent` end-to-end: question → `produce_strategy()` → `replay_job()` → `backward_oplog_row()` → explanation with row-level evidence
+4. **`debug_agent` end-to-end flow** — question → `produce_strategy()`
+   → `replay_job()` → `backward_oplog_row()` → explanation with row-level
+   evidence. Today, debug_result already invokes the first two steps
+   inline and surfaces `trace_row` as a tool; replay is the missing
+   middle link that makes the trace populated on the first call.
+
+5. **Tests** — `aaiclick/orchestration/test_replay.py`:
+   - 3-task job (2 inputs + 1 compute) replayed with a strategy, assert
+     new job's `kwargs_aai_ids` matches the strategy
+   - Assert persistent input tables are untouched
+   - Assert `jobs.replay_of` points at the original
+   - End-to-end test in `test_debug_agent.py` with mocked provider
+
+## Workaround until 3b ships
+
+Users who want replay today can resubmit manually:
+
+```bash
+python -m aaiclick run-job <original_pipeline_entrypoint> \
+  --preservation-mode STRATEGY \
+  --sampling-strategy '{"p_kev_catalog": "cve_id = ''CVE-2024-001''"}'
+```
+
+This re-runs the entire pipeline (including input fetches) but produces
+the full strategy-driven row trace. `backward_oplog_row()` on the new
+job's target table returns the complete chain. Phase 3b just automates
+this path and adds persistent-input reuse.
 
 5. **Tests**
    - `aaiclick/orchestration/test_replay.py` — submit a 3-task job, replay with a strategy, assert the new job has populated `kwargs_aai_ids` matching the strategy and untouched persistent inputs

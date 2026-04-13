@@ -289,3 +289,91 @@ async def oplog_subgraph(
     return OplogGraph(nodes=nodes, edges=edges)
 
 
+@dataclass
+class RowLineageStep:
+    """One hop in a row-level lineage trace.
+
+    ``source_aai_ids`` maps each input role to the aligned source row id
+    for the current position, so callers can walk backward one role at
+    a time or render the full graph.
+    """
+
+    table: str
+    aai_id: int
+    operation: str
+    source_aai_ids: dict[str, int]
+
+
+async def backward_oplog_row(
+    table: str,
+    aai_id: int,
+    max_depth: int = 10,
+) -> list[RowLineageStep]:
+    """Trace a single ``aai_id`` backward through the oplog.
+
+    Reads the per-operation ``kwargs_aai_ids`` / ``result_aai_ids`` that
+    are populated under ``PreservationMode.STRATEGY`` (or any other
+    mechanism that writes the positional lineage arrays). For each step,
+    finds the operation that produced the current id, pulls the
+    positionally-aligned source ids, and recurses on the first source.
+
+    Returns ``[]`` when no oplog row carries this id — common when the
+    job ran under ``PreservationMode.NONE``, since the arrays stay
+    empty. Steps are ordered most-recent-first.
+
+    Args:
+        table: Starting table (the row's current home).
+        aai_id: The specific row's ``aai_id`` to trace.
+        max_depth: Safety cap on traversal depth.
+    """
+    ch_client = get_ch_client()
+    steps: list[RowLineageStep] = []
+    current_table = table
+    current_id = aai_id
+
+    for _ in range(max_depth):
+        table_escaped = current_table.replace("'", "\\'")
+        result = await ch_client.query(f"""
+            SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids
+            FROM operation_log
+            WHERE result_table = '{table_escaped}'
+              AND has(result_aai_ids, {current_id})
+            LIMIT 1
+        """)
+
+        if not result.result_rows:
+            break
+
+        operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
+        kwargs = _to_dict(kwargs_raw)
+        kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
+        result_aai_ids = list(result_aai_ids_raw)
+
+        try:
+            pos = result_aai_ids.index(current_id)
+        except ValueError:
+            break
+
+        source_aai_ids: dict[str, int] = {}
+        for role, ids in kwargs_aai_ids.items():
+            if pos < len(ids):
+                source_aai_ids[role] = ids[pos]
+
+        steps.append(RowLineageStep(
+            table=current_table,
+            aai_id=current_id,
+            operation=operation,
+            source_aai_ids=source_aai_ids,
+        ))
+
+        if not source_aai_ids:
+            break
+        first_role = next(iter(source_aai_ids))
+        current_id = source_aai_ids[first_role]
+        next_table = kwargs.get(first_role, "")
+        if not next_table:
+            break
+        current_table = next_table
+
+    return steps
+

@@ -101,11 +101,40 @@ questions automatically produce strategies alongside the debug context.
 Re-run the entire job with a `SamplingStrategy` applied. The strategy from
 Phase 2 tells each operation which rows to track.
 
-## Input Tasks via Persistent Tables
+Phase 3 ships in two steps: Phase 3a provides the row trace primitives
+(`is_input_task`, `backward_oplog_row`, `trace_row` agent tool) and Phase
+3b provides the task-graph replay machinery (`replay_job`, `aaiclick
+replay` CLI). 3a works end-to-end today for any job resubmitted with
+`--preservation-mode STRATEGY`; 3b automates the resubmission with
+persistent-input reuse.
 
-No tags or labels needed. A task is an **input task** when all its returned
-Objects are persistent (`p_` prefix). The system detects this automatically
-from the task's result metadata.
+## Phase 3a -- Row Trace Primitives ✅ IMPLEMENTED
+
+**Implementation**:
+- `aaiclick/oplog/lineage.py` — see `backward_oplog_row()`, `RowLineageStep`
+- `aaiclick/orchestration/lineage.py` — see `is_input_task()`
+- `aaiclick/ai/agents/tools.py` — see `trace_row` agent tool
+
+Any job that ran under `PreservationMode.STRATEGY` populates
+`kwargs_aai_ids` / `result_aai_ids` in `operation_log`. `backward_oplog_row`
+walks one step at a time: given a `(table, aai_id)` it finds the operation
+that produced that id, reads the positionally-aligned source ids, and
+recurses. The debug agent exposes this as a `trace_row` tool so the LLM
+can request row-level provenance for any strategy-matched row.
+
+Input-task detection (`is_input_task`) is the foundation for Phase 3b:
+given a `Task` row, return `True` if its result is a persistent Object
+(`p_*` table). Used by replay to decide which tasks to skip.
+
+## Phase 3b -- Task-Graph Replay
+
+Not yet implemented. Clones a completed job's task graph, skips input
+tasks (reusing their persistent outputs in place), rewrites child task
+kwargs to point at the persistent tables directly, and submits the
+clone as a new job with `preservation_mode=STRATEGY` and a `replay_of`
+pointer to the original.
+
+**Design sketch**:
 
 ```python
 @task
@@ -120,7 +149,7 @@ async def merge_sources(kev: Object, scores: Object) -> Object:
 Persistent tables survive cleanup, so replay always has its inputs.
 The system walks the task graph backward and stops at input tasks.
 
-## Replay
+Replay steps:
 
 1. Re-run the entire job with the `SamplingStrategy` from Phase 2
 2. At each operation, sample the targeted rows (not random)
@@ -128,16 +157,22 @@ The system walks the task graph backward and stops at input tasks.
 After replay, the oplog contains a complete source-to-output trace for the
 strategy-matched rows.
 
+Workaround until Phase 3b lands: resubmit the original pipeline manually
+with `run_job(..., preservation_mode=STRATEGY, sampling_strategy=...)` or
+the `--preservation-mode STRATEGY --sampling-strategy '<json>'` CLI flags
+from Phase 0.
+
 ---
 
 # Current State
 
-| Phase   | Status              | Notes                                                          |
-|---------|---------------------|----------------------------------------------------------------|
-| Phase 0 | ✅ Implemented       | `SamplingStrategy` + `PreservationMode` + strategy-driven oplog |
-| Phase 1 | ✅ Implemented       | `backward_oplog()`, `forward_oplog()`, `OplogGraph`            |
-| Phase 2 | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
-| Phase 3 | Not yet implemented | Re-run entire job with strategy-driven smart sampling          |
+| Phase    | Status              | Notes                                                          |
+|----------|---------------------|----------------------------------------------------------------|
+| Phase 0  | ✅ Implemented       | `SamplingStrategy` + `PreservationMode` + strategy-driven oplog |
+| Phase 1  | ✅ Implemented       | `backward_oplog()`, `forward_oplog()`, `OplogGraph`            |
+| Phase 2  | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
+| Phase 3a | ✅ Implemented       | `backward_oplog_row()`, `is_input_task()`, `trace_row` agent tool |
+| Phase 3b | Not yet implemented | `replay_job()` + `aaiclick replay` CLI — auto-resubmit with persistent-input reuse |
 
 ## Prerequisites for Phase 3
 
