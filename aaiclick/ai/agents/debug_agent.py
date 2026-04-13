@@ -29,7 +29,11 @@ Be specific: cite actual values and trace the root cause.
 _MAX_TOOL_ROUNDS = 10
 
 
-async def debug_result(target_table: str, question: str) -> str:
+async def debug_result(
+    target_table: str,
+    question: str,
+    graph: OplogGraph | None = None,
+) -> str:
     """Answer 'why' questions about a result by tracing lineage
     and inspecting intermediate data.
 
@@ -37,8 +41,11 @@ async def debug_result(target_table: str, question: str) -> str:
         "Why is this value negative?"
         "Why are there only 3 rows instead of 10?"
         "Which input caused the NaN values?"
+
+    Pass `graph` to reuse a pre-built backward lineage graph and skip the traversal.
     """
-    graph = await oplog_subgraph(target_table, direction="backward")
+    if graph is None:
+        graph = await oplog_subgraph(target_table, direction="backward")
     labels = graph.build_labels()
     context = graph.to_prompt_context()
 

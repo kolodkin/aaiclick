@@ -99,6 +99,7 @@ class ChdbQueryResult:
     """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
 
     result_rows: List[tuple] = field(default_factory=list)
+    column_names: List[str] = field(default_factory=list)
 
     @property
     def first_row(self) -> tuple:
@@ -166,13 +167,13 @@ class ChdbClient:
                 return ChdbQueryResult()
 
             columns = table.to_pydict()
-            col_names = table.column_names
+            col_names = list(table.column_names)
             n_rows = table.num_rows
             rows = [
                 tuple(columns[name][i] for name in col_names)
                 for i in range(n_rows)
             ]
-            return ChdbQueryResult(result_rows=rows)
+            return ChdbQueryResult(result_rows=rows, column_names=col_names)
 
     async def insert(
         self,

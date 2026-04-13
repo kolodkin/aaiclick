@@ -57,15 +57,36 @@ async def test_backward_oplog(orch_ctx):
 
 
 async def test_forward_oplog(orch_ctx):
-    """forward_oplog from a source finds exactly the concat node."""
+    """forward_oplog includes the seed table plus its downstream consumers."""
     a_table, b_table, result_table = await _run_pipeline()
 
     async with lineage_context():
         nodes = await forward_oplog(a_table)
 
-    assert len(nodes) == 1
-    assert nodes[0].table == result_table
-    assert nodes[0].operation == "concat"
+    by_table = {n.table: n for n in nodes}
+    assert set(by_table) == {a_table, result_table}
+    assert by_table[a_table].operation == "create_from_value"
+    assert by_table[result_table].operation == "concat"
+
+
+async def test_forward_subgraph_labels_all_edges(orch_ctx):
+    """build_labels covers every edge endpoint, including sibling inputs
+    not visited by the forward traversal."""
+    a_table, b_table, result_table = await _run_pipeline()
+
+    async with lineage_context():
+        graph = await oplog_subgraph(a_table, direction="forward")
+
+    labels = graph.build_labels()
+    # a is a node (create_from_value) → source_*
+    # result is a node (concat) → concat_result
+    # b is NOT a node but IS an edge source → generic source_*
+    assert labels[a_table].startswith("source_")
+    assert labels[b_table].startswith("source_")
+    assert labels[result_table] == "concat_result"
+    for edge in graph.edges:
+        assert edge.source in labels, f"unlabeled source {edge.source}"
+        assert edge.target in labels, f"unlabeled target {edge.target}"
 
 
 async def test_invalid_direction(orch_ctx):

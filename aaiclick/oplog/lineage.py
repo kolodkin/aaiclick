@@ -32,6 +32,27 @@ def _to_aai_ids_dict(raw: Any) -> dict[str, list[int]]:
     return {k: list(v) for k, v in raw}
 
 
+def _row_to_oplog_node(row: tuple) -> OplogNode:
+    """Build an OplogNode from a raw operation_log row tuple.
+
+    The query must select these 8 columns in order:
+    result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+    sql_template, task_id, job_id.
+    """
+    (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
+     result_aai_ids_raw, sql_template, task_id, job_id) = row
+    return OplogNode(
+        table=result_table,
+        operation=operation,
+        kwargs=_to_dict(kwargs_raw),
+        kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+        result_aai_ids=list(result_aai_ids_raw),
+        sql_template=sql_template,
+        task_id=task_id,
+        job_id=job_id,
+    )
+
+
 @dataclass
 class OplogNode:
     table: str
@@ -71,29 +92,40 @@ class OplogGraph:
         }
 
     def build_labels(self) -> dict[str, str]:
-        """Assign human-readable labels to each table based on its operation.
+        """Map every referenced table ID to a human-readable label.
 
-        Returns a mapping from table ID to label (e.g. source_A, multiply_result).
-        Used for post-processing agent responses — NOT injected into the prompt
-        so the LLM can still reference real table names in tool calls.
+        Nodes get operation-derived labels (`source_A`, `multiply_result`).
+        Edge endpoints that aren't in `nodes` fall through to generic
+        `source_*` labels. Used for post-processing agent responses — NOT
+        injected into the prompt so the LLM can still reference real table
+        names in tool calls.
         """
         labels: dict[str, str] = {}
         source_counter = 0
         op_counters: dict[str, int] = {}
         source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+        def _next_source_label() -> str:
+            nonlocal source_counter
+            letter = source_letters[source_counter % len(source_letters)]
+            source_counter += 1
+            return f"source_{letter}"
+
         for node in reversed(self.nodes):
             if node.table in labels:
                 continue
             if node.operation == "create_from_value":
-                letter = source_letters[source_counter % len(source_letters)]
-                labels[node.table] = f"source_{letter}"
-                source_counter += 1
+                labels[node.table] = _next_source_label()
             else:
                 op = _OP_LABEL_NAMES.get(node.operation, node.operation)
                 count = op_counters.get(op, 0)
                 op_counters[op] = count + 1
                 labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
+
+        for edge in self.edges:
+            for table in (edge.source, edge.target):
+                if table not in labels:
+                    labels[table] = _next_source_label()
 
         return labels
 
@@ -200,36 +232,32 @@ async def backward_oplog(
         FROM upstream
     """)
 
-    return [
-        OplogNode(
-            table=result_table,
-            operation=operation,
-            kwargs=_to_dict(kwargs_raw),
-            kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
-            result_aai_ids=list(result_aai_ids_raw),
-            sql_template=sql_template,
-            task_id=task_id,
-            job_id=job_id,
-        )
-        for result_table, operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw,
-            sql_template, task_id, job_id
-        in result.result_rows
-    ]
+    return [_row_to_oplog_node(row) for row in result.result_rows]
 
 
 async def forward_oplog(
     table: str,
     max_depth: int = 10,
 ) -> list[OplogNode]:
-    """Trace all downstream operations that consumed `table`.
-
-    Returns nodes in BFS order starting from operations that used `table`.
-    """
+    """Trace all downstream operations that consumed `table`, including the seed."""
     ch_client = get_ch_client()
     visited: set[str] = set()
-    frontier = [table]
     nodes: list[OplogNode] = []
 
+    table_escaped = table.replace("'", "\\'")
+    seed = await ch_client.query(f"""
+        SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+               sql_template, task_id, job_id
+        FROM operation_log
+        WHERE result_table = '{table_escaped}'
+        LIMIT 1
+    """)
+    for row in seed.result_rows:
+        node = _row_to_oplog_node(row)
+        visited.add(node.table)
+        nodes.append(node)
+
+    frontier = [table]
     for _ in range(max_depth):
         if not frontier:
             break
@@ -245,23 +273,12 @@ async def forward_oplog(
 
         next_frontier: list[str] = []
         for row in result.result_rows:
-            (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
-             result_aai_ids_raw, sql_template, task_id, job_id) = row
-            if result_table in visited:
+            node = _row_to_oplog_node(row)
+            if node.table in visited:
                 continue
-            visited.add(result_table)
-            node = OplogNode(
-                table=result_table,
-                operation=operation,
-                kwargs=_to_dict(kwargs_raw),
-                kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
-                result_aai_ids=list(result_aai_ids_raw),
-                sql_template=sql_template,
-                task_id=task_id,
-                job_id=job_id,
-            )
+            visited.add(node.table)
             nodes.append(node)
-            next_frontier.append(result_table)
+            next_frontier.append(node.table)
 
         frontier = next_frontier
 
