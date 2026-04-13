@@ -194,16 +194,28 @@ async def trace_upstream(table: str, depth: int = 10) -> str:
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
     """Dispatch a tool call by name to the appropriate function."""
     if name == "sample_table":
+        table = arguments.get("table")
+        if table is None:
+            return "(error: sample_table requires 'table' argument)"
         return await sample_table(
-            arguments["table"],
+            table,
             limit=arguments.get("limit", 10),
             where=arguments.get("where"),
         )
     elif name == "get_schema":
-        return await get_schema(arguments["table"])
+        table = arguments.get("table")
+        if table is None:
+            return "(error: get_schema requires 'table' argument)"
+        return await get_schema(table)
     elif name == "get_column_stats":
-        return await get_column_stats(arguments["table"])
+        table = arguments.get("table")
+        if table is None:
+            return "(error: get_column_stats requires 'table' argument)"
+        return await get_column_stats(table)
     elif name == "trace_upstream":
-        return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
+        table = arguments.get("table")
+        if table is None:
+            return "(error: trace_upstream requires 'table' argument)"
+        return await trace_upstream(table, depth=arguments.get("depth", 10))
     else:
         return f"(unknown tool: {name})"
