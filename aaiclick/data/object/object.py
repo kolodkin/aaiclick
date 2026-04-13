@@ -14,13 +14,7 @@ from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
 
 from . import operators, ingest, data_extraction
-from .refs import (
-    OBJECT,
-    OBJECT_TYPE,
-    PERSISTENT,
-    TABLE,
-    VIEW,
-)
+from .refs import ObjectRef, ViewRef
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -211,10 +205,10 @@ class Object:
 
     def _serialize_ref(self) -> dict:
         """Serialize this Object to a reference dict for task kwargs/results."""
-        ref = {OBJECT_TYPE: OBJECT, TABLE: self.table}
-        if self.persistent:
-            ref[PERSISTENT] = True
-        return ref
+        return ObjectRef(
+            table=self.table,
+            persistent=True if self.persistent else None,
+        ).to_dict()
 
     @property
     def is_single_field(self) -> bool:
@@ -2411,19 +2405,16 @@ class View(Object):
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
-        ref = {
-            OBJECT_TYPE: VIEW,
-            TABLE: self.table,
-            "where": self._build_where(),
-            "limit": self.limit,
-            "offset": self.offset,
-            "order_by": self.order_by,
-            "selected_fields": self.selected_fields,
-            "renamed_columns": self._renamed_columns,
-        }
-        if self.persistent:
-            ref[PERSISTENT] = True
-        return ref
+        return ViewRef(
+            table=self.table,
+            where=self._build_where(),
+            limit=self.limit,
+            offset=self.offset,
+            order_by=self.order_by,
+            selected_fields=self.selected_fields,
+            renamed_columns=self._renamed_columns,
+            persistent=True if self.persistent else None,
+        ).to_dict()
 
     def where(self, condition: str) -> "View":
         """
