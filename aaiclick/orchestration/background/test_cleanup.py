@@ -7,11 +7,13 @@ Also tests clean_task_run for crash recovery.
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import AsyncMock
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
@@ -112,3 +114,61 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
 
     remaining = await _get_context_tables(bg_db)
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
+
+
+async def _insert_job(engine, job_id: int, mode: str) -> None:
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO jobs (id, name, status, run_type, preservation_mode, created_at) "
+                "VALUES (:id, :name, 'PENDING', 'MANUAL', :mode, :created_at)"
+            ),
+            {
+                "id": job_id,
+                "name": f"j{job_id}",
+                "mode": mode,
+                "created_at": datetime.utcnow(),
+            },
+        )
+        await session.commit()
+
+
+async def test_cleanup_full_mode_skips_drop(bg_db):
+    """Tables belonging to a FULL-mode job are preserved by cleanup."""
+    await _insert_job(bg_db, 777, "FULL")
+    await insert_context_ref(bg_db, "t_full", 100)
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+    # Stub the owner lookup: table belongs to job 777.
+    worker._lookup_table_owners = AsyncMock(
+        return_value={"t_full": TableOwner(job_id=777)},
+    )
+
+    await worker._cleanup_unreferenced_tables()
+
+    # Table still present, no drop was attempted on CH.
+    remaining = await _get_context_tables(bg_db)
+    assert "t_full" in remaining
+    worker._ch_client.command.assert_not_called()
+
+
+async def test_cleanup_none_mode_drops(bg_db):
+    """Tables belonging to a NONE-mode job are dropped as normal."""
+    await _insert_job(bg_db, 888, "NONE")
+    await insert_context_ref(bg_db, "t_none", 100)
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+    worker._lookup_table_owners = AsyncMock(
+        return_value={"t_none": TableOwner(job_id=888)},
+    )
+
+    await worker._cleanup_unreferenced_tables()
+
+    remaining = await _get_context_tables(bg_db)
+    assert "t_none" not in remaining

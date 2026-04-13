@@ -6,12 +6,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
+from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = f"""\
 You are a data debugging expert analyzing a ClickHouse data pipeline.
@@ -48,6 +52,14 @@ async def debug_result(
     schemas = await get_schemas_for_nodes(graph.nodes)
     if schemas:
         context += "\n\n" + schemas
+
+    # Failure is non-fatal — we degrade to graph-only context.
+    try:
+        strategy = await produce_strategy(question, graph, schemas=schemas)
+    except ValueError as exc:
+        logger.warning("strategy agent skipped: %s", exc)
+        strategy = {}
+    context += format_strategy(strategy)
 
     provider = get_ai_provider()
     prompt = f"Target table: `{target_table}`\n\nQuestion: {question}"

@@ -84,6 +84,13 @@ class OplogGraph:
 
     _ID_BREAKING_OPS = frozenset({"insert", "concat"})
 
+    @property
+    def tables(self) -> set[str]:
+        """Return every table that appears in the graph as a node or a kwarg source."""
+        return {n.table for n in self.nodes} | {
+            src for n in self.nodes for src in n.kwargs.values() if src
+        }
+
     def build_labels(self) -> dict[str, str]:
         """Map every referenced table ID to a human-readable label.
 
@@ -301,7 +308,12 @@ async def oplog_subgraph(
 
 @dataclass
 class RowLineageStep:
-    """One step in a row-level lineage trace."""
+    """One hop in a row-level lineage trace.
+
+    ``source_aai_ids`` maps each input role to the aligned source row id
+    for the current position, so callers can walk backward one role at
+    a time or render the full graph.
+    """
 
     table: str
     aai_id: int
@@ -314,12 +326,22 @@ async def backward_oplog_row(
     aai_id: int,
     max_depth: int = 10,
 ) -> list[RowLineageStep]:
-    """Trace a specific aai_id backward through the lineage chain.
+    """Trace a single ``aai_id`` backward through the oplog.
 
-    Walks the oplog samples: finds the operation that produced this aai_id,
-    extracts the corresponding source aai_ids, then recurses into each source.
+    Reads the per-operation ``kwargs_aai_ids`` / ``result_aai_ids`` that
+    are populated under ``PreservationMode.STRATEGY`` (or any other
+    mechanism that writes the positional lineage arrays). For each step,
+    finds the operation that produced the current id, pulls the
+    positionally-aligned source ids, and recurses on the first source.
 
-    Returns steps in reverse order (most recent operation first).
+    Returns ``[]`` when no oplog row carries this id — common when the
+    job ran under ``PreservationMode.NONE``, since the arrays stay
+    empty. Steps are ordered most-recent-first.
+
+    Args:
+        table: Starting table (the row's current home).
+        aai_id: The specific row's ``aai_id`` to trace.
+        max_depth: Safety cap on traversal depth.
     """
     ch_client = get_ch_client()
     steps: list[RowLineageStep] = []
@@ -328,8 +350,6 @@ async def backward_oplog_row(
 
     for _ in range(max_depth):
         table_escaped = current_table.replace("'", "\\'")
-
-        # Find the operation that produced this aai_id
         result = await ch_client.query(f"""
             SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids
             FROM operation_log
@@ -346,13 +366,11 @@ async def backward_oplog_row(
         kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
         result_aai_ids = list(result_aai_ids_raw)
 
-        # Find the position of current_id in result_aai_ids
         try:
             pos = result_aai_ids.index(current_id)
         except ValueError:
             break
 
-        # Extract corresponding source aai_ids at the same position
         source_aai_ids: dict[str, int] = {}
         for role, ids in kwargs_aai_ids.items():
             if pos < len(ids):
@@ -365,13 +383,14 @@ async def backward_oplog_row(
             source_aai_ids=source_aai_ids,
         ))
 
-        # Pick one source to follow (first source with an aai_id)
         if not source_aai_ids:
             break
         first_role = next(iter(source_aai_ids))
         current_id = source_aai_ids[first_role]
-        current_table = kwargs.get(first_role, "")
-        if not current_table:
+        next_table = kwargs.get(first_role, "")
+        if not next_table:
             break
+        current_table = next_table
 
     return steps
+

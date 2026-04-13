@@ -41,4 +41,4 @@ from .jobs import (
     compute_job_stats,
     print_job_stats,
 )
-from .models import JobStatus, TaskStatus
+from .models import JobStatus, PreservationMode, TaskStatus

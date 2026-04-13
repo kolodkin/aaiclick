@@ -26,13 +26,14 @@ from datetime import datetime, timedelta
 from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlmodel import select
 
 from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus
+from ..models import Job, JobStatus, PreservationMode
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -195,6 +196,14 @@ class BackgroundWorker:
         Looks up the owning job_id from table_registry so the sample
         table created by lineage_aware_drop is registered with the job
         and cleaned up when the job expires.
+
+        Preservation mode gates the actual drop:
+
+        - ``NONE``: drop via ``lineage_aware_drop`` (no lineage refs → hard drop).
+        - ``STRATEGY``: drop via ``lineage_aware_drop`` — strategy-matched
+          rows survive as a ``_sample`` table registered with the job.
+        - ``FULL``: skip the drop entirely. The table lives until the job
+          TTL expires and ``_cleanup_expired_jobs`` collects it.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -220,16 +229,40 @@ class BackgroundWorker:
             # Batch-lookup ownership from table_registry in ClickHouse
             owner_map = await self._lookup_table_owners(table_names)
 
+            owning_job_ids = {o.job_id for o in owner_map.values() if o.job_id is not None}
+            mode_map = await self._lookup_job_preservation_modes(session, owning_job_ids)
+
+            dropped_tables: list[str] = []
             for table_name in table_names:
                 owner = owner_map.get(table_name)
+                job_id = owner.job_id if owner else None
+                mode = mode_map.get(job_id, PreservationMode.NONE)
+                if mode is PreservationMode.FULL:
+                    # Keep the table alive until the job expires.
+                    continue
                 try:
                     await lineage_aware_drop(self._ch_client, table_name, owner=owner)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
+                dropped_tables.append(table_name)
 
-            await _delete_table_refs(session, table_names)
+            if dropped_tables:
+                await _delete_table_refs(session, dropped_tables)
 
             await session.commit()
+
+    async def _lookup_job_preservation_modes(
+        self,
+        session: AsyncSession,
+        job_ids: set[int],
+    ) -> dict[int, PreservationMode]:
+        """Return ``{job_id: PreservationMode}`` for the given jobs."""
+        if not job_ids:
+            return {}
+        result = await session.execute(
+            select(Job.id, Job.preservation_mode).where(Job.id.in_(job_ids)),
+        )
+        return {row[0]: row[1] for row in result.all()}
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
         """Look up ownership metadata from table_registry for a list of table names."""

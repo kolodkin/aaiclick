@@ -8,9 +8,14 @@ import pytest
 
 from aaiclick.conftest import make_oplog_node
 from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.oplog.lineage import (
     OplogGraph,
-    lineage_context, backward_oplog, forward_oplog, oplog_subgraph,
+    backward_oplog,
+    backward_oplog_row,
+    forward_oplog,
+    lineage_context,
+    oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
 
@@ -102,3 +107,50 @@ def test_prompt_context_id_breaking_ops_warning():
     node = make_oplog_node("result", "add", {"source_0": "a"})
     context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
     assert "fresh aai_id" not in context
+
+
+async def test_backward_oplog_row_strategy_populated(orch_ctx):
+    """Row trace walks one hop backward for a STRATEGY-populated operation."""
+    left_table = "p_row_trace_left"
+    right_table = "p_row_trace_right"
+
+    async with task_scope(
+        task_id=1,
+        job_id=1,
+        run_id=100,
+        sampling_strategy={left_table: "value = 20"},
+    ):
+        a = await create_object_from_value([10, 20, 30], name="row_trace_left")
+        b = await create_object_from_value([1, 2, 3], name="row_trace_right")
+        result = await (a + b)
+        result_table = result.table
+
+    ch = await create_ch_client()
+    rows = (await ch.query(
+        f"SELECT aai_id FROM {result_table} WHERE value = 22"
+    )).result_rows
+    assert rows, f"expected value=22 in {result_table}"
+    target_id = rows[0][0]
+
+    async with lineage_context():
+        steps = await backward_oplog_row(result_table, target_id)
+
+    assert steps, "expected at least one step"
+    first = steps[0]
+    assert first.table == result_table
+    assert first.aai_id == target_id
+    assert first.operation == "+"
+    assert set(first.source_aai_ids.keys()) == {"left", "right"}
+
+    await ch.command(f"DROP TABLE IF EXISTS {left_table}")
+    await ch.command(f"DROP TABLE IF EXISTS {right_table}")
+
+
+async def test_backward_oplog_row_none_mode_returns_empty(orch_ctx):
+    """Row trace returns [] when the job ran under NONE mode (empty lineage arrays)."""
+    a_table, b_table, result_table = await _run_pipeline()
+
+    async with lineage_context():
+        steps = await backward_oplog_row(result_table, 1)
+
+    assert steps == []

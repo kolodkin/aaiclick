@@ -17,7 +17,7 @@ from .execution import cancel_job, list_workers, mp_worker_main_loop, request_wo
 from .orch_context import orch_context
 from .jobs import count_jobs, compute_job_stats, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
 from .background import BackgroundWorker
-from .models import JobStatus
+from .models import JobStatus, PreservationMode
 from .registered_jobs import (
     disable_job,
     enable_job,
@@ -224,6 +224,8 @@ async def register_job_cmd(
     name: Optional[str] = None,
     schedule: Optional[str] = None,
     kwargs_json: Optional[str] = None,
+    preservation_mode: Optional[str] = None,
+    sampling_strategy_json: Optional[str] = None,
 ) -> None:
     """Register a job in the catalog."""
     resolved_name = name or entrypoint.rsplit(".", 1)[-1]
@@ -231,29 +233,57 @@ async def register_job_cmd(
     if kwargs_json:
         default_kwargs = json.loads(kwargs_json)
 
+    mode: Optional[PreservationMode] = None
+    if preservation_mode is not None:
+        mode = PreservationMode(preservation_mode.upper())
+
+    strategy: Optional[Dict[str, str]] = None
+    if sampling_strategy_json:
+        strategy = json.loads(sampling_strategy_json)
+        if not isinstance(strategy, dict):
+            raise ValueError("--sampling-strategy must decode to a JSON object")
+
     async with orch_context(with_ch=False):
         job = await register_job(
             name=resolved_name,
             entrypoint=entrypoint,
             schedule=schedule,
             default_kwargs=default_kwargs,
+            preservation_mode=mode,
+            sampling_strategy=strategy,
         )
     print(f"Registered job '{job.name}' (id={job.id})")
     if job.schedule:
-        print(f"  Schedule:    {job.schedule}")
+        print(f"  Schedule:         {job.schedule}")
+    if job.preservation_mode:
+        print(f"  Preservation:     {job.preservation_mode.value}")
+    if job.sampling_strategy:
+        print(f"  Sampling strategy: {job.sampling_strategy}")
     if job.next_run_at:
-        print(f"  Next run at: {job.next_run_at}")
+        print(f"  Next run at:      {job.next_run_at}")
 
 
 async def run_job_cmd(
     name_or_entrypoint: str,
     *,
     kwargs_json: Optional[str] = None,
+    preservation_mode: Optional[str] = None,
+    sampling_strategy_json: Optional[str] = None,
 ) -> None:
     """Run a job immediately."""
     kwargs: Optional[Dict[str, Any]] = None
     if kwargs_json:
         kwargs = json.loads(kwargs_json)
+
+    mode: Optional[PreservationMode] = None
+    if preservation_mode is not None:
+        mode = PreservationMode(preservation_mode.upper())
+
+    strategy: Optional[Dict[str, str]] = None
+    if sampling_strategy_json:
+        strategy = json.loads(sampling_strategy_json)
+        if not isinstance(strategy, dict):
+            raise ValueError("--sampling-strategy must decode to a JSON object")
 
     # If it looks like a dotted path, use as entrypoint; otherwise treat as name
     if "." in name_or_entrypoint:
@@ -264,7 +294,13 @@ async def run_job_cmd(
         entrypoint = name_or_entrypoint
 
     async with orch_context(with_ch=False):
-        job = await run_job(name=name, entrypoint=entrypoint, kwargs=kwargs)
+        job = await run_job(
+            name=name,
+            entrypoint=entrypoint,
+            kwargs=kwargs,
+            preservation_mode=mode,
+            sampling_strategy=strategy,
+        )
     print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
 
 

@@ -39,6 +39,7 @@ class OplogPayload:
     task_id: int | None = None
     job_id: int | None = None
     run_id: int | None = None
+    sampling_strategy: dict[str, str] | None = None
 
 
 @dataclass

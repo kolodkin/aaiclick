@@ -255,6 +255,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
     func = import_callback(task.entrypoint)
     run_id = get_snowflake_id()
 
+    sampling_strategy: dict[str, str] | None = None
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task.id))
         db_task = result.scalar_one_or_none()
@@ -264,10 +265,20 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             session.add(db_task)
             await session.commit()
 
+        job_row = await session.execute(select(Job).where(Job.id == task.job_id))
+        job = job_row.scalar_one_or_none()
+        if job is not None:
+            sampling_strategy = job.sampling_strategy
+
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
     with capture_task_output(task.id, task.job_id, run_id) as log_path:
-        async with task_scope(task_id=task.id, job_id=task.job_id, run_id=run_id):
+        async with task_scope(
+            task_id=task.id,
+            job_id=task.job_id,
+            run_id=run_id,
+            sampling_strategy=sampling_strategy,
+        ):
             kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)

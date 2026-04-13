@@ -55,6 +55,7 @@ async def test_debug_result_direct_answer():
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=mock_subgraph),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
@@ -76,6 +77,7 @@ async def test_debug_result_with_one_tool_call():
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=AsyncMock(return_value="id | val\n1 | x")),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
     ):
         result = await debug_result("result", "Why are there only 3 rows?")
 
@@ -95,6 +97,7 @@ async def test_debug_result_dispatches_correct_tool():
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=mock_dispatch),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
     ):
         await debug_result("result", "What is the schema?")
 
@@ -111,6 +114,7 @@ async def test_debug_result_context_includes_schemas():
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
     ):
         await debug_result("result", "Why?")
 

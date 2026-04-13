@@ -74,6 +74,22 @@ class WorkerStatus(StrEnum):
     STOPPED = "STOPPED"
 
 
+class PreservationMode(StrEnum):
+    """Which tables survive after a job completes.
+
+    - ``NONE``: persistent tables only (default) — intermediate tables are
+      dropped as soon as their refs fall to zero.
+    - ``FULL``: every table the job produced stays until the job TTL expires,
+      useful for development and debugging.
+    - ``STRATEGY``: intermediate tables are replaced by the rows matched by
+      the job's ``sampling_strategy``. Enables question-driven lineage replay.
+    """
+
+    NONE = "NONE"
+    FULL = "FULL"
+    STRATEGY = "STRATEGY"
+
+
 class RegisteredJob(SQLModel, table=True):
     """
     RegisteredJob model - catalog of known jobs.
@@ -92,6 +108,11 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: Optional[str] = Field(default=None)
     default_kwargs: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    preservation_mode: Optional[PreservationMode] = Field(default=None)
+    sampling_strategy: Optional[Dict[str, str]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
     next_run_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -113,6 +134,14 @@ class Job(SQLModel, table=True):
     registered_job_id: Optional[int] = Field(
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
+    )
+    preservation_mode: PreservationMode = Field(
+        default=PreservationMode.NONE,
+        sa_column_kwargs={"server_default": PreservationMode.NONE.value, "nullable": False},
+    )
+    sampling_strategy: Optional[Dict[str, str]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: Optional[datetime] = Field(default=None)
