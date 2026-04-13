@@ -294,15 +294,104 @@ this path and adds persistent-input reuse.
 
 ---
 
+# Phase 4 — Registered-Job Configuration Defaults
+
+**Objective**: Hoist `preservation_mode` and `sampling_strategy` onto
+`RegisteredJob` as job-definition defaults, so each run inherits from
+the registered job unless the caller supplies an explicit override.
+Mirrors the existing `RegisteredJob.default_kwargs` pattern.
+
+## Tasks
+
+1. **Model changes** — `aaiclick/orchestration/models.py`
+   - Add `RegisteredJob.preservation_mode: PreservationMode` — nullable,
+     defaults to `None` (meaning "inherit from env/hardcoded default")
+   - Add `RegisteredJob.sampling_strategy: dict[str, str] | None` —
+     nullable, JSON-encoded
+   - Reuses the `preservationmode` ENUM type created by Phase 0's
+     Alembic migration — no new enum needed
+
+2. **Alembic migration** — `alembic revision --autogenerate -m "add registered_job preservation defaults"`
+   - Adds both columns to `registered_jobs`
+   - Idempotent upgrade/downgrade pair
+
+3. **Precedence chain in `run_job()` / `create_job()`**
+   - Extract a shared `resolve_job_config(explicit_mode, explicit_strategy, registered_job)` helper
+   - Order of precedence:
+     1. Explicit argument (non-`None`)
+     2. `registered_job.preservation_mode` / `.sampling_strategy` (non-`None`)
+     3. `get_default_preservation_mode()` (env var)
+     4. `PreservationMode.NONE` + empty strategy
+   - Cross-validation (strategy vs. STRATEGY mode) runs on the
+     resolved values, not the raw inputs
+
+4. **CLI** — `aaiclick/__main__.py` + `aaiclick/orchestration/cli.py`
+   - `register-job` gains `--preservation-mode` and `--sampling-strategy`
+     flags that set level-2 defaults at registration time
+   - `run-job` flags stay unchanged — they're level-1 overrides
+
+5. **`replay_job()` interaction**
+   - `replay_job(original_job_id, sampling_strategy)` always supplies
+     both params explicitly, so registered-job defaults never leak into
+     a replay. This is the correct behavior — replay should use exactly
+     the strategy the caller specified, never the job's baseline.
+
+6. **Tests** — `aaiclick/orchestration/test_registered_jobs.py`
+   - Register a job with `preservation_mode=FULL`, run without flags,
+     assert resolved mode is `FULL`
+   - Register a job with `preservation_mode=FULL`, run with
+     `preservation_mode=NONE`, assert override wins
+   - Env var set, no registered default, no explicit → env var wins
+   - Default chain fallthrough: no registered, no env, no explicit →
+     `NONE`
+   - Strategy-only variants of the above for `sampling_strategy`
+   - Invariant: `preservation_mode=STRATEGY` requires a non-empty
+     strategy at whichever level supplies it
+
+7. **Docs**
+   - `docs/orchestration.md` — "Registered Jobs" section expanded with
+     the precedence chain and the new `register-job` flags
+   - `docs/lineage_3_phases.md` — Phase 4 marked ✅ with implementation
+     pointer
+
+## Deliverables
+
+- Two new columns on `registered_jobs` with matching Alembic migration
+- `resolve_job_config` helper used by both `create_job` and `run_job`
+- `register-job` CLI accepts both defaults
+- Green tests covering the four-level precedence chain
+
+## Success Criteria
+
+- Scheduled runs inherit both params from the registered job without
+  extra wiring
+- A registered job with `preservation_mode=FULL` yields `FULL` runs
+  on every trigger path (cron, manual, API) unless overridden
+- Manual replays via `replay_job()` or CLI `replay` are unaffected by
+  the registered job's baseline
+
+## Why it's the final phase
+
+Every prior phase added *capability* (strategy typing, LLM agent, row
+trace, replay). Phase 4 is pure configuration polish: where the knobs
+live, not what they do. Landing it last means one migration reuses
+the `preservationmode` ENUM from Phase 0 and the precedence logic
+doesn't have to anticipate new levels.
+
+---
+
 # Phase Dependencies
 
-| Phase   | Depends on | Can ship independently? |
-|---------|------------|-------------------------|
-| Phase 0 | —          | Yes                     |
-| Phase 1 | —          | Already shipped         |
-| Phase 2 | Phase 0    | Yes (strategy is informational until Phase 3) |
-| Phase 3 | Phase 0, 2 | No — needs both         |
+| Phase    | Depends on     | Can ship independently? |
+|----------|----------------|-------------------------|
+| Phase 0  | —              | Yes                     |
+| Phase 1  | —              | Already shipped         |
+| Phase 2  | Phase 0        | Yes (strategy is informational until Phase 3) |
+| Phase 3a | Phase 0        | Yes — works on any STRATEGY-mode job |
+| Phase 3b | Phase 0, 2, 3a | No — needs the primitives + a replay target |
+| Phase 4  | Phase 0        | Yes — pure config layer; orthogonal to 2/3a/3b |
 
-Phase 0 is the unblocker: it removes the random-sampling assumption and lets
-the other phases slot in cleanly. Ship Phase 0 and Phase 2 before tackling
-Phase 3's replay machinery.
+Phase 0 is the unblocker: it removes the random-sampling assumption
+and defines the `PreservationMode` + `SamplingStrategy` types every
+later phase consumes. Ship order in practice: 0 → 2 → 3a → 3b → 4,
+but 4 can slot in anywhere after 0 without blocking others.

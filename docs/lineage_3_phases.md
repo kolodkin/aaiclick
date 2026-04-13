@@ -164,6 +164,51 @@ from Phase 0.
 
 ---
 
+# Phase 4 -- Registered-Job Configuration Defaults
+
+Hoist `preservation_mode` and `sampling_strategy` onto `RegisteredJob` as
+job-definition defaults, following the same pattern `default_kwargs`
+already uses. Each run inherits the job-level config unless explicitly
+overridden at submission time.
+
+## Precedence chain
+
+For both `preservation_mode` and `sampling_strategy`:
+
+```
+1. Explicit run_job(...) / replay_job() argument   ← wins
+2. RegisteredJob.preservation_mode                   ← job-definition baseline
+3. AAICLICK_DEFAULT_PRESERVATION_MODE env var        ← global default
+4. PreservationMode.NONE                             ← hardcoded fallback
+```
+
+Same chain for `sampling_strategy`, with `None` collapsing to the next
+level.
+
+## Use cases
+
+- **`preservation_mode` as job-level config**: mark a dev pipeline
+  "always FULL" or a production pipeline "always NONE" once at
+  registration time. Scheduled runs inherit automatically; manual runs
+  can still override via CLI/API.
+- **`sampling_strategy` as job-level config**: useful for monitoring /
+  QA pipelines that always want to track specific canary rows
+  (`{"p_feed": "is_canary = 1"}`). Most jobs leave this null.
+- **Replay**: `replay_job()` always supplies both params explicitly, so
+  it's a level-1 override and the replayed job is unaffected by
+  whatever the registered job's baseline says.
+
+## Why it's the final phase
+
+Every prior phase added *capability* (strategy typing, LLM agent, row
+trace, replay). Phase 4 is pure configuration polish: it doesn't
+change what the system does, only where its knobs live. Landing it
+last means `RegisteredJob` only needs one migration adding both
+columns (and the `preservationmode` ENUM type already exists from
+Phase 0).
+
+---
+
 # Current State
 
 | Phase    | Status              | Notes                                                          |
@@ -173,6 +218,7 @@ from Phase 0.
 | Phase 2  | ✅ Implemented       | `produce_strategy()` — question + graph → `SamplingStrategy`   |
 | Phase 3a | ✅ Implemented       | `backward_oplog_row()`, `is_input_task()`, `trace_row` agent tool |
 | Phase 3b | Not yet implemented | `replay_job()` + `aaiclick replay` CLI — auto-resubmit with persistent-input reuse |
+| Phase 4  | Not yet implemented | `RegisteredJob.preservation_mode` + `RegisteredJob.sampling_strategy` + precedence chain |
 
 ## Prerequisites for Phase 3
 
@@ -184,11 +230,13 @@ from Phase 0.
 
 Each phase should update the relevant docs as it lands:
 
-| Phase   | Docs to update                                                          |
-|---------|-------------------------------------------------------------------------|
-| Phase 0 | `docs/oplog.md` — remove `AAICLICK_OPLOG_SAMPLE_SIZE`, add strategy interface |
-| Phase 0 | `docs/data_context.md` — document preservation modes (normal/full/strategy) |
-| Phase 1 | Already documented in `docs/oplog.md`                                   |
-| Phase 2 | `docs/ai.md` — add strategy agent to agent tools table                  |
-| Phase 3 | `docs/orchestration.md` — document replay mechanism                     |
-| Phase 3 | `docs/data_context.md` — document input task detection via persistent Objects |
+| Phase    | Docs to update                                                          |
+|----------|-------------------------------------------------------------------------|
+| Phase 0  | `docs/oplog.md` — remove `AAICLICK_OPLOG_SAMPLE_SIZE`, add strategy interface |
+| Phase 0  | `docs/data_context.md` — document preservation modes (none/full/strategy) |
+| Phase 1  | Already documented in `docs/oplog.md`                                   |
+| Phase 2  | `docs/ai.md` — add strategy agent to agent tools table                  |
+| Phase 3a | `docs/oplog.md` — document `backward_oplog_row` + `trace_row` tool       |
+| Phase 3b | `docs/orchestration.md` — document replay mechanism                     |
+| Phase 3b | `docs/data_context.md` — document input task detection via persistent Objects |
+| Phase 4  | `docs/orchestration.md` — document registered-job config precedence     |
