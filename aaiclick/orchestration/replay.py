@@ -35,7 +35,14 @@ from aaiclick.snowflake_id import get_snowflake_id
 from .factories import resolve_job_config
 from .jobs.queries import get_job, get_tasks_for_job
 from .lineage import is_input_task
-from .models import Dependency, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .models import (
+    DEPENDENCY_TASK,
+    Dependency,
+    Job,
+    PreservationMode,
+    RunType,
+    Task,
+)
 from .orch_context import get_sql_session
 
 
@@ -74,20 +81,6 @@ def _is_wiring_task(task: Task, *, dynamic_parent_ids: set[int]) -> bool:
     if task.result is None:
         return True
     return is_upstream_ref(task.result)
-
-
-def _persistent_ref_from_input_task(task: Task) -> Dict[str, Any]:
-    """Extract a persistent Object ref from an input task's stored result.
-
-    The caller has already verified ``is_input_task(task)`` so we know
-    ``task.result`` is a persistent Object ref dict.
-
-    ``get_job_result()`` in ``jobs/queries.py`` injects ``job_id`` on
-    read, so we strip it here — the replayed tasks belong to a new job.
-    """
-    result = dict(task.result)
-    result.pop(JOB_ID, None)
-    return result
 
 
 def _rewrite_value(value: Any, ctx: _RewriteCtx) -> Any:
@@ -183,7 +176,11 @@ async def replay_job(
 
     for task in task_rows:
         if is_input_task(task):
-            input_task_refs[task.id] = _persistent_ref_from_input_task(task)
+            # ``get_job_result`` injects job_id on read; strip it so the
+            # replayed tasks don't carry the original job's id.
+            ref = dict(task.result)
+            ref.pop(JOB_ID, None)
+            input_task_refs[task.id] = ref
         elif _is_wiring_task(task, dynamic_parent_ids=dynamic_parent_ids):
             wiring_targets[task.id] = task.result
         else:
@@ -212,12 +209,9 @@ async def replay_job(
     new_job = Job(
         id=new_job_id,
         name=name or original.name,
-        status=JobStatus.PENDING,
         run_type=RunType.MANUAL,
-        registered_job_id=None,
         preservation_mode=config.preservation_mode,
         sampling_strategy=config.sampling_strategy,
-        created_at=datetime.utcnow(),
     )
 
     cloned_tasks: list[Task] = [
@@ -227,19 +221,12 @@ async def replay_job(
             entrypoint=original_task.entrypoint,
             name=original_task.name,
             kwargs=_rewrite_value(original_task.kwargs or {}, rewrite_ctx),
-            status=TaskStatus.PENDING,
-            created_at=datetime.utcnow(),
             max_retries=original_task.max_retries,
         )
         for original_task in compute_tasks
     ]
 
-    cloned_deps = _clone_dependencies(
-        dep_rows,
-        task_id_map=task_id_map,
-        input_task_ids=set(input_task_refs.keys()),
-        wiring_task_ids=set(wiring_targets.keys()),
-    )
+    cloned_deps = _clone_dependencies(dep_rows, task_id_map=task_id_map)
 
     async with get_sql_session() as session:
         session.add(new_job)
@@ -267,8 +254,8 @@ async def _load_dynamic_parent_ids(session: AsyncSession, job_id: int) -> set[in
         .join(child, child.id == Dependency.next_id)
         .where(
             parent.job_id == job_id,
-            Dependency.previous_type == "task",
-            Dependency.next_type == "task",
+            Dependency.previous_type == DEPENDENCY_TASK,
+            Dependency.next_type == DEPENDENCY_TASK,
             parent.started_at.isnot(None),
             child.created_at >= parent.started_at,
         )
@@ -288,8 +275,8 @@ async def _load_task_dependencies(session, task_ids: list[int]) -> list[Dependen
         return []
     result = await session.execute(
         select(Dependency).where(
-            Dependency.previous_type == "task",
-            Dependency.next_type == "task",
+            Dependency.previous_type == DEPENDENCY_TASK,
+            Dependency.next_type == DEPENDENCY_TASK,
             Dependency.previous_id.in_(task_ids),
             Dependency.next_id.in_(task_ids),
         )
@@ -301,30 +288,21 @@ def _clone_dependencies(
     deps: list[Dependency],
     *,
     task_id_map: Dict[int, int],
-    input_task_ids: set[int],
-    wiring_task_ids: set[int],
 ) -> list[Dependency]:
     """Remap dependency endpoints onto the cloned task graph.
 
-    Edges terminating on (or originating from) an input task are dropped
-    because the input task's output has already been inlined into the
-    child's kwargs via ``_rewrite_value``. Edges touching a wiring task
-    are likewise dropped — the wiring task is skipped and its scheduling
-    effect is captured directly by the rewritten upstream refs.
+    Edges with either endpoint outside ``task_id_map`` are dropped —
+    those endpoints belonged to an input task (whose output is already
+    inlined into child kwargs) or a wiring task (whose scheduling role
+    is captured by the rewritten upstream refs).
     """
-    cloned: list[Dependency] = []
-    skip = input_task_ids | wiring_task_ids
-    for dep in deps:
-        if dep.previous_id in skip or dep.next_id in skip:
-            continue
-        if dep.previous_id not in task_id_map or dep.next_id not in task_id_map:
-            continue
-        cloned.append(
-            Dependency(
-                previous_id=task_id_map[dep.previous_id],
-                previous_type="task",
-                next_id=task_id_map[dep.next_id],
-                next_type="task",
-            )
+    return [
+        Dependency(
+            previous_id=task_id_map[dep.previous_id],
+            previous_type=DEPENDENCY_TASK,
+            next_id=task_id_map[dep.next_id],
+            next_type=DEPENDENCY_TASK,
         )
-    return cloned
+        for dep in deps
+        if dep.previous_id in task_id_map and dep.next_id in task_id_map
+    ]

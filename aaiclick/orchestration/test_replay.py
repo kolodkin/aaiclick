@@ -35,7 +35,6 @@ from aaiclick.orchestration.replay import (
     _RewriteCtx,
     _clone_dependencies,
     _is_wiring_task,
-    _persistent_ref_from_input_task,
     _rewrite_value,
     replay_job,
 )
@@ -88,25 +87,6 @@ def test_is_wiring_task_object_result():
     precedence because replay can reuse it."""
     task_row = _task_row(1, result={"object_type": "object", "table": "t_1"})
     assert _is_wiring_task(task_row, dynamic_parent_ids={1}) is False
-
-
-def test_persistent_ref_strips_job_id():
-    """Input-task refs should drop any embedded job_id from the original run."""
-    task_row = _task_row(
-        1,
-        result={
-            "object_type": "object",
-            "table": "p_foo",
-            "persistent": True,
-            "job_id": 123,
-        },
-    )
-    ref = _persistent_ref_from_input_task(task_row)
-    assert ref == {
-        "object_type": "object",
-        "table": "p_foo",
-        "persistent": True,
-    }
 
 
 def _empty_ctx(
@@ -174,19 +154,15 @@ def test_rewrite_value_preserves_nested_structures():
     }
 
 
-def test_clone_dependencies_drops_edges_touching_skipped():
-    """Any edge endpoint on an input or wiring task is dropped."""
+def test_clone_dependencies_drops_edges_outside_map():
+    """Dependencies with endpoints outside ``task_id_map`` are dropped —
+    those endpoints belonged to skipped (input or wiring) tasks."""
     deps = [
         Dependency(previous_id=1, previous_type="task", next_id=3, next_type="task"),
         Dependency(previous_id=2, previous_type="task", next_id=3, next_type="task"),
         Dependency(previous_id=3, previous_type="task", next_id=4, next_type="task"),
     ]
-    cloned = _clone_dependencies(
-        deps,
-        task_id_map={3: 300, 4: 400},
-        input_task_ids={1, 2},
-        wiring_task_ids=set(),
-    )
+    cloned = _clone_dependencies(deps, task_id_map={3: 300, 4: 400})
     assert len(cloned) == 1
     only = cloned[0]
     assert only.previous_id == 300
