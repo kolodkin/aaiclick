@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from aaiclick.data.models import ColumnInfo
+from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
@@ -38,11 +38,12 @@ def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
 def _print_report(
     profile: RawProfile,
     quality_issues: QualityIssues,
-    genre_data: dict,
     hf_result: HFPublishResult | None,
     raw_md: str,
     clean_md: str,
     genre_md: str,
+    genre_distinct: int,
+    genre_total: int,
 ) -> None:
     """Print the IMDb dataset builder report as markdown."""
     print("\n## IMDb Movie Dataset Builder\n")
@@ -56,12 +57,12 @@ def _print_report(
     print("#### Field Schema\n")
     _print_field_table(IMDB_RAW_COLUMNS)
 
+    print("\n#### Sample (first 5 rows)\n")
+    print(raw_md)
+
     print("\n#### Title Type Breakdown\n")
     for title_type, count in sorted(profile.by_type.items(), key=lambda x: -x[1]):
         print(f"- {title_type}: {_fmt(count)}")
-
-    print("\n#### Sample (first 5 rows)\n")
-    print(raw_md)
 
     # ---- Movie Filter ----
     dropped = profile.total_titles - quality_issues.total_movies
@@ -77,20 +78,14 @@ def _print_report(
     print(f"- Pre-1970 movies: {_fmt(quality_issues.pre_1970)} ({_fmt(quality_issues.pre_1970_pct)}%)")
 
     # ---- Genre Distribution ----
-    print("\n### Genre Distribution\n")
-    print("#### Top genres (by title count)\n")
-    print(genre_md)
+    if genre_distinct > 50:
+        print(f"\n### Genre Distribution (first 50 of {_fmt(genre_distinct)})\n")
+    else:
+        print("\n### Genre Distribution\n")
 
-    if genre_data:
-        pairs = sorted(genre_data.items(), key=lambda x: -x[1])
-        total_genre_rows = sum(c for _, c in pairs)
-        print("\n#### Statistics\n")
-        print(f"- Distinct genres: {_fmt(len(pairs))}")
-        print(f"- Total genre-title rows (after explode): {_fmt(total_genre_rows)}")
-        print("- Top 5:")
-        for genre, count in pairs[:5]:
-            pct = count / total_genre_rows * 100 if total_genre_rows > 0 else 0.0
-            print(f"  - {genre}: {_fmt(count)} ({_fmt(pct)}%)")
+    if genre_md:
+        print(genre_md)
+        print(f"\n- Total genre-title rows: {_fmt(genre_total)}")
 
     # ---- Clean Dataset ----
     print("\n### Clean Dataset\n")
@@ -129,17 +124,22 @@ async def generate_report(
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
-    genre_md = await genre_balance.view(
-        order_by="tconst DESC",
-        limit=15,
-    ).markdown()
-
+    genre_with_pct = genre_balance.rename(
+        {"genre": "Genre", "tconst": "Count"}
+    ).with_columns({
+        "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
+    })
+    genre_md = await genre_with_pct.view(order_by="Count DESC", limit=50).markdown()
     genre_data_raw = await genre_balance.data()
-    genre_data = dict(zip(genre_data_raw["genre"], genre_data_raw["tconst"]))
+    genre_distinct = len(genre_data_raw["genre"])
+    genre_total = sum(genre_data_raw["tconst"])
 
     buf = StringIO()
     with redirect_stdout(buf):
-        _print_report(profile, quality_issues, genre_data, hf_result, raw_md, clean_md, genre_md)
+        _print_report(
+            profile, quality_issues, hf_result, raw_md, clean_md,
+            genre_md, genre_distinct, genre_total,
+        )
     rendered = buf.getvalue()
 
     report_file = os.environ.get("AAICLICK_REPORT_FILE")

@@ -31,11 +31,12 @@ Environment variables:
 
 import asyncio
 import os
+from pathlib import Path
 
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
-from aaiclick.orchestration import job, task
+from aaiclick.orchestration import job, task, tasks_list
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
@@ -243,6 +244,30 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     return HFPublishResult(status="published", rows=len(df), repo=HF_REPO_ID)
 
 
+@task
+async def export_dataset(clean: Object) -> dict[str, str]:
+    """Export the clean dataset to local files.
+
+    Reads IMDB_DATASET_EXPORTS env var as comma-separated formats
+    (e.g. "csv,parquet"). Supported: csv, parquet.
+    """
+    exports_raw = os.environ.get("IMDB_DATASET_EXPORTS", "")
+    formats = [f.strip().lower() for f in exports_raw.split(",") if f.strip()]
+    if not formats:
+        return {}
+
+    Path("tmp").mkdir(exist_ok=True)
+
+    results = {}
+    for fmt in formats:
+        path = f"./tmp/imdb_curated.{fmt}"
+        await clean.export(path)
+        results[fmt] = path
+        print(f"Exported {fmt}: {path}")
+
+    return results
+
+
 # =============================================================================
 # Job Definition
 # =============================================================================
@@ -294,8 +319,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     # Genre distribution (depends on exploded genres)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    # Optional publish to Hugging Face (only scheduled when HF_TOKEN is set)
+    # Optional exports
     hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
+    exports = export_dataset(clean=clean) if os.environ.get("IMDB_DATASET_EXPORTS") else None
 
     # Final report (depends on everything)
     report = generate_report(
@@ -308,6 +334,8 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         hf_result=hf_result,
     )
 
+    if exports:
+        return tasks_list(exports, report)
     return report
 
 

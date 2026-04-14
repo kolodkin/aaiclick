@@ -513,6 +513,64 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
+    async def export_csv(self, path: str) -> str:
+        """Export the object's data to a CSV file.
+
+        Args:
+            path: File path to write the CSV to.
+
+        Returns:
+            The path written to.
+        """
+        import pyarrow as pa
+        import pyarrow.csv as pcsv
+
+        data = await self.data()
+        table = pa.Table.from_pydict(data)
+        pcsv.write_csv(table, path)
+        return path
+
+    async def export_parquet(self, path: str) -> str:
+        """Export the object's data to a Parquet file.
+
+        Args:
+            path: File path to write the Parquet file to.
+
+        Returns:
+            The path written to.
+        """
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        data = await self.data()
+        table = pa.Table.from_pydict(data)
+        pq.write_table(table, path)
+        return path
+
+    async def export(self, path: str) -> str:
+        """Export the object's data, inferring format from file extension.
+
+        Supported extensions: .csv, .parquet
+
+        Args:
+            path: File path to write to.
+
+        Returns:
+            The path written to.
+
+        Raises:
+            ValueError: If the file extension is not supported.
+        """
+        if path.endswith(".csv"):
+            return await self.export_csv(path)
+        elif path.endswith(".parquet"):
+            return await self.export_parquet(path)
+        else:
+            raise ValueError(
+                f"Unsupported export format: {path!r}. "
+                "Use .csv or .parquet extension."
+            )
+
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
         self.checkstale()

@@ -51,6 +51,9 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.concat(*sources)` / `concat(a, b, …)`          | Ingest           | Concatenate sources into a new Object         | [concat()](#concat)                                                  |
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
+| `.export(path)`                                  | Export           | Export to file (format inferred from extension)| [export()](#export)                                                 |
+| `.export_csv(path)`                              | Export           | Export to CSV file                            | [export()](#export)                                                  |
+| `.export_parquet(path)`                          | Export           | Export to Parquet file                        | [export()](#export)                                                  |
 
 # Operator Support
 
@@ -276,6 +279,19 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 ## markdown()
 
 Returns data as a plain-text markdown table (`aai_id` omitted, auto-sized columns). Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
+
+## export()
+
+Export data to a local file. Format is inferred from the file extension, or use the explicit methods directly.
+
+```python
+await obj.export("/tmp/data.csv")       # CSV
+await obj.export("/tmp/data.parquet")   # Parquet
+
+# Explicit methods
+await obj.export_csv("/tmp/data.csv")
+await obj.export_parquet("/tmp/data.parquet")
+```
 
 # Views
 
