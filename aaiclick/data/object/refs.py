@@ -142,6 +142,20 @@ class CallableRef(_FrozenRef):
         return self.model_dump()
 
 
+def _drop_optional_metadata(wire: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip the optional metadata fields shared by ObjectRef / ViewRef.
+
+    ``persistent`` is dropped unless truthy (``False`` and ``None`` are
+    indistinguishable on the wire); ``job_id`` is dropped when ``None``.
+    Mutates and returns ``wire``.
+    """
+    if not wire.get(PERSISTENT):
+        wire.pop(PERSISTENT, None)
+    if wire.get(JOB_ID) is None:
+        wire.pop(JOB_ID, None)
+    return wire
+
+
 class ObjectRef(_FrozenRef):
     """Reference to an aaiclick ``Object`` — a ClickHouse table.
 
@@ -154,14 +168,9 @@ class ObjectRef(_FrozenRef):
     persistent: Optional[bool] = None
     job_id: Optional[int] = None
 
-    @model_serializer
-    def _to_wire(self) -> Dict[str, Any]:
-        wire: Dict[str, Any] = {OBJECT_TYPE: self.object_type, TABLE: self.table}
-        if self.persistent:
-            wire[PERSISTENT] = True
-        if self.job_id is not None:
-            wire[JOB_ID] = self.job_id
-        return wire
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler) -> Dict[str, Any]:
+        return _drop_optional_metadata(handler(self))
 
     def to_dict(self) -> Dict[str, Any]:
         return self.model_dump()
@@ -186,23 +195,9 @@ class ViewRef(_FrozenRef):
     persistent: Optional[bool] = None
     job_id: Optional[int] = None
 
-    @model_serializer
-    def _to_wire(self) -> Dict[str, Any]:
-        wire: Dict[str, Any] = {
-            OBJECT_TYPE: self.object_type,
-            TABLE: self.table,
-            "where": self.where,
-            "limit": self.limit,
-            "offset": self.offset,
-            "order_by": self.order_by,
-            "selected_fields": self.selected_fields,
-            "renamed_columns": self.renamed_columns,
-        }
-        if self.persistent:
-            wire[PERSISTENT] = True
-        if self.job_id is not None:
-            wire[JOB_ID] = self.job_id
-        return wire
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler) -> Dict[str, Any]:
+        return _drop_optional_metadata(handler(self))
 
     def to_dict(self) -> Dict[str, Any]:
         return self.model_dump()
