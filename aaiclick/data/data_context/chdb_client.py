@@ -126,19 +126,29 @@ class ChdbClient:
         """Access the underlying chdb session (for TableWorker)."""
         return self._session
 
-    async def command(self, query: str, settings: Optional[dict] = None) -> object:
+    async def command(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
         Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
-        them as keyword arguments.
+        them as keyword arguments. ``parameters`` are forwarded to chdb's
+        native ``{name:Type}`` placeholder binding.
 
         Any ``url('https://...', 'fmt')`` calls in *query* are transparently
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
         async with _rewrite_external_urls(query) as rewritten:
-            result = self._session.query(_with_settings(rewritten, settings), "TabSeparated")
+            result = self._session.query(
+                _with_settings(rewritten, settings),
+                "TabSeparated",
+                params=parameters,
+            )
             raw = result.bytes()
             if raw:
                 text = raw.decode("utf-8").strip()
@@ -149,20 +159,30 @@ class ChdbClient:
                         return text
             return None
 
-    async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
+    async def query(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 
         Matches AsyncClient.query() — returns object with result_rows attribute.
         Uses ArrowTable format for efficient, typed data from chdb.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
-        them as keyword arguments.
+        them as keyword arguments. ``parameters`` are forwarded to chdb's
+        native ``{name:Type}`` placeholder binding.
 
         Any ``url('https://...', 'fmt')`` calls in *query* are transparently
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
         async with _rewrite_external_urls(query) as rewritten:
-            table = self._session.query(_with_settings(rewritten, settings), "Arrowtable")
+            table = self._session.query(
+                _with_settings(rewritten, settings),
+                "Arrowtable",
+                params=parameters,
+            )
             if table is None or table.num_rows == 0:
                 return ChdbQueryResult()
 

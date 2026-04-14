@@ -107,6 +107,54 @@ async def test_strategy_matches_multi_source_op(orch_ctx):
     await ch.command(f"DROP TABLE IF EXISTS {right_table}")
 
 
+async def test_inherited_driver_uses_parameter_binding(orch_ctx):
+    """Large inherited match sets travel as a typed Array(UInt64) parameter,
+    not as an inlined SQL literal, so they bypass ``max_query_size`` and
+    don't need the hand-rolled escaping fallback."""
+    strategy_job_id = 1234
+
+    async with task_scope(
+        task_id=1,
+        job_id=strategy_job_id,
+        run_id=100,
+        sampling_strategy={"p_big_prices": "value >= 0"},
+    ):
+        # 100 matched rows through multiply + add — enough to exercise the
+        # propagation path without being slow in tests. The real-world
+        # motivation was unbounded match sets (millions of rows); parameter
+        # binding lifts the ceiling entirely, this just proves the wiring
+        # exercises the typed path.
+        values = list(range(100))
+        prices = await create_object_from_value(
+            [float(v) for v in values], name="big_prices"
+        )
+        quantities = await create_object_from_value(
+            [2.0] * 100, name="big_quantities"
+        )
+        mul = await (prices * quantities)
+        bonus = await create_object_from_value([1.0] * 100, name="big_bonus")
+        add = await (mul + bonus)
+        add_table = add.table
+
+    ch = await create_ch_client()
+    try:
+        rows = (
+            await ch.query(
+                f"SELECT length(kwargs_aai_ids['left']), length(result_aai_ids) "
+                f"FROM operation_log "
+                f"WHERE job_id = {strategy_job_id} AND result_table = '{add_table}'"
+            )
+        ).result_rows
+        assert rows, "add op should have an oplog row"
+        left_len, result_len = rows[0]
+        assert left_len == 100
+        assert result_len == 100
+    finally:
+        await ch.command("DROP TABLE IF EXISTS p_big_prices")
+        await ch.command("DROP TABLE IF EXISTS p_big_quantities")
+        await ch.command("DROP TABLE IF EXISTS p_big_bonus")
+
+
 async def test_strategy_propagates_through_multi_op_pipeline(orch_ctx):
     """A strategy on the first op's input propagates forward: the second op,
     whose kwargs don't mention any strategy key, still populates arrays

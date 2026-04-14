@@ -13,8 +13,7 @@ Everything is best-effort: a failed lookup logs and returns empty arrays.
 from __future__ import annotations
 
 import logging
-
-from aaiclick.data.sql_utils import escape_sql_string
+from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,20 @@ Values are inlined into ``SELECT aai_id FROM <table> WHERE <clause>`` and
 evaluated by ClickHouse. Keys reference fully-qualified table names as they
 appear in the oplog (``kwargs`` values and ``result_table``).
 """
+
+
+class _Driver(NamedTuple):
+    """A resolved sampling driver: which source table limits which rows.
+
+    ``clause`` is a raw SQL WHERE clause evaluated against ``table``.
+    ``parameters`` carries the ``{name:Type}`` placeholder bindings
+    referenced by the clause; empty when the driver is a plain user-supplied
+    WHERE (the common explicit case).
+    """
+
+    table: str
+    clause: str
+    parameters: dict[str, Any]
 
 
 async def apply_strategy(
@@ -58,19 +71,6 @@ async def apply_strategy(
     Sources and results align positionally via
     ``row_number() OVER (ORDER BY aai_id)`` so that the i-th source row
     maps to the i-th result row.
-
-    Args:
-        ch_client: Async ClickHouse client.
-        result_table: Table the operation wrote to.
-        kwargs: ``{role: source_table}`` map from the oplog payload.
-        strategy: Active sampling strategy.
-        job_id: Job running this operation. Required for inherited
-            propagation — without it, we only honor explicit matches.
-
-    Returns:
-        ``(kwargs_aai_ids, result_aai_ids)`` — ``kwargs_aai_ids`` is keyed
-        by the same roles as ``kwargs``. Empty arrays mean "nothing to
-        track at this step".
     """
     if not strategy:
         return {}, []
@@ -86,11 +86,9 @@ async def apply_strategy(
 
     try:
         if not sources:
-            rows = await _select_ids(ch_client, result_table, driver[1])
+            rows = await _select_ids(ch_client, result_table, driver)
             return {}, rows
-        return await _apply_positional(
-            ch_client, result_table, sources, driver,
-        )
+        return await _apply_positional(ch_client, result_table, sources, driver)
     except Exception:
         logger.error("Failed to apply strategy for %s", result_table, exc_info=True)
         return {}, []
@@ -100,8 +98,8 @@ def _pick_driver(
     result_table: str,
     sources: list[tuple[str, str]],
     strategy: SamplingStrategy,
-) -> tuple[str, str] | None:
-    """Return ``(table, clause)`` for the first matched table.
+) -> _Driver | None:
+    """Return a driver for the first strategy-matched table.
 
     Source-side matches win — source targeting is the common case
     ("these are the rows I care about at the input"). Insertion order in
@@ -111,45 +109,41 @@ def _pick_driver(
     for _, src_table in sources:
         clause = strategy.get(src_table)
         if clause:
-            return src_table, clause
+            return _Driver(table=src_table, clause=clause, parameters={})
     result_clause = strategy.get(result_table)
     if result_clause:
-        return result_table, result_clause
+        return _Driver(table=result_table, clause=result_clause, parameters={})
     return None
-
-
-MAX_INHERITED_DRIVER_IDS = 10_000
-"""Upper bound on how many inherited aai_ids the fallback driver inlines
-into an ``aai_id IN (...)`` clause. Past this point the SQL string
-grows multi-MB and risks ``max_query_size`` on ClickHouse, so we
-truncate to the most recent ids and let the sampler propagate a
-representative slice forward. A full fix — parameter binding so the
-ids travel as a typed ``Array(UInt64)`` — is tracked separately."""
 
 
 async def _pick_inherited_driver(
     ch_client: object,
     sources: list[tuple[str, str]],
     job_id: int,
-) -> tuple[str, str] | None:
+) -> _Driver | None:
     """Look for a source table whose earlier oplog row in ``job_id`` has a
-    populated ``result_aai_ids`` array, and return an ``aai_id IN (...)``
-    clause targeting those ids.
+    populated ``result_aai_ids`` array, and return a driver whose clause
+    binds those ids as a typed ``Array(UInt64)`` parameter.
 
     The first source that produced matched rows upstream wins, mirroring
     ``_pick_driver``'s source-first ordering. Returns ``None`` when no
     source has upstream matches — the caller then falls through to empty
     arrays, leaving this op untracked.
+
+    Parameter binding (both backends support ``{name:Type}`` natively)
+    means the id set travels as typed binary data, not as an inlined
+    SQL literal, so there is no ``max_query_size`` concern regardless
+    of how many rows the strategy matched upstream.
     """
     for _, src_table in sources:
-        table_escaped = escape_sql_string(src_table)
         try:
             rows = await ch_client.query(
-                f"SELECT result_aai_ids FROM operation_log "
-                f"WHERE job_id = {job_id} "
-                f"  AND result_table = '{table_escaped}' "
-                f"  AND length(result_aai_ids) > 0 "
-                f"ORDER BY created_at DESC LIMIT 1"
+                "SELECT result_aai_ids FROM operation_log "
+                "WHERE job_id = {job_id:UInt64} "
+                "  AND result_table = {src_table:String} "
+                "  AND length(result_aai_ids) > 0 "
+                "ORDER BY created_at DESC LIMIT 1",
+                parameters={"job_id": job_id, "src_table": src_table},
             )
         except Exception:
             logger.error(
@@ -162,14 +156,11 @@ async def _pick_inherited_driver(
         inherited_ids = list(rows.result_rows[0][0])
         if not inherited_ids:
             continue
-        if len(inherited_ids) > MAX_INHERITED_DRIVER_IDS:
-            logger.warning(
-                "inherited driver for %s truncated from %d to %d ids",
-                src_table, len(inherited_ids), MAX_INHERITED_DRIVER_IDS,
-            )
-            inherited_ids = inherited_ids[:MAX_INHERITED_DRIVER_IDS]
-        ids_str = ", ".join(str(i) for i in inherited_ids)
-        return src_table, f"aai_id IN ({ids_str})"
+        return _Driver(
+            table=src_table,
+            clause="aai_id IN {inherited_ids:Array(UInt64)}",
+            parameters={"inherited_ids": inherited_ids},
+        )
     return None
 
 
@@ -177,7 +168,7 @@ async def _apply_positional(
     ch_client: object,
     result_table: str,
     sources: list[tuple[str, str]],
-    driver: tuple[str, str],
+    driver: _Driver,
 ) -> tuple[dict[str, list[int]], list[int]]:
     """Positional join across all sources and the result table.
 
@@ -188,10 +179,9 @@ async def _apply_positional(
         INNER JOIN (row-numbered result) r ON r.rn = s0.rn
         WHERE <driver_alias>.aai_id IN (SELECT aai_id FROM <driver> WHERE <clause>)
 
-    Handles 1..N sources uniformly.
+    Handles 1..N sources uniformly. The driver's clause may reference
+    ``{name:Type}`` placeholders bound via ``driver.parameters``.
     """
-    driver_table, driver_clause = driver
-
     parts: list[str] = []
     selects: list[str] = []
     driver_alias: str | None = None
@@ -203,7 +193,7 @@ async def _apply_positional(
             f"FROM {src_table}) {alias}"
         )
         parts.append(subquery if i == 0 else f"INNER JOIN {subquery} ON {alias}.rn = s0.rn")
-        if src_table == driver_table and driver_alias is None:
+        if src_table == driver.table and driver_alias is None:
             driver_alias = alias
 
     selects.append("r.aai_id")
@@ -211,15 +201,15 @@ async def _apply_positional(
         f"INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
         f"FROM {result_table}) r ON r.rn = s0.rn"
     )
-    if driver_table == result_table:
+    if driver.table == result_table:
         driver_alias = "r"
 
     sql = (
         f"SELECT {', '.join(selects)} FROM " + " ".join(parts) +
         f" WHERE {driver_alias}.aai_id IN ("
-        f"SELECT aai_id FROM {driver_table} WHERE {driver_clause})"
+        f"SELECT aai_id FROM {driver.table} WHERE {driver.clause})"
     )
-    rows = await ch_client.query(sql)
+    rows = await ch_client.query(sql, parameters=driver.parameters or None)
 
     kwargs_aai_ids: dict[str, list[int]] = {role: [] for role, _ in sources}
     result_ids: list[int] = []
@@ -230,9 +220,10 @@ async def _apply_positional(
     return kwargs_aai_ids, result_ids
 
 
-async def _select_ids(ch_client: object, table: str, clause: str) -> list[int]:
-    """Return all ``aai_id``s from ``table`` that match ``clause``."""
+async def _select_ids(ch_client: object, table: str, driver: _Driver) -> list[int]:
+    """Return all ``aai_id``s from ``table`` that match ``driver.clause``."""
     rows = await ch_client.query(
-        f"SELECT aai_id FROM {table} WHERE {clause}"
+        f"SELECT aai_id FROM {table} WHERE {driver.clause}",
+        parameters=driver.parameters or None,
     )
     return [row[0] for row in rows.result_rows]
