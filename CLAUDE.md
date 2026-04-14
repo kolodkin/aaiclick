@@ -78,6 +78,36 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 - **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/object/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file. When a domain helper is tightly coupled to an operator (e.g., `with_isin` ↔ `isin`), tests go in the operator's test file (`test_isin.py`), not `test_domain_helpers.py`.
 
+- **No tests for Python defaults or plain assignment**: Do NOT write tests whose only purpose is to verify that Python's `__init__`, dataclass/NamedTuple/Pydantic defaults, or decorator argument passthrough works. Python is already tested — trust it.
+  - **Skip**: constructing an object and asserting constructor-assigned fields equal the inputs
+  - **Skip**: asserting default values of dataclass / Pydantic / NamedTuple fields (`assert obj.x is None`, `assert obj.retries == 0`)
+  - **Skip**: decorator tests that only check `@task(name="x")` stores `name == "x"` on the resulting object
+  - **Skip**: trivial factory passthrough tests (`factory(a, b)` → assert fields match `a`, `b`)
+  - **Write tests for real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing, etc.
+  ```python
+  # BAD — only checks Python assignment works
+  def test_task_default_max_retries():
+      t = create_task("mod.fn")
+      assert t.max_retries == 0
+      assert t.attempt == 0
+
+  # BAD — only checks decorator stores its argument
+  def test_task_decorator_with_name():
+      @task(name="custom")
+      async def f(): pass
+      assert f().name == "custom"
+
+  # GOOD — tests real validation behavior
+  def test_strategy_mode_requires_strategy():
+      with pytest.raises(ValueError, match="requires a non-empty sampling_strategy"):
+          resolve_job_config(PreservationMode.STRATEGY, None, None)
+
+  # GOOD — tests branching logic
+  def test_data_list_single_vs_multiple():
+      assert data_list("only").data == "only"
+      assert data_list("a", "b").data == ["a", "b"]
+  ```
+
 
 # Code Quality
 
