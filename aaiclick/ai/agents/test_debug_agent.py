@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aaiclick.conftest import make_oplog_node
-from aaiclick.oplog.lineage import OplogGraph
+from aaiclick.oplog.lineage import OplogGraph, OplogNode
 from aaiclick.ai.agents.debug_agent import debug_result
 
 
@@ -102,6 +102,58 @@ async def test_debug_result_dispatches_correct_tool():
         await debug_result("result", "What is the schema?")
 
     mock_dispatch.assert_called_once_with("get_schema", {"table": "result"})
+
+
+async def test_debug_result_replays_when_strategy_is_non_empty():
+    """Non-empty strategy → replay_and_trace runs and its output lands in context."""
+    target_node = OplogNode(
+        table="result",
+        operation="add",
+        kwargs={},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
+        sql_template=None,
+        task_id=42,
+        job_id=99,
+    )
+    graph = _mock_graph(target_node)
+    strategy = {"result": "value < 0"}
+    provider = _mock_provider(_stop_response("done"))
+    replay_trace = AsyncMock(return_value="result.aai_id=7  <- add(left=1, right=2)")
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value=strategy)),
+        patch("aaiclick.ai.agents.debug_agent._replay_and_trace", new=replay_trace),
+    ):
+        await debug_result("result", "Why negative?")
+
+    replay_trace.assert_awaited_once_with("result", graph, strategy)
+    user_msg = provider.complete.call_args[0][0][1]["content"]
+    assert "Row-level lineage (from strategy replay)" in user_msg
+    assert "result.aai_id=7" in user_msg
+
+
+async def test_debug_result_skips_replay_when_strategy_is_empty():
+    """Empty strategy → replay_and_trace is never called."""
+    graph = _mock_graph(make_oplog_node("result", "add"))
+    provider = _mock_provider(_stop_response("done"))
+    replay_trace = AsyncMock(return_value="should not be used")
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
+        patch("aaiclick.ai.agents.debug_agent._replay_and_trace", new=replay_trace),
+    ):
+        await debug_result("result", "Why?")
+
+    replay_trace.assert_not_awaited()
+    user_msg = provider.complete.call_args[0][0][1]["content"]
+    assert "Row-level lineage" not in user_msg
 
 
 async def test_debug_result_context_includes_schemas():
