@@ -39,7 +39,7 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_
 from ..snowflake_id import get_snowflake_id
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
-from .factories import _callable_to_string
+from .factories import _callable_to_string, resolve_job_config
 from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
 
 
@@ -239,12 +239,19 @@ class JobFactory:
         # Serialize kwargs for the entry point task
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
 
+        # Route through resolve_job_config so the @job decorator path honors
+        # the AAICLICK_DEFAULT_PRESERVATION_MODE env var (and any future
+        # registered-job defaults) instead of silently defaulting to NONE.
+        config = resolve_job_config(None, None, registered=None)
+
         job = Job(
             id=get_snowflake_id(),
             name=self.name,
             status=JobStatus.PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
+            preservation_mode=config.preservation_mode,
+            sampling_strategy=config.sampling_strategy,
             created_at=datetime.utcnow(),
         )
 
