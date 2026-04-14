@@ -42,3 +42,4 @@ from .jobs import (
     print_job_stats,
 )
 from .models import JobStatus, PreservationMode, TaskStatus
+from .replay import replay_job

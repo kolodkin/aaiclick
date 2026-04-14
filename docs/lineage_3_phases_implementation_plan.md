@@ -211,13 +211,21 @@ machinery.
 
 ---
 
-# Phase 3b — Task-Graph Replay
+# Phase 3b — Task-Graph Replay ✅ IMPLEMENTED
 
-**Not yet implemented.** Complex enough to warrant its own PR.
+**Implementation**:
+- `aaiclick/orchestration/replay.py` — see `replay_job()`
+- `aaiclick/orchestration/cli.py` — see `replay_job_cmd()`
+- `aaiclick/orchestration/test_replay.py` — unit + DB + end-to-end coverage
 
 **Objective**: Re-execute the job that produced a target table with a
 `SamplingStrategy` attached, without re-running input tasks (whose
 outputs are already persistent).
+
+Phase 3b adds no schema — a replayed job is just another STRATEGY-mode
+run of the same pipeline. The replayed Job inherits the original's
+`name` so it's indistinguishable except by snowflake id; pass
+`name=...` to override.
 
 ## Tasks
 
@@ -232,25 +240,23 @@ outputs are already persistent).
      `{"object_type": "object", "table": "p_xxx", "persistent": true}`
    - Clones dependencies with remapped ids, dropping any edge that
      terminated on an input task
-   - Submits as a new Job with `preservation_mode=STRATEGY`,
-     `sampling_strategy=...`, and `replay_of=original_job_id`
+   - Submits as a new Job with `preservation_mode=STRATEGY` and
+     `sampling_strategy=...`
 
-2. **Alembic migration** — `jobs.replay_of` nullable FK to `jobs.id`.
-
-3. **CLI** — `aaiclick replay <job_id> --sampling-strategy <json>` in
+2. **CLI** — `aaiclick replay <job_id> --sampling-strategy <json>` in
    `aaiclick/orchestration/cli.py`. Thin wrapper over `replay_job()`.
 
-4. **`debug_agent` end-to-end flow** — question → `produce_strategy()`
+3. **`debug_agent` end-to-end flow** — question → `produce_strategy()`
    → `replay_job()` → `backward_oplog_row()` → explanation with row-level
    evidence. Today, debug_result already invokes the first two steps
    inline and surfaces `trace_row` as a tool; replay is the missing
    middle link that makes the trace populated on the first call.
 
-5. **Tests** — `aaiclick/orchestration/test_replay.py`:
+4. **Tests** — `aaiclick/orchestration/test_replay.py`:
    - 3-task job (2 inputs + 1 compute) replayed with a strategy, assert
      new job's `kwargs_aai_ids` matches the strategy
    - Assert persistent input tables are untouched
-   - Assert `jobs.replay_of` points at the original
+   - Assert the replayed job inherits the original's `name`
    - End-to-end test in `test_debug_agent.py` with mocked provider
 
 ## Workaround until 3b ships

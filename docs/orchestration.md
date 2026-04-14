@@ -157,6 +157,32 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 `run_job(name, entrypoint, kwargs, preservation_mode, sampling_strategy)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves preservation config via the precedence chain above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task. See [DataContext — Preservation Modes](data_context.md#preservation-modes) for the three modes' semantics.
 
+## Replay
+
+**Implementation**: `aaiclick/orchestration/replay.py` — see `replay_job()`
+
+`replay_job(original_job_id, sampling_strategy, name=None)` clones a completed job's task graph and re-runs it under `PreservationMode.STRATEGY` so the oplog records full row-level lineage for the strategy-matched rows.
+
+**How it works**:
+
+1. Load the original job's `Task` and `Dependency` rows from SQL.
+2. Classify each task using `is_input_task()` (`aaiclick/orchestration/lineage.py`):
+    - **Input tasks** — result is a persistent Object (`p_*` table). Skipped; the persistent table is reused in place.
+    - **Wiring tasks** — result is `None` or an upstream ref, AND the task spawned children at runtime. Skipped; the task only routed children at runtime and contributes no data.
+    - **Compute tasks** — everything else. Cloned with a fresh snowflake ID.
+3. Rewrite each cloned task's kwargs: every upstream ref pointing at an input task is replaced by an inlined persistent Object ref; refs pointing at other compute tasks are remapped to the cloned IDs.
+4. Clone the dependency graph, dropping any edge whose endpoints touch an input or wiring task.
+5. Insert the new `Job` along with the cloned tasks and dependencies — it's just another STRATEGY-mode run of the same pipeline, inheriting the original's `name` and distinguished from it only by its fresh snowflake id.
+
+The replayed job is independent of the original's registered-job baseline — replay always supplies `preservation_mode` and `sampling_strategy` explicitly, so registered defaults never leak in.
+
+```bash
+python -m aaiclick replay <original_job_id> --sampling-strategy '{"p_kev_catalog": "cve_id = '\''CVE-2024-001'\''"}' [--name my_replay]
+```
+
+!!! warning "Replay requires reusable inputs"
+    The persistent input tables must still exist in ClickHouse — replay does not refetch them. Jobs whose inputs have been purged (`data delete`) cannot be replayed.
+
 ## Cron Scheduling
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
@@ -200,6 +226,7 @@ python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
 python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL|STRATEGY] [--sampling-strategy '{"p_foo": "x = 1"}']
 python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL|STRATEGY] [--sampling-strategy '{"p_foo": "x = 1"}']
+python -m aaiclick replay <job_id> --sampling-strategy '{"p_foo": "x = 1"}' [--name NAME]
 python -m aaiclick registered-job list        # List registered jobs
 ```
 

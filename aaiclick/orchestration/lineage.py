@@ -10,6 +10,8 @@ terminal task.
 
 from __future__ import annotations
 
+from aaiclick.data.object.refs import TABLE, is_persistent_object_ref
+
 from .models import Task
 
 
@@ -20,20 +22,16 @@ def is_input_task(task: Task) -> bool:
     returns it. Its output survives job cleanup, so a replay can reuse
     it in place instead of re-running the fetch.
 
-    Detection relies on the serialized result shape produced by
-    ``serialize_task_result()`` — a persistent Object ref is stored as::
-
-        {"object_type": "object", "table": "p_...", "persistent": true, ...}
+    Detection delegates to ``is_persistent_object_ref`` (the reference
+    schema lives in ``aaiclick.data.object.refs``) and adds the ``p_``
+    table-name guard that distinguishes aaiclick-managed persistent
+    tables from anything else.
 
     Tasks that haven't run yet (``result is None``) are not input tasks.
     Tasks whose result is a non-Object value (int, dict, pydantic model)
     are not input tasks either — only persistent data objects qualify.
     """
-    if task.result is None or not isinstance(task.result, dict):
-        return False
     return (
-        task.result.get("object_type") == "object"
-        and task.result.get("persistent") is True
-        and isinstance(task.result.get("table"), str)
-        and task.result["table"].startswith("p_")
+        is_persistent_object_ref(task.result)
+        and task.result[TABLE].startswith("p_")
     )

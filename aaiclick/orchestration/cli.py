@@ -25,6 +25,21 @@ from .registered_jobs import (
     register_job,
     run_job,
 )
+from .replay import replay_job
+
+
+def _parse_sampling_strategy(json_str: Optional[str]) -> Optional[Dict[str, str]]:
+    """Decode a ``--sampling-strategy`` CLI flag into a dict.
+
+    Returns ``None`` when the flag was omitted; raises with a clear
+    message when the JSON is well-formed but not a dict.
+    """
+    if not json_str:
+        return None
+    strategy = json.loads(json_str)
+    if not isinstance(strategy, dict):
+        raise ValueError("--sampling-strategy must decode to a JSON object")
+    return strategy
 
 
 async def show_workers() -> None:
@@ -237,11 +252,7 @@ async def register_job_cmd(
     if preservation_mode is not None:
         mode = PreservationMode(preservation_mode.upper())
 
-    strategy: Optional[Dict[str, str]] = None
-    if sampling_strategy_json:
-        strategy = json.loads(sampling_strategy_json)
-        if not isinstance(strategy, dict):
-            raise ValueError("--sampling-strategy must decode to a JSON object")
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
 
     async with orch_context(with_ch=False):
         job = await register_job(
@@ -279,11 +290,7 @@ async def run_job_cmd(
     if preservation_mode is not None:
         mode = PreservationMode(preservation_mode.upper())
 
-    strategy: Optional[Dict[str, str]] = None
-    if sampling_strategy_json:
-        strategy = json.loads(sampling_strategy_json)
-        if not isinstance(strategy, dict):
-            raise ValueError("--sampling-strategy must decode to a JSON object")
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
 
     # If it looks like a dotted path, use as entrypoint; otherwise treat as name
     if "." in name_or_entrypoint:
@@ -302,6 +309,37 @@ async def run_job_cmd(
             sampling_strategy=strategy,
         )
     print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
+
+
+async def replay_job_cmd(
+    job_ref: str,
+    *,
+    sampling_strategy_json: str,
+    name: Optional[str] = None,
+) -> None:
+    """Replay a completed job with a sampling strategy.
+
+    Clones the original job's task graph, skips input tasks (reusing
+    their persistent outputs in place), and submits the clone as a
+    new job running under ``PreservationMode.STRATEGY``.
+    """
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
+    if strategy is None:
+        raise ValueError("--sampling-strategy is required for replay")
+
+    async with orch_context(with_ch=False):
+        job = await resolve_job(job_ref)
+        if job is None:
+            print(f"Job not found: {job_ref}")
+            return
+        replayed = await replay_job(
+            job.id,
+            sampling_strategy=strategy,
+            name=name,
+        )
+    print(
+        f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})"
+    )
 
 
 async def enable_job_cmd(name: str) -> None:

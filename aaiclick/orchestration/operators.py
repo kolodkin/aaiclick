@@ -37,6 +37,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import TaskFactory, task
@@ -111,13 +112,12 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
     for i in range(n_partitions):
         child = _map_part(
             cbk=cbk,
-            part={
-                "object_type": "view",
-                "table": table_name,
-                "limit": partition,
-                "offset": i * partition,
-                "order_by": "aai_id",
-            },
+            part=ViewRef(
+                table=table_name,
+                limit=partition,
+                offset=i * partition,
+                order_by="aai_id",
+            ).to_dict(),
             out=out,
             cbk_args=cbk_args,
             cbk_kwargs=cbk_kwargs,
@@ -229,13 +229,12 @@ def _build_layer_group(
     for i in range(M):
         part_task = _reduce_part(
             cbk=cbk,
-            part={
-                "object_type": "view",
-                "table": src.table,
-                "limit": partition,
-                "offset": i * partition,
-                "order_by": "aai_id",
-            },
+            part=ViewRef(
+                table=src.table,
+                limit=partition,
+                offset=i * partition,
+                order_by="aai_id",
+            ).to_dict(),
             layer_obj=layer_obj,
             cbk_args=cbk_args,
             cbk_kwargs=cbk_kwargs,

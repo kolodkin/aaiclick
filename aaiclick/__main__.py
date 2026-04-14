@@ -369,6 +369,23 @@ def main():
         help="Sampling strategy as JSON object (required when preservation_mode=STRATEGY)",
     )
 
+    # Add replay subcommand
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Replay a completed job with a sampling strategy",
+    )
+    replay_parser.add_argument("job_id", type=str, help="Original job ID to replay")
+    replay_parser.add_argument(
+        "--sampling-strategy",
+        required=True,
+        help="Sampling strategy as JSON object (required)",
+    )
+    replay_parser.add_argument(
+        "--name",
+        default=None,
+        help="Override name for the replayed job (default: inherit the original's name)",
+    )
+
     # Add registered-job subcommand
     registered_job_parser = subparsers.add_parser(
         "registered-job",
@@ -545,6 +562,15 @@ def main():
             kwargs_json=args.kwargs,
             preservation_mode=args.preservation_mode,
             sampling_strategy_json=args.sampling_strategy,
+        ))
+
+    elif args.command == "replay":
+        from aaiclick.orchestration.cli import replay_job_cmd
+
+        asyncio.run(replay_job_cmd(
+            args.job_id,
+            sampling_strategy_json=args.sampling_strategy,
+            name=args.name,
         ))
 
     elif args.command == "registered-job":
