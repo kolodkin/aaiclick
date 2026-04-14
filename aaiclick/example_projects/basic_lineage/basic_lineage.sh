@@ -15,8 +15,4 @@ PYTHON="${PYTHON:-uv run python}"
 
 export AAICLICK_AI_MODEL="${AAICLICK_AI_MODEL:-ollama/llama3.2:3b}"
 
-# FULL preservation keeps every intermediate table alive until the job's TTL,
-# so debug_result's replay-and-trace has real row-level lineage to walk.
-export AAICLICK_DEFAULT_PRESERVATION_MODE="${AAICLICK_DEFAULT_PRESERVATION_MODE:-FULL}"
-
 $PYTHON -m basic_lineage
