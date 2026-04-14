@@ -7,6 +7,7 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+import os
 from contextvars import ContextVar
 from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
@@ -41,10 +42,21 @@ class ChClient(Protocol):
 
 _ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)
 
+# Module-level fallback for debugger sessions where ContextVars are
+# invisible (each debug console `await` gets a fresh Context copy).
+_debug_ch_client: ChClient | None = None
+
 
 def get_ch_client() -> ChClient:
     """Return the ClickHouse client for the active data context."""
     client = _ch_client_var.get()
+    if client is None and os.environ.get("AAICLICK_DEBUGGER"):
+        global _debug_ch_client
+        if _debug_ch_client is None and is_chdb():
+            from .chdb_client import create_chdb_client
+
+            _debug_ch_client = create_chdb_client()
+        client = _debug_ch_client
     if client is None:
         raise RuntimeError(
             "No active data or orch context — "
