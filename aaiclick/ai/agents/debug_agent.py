@@ -11,8 +11,8 @@ from typing import Any
 
 from sqlmodel import select
 
-from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
+from aaiclick.oplog.lineage_forest import build_and_render
 from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.orchestration.execution.runner import run_job_tasks
 from aaiclick.orchestration.models import Task
@@ -23,7 +23,6 @@ from aaiclick.ai.agents.tools import (
     TOOL_DEFINITIONS,
     dispatch_tool,
     get_schemas_for_nodes,
-    trace_row,
 )
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
@@ -74,10 +73,18 @@ async def debug_result(
         strategy = {}
     context += format_strategy(strategy)
 
-    if strategy:
-        row_trace = await _replay_and_trace(target_table, graph, strategy)
-        if row_trace:
-            context += f"\n\nRow-level lineage (from strategy replay):\n{row_trace}"
+    # Row-level lineage forest: the hard part (deciding which rows to
+    # track) has already been done by the strategy. We walk the oplog
+    # for every row the strategy matched, collapse the paths by shape,
+    # and inject the rendered forest as pre-computed context. Works
+    # directly against the target when the original job was STRATEGY
+    # mode; falls back to a STRATEGY replay of the original job when
+    # it was NONE or FULL.
+    forest_text = await _try_build_forest(target_table, graph)
+    if not forest_text and strategy:
+        forest_text = await _replay_and_build_forest(target_table, graph, strategy)
+    if forest_text:
+        context += "\n\n" + forest_text
 
     provider = get_ai_provider()
     prompt = f"Target table: `{target_table}`\n\nQuestion: {question}"
@@ -128,17 +135,38 @@ async def debug_result(
     return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
 
 
-async def _replay_and_trace(
+async def _try_build_forest(
+    target_table: str,
+    graph: OplogGraph,
+) -> str:
+    """Build a route-collapsed lineage forest from the target's existing oplog.
+
+    Returns the rendered markdown block when the target's job has
+    populated ``kwargs_aai_ids`` / ``result_aai_ids`` (i.e. ran under
+    ``PreservationMode.STRATEGY``). Returns an empty string when the
+    arrays are empty — the caller can then fall through to a replay.
+    """
+    target_node = next((n for n in graph.nodes if n.table == target_table), None)
+    job_id = target_node.job_id if target_node is not None else None
+    try:
+        return await build_and_render(target_table, job_id=job_id)
+    except Exception as exc:
+        logger.warning("forest build skipped: %s", exc)
+        return ""
+
+
+async def _replay_and_build_forest(
     target_table: str,
     graph: OplogGraph,
     strategy: SamplingStrategy,
 ) -> str:
-    """Replay the job that produced ``target_table`` under ``strategy`` and
-    trace one matched row backward through the replayed oplog.
+    """Replay the target's job under ``strategy`` and render a forest
+    from the replayed oplog.
 
-    Returns an empty string on any failure — the rest of ``debug_result``
-    keeps working with just the graph + strategy context, matching the
-    same degrade-gracefully posture used for ``produce_strategy``.
+    Used when the original job ran in ``NONE`` / ``FULL`` mode so the
+    lineage arrays are empty. The replay re-executes the compute tasks
+    against the persistent inputs in-process, populating the arrays
+    for the strategy-matched rows only.
     """
     target_node = next((n for n in graph.nodes if n.table == target_table), None)
     if target_node is None or target_node.job_id is None:
@@ -154,11 +182,11 @@ async def _replay_and_trace(
     if new_target is None:
         return ""
 
-    ch_client = get_ch_client()
-    rows = await ch_client.query(f"SELECT aai_id FROM {new_target} LIMIT 1")
-    if not rows.result_rows:
+    try:
+        return await build_and_render(new_target, job_id=replayed.id)
+    except Exception as exc:
+        logger.warning("forest build from replay skipped: %s", exc)
         return ""
-    return await trace_row(new_target, rows.result_rows[0][0])
 
 
 async def _find_replay_target_table(

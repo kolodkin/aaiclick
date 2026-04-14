@@ -31,19 +31,39 @@ async def apply_strategy(
     result_table: str,
     kwargs: dict[str, str],
     strategy: SamplingStrategy,
+    *,
+    job_id: int | None = None,
 ) -> tuple[dict[str, list[int]], list[int]]:
     """Look up the aai_ids that match ``strategy`` for one operation.
 
-    Returns ``(kwargs_aai_ids, result_aai_ids)`` — both empty when the
-    strategy does not touch this operation's tables. Sources and results
-    are aligned positionally via ``row_number() OVER (ORDER BY aai_id)``
-    so that the i-th source row maps to the i-th result row.
+    Returns ``(kwargs_aai_ids, result_aai_ids)`` — both empty when
+    neither the explicit strategy nor any inherited match from an
+    upstream op touches this operation.
+
+    Matching runs in two stages:
+
+    1. **Explicit** — a strategy key equal to one of this op's source
+       tables (or the result table) drives the sampling via a WHERE
+       clause. This is the Phase 0 behavior.
+    2. **Inherited** — when no explicit key matches, we check the
+       oplog for prior rows in the same ``job_id`` that populated
+       ``result_aai_ids`` for any of this op's source tables. Those
+       aai_ids become the implicit driver set, propagating the
+       strategy forward through count-preserving ops (so the
+       downstream oplog carries row-level lineage even for
+       operations that don't themselves mention a strategy key).
+
+    Sources and results align positionally via
+    ``row_number() OVER (ORDER BY aai_id)`` so that the i-th source row
+    maps to the i-th result row.
 
     Args:
         ch_client: Async ClickHouse client.
         result_table: Table the operation wrote to.
         kwargs: ``{role: source_table}`` map from the oplog payload.
         strategy: Active sampling strategy.
+        job_id: Job running this operation. Required for inherited
+            propagation — without it, we only honor explicit matches.
 
     Returns:
         ``(kwargs_aai_ids, result_aai_ids)`` — ``kwargs_aai_ids`` is keyed
@@ -54,7 +74,11 @@ async def apply_strategy(
         return {}, []
 
     sources = [(role, table) for role, table in kwargs.items() if table]
+
     driver = _pick_driver(result_table, sources, strategy)
+    if driver is None and sources and job_id is not None:
+        driver = await _pick_inherited_driver(ch_client, sources, job_id)
+
     if driver is None:
         return {}, []
 
@@ -89,6 +113,46 @@ def _pick_driver(
     result_clause = strategy.get(result_table)
     if result_clause:
         return result_table, result_clause
+    return None
+
+
+async def _pick_inherited_driver(
+    ch_client: object,
+    sources: list[tuple[str, str]],
+    job_id: int,
+) -> tuple[str, str] | None:
+    """Look for a source table whose earlier oplog row in ``job_id`` has a
+    populated ``result_aai_ids`` array, and return an ``aai_id IN (...)``
+    clause targeting those ids.
+
+    The first source that produced matched rows upstream wins, mirroring
+    ``_pick_driver``'s source-first ordering. Returns ``None`` when no
+    source has upstream matches — the caller then falls through to empty
+    arrays, leaving this op untracked.
+    """
+    for _, src_table in sources:
+        table_escaped = src_table.replace("'", "\\'")
+        try:
+            rows = await ch_client.query(
+                f"SELECT result_aai_ids FROM operation_log "
+                f"WHERE job_id = {job_id} "
+                f"  AND result_table = '{table_escaped}' "
+                f"  AND length(result_aai_ids) > 0 "
+                f"ORDER BY created_at DESC LIMIT 1"
+            )
+        except Exception:
+            logger.error(
+                "Failed to look up inherited matches for %s", src_table,
+                exc_info=True,
+            )
+            continue
+        if not rows.result_rows:
+            continue
+        inherited_ids = list(rows.result_rows[0][0])
+        if not inherited_ids:
+            continue
+        ids_str = ", ".join(str(i) for i in inherited_ids)
+        return src_table, f"aai_id IN ({ids_str})"
     return None
 
 

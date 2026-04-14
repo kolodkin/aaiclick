@@ -1,5 +1,6 @@
 """
-Tests for debug_result — mocks oplog_subgraph, provider.complete, and dispatch_tool.
+Tests for debug_result — mocks oplog_subgraph, provider.complete, dispatch_tool,
+and the forest helpers (_try_build_forest / _replay_and_build_forest).
 """
 
 from __future__ import annotations
@@ -45,6 +46,22 @@ def _mock_graph(*nodes):
     return OplogGraph(nodes=list(nodes), edges=[])
 
 
+def _forest_patch(forest_text: str = ""):
+    """Patch _try_build_forest so debug_result doesn't hit ClickHouse."""
+    return patch(
+        "aaiclick.ai.agents.debug_agent._try_build_forest",
+        new=AsyncMock(return_value=forest_text),
+    )
+
+
+def _replay_patch(forest_text: str = ""):
+    """Patch _replay_and_build_forest so debug_result doesn't run a replay."""
+    return patch(
+        "aaiclick.ai.agents.debug_agent._replay_and_build_forest",
+        new=AsyncMock(return_value=forest_text),
+    )
+
+
 async def test_debug_result_direct_answer():
     """Model answers without tools: oplog_subgraph is called and result contains the AI answer."""
     graph = _mock_graph(make_oplog_node("result", "add"))
@@ -56,6 +73,8 @@ async def test_debug_result_direct_answer():
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
+        _forest_patch(),
+        _replay_patch(),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
@@ -78,6 +97,8 @@ async def test_debug_result_with_one_tool_call():
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
+        _forest_patch(),
+        _replay_patch(),
     ):
         result = await debug_result("result", "Why are there only 3 rows?")
 
@@ -98,14 +119,41 @@ async def test_debug_result_dispatches_correct_tool():
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
+        _forest_patch(),
+        _replay_patch(),
     ):
         await debug_result("result", "What is the schema?")
 
     mock_dispatch.assert_called_once_with("get_schema", {"table": "result"})
 
 
-async def test_debug_result_replays_when_strategy_is_non_empty():
-    """Non-empty strategy → replay_and_trace runs and its output lands in context."""
+async def test_debug_result_uses_forest_from_existing_oplog():
+    """When _try_build_forest returns text (STRATEGY-mode target), it lands in
+    the LLM context and replay is skipped."""
+    graph = _mock_graph(make_oplog_node("result", "add"))
+    provider = _mock_provider(_stop_response("done"))
+    forest_text = "## Row-Level Lineage (strategy-matched)\n\n- Unique routes: 2"
+    replay_mock = AsyncMock(return_value="should-not-be-called")
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={"result": "val > 0"})),
+        _forest_patch(forest_text),
+        patch("aaiclick.ai.agents.debug_agent._replay_and_build_forest", new=replay_mock),
+    ):
+        await debug_result("result", "Why?")
+
+    replay_mock.assert_not_awaited()
+    user_msg = provider.complete.call_args[0][0][1]["content"]
+    assert "Row-Level Lineage (strategy-matched)" in user_msg
+    assert "Unique routes: 2" in user_msg
+
+
+async def test_debug_result_falls_back_to_replay_when_forest_empty():
+    """When _try_build_forest returns empty AND a strategy was produced,
+    debug_result falls through to _replay_and_build_forest."""
     target_node = OplogNode(
         table="result",
         operation="add",
@@ -119,41 +167,42 @@ async def test_debug_result_replays_when_strategy_is_non_empty():
     graph = _mock_graph(target_node)
     strategy = {"result": "value < 0"}
     provider = _mock_provider(_stop_response("done"))
-    replay_trace = AsyncMock(return_value="result.aai_id=7  <- add(left=1, right=2)")
+    replay_forest = AsyncMock(return_value="## Row-Level Lineage (strategy-matched)\n- from replay")
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value=strategy)),
-        patch("aaiclick.ai.agents.debug_agent._replay_and_trace", new=replay_trace),
+        _forest_patch(""),
+        patch("aaiclick.ai.agents.debug_agent._replay_and_build_forest", new=replay_forest),
     ):
         await debug_result("result", "Why negative?")
 
-    replay_trace.assert_awaited_once_with("result", graph, strategy)
+    replay_forest.assert_awaited_once_with("result", graph, strategy)
     user_msg = provider.complete.call_args[0][0][1]["content"]
-    assert "Row-level lineage (from strategy replay)" in user_msg
-    assert "result.aai_id=7" in user_msg
+    assert "from replay" in user_msg
 
 
 async def test_debug_result_skips_replay_when_strategy_is_empty():
-    """Empty strategy → replay_and_trace is never called."""
+    """Empty forest + empty strategy → replay is never called."""
     graph = _mock_graph(make_oplog_node("result", "add"))
     provider = _mock_provider(_stop_response("done"))
-    replay_trace = AsyncMock(return_value="should not be used")
+    replay_mock = AsyncMock(return_value="should-not-be-called")
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
-        patch("aaiclick.ai.agents.debug_agent._replay_and_trace", new=replay_trace),
+        _forest_patch(""),
+        patch("aaiclick.ai.agents.debug_agent._replay_and_build_forest", new=replay_mock),
     ):
         await debug_result("result", "Why?")
 
-    replay_trace.assert_not_awaited()
+    replay_mock.assert_not_awaited()
     user_msg = provider.complete.call_args[0][0][1]["content"]
-    assert "Row-level lineage" not in user_msg
+    assert "Row-Level Lineage" not in user_msg
 
 
 async def test_debug_result_context_includes_schemas():
@@ -167,6 +216,8 @@ async def test_debug_result_context_includes_schemas():
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
         patch("aaiclick.ai.agents.debug_agent.produce_strategy", new=AsyncMock(return_value={})),
+        _forest_patch(),
+        _replay_patch(),
     ):
         await debug_result("result", "Why?")
 
