@@ -157,17 +157,21 @@ def test_render_signature_chains_hops():
         ("add_result", "+", "left"),
     )
     rendered = _render_signature(signature)
-    assert "p_prices" in rendered
-    assert "*" in rendered
-    assert "+" in rendered
-    assert "add_result" in rendered
+    # leaf table → * as `left` → mul → + as None (mul's role into +) → add_result
+    assert "`p_prices`" in rendered
+    assert "as `left`" in rendered
+    assert "`*`" in rendered
+    assert "`+`" in rendered
+    assert "`add_result`" in rendered
+    # The leaf's role annotates the first arrow, so `left` appears exactly once
+    assert rendered.count("as `left`") == 1
 
 
 def test_render_routes_empty():
     assert render_routes([]) == ""
 
 
-def test_render_routes_includes_match_counts_and_exemplar():
+def test_render_routes_includes_match_counts_and_exemplars():
     route = Route(
         signature=(
             ("p_prices", "source", "left"),
@@ -178,7 +182,10 @@ def test_render_routes_includes_match_counts_and_exemplar():
         leaf_values=[10.0, 20.0],
         root_table="mul",
         root_values=[20.0, 40.0],
-        exemplar=[("p_prices", 1, 10.0), ("mul", 100, 20.0)],
+        exemplars=[
+            [("p_prices", 1, 10.0), ("mul", 100, 20.0)],
+            [("p_prices", 2, 20.0), ("mul", 101, 40.0)],
+        ],
     )
 
     rendered = render_routes([route])
@@ -187,7 +194,32 @@ def test_render_routes_includes_match_counts_and_exemplar():
     assert "Total matched paths: 2" in rendered
     assert "matched: 2 rows" in rendered
     assert "p_prices" in rendered
-    assert "aai_id=1" in rendered
+    assert "#1=10.0" in rendered
+    assert "#2=20.0" in rendered
+
+
+def test_render_routes_truncates_when_above_exemplar_cap():
+    """When match_count exceeds the exemplar cap the render notes hidden paths."""
+    route = Route(
+        signature=(("p_x", "source", None), ("t_y", "op", None)),
+        match_count=12,
+        leaf_table="p_x",
+        leaf_values=[1, 2, 3, 4, 5],
+        root_table="t_y",
+        root_values=[10, 20, 30, 40, 50],
+        exemplars=[
+            [("p_x", 1, 1), ("t_y", 100, 10)],
+            [("p_x", 2, 2), ("t_y", 101, 20)],
+            [("p_x", 3, 3), ("t_y", 102, 30)],
+            [("p_x", 4, 4), ("t_y", 103, 40)],
+            [("p_x", 5, 5), ("t_y", 104, 50)],
+        ],
+    )
+
+    rendered = render_routes([route])
+
+    assert "exemplar paths (5 of 12):" in rendered
+    assert "…and 7 more path(s)" in rendered
 
 
 # ---------------------------------------------------------------------

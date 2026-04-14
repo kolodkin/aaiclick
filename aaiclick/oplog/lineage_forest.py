@@ -63,9 +63,10 @@ class Route:
     are equal — i.e. they went through the same operations via the same
     roles.
 
-    The aggregated value lists and the exemplar chain together let a
-    reader ground one concrete row while still seeing the full set of
-    matched values at the leaf and root.
+    ``exemplars`` carries up to ``MAX_EXEMPLARS_PER_ROUTE`` concrete
+    paths as ``(table, aai_id, value)`` chains, so callers can see real
+    rows at every hop instead of just an aggregate summary. Each inner
+    list is a full leaf-to-root chain.
     """
 
     signature: Tuple[Tuple[str, str, Optional[str]], ...]
@@ -74,7 +75,14 @@ class Route:
     leaf_values: List[Any]
     root_table: str
     root_values: List[Any]
-    exemplar: List[Tuple[str, int, Any]]  # (table, aai_id, value) leaf → root
+    exemplars: List[List[Tuple[str, int, Any]]]
+
+
+MAX_EXEMPLARS_PER_ROUTE = 5
+"""Cap on how many concrete paths each route renders. Above the cap,
+callers see the aggregated leaf/root value lists plus the first N
+paths — enough for grounding without blowing up the prompt when a
+strategy matches thousands of rows."""
 
 
 async def build_forest(
@@ -245,7 +253,7 @@ def collapse_to_routes(forest: List[LineageNode]) -> List[Route]:
 
     Each unique signature becomes one ``Route`` with the match count,
     aggregated leaf/root values across every path that shares the
-    signature, and the first observed path as the exemplar.
+    signature, and up to ``MAX_EXEMPLARS_PER_ROUTE`` concrete paths.
     """
     path_groups: Dict[
         Tuple[Tuple[str, str, Optional[str]], ...],
@@ -259,9 +267,8 @@ def collapse_to_routes(forest: List[LineageNode]) -> List[Route]:
 
     routes: List[Route] = []
     for signature, paths in path_groups.items():
-        first_path = paths[0]
-        leaf_table = first_path[0].table
-        root_table = first_path[-1].table
+        leaf_table = paths[0][0].table
+        root_table = paths[0][-1].table
         routes.append(
             Route(
                 signature=signature,
@@ -270,8 +277,9 @@ def collapse_to_routes(forest: List[LineageNode]) -> List[Route]:
                 leaf_values=[_extract_value(p[0]) for p in paths],
                 root_table=root_table,
                 root_values=[_extract_value(p[-1]) for p in paths],
-                exemplar=[
-                    (n.table, n.aai_id, _extract_value(n)) for n in first_path
+                exemplars=[
+                    [(n.table, n.aai_id, _extract_value(n)) for n in path]
+                    for path in paths[:MAX_EXEMPLARS_PER_ROUTE]
                 ],
             )
         )
@@ -306,41 +314,53 @@ def _extract_value(node: LineageNode) -> Any:
 def render_routes(routes: List[Route]) -> str:
     """Render ``routes`` as a markdown block for LLM consumption.
 
-    Each route gets: a one-line signature header, the match count, the
-    leaf/root value lists (deduplicated when all values agree), and the
-    exemplar chain with concrete aai_ids. Empty input returns an empty
-    string so callers can append unconditionally.
+    Each route renders as:
+
+    - a header line with the structural signature
+    - the match count and aggregated leaf/root value lists
+    - up to ``MAX_EXEMPLARS_PER_ROUTE`` concrete paths, each shown as
+      an arrow-chained `leaf → mid → root` line carrying real aai_ids
+      and values at every hop
+
+    Empty input returns an empty string so callers can append the
+    result unconditionally to an existing prompt context.
     """
     if not routes:
         return ""
 
     total_matches = sum(r.match_count for r in routes)
     lines: List[str] = [
-        f"## Row-Level Lineage (strategy-matched)",
-        f"",
+        "## Row-Level Lineage (strategy-matched)",
+        "",
         f"- Unique routes: {len(routes)}",
         f"- Total matched paths: {total_matches}",
     ]
 
     for idx, route in enumerate(routes, start=1):
         lines.append("")
-        lines.append(
-            f"### Route {idx}: {_render_signature(route.signature)}"
-        )
+        lines.append(f"### Route {idx}: {_render_signature(route.signature)}")
         lines.append(f"- matched: {route.match_count} rows")
         lines.append(
-            f"- leaf values ({route.leaf_table}): "
+            f"- leaf values (`{route.leaf_table}`): "
             f"{_format_values(route.leaf_values)}"
         )
         lines.append(
-            f"- root values ({route.root_table}): "
+            f"- root values (`{route.root_table}`): "
             f"{_format_values(route.root_values)}"
         )
-        lines.append(f"- exemplar:")
-        for table, aai_id, value in route.exemplar:
-            lines.append(
-                f"    - `{table}` aai_id={aai_id} value={value}"
-            )
+
+        shown = len(route.exemplars)
+        hidden = route.match_count - shown
+        if shown == 1:
+            lines.append("- exemplar path:")
+        elif hidden > 0:
+            lines.append(f"- exemplar paths ({shown} of {route.match_count}):")
+        else:
+            lines.append(f"- exemplar paths ({shown}):")
+        for path in route.exemplars:
+            lines.append(f"    - {_render_exemplar(path)}")
+        if hidden > 0:
+            lines.append(f"    - …and {hidden} more path(s) with the same shape")
 
     return "\n".join(lines)
 
@@ -348,14 +368,31 @@ def render_routes(routes: List[Route]) -> str:
 def _render_signature(
     signature: Tuple[Tuple[str, str, Optional[str]], ...],
 ) -> str:
-    """Format a signature tuple as ``leaf_table → op(role) → ... → root_table``."""
+    """Format a signature as ``leaf_table → op(role) → ... → root_table``.
+
+    Each non-leaf hop shows the operation that produced its table
+    together with the role the *previous* hop's table filled at that
+    operation, so the reader can see exactly how each table entered
+    its downstream op.
+    """
     if not signature:
         return ""
-    parts: List[str] = [signature[0][0]]
-    for table, op, role in signature[1:]:
-        role_tag = f"[{role}]" if role else ""
-        parts.append(f"{op}{role_tag} → {table}")
+    parts: List[str] = [f"`{signature[0][0]}`"]
+    for i in range(1, len(signature)):
+        table, op, _ = signature[i]
+        prev_role = signature[i - 1][2]
+        role_tag = f" as `{prev_role}`" if prev_role else ""
+        parts.append(f"→ `{op}`{role_tag} → `{table}`")
     return " ".join(parts)
+
+
+def _render_exemplar(
+    path: List[Tuple[str, int, Any]],
+) -> str:
+    """Format one concrete path as ``table#aai_id=V → … → table#aai_id=V``."""
+    return " → ".join(
+        f"`{table}`#{aai_id}={value}" for table, aai_id, value in path
+    )
 
 
 def _format_values(values: List[Any]) -> str:
