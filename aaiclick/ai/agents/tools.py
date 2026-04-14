@@ -234,24 +234,41 @@ async def trace_row(table: str, aai_id: int, depth: int = 10) -> str:
 
 
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
-    """Dispatch a tool call by name to the appropriate function."""
-    if name == "sample_table":
-        return await sample_table(
-            arguments["table"],
-            limit=arguments.get("limit", 10),
-            where=arguments.get("where"),
+    """Dispatch a tool call by name to the appropriate function.
+
+    Returns a readable error string when the model omits required
+    arguments or names an unknown tool. The agent loop feeds the
+    string back as the tool result, so the model gets a chance to
+    retry with correct inputs instead of crashing the whole debug
+    session on one malformed call.
+    """
+    try:
+        if name == "sample_table":
+            return await sample_table(
+                arguments["table"],
+                limit=arguments.get("limit", 10),
+                where=arguments.get("where"),
+            )
+        elif name == "get_schema":
+            return await get_schema(arguments["table"])
+        elif name == "get_column_stats":
+            return await get_column_stats(arguments["table"])
+        elif name == "trace_upstream":
+            return await trace_upstream(
+                arguments["table"], depth=arguments.get("depth", 10)
+            )
+        elif name == "trace_row":
+            return await trace_row(
+                arguments["table"],
+                arguments["aai_id"],
+                depth=arguments.get("depth", 10),
+            )
+        else:
+            return f"(unknown tool: {name})"
+    except KeyError as exc:
+        return (
+            f"(error calling {name}: missing required argument {exc}. "
+            f"provided arguments: {sorted(arguments.keys())})"
         )
-    elif name == "get_schema":
-        return await get_schema(arguments["table"])
-    elif name == "get_column_stats":
-        return await get_column_stats(arguments["table"])
-    elif name == "trace_upstream":
-        return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
-    elif name == "trace_row":
-        return await trace_row(
-            arguments["table"],
-            arguments["aai_id"],
-            depth=arguments.get("depth", 10),
-        )
-    else:
-        return f"(unknown tool: {name})"
+    except Exception as exc:
+        return f"(error calling {name}: {exc})"
