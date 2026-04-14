@@ -27,14 +27,14 @@ from aaiclick.data.object.refs import (
     NATIVE_VALUE,
     OBJECT,
     OBJECT_TYPE,
-    PERSISTENT,
     PYDANTIC_DATA,
     PYDANTIC_TYPE,
     REF_TYPE,
-    TABLE,
     TASK_ID,
     UPSTREAM,
     VIEW,
+    ObjectRef,
+    ViewRef,
     native_value_ref,
     upstream_ref,
 )
@@ -179,40 +179,39 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         obj_type = value[OBJECT_TYPE]
 
         if obj_type == OBJECT:
-            table = value[TABLE]
-            is_persistent = value.get(PERSISTENT, False)
-            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            ref = ObjectRef.model_validate(value)
+            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
-            obj = Object(table=table, schema=schema)
-            if not is_persistent:
+            obj = Object(table=ref.table, schema=schema)
+            if not ref.persistent:
                 obj._register()  # enqueues INCREF
             register_object(obj)
-            if not is_persistent:
+            if not ref.persistent:
                 lifecycle = get_data_lifecycle()
                 if lifecycle is not None:
-                    lifecycle.unpin(table)  # FIFO: after INCREF
+                    lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == VIEW:
-            table = value[TABLE]
-            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+            ref = ViewRef.model_validate(value)
+            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
-            source = Object(table=table, schema=schema)
+            source = Object(table=ref.table, schema=schema)
             source._register()  # enqueues INCREF
             register_object(source)
             view = View(
                 source=source,
-                where=value.get("where"),
-                limit=value.get("limit"),
-                offset=value.get("offset"),
-                order_by=value.get("order_by"),
-                selected_fields=value.get("selected_fields"),
-                renamed_columns=value.get("renamed_columns"),
+                where=ref.where,
+                limit=ref.limit,
+                offset=ref.offset,
+                order_by=ref.order_by,
+                selected_fields=ref.selected_fields,
+                renamed_columns=ref.renamed_columns,
             )
             register_object(view)
             lifecycle = get_data_lifecycle()
             if lifecycle is not None:
-                lifecycle.unpin(table)  # FIFO: after INCREF
+                lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return view
 
         else:
