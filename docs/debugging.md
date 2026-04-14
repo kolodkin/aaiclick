@@ -3,15 +3,19 @@ Debugging
 
 # VS Code
 
-Example `.vscode/launch.json` entry:
+Example `.vscode/launch.json`:
 
 ```json
 {
-    "name": "Debug: Basic Operators",
-    "type": "debugpy",
-    "request": "launch",
-    "module": "aaiclick.orchestration.examples.orchestration_basic",
-    "env": { "AAICLICK_DEBUGGER": "1" }
+    "configurations": [
+        {
+            "name": "Debug: Basic Orchestration",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "aaiclick.orchestration.examples.orchestration_basic",
+            "env": { "AAICLICK_DEBUGGER": "1" }
+        }
+    ]
 }
 ```
 
