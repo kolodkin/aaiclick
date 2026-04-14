@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.lineage import OplogNode, backward_oplog, backward_oplog_row
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 async def sample_table(table: str, limit: int = 10, where: str | None = None) -> str:
     """Sample rows from a table and return formatted text."""
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     where_clause = f" WHERE {where}" if where else ""
     result = await ch_client.query(f"SELECT * FROM {table_escaped}{where_clause} LIMIT {limit}")
     if not result.result_rows:
@@ -118,7 +119,7 @@ async def sample_table(table: str, limit: int = 10, where: str | None = None) ->
 async def get_schema(table: str) -> str:
     """Return column names and types for a table."""
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
     lines = [f"{row[0]}: {row[1]}" for row in result.result_rows]
     return "\n".join(lines) if lines else f"(table {table} not found)"
@@ -131,7 +132,7 @@ async def get_column_stats(table: str) -> str:
     in a single round-trip — the LLM never needs to guess column names.
     """
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
 
     desc_result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
     if not desc_result.result_rows:

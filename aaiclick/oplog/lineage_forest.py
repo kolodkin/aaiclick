@@ -22,8 +22,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from .lineage import _to_aai_ids_dict, _to_dict
+from .lineage import fetch_producing_op
 from aaiclick.data.data_context.ch_client import get_ch_client
+from aaiclick.data.sql_utils import escape_sql_string
 
 
 VALUE_COLUMN = "value"
@@ -99,7 +100,7 @@ async def build_forest(
     job_filter = _job_filter(job_id)
     row = await ch_client.query(
         f"SELECT result_aai_ids FROM operation_log "
-        f"WHERE result_table = '{_escape(target_table)}' {job_filter} "
+        f"WHERE result_table = '{escape_sql_string(target_table)}' {job_filter} "
         f"ORDER BY created_at DESC LIMIT 1"
     )
     if not row.result_rows:
@@ -139,59 +140,33 @@ async def _walk(
     key = (table, aai_id)
     cached = cache.get(key)
     if cached is not None:
-        # Role is encoded on the edge (the parent's `children` dict key),
+        # Role is encoded on the edge (parent's ``children`` dict key),
         # not on the node, so sharing a node across parents is safe.
         return cached
 
     values = await _fetch_row_values(table, aai_id)
 
     if depth >= max_depth:
-        node = LineageNode(
+        return _memo(cache, key, LineageNode(
             table=table, aai_id=aai_id, operation=_TRUNCATED,
             role=role, values=values,
-        )
-        cache[key] = node
-        return node
+        ))
 
-    ch_client = get_ch_client()
-    result = await ch_client.query(
-        f"SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids "
-        f"FROM operation_log "
-        f"WHERE result_table = '{_escape(table)}' "
-        f"  AND has(result_aai_ids, {aai_id}) {_job_filter(job_id)} "
-        f"ORDER BY created_at DESC LIMIT 1"
-    )
-    if not result.result_rows:
-        node = LineageNode(
+    upstream = await fetch_producing_op(table, aai_id, job_id=job_id)
+    if upstream is None:
+        return _memo(cache, key, LineageNode(
             table=table, aai_id=aai_id, operation=_SOURCE,
             role=role, values=values,
-        )
-        cache[key] = node
-        return node
-
-    operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
-    kwargs = _to_dict(kwargs_raw)
-    kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
-    result_aai_ids = list(result_aai_ids_raw)
-
-    try:
-        pos = result_aai_ids.index(aai_id)
-    except ValueError:
-        node = LineageNode(
-            table=table, aai_id=aai_id, operation=operation,
-            role=role, values=values,
-        )
-        cache[key] = node
-        return node
+        ))
 
     child_specs: list[tuple[str, str, int]] = []
-    for input_role, source_ids in kwargs_aai_ids.items():
-        if pos >= len(source_ids):
+    for input_role, source_ids in upstream.kwargs_aai_ids.items():
+        if upstream.position >= len(source_ids):
             continue
-        source_table = kwargs.get(input_role)
+        source_table = upstream.kwargs.get(input_role)
         if not source_table:
             continue
-        child_specs.append((input_role, source_table, source_ids[pos]))
+        child_specs.append((input_role, source_table, source_ids[upstream.position]))
 
     child_nodes = await asyncio.gather(
         *(
@@ -207,10 +182,17 @@ async def _walk(
         spec[0]: child for spec, child in zip(child_specs, child_nodes)
     }
 
-    node = LineageNode(
-        table=table, aai_id=aai_id, operation=operation,
+    return _memo(cache, key, LineageNode(
+        table=table, aai_id=aai_id, operation=upstream.operation,
         role=role, values=values, children=children,
-    )
+    ))
+
+
+def _memo(
+    cache: dict[tuple[str, int], LineageNode],
+    key: tuple[str, int],
+    node: LineageNode,
+) -> LineageNode:
     cache[key] = node
     return node
 
@@ -223,7 +205,7 @@ async def _fetch_row_values(
     ch_client = get_ch_client()
     try:
         result = await ch_client.query(
-            f"SELECT `{VALUE_COLUMN}` FROM {_escape(table)} "
+            f"SELECT `{VALUE_COLUMN}` FROM {escape_sql_string(table)} "
             f"WHERE aai_id = {aai_id} LIMIT 1"
         )
     except Exception:
@@ -231,10 +213,6 @@ async def _fetch_row_values(
     if not result.result_rows:
         return None
     return {VALUE_COLUMN: result.result_rows[0][0]}
-
-
-def _escape(table: str) -> str:
-    return table.replace("'", "\\'")
 
 
 def _job_filter(job_id: int | None) -> str:

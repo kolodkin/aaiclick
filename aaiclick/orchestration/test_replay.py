@@ -271,13 +271,15 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
     )
 
     strategy = {"p_synth_left": "value = 10"}
-    replayed = await replay_job(job_id, sampling_strategy=strategy)
+    result = await replay_job(job_id, sampling_strategy=strategy)
+    replayed = result.job
 
     assert replayed.name == "synthetic"  # inherited from the original
     assert replayed.id != job_id
     assert replayed.preservation_mode == PreservationMode.STRATEGY
     assert replayed.sampling_strategy == strategy
     assert replayed.status == JobStatus.PENDING
+    assert add_id in result.task_id_map
 
     async with get_sql_session() as session:
         cloned_tasks = list(
@@ -303,6 +305,7 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
     assert cloned.name == "add_them"
     assert cloned.status == TaskStatus.PENDING
     assert cloned.id != add_id
+    assert result.task_id_map[add_id] == cloned.id
 
     # Kwargs had upstream refs replaced with persistent Object refs.
     assert cloned.kwargs == {
@@ -421,7 +424,8 @@ async def test_replay_job_end_to_end(orch_ctx):
     await _assert_completed(original.id)
 
     strategy = {left_table: "value = 10"}
-    replayed = await replay_job(original.id, sampling_strategy=strategy)
+    result = await replay_job(original.id, sampling_strategy=strategy)
+    replayed = result.job
 
     assert replayed.name == original.name  # inherited
     assert replayed.id != original.id

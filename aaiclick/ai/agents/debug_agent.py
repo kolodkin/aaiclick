@@ -166,10 +166,15 @@ async def _try_build_forest(target_table: str, graph: OplogGraph) -> str:
     Returns an empty string when the target's job ran with empty lineage
     arrays (``NONE`` / ``FULL`` mode); the caller can then fall through
     to a STRATEGY replay.
+
+    Short-circuits on the in-memory graph: ``backward_oplog`` already
+    loaded the target's ``result_aai_ids``, so we can tell whether the
+    job populated row lineage without touching the database again.
     """
     target_node = _find_target_node(graph, target_table)
-    job_id = target_node.job_id if target_node is not None else None
-    return await _safe_build("forest build", target_table, job_id)
+    if target_node is None or not target_node.result_aai_ids:
+        return ""
+    return await _safe_build("forest build", target_table, target_node.job_id)
 
 
 async def _replay_and_build_forest(
@@ -180,46 +185,31 @@ async def _replay_and_build_forest(
     """Replay the target's job under ``strategy`` and render a forest
     from the replayed oplog."""
     target_node = _find_target_node(graph, target_table)
-    if target_node is None or target_node.job_id is None:
+    if target_node is None or target_node.job_id is None or target_node.task_id is None:
         return ""
     try:
         replayed = await replay_job(target_node.job_id, sampling_strategy=strategy)
-        await run_job_tasks(replayed)
+        await run_job_tasks(replayed.job)
     except Exception as exc:
         logger.warning("replay skipped: %s", exc)
         return ""
 
-    new_target = await _find_replay_target_table(target_node.task_id, replayed.id)
+    new_task_id = replayed.task_id_map.get(target_node.task_id)
+    if new_task_id is None:
+        # The original target was an input or wiring task (skipped by
+        # replay), so there is no cloned task to read a result from.
+        return ""
+    new_target = await _fetch_task_result_table(new_task_id)
     if new_target is None:
         return ""
-    return await _safe_build("forest build from replay", new_target, replayed.id)
+    return await _safe_build("forest build from replay", new_target, replayed.job.id)
 
 
-async def _find_replay_target_table(
-    original_task_id: int | None,
-    replayed_job_id: int,
-) -> str | None:
-    """Return the replayed clone's output table for ``original_task_id``.
-
-    Matched by entrypoint — ``replay_job`` preserves each cloned task's
-    entrypoint but reallocates its snowflake id.
-    """
-    if original_task_id is None:
-        return None
+async def _fetch_task_result_table(task_id: int) -> str | None:
+    """Return the ``result["table"]`` of a committed task, or ``None``."""
     async with get_sql_session() as session:
-        entrypoint = (
-            await session.execute(
-                select(Task.entrypoint).where(Task.id == original_task_id)
-            )
-        ).scalar_one_or_none()
-        if entrypoint is None:
-            return None
         result = (
-            await session.execute(
-                select(Task.result)
-                .where(Task.job_id == replayed_job_id, Task.entrypoint == entrypoint)
-                .limit(1)
-            )
+            await session.execute(select(Task.result).where(Task.id == task_id))
         ).scalar_one_or_none()
     if isinstance(result, dict):
         return result.get("table")

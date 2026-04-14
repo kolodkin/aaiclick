@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Literal
 LineageDirection = Literal["backward", "forward"]
 
 from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.sql_utils import escape_sql_string
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -207,7 +208,7 @@ async def backward_oplog(
     guards against revisiting nodes in diamond-shaped lineage graphs.
     """
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     result = await ch_client.query(f"""
         WITH RECURSIVE upstream AS (
             SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
@@ -244,7 +245,7 @@ async def forward_oplog(
     visited: set[str] = set()
     nodes: list[OplogNode] = []
 
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     seed = await ch_client.query(f"""
         SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
                sql_template, task_id, job_id
@@ -321,6 +322,69 @@ class RowLineageStep:
     source_aai_ids: dict[str, int]
 
 
+@dataclass
+class RowUpstream:
+    """Producing-operation record for one ``(table, aai_id)`` pair.
+
+    Returned by :func:`fetch_producing_op` — the shared primitive used
+    by both :func:`backward_oplog_row` (single-role walk) and
+    :mod:`aaiclick.oplog.lineage_forest` (full-tree walk).
+
+    ``position`` is ``result_aai_ids.index(aai_id)``; any source row
+    producing this target is at ``kwargs_aai_ids[role][position]``.
+    """
+
+    operation: str
+    kwargs: dict[str, str]
+    kwargs_aai_ids: dict[str, list[int]]
+    result_aai_ids: list[int]
+    position: int
+
+
+async def fetch_producing_op(
+    table: str,
+    aai_id: int,
+    *,
+    job_id: int | None = None,
+) -> RowUpstream | None:
+    """Return the oplog row that produced ``(table, aai_id)``, or ``None``.
+
+    Scoped to ``job_id`` when provided — mandatory when the same table
+    name has been produced by multiple jobs (replays / repeated runs)
+    so walks don't cross job boundaries. Otherwise returns the most
+    recent matching oplog row.
+
+    Returns ``None`` for rows whose lineage arrays are empty (the
+    operation ran under ``PreservationMode.NONE`` / ``FULL``) — the
+    target aai_id simply won't appear in any oplog's
+    ``result_aai_ids`` array under those modes.
+    """
+    ch_client = get_ch_client()
+    job_filter = f"AND job_id = {job_id}" if job_id is not None else ""
+    result = await ch_client.query(
+        f"SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids "
+        f"FROM operation_log "
+        f"WHERE result_table = '{escape_sql_string(table)}' "
+        f"  AND has(result_aai_ids, {aai_id}) {job_filter} "
+        f"ORDER BY created_at DESC LIMIT 1"
+    )
+    if not result.result_rows:
+        return None
+    operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
+    result_aai_ids = list(result_aai_ids_raw)
+    try:
+        position = result_aai_ids.index(aai_id)
+    except ValueError:
+        return None
+    return RowUpstream(
+        operation=operation,
+        kwargs=_to_dict(kwargs_raw),
+        kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
+        result_aai_ids=result_aai_ids,
+        position=position,
+    )
+
+
 async def backward_oplog_row(
     table: str,
     aai_id: int,
@@ -329,57 +393,32 @@ async def backward_oplog_row(
     """Trace a single ``aai_id`` backward through the oplog.
 
     Reads the per-operation ``kwargs_aai_ids`` / ``result_aai_ids`` that
-    are populated under ``PreservationMode.STRATEGY`` (or any other
-    mechanism that writes the positional lineage arrays). For each step,
+    are populated under ``PreservationMode.STRATEGY``. For each step,
     finds the operation that produced the current id, pulls the
     positionally-aligned source ids, and recurses on the first source.
 
     Returns ``[]`` when no oplog row carries this id — common when the
     job ran under ``PreservationMode.NONE``, since the arrays stay
     empty. Steps are ordered most-recent-first.
-
-    Args:
-        table: Starting table (the row's current home).
-        aai_id: The specific row's ``aai_id`` to trace.
-        max_depth: Safety cap on traversal depth.
     """
-    ch_client = get_ch_client()
     steps: list[RowLineageStep] = []
     current_table = table
     current_id = aai_id
 
     for _ in range(max_depth):
-        table_escaped = current_table.replace("'", "\\'")
-        result = await ch_client.query(f"""
-            SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids
-            FROM operation_log
-            WHERE result_table = '{table_escaped}'
-              AND has(result_aai_ids, {current_id})
-            LIMIT 1
-        """)
-
-        if not result.result_rows:
-            break
-
-        operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
-        kwargs = _to_dict(kwargs_raw)
-        kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
-        result_aai_ids = list(result_aai_ids_raw)
-
-        try:
-            pos = result_aai_ids.index(current_id)
-        except ValueError:
+        upstream = await fetch_producing_op(current_table, current_id)
+        if upstream is None:
             break
 
         source_aai_ids: dict[str, int] = {}
-        for role, ids in kwargs_aai_ids.items():
-            if pos < len(ids):
-                source_aai_ids[role] = ids[pos]
+        for role, ids in upstream.kwargs_aai_ids.items():
+            if upstream.position < len(ids):
+                source_aai_ids[role] = ids[upstream.position]
 
         steps.append(RowLineageStep(
             table=current_table,
             aai_id=current_id,
-            operation=operation,
+            operation=upstream.operation,
             source_aai_ids=source_aai_ids,
         ))
 
@@ -387,7 +426,7 @@ async def backward_oplog_row(
             break
         first_role = next(iter(source_aai_ids))
         current_id = source_aai_ids[first_role]
-        next_table = kwargs.get(first_role, "")
+        next_table = upstream.kwargs.get(first_role, "")
         if not next_table:
             break
         current_table = next_table

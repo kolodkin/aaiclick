@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import logging
 
+from aaiclick.data.sql_utils import escape_sql_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -116,6 +118,15 @@ def _pick_driver(
     return None
 
 
+MAX_INHERITED_DRIVER_IDS = 10_000
+"""Upper bound on how many inherited aai_ids the fallback driver inlines
+into an ``aai_id IN (...)`` clause. Past this point the SQL string
+grows multi-MB and risks ``max_query_size`` on ClickHouse, so we
+truncate to the most recent ids and let the sampler propagate a
+representative slice forward. A full fix — parameter binding so the
+ids travel as a typed ``Array(UInt64)`` — is tracked separately."""
+
+
 async def _pick_inherited_driver(
     ch_client: object,
     sources: list[tuple[str, str]],
@@ -131,7 +142,7 @@ async def _pick_inherited_driver(
     arrays, leaving this op untracked.
     """
     for _, src_table in sources:
-        table_escaped = src_table.replace("'", "\\'")
+        table_escaped = escape_sql_string(src_table)
         try:
             rows = await ch_client.query(
                 f"SELECT result_aai_ids FROM operation_log "
@@ -151,6 +162,12 @@ async def _pick_inherited_driver(
         inherited_ids = list(rows.result_rows[0][0])
         if not inherited_ids:
             continue
+        if len(inherited_ids) > MAX_INHERITED_DRIVER_IDS:
+            logger.warning(
+                "inherited driver for %s truncated from %d to %d ids",
+                src_table, len(inherited_ids), MAX_INHERITED_DRIVER_IDS,
+            )
+            inherited_ids = inherited_ids[:MAX_INHERITED_DRIVER_IDS]
         ids_str = ", ".join(str(i) for i in inherited_ids)
         return src_table, f"aai_id IN ({ids_str})"
     return None

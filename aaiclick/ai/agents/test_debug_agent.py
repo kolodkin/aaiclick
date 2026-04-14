@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph, OplogNode
-from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.ai.agents.debug_agent import _try_build_forest, debug_result
 
 
 def _mock_provider(*responses):
@@ -210,6 +210,51 @@ async def test_debug_result_skips_replay_when_strategy_is_empty():
     replay_mock.assert_not_awaited()
     user_msg = provider.complete.call_args[0][0][1]["content"]
     assert "Row-Level Lineage" not in user_msg
+
+
+async def test_try_build_forest_short_circuits_on_empty_result_aai_ids():
+    """Target with empty result_aai_ids (NONE / FULL mode) short-circuits
+    before touching the database."""
+    target = OplogNode(
+        table="t_result",
+        operation="add",
+        kwargs={},
+        kwargs_aai_ids={},
+        result_aai_ids=[],  # ← not a STRATEGY-mode target
+        sql_template=None,
+        task_id=1,
+        job_id=2,
+    )
+    graph = OplogGraph(nodes=[target], edges=[])
+
+    safe_build = AsyncMock(return_value="should-not-be-called")
+    with patch("aaiclick.ai.agents.debug_agent._safe_build", new=safe_build):
+        result = await _try_build_forest("t_result", graph)
+
+    assert result == ""
+    safe_build.assert_not_awaited()
+
+
+async def test_try_build_forest_runs_when_result_aai_ids_populated():
+    """Target with populated result_aai_ids forwards to _safe_build."""
+    target = OplogNode(
+        table="t_result",
+        operation="add",
+        kwargs={},
+        kwargs_aai_ids={"left": [10, 20]},
+        result_aai_ids=[100, 200],
+        sql_template=None,
+        task_id=1,
+        job_id=2,
+    )
+    graph = OplogGraph(nodes=[target], edges=[])
+
+    safe_build = AsyncMock(return_value="rendered forest")
+    with patch("aaiclick.ai.agents.debug_agent._safe_build", new=safe_build):
+        result = await _try_build_forest("t_result", graph)
+
+    assert result == "rendered forest"
+    safe_build.assert_awaited_once_with("forest build", "t_result", 2)
 
 
 async def test_debug_result_context_includes_schemas():

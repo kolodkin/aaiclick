@@ -332,11 +332,12 @@ async def replay_job_cmd(
         if job is None:
             print(f"Job not found: {job_ref}")
             return
-        replayed = await replay_job(
+        result = await replay_job(
             job.id,
             sampling_strategy=strategy,
             name=name,
         )
+    replayed = result.job
     print(
         f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})"
     )
