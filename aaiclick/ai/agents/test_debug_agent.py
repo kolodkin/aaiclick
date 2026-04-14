@@ -129,7 +129,8 @@ async def test_debug_result_dispatches_correct_tool():
 
 async def test_debug_result_uses_forest_from_existing_oplog():
     """When _try_build_forest returns text (STRATEGY-mode target), it lands in
-    the LLM context and replay is skipped."""
+    the LLM context, replay is skipped, and the agentic tool loop is
+    short-circuited (single completion, no tools parameter)."""
     graph = _mock_graph(make_oplog_node("result", "add"))
     provider = _mock_provider(_stop_response("done"))
     forest_text = "## Row-Level Lineage (strategy-matched)\n\n- Unique routes: 2"
@@ -143,10 +144,16 @@ async def test_debug_result_uses_forest_from_existing_oplog():
         _forest_patch(forest_text),
         patch("aaiclick.ai.agents.debug_agent._replay_and_build_forest", new=replay_mock),
     ):
-        await debug_result("result", "Why?")
+        result = await debug_result("result", "Why?")
 
+    assert result == "done"
     replay_mock.assert_not_awaited()
-    user_msg = provider.complete.call_args[0][0][1]["content"]
+    # Single completion call only — no tool loop
+    assert provider.complete.await_count == 1
+    # The short-circuit uses a positional-args call without tools
+    call = provider.complete.call_args
+    assert "tools" not in call.kwargs
+    user_msg = call[0][0][1]["content"]
     assert "Row-Level Lineage (strategy-matched)" in user_msg
     assert "Unique routes: 2" in user_msg
 

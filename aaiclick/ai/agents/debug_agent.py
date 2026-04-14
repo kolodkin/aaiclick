@@ -38,7 +38,18 @@ Be specific: cite actual values and trace the root cause.
 
 {OUTPUT_FORMAT}"""
 
-_MAX_TOOL_ROUNDS = 10
+_SYSTEM_PROMPT_WITH_FOREST = f"""\
+You are a data debugging expert analyzing a ClickHouse data pipeline.
+The context below already includes a row-level lineage forest for every
+strategy-matched row: every hop, every aai_id, and every column value
+the strategy selected. Answer the user's question directly by citing
+those values. Do not ask for more data — it is already in the prompt.
+
+{AAI_ID_WARNING}
+
+{OUTPUT_FORMAT}"""
+
+_MAX_TOOL_ROUNDS = 5
 
 
 async def debug_result(
@@ -88,6 +99,20 @@ async def debug_result(
 
     provider = get_ai_provider()
     prompt = f"Target table: `{target_table}`\n\nQuestion: {question}"
+
+    # When the forest is present every row-level question is already
+    # answerable from the pre-injected context. Skip the tool-call loop
+    # so the model produces one grounded answer directly instead of
+    # looping through redundant tool calls against a large context.
+    if forest_text:
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": _SYSTEM_PROMPT_WITH_FOREST},
+            {"role": "user", "content": f"Context:\n{context}\n\n{prompt}"},
+        ]
+        response = await provider.complete(messages)
+        return OplogGraph.replace_labels(
+            response.choices[0].message.content or "", labels
+        )
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
