@@ -23,12 +23,10 @@ CREATE TABLE IF NOT EXISTS operation_log (
 ) ENGINE = MergeTree()
 ORDER BY (result_table, created_at)
 """
-# result_table is the dominant filter across every oplog consumer
-# (backward_oplog, fetch_producing_op, _pick_inherited_driver, etc.),
-# so it leads the sort key; created_at breaks ties within a table so
-# "most recent row" lookups stay a tail scan. Existing installs keep
-# their old ORDER BY — CREATE TABLE IF NOT EXISTS is a no-op there —
-# and continue to work, just without the skip-index benefit.
+# result_table leads the sort key so every oplog consumer
+# (backward_oplog, fetch_producing_op, _pick_inherited_driver, ...)
+# gets skip-index-friendly lookups; created_at breaks ties within a
+# table so "most recent row" stays a tail scan.
 
 TABLE_REGISTRY_DDL = """
 CREATE TABLE IF NOT EXISTS table_registry (

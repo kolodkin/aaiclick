@@ -24,7 +24,7 @@ from typing import Any
 
 from .lineage import fetch_producing_op
 from aaiclick.data.data_context.ch_client import get_ch_client
-from aaiclick.data.sql_utils import escape_sql_string
+from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 
 
 VALUE_COLUMN = "value"
@@ -159,28 +159,19 @@ async def _walk(
             role=role, values=values,
         ))
 
-    child_specs: list[tuple[str, str, int]] = []
-    for input_role, source_ids in upstream.kwargs_aai_ids.items():
-        if upstream.position >= len(source_ids):
-            continue
-        source_table = upstream.kwargs.get(input_role)
-        if not source_table:
-            continue
-        child_specs.append((input_role, source_table, source_ids[upstream.position]))
-
+    child_roles = list(upstream.sources)
     child_nodes = await asyncio.gather(
         *(
             _walk(
-                source_table, source_id,
+                upstream.sources[input_role][0],
+                upstream.sources[input_role][1],
                 role=input_role, depth=depth + 1,
                 max_depth=max_depth, job_id=job_id, cache=cache,
             )
-            for input_role, source_table, source_id in child_specs
+            for input_role in child_roles
         )
     )
-    children = {
-        spec[0]: child for spec, child in zip(child_specs, child_nodes)
-    }
+    children = dict(zip(child_roles, child_nodes))
 
     return _memo(cache, key, LineageNode(
         table=table, aai_id=aai_id, operation=upstream.operation,
@@ -205,7 +196,7 @@ async def _fetch_row_values(
     ch_client = get_ch_client()
     try:
         result = await ch_client.query(
-            f"SELECT `{VALUE_COLUMN}` FROM {escape_sql_string(table)} "
+            f"SELECT {quote_identifier(VALUE_COLUMN)} FROM {quote_identifier(table)} "
             f"WHERE aai_id = {aai_id} LIMIT 1"
         )
     except Exception:

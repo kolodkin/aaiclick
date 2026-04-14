@@ -13,7 +13,7 @@ Everything is best-effort: a failed lookup logs and returns empty arrays.
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 SamplingStrategy = dict[str, str]
 """Maps ClickHouse table name → raw WHERE clause.
 
-Values are inlined into ``SELECT aai_id FROM <table> WHERE <clause>`` and
-evaluated by ClickHouse. Keys reference fully-qualified table names as they
-appear in the oplog (``kwargs`` values and ``result_table``).
+Keys reference fully-qualified table names as they appear in the oplog
+(``kwargs`` values and ``result_table``). Explicit clauses are inlined
+into the driving query; inherited clauses use ``{name:Type}`` parameter
+binding so the typed id arrays travel as binary payload.
 """
 
 
@@ -31,14 +32,13 @@ class _Driver(NamedTuple):
     """A resolved sampling driver: which source table limits which rows.
 
     ``clause`` is a raw SQL WHERE clause evaluated against ``table``.
-    ``parameters`` carries the ``{name:Type}`` placeholder bindings
-    referenced by the clause; empty when the driver is a plain user-supplied
-    WHERE (the common explicit case).
+    ``parameters`` carries any ``{name:Type}`` placeholder bindings the
+    clause references, or ``None`` for a plain user-supplied WHERE.
     """
 
     table: str
     clause: str
-    parameters: dict[str, Any]
+    parameters: Optional[dict[str, Any]]
 
 
 async def apply_strategy(
@@ -109,10 +109,10 @@ def _pick_driver(
     for _, src_table in sources:
         clause = strategy.get(src_table)
         if clause:
-            return _Driver(table=src_table, clause=clause, parameters={})
+            return _Driver(table=src_table, clause=clause, parameters=None)
     result_clause = strategy.get(result_table)
     if result_clause:
-        return _Driver(table=result_table, clause=result_clause, parameters={})
+        return _Driver(table=result_table, clause=result_clause, parameters=None)
     return None
 
 
@@ -209,7 +209,7 @@ async def _apply_positional(
         f" WHERE {driver_alias}.aai_id IN ("
         f"SELECT aai_id FROM {driver.table} WHERE {driver.clause})"
     )
-    rows = await ch_client.query(sql, parameters=driver.parameters or None)
+    rows = await ch_client.query(sql, parameters=driver.parameters)
 
     kwargs_aai_ids: dict[str, list[int]] = {role: [] for role, _ in sources}
     result_ids: list[int] = []
@@ -224,6 +224,6 @@ async def _select_ids(ch_client: object, table: str, driver: _Driver) -> list[in
     """Return all ``aai_id``s from ``table`` that match ``driver.clause``."""
     rows = await ch_client.query(
         f"SELECT aai_id FROM {table} WHERE {driver.clause}",
-        parameters=driver.parameters or None,
+        parameters=driver.parameters,
     )
     return [row[0] for row in rows.result_rows]

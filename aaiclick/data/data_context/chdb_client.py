@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 import pyarrow as pa
 from chdb.session import Session
 
+from aaiclick.data.sql_utils import escape_sql_string
+
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
@@ -55,7 +57,7 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
             tmp_files.append(tmp)
             await asyncio.to_thread(urllib.request.urlretrieve, url, tmp.name)
-            safe_tmp = tmp.name.replace("'", "\\'")
+            safe_tmp = escape_sql_string(tmp.name)
             replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
 
         if not replacements:
@@ -89,7 +91,7 @@ def _with_settings(query: str, settings: Optional[dict]) -> str:
         elif isinstance(val, (int, float)):
             parts.append(f"{key}={val}")
         else:
-            escaped = str(val).replace("'", "\\'")
+            escaped = escape_sql_string(str(val))
             parts.append(f"{key}='{escaped}'")
     return f"{query} SETTINGS {', '.join(parts)}"
 

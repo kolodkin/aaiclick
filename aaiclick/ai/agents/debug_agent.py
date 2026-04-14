@@ -163,13 +163,10 @@ async def _safe_build(label: str, table: str, job_id: int | None) -> str:
 async def _try_build_forest(target_table: str, graph: OplogGraph) -> str:
     """Render a forest from the target's existing oplog.
 
-    Returns an empty string when the target's job ran with empty lineage
-    arrays (``NONE`` / ``FULL`` mode); the caller can then fall through
-    to a STRATEGY replay.
-
-    Short-circuits on the in-memory graph: ``backward_oplog`` already
-    loaded the target's ``result_aai_ids``, so we can tell whether the
-    job populated row lineage without touching the database again.
+    Returns an empty string when the target has no populated row-level
+    lineage arrays (``NONE`` / ``FULL`` mode); the caller can then fall
+    through to a STRATEGY replay. The in-memory graph already carries
+    ``result_aai_ids`` so the check is free.
     """
     target_node = _find_target_node(graph, target_table)
     if target_node is None or not target_node.result_aai_ids:

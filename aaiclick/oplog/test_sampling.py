@@ -4,9 +4,11 @@ Tests for ``aaiclick.oplog.sampling.apply_strategy``.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
-from aaiclick.oplog.sampling import apply_strategy
+from aaiclick.oplog.sampling import _pick_inherited_driver, apply_strategy
 from aaiclick.orchestration.orch_context import task_scope
 
 
@@ -107,10 +109,41 @@ async def test_strategy_matches_multi_source_op(orch_ctx):
     await ch.command(f"DROP TABLE IF EXISTS {right_table}")
 
 
-async def test_inherited_driver_uses_parameter_binding(orch_ctx):
-    """Large inherited match sets travel as a typed Array(UInt64) parameter,
-    not as an inlined SQL literal, so they bypass ``max_query_size`` and
-    don't need the hand-rolled escaping fallback."""
+async def test_pick_inherited_driver_passes_typed_array_parameter():
+    """The inherited-driver lookup binds job_id and src_table as typed
+    parameters, and the returned driver carries the inherited ids as an
+    ``Array(UInt64)`` parameter rather than an inlined SQL literal."""
+    lookup_result = MagicMock()
+    lookup_result.result_rows = [([111, 222, 333],)]
+    ch_client = MagicMock()
+    ch_client.query = AsyncMock(return_value=lookup_result)
+
+    driver = await _pick_inherited_driver(
+        ch_client,
+        sources=[("left", "t_mul")],
+        job_id=42,
+    )
+
+    assert driver is not None
+    assert driver.table == "t_mul"
+    assert driver.clause == "aai_id IN {inherited_ids:Array(UInt64)}"
+    assert driver.parameters == {"inherited_ids": [111, 222, 333]}
+
+    ch_client.query.assert_awaited_once()
+    sent_sql, sent_kwargs = (
+        ch_client.query.await_args.args[0],
+        ch_client.query.await_args.kwargs,
+    )
+    assert "{job_id:UInt64}" in sent_sql
+    assert "{src_table:String}" in sent_sql
+    assert sent_kwargs["parameters"] == {"job_id": 42, "src_table": "t_mul"}
+
+
+async def test_inherited_driver_propagates_through_multi_op_pipeline(orch_ctx):
+    """End-to-end: a 100-matched-row propagation through multiply + add
+    populates the downstream oplog arrays correctly via the inherited
+    driver path. Validates the final arrays, not the mechanism (unit
+    test above covers parameter binding itself)."""
     strategy_job_id = 1234
 
     async with task_scope(
@@ -119,14 +152,8 @@ async def test_inherited_driver_uses_parameter_binding(orch_ctx):
         run_id=100,
         sampling_strategy={"p_big_prices": "value >= 0"},
     ):
-        # 100 matched rows through multiply + add — enough to exercise the
-        # propagation path without being slow in tests. The real-world
-        # motivation was unbounded match sets (millions of rows); parameter
-        # binding lifts the ceiling entirely, this just proves the wiring
-        # exercises the typed path.
-        values = list(range(100))
         prices = await create_object_from_value(
-            [float(v) for v in values], name="big_prices"
+            [float(v) for v in range(100)], name="big_prices"
         )
         quantities = await create_object_from_value(
             [2.0] * 100, name="big_quantities"
@@ -145,7 +172,7 @@ async def test_inherited_driver_uses_parameter_binding(orch_ctx):
                 f"WHERE job_id = {strategy_job_id} AND result_table = '{add_table}'"
             )
         ).result_rows
-        assert rows, "add op should have an oplog row"
+        assert rows
         left_len, result_len = rows[0]
         assert left_len == 100
         assert result_len == 100
