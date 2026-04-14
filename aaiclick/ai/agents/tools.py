@@ -5,10 +5,13 @@ aaiclick.ai.agents.tools - Tools exposed to AI agents for table inspection.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.oplog.lineage import OplogNode, backward_oplog, backward_oplog_row
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -236,11 +239,11 @@ async def trace_row(table: str, aai_id: int, depth: int = 10) -> str:
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
     """Dispatch a tool call by name to the appropriate function.
 
-    Returns a readable error string when the model omits required
-    arguments or names an unknown tool. The agent loop feeds the
-    string back as the tool result, so the model gets a chance to
-    retry with correct inputs instead of crashing the whole debug
-    session on one malformed call.
+    Missing required arguments and unknown tool names produce a
+    retryable error string fed back to the agent loop, so one bad
+    model-emitted tool call doesn't abort the whole debug session.
+    Unexpected exceptions are logged with ``exc_info`` so real bugs
+    stay visible.
     """
     try:
         if name == "sample_table":
@@ -271,4 +274,5 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
             f"provided arguments: {sorted(arguments.keys())})"
         )
     except Exception as exc:
+        logger.exception("tool %s raised an unexpected exception", name)
         return f"(error calling {name}: {exc})"

@@ -236,20 +236,17 @@ class JobFactory:
         Returns:
             Job: Created job with entry point task committed
         """
-        # Check if we're already in an orch context
+        async def _run() -> Job:
+            return await self._create_job(
+                preservation_mode=preservation_mode,
+                sampling_strategy=sampling_strategy,
+                **kwargs,
+            )
+
         if _sql_engine_var.get() is not None:
-            return await self._create_job(
-                preservation_mode=preservation_mode,
-                sampling_strategy=sampling_strategy,
-                **kwargs,
-            )
-        # Not in context, create one
+            return await _run()
         async with orch_context():
-            return await self._create_job(
-                preservation_mode=preservation_mode,
-                sampling_strategy=sampling_strategy,
-                **kwargs,
-            )
+            return await _run()
 
     async def _create_job(
         self,
