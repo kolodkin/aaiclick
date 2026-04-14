@@ -5,17 +5,17 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlmodel import select
 
-from .claiming import claim_next_task, update_task_status
-from ..orch_context import get_sql_session
+from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
+from ..orch_context import get_sql_session
+from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop
 from .worker import (
     _set_pending_cleanup,
     deregister_worker,
     register_worker,
 )
-from ..background.test_pending_cleanup import run_pending_cleanup
 
 
 async def _cancel_all_pending_tasks():

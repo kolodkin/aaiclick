@@ -69,10 +69,9 @@ terminal leaves — there's nothing the producer needs to validate beyond
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_serializer
-
 
 # --- Key names ---------------------------------------------------------
 
@@ -118,7 +117,7 @@ class UpstreamRef(_FrozenRef):
     ref_type: Literal["upstream"] = UPSTREAM
     task_id: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -128,7 +127,7 @@ class GroupResultsRef(_FrozenRef):
     ref_type: Literal["group_results"] = GROUP_RESULTS
     group_id: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -138,11 +137,11 @@ class CallableRef(_FrozenRef):
     ref_type: Literal["callable"] = CALLABLE
     entrypoint: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
-def _drop_optional_metadata(wire: Dict[str, Any]) -> Dict[str, Any]:
+def _drop_optional_metadata(wire: dict[str, Any]) -> dict[str, Any]:
     """Strip the optional metadata fields shared by ObjectRef / ViewRef.
 
     ``persistent`` is dropped unless truthy (``False`` and ``None`` are
@@ -165,14 +164,14 @@ class ObjectRef(_FrozenRef):
 
     object_type: Literal["object"] = OBJECT
     table: str
-    persistent: Optional[bool] = None
-    job_id: Optional[int] = None
+    persistent: bool | None = None
+    job_id: int | None = None
 
     @model_serializer(mode="wrap")
-    def _to_wire(self, handler) -> Dict[str, Any]:
+    def _to_wire(self, handler) -> dict[str, Any]:
         return _drop_optional_metadata(handler(self))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -186,41 +185,41 @@ class ViewRef(_FrozenRef):
 
     object_type: Literal["view"] = VIEW
     table: str
-    where: Optional[str] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    order_by: Optional[str] = None
-    selected_fields: Optional[List[str]] = None
-    renamed_columns: Optional[Dict[str, str]] = None
-    persistent: Optional[bool] = None
-    job_id: Optional[int] = None
+    where: str | None = None
+    limit: int | None = None
+    offset: int | None = None
+    order_by: str | None = None
+    selected_fields: list[str] | None = None
+    renamed_columns: dict[str, str] | None = None
+    persistent: bool | None = None
+    job_id: int | None = None
 
     @model_serializer(mode="wrap")
-    def _to_wire(self, handler) -> Dict[str, Any]:
+    def _to_wire(self, handler) -> dict[str, Any]:
         return _drop_optional_metadata(handler(self))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
 # --- Constructors (thin wrappers around the models) -------------------
 
-def upstream_ref(task_id: int) -> Dict[str, Any]:
+def upstream_ref(task_id: int) -> dict[str, Any]:
     """Build an upstream task reference dict."""
     return UpstreamRef(task_id=task_id).to_dict()
 
 
-def group_results_ref(group_id: int) -> Dict[str, Any]:
+def group_results_ref(group_id: int) -> dict[str, Any]:
     """Build a group-results reference dict."""
     return GroupResultsRef(group_id=group_id).to_dict()
 
 
-def callable_ref(entrypoint: str) -> Dict[str, Any]:
+def callable_ref(entrypoint: str) -> dict[str, Any]:
     """Build a callable reference dict."""
     return CallableRef(entrypoint=entrypoint).to_dict()
 
 
-def native_value_ref(value: Any) -> Dict[str, Any]:
+def native_value_ref(value: Any) -> dict[str, Any]:
     """Wrap a native JSON-serializable Python value."""
     return {NATIVE_VALUE: value}
 

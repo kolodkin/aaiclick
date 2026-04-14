@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 
 
 def _graph(*nodes) -> OplogGraph:

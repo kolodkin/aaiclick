@@ -3,18 +3,18 @@
 import asyncio
 
 import pytest
-
-from aaiclick.backend import is_sqlite
 from sqlalchemy import text
 from sqlmodel import select
 
+from aaiclick.backend import is_sqlite
+
 from ...snowflake_id import get_snowflake_id
-from .claiming import claim_next_task, update_task_status
-from ..orch_context import commit_tasks, get_sql_session
-from .runner import execute_task
 from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
+from ..orch_context import commit_tasks, get_sql_session
+from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop
+from .runner import execute_task
 from .worker import (
     deregister_worker,
     get_worker,
@@ -63,6 +63,7 @@ async def test_worker_heartbeat(orch_ctx):
 
     # Verify heartbeat was updated
     db_worker = await get_worker(worker.id)
+    assert db_worker is not None
     assert db_worker.last_heartbeat > original_heartbeat
 
 
@@ -81,6 +82,7 @@ async def test_deregister_worker(orch_ctx):
 
     # Verify status changed
     db_worker = await get_worker(worker.id)
+    assert db_worker is not None
     assert db_worker.status == WorkerStatus.STOPPED
 
 
@@ -127,6 +129,7 @@ async def test_request_worker_stop(orch_ctx):
     assert result is True
 
     db_worker = await get_worker(worker.id)
+    assert db_worker is not None
     assert db_worker.status == WorkerStatus.STOPPING
 
 
@@ -182,6 +185,7 @@ async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatc
     assert tasks_executed == 0
 
     db_worker = await get_worker(worker.id)
+    assert db_worker is not None
     assert db_worker.status == WorkerStatus.STOPPED
 
 
@@ -244,11 +248,11 @@ async def test_claim_next_task_skip_locked(orch_ctx):
     worker2 = await register_worker(hostname="worker2", pid=1002)
 
     # Create multiple jobs with tasks
-    job1 = await create_job(
+    await create_job(
         "test_claim_job1",
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
     )
-    job2 = await create_job(
+    await create_job(
         "test_claim_job2",
         "aaiclick.orchestration.fixtures.sample_tasks.async_task",
     )
@@ -292,7 +296,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     await update_task_status(task1.id, TaskStatus.COMPLETED)
 
     # Now create a second job (newer)
-    job2 = await create_job(
+    await create_job(
         "test_job_new",
         "aaiclick.orchestration.fixtures.sample_tasks.async_task",
     )

@@ -13,6 +13,10 @@ Everything is best-effort: a failed lookup logs and returns empty arrays.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aaiclick.data.data_context.ch_client import ChClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ appear in the oplog (``kwargs`` values and ``result_table``).
 
 
 async def apply_strategy(
-    ch_client: object,
+    ch_client: ChClient,
     result_table: str,
     kwargs: dict[str, str],
     strategy: SamplingStrategy,
@@ -93,7 +97,7 @@ def _pick_driver(
 
 
 async def _apply_positional(
-    ch_client: object,
+    ch_client: ChClient,
     result_table: str,
     sources: list[tuple[str, str]],
     driver: tuple[str, str],
@@ -149,7 +153,7 @@ async def _apply_positional(
     return kwargs_aai_ids, result_ids
 
 
-async def _select_ids(ch_client: object, table: str, clause: str) -> list[int]:
+async def _select_ids(ch_client: ChClient, table: str, clause: str) -> list[int]:
     """Return all ``aai_id``s from ``table`` that match ``clause``."""
     rows = await ch_client.query(
         f"SELECT aai_id FROM {table} WHERE {clause}"

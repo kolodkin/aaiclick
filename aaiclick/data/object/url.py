@@ -8,11 +8,15 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
-from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
+from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..sql_utils import quote_identifier
+
+if TYPE_CHECKING:
+    from .object import Object
 
 SUPPORTED_URL_FORMATS = frozenset({
     "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",

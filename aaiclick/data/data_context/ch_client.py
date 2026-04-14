@@ -7,8 +7,9 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextvars import ContextVar
-from typing import Optional, Protocol, Sequence
+from typing import Protocol, cast
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
@@ -27,15 +28,15 @@ class ChClient(Protocol):
     Both ChdbClient and clickhouse-connect AsyncClient satisfy this protocol.
     """
 
-    async def command(self, query: str) -> object: ...
-    async def query(self, query: str) -> QueryResult: ...
+    async def command(self, query: str, settings: dict | None = None) -> object: ...
+    async def query(self, query: str, settings: dict | None = None) -> QueryResult: ...
     async def insert(
         self,
         table: str,
         data: Sequence[Sequence],
-        column_names: Optional[Sequence[str]] = None,
+        column_names: Sequence[str] | None = None,
         column_oriented: bool = False,
-        column_type_names: Optional[Sequence[str]] = None,
+        column_type_names: Sequence[str] | None = None,
     ) -> None: ...
 
 
@@ -62,7 +63,7 @@ async def create_ch_client() -> ChClient:
 
     from .clickhouse_client import create_clickhouse_client
 
-    return await create_clickhouse_client()
+    return cast(ChClient, await create_clickhouse_client())
 
 
 def create_sync_client(connection_string: str) -> object:

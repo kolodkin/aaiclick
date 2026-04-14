@@ -11,7 +11,7 @@ This example demonstrates the isin() operator and with_isin() computed column:
 
 import asyncio
 
-from aaiclick import create_object_from_value, ORIENT_RECORDS
+from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
 
 
@@ -86,7 +86,7 @@ async def example():
 
     filtered = view.where("in_focus = 1")
     data = await filtered.data()
-    print(f"Focus departments only:")
+    print("Focus departments only:")
     print(f"  Names:    {data['name']}")  # → ['Alice', 'Charlie', 'Diana']
     print(f"  Salaries: {data['salary']}")  # → [120000, 110000, 90000]
 

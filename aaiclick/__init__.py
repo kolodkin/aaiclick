@@ -13,38 +13,40 @@ except Exception:
     __version__ = "0.0.0"
 
 # Context manager (primary API)
-from .data import data_context
-
 # Factory functions
-from .data import create_object, create_object_from_value, create_object_from_url
-
 # Core types
-from .data import Object, View, DataResult
-
 # Helper functions
-from .data import cast, literal, split_by_char
-
 # Schema definition
-from .data import Schema, ColumnInfo, ColumnType, FieldSpec
-
 # Field type and orientation constants
-from .data import (
-    FIELDTYPE_SCALAR,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
-    ORIENT_DICT,
-    ORIENT_RECORDS,
-)
-
 # Value type aliases
-from .data import ValueScalarType, ValueListType, ValueType
-
 # Persistent object management
 from .data import (
-    list_persistent_objects,
-    open_object,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ORIENT_DICT,
+    ORIENT_RECORDS,
+    ColumnInfo,
+    ColumnType,
+    DataResult,
+    FieldSpec,
+    Object,
+    Schema,
+    ValueListType,
+    ValueScalarType,
+    ValueType,
+    View,
+    cast,
+    create_object,
+    create_object_from_url,
+    create_object_from_value,
+    data_context,
     delete_persistent_object,
     delete_persistent_objects,
+    list_persistent_objects,
+    literal,
+    open_object,
+    split_by_char,
 )
 
 
@@ -70,9 +72,9 @@ async def explain(target_table: str, question: str | None = None) -> str:
     """
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "AI features require the aaiclick[ai] extra. "
             "Install with: pip install aaiclick[ai]"
-        )
+        ) from err
     return await explain_lineage(target_table, question)

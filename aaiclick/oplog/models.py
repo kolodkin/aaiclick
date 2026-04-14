@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from aaiclick.data.data_context import ChClient
 
-
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
     id              UInt64 DEFAULT generateSnowflakeID(),

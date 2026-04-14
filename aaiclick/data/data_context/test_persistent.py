@@ -2,12 +2,11 @@
 
 import pytest
 
-from aaiclick import create_object, create_object_from_value, Schema, FIELDTYPE_ARRAY
+from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
     data_context,
     delete_persistent_object,
     delete_persistent_objects,
-    get_ch_client,
     list_persistent_objects,
     open_object,
 )

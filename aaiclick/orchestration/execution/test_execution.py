@@ -10,9 +10,13 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlmodel import col
 
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.examples.orchestration_dynamic import (
+    chain_pipeline,
+    dynamic_pipeline,
+)
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
     deserialize_task_params,
@@ -23,14 +27,10 @@ from aaiclick.orchestration.execution.runner import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
-from aaiclick.orchestration.examples.orchestration_dynamic import (
-    chain_pipeline,
-    dynamic_pipeline,
-)
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
-
+from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
 
 # Logging tests
 
@@ -222,6 +222,7 @@ async def test_serialize_task_result_pydantic_model(orch_ctx):
     """Pydantic BaseModel results are serialized with pydantic_type + data keys."""
     model = _SampleModel(name="test", count=42, ratio=0.5)
     result = serialize_task_result(model, job_id=1)
+    assert result is not None
     assert result["pydantic_type"].endswith("._SampleModel")
     assert result["data"] == {"name": "test", "count": 42, "ratio": 0.5}
 
@@ -396,7 +397,7 @@ def test_task_result_preserves_explicit_dependency(orch_ctx):
     g = Group(id=get_snowflake_id(), name="g1")
     t2 >> t1  # t1 depends on t2
 
-    r = tasks_list(t1, g)
+    tasks_list(t1, g)
     dep_ids = {d.previous_id for d in t1.previous_dependencies}
     assert t2.id in dep_ids
 
@@ -461,7 +462,7 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
 
     async with get_sql_session() as session:
         result = await session.execute(
-            select(Task).where(Task.job_id == job.id, Task.entrypoint.in_(["mod.child1", "mod.child2"]))
+            select(Task).where(Task.job_id == job.id, col(Task.entrypoint).in_(["mod.child1", "mod.child2"]))
         )
         children = result.scalars().all()
         assert len(children) == 2

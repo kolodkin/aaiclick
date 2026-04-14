@@ -36,7 +36,7 @@ async def test_array_map_arithmetic(ctx, a_vals, b_vals, operator, expected):
     result = await a.array_map(b, operator)
     data = await result.data()
     assert len(data) == len(expected)
-    for actual, exp in zip(data, expected):
+    for actual, exp in zip(data, expected, strict=False):
         assert abs(actual - exp) < THRESHOLD
 
 
@@ -98,7 +98,7 @@ async def test_array_map_scalar(ctx, a_vals, scalar, operator, expected):
     result = await a.array_map(scalar, operator)
     data = await result.data()
     assert len(data) == len(expected)
-    for actual, exp in zip(data, expected):
+    for actual, exp in zip(data, expected, strict=False):
         assert abs(actual - exp) < THRESHOLD
 
 

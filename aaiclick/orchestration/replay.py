@@ -16,12 +16,11 @@ plan — see ``docs/lineage_3_phases.md`` for the big picture and
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, NamedTuple, Optional
+from typing import Any, NamedTuple
 
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlalchemy.orm import aliased
+from sqlmodel import col, select
 
 from aaiclick.data.object.refs import (
     JOB_ID,
@@ -55,9 +54,9 @@ class _RewriteCtx(NamedTuple):
       which is transitively resolved on encounter.
     """
 
-    task_id_map: Dict[int, int]
-    input_task_refs: Dict[int, Dict[str, Any]]
-    wiring_targets: Dict[int, Any]
+    task_id_map: dict[int, int]
+    input_task_refs: dict[int, dict[str, Any]]
+    wiring_targets: dict[int, Any]
 
 
 def _is_wiring_task(task: Task, *, dynamic_parent_ids: set[int]) -> bool:
@@ -121,7 +120,7 @@ async def replay_job(
     original_job_id: int,
     sampling_strategy: SamplingStrategy,
     *,
-    name: Optional[str] = None,
+    name: str | None = None,
 ) -> Job:
     """Clone a completed job's task graph and re-run it under a strategy.
 
@@ -170,15 +169,15 @@ async def replay_job(
         dynamic_parent_ids = await _load_dynamic_parent_ids(session, original_job_id)
         dep_rows = await _load_task_dependencies(session, [t.id for t in task_rows])
 
-    input_task_refs: Dict[int, Dict[str, Any]] = {}
-    wiring_targets: Dict[int, Any] = {}
+    input_task_refs: dict[int, dict[str, Any]] = {}
+    wiring_targets: dict[int, Any] = {}
     compute_tasks: list[Task] = []
 
     for task in task_rows:
         if is_input_task(task):
             # ``get_job_result`` injects job_id on read; strip it so the
             # replayed tasks don't carry the original job's id.
-            ref = dict(task.result)
+            ref = dict(task.result) if task.result is not None else {}
             ref.pop(JOB_ID, None)
             input_task_refs[task.id] = ref
         elif _is_wiring_task(task, dynamic_parent_ids=dynamic_parent_ids):
@@ -196,7 +195,7 @@ async def replay_job(
         PreservationMode.STRATEGY, sampling_strategy, registered=None
     )
 
-    task_id_map: Dict[int, int] = {
+    task_id_map: dict[int, int] = {
         task.id: get_snowflake_id() for task in compute_tasks
     }
     rewrite_ctx = _RewriteCtx(
@@ -250,14 +249,14 @@ async def _load_dynamic_parent_ids(session: AsyncSession, job_id: int) -> set[in
     result = await session.execute(
         select(parent.id)
         .distinct()
-        .join(Dependency, Dependency.previous_id == parent.id)
-        .join(child, child.id == Dependency.next_id)
+        .join(Dependency, col(Dependency.previous_id) == parent.id)
+        .join(child, col(Dependency.next_id) == child.id)
         .where(
             parent.job_id == job_id,
             Dependency.previous_type == DEPENDENCY_TASK,
             Dependency.next_type == DEPENDENCY_TASK,
-            parent.started_at.isnot(None),
-            child.created_at >= parent.started_at,
+            col(parent.started_at).isnot(None),
+            col(child.created_at) >= col(parent.started_at),
         )
     )
     return {row[0] for row in result.all()}
@@ -277,8 +276,8 @@ async def _load_task_dependencies(session, task_ids: list[int]) -> list[Dependen
         select(Dependency).where(
             Dependency.previous_type == DEPENDENCY_TASK,
             Dependency.next_type == DEPENDENCY_TASK,
-            Dependency.previous_id.in_(task_ids),
-            Dependency.next_id.in_(task_ids),
+            col(Dependency.previous_id).in_(task_ids),
+            col(Dependency.next_id).in_(task_ids),
         )
     )
     return list(result.scalars().all())
@@ -287,7 +286,7 @@ async def _load_task_dependencies(session, task_ids: list[int]) -> list[Dependen
 def _clone_dependencies(
     deps: list[Dependency],
     *,
-    task_id_map: Dict[int, int],
+    task_id_map: dict[int, int],
 ) -> list[Dependency]:
     """Remap dependency endpoints onto the cloned task graph.
 

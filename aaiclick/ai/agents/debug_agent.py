@@ -9,11 +9,11 @@ import json
 import logging
 from typing import Any
 
-from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool, get_schemas_for_nodes
-from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
 from aaiclick.ai.config import get_ai_provider
+from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ async def debug_result(
             *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments))
               for tc in message.tool_calls)
         )
-        for tc, result in zip(message.tool_calls, tool_results):
+        for tc, result in zip(message.tool_calls, tool_results, strict=False):
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,

@@ -22,7 +22,7 @@ import pytest
 
 from aaiclick import create_object_from_url
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.models import ColumnInfo, FIELDTYPE_DICT
+from aaiclick.data.models import FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
 
 _NUM_ROWS = 200
@@ -39,7 +39,7 @@ _FILESERVER_HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 def fileserver():
     """Start a throwaway HTTP server serving url_samples/ on a random port."""
     handler = partial(SimpleHTTPRequestHandler, directory=_SAMPLES_DIR)
-    handler.log_message = lambda *_args: None
+    handler.log_message = lambda *_args: None  # type: ignore[attr-defined]
     server = HTTPServer(("0.0.0.0", 0), handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -605,7 +605,7 @@ async def test_json_load_array_field(ctx, json_server):
         },
     )
     data = await obj.data()
-    tags_by_id = dict(zip(data["id"], data["tags"]))
+    tags_by_id = dict(zip(data["id"], data["tags"], strict=False))
     assert set(tags_by_id["A-001"]) == {"x", "y"}
     assert tags_by_id["A-002"] == ["z"]
     assert tags_by_id["A-003"] == []

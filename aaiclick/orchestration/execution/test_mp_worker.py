@@ -3,12 +3,12 @@
 import pytest
 from sqlmodel import select
 
-pytestmark = pytest.mark.usefixtures("fast_poll")
-
 from ..factories import create_job
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
+
+pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
 async def test_mp_worker_executes_task(orch_ctx_no_ch):

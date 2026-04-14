@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.orch_context import get_sql_session

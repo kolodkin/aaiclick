@@ -103,7 +103,7 @@ def _print_report(
     # ---- Publish Result ----
     print("\n### Published\n")
     if hf_result is None:
-        print(f"- Skipped: HF_TOKEN not set")
+        print("- Skipped: HF_TOKEN not set")
         print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
     elif hf_result.status == "published":
         print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")
@@ -135,7 +135,7 @@ async def generate_report(
     ).markdown()
 
     genre_data_raw = await genre_balance.data()
-    genre_data = dict(zip(genre_data_raw["genre"], genre_data_raw["tconst"]))
+    genre_data = dict(zip(genre_data_raw["genre"], genre_data_raw["tconst"], strict=False))
 
     buf = StringIO()
     with redirect_stdout(buf):

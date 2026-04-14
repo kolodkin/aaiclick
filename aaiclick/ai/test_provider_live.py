@@ -9,8 +9,8 @@ Set AAICLICK_AI_MODEL to choose the model (default: ollama/llama3.1:8b).
 
 import pytest
 
-from aaiclick.ai.config import get_ai_provider
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS
+from aaiclick.ai.config import get_ai_provider
 
 
 @pytest.mark.live_llm

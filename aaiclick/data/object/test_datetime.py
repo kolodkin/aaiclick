@@ -8,19 +8,15 @@ explicit schema usage in create_object.
 
 from datetime import datetime, timezone
 
-import pytest
-
 from aaiclick import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
     ColumnInfo,
     Schema,
     create_object,
     create_object_from_value,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
-    FIELDTYPE_SCALAR,
 )
 from aaiclick.data.data_context import get_ch_client
-
 
 DT_2024 = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
 DT_2025 = datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc)

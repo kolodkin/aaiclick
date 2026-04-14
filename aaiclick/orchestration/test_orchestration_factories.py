@@ -5,9 +5,9 @@ from datetime import datetime
 from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.result import data_list
 
 
 async def test_create_task_unique_ids(orch_ctx):

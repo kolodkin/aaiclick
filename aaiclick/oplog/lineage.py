@@ -4,14 +4,15 @@ aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
 
 from __future__ import annotations
 
+import re
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-import re
-from typing import Any, AsyncIterator, Literal
+from typing import Any, Literal
+
+from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 
 LineageDirection = Literal["backward", "forward"]
-
-from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -146,7 +147,7 @@ class OplogGraph:
                 lookup[table_id[2:]] = label
 
         def _sub(m: re.Match) -> str:
-            return lookup.get(m.group(), m.group())
+            return lookup.get(m.group(), m.group()) or m.group()
 
         return OplogGraph._SNOWFLAKE_RE.sub(_sub, text)
 

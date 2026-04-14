@@ -49,7 +49,7 @@ END_DATE = "2026-01-01"
 
 @job("cyber_threat_feeds")
 def cyber_threat_pipeline(shodan_limit: int = 5000):
-    """
+    r"""
     Cyber Threat Feeds Pipeline.
 
     Loads CISA KEV, Shodan CVEDB, and FIRST EPSS data directly into

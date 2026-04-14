@@ -8,7 +8,7 @@ for automatic schema inference and basic arithmetic operators on Objects.
 import asyncio
 from datetime import datetime, timezone
 
-from aaiclick import ORIENT_RECORDS, Object, create_object_from_value
+from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
 
 
@@ -219,7 +219,7 @@ async def example():
 
     obj_auto = await create_object_from_value(42)
     obj_auto2 = await create_object_from_value(99)
-    print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
+    print("Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
     print(f"  Object 1 -> table: {obj_auto.table}")  # → t_...
     print(f"  Object 2 -> table: {obj_auto2.table}")  # → t_...
 

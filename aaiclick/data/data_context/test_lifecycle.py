@@ -7,14 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import data_context
-from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
+from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler, data_context, get_data_lifecycle
 
 
 def test_lifecycle_handler_is_abstract():
     """LifecycleHandler cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        LifecycleHandler()
+        LifecycleHandler()  # type: ignore[abstract]
 
 
 def test_local_lifecycle_delegates_incref():

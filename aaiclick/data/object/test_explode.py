@@ -5,9 +5,8 @@ Tests for Object.explode() — ARRAY JOIN flattening to rows.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import Computed, Schema, ColumnInfo, FIELDTYPE_DICT
+from aaiclick.data.models import Computed
 from aaiclick.data.object import View
-
 
 # =============================================================================
 # Basic explode + data()
@@ -76,7 +75,7 @@ async def test_explode_group_by_count(ctx):
     flat = obj.explode("tags")
     tag_counts = await flat.group_by("tags").count()
     result = await tag_counts.data()
-    counts = dict(zip(result["tags"], result["_count"]))
+    counts = dict(zip(result["tags"], result["_count"], strict=False))
     assert counts["python"] == 2
     assert counts["rust"] == 1
     assert counts["go"] == 1
@@ -120,7 +119,7 @@ async def test_explode_multi_column_zip(ctx):
     assert len(result["tags"]) == 4
     assert len(result["scores"]) == 4
     # Verify zip pairing: find Alice's entries
-    pairs = list(zip(result["user"], result["tags"], result["scores"]))
+    pairs = list(zip(result["user"], result["tags"], result["scores"], strict=False))
     alice_pairs = [(t, s) for u, t, s in pairs if u == "Alice"]
     assert sorted(alice_pairs) == [("python", 90), ("rust", 85)]
 

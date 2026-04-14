@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from aaiclick.orchestration.background.background_worker import BackgroundWorker, RETRY_BASE_DELAY
+from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY, BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
@@ -50,7 +50,9 @@ async def _get_task_status(engine, task_id):
             ),
             {"id": task_id},
         )
-        return result.fetchone()
+        row = result.fetchone()
+        assert row is not None
+        return row
 
 
 async def _get_pin_refs(engine, task_id):

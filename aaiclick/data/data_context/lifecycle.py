@@ -14,7 +14,6 @@ from contextvars import ContextVar
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
-
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
 
 

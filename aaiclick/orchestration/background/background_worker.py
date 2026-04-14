@@ -22,11 +22,13 @@ import logging
 import os
 import warnings
 from datetime import datetime, timedelta
+from typing import Any, cast
 
 from croniter import croniter
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
@@ -82,15 +84,12 @@ class BackgroundWorker:
         self._poll_interval = poll_interval
         self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
-        self._engine: AsyncEngine | None = None
-        self._ch_client: object | None = None
-        self._shutdown: asyncio.Event | None = None
-        self._handler: BackgroundHandler | None = None
+        self._engine: AsyncEngine = create_async_engine(get_db_url(), echo=False)
+        self._ch_client: Any = None
+        self._shutdown: asyncio.Event = asyncio.Event()
+        self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
-        self._engine = create_async_engine(get_db_url(), echo=False)
-        self._handler = create_background_handler()
-
         if is_chdb():
             from aaiclick.data.data_context.chdb_client import create_chdb_client
 
@@ -102,17 +101,13 @@ class BackgroundWorker:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
                 self._ch_client = await get_async_client(**parse_ch_url())
-        self._shutdown = asyncio.Event()
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
-        if self._shutdown:
-            self._shutdown.set()
+        self._shutdown.set()
         if self._task:
             await self._task
-        if self._engine:
-            await self._engine.dispose()
-            self._engine = None
+        await self._engine.dispose()
         self._ch_client = None
 
     async def _cleanup_loop(self) -> None:
@@ -236,7 +231,11 @@ class BackgroundWorker:
             for table_name in table_names:
                 owner = owner_map.get(table_name)
                 job_id = owner.job_id if owner else None
-                mode = mode_map.get(job_id, PreservationMode.NONE)
+                mode = (
+                    mode_map.get(job_id, PreservationMode.NONE)
+                    if job_id is not None
+                    else PreservationMode.NONE
+                )
                 if mode is PreservationMode.FULL:
                     # Keep the table alive until the job expires.
                     continue
@@ -260,7 +259,7 @@ class BackgroundWorker:
         if not job_ids:
             return {}
         result = await session.execute(
-            select(Job.id, Job.preservation_mode).where(Job.id.in_(job_ids)),
+            select(Job.id, Job.preservation_mode).where(col(Job.id).in_(job_ids)),
         )
         return {row[0]: row[1] for row in result.all()}
 
@@ -530,7 +529,7 @@ class BackgroundWorker:
                     },
                 )
 
-                if lock_result.rowcount == 0:
+                if cast(CursorResult, lock_result).rowcount == 0:
                     continue
 
                 # Won the race — create Job + entry Task

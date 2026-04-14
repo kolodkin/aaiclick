@@ -10,10 +10,10 @@ Set AAICLICK_AI_MODEL to choose the model (default: ollama/llama3.1:8b).
 
 import pytest
 
+from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import lineage_context
-from aaiclick.ai.agents.lineage_agent import explain_lineage
-from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.orchestration.orch_context import task_scope
 
 

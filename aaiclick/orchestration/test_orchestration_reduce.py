@@ -3,11 +3,10 @@
 from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object
 from aaiclick.orchestration import get_job_result, task_result
-from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.decorators import job, task
+from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.operators import reduce
-
 
 # --- Reduction callbacks (module-level for entrypoint resolution) ---
 

@@ -2,8 +2,8 @@
 
 from datetime import datetime, timedelta
 
-from .stats import JobStats, _fmt_duration, compute_job_stats
 from ..models import Job, JobStatus, RunType, Task, TaskStatus
+from .stats import JobStats, _fmt_duration, compute_job_stats
 
 
 def _make_job(

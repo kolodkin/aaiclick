@@ -6,8 +6,8 @@ Tests array concatenation with objects, scalar values, and list values.
 
 import pytest
 
-from aaiclick import create_object, create_object_from_value
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
+from aaiclick import create_object_from_value
+from aaiclick.data.models import Computed
 
 THRESHOLD = 1e-5
 

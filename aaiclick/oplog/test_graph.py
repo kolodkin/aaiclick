@@ -93,7 +93,7 @@ async def test_invalid_direction(orch_ctx):
     """oplog_subgraph raises ValueError for unknown direction."""
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
-            await oplog_subgraph("some_table", direction="sideways")
+            await oplog_subgraph("some_table", direction="sideways")  # type: ignore[arg-type]
 
 
 def test_prompt_context_id_breaking_ops_warning():

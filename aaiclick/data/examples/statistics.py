@@ -95,7 +95,7 @@ async def example():
     avg_temp = await (await obj_temp.mean()).data()
     std_temp = await (await obj_temp.std()).data()
 
-    print(f"Temperature Analysis:")
+    print("Temperature Analysis:")
     print(f"  Minimum:          {min_temp:.1f}°F")  # → 68.3°F
     print(f"  Maximum:          {max_temp:.1f}°F")  # → 76.2°F
     print(f"  Average:          {avg_temp:.1f}°F")  # → 72.6°F

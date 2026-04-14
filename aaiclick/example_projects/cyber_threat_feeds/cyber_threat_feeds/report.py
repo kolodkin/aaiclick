@@ -12,7 +12,7 @@ from aaiclick.orchestration import task
 from .consolidated import MERGED_COLUMNS
 from .epss import EPSS_COLUMNS, EPSS_URL
 from .kev import CISA_KEV_URL, KEV_COLUMNS
-from .shodan import SHODAN_CVEDB_URL, SHODAN_COLUMNS
+from .shodan import SHODAN_COLUMNS, SHODAN_CVEDB_URL
 
 
 @task

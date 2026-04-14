@@ -5,8 +5,7 @@ This module tests the __getitem__ syntax for selecting columns from dict Objects
 and the copy() method for materializing Views as array Objects.
 """
 
-from aaiclick import create_object_from_value, View
-
+from aaiclick import View, create_object_from_value
 
 # =============================================================================
 # Basic Dict Selector Tests

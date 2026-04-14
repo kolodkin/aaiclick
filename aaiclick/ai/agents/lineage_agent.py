@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import asyncio
 
-from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
-from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
+from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
 from aaiclick.ai.config import get_ai_provider
+from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
 _SYSTEM_PROMPT = f"""\
 You are a data lineage expert analyzing a ClickHouse data pipeline.
@@ -47,7 +47,7 @@ async def explain_lineage(
     )
     parts = [
         f"\n\nSample rows from `{node.table}`:\n{sample}"
-        for node, sample in zip(graph.nodes, samples)
+        for node, sample in zip(graph.nodes, samples, strict=False)
         if not isinstance(sample, Exception)
     ]
     if parts:

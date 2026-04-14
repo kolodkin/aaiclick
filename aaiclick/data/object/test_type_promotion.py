@@ -3,7 +3,7 @@
 import pytest
 
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.object.operators import _promote_arithmetic_type, _determine_agg_result_type
+from aaiclick.data.object.operators import _determine_agg_result_type, _promote_arithmetic_type
 
 
 @pytest.fixture
