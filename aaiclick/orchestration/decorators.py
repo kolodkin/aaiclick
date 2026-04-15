@@ -39,10 +39,10 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_
 from aaiclick.oplog.sampling import SamplingStrategy
 
 from ..snowflake_id import get_snowflake_id
-from .orch_context import commit_tasks, get_sql_session, orch_context
-from .sql_context import _sql_engine_var
 from .factories import _callable_to_string, resolve_job_config
 from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .orch_context import commit_tasks, get_sql_session, orch_context
+from .sql_context import _sql_engine_var
 
 
 def _collect_upstreams(value: Any, upstream_tasks: list[Task]) -> None:

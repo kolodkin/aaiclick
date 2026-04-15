@@ -6,13 +6,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.conftest import make_oplog_node
 from aaiclick.ai.agents.tools import (
     dispatch_tool,
     get_column_stats,
     get_schemas_for_nodes,
     trace_row,
 )
+from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import RowLineageStep
 
 

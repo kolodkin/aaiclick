@@ -26,7 +26,6 @@ from chdb.session import Session
 
 from aaiclick.data.sql_utils import escape_sql_string
 
-
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
 _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
@@ -116,7 +115,7 @@ def _serialize_param(value: object) -> object:
     return value
 
 
-def _serialize_parameters(parameters: Optional[dict]) -> Optional[dict]:
+def _serialize_parameters(parameters: dict | None) -> dict | None:
     if not parameters:
         return None
     return {k: _serialize_param(v) for k, v in parameters.items()}
@@ -157,8 +156,8 @@ class ChdbClient:
     async def command(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
@@ -190,8 +189,8 @@ class ChdbClient:
     async def query(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 

@@ -11,11 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
+from aaiclick.data.sql_utils import escape_sql_string
 
 LineageDirection = Literal["backward", "forward"]
-
-from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
-from aaiclick.data.sql_utils import escape_sql_string
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:

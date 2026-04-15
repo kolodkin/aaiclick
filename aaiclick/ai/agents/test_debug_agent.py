@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.ai.agents.debug_agent import _try_build_forest, debug_result
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph, OplogNode
-from aaiclick.ai.agents.debug_agent import _try_build_forest, debug_result
 
 
 def _mock_provider(*responses):

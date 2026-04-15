@@ -24,7 +24,6 @@ from aaiclick.oplog.lineage_forest import (
 )
 from aaiclick.orchestration.orch_context import task_scope
 
-
 # ---------------------------------------------------------------------
 # Pure unit tests — no DB
 # ---------------------------------------------------------------------

@@ -55,6 +55,8 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import escape_sql_string, quote_identifier
+from . import data_extraction, ingest, operators
+from .refs import ObjectRef, ViewRef
 
 
 @dataclass

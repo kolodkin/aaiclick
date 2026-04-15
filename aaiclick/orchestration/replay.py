@@ -125,14 +125,14 @@ class ReplayedJob(NamedTuple):
     """
 
     job: Job
-    task_id_map: Dict[int, int]
+    task_id_map: dict[int, int]
 
 
 async def replay_job(
     original_job_id: int,
     sampling_strategy: SamplingStrategy,
     *,
-    name: Optional[str] = None,
+    name: str | None = None,
 ) -> ReplayedJob:
     """Clone a completed job's task graph and re-run it under a strategy.
 

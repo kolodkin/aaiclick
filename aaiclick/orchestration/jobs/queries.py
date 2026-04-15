@@ -82,7 +82,7 @@ async def count_jobs(
         return result.scalar_one()
 
 
-async def get_task(task_id: int) -> Optional[Task]:
+async def get_task(task_id: int) -> Task | None:
     """Get a task by ID.
 
     Args:
@@ -96,7 +96,7 @@ async def get_task(task_id: int) -> Optional[Task]:
         return result.scalar_one_or_none()
 
 
-async def get_task_result_table(task_id: int) -> Optional[str]:
+async def get_task_result_table(task_id: int) -> str | None:
     """Return the output-table name written by a committed task.
 
     Reads ``Task.result["table"]`` — the canonical slot for an Object-

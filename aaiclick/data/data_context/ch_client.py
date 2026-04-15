@@ -37,14 +37,14 @@ class ChClient(Protocol):
     async def command(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> object: ...
     async def query(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> QueryResult: ...
     async def insert(
         self,
