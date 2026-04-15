@@ -9,20 +9,17 @@ from typing import NamedTuple
 from unittest.mock import AsyncMock
 
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
-from aaiclick.orchestration import tasks_list
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.decorators import job, task
+from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
-
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
@@ -143,6 +140,7 @@ async def _get_context_tables(session):
 
 async def _run_cleanup():
     engine = _sql_engine_var.get()
+    assert engine is not None
     worker = BackgroundWorker()
     worker._engine = engine
     worker._handler = SqliteBackgroundHandler()

@@ -7,7 +7,7 @@ Each operator is tested with different type combinations.
 
 import math
 
-from aaiclick import create_object_from_value, create_object
+from aaiclick import create_object_from_value
 
 # Number of items for large array tests
 NUM_ITEMS = 10000

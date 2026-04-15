@@ -33,7 +33,7 @@ async def example():
             print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
-    print(f"\nReconstructed output:")
+    print("\nReconstructed output:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 
@@ -53,7 +53,7 @@ async def example():
         print(f"  [{i}] {row}")
 
     data = await obj.data(orient=ORIENT_DICT)
-    print(f"\nORIENT_DICT:")
+    print("\nORIENT_DICT:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 
@@ -115,7 +115,7 @@ async def example():
             print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
-    print(f"\nResult:")
+    print("\nResult:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 

@@ -109,9 +109,7 @@ def make_benchmarks(filter_threshold):
         "Filter rows": lambda s: _create_and_insert(
             "CREATE TABLE {tbl} (id Int64, category String, subcategory String,"
             " amount Float64, quantity Int64) ENGINE = Memory",
-            "SELECT * FROM bench.data WHERE amount > {threshold}".format(
-                threshold=filter_threshold
-            ),
+            f"SELECT * FROM bench.data WHERE amount > {filter_threshold}",
         ),
         "Sort": lambda s: _create_and_insert(
             "CREATE TABLE {tbl} (id Int64, category String, subcategory String,"

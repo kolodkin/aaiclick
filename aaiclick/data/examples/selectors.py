@@ -24,7 +24,7 @@ async def example():
         'param1': [123, 234, 345],
         'param2': [456, 567, 678]
     })
-    print(f"Created dict Object with columns: param1, param2")
+    print("Created dict Object with columns: param1, param2")
     print(f"Full data: {await obj.data()}\n")  # → {'param1': [123, 234, 345], 'param2': [456, 567, 678]}
 
     # Select param1 using __getitem__
@@ -42,10 +42,10 @@ async def example():
     print("-" * 50)
 
     schema = obj.schema
-    print(f"Schema for dict Object:")
+    print("Schema for dict Object:")
     print(f"  table: {schema.table}")
     print(f"  fieldtype: '{schema.fieldtype}' (d = dict)")
-    print(f"  columns:")
+    print("  columns:")
     for name, col in schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 
@@ -56,7 +56,7 @@ async def example():
 
     view = obj['param1']
     view_schema = view.schema
-    print(f"ViewSchema for obj['param1']:")
+    print("ViewSchema for obj['param1']:")
     print(f"  table: {view_schema.table}")
     print(f"  fieldtype: '{view_schema.fieldtype}' (source table type)")
     print(f"  selected_fields: {view_schema.selected_fields}")
@@ -80,10 +80,10 @@ async def example():
 
     # Check copied object's metadata
     arr_schema = arr.schema
-    print(f"\nCopied Schema:")
+    print("\nCopied Schema:")
     print(f"  table: {arr_schema.table} (new table)")
     print(f"  fieldtype: '{arr_schema.fieldtype}' (a = array)")
-    print(f"  columns:")
+    print("  columns:")
     for name, col in arr_schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 

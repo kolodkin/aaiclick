@@ -58,14 +58,27 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
-from typing import Union
+from typing import cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
-from ..data_context import create_object
-from ..models import Agg, ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
-from ..sql_utils import quote_identifier
 
+from ..data_context import create_object
+from ..models import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    FLOAT_TYPES,
+    INT_TYPES,
+    Agg,
+    ColumnInfo,
+    GroupByInfo,
+    GroupByOpType,
+    QueryInfo,
+    Schema,
+    parse_ch_type,
+)
+from ..sql_utils import escape_sql_string, quote_identifier
 
 # Operator to arrayMap lambda expression mapping (uses x, y variables)
 ARRAYMAP_EXPRESSIONS = {
@@ -366,7 +379,7 @@ def _promote_arithmetic_type(operator: str, type_a: str, type_b: str) -> str:
     return type_a
 
 
-def _determine_agg_result_type(agg_func: str, source_type: Union[str, ColumnInfo]) -> str:
+def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> str:
     """
     Determine the ClickHouse result type for an aggregation function.
 
@@ -419,7 +432,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
-    safe_value_column = info.value_column.replace("'", "\\'")
+    safe_value_column = escape_sql_string(info.value_column)
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
@@ -560,7 +573,7 @@ async def count_agg(info: QueryInfo, ch_client):
     return await _apply_aggregation(info, "count", ch_client)
 
 
-async def count_if_agg(info: QueryInfo, condition: Union[str, dict[str, str]], ch_client):
+async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_client):
     """
     Count rows matching condition(s) at database level using countIf().
 
@@ -827,7 +840,7 @@ def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
     result: list[tuple[str, Agg]] = []
     for column, spec in aggregations.items():
         if isinstance(spec, str):
-            result.append((column, Agg(op=spec, alias=column)))
+            result.append((column, Agg(op=cast(GroupByOpType, spec), alias=column)))
         elif isinstance(spec, tuple):
             result.append((column, Agg._make(spec)))
         elif isinstance(spec, list):
@@ -955,7 +968,7 @@ async def _apply_string_op_db(
     op_name: str,
     pattern: str,
     ch_client,
-    replacement: str = None,
+    replacement: str | None = None,
 ):
     """
     Apply a string/regex operation at the database level.
@@ -1186,13 +1199,13 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     if a_is_array:
         insert_target = result.table
-        select_cols = f"a.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "a.aai_id, coalesce(a.value, b.value) AS value"
     elif b_is_array:
         insert_target = result.table
-        select_cols = f"b.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "b.aai_id, coalesce(a.value, b.value) AS value"
     else:
         insert_target = f"{result.table} (value)"
-        select_cols = f"coalesce(a.value, b.value) AS value"
+        select_cols = "coalesce(a.value, b.value) AS value"
 
     await ch_client.command(f"""
         INSERT INTO {insert_target}

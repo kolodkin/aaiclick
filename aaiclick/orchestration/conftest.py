@@ -10,13 +10,12 @@ Each test gets:
 import os
 import shutil
 import tempfile
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import pytest
-
 from sqlalchemy import create_engine, text
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.backend import is_sqlite
 from aaiclick.orchestration.execution.claiming import cancel_job
@@ -92,9 +91,10 @@ def _pg_worker_db():
         yield
         return
 
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-    from aaiclick.orchestration.migrate import get_alembic_config
     from alembic import command
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
+    from aaiclick.orchestration.migrate import get_alembic_config
 
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker:
@@ -193,7 +193,7 @@ async def _teardown_jobs() -> None:
     """Cancel non-terminal jobs and orphan tasks."""
     async with get_sql_session() as session:
         result = await session.execute(
-            select(Job.id).where(Job.status.notin_([
+            select(Job.id).where(col(Job.status).notin_([
                 JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
             ]))
         )

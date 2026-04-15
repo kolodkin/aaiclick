@@ -10,36 +10,39 @@ from __future__ import annotations
 import re
 import warnings
 import weakref
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import datetime
-from typing import AsyncIterator, Dict, List, Union
+from typing import TYPE_CHECKING, Any, cast
 
 import pyarrow as pa
 
-from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
-from .lifecycle import LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
+from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
+
 from ..models import (
-    ColumnInfo,
-    FieldSpec,
-    ValueScalarType,
-    ValueListType,
-    ValueType,
-    Schema,
-    ColumnMeta,
-    FIELDTYPE_SCALAR,
+    ENGINE_MEMORY,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ColumnInfo,
+    ColumnMeta,
     EngineType,
-    ENGINE_DEFAULT,
-    ENGINE_MEMORY,
-    parse_ch_type,
+    FieldSpec,
+    Schema,
+    ValueDictType,
+    ValueListType,
+    ValueScalarType,
+    ValueType,
     build_order_by_clause,
 )
 from ..sql_utils import quote_identifier
-from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
+from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
+from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle
 
+if TYPE_CHECKING:
+    from ..object import Object
 
 # Per-resource ContextVars — each set by data_context() on entry, reset on exit.
 # Resources owned by their respective modules:
@@ -47,7 +50,7 @@ from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
 #   Oplog           → oplog/collector.py (delegates to lifecycle handler)
 _engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_MEMORY)
-_objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
+_objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar('objects')
 
 
 def get_engine() -> EngineType:
@@ -85,7 +88,7 @@ def decref(table_name: str) -> None:
         lifecycle.decref(table_name)
 
 
-def register_object(obj: object) -> None:
+def register_object(obj: Object) -> None:
     """Register an Object so it is marked stale when the enclosing context exits.
 
     Called automatically by `create_object()` and `create_object_from_value()`.
@@ -101,7 +104,7 @@ def register_object(obj: object) -> None:
     objects[id(obj)] = weakref.ref(obj)
 
 
-async def delete_object(obj: object) -> None:
+async def delete_object(obj: Object) -> None:
     """Delete an Object's underlying ClickHouse table and mark the Object stale.
 
     After calling this, any further operations on `obj` will raise `RuntimeError`.
@@ -147,7 +150,7 @@ async def data_context(
     lifecycle = LocalLifecycleHandler(ch_client)
     await lifecycle.start()
 
-    objects: Dict[int, weakref.ref] = {}
+    objects: dict[int, weakref.ref] = {}
 
     ch_token = _ch_client_var.set(ch_client)
     lc_token = _lifecycle_var.set(lifecycle)
@@ -305,7 +308,7 @@ def _has_nested_dicts(record: dict) -> bool:
     return any(_is_list_of_dicts(v) for v in record.values())
 
 
-def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> Dict[str, ColumnInfo]:
+def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> dict[str, ColumnInfo]:
     """Recursively infer flat column schema from a nested record.
 
     Uses dot-star notation for nested array-of-objects levels.
@@ -319,7 +322,7 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
     Returns:
         Dict mapping flat column names to ColumnInfo
     """
-    columns: Dict[str, ColumnInfo] = {}
+    columns: dict[str, ColumnInfo] = {}
     for key, val in sample.items():
         col_name = f"{prefix}{key}"
 
@@ -372,7 +375,7 @@ def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
     return result
 
 
-def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnInfo:
+def _infer_clickhouse_type(value: ValueScalarType | ValueListType) -> ColumnInfo:
     """Infer ClickHouse column type from Python value using pyarrow.
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
@@ -607,8 +610,9 @@ async def create_object_from_value(
 
             if array_len and array_len > 0:
                 keys = list(val.keys())
+                array_cols: list[list[Any]] = [cast("list[Any]", val[k]) for k in keys]
                 await ch.insert(
-                    obj.table, [val[k] for k in keys],
+                    obj.table, array_cols,
                     column_names=keys, column_oriented=True,
                     column_type_names=[columns[k].ch_type() for k in keys],
                 )
@@ -631,14 +635,17 @@ async def create_object_from_value(
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
-            if _has_nested_dicts(val[0]):
-                result = await _create_nested_records_object(val, ch, name)
+            # Narrow: list-of-dicts (ValueRecordType). pyright can't infer this
+            # from isinstance(val[0], dict) alone.
+            records = cast("list[ValueDictType]", val)
+            if _has_nested_dicts(records[0]):
+                result = await _create_nested_records_object(records, ch, name)
                 oplog_record(result.table, "create_from_value")
                 return result
 
             # Records format: list of dicts with possible Array fields
-            first_keys = set(val[0].keys())
-            for i, record in enumerate(val[1:], 1):
+            first_keys = set(records[0].keys())
+            for i, record in enumerate(records[1:], 1):
                 if set(record.keys()) != first_keys:
                     raise ValueError(
                         f"All records must have identical keys. "
@@ -647,15 +654,16 @@ async def create_object_from_value(
                     )
 
             columns = {"aai_id": ColumnInfo("UInt64")}
-            keys = list(val[0].keys())
+            keys = list(records[0].keys())
             for key in keys:
-                sample = val[0][key]
+                sample: Any = records[0][key]
                 if isinstance(sample, list):
                     # Find a non-empty sample for better type inference
                     if not sample:
-                        for record in val[1:]:
-                            if isinstance(record[key], list) and record[key]:
-                                sample = record[key]
+                        for record in records[1:]:
+                            candidate = record[key]
+                            if isinstance(candidate, list) and candidate:
+                                sample = candidate
                                 break
                     columns[key] = _infer_array_clickhouse_type(sample)
                 else:
@@ -665,13 +673,15 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name)
 
-            col_data = [[record[key] for record in val] for key in keys]
+            col_data: list[list[Any]] = [[record[key] for record in records] for key in keys]
             await ch.insert(
                 obj.table, col_data, column_names=keys, column_oriented=True,
                 column_type_names=[columns[k].ch_type() for k in keys],
             )
         else:
-            col_def = _infer_clickhouse_type(val)
+            # Narrow: list of scalars (ValueListType).
+            scalars = cast(ValueListType, val)
+            col_def = _infer_clickhouse_type(scalars)
             columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
             columns = _apply_field_specs(columns, fields)
             col_def = columns["value"]
@@ -682,9 +692,9 @@ async def create_object_from_value(
             )
             obj = await create_object(schema, name=name)
 
-            if val:
+            if scalars:
                 await ch.insert(
-                    obj.table, [val], column_names=["value"], column_oriented=True,
+                    obj.table, [scalars], column_names=["value"], column_oriented=True,
                     column_type_names=[col_def.ch_type()],
                 )
 

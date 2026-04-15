@@ -3,14 +3,12 @@
 import pytest
 from sqlmodel import select
 
-from aaiclick.backend import is_sqlite
-
-pytestmark = pytest.mark.usefixtures("fast_poll")
-
 from ..factories import create_job
 from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .worker import worker_main_loop
+
+pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
 async def test_local_worker_executes_task(orch_ctx):

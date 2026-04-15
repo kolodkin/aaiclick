@@ -22,17 +22,21 @@ import logging
 import os
 import warnings
 from datetime import datetime, timedelta
+from typing import Any, cast
 
 from croniter import croniter
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlmodel import col, select
 
 from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus
+from ..models import Job, JobStatus, PreservationMode
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -81,15 +85,12 @@ class BackgroundWorker:
         self._poll_interval = poll_interval
         self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
-        self._engine: AsyncEngine | None = None
-        self._ch_client: object | None = None
-        self._shutdown: asyncio.Event | None = None
-        self._handler: BackgroundHandler | None = None
+        self._engine: AsyncEngine = create_async_engine(get_db_url(), echo=False)
+        self._ch_client: Any = None
+        self._shutdown: asyncio.Event = asyncio.Event()
+        self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
-        self._engine = create_async_engine(get_db_url(), echo=False)
-        self._handler = create_background_handler()
-
         if is_chdb():
             from aaiclick.data.data_context.chdb_client import create_chdb_client
 
@@ -101,17 +102,13 @@ class BackgroundWorker:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
                 self._ch_client = await get_async_client(**parse_ch_url())
-        self._shutdown = asyncio.Event()
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
-        if self._shutdown:
-            self._shutdown.set()
+        self._shutdown.set()
         if self._task:
             await self._task
-        if self._engine:
-            await self._engine.dispose()
-            self._engine = None
+        await self._engine.dispose()
         self._ch_client = None
 
     async def _cleanup_loop(self) -> None:
@@ -195,6 +192,14 @@ class BackgroundWorker:
         Looks up the owning job_id from table_registry so the sample
         table created by lineage_aware_drop is registered with the job
         and cleaned up when the job expires.
+
+        Preservation mode gates the actual drop:
+
+        - ``NONE``: drop via ``lineage_aware_drop`` (no lineage refs → hard drop).
+        - ``STRATEGY``: drop via ``lineage_aware_drop`` — strategy-matched
+          rows survive as a ``_sample`` table registered with the job.
+        - ``FULL``: skip the drop entirely. The table lives until the job
+          TTL expires and ``_cleanup_expired_jobs`` collects it.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -220,22 +225,50 @@ class BackgroundWorker:
             # Batch-lookup ownership from table_registry in ClickHouse
             owner_map = await self._lookup_table_owners(table_names)
 
+            owning_job_ids = {o.job_id for o in owner_map.values() if o.job_id is not None}
+            mode_map = await self._lookup_job_preservation_modes(session, owning_job_ids)
+
+            dropped_tables: list[str] = []
             for table_name in table_names:
                 owner = owner_map.get(table_name)
+                job_id = owner.job_id if owner else None
+                mode = (
+                    mode_map.get(job_id, PreservationMode.NONE)
+                    if job_id is not None
+                    else PreservationMode.NONE
+                )
+                if mode is PreservationMode.FULL:
+                    # Keep the table alive until the job expires.
+                    continue
                 try:
                     await lineage_aware_drop(self._ch_client, table_name, owner=owner)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
+                dropped_tables.append(table_name)
 
-            await _delete_table_refs(session, table_names)
+            if dropped_tables:
+                await _delete_table_refs(session, dropped_tables)
 
             await session.commit()
+
+    async def _lookup_job_preservation_modes(
+        self,
+        session: AsyncSession,
+        job_ids: set[int],
+    ) -> dict[int, PreservationMode]:
+        """Return ``{job_id: PreservationMode}`` for the given jobs."""
+        if not job_ids:
+            return {}
+        result = await session.execute(
+            select(Job.id, Job.preservation_mode).where(col(Job.id).in_(job_ids)),
+        )
+        return {row[0]: row[1] for row in result.all()}
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
         """Look up ownership metadata from table_registry for a list of table names."""
         if not table_names:
             return {}
-        escaped = ", ".join("'" + t.replace("'", "\\'") + "'" for t in table_names)
+        escaped = ", ".join(f"'{escape_sql_string(t)}'" for t in table_names)
         try:
             result = await self._ch_client.query(
                 f"SELECT table_name, job_id, task_id, run_id FROM table_registry "
@@ -497,7 +530,7 @@ class BackgroundWorker:
                     },
                 )
 
-                if lock_result.rowcount == 0:
+                if cast(CursorResult, lock_result).rowcount == 0:
                     continue
 
                 # Won the race — create Job + entry Task

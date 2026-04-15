@@ -5,7 +5,6 @@ aaiclick.ai.provider - Unified AI provider via LiteLLM.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from litellm import acompletion
@@ -28,7 +27,7 @@ class AIProvider:
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages}
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        response = await acompletion(**kwargs)
+        response: Any = await acompletion(**kwargs)
         return response.choices[0].message.content or ""
 
     async def complete(
@@ -66,7 +65,7 @@ class AIProvider:
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "tools": tools}
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        response = await acompletion(**kwargs)
+        response: Any = await acompletion(**kwargs)
         message = response.choices[0].message
         return {
             "content": message.content,

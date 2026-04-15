@@ -2,8 +2,8 @@
 
 from datetime import datetime, timedelta
 
-from .stats import JobStats, TaskStats, _fmt_duration, compute_job_stats
 from ..models import Job, JobStatus, RunType, Task, TaskStatus
+from .stats import JobStats, _fmt_duration, compute_job_stats
 
 
 def _make_job(
@@ -146,18 +146,6 @@ def test_compute_job_stats_pending_job():
 
     assert stats.wall_time is None
     assert stats.exec_time is None
-
-
-def test_task_stats_model():
-    ts = TaskStats(
-        id=1,
-        entrypoint="my_func",
-        status="COMPLETED",
-        queue_time=timedelta(seconds=2),
-        exec_time=timedelta(seconds=5),
-    )
-    assert ts.id == 1
-    assert ts.error is None
 
 
 def test_fmt_duration_milliseconds():

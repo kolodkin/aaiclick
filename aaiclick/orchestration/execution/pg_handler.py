@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from .db_handler import DEPENDENCY_WHERE, DbHandler
 from ..models import JobStatus, Task, TaskStatus
+from .db_handler import DEPENDENCY_WHERE, DbHandler
 
 
 class PgDbHandler(DbHandler):
@@ -19,7 +18,7 @@ class PgDbHandler(DbHandler):
     @staticmethod
     async def claim_next_task(
         session: AsyncSession, worker_id: int, now: datetime
-    ) -> Optional[Task]:
+    ) -> Task | None:
         result = await session.execute(
             text(f"""
                 WITH claimed_task AS (

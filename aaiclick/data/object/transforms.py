@@ -1,6 +1,5 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
-from typing import Union
 
 from ..models import Computed
 
@@ -10,7 +9,7 @@ def _escape_sql_string(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def literal(value: Union[str, int, float, bool], ch_type: str) -> Computed:
+def literal(value: str | int | float | bool, ch_type: str) -> Computed:
     """Create a Computed column with a constant SQL literal.
 
     Args:

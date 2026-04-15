@@ -7,7 +7,6 @@ import pytest
 
 from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
-
 # =============================================================================
 # Creation Tests
 # =============================================================================

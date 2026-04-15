@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aaiclick.ai.agents.lineage_agent import explain_lineage
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.ai.agents.lineage_agent import explain_lineage
 
 
 def _mock_provider(answer: str = "Explanation") -> MagicMock:

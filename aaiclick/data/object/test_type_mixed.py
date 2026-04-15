@@ -8,8 +8,7 @@ type coercion and result accuracy.
 import numpy as np
 import pytest
 
-
-from aaiclick import create_object_from_value, create_object
+from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 

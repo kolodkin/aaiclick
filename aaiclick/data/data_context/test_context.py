@@ -4,7 +4,7 @@ Tests for data context manager functionality.
 
 import pytest
 
-from aaiclick import create_object_from_value, create_object, ColumnInfo, Schema, FIELDTYPE_SCALAR
+from aaiclick import FIELDTYPE_SCALAR, ColumnInfo, Schema, create_object, create_object_from_value
 from aaiclick.data.data_context import data_context, delete_object, get_ch_client
 
 
@@ -249,7 +249,7 @@ async def test_context_stale_error_messages():
     # Object is stale after context exit
     try:
         await obj.data()
-        assert False, "Should have raised RuntimeError"
+        raise AssertionError("Should have raised RuntimeError")
     except RuntimeError as e:
         assert table_name in str(e)
         assert "stale Object" in str(e)

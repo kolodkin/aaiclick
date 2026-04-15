@@ -19,6 +19,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dev dependencies
+        run: uv sync --frozen --extra dev --python 3.10
+
+      - name: Run ruff
+        run: uv run ruff check aaiclick/
+
+      - name: Run pyright
+        run: uv run pyright aaiclick/
+
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -39,6 +61,7 @@ jobs:
         run: uv run mkdocs build --strict
 
   test-local:
+    needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
     name: ${{ matrix.group }}
@@ -83,6 +106,7 @@ jobs:
           reporter: java-junit
 
   test-dist:
+    needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
     name: ${{ matrix.group }}

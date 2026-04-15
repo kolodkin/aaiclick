@@ -5,28 +5,47 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
+import sys
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.data.data_context import (
     get_ch_client,
     get_data_lifecycle,
     register_object,
 )
-from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.ingest import _get_table_schema
+from aaiclick.data.object.refs import (
+    CALLABLE,
+    GROUP_RESULTS,
+    NATIVE_VALUE,
+    OBJECT,
+    OBJECT_TYPE,
+    PYDANTIC_DATA,
+    PYDANTIC_TYPE,
+    REF_TYPE,
+    TASK_ID,
+    UPSTREAM,
+    VIEW,
+    ObjectRef,
+    ViewRef,
+    native_value_ref,
+    upstream_ref,
+)
 from aaiclick.snowflake_id import get_snowflake_id
 
-from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
 from ..models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from .worker_context import set_current_task_info
 
@@ -86,7 +105,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     Raises:
         ValueError: If upstream task not found or not completed
     """
-    task_id = ref["task_id"]
+    task_id = ref[TASK_ID]
     db_result = await session.execute(
         select(Task.result, Task.status).where(Task.id == task_id)
     )
@@ -127,18 +146,15 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             return [await _deserialize_value(v, session) for v in value]
         return value
 
-    # Check for upstream reference
-    if value.get("ref_type") == "upstream":
+    if value.get(REF_TYPE) == UPSTREAM:
         upstream_result = await _resolve_upstream_ref(value, session)
-        # Recursively deserialize the upstream result
         return await _deserialize_value(upstream_result, session)
 
-    # Check for callable reference
-    if value.get("ref_type") == "callable":
+    if value.get(REF_TYPE) == CALLABLE:
         return import_callback(value["entrypoint"])
 
-    # Check for group_results reference (from reduce() collecting map results)
-    if value.get("ref_type") == "group_results":
+    # from reduce() collecting map results
+    if value.get(REF_TYPE) == GROUP_RESULTS:
         group_id = value["group_id"]
         result = await session.execute(
             select(Task.result)
@@ -146,7 +162,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 Task.group_id == group_id,
                 Task.status == TaskStatus.COMPLETED,
             )
-            .order_by(Task.id)
+            .order_by(col(Task.id))
         )
         rows = result.all()
         deserialized = []
@@ -154,54 +170,50 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
-    # Check for native value wrapper
-    if "native_value" in value and len(value) == 1:
-        return value["native_value"]
+    if NATIVE_VALUE in value and len(value) == 1:
+        return value[NATIVE_VALUE]
 
-    # Check for Pydantic model reference
-    if "pydantic_type" in value:
-        cls = _import_class(value["pydantic_type"])
-        return cls.model_validate(value["data"])
+    if PYDANTIC_TYPE in value:
+        cls = _import_class(value[PYDANTIC_TYPE])
+        return cls.model_validate(value[PYDANTIC_DATA])
 
-    # Check for Object/View reference
-    if "object_type" in value:
-        obj_type = value["object_type"]
+    if OBJECT_TYPE in value:
+        obj_type = value[OBJECT_TYPE]
 
-        if obj_type == "object":
-            table = value["table"]
-            is_persistent = value.get("persistent", False)
-            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+        if obj_type == OBJECT:
+            ref = ObjectRef.model_validate(value)
+            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
-            obj = Object(table=table, schema=schema)
-            if not is_persistent:
+            obj = Object(table=ref.table, schema=schema)
+            if not ref.persistent:
                 obj._register()  # enqueues INCREF
             register_object(obj)
-            if not is_persistent:
+            if not ref.persistent:
                 lifecycle = get_data_lifecycle()
                 if lifecycle is not None:
-                    lifecycle.unpin(table)  # FIFO: after INCREF
+                    lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return obj
 
-        elif obj_type == "view":
-            table = value["table"]
-            fieldtype, columns = await _get_table_schema(table, get_ch_client())
+        elif obj_type == VIEW:
+            ref = ViewRef.model_validate(value)
+            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
             schema = Schema(fieldtype=fieldtype, columns=columns)
-            source = Object(table=table, schema=schema)
+            source = Object(table=ref.table, schema=schema)
             source._register()  # enqueues INCREF
             register_object(source)
             view = View(
                 source=source,
-                where=value.get("where"),
-                limit=value.get("limit"),
-                offset=value.get("offset"),
-                order_by=value.get("order_by"),
-                selected_fields=value.get("selected_fields"),
-                renamed_columns=value.get("renamed_columns"),
+                where=ref.where,
+                limit=ref.limit,
+                offset=ref.offset,
+                order_by=ref.order_by,
+                selected_fields=ref.selected_fields,
+                renamed_columns=ref.renamed_columns,
             )
             register_object(view)
             lifecycle = get_data_lifecycle()
             if lifecycle is not None:
-                lifecycle.unpin(table)  # FIFO: after INCREF
+                lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return view
 
         else:
@@ -255,6 +267,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
     func = import_callback(task.entrypoint)
     run_id = get_snowflake_id()
 
+    sampling_strategy: dict[str, str] | None = None
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task.id))
         db_task = result.scalar_one_or_none()
@@ -264,10 +277,20 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             session.add(db_task)
             await session.commit()
 
+        job_row = await session.execute(select(Job).where(Job.id == task.job_id))
+        job = job_row.scalar_one_or_none()
+        if job is not None:
+            sampling_strategy = job.sampling_strategy
+
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
     with capture_task_output(task.id, task.job_id, run_id) as log_path:
-        async with task_scope(task_id=task.id, job_id=task.job_id, run_id=run_id):
+        async with task_scope(
+            task_id=task.id,
+            job_id=task.job_id,
+            run_id=run_id,
+            sampling_strategy=sampling_strategy,
+        ):
             kwargs = await deserialize_task_params(task.kwargs)
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
@@ -303,7 +326,7 @@ def _sanitize_for_json(value: Any) -> Any:
     return value
 
 
-def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
+def serialize_task_result(result: Any, job_id: int) -> dict | None:
     """
     Serialize a task result to JSON-storable format.
 
@@ -320,7 +343,7 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
         return None
 
     if isinstance(result, Task):
-        return {"ref_type": "upstream", "task_id": result.id}
+        return upstream_ref(result.id)
 
     if isinstance(result, Object):
         ref = result._serialize_ref()
@@ -329,12 +352,11 @@ def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
 
     if isinstance(result, BaseModel):
         return {
-            "pydantic_type": f"{type(result).__module__}.{type(result).__qualname__}",
-            "data": result.model_dump(),
+            PYDANTIC_TYPE: f"{type(result).__module__}.{type(result).__qualname__}",
+            PYDANTIC_DATA: result.model_dump(),
         }
 
-    # Store JSON-serializable values (dict, list, int, float, str, bool) directly
-    return {"native_value": _sanitize_for_json(result)}
+    return native_value_ref(_sanitize_for_json(result))
 
 
 def _flatten_item(item: Any) -> list:
@@ -533,6 +555,7 @@ async def run_job_tasks(job: Job) -> None:
         except Exception as e:
             job_failed = True
             error_msg = str(e)
+            print(f"Task {task.name!r} failed: {e}", file=sys.stderr)
 
             async with get_sql_session() as session:
                 db_result = await session.execute(select(Task).where(Task.id == task_id))

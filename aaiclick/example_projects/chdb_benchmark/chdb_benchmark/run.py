@@ -88,12 +88,12 @@ async def run(num_rows, num_runs):
         f"{bench_aaiclick.NAME} {bench_aaiclick.VERSION}",
     ]
 
-    console.print(f"\n[bold]chdb vs aaiclick Benchmark[/bold]")
+    console.print("\n[bold]chdb vs aaiclick Benchmark[/bold]")
     console.print(f"  {', '.join(versions)}")
     console.print(f"  {num_rows:,} rows, {num_runs} runs per operation")
     console.print(f"  Filter threshold: {FILTER_THRESHOLD}")
     console.print(f"  Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}")
-    console.print(f"  Serial execution (chdb context → aaiclick context)\n")
+    console.print("  Serial execution (chdb context → aaiclick context)\n")
 
     raw_data = generate_raw_data(num_rows)
     results = {name: {} for name in BENCH_NAMES}

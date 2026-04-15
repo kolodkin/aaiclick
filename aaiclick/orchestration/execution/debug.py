@@ -5,9 +5,9 @@ This module provides functions for running jobs in debug/test mode.
 
 import asyncio
 
+from ..models import Job
 from ..orch_context import orch_context
 from .runner import run_job_tasks
-from ..models import Job
 
 
 def job_test(job: Job) -> None:

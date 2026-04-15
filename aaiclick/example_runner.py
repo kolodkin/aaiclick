@@ -10,8 +10,8 @@ import contextlib
 import multiprocessing
 import os
 import pathlib
+from collections.abc import Callable, Coroutine
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Callable, Coroutine
 
 TMP_DIR = pathlib.Path(".tmp")
 

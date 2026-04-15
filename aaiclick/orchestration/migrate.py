@@ -1,6 +1,5 @@
 """Programmatic database migration runner using Alembic."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -34,7 +33,7 @@ def get_alembic_config() -> Config:
     return config
 
 
-def run_migrations(args: list[str] = None):
+def run_migrations(args: list[str] | None = None):
     """Run database migrations programmatically.
 
     Args:

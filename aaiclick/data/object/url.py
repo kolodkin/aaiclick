@@ -8,21 +8,16 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
-from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
-from ..sql_utils import quote_identifier
+from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
+from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
+from ..sql_utils import escape_sql_string, quote_identifier
 
-SUPPORTED_URL_FORMATS = frozenset({
-    "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",
-    "TSV", "TSVWithNames", "TSVWithNamesAndTypes",
-    "JSON", "JSONEachRow", "JSONCompactEachRow",
-    "ORC", "Avro",
-    "RawBLOB", "JSONAsString",
-})
-
-JSON_BLOB_FORMATS = frozenset({"RawBLOB", "JSONAsString"})
+if TYPE_CHECKING:
+    from .object import Object
 
 _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",
@@ -52,10 +47,10 @@ def _validate_url_columns(columns: list[str]) -> None:
 
 def _validate_url_format(fmt: str) -> None:
     """Validate format is a supported ClickHouse URL format."""
-    if fmt not in SUPPORTED_URL_FORMATS:
+    if fmt not in INPUT_FORMATS:
         raise ValueError(
             f"Unsupported format '{fmt}'. "
-            f"Supported formats: {sorted(SUPPORTED_URL_FORMATS)}"
+            f"Supported formats: {sorted(INPUT_FORMATS)}"
         )
 
 
@@ -73,7 +68,7 @@ def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
     Returns:
         SQL expression like "JSONExtractString(elem, 'cveID')"
     """
-    safe_field = field_name.replace("'", "\\'")
+    safe_field = escape_sql_string(field_name)
 
     if col_info.array or col_info.nullable:
         return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
@@ -109,7 +104,7 @@ def _build_json_select(
         (select_exprs, from_subquery) tuple for use in INSERT...SELECT
     """
     source_col = _FORMAT_SOURCE_COLUMN[format]
-    safe_path = json_path.replace("'", "\\'")
+    safe_path = escape_sql_string(json_path)
 
     select_parts = []
     for field_name, col_info in json_columns.items():
@@ -222,7 +217,7 @@ async def _create_from_tabular(
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
     settings = ch_settings or {}
-    safe_url = url.replace("'", "\\'")
+    safe_url = escape_sql_string(url)
     safe_source = f"url('{safe_url}', '{format}')"
 
     quoted_columns = [quote_identifier(c) for c in columns]
@@ -285,7 +280,7 @@ async def _create_from_json(
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
     settings = ch_settings or {}
-    safe_url = url.replace("'", "\\'")
+    safe_url = escape_sql_string(url)
 
     schema_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     for col_name, col_info in json_columns.items():

@@ -28,8 +28,9 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from math import ceil, log
-from typing import Any, Callable, Dict, Tuple, Union
+from typing import Any
 
 from aaiclick.data.data_context import (
     create_object,
@@ -37,6 +38,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .decorators import TaskFactory, task
@@ -44,9 +46,9 @@ from .models import Group, Task
 from .result import TaskResult, data_list, task_result, tasks_list
 
 
-def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
+def map(cbk: Callable | TaskFactory, obj: Task | Object,
         partition: int = 5000,
-        args: Tuple = (), kwargs: Dict[str, Any] = None) -> Group:
+        args: tuple = (), kwargs: dict[str, Any] | None = None) -> Group:
     """Create a parallel map operation over partitions of an Object.
 
     At definition time, creates an expander Task + Group and returns the Group.
@@ -84,7 +86,7 @@ def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
 @task
 async def _expand_map(cbk: Callable, obj: Object, partition: int,
                       group_id: int, cbk_args: list,
-                      cbk_kwargs: dict) -> list:
+                      cbk_kwargs: dict) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
     Runs at execution time. Partitions the Object into Views and creates
@@ -111,13 +113,12 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
     for i in range(n_partitions):
         child = _map_part(
             cbk=cbk,
-            part={
-                "object_type": "view",
-                "table": table_name,
-                "limit": partition,
-                "offset": i * partition,
-                "order_by": "aai_id",
-            },
+            part=ViewRef(
+                table=table_name,
+                limit=partition,
+                offset=i * partition,
+                order_by="aai_id",
+            ).to_dict(),
             out=out,
             cbk_args=cbk_args,
             cbk_kwargs=cbk_kwargs,
@@ -130,7 +131,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
 
 @task
 async def _map_part(cbk: Callable, part: View, out: Object,
-                   cbk_args: list = None, cbk_kwargs: dict = None) -> None:
+                   cbk_args: list | None = None, cbk_kwargs: dict | None = None) -> None:
     """Apply a callback to each row in a partition View.
 
     Reads rows from the partition, calls cbk(row, *args, **kwargs) for each.
@@ -156,12 +157,12 @@ async def _map_part(cbk: Callable, part: View, out: Object,
 
 
 def reduce(
-    cbk: Union[Callable, TaskFactory],
-    obj: Union[Task, Object],
+    cbk: Callable | TaskFactory,
+    obj: Task | Object,
     *,
     partition: int = 5000,
-    args: Tuple = (),
-    kwargs: Dict[str, Any] = None,
+    args: tuple = (),
+    kwargs: dict[str, Any] | None = None,
 ) -> Group:
     """Create a layered parallel reduction over an Object.
 
@@ -212,11 +213,11 @@ def _reduce_num_layers(count: int, partition: int) -> int:
 
 def _build_layer_group(
     L: int,
-    src: Union[Object, View],
+    src: Object | View,
     layer_obj: Object,
     src_size: int,
     partition: int,
-    prev_group: "Group | None",
+    prev_group: Group | None,
     cbk: Callable,
     cbk_args: list,
     cbk_kwargs: dict,
@@ -229,13 +230,12 @@ def _build_layer_group(
     for i in range(M):
         part_task = _reduce_part(
             cbk=cbk,
-            part={
-                "object_type": "view",
-                "table": src.table,
-                "limit": partition,
-                "offset": i * partition,
-                "order_by": "aai_id",
-            },
+            part=ViewRef(
+                table=src.table,
+                limit=partition,
+                offset=i * partition,
+                order_by="aai_id",
+            ).to_dict(),
             layer_obj=layer_obj,
             cbk_args=cbk_args,
             cbk_kwargs=cbk_kwargs,
@@ -304,8 +304,8 @@ async def _reduce_part(
     cbk: Callable,
     part: View,
     layer_obj: Object,
-    cbk_args: list = None,
-    cbk_kwargs: dict = None,
+    cbk_args: list | None = None,
+    cbk_kwargs: dict | None = None,
 ) -> None:
     """Apply callback to a partition View, writing results into layer_obj.
 

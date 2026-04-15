@@ -36,8 +36,8 @@ def get_current_task_info() -> TaskInfo:
     """
     try:
         return _current_task_info.get()
-    except LookupError:
+    except LookupError as err:
         raise RuntimeError(
             "No task is currently executing. "
             "get_current_task_info() can only be called during task execution."
-        )
+        ) from err

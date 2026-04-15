@@ -6,8 +6,14 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aaiclick.ai.agents.tools import (
+    dispatch_tool,
+    get_column_stats,
+    get_schemas_for_nodes,
+    trace_row,
+)
 from aaiclick.conftest import make_oplog_node
-from aaiclick.ai.agents.tools import get_column_stats, get_schemas_for_nodes
+from aaiclick.oplog.lineage import RowLineageStep
 
 
 def _mock_query_result(rows, column_names=None):
@@ -73,3 +79,48 @@ async def test_get_schemas_for_nodes_empty_and_errors():
         result = await get_schemas_for_nodes(nodes)
 
     assert "schema unavailable" in result
+
+
+async def test_trace_row_formats_steps():
+    """trace_row formats RowLineageStep results as table.aai_id <- op(role=src)."""
+    steps = [
+        RowLineageStep(
+            table="t_result",
+            aai_id=42,
+            operation="+",
+            source_aai_ids={"left": 10, "right": 11},
+        ),
+        RowLineageStep(
+            table="p_left",
+            aai_id=10,
+            operation="create_from_value",
+            source_aai_ids={},
+        ),
+    ]
+    with patch("aaiclick.ai.agents.tools.backward_oplog_row", new=AsyncMock(return_value=steps)):
+        result = await trace_row("t_result", 42)
+
+    assert "t_result.aai_id=42" in result
+    assert "+(left=10, right=11)" in result
+    assert "p_left.aai_id=10" in result
+    assert "create_from_value()" in result
+
+
+async def test_trace_row_empty_hints_strategy_mode():
+    """trace_row returns a helpful message when the job ran without STRATEGY mode."""
+    with patch("aaiclick.ai.agents.tools.backward_oplog_row", new=AsyncMock(return_value=[])):
+        result = await trace_row("t_none_mode", 1)
+    assert "PreservationMode.STRATEGY" in result
+
+
+async def test_dispatch_tool_missing_required_arg_returns_readable_error():
+    """A tool call with no 'table' key must not crash the loop — it gets a
+    retryable error string so the model can correct course."""
+    result = await dispatch_tool("trace_row", {"aai_id": 7})
+    assert "missing required argument" in result
+    assert "trace_row" in result
+
+
+async def test_dispatch_tool_unknown_tool_returns_label():
+    result = await dispatch_tool("does_not_exist", {})
+    assert "unknown tool" in result

@@ -8,7 +8,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import Agg, GB_GROUP_ARRAY_DISTINCT
+from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT, Agg
 
 THRESHOLD = 1e-5
 
@@ -28,7 +28,7 @@ async def test_group_by_sum_single_key(ctx):
     data = await result.data()
 
     # Sort by category for deterministic comparison
-    pairs = sorted(zip(data["category"], data["amount"]))
+    pairs = sorted(zip(data["category"], data["amount"], strict=False))
     assert pairs == [("A", 30), ("B", 70)]
 
 
@@ -45,7 +45,7 @@ async def test_group_by_sum_multiple_keys(ctx):
     # Build lookup for deterministic comparison
     lookup = {
         (r, c): a
-        for r, c, a in zip(data["region"], data["category"], data["amount"])
+        for r, c, a in zip(data["region"], data["category"], data["amount"], strict=False)
     }
     assert lookup[("East", "A")] == 10
     assert lookup[("East", "B")] == 20
@@ -62,7 +62,7 @@ async def test_group_by_mean(ctx):
     result = await obj.group_by("category").mean("amount")
     data = await result.data()
 
-    pairs = dict(zip(data["category"], data["amount"]))
+    pairs = dict(zip(data["category"], data["amount"], strict=False))
     assert abs(pairs["A"] - 15.0) < THRESHOLD
     assert abs(pairs["B"] - 35.0) < THRESHOLD
 
@@ -79,8 +79,8 @@ async def test_group_by_min_max(ctx):
     min_data = await min_result.data()
     max_data = await max_result.data()
 
-    min_pairs = dict(zip(min_data["category"], min_data["value"]))
-    max_pairs = dict(zip(max_data["category"], max_data["value"]))
+    min_pairs = dict(zip(min_data["category"], min_data["value"], strict=False))
+    max_pairs = dict(zip(max_data["category"], max_data["value"], strict=False))
 
     assert min_pairs["A"] == 1
     assert min_pairs["B"] == 3
@@ -97,7 +97,7 @@ async def test_group_by_count(ctx):
     result = await obj.group_by("category").count()
     data = await result.data()
 
-    pairs = dict(zip(data["category"], data["_count"]))
+    pairs = dict(zip(data["category"], data["_count"], strict=False))
     assert pairs["A"] == 3
     assert pairs["B"] == 2
 
@@ -129,7 +129,7 @@ async def test_group_by_any(ctx):
     result = await obj.group_by("category").any("label")
     data = await result.data()
 
-    pairs = dict(zip(data["category"], data["label"]))
+    pairs = dict(zip(data["category"], data["label"], strict=False))
     assert pairs["A"] == "hello"
     assert pairs["B"] == "world"
 
@@ -147,8 +147,8 @@ async def test_group_by_any_via_agg(ctx):
     })
     data = await result.data()
 
-    pairs_int = dict(zip(data["key"], data["val_int"]))
-    pairs_str = dict(zip(data["key"], data["val_str"]))
+    pairs_int = dict(zip(data["key"], data["val_int"], strict=False))
+    pairs_str = dict(zip(data["key"], data["val_str"], strict=False))
     assert pairs_int["x"] == 10
     assert pairs_int["y"] == 20
     assert pairs_str["x"] == "foo"
@@ -257,7 +257,7 @@ async def test_group_by_array_object_count(ctx):
     result = await arr.group_by("value").count()
     data = await result.data()
 
-    pairs = dict(zip(data["value"], data["_count"]))
+    pairs = dict(zip(data["value"], data["_count"], strict=False))
     assert pairs[1] == 2
     assert pairs[2] == 1
     assert pairs[3] == 3
@@ -314,7 +314,7 @@ async def test_group_by_on_multi_field_view(ctx):
     result = await view.group_by("category").sum("amount")
     data = await result.data()
 
-    pairs = sorted(zip(data["category"], data["amount"]))
+    pairs = sorted(zip(data["category"], data["amount"], strict=False))
     assert pairs == [("A", 30), ("B", 70)]
 
 
@@ -328,7 +328,7 @@ async def test_group_by_on_single_field_view(ctx):
     result = await view.group_by("value").count()
     data = await result.data()
 
-    pairs = dict(zip(data["value"], data["_count"]))
+    pairs = dict(zip(data["value"], data["_count"], strict=False))
     assert pairs[1] == 2
     assert pairs[2] == 1
     assert pairs[3] == 3
@@ -344,7 +344,7 @@ async def test_group_by_on_where_view(ctx):
     result = await view.group_by("category").sum("amount")
     data = await result.data()
 
-    pairs = dict(zip(data["category"], data["amount"]))
+    pairs = dict(zip(data["category"], data["amount"], strict=False))
     # Only amount > 15: A has 20, B has 30+40=70
     assert pairs["A"] == 20
     assert pairs["B"] == 70
@@ -391,7 +391,7 @@ async def test_group_by_string_keys(ctx):
     result = await obj.group_by("name").sum("score")
     data = await result.data()
 
-    pairs = dict(zip(data["name"], data["score"]))
+    pairs = dict(zip(data["name"], data["score"], strict=False))
     assert pairs["Alice"] == 175
     assert pairs["Bob"] == 175
 
@@ -462,7 +462,7 @@ async def test_group_by_having_with_where(ctx):
 
     # After WHERE amount > 10: A has [15, 25] (2 rows), B has [20, 30] (2 rows)
     # HAVING count() >= 2: both pass
-    pairs = dict(zip(data["category"], data["_count"]))
+    pairs = dict(zip(data["category"], data["_count"], strict=False))
     assert pairs["A"] == 2
     assert pairs["B"] == 2
 
@@ -622,7 +622,7 @@ async def test_group_array_distinct_basic(ctx):
     result = await obj.group_by("id").agg({"tag": "group_array_distinct"})
     data = await result.data()
 
-    lookup = dict(zip(data["id"], data["tag"]))
+    lookup = dict(zip(data["id"], data["tag"], strict=False))
     assert sorted(lookup[1]) == ["a", "b"]
     assert sorted(lookup[2]) == ["a", "b"]  # duplicate "b" collapsed
 
@@ -636,7 +636,7 @@ async def test_group_array_distinct_convenience(ctx):
     result = await obj.group_by("category").group_array_distinct("label")
     data = await result.data()
 
-    lookup = dict(zip(data["category"], data["label"]))
+    lookup = dict(zip(data["category"], data["label"], strict=False))
     assert sorted(lookup["X"]) == ["p"]       # both "p", deduplicated to one
     assert sorted(lookup["Y"]) == ["q", "r"]
 

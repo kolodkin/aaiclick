@@ -6,22 +6,22 @@ import asyncio
 import os
 import signal
 import socket
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Awaitable, Callable, Optional
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .claiming import check_task_cancelled, claim_next_task, update_task_status
 from ..background.handler import try_complete_job
-from ..orch_context import get_sql_session
-from .runner import execute_task, register_returned_tasks, serialize_task_result
 from ..models import Task, TaskStatus, Worker, WorkerStatus
+from ..orch_context import get_sql_session
+from .claiming import check_task_cancelled, claim_next_task, update_task_status
+from .runner import execute_task, register_returned_tasks, serialize_task_result
 
 # Task execution strategy used by _worker_loop.
 # Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
-ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, Optional[dict], Optional[str], Optional[str]]]]
+ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None, str | None]]]
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -46,8 +46,8 @@ async def _set_pending_cleanup(task_id: int, error: str) -> None:
 
 
 async def register_worker(
-    hostname: Optional[str] = None,
-    pid: Optional[int] = None,
+    hostname: str | None = None,
+    pid: int | None = None,
 ) -> Worker:
     """
     Register a new worker process.
@@ -80,7 +80,7 @@ async def register_worker(
     return worker
 
 
-async def worker_heartbeat(worker_id: int) -> Optional[WorkerStatus]:
+async def worker_heartbeat(worker_id: int) -> WorkerStatus | None:
     """
     Update worker's last_heartbeat timestamp.
 
@@ -173,7 +173,7 @@ async def deregister_worker(worker_id: int) -> bool:
     return True
 
 
-async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
+async def list_workers(status: WorkerStatus | None = None) -> list[Worker]:
     """
     List workers, optionally filtered by status.
 
@@ -187,7 +187,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
         query = select(Worker)
         if status is not None:
             query = query.where(Worker.status == status)
-        query = query.order_by(Worker.started_at.desc())
+        query = query.order_by(col(Worker.started_at).desc())
 
         result = await session.execute(query)
         workers = result.scalars().all()
@@ -195,7 +195,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     return list(workers)
 
 
-async def get_worker(worker_id: int) -> Optional[Worker]:
+async def get_worker(worker_id: int) -> Worker | None:
     """
     Get a worker by ID.
 
@@ -245,9 +245,9 @@ async def _handle_task_result(
     task: Task,
     worker_id: int,
     success: bool,
-    result_ref: Optional[dict],
-    log_path: Optional[str],
-    error: Optional[str],
+    result_ref: dict | None,
+    log_path: str | None,
+    error: str | None,
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
     if success:
@@ -274,10 +274,10 @@ async def _handle_task_result(
 
 async def _worker_loop(
     execute_fn: ExecuteFn,
-    worker_id: Optional[int] = None,
-    max_tasks: Optional[int] = None,
+    worker_id: int | None = None,
+    max_tasks: int | None = None,
     install_signal_handlers: bool = True,
-    max_empty_polls: Optional[int] = None,
+    max_empty_polls: int | None = None,
     mode_label: str = "async",
 ) -> int:
     """Shared worker loop used by both async and multiprocessing workers.
@@ -356,7 +356,7 @@ async def _worker_loop(
     return tasks_executed
 
 
-async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
@@ -380,10 +380,10 @@ async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, Optiona
 
 
 async def worker_main_loop(
-    worker_id: Optional[int] = None,
-    max_tasks: Optional[int] = None,
+    worker_id: int | None = None,
+    max_tasks: int | None = None,
     install_signal_handlers: bool = True,
-    max_empty_polls: Optional[int] = None,
+    max_empty_polls: int | None = None,
 ) -> int:
     """Main worker execution loop (in-process async execution).
 

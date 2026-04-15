@@ -72,14 +72,14 @@ async def analyze_kev(kev: Object) -> dict:
 
     vendor_data = await by_vendor.data()
     vendor_counts = sorted(
-        zip(vendor_data["vendorProject"], vendor_data["cveID"]),
+        zip(vendor_data["vendorProject"], vendor_data["cveID"], strict=False),
         key=lambda x: x[1],
         reverse=True,
     )
 
     year_data = await by_year.data()
     year_counts = sorted(
-        zip(year_data["year"], year_data["cveID"]),
+        zip(year_data["year"], year_data["cveID"], strict=False),
         key=lambda x: x[0],
     )
 
@@ -88,7 +88,7 @@ async def analyze_kev(kev: Object) -> dict:
             "total_vulnerabilities": ransomware["total_kev"],
             "ransomware_linked": ransomware["ransomware_linked"],
             "ransomware_pct": ransomware["ransomware_pct"],
-            "top_vendors": {name: count for name, count in vendor_counts[:10]},
-            "by_year": {year: count for year, count in year_counts},
+            "top_vendors": dict(vendor_counts[:10]),
+            "by_year": dict(year_counts),
         },
     }

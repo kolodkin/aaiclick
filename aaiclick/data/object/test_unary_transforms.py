@@ -3,13 +3,11 @@ Tests for Object unary transform operators (year, month, lower, abs, etc.)
 and computed column helper functions (cast, split_by_char).
 """
 
-import math
 from datetime import datetime, timezone
 
 import pytest
 
 from aaiclick import cast, create_object_from_value, literal, split_by_char
-
 
 # =============================================================================
 # Date/time transforms

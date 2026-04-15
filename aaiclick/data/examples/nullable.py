@@ -12,12 +12,12 @@ This example demonstrates how nullable columns work:
 import asyncio
 
 from aaiclick import (
+    FIELDTYPE_ARRAY,
     ColumnInfo,
     FieldSpec,
     Schema,
     create_object,
     create_object_from_value,
-    FIELDTYPE_ARRAY,
 )
 from aaiclick.data.data_context import data_context, get_ch_client
 

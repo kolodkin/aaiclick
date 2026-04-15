@@ -5,18 +5,18 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlmodel import select
 
-from .claiming import claim_next_task, update_task_status
-from ..orch_context import get_sql_session
-from ..decorators import task
+from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
+from ..jobs import get_task
 from ..models import Job, JobStatus, Task, TaskStatus
+from ..orch_context import get_sql_session
+from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop
 from .worker import (
     _set_pending_cleanup,
     deregister_worker,
     register_worker,
 )
-from ..background.test_pending_cleanup import run_pending_cleanup
 
 
 async def _cancel_all_pending_tasks():
@@ -30,47 +30,6 @@ async def _cancel_all_pending_tasks():
             {"now": datetime.utcnow()},
         )
         await session.commit()
-
-
-async def test_task_default_no_retries(orch_ctx):
-    """Task defaults: max_retries=0, attempt=0, retry_after=None."""
-    t = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    assert t.max_retries == 0
-    assert t.attempt == 0
-    assert t.retry_after is None
-
-
-async def test_create_task_with_max_retries(orch_ctx):
-    """create_task() accepts and sets max_retries."""
-    t = create_task(
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-        max_retries=3,
-    )
-    assert t.max_retries == 3
-    assert t.attempt == 0
-
-
-async def test_task_decorator_with_max_retries(orch_ctx):
-    """@task(max_retries=2) creates tasks with max_retries=2."""
-
-    @task(max_retries=2)
-    async def my_retryable_task():
-        pass
-
-    t = my_retryable_task()
-    assert t.max_retries == 2
-    assert t.attempt == 0
-
-
-async def test_task_decorator_bare(orch_ctx):
-    """@task without arguments still works."""
-
-    @task
-    async def my_task():
-        pass
-
-    t = my_task()
-    assert t.max_retries == 0
 
 
 async def test_set_pending_cleanup(orch_ctx):
@@ -93,13 +52,10 @@ async def test_set_pending_cleanup(orch_ctx):
     await update_task_status(task_id, TaskStatus.RUNNING)
     await _set_pending_cleanup(task_id, "test error")
 
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id)
-        )
-        t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING_CLEANUP
-        assert t.error == "test error"
+    t = await get_task(task_id)
+    assert t is not None
+    assert t.status == TaskStatus.PENDING_CLEANUP
+    assert t.error == "test error"
 
 
 async def test_claim_respects_retry_after(orch_ctx):

@@ -338,6 +338,17 @@ def main():
     register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+    register_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Default preservation mode for every run of this job (runs can override)",
+    )
+    register_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Default sampling strategy as JSON (required when preservation_mode=STRATEGY)",
+    )
 
     # Add run-job subcommand
     run_job_parser = subparsers.add_parser(
@@ -346,6 +357,34 @@ def main():
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+    run_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
+    )
+    run_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Sampling strategy as JSON object (required when preservation_mode=STRATEGY)",
+    )
+
+    # Add replay subcommand
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Replay a completed job with a sampling strategy",
+    )
+    replay_parser.add_argument("job_id", type=str, help="Original job ID to replay")
+    replay_parser.add_argument(
+        "--sampling-strategy",
+        required=True,
+        help="Sampling strategy as JSON object (required)",
+    )
+    replay_parser.add_argument(
+        "--name",
+        default=None,
+        help="Override name for the replayed job (default: inherit the original's name)",
+    )
 
     # Add registered-job subcommand
     registered_job_parser = subparsers.add_parser(
@@ -511,12 +550,28 @@ def main():
             name=args.name,
             schedule=args.schedule,
             kwargs_json=args.kwargs,
+            preservation_mode=args.preservation_mode,
+            sampling_strategy_json=args.sampling_strategy,
         ))
 
     elif args.command == "run-job":
         from aaiclick.orchestration.cli import run_job_cmd
 
-        asyncio.run(run_job_cmd(args.name, kwargs_json=args.kwargs))
+        asyncio.run(run_job_cmd(
+            args.name,
+            kwargs_json=args.kwargs,
+            preservation_mode=args.preservation_mode,
+            sampling_strategy_json=args.sampling_strategy,
+        ))
+
+    elif args.command == "replay":
+        from aaiclick.orchestration.cli import replay_job_cmd
+
+        asyncio.run(replay_job_cmd(
+            args.job_id,
+            sampling_strategy_json=args.sampling_strategy,
+            name=args.name,
+        ))
 
     elif args.command == "registered-job":
         from aaiclick.orchestration.cli import show_registered_jobs

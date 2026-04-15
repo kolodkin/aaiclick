@@ -5,28 +5,29 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_chdb, is_postgres
-from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
-from aaiclick.oplog.sampling import sample_lineage
+from aaiclick.oplog.sampling import SamplingStrategy, apply_strategy
+
 from ..snowflake_id import get_snowflake_id
-from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
-from .sql_context import get_sql_session, _sql_engine_var
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
-from .task_registry import _task_registry_var, get_task_registry
+from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Group, Task, TasksType
+from .sql_context import _sql_engine_var, get_sql_session
+from .task_registry import _task_registry_var, get_task_registry
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,16 @@ class OrchLifecycleHandler(LifecycleHandler):
         task_id: int,
         job_id: int,
         run_id: int,
+        *,
+        sampling_strategy: SamplingStrategy | None = None,
     ):
         self._task_id = task_id
         self._job_id = job_id
         self._run_id = run_id
+        # Empty strategy means OPLOG_SAMPLE falls back to a plain OPLOG_RECORD.
+        # `create_job()` already enforces that a non-empty strategy implies
+        # STRATEGY mode, so the mode itself is never needed on the handler.
+        self._sampling_strategy: SamplingStrategy = sampling_strategy or {}
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -127,20 +134,44 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
+    def _make_payload(
+        self,
+        result_table: str,
+        operation: str,
+        kwargs: dict[str, str] | None,
+        sql: str | None,
+        *,
+        sampling_strategy: SamplingStrategy | None = None,
+    ) -> OplogPayload:
+        return OplogPayload(
+            result_table=result_table,
+            operation=operation,
+            kwargs=kwargs or {},
+            sql=sql,
+            task_id=self._task_id,
+            job_id=self._job_id,
+            run_id=self._run_id,
+            sampling_strategy=sampling_strategy,
+        )
+
     def oplog_record(self, result_table: str, operation: str,
                      kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_RECORD,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id, self._run_id),
+            oplog=self._make_payload(result_table, operation, kwargs, sql),
         ))
 
     def oplog_record_sample(self, result_table: str, operation: str,
                             kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
+        if not self._sampling_strategy:
+            self.oplog_record(result_table, operation, kwargs, sql)
+            return
         self._enqueue(DBLifecycleMessage(
             DBLifecycleOp.OPLOG_SAMPLE,
-            oplog=OplogPayload(result_table, operation, kwargs or {}, sql,
-                               self._task_id, self._job_id, self._run_id),
+            oplog=self._make_payload(
+                result_table, operation, kwargs, sql,
+                sampling_strategy=self._sampling_strategy,
+            ),
         ))
 
     def oplog_record_table(self, table_name: str) -> None:
@@ -250,19 +281,20 @@ class OrchLifecycleHandler(LifecycleHandler):
 
             # -- Oplog (immediate write, no buffer) --
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
+                assert msg.oplog is not None
                 await self._write_oplog_row(msg.oplog)
             elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
-                kwargs_aai_ids, result_aai_ids = {}, []
-                if msg.oplog.kwargs:
-                    try:
-                        kwargs_aai_ids, result_aai_ids = await sample_lineage(
-                            get_ch_client(), msg.oplog.result_table, msg.oplog.kwargs,
-                        )
-                    except Exception:
-                        logger.error("Failed to sample lineage for %s",
-                                     msg.oplog.result_table, exc_info=True)
+                assert msg.oplog is not None
+                kwargs_aai_ids, result_aai_ids = await apply_strategy(
+                    get_ch_client(),
+                    msg.oplog.result_table,
+                    msg.oplog.kwargs,
+                    msg.oplog.sampling_strategy or {},
+                    job_id=msg.oplog.job_id,
+                )
                 await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
+                assert msg.oplog_table is not None
                 await self._write_table_registry_row(msg.oplog_table)
 
 
@@ -325,7 +357,13 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[None]:
+async def task_scope(
+    task_id: int,
+    job_id: int,
+    run_id: int,
+    *,
+    sampling_strategy: SamplingStrategy | None = None,
+) -> AsyncIterator[None]:
     """Per-task context nested inside orch_context.
 
     Creates isolated per-task state:
@@ -340,15 +378,18 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
         task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
+        sampling_strategy: Active sampling strategy, loaded from the owning
+            ``Job``. An empty/``None`` strategy disables row-level sampling.
     """
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
+        sampling_strategy=sampling_strategy,
     )
     await lifecycle.start()
 
-    objects: Dict[int, weakref.ref] = {}
+    objects: dict[int, weakref.ref] = {}
     await init_oplog_tables(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
@@ -379,7 +420,7 @@ async def task_scope(task_id: int, job_id: int, run_id: int) -> AsyncIterator[No
         _lifecycle_var.reset(lc_token)
 
 
-def _collect_from_registry(items: list) -> list:
+def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     """Collect all reachable Task/Group objects via dependency IDs and the task registry.
 
     Walks the dependency graph starting from ``items``, looking up each
@@ -394,10 +435,10 @@ def _collect_from_registry(items: list) -> list:
     if registry is None:
         return items
 
-    visited: dict = {}
-    result: list = []
+    visited: dict[int, Task | Group] = {}
+    result: list[Task | Group] = []
 
-    def visit(node: object) -> None:
+    def visit(node: Task | Group) -> None:
         if id(node) in visited:
             return
         visited[id(node)] = node

@@ -4,12 +4,11 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from datetime import datetime
-from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Literal, NamedTuple, Optional
 
 import yaml
-
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -86,7 +85,7 @@ class FieldSpec(NamedTuple):
 
     nullable: bool = False
     low_cardinality: bool = False
-    type: Optional[str] = None
+    type: str | None = None
 
 
 class Computed(NamedTuple):
@@ -163,14 +162,14 @@ class Agg(NamedTuple):
     alias: str
 
 # Aggregation spec: plain op, single Agg, or list of Agg
-AggSpec = Union[GroupByOpType, Agg, List[Agg]]
+AggSpec = GroupByOpType | Agg | list[Agg]
 
 # Value type aliases for factory functions
-ValueScalarType = Union[int, float, bool, str, datetime]
-ValueListType = Union[List[int], List[float], List[bool], List[str], List[datetime]]
-ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
-ValueRecordType = List[ValueDictType]
-ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
+ValueScalarType = int | float | bool | str | datetime
+ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
+ValueDictType = dict[str, ValueScalarType | ValueListType]
+ValueRecordType = list[ValueDictType]
+ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
 
 
 @dataclass
@@ -206,7 +205,7 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
-    columns: Dict[str, "ColumnInfo"] = field(default_factory=dict)
+    columns: dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 
 @dataclass
@@ -227,11 +226,11 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    selected_fields: Optional[List[str]] = None
+    columns: dict[str, "ColumnInfo"]
+    selected_fields: list[str] | None = None
     is_single_field: bool = False
-    col_fieldtype: Optional[str] = None
-    order_by: Optional[str] = None
+    col_fieldtype: str | None = None
+    order_by: str | None = None
 
 
 @dataclass
@@ -251,14 +250,14 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    table: Optional[str] = None
-    col_fieldtype: Optional[str] = None
+    columns: dict[str, "ColumnInfo"]
+    table: str | None = None
+    col_fieldtype: str | None = None
     engine: Optional["EngineType"] = None
-    order_by: Optional[str] = None
+    order_by: str | None = None
 
 
-def build_order_by_clause(columns: List[str]) -> str:
+def build_order_by_clause(columns: list[str]) -> str:
     """Build an ORDER BY clause string from column names.
 
     ``aai_id`` is always appended as the last column (and deduplicated
@@ -288,12 +287,12 @@ class ViewSchema(Schema):
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
-    where: Optional[str] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    order_by: Optional[str] = None
-    selected_fields: Optional[List[str]] = None
-    computed_columns: Optional[Dict[str, "Computed"]] = None
+    where: str | None = None
+    limit: int | None = None
+    offset: int | None = None
+    order_by: str | None = None
+    selected_fields: list[str] | None = None
+    computed_columns: dict[str, "Computed"] | None = None
 
 
 @dataclass
@@ -311,10 +310,10 @@ class GroupByInfo:
 
     source: str
     base_table: str
-    group_keys: List[str]
-    columns: Dict[str, str]
+    group_keys: list[str]
+    columns: dict[str, str]
     fieldtype: str
-    having: Optional[str] = None
+    having: str | None = None
 
 
 @dataclass
@@ -326,7 +325,7 @@ class ColumnMeta:
         fieldtype: 's' for scalar, 'a' for array
     """
 
-    fieldtype: Optional[str] = None
+    fieldtype: str | None = None
 
     def to_yaml(self) -> str:
         """

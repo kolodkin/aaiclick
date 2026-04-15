@@ -7,8 +7,7 @@ Only creation and data() retrieval are tested.
 
 import pytest
 
-from aaiclick import create_object_from_value, create_object
-
+from aaiclick import create_object_from_value
 
 # =============================================================================
 # Scalar Tests

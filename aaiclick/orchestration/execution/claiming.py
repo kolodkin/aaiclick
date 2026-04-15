@@ -1,19 +1,18 @@
 """Atomic task claiming and cancellation for distributed workers."""
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import text
 from sqlmodel import select
 
-from ..orch_context import get_db_handler, get_sql_session
 from ..models import Job, JobStatus, Task, TaskStatus
+from ..orch_context import get_db_handler, get_sql_session
 
 # Terminal job statuses that cannot be cancelled
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
-async def claim_next_task(worker_id: int) -> Optional[Task]:
+async def claim_next_task(worker_id: int) -> Task | None:
     """
     Atomically claim the next available task for a worker.
 
@@ -45,9 +44,9 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
 async def update_task_status(
     task_id: int,
     status: TaskStatus,
-    error: Optional[str] = None,
-    result: Optional[dict] = None,
-    log_path: Optional[str] = None,
+    error: str | None = None,
+    result: dict | None = None,
+    log_path: str | None = None,
 ) -> bool:
     """
     Update a task's status and optional error/result.
@@ -96,7 +95,7 @@ async def update_task_status(
         return True
 
 
-async def update_job_status(job_id: int, status: JobStatus, error: Optional[str] = None) -> bool:
+async def update_job_status(job_id: int, status: JobStatus, error: str | None = None) -> bool:
     """
     Update a job's status.
 

@@ -3,9 +3,10 @@
 from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
-from .orch_context import commit_tasks, get_sql_session
 from .factories import create_job, create_task
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group, Task
+from .jobs import get_task
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
+from .orch_context import commit_tasks, get_sql_session
 
 
 async def test_task_rshift_creates_dependency():
@@ -172,14 +173,13 @@ async def test_commit_tasks_persists_upstream_graph(orch_ctx):
     await commit_tasks(report, job_id=job.id)
 
     # All three tasks must exist in the DB
-    async with get_sql_session() as session:
-        for task in (raw, transform, report):
-            result = await session.execute(select(Task).where(Task.id == task.id))
-            assert result.scalar_one_or_none() is not None, (
-                f"Task {task.id} ({task.entrypoint}) was not persisted"
-            )
+    for task in (raw, transform, report):
+        assert await get_task(task.id) is not None, (
+            f"Task {task.id} ({task.entrypoint}) was not persisted"
+        )
 
-        # Dependencies must also be saved
+    # Dependencies must also be saved
+    async with get_sql_session() as session:
         dep1 = await session.execute(
             select(Dependency).where(
                 Dependency.previous_id == raw.id, Dependency.next_id == transform.id

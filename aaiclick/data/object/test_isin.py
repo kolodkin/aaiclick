@@ -4,8 +4,7 @@ Tests for isin() operator and with_isin() domain helper.
 Tests membership testing via IN subquery on scalar, array, and dict Objects.
 """
 
-from aaiclick import create_object_from_value, ORIENT_RECORDS
-
+from aaiclick import ORIENT_RECORDS, create_object_from_value
 
 # =============================================================================
 # isin() operator tests — returns UInt8 mask Object

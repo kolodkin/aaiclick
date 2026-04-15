@@ -7,7 +7,6 @@ persistent named objects via the command line.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from ..data_context import (
     data_context,
@@ -63,7 +62,7 @@ async def show_object_cmd(name: str) -> None:
         print(f"Name:      {name}")
         print(f"Table:     {obj.table}")
         print(f"Fieldtype: {schema.fieldtype}")
-        print(f"Columns:")
+        print("Columns:")
         for col_name, col_info in schema.columns.items():
             if col_name == "aai_id":
                 continue
@@ -79,8 +78,8 @@ async def delete_object_cmd(name: str) -> None:
 
 async def delete_objects_cmd(
     *,
-    after: Optional[str] = None,
-    before: Optional[str] = None,
+    after: str | None = None,
+    before: str | None = None,
 ) -> None:
     """Delete persistent objects filtered by creation time."""
     after_dt = _parse_datetime(after) if after else None
