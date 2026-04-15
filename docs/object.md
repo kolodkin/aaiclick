@@ -280,17 +280,52 @@ Returns data as a plain-text markdown table (`aai_id` omitted, auto-sized column
 
 ## export()
 
-Export data to a local file via ClickHouse's `file()` table function — data
-streams from ClickHouse directly to disk with no Python round-trip. Format is
-inferred from the extension. View constraints (`where`, `limit`, `order_by`)
-are honored. Returns the absolute path written.
+Export data to a local file. The format is picked from the file extension
+and the data streams directly from ClickHouse — no Python round-trip, so
+multi-million-row exports stay memory-bounded. View constraints (`where`,
+`limit`, `order_by`) are honored and the internal `aai_id` column is
+omitted. Returns the absolute path written.
 
 ```python
-await obj.export("/tmp/data.csv")       # CSVWithNames
-await obj.export("/tmp/data.parquet")   # Parquet
-await obj.export("/tmp/data.tsv")       # TSVWithNames
-await obj.export("/tmp/data.json")      # JSONEachRow
+await obj.export("/tmp/data.csv")
+await obj.export("/tmp/data.parquet")
+await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 ```
+
+### Supported extensions
+
+| Extension                       | ClickHouse format | Notes                                  |
+|---------------------------------|-------------------|----------------------------------------|
+| `.csv`                          | `CSVWithNames`    | header row included                    |
+| `.tsv`                          | `TSVWithNames`    | header row included                    |
+| `.json` / `.jsonl` / `.ndjson`  | `JSONEachRow`     | newline-delimited JSON                 |
+| `.parquet`                      | `Parquet`         | columnar, best for large datasets      |
+| `.arrow`                        | `Arrow`           | Apache Arrow IPC stream                |
+| `.orc`                          | `ORC`             | Apache ORC columnar                    |
+| `.avro`                         | `Avro`            | Avro container with embedded schema    |
+| `.md`                           | `Markdown`        | pipe-delimited markdown table          |
+| `.xml`                          | `XML`             | one `<row>` element per record         |
+| `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
+
+### Compression
+
+Append `.gz`, `.zst`, `.br`, or `.xz` and ClickHouse picks the codec
+automatically:
+
+```python
+await obj.export("/tmp/data.csv.gz")
+await obj.export("/tmp/data.parquet.zst")
+await obj.export("/tmp/data.json.xz")
+```
+
+### Backend behavior
+
+- **chdb (embedded):** writes via `INSERT INTO FUNCTION file('path', fmt)` —
+  the embedded engine streams directly to the local filesystem.
+- **clickhouse-connect (remote):** streams the formatted bytes over HTTP
+  via `raw_stream(query, fmt=fmt)` and writes them to the local file in
+  64 KB chunks. (`INSERT INTO FUNCTION file()` cannot be used here because
+  it would write to the *server's* `user_files_path`, not the client.)
 
 # Views
 

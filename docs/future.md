@@ -101,6 +101,15 @@ Reset a specific task and all its downstream tasks to PENDING — same concept a
 
 Items deferred until preconditions are met.
 
+## `Object.export()` HTML Format
+
+`.html` extension → ClickHouse `HTML` output format. The format is supported
+by upstream ClickHouse but the chdb build that aaiclick ships against rejects
+it with `UNKNOWN_FORMAT` (chdb appears to omit the HTML output handler). Add
+the `.html` → `HTML` mapping to `_EXPORT_FORMATS` and the corresponding test
+once chdb's build includes it, or once aaiclick gains a way to fall back to
+clickhouse-connect for formats chdb doesn't ship.
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

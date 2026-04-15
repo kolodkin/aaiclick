@@ -61,12 +61,41 @@ from ..data_context.ch_client import export_query_to_file
 from ..sql_utils import quote_identifier
 
 
+# Maps a file extension to the ClickHouse output format used by file().
+# ClickHouse picks the compression scheme automatically from the trailing
+# .gz / .zst / .br / .xz suffix, so callers can write e.g. ``data.csv.gz``.
 _EXPORT_FORMATS = {
-    ".csv": "CSVWithNames",
+    ".csv":     "CSVWithNames",
+    ".tsv":     "TSVWithNames",
     ".parquet": "Parquet",
-    ".tsv": "TSVWithNames",
-    ".json": "JSONEachRow",
+    ".arrow":   "Arrow",
+    ".orc":     "ORC",
+    ".avro":    "Avro",
+    ".json":    "JSONEachRow",
+    ".jsonl":   "JSONEachRow",
+    ".ndjson":  "JSONEachRow",
+    ".md":      "Markdown",
+    ".xml":     "XML",
+    ".sql":     "SQLInsert",
 }
+
+_COMPRESSION_SUFFIXES = frozenset({".gz", ".zst", ".br", ".xz"})
+
+
+def _format_for_path(path: str) -> str:
+    """Return the ClickHouse format name for a file path (extension-driven)."""
+    suffixes = [s.lower() for s in Path(path).suffixes]
+    if suffixes and suffixes[-1] in _COMPRESSION_SUFFIXES:
+        suffixes = suffixes[:-1]
+    suffix = suffixes[-1] if suffixes else ""
+    fmt = _EXPORT_FORMATS.get(suffix)
+    if fmt is None:
+        raise ValueError(
+            f"Unsupported export extension {suffix!r}. "
+            f"Supported: {', '.join(sorted(_EXPORT_FORMATS))} "
+            f"(optionally with {', '.join(sorted(_COMPRESSION_SUFFIXES))} compression)"
+        )
+    return fmt
 
 
 @dataclass
@@ -526,22 +555,22 @@ class Object:
     async def export(self, path: str) -> str:
         """Export the object's data to a local file.
 
-        Format is inferred from the extension: ``.csv``, ``.parquet``,
-        ``.tsv``, ``.json``. View constraints (``where``, ``limit``,
-        ``order_by``) are honored. The internal ``aai_id`` column is omitted.
+        The format is picked from the file extension. Supported text formats:
+        ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
+        ``.xml``, ``.sql``. Supported binary/columnar formats: ``.parquet``,
+        ``.arrow``, ``.orc``, ``.avro``. ClickHouse picks the compression
+        scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
+        — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
-        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
-        file()`` from the embedded engine; remote ClickHouse streams the
-        formatted bytes over HTTP. Returns the absolute path written.
+        View constraints (``where``, ``limit``, ``order_by``) are honored and
+        the internal ``aai_id`` column is omitted. Backends stream directly:
+        chdb writes via ``INSERT INTO FUNCTION file()`` from the embedded
+        engine; remote ClickHouse streams the formatted bytes over HTTP.
+
+        Returns the absolute path written.
         """
         self.checkstale()
-        suffix = Path(path).suffix.lower()
-        fmt = _EXPORT_FORMATS.get(suffix)
-        if fmt is None:
-            raise ValueError(
-                f"Unsupported export extension {suffix!r}. "
-                f"Supported: {', '.join(sorted(_EXPORT_FORMATS))}"
-            )
+        fmt = _format_for_path(path)
         select_sql = self._build_select(columns="* EXCEPT aai_id")
         return await export_query_to_file(select_sql, path, fmt)
 
