@@ -344,9 +344,13 @@ async def fetch_producing_op(
 ) -> RowUpstream | None:
     """Return the oplog row that produced ``(table, aai_id)``, or ``None``.
 
-    Scoped to ``job_id`` when provided — mandatory when the same table
-    name has been produced by multiple jobs (replays / repeated runs)
-    so walks don't cross job boundaries.
+    When ``job_id`` is provided the lookup is scoped to that job so the
+    walk doesn't cross job boundaries — strongly recommended for
+    persistent tables that may have been re-produced by multiple jobs
+    (replays / repeated runs with the same persistent name). Without
+    ``job_id`` the most recent matching oplog row wins, which is fine
+    for fresh ephemeral ``t_*`` tables whose snowflake ids make
+    collisions impossible.
 
     Returns ``None`` for rows whose lineage arrays are empty (the
     operation ran under ``PreservationMode.NONE`` / ``FULL``).
@@ -387,6 +391,8 @@ async def backward_oplog_row(
     table: str,
     aai_id: int,
     max_depth: int = 10,
+    *,
+    job_id: int | None = None,
 ) -> list[RowLineageStep]:
     """Trace a single ``aai_id`` backward through the oplog.
 
@@ -394,13 +400,21 @@ async def backward_oplog_row(
     are populated under ``PreservationMode.STRATEGY``. Steps are ordered
     most-recent-first. Returns ``[]`` when no oplog row carries this id
     (common under ``NONE`` / ``FULL`` mode).
+
+    When ``job_id`` is provided, every hop's oplog lookup is scoped to
+    that job so the walk cannot cross job boundaries. Pass it when the
+    starting table is persistent (``p_*``) and may have been re-produced
+    by other jobs; omit it for freshly-generated ephemeral tables whose
+    snowflake ids guarantee uniqueness.
     """
     steps: list[RowLineageStep] = []
     current_table = table
     current_id = aai_id
 
     for _ in range(max_depth):
-        upstream = await fetch_producing_op(current_table, current_id)
+        upstream = await fetch_producing_op(
+            current_table, current_id, job_id=job_id,
+        )
         if upstream is None:
             break
 
