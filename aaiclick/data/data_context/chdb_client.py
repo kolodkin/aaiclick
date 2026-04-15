@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 import pyarrow as pa
 from chdb.session import Session
 
+from aaiclick.data.sql_utils import escape_sql_string
+
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
@@ -55,7 +57,7 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
             tmp_files.append(tmp)
             await asyncio.to_thread(urllib.request.urlretrieve, url, tmp.name)
-            safe_tmp = tmp.name.replace("'", "\\'")
+            safe_tmp = escape_sql_string(tmp.name)
             replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
 
         if not replacements:
@@ -89,9 +91,34 @@ def _with_settings(query: str, settings: Optional[dict]) -> str:
         elif isinstance(val, (int, float)):
             parts.append(f"{key}={val}")
         else:
-            escaped = str(val).replace("'", "\\'")
+            escaped = escape_sql_string(str(val))
             parts.append(f"{key}='{escaped}'")
     return f"{query} SETTINGS {', '.join(parts)}"
+
+
+def _serialize_param(value: object) -> object:
+    """Convert a Python parameter value into a form chdb's ``{name:Type}``
+    parser accepts.
+
+    Numeric values and numeric arrays pass through — chdb serializes them
+    fine. String arrays must be pre-formatted as a ClickHouse literal
+    (``"['a','b']"``) because chdb's built-in stringifier emits bare
+    tokens which the ``Array(String)`` parser rejects.
+    """
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "[]"
+        first = value[0]
+        if isinstance(first, str):
+            parts = [f"'{escape_sql_string(v)}'" for v in value]
+            return "[" + ",".join(parts) + "]"
+    return value
+
+
+def _serialize_parameters(parameters: Optional[dict]) -> Optional[dict]:
+    if not parameters:
+        return None
+    return {k: _serialize_param(v) for k, v in parameters.items()}
 
 
 @dataclass
@@ -126,19 +153,29 @@ class ChdbClient:
         """Access the underlying chdb session (for TableWorker)."""
         return self._session
 
-    async def command(self, query: str, settings: Optional[dict] = None) -> object:
+    async def command(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
         Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
-        them as keyword arguments.
+        them as keyword arguments. ``parameters`` are forwarded to chdb's
+        native ``{name:Type}`` placeholder binding.
 
         Any ``url('https://...', 'fmt')`` calls in *query* are transparently
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
         async with _rewrite_external_urls(query) as rewritten:
-            result = self._session.query(_with_settings(rewritten, settings), "TabSeparated")
+            result = self._session.query(
+                _with_settings(rewritten, settings),
+                "TabSeparated",
+                params=_serialize_parameters(parameters),
+            )
             raw = result.bytes()
             if raw:
                 text = raw.decode("utf-8").strip()
@@ -149,20 +186,30 @@ class ChdbClient:
                         return text
             return None
 
-    async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
+    async def query(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 
         Matches AsyncClient.query() — returns object with result_rows attribute.
         Uses ArrowTable format for efficient, typed data from chdb.
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
-        them as keyword arguments.
+        them as keyword arguments. ``parameters`` are forwarded to chdb's
+        native ``{name:Type}`` placeholder binding.
 
         Any ``url('https://...', 'fmt')`` calls in *query* are transparently
         rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
         hangs on external URLs.
         """
         async with _rewrite_external_urls(query) as rewritten:
-            table = self._session.query(_with_settings(rewritten, settings), "Arrowtable")
+            table = self._session.query(
+                _with_settings(rewritten, settings),
+                "Arrowtable",
+                params=_serialize_parameters(parameters),
+            )
             if table is None or table.num_rows == 0:
                 return ChdbQueryResult()
 

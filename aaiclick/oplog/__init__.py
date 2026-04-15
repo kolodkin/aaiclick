@@ -11,5 +11,13 @@ from .lineage import (
     lineage_context,
     oplog_subgraph,
 )
+from .lineage_forest import (
+    LineageNode,
+    Route,
+    build_and_render,
+    build_forest,
+    collapse_to_routes,
+    render_routes,
+)
 from .models import init_oplog_tables
 from .sampling import SamplingStrategy, apply_strategy

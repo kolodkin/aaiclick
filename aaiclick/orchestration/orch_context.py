@@ -287,6 +287,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                     msg.oplog.result_table,
                     msg.oplog.kwargs,
                     msg.oplog.sampling_strategy or {},
+                    job_id=msg.oplog.job_id,
                 )
                 await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:

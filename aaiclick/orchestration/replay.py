@@ -117,12 +117,24 @@ def _rewrite_value(value: Any, ctx: _RewriteCtx) -> Any:
     return {k: _rewrite_value(v, ctx) for k, v in value.items()}
 
 
+class ReplayedJob(NamedTuple):
+    """Return value of :func:`replay_job`.
+
+    Carries both the newly committed ``Job`` row and the
+    original→clone task-id mapping, so callers can find a specific
+    cloned task without re-querying by entrypoint.
+    """
+
+    job: Job
+    task_id_map: Dict[int, int]
+
+
 async def replay_job(
     original_job_id: int,
     sampling_strategy: SamplingStrategy,
     *,
     name: Optional[str] = None,
-) -> Job:
+) -> ReplayedJob:
     """Clone a completed job's task graph and re-run it under a strategy.
 
     Input tasks (those whose result is a persistent Object — see
@@ -147,8 +159,10 @@ async def replay_job(
             the original job's name.
 
     Returns:
-        The newly created ``Job`` row with status ``PENDING``. Tasks +
-        dependencies have already been committed to the database.
+        A ``ReplayedJob`` with the newly created ``Job`` (status
+        ``PENDING``, tasks + dependencies already committed) and the
+        ``task_id_map`` mapping each original compute task id to its
+        cloned id.
 
     Raises:
         ValueError: If the original job is missing, if the strategy is
@@ -234,7 +248,7 @@ async def replay_job(
         session.add_all(cloned_deps)
         await session.commit()
 
-    return new_job
+    return ReplayedJob(job=new_job, task_id_map=task_id_map)
 
 
 async def _load_dynamic_parent_ids(session: AsyncSession, job_id: int) -> set[int]:

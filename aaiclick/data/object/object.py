@@ -56,7 +56,7 @@ from ..data_context import (
     register_object,
     create_object_from_value,
 )
-from ..sql_utils import quote_identifier
+from ..sql_utils import escape_sql_string, quote_identifier
 
 
 @dataclass
@@ -927,8 +927,7 @@ class Object:
         if where is not None and ";" in where:
             raise ValueError("WHERE clause must not contain ';'")
 
-        # Escape single quotes in URL for safe SQL embedding
-        safe_url = url.replace("'", "\\'")
+        safe_url = escape_sql_string(url)
 
         # Build column selection
         quoted_columns = [quote_identifier(c) for c in columns]

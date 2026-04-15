@@ -154,3 +154,67 @@ async def test_backward_oplog_row_none_mode_returns_empty(orch_ctx):
         steps = await backward_oplog_row(result_table, 1)
 
     assert steps == []
+
+
+async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
+    """When a persistent table has been produced by multiple jobs, passing
+    ``job_id`` restricts the walk to that job — the most recent row across
+    jobs is not silently picked."""
+    left_table = "p_multi_job_left"
+    right_table = "p_multi_job_right"
+
+    # Job 100: strategy matches value = 20 → left row at aai_id ending "second"
+    async with task_scope(
+        task_id=1, job_id=100, run_id=10,
+        sampling_strategy={left_table: "value = 20"},
+    ):
+        a1 = await create_object_from_value([10, 20, 30], name="multi_job_left")
+        b1 = await create_object_from_value([1, 2, 3], name="multi_job_right")
+        result1 = await (a1 + b1)
+        result1_table = result1.table
+
+    # Job 200: same persistent input tables, strategy matches value = 30
+    # (a different row). Writes fresh oplog rows for the same source tables.
+    async with task_scope(
+        task_id=2, job_id=200, run_id=20,
+        sampling_strategy={left_table: "value = 30"},
+    ):
+        a2 = await create_object_from_value([10, 20, 30], name="multi_job_left")
+        b2 = await create_object_from_value([1, 2, 3], name="multi_job_right")
+        result2 = await (a2 + b2)
+        result2_table = result2.table
+
+    ch = await create_ch_client()
+    try:
+        # Walk from job 100's result table — with job_id scoping, the hop
+        # backward lands on job 100's oplog row, not job 200's.
+        rows = (
+            await ch.query(
+                f"SELECT aai_id FROM {result1_table} WHERE value = 22"
+            )
+        ).result_rows
+        assert rows, f"expected value=22 in {result1_table}"
+        target_id = rows[0][0]
+
+        async with lineage_context():
+            scoped_steps = await backward_oplog_row(
+                result1_table, target_id, job_id=100,
+            )
+
+        assert scoped_steps, "expected steps under job 100"
+        assert scoped_steps[0].table == result1_table
+        # The second hop lands in left_table — verify its aai_id matches
+        # job 100's left row (value=20), not job 200's (value=30).
+        left_id = scoped_steps[0].source_aai_ids["left"]
+        left_value_rows = (
+            await ch.query(
+                f"SELECT value FROM {left_table} WHERE aai_id = {left_id}"
+            )
+        ).result_rows
+        assert left_value_rows, "left aai_id should exist"
+        assert left_value_rows[0][0] == 20, (
+            "scoped walk should stay in job 100's matched row (value=20)"
+        )
+    finally:
+        await ch.command(f"DROP TABLE IF EXISTS {left_table}")
+        await ch.command(f"DROP TABLE IF EXISTS {right_table}")

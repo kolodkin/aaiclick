@@ -21,8 +21,12 @@ CREATE TABLE IF NOT EXISTS operation_log (
     run_id          Nullable(UInt64),
     created_at      DateTime64(3)
 ) ENGINE = MergeTree()
-ORDER BY created_at
+ORDER BY (result_table, created_at)
 """
+# result_table leads the sort key so every oplog consumer
+# (backward_oplog, fetch_producing_op, _pick_inherited_driver, ...)
+# gets skip-index-friendly lookups; created_at breaks ties within a
+# table so "most recent row" stays a tail scan.
 
 TABLE_REGISTRY_DDL = """
 CREATE TABLE IF NOT EXISTS table_registry (

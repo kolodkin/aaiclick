@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -58,14 +59,12 @@ async def test_create_job_with_task(orch_ctx):
     assert job.id > 0
     assert job.name == "test_job_2"
 
-    # Verify task has job_id assigned using ORM
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task.id))
-        db_task = result.scalar_one_or_none()
-        assert db_task is not None
-        assert db_task.job_id == job.id
-        assert db_task.entrypoint == "mymodule.task2"
-        assert db_task.kwargs == {"param": "value"}
+    # Verify task has job_id assigned via the public query helper
+    db_task = await get_task(task.id)
+    assert db_task is not None
+    assert db_task.job_id == job.id
+    assert db_task.entrypoint == "mymodule.task2"
+    assert db_task.kwargs == {"param": "value"}
 
 
 async def test_create_job_unique_ids(orch_ctx):

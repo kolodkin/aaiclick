@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from .claiming import claim_next_task, update_task_status
+from ..jobs import get_task
 from ..orch_context import get_sql_session
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
@@ -51,13 +52,10 @@ async def test_set_pending_cleanup(orch_ctx):
     await update_task_status(task_id, TaskStatus.RUNNING)
     await _set_pending_cleanup(task_id, "test error")
 
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id)
-        )
-        t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING_CLEANUP
-        assert t.error == "test error"
+    t = await get_task(task_id)
+    assert t is not None
+    assert t.status == TaskStatus.PENDING_CLEANUP
+    assert t.error == "test error"
 
 
 async def test_claim_respects_retry_after(orch_ctx):
