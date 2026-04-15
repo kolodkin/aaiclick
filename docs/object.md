@@ -51,9 +51,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.concat(*sources)` / `concat(a, b, …)`          | Ingest           | Concatenate sources into a new Object         | [concat()](#concat)                                                  |
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
-| `.export(path)`                                  | Export           | Export to file (format inferred from extension)| [export()](#export)                                                 |
-| `.export_csv(path)`                              | Export           | Export to CSV file                            | [export()](#export)                                                  |
-| `.export_parquet(path)`                          | Export           | Export to Parquet file                        | [export()](#export)                                                  |
+| `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
 
 # Operator Support
 
@@ -282,15 +280,16 @@ Returns data as a plain-text markdown table (`aai_id` omitted, auto-sized column
 
 ## export()
 
-Export data to a local file. Format is inferred from the file extension, or use the explicit methods directly.
+Export data to a local file via ClickHouse's `file()` table function — data
+streams from ClickHouse directly to disk with no Python round-trip. Format is
+inferred from the extension. View constraints (`where`, `limit`, `order_by`)
+are honored. Returns the absolute path written.
 
 ```python
-await obj.export("/tmp/data.csv")       # CSV
+await obj.export("/tmp/data.csv")       # CSVWithNames
 await obj.export("/tmp/data.parquet")   # Parquet
-
-# Explicit methods
-await obj.export_csv("/tmp/data.csv")
-await obj.export_parquet("/tmp/data.parquet")
+await obj.export("/tmp/data.tsv")       # TSVWithNames
+await obj.export("/tmp/data.json")      # JSONEachRow
 ```
 
 # Views

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
@@ -42,17 +43,20 @@ class ChClient(Protocol):
 
 _ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)
 
-# Module-level fallback for debugger sessions where ContextVars are
-# invisible (each debug console `await` gets a fresh Context copy).
+# VS Code's debug console evaluates each `await` in a fresh Python Context, so
+# ContextVar-bound clients are invisible. Setting AAICLICK_DEBUGGER=1 enables a
+# module-level chdb fallback (chdb only — the only backend that can be created
+# synchronously without a running event loop).
+_DEBUGGER_ENABLED = bool(os.environ.get("AAICLICK_DEBUGGER"))
 _debug_ch_client: ChClient | None = None
 
 
 def get_ch_client() -> ChClient:
     """Return the ClickHouse client for the active data context."""
     client = _ch_client_var.get()
-    if client is None and os.environ.get("AAICLICK_DEBUGGER"):
+    if client is None and _DEBUGGER_ENABLED and is_chdb():
         global _debug_ch_client
-        if _debug_ch_client is None and is_chdb():
+        if _debug_ch_client is None:
             from .chdb_client import create_chdb_client
 
             _debug_ch_client = create_chdb_client()
@@ -63,6 +67,44 @@ def get_ch_client() -> ChClient:
             "use 'async with data_context()' or 'async with orch_context()'"
         )
     return client
+
+
+async def export_query_to_file(query: str, path: str, fmt: str) -> str:
+    """Stream a ``SELECT`` query result to a local file in *fmt*.
+
+    Backends:
+
+    - **chdb (embedded):** ``INSERT INTO FUNCTION file('path', fmt) <query>``
+      — data is written by the embedded engine directly to disk, never crossing
+      a Python boundary.
+    - **clickhouse-connect (remote HTTP):** ``raw_stream(query, fmt=fmt)`` —
+      the formatted bytes stream over HTTP and are written to the local file
+      chunk-by-chunk, so memory stays bounded.
+
+    For chdb, ``INSERT INTO FUNCTION file()`` would write to the server's
+    filesystem, which equals the client's filesystem only because chdb is
+    embedded. For a real remote server we must stream the result back instead.
+    """
+    abs_path = str(Path(path).resolve())
+    client = get_ch_client()
+    if is_chdb():
+        safe_path = abs_path.replace("'", "\\'")
+        await client.command(
+            f"INSERT INTO FUNCTION file('{safe_path}', '{fmt}') {query}"
+        )
+        return abs_path
+
+    stream = await client.raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
+    try:
+        with open(abs_path, "wb") as f:
+            while True:
+                chunk = stream.read(1 << 16)
+                if not chunk:
+                    break
+                f.write(chunk)
+    finally:
+        stream.close()
+    return abs_path
 
 
 async def create_ch_client() -> ChClient:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import functools
+from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
@@ -56,7 +57,16 @@ from ..data_context import (
     register_object,
     create_object_from_value,
 )
+from ..data_context.ch_client import export_query_to_file
 from ..sql_utils import quote_identifier
+
+
+_EXPORT_FORMATS = {
+    ".csv": "CSVWithNames",
+    ".parquet": "Parquet",
+    ".tsv": "TSVWithNames",
+    ".json": "JSONEachRow",
+}
 
 
 @dataclass
@@ -513,63 +523,27 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export_csv(self, path: str) -> str:
-        """Export the object's data to a CSV file.
-
-        Args:
-            path: File path to write the CSV to.
-
-        Returns:
-            The path written to.
-        """
-        import pyarrow as pa
-        import pyarrow.csv as pcsv
-
-        data = await self.data()
-        table = pa.Table.from_pydict(data)
-        pcsv.write_csv(table, path)
-        return path
-
-    async def export_parquet(self, path: str) -> str:
-        """Export the object's data to a Parquet file.
-
-        Args:
-            path: File path to write the Parquet file to.
-
-        Returns:
-            The path written to.
-        """
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        data = await self.data()
-        table = pa.Table.from_pydict(data)
-        pq.write_table(table, path)
-        return path
-
     async def export(self, path: str) -> str:
-        """Export the object's data, inferring format from file extension.
+        """Export the object's data to a local file.
 
-        Supported extensions: .csv, .parquet
+        Format is inferred from the extension: ``.csv``, ``.parquet``,
+        ``.tsv``, ``.json``. View constraints (``where``, ``limit``,
+        ``order_by``) are honored. The internal ``aai_id`` column is omitted.
 
-        Args:
-            path: File path to write to.
-
-        Returns:
-            The path written to.
-
-        Raises:
-            ValueError: If the file extension is not supported.
+        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
+        file()`` from the embedded engine; remote ClickHouse streams the
+        formatted bytes over HTTP. Returns the absolute path written.
         """
-        if path.endswith(".csv"):
-            return await self.export_csv(path)
-        elif path.endswith(".parquet"):
-            return await self.export_parquet(path)
-        else:
+        self.checkstale()
+        suffix = Path(path).suffix.lower()
+        fmt = _EXPORT_FORMATS.get(suffix)
+        if fmt is None:
             raise ValueError(
-                f"Unsupported export format: {path!r}. "
-                "Use .csv or .parquet extension."
+                f"Unsupported export extension {suffix!r}. "
+                f"Supported: {', '.join(sorted(_EXPORT_FORMATS))}"
             )
+        select_sql = self._build_select(columns="* EXCEPT aai_id")
+        return await export_query_to_file(select_sql, path, fmt)
 
     async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""

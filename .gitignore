@@ -221,5 +221,4 @@ gh_*/
 .claude/*
 !.claude/skills/
 
-# vscode
 .vscode
