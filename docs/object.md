@@ -383,14 +383,19 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 ### Compression
 
-Append `.gz`, `.zst`, `.br`, or `.xz` and ClickHouse picks the codec
-automatically:
+Append `.gz` or `.xz` and the writer compresses with gzip / LZMA
+automatically. Both backends produce standard-format archives:
 
 ```python
 await obj.export("/tmp/data.csv.gz")
-await obj.export("/tmp/data.parquet.zst")
 await obj.export("/tmp/data.json.xz")
+await obj.export("/tmp/data.parquet.gz")
 ```
+
+Under chdb the compression happens server-side via ClickHouse's `file()`
+auto-detection; against a remote server aaiclick wraps the raw stream with
+Python's stdlib `gzip` / `lzma` writer, so output is byte-for-byte a valid
+archive in both modes.
 
 ### Backend behavior
 

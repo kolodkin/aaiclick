@@ -7,13 +7,30 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+import gzip
+import lzma
 import os
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional, Protocol, Sequence
+from typing import BinaryIO, Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
+
+
+def _open_export_writer(path: str) -> BinaryIO:
+    """Return a binary writer for *path*, transparently wrapping .gz / .xz.
+
+    Used by the remote export path — ``raw_stream`` returns uncompressed
+    bytes, so compression must be applied client-side. (In chdb mode,
+    ``file()`` handles compression server-side from the same extension.)
+    """
+    suffix = Path(path).suffix.lower()
+    if suffix == ".gz":
+        return gzip.open(path, "wb")
+    if suffix == ".xz":
+        return lzma.open(path, "wb")
+    return open(path, "wb")
 
 
 class QueryResult(Protocol):
@@ -112,7 +129,7 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
 
     stream = await client.raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
     try:
-        with open(abs_path, "wb") as f:
+        with _open_export_writer(abs_path) as f:
             while True:
                 chunk = stream.read(1 << 16)
                 if not chunk:

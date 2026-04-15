@@ -67,8 +67,11 @@ FORMATS: tuple[FormatSpec, ...] = (
 # fmt: on
 
 
-# ClickHouse auto-detects compression from the trailing path suffix.
-COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".zst", ".br", ".xz"})
+# Compression codecs supported on both backends. chdb delegates to
+# ClickHouse's ``file()`` auto-detection; remote compresses client-side via
+# Python's stdlib ``gzip`` / ``lzma``. Only these two extensions are
+# advertised so the two backends behave identically.
+COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".xz"})
 
 
 # Derived lookups — built once at import.
