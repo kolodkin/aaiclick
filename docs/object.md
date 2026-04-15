@@ -51,6 +51,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.concat(*sources)` / `concat(a, b, …)`          | Ingest           | Concatenate sources into a new Object         | [concat()](#concat)                                                  |
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
+| `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
 
 # Operator Support
 
@@ -244,6 +245,80 @@ Inserts data from one or more sources into an existing Object. Target must be ar
 
 Insert data from a URL into an existing Object. For `create_object_from_url()`, see [DataContext](data_context.md).
 
+### Supported URL input formats
+
+`create_object_from_url()` and `insert_from_url()` accept any format ClickHouse
+can read via the `url()` table function. Pass the format name explicitly with
+`format=...`; the file extension is not consulted. Headerless formats expose
+columns as `c1`, `c2`, … because there are no names to bind.
+
+| Format                      | Notes                                                      |
+|-----------------------------|------------------------------------------------------------|
+| `Parquet`                   | columnar, type-rich (default)                              |
+| `ORC`                       | Apache ORC columnar                                        |
+| `Arrow`                     | reading not supported — use Parquet/ORC                    |
+| `Avro`                      | container file with embedded schema                        |
+| `CSV`                       | no header — columns must be `c1`, `c2`, …                  |
+| `CSVWithNames`              | header row provides column names                           |
+| `CSVWithNamesAndTypes`      | header + types row — DESCRIBE returns full types           |
+| `TSV`                       | no header — `c1`, `c2`, …                                  |
+| `TSVWithNames`              | header row                                                 |
+| `TSVWithNamesAndTypes`      | header + types row                                         |
+| `JSON`                      | full ClickHouse JSON envelope (`{meta, data, rows}`)       |
+| `JSONEachRow`               | newline-delimited JSON objects                             |
+| `JSONCompactEachRow`        | newline-delimited JSON arrays — `c1`, `c2`, …              |
+| `RawBLOB` / `JSONAsString`  | JSON-blob mode for nested API responses (see below)        |
+
+```python
+# Tabular formats
+await create_object_from_url(
+    "https://example.com/data.parquet",
+    columns=["id", "price", "name"],
+    format="Parquet",
+)
+
+# Headerless CSV — bind to positional column names
+await create_object_from_url(
+    "https://example.com/raw.csv",
+    columns=["c1", "c2", "c3"],
+    format="CSV",
+)
+
+# Avro container with embedded schema
+await create_object_from_url(
+    "https://example.com/events.avro",
+    columns=["id", "ts", "payload"],
+    format="Avro",
+)
+```
+
+### JSON-blob mode
+
+For nested JSON APIs that wrap rows inside an envelope (e.g.
+`{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
+`json_path` and `json_columns`. ClickHouse loads the whole document as a
+single string and applies `JSONExtract` per field:
+
+```python
+await create_object_from_url(
+    "https://services.nvd.nist.gov/rest/json/cves/2.0",
+    format="JSONAsString",
+    json_path="vulnerabilities",
+    json_columns={
+        "cve.id":               ColumnInfo("String"),
+        "cve.published":        ColumnInfo("DateTime64(3)"),
+        "cve.descriptions":     ColumnInfo("String", array=True),
+    },
+)
+```
+
+### Type inference
+
+By default the loader runs `DESCRIBE (SELECT … FROM url(…) LIMIT 0)` to
+discover column types. Pass `column_types=` to skip the DESCRIBE round-trip
+— useful for headerless CSV/TSV where ClickHouse may fail to infer numeric
+types from a sample of zero rows.
+
 ??? note "Shared insert mechanics"
 
     Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated; source `aai_id` values are not preserved. Order follows argument order.
@@ -276,6 +351,56 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 ## markdown()
 
 Returns data as a plain-text markdown table (`aai_id` omitted, auto-sized columns). Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
+
+## export()
+
+Export data to a local file. The format is picked from the file extension
+and the data streams directly from ClickHouse — no Python round-trip, so
+multi-million-row exports stay memory-bounded. View constraints (`where`,
+`limit`, `order_by`) are honored and the internal `aai_id` column is
+omitted. Returns the absolute path written.
+
+```python
+await obj.export("/tmp/data.csv")
+await obj.export("/tmp/data.parquet")
+await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
+```
+
+### Supported extensions
+
+| Extension                       | ClickHouse format | Notes                                  |
+|---------------------------------|-------------------|----------------------------------------|
+| `.csv`                          | `CSVWithNames`    | header row included                    |
+| `.tsv`                          | `TSVWithNames`    | header row included                    |
+| `.json` / `.jsonl` / `.ndjson`  | `JSONEachRow`     | newline-delimited JSON                 |
+| `.parquet`                      | `Parquet`         | columnar, best for large datasets      |
+| `.arrow`                        | `Arrow`           | Apache Arrow IPC stream                |
+| `.orc`                          | `ORC`             | Apache ORC columnar                    |
+| `.avro`                         | `Avro`            | Avro container with embedded schema    |
+| `.md`                           | `Markdown`        | pipe-delimited markdown table          |
+| `.xml`                          | `XML`             | one `<row>` element per record         |
+| `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
+
+### Compression
+
+Append `.gz` or `.xz` and the writer compresses automatically:
+
+```python
+await obj.export("/tmp/data.csv.gz")
+await obj.export("/tmp/data.parquet.gz")
+await obj.export("/tmp/data.json.xz")
+```
+
+### Backend behavior
+
+- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` — the
+  embedded engine streams directly to disk and picks the compression codec
+  from the path suffix.
+- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` returns
+  uncompressed bytes, which are copied to the local file in 64 KB chunks
+  (on a worker thread) and wrapped through `gzip` / `lzma` if the path
+  asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
+  would write to the *server's* `user_files_path`, not the client.
 
 # Views
 

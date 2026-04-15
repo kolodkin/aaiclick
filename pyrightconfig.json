@@ -1,19 +1,8 @@
 {
-  "venvPath": ".",
-  "venv": ".venv",
-  "include": ["aaiclick"],
-  "exclude": [
-    "**/__pycache__",
-    "**/.venv",
-    "**/node_modules",
-    "aaiclick/example_projects",
-    "aaiclick/orchestration/migrations/versions",
-    "docs"
-  ],
-  "pythonVersion": "3.10",
-  "typeCheckingMode": "basic",
-  "reportMissingImports": "error",
-  "reportMissingTypeStubs": false,
-  "reportArgumentType": "warning",
-  "reportCallIssue": "warning"
+    "venvPath": ".",
+    "venv": ".venv",
+    "exclude": [
+        "aaiclick/example_projects/*/pyproject.toml",
+        "aaiclick/example_projects/*/uv.lock"
+    ]
 }

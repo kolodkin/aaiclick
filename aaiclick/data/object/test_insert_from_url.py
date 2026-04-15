@@ -118,60 +118,38 @@ async def test_url_where_with_semicolon(ctx):
 # =============================================================================
 
 
-async def test_url_format_parquet(ctx, fileserver):
-    """Load 100 rows from Parquet sample file."""
+# Headerless formats (``CSV``, ``TSV``, ``JSONCompactEachRow``) expose columns
+# as ``c1`` / ``c2`` / ``c3`` because ClickHouse has no header row to bind
+# names to — that's the natural way to consume them.
+@pytest.mark.parametrize(
+    "filename,fmt,columns",
+    [
+        pytest.param("sample.parquet",        "Parquet",              ["id", "price", "name"], id="Parquet"),
+        pytest.param("sample.csv",            "CSVWithNames",         ["id", "price", "name"], id="CSVWithNames"),
+        pytest.param("sample_noheader.csv",   "CSV",                  ["c1", "c2", "c3"],      id="CSV-no-header"),
+        pytest.param("sample_withtypes.csv",  "CSVWithNamesAndTypes", ["id", "price", "name"], id="CSVWithNamesAndTypes"),
+        pytest.param("sample.tsv",            "TSVWithNames",         ["id", "price", "name"], id="TSVWithNames"),
+        pytest.param("sample_noheader.tsv",   "TSV",                  ["c1", "c2", "c3"],      id="TSV-no-header"),
+        pytest.param("sample_withtypes.tsv",  "TSVWithNamesAndTypes", ["id", "price", "name"], id="TSVWithNamesAndTypes"),
+        pytest.param("sample.jsonl",          "JSONEachRow",          ["id", "price", "name"], id="JSONEachRow"),
+        pytest.param("sample_compact.jsonl",  "JSONCompactEachRow",   ["c1", "c2", "c3"],      id="JSONCompactEachRow"),
+        pytest.param("sample.orc",            "ORC",                  ["id", "price", "name"], id="ORC"),
+        pytest.param("sample.avro",           "Avro",                 ["id", "price", "name"], id="Avro"),
+    ],
+)
+async def test_url_format(ctx, fileserver, filename, fmt, columns):
+    """Load 100 rows in each supported URL input format."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=100,
+        f"{fileserver}/{filename}", columns=columns, format=fmt, limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
-    assert len(data["id"]) == 100
-    assert len(data["price"]) == 100
-
-
-async def test_url_format_csv_with_names(ctx, fileserver):
-    """Load 100 rows from CSV sample file."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["id", "price", "name"], format="CSVWithNames", limit=100,
-    )
-    data = await obj.data()
-    assert isinstance(data, dict)
-    assert len(data["id"]) == 100
-    assert len(data["price"]) == 100
-    assert len(data["name"]) == 100
-
-
-async def test_url_format_tsv_with_names(ctx, fileserver):
-    """Load 100 rows from TSV sample file."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.tsv", columns=["id", "price"], format="TSVWithNames", limit=100,
-    )
-    data = await obj.data()
-    assert isinstance(data, dict)
-    assert len(data["id"]) == 100
-    assert len(data["price"]) == 100
-
-
-async def test_url_format_json_each_row(ctx, fileserver):
-    """Load 100 rows from JSONL sample file."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.jsonl", columns=["id", "price"], format="JSONEachRow", limit=100,
-    )
-    data = await obj.data()
-    assert isinstance(data, dict)
-    assert len(data["id"]) == 100
-    assert len(data["price"]) == 100
-
-
-async def test_url_format_orc(ctx, fileserver):
-    """Load 100 rows from ORC sample file."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.orc", columns=["id", "price"], format="ORC", limit=100,
-    )
-    data = await obj.data()
-    assert isinstance(data, dict)
-    assert len(data["id"]) == 100
-    assert len(data["price"]) == 100
+    for col in columns:
+        assert len(data[col]) == 100
+    # Row 1 round-trip — id=1, price=1.5, name='item_1' (regardless of column naming).
+    assert data[columns[0]][0] == 1
+    assert data[columns[1]][0] == 1.5
+    assert data[columns[2]][0] == "item_1"
 
 
 # =============================================================================

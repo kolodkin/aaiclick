@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
-from collections.abc import Callable
+import sys
 from datetime import datetime
 from typing import Any
 
@@ -554,6 +554,7 @@ async def run_job_tasks(job: Job) -> None:
         except Exception as e:
             job_failed = True
             error_msg = str(e)
+            print(f"Task {task.name!r} failed: {e}", file=sys.stderr)
 
             async with get_sql_session() as session:
                 db_result = await session.execute(select(Task).where(Task.id == task_id))

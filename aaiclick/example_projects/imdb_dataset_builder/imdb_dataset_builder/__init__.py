@@ -31,6 +31,7 @@ Environment variables:
 
 import asyncio
 import os
+from pathlib import Path
 
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
 from aaiclick.data.models import ColumnInfo
@@ -242,6 +243,20 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     return HFPublishResult(status="published", rows=len(df), repo=HF_REPO_ID)
 
 
+@task
+async def export_dataset(clean: Object, formats: list[str], out_dir: str) -> dict[str, str]:
+    """Export the clean dataset to ``out_dir`` in each requested format.
+
+    Exports run concurrently — ClickHouse streams each file independently.
+    """
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    paths = {fmt: str(Path(out_dir) / f"imdb_curated.{fmt}") for fmt in formats}
+    await asyncio.gather(*(clean.export(p) for p in paths.values()))
+    for fmt, path in paths.items():
+        print(f"Exported {fmt}: {path}")
+    return paths
+
+
 # =============================================================================
 # Job Definition
 # =============================================================================
@@ -280,24 +295,28 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         limit: Row limit for demo runs. Set to None for the full ~10M-row dataset.
     """
     raw = load_raw_data(limit=limit)
-
-    # Parallel branches: profile raw data + filter to movies
     profile = profile_raw(raw=raw)
     movies = filter_movies(raw=raw)
 
-    # Parallel branches off filtered movies
     quality_issues = detect_quality_issues(movies=movies)
     exploded = normalize_genres(movies=movies)
     clean = build_clean_dataset(movies=movies)
-
-    # Genre distribution (depends on exploded genres)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    # Optional publish to Hugging Face (only scheduled when HF_TOKEN is set)
     hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
 
-    # Final report (depends on everything)
-    report = generate_report(
+    export_formats = [
+        f.strip().lower()
+        for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",")
+        if f.strip()
+    ]
+    exports = (
+        export_dataset(clean=clean, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
+        if export_formats
+        else None
+    )
+
+    return generate_report(
         raw=raw,
         movies=movies,
         clean=clean,
@@ -305,9 +324,8 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         profile=profile,
         quality_issues=quality_issues,
         hf_result=hf_result,
+        exports=exports,
     )
-
-    return report
 
 
 async def main():

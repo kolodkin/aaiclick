@@ -54,6 +54,8 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
+from ..data_context.ch_client import export_query_to_file
+from ..formats import format_for_extension
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from .refs import ObjectRef, ViewRef
@@ -518,7 +520,29 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def _get_fieldtype(self) -> str | None:
+    async def export(self, path: str) -> str:
+        """Export the object's data to a local file.
+
+        The format is picked from the file extension. Supported text formats:
+        ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
+        ``.xml``, ``.sql``. Supported binary/columnar formats: ``.parquet``,
+        ``.arrow``, ``.orc``, ``.avro``. ClickHouse picks the compression
+        scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
+        — e.g. ``data.csv.gz`` writes a gzipped CSV.
+
+        View constraints (``where``, ``limit``, ``order_by``) are honored and
+        the internal ``aai_id`` column is omitted. Backends stream directly:
+        chdb writes via ``INSERT INTO FUNCTION file()`` from the embedded
+        engine; remote ClickHouse streams the formatted bytes over HTTP.
+
+        Returns the absolute path written.
+        """
+        self.checkstale()
+        fmt = format_for_extension(path)
+        select_sql = self._build_select(columns="* EXCEPT aai_id")
+        return await export_query_to_file(select_sql, path, fmt)
+
+    async def _get_fieldtype(self) -> Optional[str]:
         """Get the fieldtype of the value column."""
         self.checkstale()
         columns_query = f"""
@@ -912,7 +936,6 @@ class Object:
         from .url import (
             _validate_url,
             _validate_url_columns,
-            _validate_url_format,
         )
 
         self.checkstale()

@@ -35,6 +35,7 @@ dependencies = [
     "alembic>=1.18.0",
     "chdb>=4.1.0",
     "aiosqlite>=0.22.0",
+    "greenlet>=3.0.0",
     "croniter>=6.0.0",
 ]
 
