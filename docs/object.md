@@ -383,28 +383,24 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 ### Compression
 
-Append `.gz` or `.xz` and the writer compresses with gzip / LZMA
-automatically. Both backends produce standard-format archives:
+Append `.gz` or `.xz` and the writer compresses automatically:
 
 ```python
 await obj.export("/tmp/data.csv.gz")
-await obj.export("/tmp/data.json.xz")
 await obj.export("/tmp/data.parquet.gz")
+await obj.export("/tmp/data.json.xz")
 ```
-
-Under chdb the compression happens server-side via ClickHouse's `file()`
-auto-detection; against a remote server aaiclick wraps the raw stream with
-Python's stdlib `gzip` / `lzma` writer, so output is byte-for-byte a valid
-archive in both modes.
 
 ### Backend behavior
 
-- **chdb (embedded):** writes via `INSERT INTO FUNCTION file('path', fmt)` —
-  the embedded engine streams directly to the local filesystem.
-- **clickhouse-connect (remote):** streams the formatted bytes over HTTP
-  via `raw_stream(query, fmt=fmt)` and writes them to the local file in
-  64 KB chunks. (`INSERT INTO FUNCTION file()` cannot be used here because
-  it would write to the *server's* `user_files_path`, not the client.)
+- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` — the
+  embedded engine streams directly to disk and picks the compression codec
+  from the path suffix.
+- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` returns
+  uncompressed bytes, which are copied to the local file in 64 KB chunks
+  (on a worker thread) and wrapped through `gzip` / `lzma` if the path
+  asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
+  would write to the *server's* `user_files_path`, not the client.
 
 # Views
 

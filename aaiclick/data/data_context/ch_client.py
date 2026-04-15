@@ -7,30 +7,15 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
-import gzip
-import lzma
+import asyncio
 import os
 from contextvars import ContextVar
 from pathlib import Path
-from typing import BinaryIO, Optional, Protocol, Sequence
+from typing import Optional, Protocol, Sequence
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
-
-
-def _open_export_writer(path: str) -> BinaryIO:
-    """Return a binary writer for *path*, transparently wrapping .gz / .xz.
-
-    Used by the remote export path — ``raw_stream`` returns uncompressed
-    bytes, so compression must be applied client-side. (In chdb mode,
-    ``file()`` handles compression server-side from the same extension.)
-    """
-    suffix = Path(path).suffix.lower()
-    if suffix == ".gz":
-        return gzip.open(path, "wb")
-    if suffix == ".xz":
-        return lzma.open(path, "wb")
-    return open(path, "wb")
+from ..formats import open_export_writer
 
 
 class QueryResult(Protocol):
@@ -105,18 +90,19 @@ def get_ch_client() -> ChClient:
 async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     """Stream a ``SELECT`` query result to a local file in *fmt*.
 
-    Backends:
-
     - **chdb (embedded):** ``INSERT INTO FUNCTION file('path', fmt) <query>``
-      — data is written by the embedded engine directly to disk, never crossing
-      a Python boundary.
-    - **clickhouse-connect (remote HTTP):** ``raw_stream(query, fmt=fmt)`` —
-      the formatted bytes stream over HTTP and are written to the local file
-      chunk-by-chunk, so memory stays bounded.
+      — the embedded engine writes directly to disk. Compression is inferred
+      from the path suffix by ClickHouse's ``file()``.
+    - **clickhouse-connect (remote HTTP):** ``raw_stream`` returns uncompressed
+      formatted bytes; they are copied to the local file in 64 KB chunks via
+      :func:`aaiclick.data.formats.open_export_writer`, which re-applies
+      ``.gz`` / ``.xz`` compression client-side so output is byte-equivalent
+      across backends. The blocking copy runs in a worker thread to keep the
+      event loop responsive during multi-GB exports.
 
-    For chdb, ``INSERT INTO FUNCTION file()`` would write to the server's
-    filesystem, which equals the client's filesystem only because chdb is
-    embedded. For a real remote server we must stream the result back instead.
+    ``INSERT INTO FUNCTION file()`` is unusable against a remote server
+    because it would write to the server's ``user_files_path`` rather than
+    the client's filesystem.
     """
     abs_path = str(Path(path).resolve())
     client = get_ch_client()
@@ -128,16 +114,18 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
         return abs_path
 
     stream = await client.raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
+    await asyncio.to_thread(_drain_stream_to_file, stream, abs_path)
+    return abs_path
+
+
+def _drain_stream_to_file(stream, abs_path: str) -> None:
+    """Copy a blocking ``io.IOBase`` stream into *abs_path*, compressing if the suffix matches."""
     try:
-        with _open_export_writer(abs_path) as f:
-            while True:
-                chunk = stream.read(1 << 16)
-                if not chunk:
-                    break
+        with open_export_writer(abs_path) as f:
+            while chunk := stream.read(1 << 16):
                 f.write(chunk)
     finally:
         stream.close()
-    return abs_path
 
 
 async def create_ch_client() -> ChClient:

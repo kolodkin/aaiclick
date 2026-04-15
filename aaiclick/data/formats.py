@@ -14,8 +14,10 @@ Adding a new format is a single edit to ``FORMATS``.
 
 from __future__ import annotations
 
+import gzip
+import lzma
 from pathlib import Path
-from typing import NamedTuple
+from typing import IO, Callable, NamedTuple
 
 
 class FormatSpec(NamedTuple):
@@ -69,9 +71,13 @@ FORMATS: tuple[FormatSpec, ...] = (
 
 # Compression codecs supported on both backends. chdb delegates to
 # ClickHouse's ``file()`` auto-detection; remote compresses client-side via
-# Python's stdlib ``gzip`` / ``lzma``. Only these two extensions are
-# advertised so the two backends behave identically.
-COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".xz"})
+# the matching stdlib opener below. Only stdlib codecs are advertised so
+# both backends behave identically with zero extra dependencies.
+_COMPRESSION_OPENERS: dict[str, Callable[[str], IO[bytes]]] = {
+    ".gz": lambda path: gzip.open(path, "wb"),
+    ".xz": lambda path: lzma.open(path, "wb"),
+}
+COMPRESSION_SUFFIXES: frozenset[str] = frozenset(_COMPRESSION_OPENERS)
 
 
 # Derived lookups — built once at import.
@@ -86,8 +92,8 @@ EXTENSION_TO_FORMAT: dict[str, str] = {
 def format_for_extension(path: str) -> str:
     """Return the ClickHouse output format matching the file extension of *path*.
 
-    A trailing compression suffix (``.gz``, ``.zst``, ``.br``, ``.xz``) is
-    stripped before lookup, so ``data.csv.gz`` resolves to ``CSVWithNames``.
+    A trailing compression suffix from :data:`COMPRESSION_SUFFIXES` is stripped
+    before lookup, so ``data.csv.gz`` resolves to ``CSVWithNames``.
 
     Raises:
         ValueError: If no supported extension is present.
@@ -105,3 +111,14 @@ def format_for_extension(path: str) -> str:
             f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression)"
         )
     return fmt
+
+
+def open_export_writer(path: str) -> IO[bytes]:
+    """Return a binary writer for *path*, transparently wrapping compressed suffixes.
+
+    Matches the set in :data:`COMPRESSION_SUFFIXES`. Unknown suffixes fall
+    through to a plain binary ``open`` — the caller is expected to have
+    already validated the extension via :func:`format_for_extension`.
+    """
+    opener = _COMPRESSION_OPENERS.get(Path(path).suffix.lower())
+    return opener(path) if opener else open(path, "wb")
