@@ -33,6 +33,9 @@ class FormatSpec(NamedTuple):
     output: bool
     """Format can be written by ``Object.export``."""
 
+    blob: bool = False
+    """Format reads the whole document as a single string (JSON-blob mode)."""
+
 
 # fmt: off
 FORMATS: tuple[FormatSpec, ...] = (
@@ -57,9 +60,9 @@ FORMATS: tuple[FormatSpec, ...] = (
     FormatSpec("Markdown",             (".md",),                       input=False, output=True),
     FormatSpec("XML",                  (".xml",),                      input=False, output=True),
     FormatSpec("SQLInsert",            (".sql",),                      input=False, output=True),
-    # JSON blob mode (read whole document, extract via JSONExtract)
-    FormatSpec("RawBLOB",              (),                             input=True,  output=False),
-    FormatSpec("JSONAsString",         (),                             input=True,  output=False),
+    # JSON blob mode — read whole document, extract via JSONExtract
+    FormatSpec("RawBLOB",              (),                             input=True,  output=False, blob=True),
+    FormatSpec("JSONAsString",         (),                             input=True,  output=False, blob=True),
 )
 # fmt: on
 
@@ -71,6 +74,7 @@ COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".zst", ".br", ".xz"})
 # Derived lookups — built once at import.
 INPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.input)
 OUTPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.output)
+JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
 EXTENSION_TO_FORMAT: dict[str, str] = {
     ext: f.name for f in FORMATS for ext in f.extensions if f.output
 }

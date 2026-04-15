@@ -11,11 +11,9 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
-from ..formats import INPUT_FORMATS
+from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
 from ..sql_utils import escape_sql_string, quote_identifier
-
-JSON_BLOB_FORMATS = frozenset({"RawBLOB", "JSONAsString"})
 
 _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",

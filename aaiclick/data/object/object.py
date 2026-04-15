@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import sys
 import functools
-from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any, Union
 from dataclasses import dataclass, replace as dataclass_replace
 from typing_extensions import Self
