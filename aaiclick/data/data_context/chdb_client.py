@@ -96,6 +96,31 @@ def _with_settings(query: str, settings: Optional[dict]) -> str:
     return f"{query} SETTINGS {', '.join(parts)}"
 
 
+def _serialize_param(value: object) -> object:
+    """Convert a Python parameter value into a form chdb's ``{name:Type}``
+    parser accepts.
+
+    Numeric values and numeric arrays pass through — chdb serializes them
+    fine. String arrays must be pre-formatted as a ClickHouse literal
+    (``"['a','b']"``) because chdb's built-in stringifier emits bare
+    tokens which the ``Array(String)`` parser rejects.
+    """
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "[]"
+        first = value[0]
+        if isinstance(first, str):
+            parts = [f"'{escape_sql_string(v)}'" for v in value]
+            return "[" + ",".join(parts) + "]"
+    return value
+
+
+def _serialize_parameters(parameters: Optional[dict]) -> Optional[dict]:
+    if not parameters:
+        return None
+    return {k: _serialize_param(v) for k, v in parameters.items()}
+
+
 @dataclass
 class ChdbQueryResult:
     """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
@@ -149,7 +174,7 @@ class ChdbClient:
             result = self._session.query(
                 _with_settings(rewritten, settings),
                 "TabSeparated",
-                params=parameters,
+                params=_serialize_parameters(parameters),
             )
             raw = result.bytes()
             if raw:
@@ -183,7 +208,7 @@ class ChdbClient:
             table = self._session.query(
                 _with_settings(rewritten, settings),
                 "Arrowtable",
-                params=parameters,
+                params=_serialize_parameters(parameters),
             )
             if table is None or table.num_rows == 0:
                 return ChdbQueryResult()

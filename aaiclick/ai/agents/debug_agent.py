@@ -9,14 +9,11 @@ import json
 import logging
 from typing import Any
 
-from sqlmodel import select
-
 from aaiclick.oplog.lineage import OplogGraph, OplogNode, oplog_subgraph
 from aaiclick.oplog.lineage_forest import build_and_render
 from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.orchestration.execution.runner import run_job_tasks
-from aaiclick.orchestration.models import Task
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.jobs import get_task_result_table
 from aaiclick.orchestration.replay import replay_job
 from aaiclick.ai.agents.strategy_agent import format_strategy, produce_strategy
 from aaiclick.ai.agents.tools import (
@@ -193,21 +190,10 @@ async def _replay_and_build_forest(
 
     new_task_id = replayed.task_id_map.get(target_node.task_id)
     if new_task_id is None:
-        # The original target was an input or wiring task (skipped by
-        # replay), so there is no cloned task to read a result from.
+        # Original target was an input or wiring task (skipped by replay),
+        # so there is no cloned task to read a result from.
         return ""
-    new_target = await _fetch_task_result_table(new_task_id)
+    new_target = await get_task_result_table(new_task_id)
     if new_target is None:
         return ""
     return await _safe_build("forest build from replay", new_target, replayed.job.id)
-
-
-async def _fetch_task_result_table(task_id: int) -> str | None:
-    """Return the ``result["table"]`` of a committed task, or ``None``."""
-    async with get_sql_session() as session:
-        result = (
-            await session.execute(select(Task.result).where(Task.id == task_id))
-        ).scalar_one_or_none()
-    if isinstance(result, dict):
-        return result.get("table")
-    return None

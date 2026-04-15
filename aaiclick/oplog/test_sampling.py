@@ -110,17 +110,18 @@ async def test_strategy_matches_multi_source_op(orch_ctx):
 
 
 async def test_pick_inherited_driver_passes_typed_array_parameter():
-    """The inherited-driver lookup binds job_id and src_table as typed
-    parameters, and the returned driver carries the inherited ids as an
-    ``Array(UInt64)`` parameter rather than an inlined SQL literal."""
+    """The inherited-driver lookup binds job_id and src_tables as typed
+    parameters, issues one batched query across all sources, and returns
+    a driver whose clause binds the inherited ids as an Array(UInt64)
+    parameter."""
     lookup_result = MagicMock()
-    lookup_result.result_rows = [([111, 222, 333],)]
+    lookup_result.result_rows = [("t_mul", [111, 222, 333])]
     ch_client = MagicMock()
     ch_client.query = AsyncMock(return_value=lookup_result)
 
     driver = await _pick_inherited_driver(
         ch_client,
-        sources=[("left", "t_mul")],
+        sources=[("left", "t_mul"), ("right", "t_bonus")],
         job_id=42,
     )
 
@@ -130,13 +131,68 @@ async def test_pick_inherited_driver_passes_typed_array_parameter():
     assert driver.parameters == {"inherited_ids": [111, 222, 333]}
 
     ch_client.query.assert_awaited_once()
-    sent_sql, sent_kwargs = (
-        ch_client.query.await_args.args[0],
-        ch_client.query.await_args.kwargs,
-    )
+    sent_sql = ch_client.query.await_args.args[0]
+    sent_kwargs = ch_client.query.await_args.kwargs
     assert "{job_id:UInt64}" in sent_sql
-    assert "{src_table:String}" in sent_sql
-    assert sent_kwargs["parameters"] == {"job_id": 42, "src_table": "t_mul"}
+    assert "{src_tables:Array(String)}" in sent_sql
+    assert "argMax(result_aai_ids, created_at)" in sent_sql
+    assert sent_kwargs["parameters"] == {
+        "job_id": 42,
+        "src_tables": ["t_mul", "t_bonus"],
+    }
+
+
+async def test_pick_inherited_driver_preserves_source_ordering():
+    """When multiple sources have populated matches, the first source in
+    the sources list wins — source priority is preserved across the
+    batched lookup."""
+    lookup_result = MagicMock()
+    # Batched query returns both sources in arbitrary order (ClickHouse
+    # GROUP BY is unordered). source priority must still resolve to the
+    # first one listed in ``sources``.
+    lookup_result.result_rows = [
+        ("t_second", [7, 8]),
+        ("t_first", [1, 2]),
+    ]
+    ch_client = MagicMock()
+    ch_client.query = AsyncMock(return_value=lookup_result)
+
+    driver = await _pick_inherited_driver(
+        ch_client,
+        sources=[("left", "t_first"), ("right", "t_second")],
+        job_id=9,
+    )
+
+    assert driver is not None
+    assert driver.table == "t_first"
+    assert driver.parameters == {"inherited_ids": [1, 2]}
+
+
+async def test_pick_inherited_driver_returns_none_when_no_matches():
+    """Empty batched result → None."""
+    lookup_result = MagicMock()
+    lookup_result.result_rows = []
+    ch_client = MagicMock()
+    ch_client.query = AsyncMock(return_value=lookup_result)
+
+    driver = await _pick_inherited_driver(
+        ch_client,
+        sources=[("left", "t_x")],
+        job_id=1,
+    )
+
+    assert driver is None
+
+
+async def test_pick_inherited_driver_empty_sources_short_circuits():
+    """No sources → None without issuing a query."""
+    ch_client = MagicMock()
+    ch_client.query = AsyncMock()
+
+    driver = await _pick_inherited_driver(ch_client, sources=[], job_id=1)
+
+    assert driver is None
+    ch_client.query.assert_not_awaited()
 
 
 async def test_inherited_driver_propagates_through_multi_op_pipeline(orch_ctx):

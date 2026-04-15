@@ -127,40 +127,45 @@ async def _pick_inherited_driver(
 
     The first source that produced matched rows upstream wins, mirroring
     ``_pick_driver``'s source-first ordering. Returns ``None`` when no
-    source has upstream matches — the caller then falls through to empty
-    arrays, leaving this op untracked.
+    source has upstream matches.
 
-    Parameter binding (both backends support ``{name:Type}`` natively)
-    means the id set travels as typed binary data, not as an inlined
-    SQL literal, so there is no ``max_query_size`` concern regardless
-    of how many rows the strategy matched upstream.
+    One batched query fetches the most recent populated oplog row per
+    source table (``argMax`` over ``created_at``), then Python walks
+    ``sources`` in order to pick the first match — so source priority
+    is preserved with a single round-trip regardless of how many input
+    roles the op has.
     """
-    for _, src_table in sources:
-        try:
-            rows = await ch_client.query(
-                "SELECT result_aai_ids FROM operation_log "
-                "WHERE job_id = {job_id:UInt64} "
-                "  AND result_table = {src_table:String} "
-                "  AND length(result_aai_ids) > 0 "
-                "ORDER BY created_at DESC LIMIT 1",
-                parameters={"job_id": job_id, "src_table": src_table},
-            )
-        except Exception:
-            logger.error(
-                "Failed to look up inherited matches for %s", src_table,
-                exc_info=True,
-            )
-            continue
-        if not rows.result_rows:
-            continue
-        inherited_ids = list(rows.result_rows[0][0])
-        if not inherited_ids:
-            continue
-        return _Driver(
-            table=src_table,
-            clause="aai_id IN {inherited_ids:Array(UInt64)}",
-            parameters={"inherited_ids": inherited_ids},
+    if not sources:
+        return None
+    src_tables = [table for _, table in sources]
+    try:
+        rows = await ch_client.query(
+            "SELECT result_table, argMax(result_aai_ids, created_at) AS ids "
+            "FROM operation_log "
+            "WHERE job_id = {job_id:UInt64} "
+            "  AND result_table IN {src_tables:Array(String)} "
+            "  AND length(result_aai_ids) > 0 "
+            "GROUP BY result_table",
+            parameters={"job_id": job_id, "src_tables": src_tables},
         )
+    except Exception:
+        logger.error(
+            "Failed to look up inherited matches for %s", src_tables,
+            exc_info=True,
+        )
+        return None
+
+    ids_by_table: dict[str, list[int]] = {
+        row[0]: list(row[1]) for row in rows.result_rows
+    }
+    for _, src_table in sources:
+        inherited_ids = ids_by_table.get(src_table)
+        if inherited_ids:
+            return _Driver(
+                table=src_table,
+                clause="aai_id IN {inherited_ids:Array(UInt64)}",
+                parameters={"inherited_ids": inherited_ids},
+            )
     return None
 
 
