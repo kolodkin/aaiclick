@@ -1,0 +1,8 @@
+{
+    "venvPath": ".",
+    "venv": ".venv",
+    "exclude": [
+        "aaiclick/example_projects/*/pyproject.toml",
+        "aaiclick/example_projects/*/uv.lock"
+    ]
+}

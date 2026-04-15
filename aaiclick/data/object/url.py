@@ -11,18 +11,9 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
+from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
 from ..sql_utils import escape_sql_string, quote_identifier
-
-SUPPORTED_URL_FORMATS = frozenset({
-    "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",
-    "TSV", "TSVWithNames", "TSVWithNamesAndTypes",
-    "JSON", "JSONEachRow", "JSONCompactEachRow",
-    "ORC", "Avro",
-    "RawBLOB", "JSONAsString",
-})
-
-JSON_BLOB_FORMATS = frozenset({"RawBLOB", "JSONAsString"})
 
 _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",
@@ -52,10 +43,10 @@ def _validate_url_columns(columns: list[str]) -> None:
 
 def _validate_url_format(fmt: str) -> None:
     """Validate format is a supported ClickHouse URL format."""
-    if fmt not in SUPPORTED_URL_FORMATS:
+    if fmt not in INPUT_FORMATS:
         raise ValueError(
             f"Unsupported format '{fmt}'. "
-            f"Supported formats: {sorted(SUPPORTED_URL_FORMATS)}"
+            f"Supported formats: {sorted(INPUT_FORMATS)}"
         )
 
 

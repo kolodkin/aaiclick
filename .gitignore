@@ -220,3 +220,5 @@ gh_*/
 # Claude Code worktrees and session state
 .claude/*
 !.claude/skills/
+
+.vscode

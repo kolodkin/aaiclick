@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List, Union
+from typing import Any, Callable, List, Union, overload
 
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
@@ -303,7 +303,15 @@ class JobFactory:
         return f"JobFactory({self.name!r})"
 
 
-def job(name_or_func: str | Callable | None = None, *, name: str | None = None):
+@overload
+def job(name_or_func: Callable, *, name: None = None) -> JobFactory: ...
+
+
+@overload
+def job(name_or_func: str | None = None, *, name: str | None = None) -> Callable[[Callable], JobFactory]: ...
+
+
+def job(name_or_func: str | Callable | None = None, *, name: str | None = None) -> JobFactory | Callable[[Callable], JobFactory]:
     """Decorator to mark a function as a job's entry point task.
 
     The decorated function runs on a worker as the first task of the job.
