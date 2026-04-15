@@ -58,44 +58,8 @@ from ..data_context import (
     create_object_from_value,
 )
 from ..data_context.ch_client import export_query_to_file
+from ..formats import format_for_extension
 from ..sql_utils import escape_sql_string, quote_identifier
-
-
-# Maps a file extension to the ClickHouse output format used by file().
-# ClickHouse picks the compression scheme automatically from the trailing
-# .gz / .zst / .br / .xz suffix, so callers can write e.g. ``data.csv.gz``.
-_EXPORT_FORMATS = {
-    ".csv":     "CSVWithNames",
-    ".tsv":     "TSVWithNames",
-    ".parquet": "Parquet",
-    ".arrow":   "Arrow",
-    ".orc":     "ORC",
-    ".avro":    "Avro",
-    ".json":    "JSONEachRow",
-    ".jsonl":   "JSONEachRow",
-    ".ndjson":  "JSONEachRow",
-    ".md":      "Markdown",
-    ".xml":     "XML",
-    ".sql":     "SQLInsert",
-}
-
-_COMPRESSION_SUFFIXES = frozenset({".gz", ".zst", ".br", ".xz"})
-
-
-def _format_for_path(path: str) -> str:
-    """Return the ClickHouse format name for a file path (extension-driven)."""
-    suffixes = [s.lower() for s in Path(path).suffixes]
-    if suffixes and suffixes[-1] in _COMPRESSION_SUFFIXES:
-        suffixes = suffixes[:-1]
-    suffix = suffixes[-1] if suffixes else ""
-    fmt = _EXPORT_FORMATS.get(suffix)
-    if fmt is None:
-        raise ValueError(
-            f"Unsupported export extension {suffix!r}. "
-            f"Supported: {', '.join(sorted(_EXPORT_FORMATS))} "
-            f"(optionally with {', '.join(sorted(_COMPRESSION_SUFFIXES))} compression)"
-        )
-    return fmt
 
 
 @dataclass
@@ -570,7 +534,7 @@ class Object:
         Returns the absolute path written.
         """
         self.checkstale()
-        fmt = _format_for_path(path)
+        fmt = format_for_extension(path)
         select_sql = self._build_select(columns="* EXCEPT aai_id")
         return await export_query_to_file(select_sql, path, fmt)
 
@@ -969,7 +933,6 @@ class Object:
             _validate_url,
             _validate_url_format,
             _validate_url_columns,
-            SUPPORTED_URL_FORMATS,
         )
 
         self.checkstale()

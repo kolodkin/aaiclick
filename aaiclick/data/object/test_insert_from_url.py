@@ -174,6 +174,36 @@ async def test_url_format_orc(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
+# Parametrized backfill for the formats that have no dedicated test above.
+# Headerless formats (``CSV``, ``TSV``, ``JSONCompactEachRow``) expose
+# columns as ``c1`` / ``c2`` / ``c3`` because ClickHouse has no header row
+# to bind names to — that's the natural way to consume them.
+@pytest.mark.parametrize(
+    "filename,fmt,columns",
+    [
+        pytest.param("sample_noheader.csv",   "CSV",                  ["c1", "c2", "c3"],      id="CSV-no-header"),
+        pytest.param("sample_withtypes.csv",  "CSVWithNamesAndTypes", ["id", "price", "name"], id="CSVWithNamesAndTypes"),
+        pytest.param("sample_noheader.tsv",   "TSV",                  ["c1", "c2", "c3"],      id="TSV-no-header"),
+        pytest.param("sample_withtypes.tsv",  "TSVWithNamesAndTypes", ["id", "price", "name"], id="TSVWithNamesAndTypes"),
+        pytest.param("sample_compact.jsonl",  "JSONCompactEachRow",   ["c1", "c2", "c3"],      id="JSONCompactEachRow"),
+        pytest.param("sample.avro",           "Avro",                 ["id", "price", "name"], id="Avro"),
+    ],
+)
+async def test_url_format_backfill(ctx, fileserver, filename, fmt, columns):
+    """Load every URL-input format that lacks a dedicated test above."""
+    obj = await create_object_from_url(
+        f"{fileserver}/{filename}", columns=columns, format=fmt, limit=100,
+    )
+    data = await obj.data()
+    assert isinstance(data, dict)
+    for col in columns:
+        assert len(data[col]) == 100
+    # Row 1 round-trip — id=1, price=1.5, name='item_1' (regardless of column naming).
+    assert data[columns[0]][0] == 1
+    assert data[columns[1]][0] == 1.5
+    assert data[columns[2]][0] == "item_1"
+
+
 # =============================================================================
 # Functional integration tests (require file server)
 # =============================================================================
