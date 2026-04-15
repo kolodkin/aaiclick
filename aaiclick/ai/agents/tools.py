@@ -5,10 +5,14 @@ aaiclick.ai.agents.tools - Tools exposed to AI agents for table inspection.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.lineage import OplogNode, backward_oplog, backward_oplog_row
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -102,7 +106,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 async def sample_table(table: str, limit: int = 10, where: str | None = None) -> str:
     """Sample rows from a table and return formatted text."""
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     where_clause = f" WHERE {where}" if where else ""
     result = await ch_client.query(f"SELECT * FROM {table_escaped}{where_clause} LIMIT {limit}")
     if not result.result_rows:
@@ -115,7 +119,7 @@ async def sample_table(table: str, limit: int = 10, where: str | None = None) ->
 async def get_schema(table: str) -> str:
     """Return column names and types for a table."""
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
     result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
     lines = [f"{row[0]}: {row[1]}" for row in result.result_rows]
     return "\n".join(lines) if lines else f"(table {table} not found)"
@@ -128,7 +132,7 @@ async def get_column_stats(table: str) -> str:
     in a single round-trip — the LLM never needs to guess column names.
     """
     ch_client = get_ch_client()
-    table_escaped = table.replace("'", "\\'")
+    table_escaped = escape_sql_string(table)
 
     desc_result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
     if not desc_result.result_rows:
@@ -234,24 +238,42 @@ async def trace_row(table: str, aai_id: int, depth: int = 10) -> str:
 
 
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
-    """Dispatch a tool call by name to the appropriate function."""
-    if name == "sample_table":
-        return await sample_table(
-            arguments["table"],
-            limit=arguments.get("limit", 10),
-            where=arguments.get("where"),
+    """Dispatch a tool call by name to the appropriate function.
+
+    Missing required arguments and unknown tool names produce a
+    retryable error string fed back to the agent loop, so one bad
+    model-emitted tool call doesn't abort the whole debug session.
+    Unexpected exceptions are logged with ``exc_info`` so real bugs
+    stay visible.
+    """
+    try:
+        if name == "sample_table":
+            return await sample_table(
+                arguments["table"],
+                limit=arguments.get("limit", 10),
+                where=arguments.get("where"),
+            )
+        elif name == "get_schema":
+            return await get_schema(arguments["table"])
+        elif name == "get_column_stats":
+            return await get_column_stats(arguments["table"])
+        elif name == "trace_upstream":
+            return await trace_upstream(
+                arguments["table"], depth=arguments.get("depth", 10)
+            )
+        elif name == "trace_row":
+            return await trace_row(
+                arguments["table"],
+                arguments["aai_id"],
+                depth=arguments.get("depth", 10),
+            )
+        else:
+            return f"(unknown tool: {name})"
+    except KeyError as exc:
+        return (
+            f"(error calling {name}: missing required argument {exc}. "
+            f"provided arguments: {sorted(arguments.keys())})"
         )
-    elif name == "get_schema":
-        return await get_schema(arguments["table"])
-    elif name == "get_column_stats":
-        return await get_column_stats(arguments["table"])
-    elif name == "trace_upstream":
-        return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
-    elif name == "trace_row":
-        return await trace_row(
-            arguments["table"],
-            arguments["aai_id"],
-            depth=arguments.get("depth", 10),
-        )
-    else:
-        return f"(unknown tool: {name})"
+    except Exception as exc:
+        logger.exception("tool %s raised an unexpected exception", name)
+        return f"(error calling {name}: {exc})"

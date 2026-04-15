@@ -95,6 +95,54 @@ Question-driven lineage debugging in three phases: graph structure (have today),
 
 Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
 
+## ClickHouse Migration Framework
+
+aaiclick has no migration system for the ClickHouse side. Alembic manages the SQL schema (`jobs`, `tasks`, `dependencies`, `registered_jobs`, …), but ClickHouse tables created via the `ChClient` — `operation_log`, `table_registry`, all `p_*` / `t_*` / `j_*` data tables produced at runtime — are created with `CREATE TABLE IF NOT EXISTS` in `aaiclick/oplog/models.py` plus a column-existence validator. No versions, no history, no upgrade path.
+
+The consequence: any DDL change in the Python source that would need to alter an existing table is silently a no-op on installs that already have it. Today this has bitten the `operation_log` `ORDER BY` change; it will keep biting every time anything structural changes on the CH side. Column types, new required columns, MergeTree key changes, TTL clauses, materialized projections, etc. all need a coordinated server-side update that the current setup cannot perform.
+
+Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` can only append freshly added columns to the sort key, you can't reshape existing ones without rebuilding the table. So even a "real" migration framework has to handle per-change execution strategies (pure ALTER, shadow-table-rebuild, or drop-and-recreate with manual data move), not just a linear script runner.
+
+**What a minimal framework would look like**:
+
+- A `schema_version` table in ClickHouse tracked per-database.
+- Versioned DDL scripts under `aaiclick/oplog/migrations/` (or a broader `aaiclick/ch_migrations/`) applied in order by `init_oplog_tables()` on startup.
+- Each script declares its own execution strategy — inline `ALTER`, shadow-table rewrite, or a Python callable for data-move logic.
+- A `--dry-run` mode for operators.
+- Column validator (`_validate_schema`) grows a version check and surfaces a clear error ("your table is at v3, code expects v5, run `aaiclick migrate`").
+
+**Alternatives to building a framework**:
+
+- **Release-notes recipe** — document a maintenance step per release. Zero code, high operator burden, easy to miss.
+- **Per-change maintenance CLIs** — `aaiclick maintenance rebuild-oplog`, etc. Works but doesn't scale past a handful of changes.
+
+No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
+
+## Structural-First Lineage Forest Walker
+
+`aaiclick/oplog/lineage_forest.py::build_forest` walks backward from every strategy-matched row in the target, up to `MAX_FOREST_ROOTS=200`. Each root issues one oplog lookup + one value-column fetch per hop, memoized by `(table, aai_id)` so shared ancestors are deduped. For a 200-root × 5-hop pipeline with no DAG collapse, that's ~2000 queries — parallelized via `asyncio.gather` but still a lot of round-trips.
+
+`collapse_to_routes` then throws ~95% of that work away: 200 rows sharing a pipeline shape become one `Route` record with `match_count=200`, aggregated leaf/root value lists, and `MAX_EXEMPLARS_PER_ROUTE=5` concrete paths. The rendered prompt context stays small (routes × 5 exemplars × hops ≈ tens of lines) regardless of match count, so there is **no LLM context bloat** — the waste is purely in fetch work.
+
+**Smarter algorithm for count-preserving pipelines** (multiply, add, concat, with_columns, rename, view — the common case):
+
+1. **Walk DAG structure once**, not per-row. Start from the target's oplog row, follow `kwargs` → upstream ops → recurse. One query per *producing op*, not per row. Enumerates the routes directly.
+2. **Match count comes free**: `length(result_aai_ids)` on the target's oplog row already tells you how many rows fit each route.
+3. **Exemplars in one batched fetch per leaf**: pick the first N aai_ids at the target, positionally map backward through each hop's `kwargs_aai_ids` in memory (no queries), then issue one `SELECT aai_id, value FROM leaf WHERE aai_id IN {ids:Array(UInt64)}` per leaf table to grab the real column values.
+
+Total drops from **O(roots × depth)** oplog + value fetches to **O(route_shapes × depth)** structural fetches + **O(route_shapes)** batched exemplar fetches. For basic_lineage that's ~6 queries instead of ~12; for a 10k-matched-row pipeline it's still ~10 queries instead of ~20k.
+
+**Why the current per-row walker exists anyway**: uniformity breaks when the pipeline contains `insert`, `group_by`, or (eventually) `join` — different matched roots can take different DAG paths or collapse together in ways the structural walk can't predict from the target alone. The current implementation is correct for every topology; the smarter one is only correct when every hop is count-preserving.
+
+**Work**:
+
+- Add a uniformity probe to `_walk` (or a new structural pass): walk once, detect whether every hop's `result_aai_ids` length matches its source's, and whether each source row maps 1:1 to a result row.
+- When uniform, route enumeration runs structurally and exemplar fetches batch per leaf table.
+- When divergent, fall back to the current per-row walker for the affected subtree.
+- Keep the memoization cache — it still wins when shared ancestors appear within the per-row fallback.
+
+No action today. Revisit when a strategy match set pushes the per-row walker into noticeable latency (> ~1s of fetch time on chdb, or > ~5s on remote ClickHouse) on a real pipeline. The `MAX_FOREST_ROOTS=200` cap buys breathing room until then.
+
 ---
 
 # Deferred

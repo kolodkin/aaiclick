@@ -82,6 +82,36 @@ async def count_jobs(
         return result.scalar_one()
 
 
+async def get_task(task_id: int) -> Optional[Task]:
+    """Get a task by ID.
+
+    Args:
+        task_id: Task ID
+
+    Returns:
+        Task if found, None otherwise
+    """
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        return result.scalar_one_or_none()
+
+
+async def get_task_result_table(task_id: int) -> Optional[str]:
+    """Return the output-table name written by a committed task.
+
+    Reads ``Task.result["table"]`` — the canonical slot for an Object-
+    returning task's output. Returns ``None`` when the task is missing,
+    has no result, or stored a non-Object result.
+    """
+    async with get_sql_session() as session:
+        result = (
+            await session.execute(select(Task.result).where(Task.id == task_id))
+        ).scalar_one_or_none()
+    if isinstance(result, dict):
+        return result.get("table")
+    return None
+
+
 async def get_tasks_for_job(job_id: int) -> list[Task]:
     """Get all tasks for a job, ordered by creation time.
 

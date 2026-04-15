@@ -35,12 +35,13 @@ from typing import Any, Callable, List, Union, overload
 
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
+from aaiclick.oplog.sampling import SamplingStrategy
 
 from ..snowflake_id import get_snowflake_id
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
-from .factories import _callable_to_string
-from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
+from .factories import _callable_to_string, resolve_job_config
+from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
 
 
 def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
@@ -210,34 +211,62 @@ class JobFactory:
         self.entrypoint = _callable_to_string(func)
         wraps(func)(self)
 
-    async def __call__(self, **kwargs) -> Job:
+    async def __call__(
+        self,
+        *,
+        preservation_mode: PreservationMode | None = None,
+        sampling_strategy: SamplingStrategy | None = None,
+        **kwargs,
+    ) -> Job:
         """Create a Job with an entry point task.
 
         Manages database context automatically — no need to wrap
         in OrchContext externally.
 
         Args:
-            **kwargs: Arguments passed to the entry point task
+            preservation_mode: Override the job's preservation mode. Falls
+                through to ``AAICLICK_DEFAULT_PRESERVATION_MODE`` then
+                ``PreservationMode.NONE`` when unset.
+            sampling_strategy: Per-table WHERE clauses for STRATEGY-mode
+                oplog sampling. Required when the resolved mode is
+                ``STRATEGY``; rejected otherwise (see
+                ``resolve_job_config``).
+            **kwargs: Arguments passed to the entry point task.
 
         Returns:
             Job: Created job with entry point task committed
         """
-        # Check if we're already in an orch context
+        async def _run() -> Job:
+            return await self._create_job(
+                preservation_mode=preservation_mode,
+                sampling_strategy=sampling_strategy,
+                **kwargs,
+            )
+
         if _sql_engine_var.get() is not None:
-            return await self._create_job(**kwargs)
-        # Not in context, create one
+            return await _run()
         async with orch_context():
-            return await self._create_job(**kwargs)
+            return await _run()
 
     async def _create_job(
         self,
         run_type: RunType = RunType.MANUAL,
         registered_job_id: int | None = None,
+        preservation_mode: PreservationMode | None = None,
+        sampling_strategy: SamplingStrategy | None = None,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""
         # Serialize kwargs for the entry point task
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
+
+        # Route through resolve_job_config so the @job decorator path honors
+        # explicit overrides, the AAICLICK_DEFAULT_PRESERVATION_MODE env var,
+        # and any future registered-job defaults instead of silently
+        # defaulting to NONE.
+        config = resolve_job_config(
+            preservation_mode, sampling_strategy, registered=None
+        )
 
         job = Job(
             id=get_snowflake_id(),
@@ -245,6 +274,8 @@ class JobFactory:
             status=JobStatus.PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
+            preservation_mode=config.preservation_mode,
+            sampling_strategy=config.sampling_strategy,
             created_at=datetime.utcnow(),
         )
 
