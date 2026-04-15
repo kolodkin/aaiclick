@@ -131,7 +131,7 @@ def generate_avro() -> None:
     """
     avro_path = OUT_DIR / "sample.avro"
     avro_path.unlink(missing_ok=True)
-    session = get_shared_session(":memory:")
+    session = get_shared_session()
     table = _arrow_table()  # noqa: F841 — referenced by chdb's Python() table function
     safe_path = str(avro_path).replace("'", "\\'")
     session.query(
