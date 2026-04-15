@@ -20,7 +20,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.orc as orc
 import pyarrow.parquet as pq
-from chdb.session import Session
+
+from aaiclick.data.data_context.chdb_client import get_shared_session
 
 NUM_ROWS = 200
 OUT_DIR = Path(__file__).parent
@@ -125,26 +126,18 @@ def generate_orc() -> None:
 def generate_avro() -> None:
     """Generate an Avro container by round-tripping through chdb.
 
-    A throwaway in-memory chdb session is used instead of
-    ``aaiclick.data.data_context.chdb_client.get_shared_session`` to keep
-    this script free of aaiclick imports — it must run before any test
-    fixtures are wired up.
-
     Avro files cannot be appended to, so any prior copy is removed first;
     chdb would otherwise raise ``CANNOT_APPEND_TO_FILE``.
     """
     avro_path = OUT_DIR / "sample.avro"
     avro_path.unlink(missing_ok=True)
-    session = Session()
-    try:
-        table = _arrow_table()  # noqa: F841 — referenced by chdb's Python() table function
-        safe_path = str(avro_path).replace("'", "\\'")
-        session.query(
-            f"INSERT INTO FUNCTION file('{safe_path}', 'Avro') "
-            "SELECT * FROM Python(table)"
-        )
-    finally:
-        session.cleanup()
+    session = get_shared_session(":memory:")
+    table = _arrow_table()  # noqa: F841 — referenced by chdb's Python() table function
+    safe_path = str(avro_path).replace("'", "\\'")
+    session.query(
+        f"INSERT INTO FUNCTION file('{safe_path}', 'Avro') "
+        "SELECT * FROM Python(table)"
+    )
 
 
 if __name__ == "__main__":
