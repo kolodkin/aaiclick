@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List, Union, overload
+from typing import Any, overload
 
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref

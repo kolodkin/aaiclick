@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import math
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 

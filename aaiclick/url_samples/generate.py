@@ -33,7 +33,7 @@ ids = list(range(1, NUM_ROWS + 1))
 prices = [round(i * 1.5, 2) for i in range(1, NUM_ROWS + 1)]
 names = [f"item_{i}" for i in range(1, NUM_ROWS + 1)]
 
-ROWS = list(zip(ids, prices, names))
+ROWS = list(zip(ids, prices, names, strict=False))
 
 
 def _arrow_table() -> pa.Table:
@@ -94,7 +94,7 @@ def generate_jsonl() -> None:
     """JSONEachRow sample (newline-delimited JSON)."""
     with open(OUT_DIR / "sample.jsonl", "w") as f:
         for row in ROWS:
-            f.write(json.dumps(dict(zip(COLUMNS, row))) + "\n")
+            f.write(json.dumps(dict(zip(COLUMNS, row, strict=False))) + "\n")
 
 
 def generate_json_compact_each_row() -> None:
@@ -107,8 +107,8 @@ def generate_json_compact_each_row() -> None:
 def generate_json() -> None:
     """JSON sample (full ClickHouse-style JSON envelope with metadata)."""
     payload = {
-        "meta": [{"name": col, "type": typ} for col, typ in zip(COLUMNS, TYPES)],
-        "data": [dict(zip(COLUMNS, row)) for row in ROWS],
+        "meta": [{"name": col, "type": typ} for col, typ in zip(COLUMNS, TYPES, strict=False)],
+        "data": [dict(zip(COLUMNS, row, strict=False)) for row in ROWS],
         "rows": NUM_ROWS,
     }
     with open(OUT_DIR / "sample.json", "w") as f:

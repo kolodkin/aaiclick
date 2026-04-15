@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import gzip
 import lzma
+from collections.abc import Callable
 from pathlib import Path
-from typing import IO, Callable, NamedTuple
+from typing import IO, NamedTuple, cast
 
 
 class FormatSpec(NamedTuple):
@@ -73,9 +74,17 @@ FORMATS: tuple[FormatSpec, ...] = (
 # ClickHouse's ``file()`` auto-detection; remote compresses client-side via
 # the matching stdlib opener below. Only stdlib codecs are advertised so
 # both backends behave identically with zero extra dependencies.
+def _gzip_open(path: str) -> IO[bytes]:
+    return cast(IO[bytes], gzip.open(path, "wb"))
+
+
+def _lzma_open(path: str) -> IO[bytes]:
+    return cast(IO[bytes], lzma.open(path, "wb"))
+
+
 _COMPRESSION_OPENERS: dict[str, Callable[[str], IO[bytes]]] = {
-    ".gz": lambda path: gzip.open(path, "wb"),
-    ".xz": lambda path: lzma.open(path, "wb"),
+    ".gz": _gzip_open,
+    ".xz": _lzma_open,
 }
 COMPRESSION_SUFFIXES: frozenset[str] = frozenset(_COMPRESSION_OPENERS)
 

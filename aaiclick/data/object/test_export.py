@@ -11,9 +11,8 @@ from __future__ import annotations
 import gzip
 import json
 import lzma
-import struct
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pyarrow.feather as feather
 import pyarrow.orc as orc
@@ -21,7 +20,6 @@ import pyarrow.parquet as pq
 import pytest
 
 from aaiclick import create_object_from_value
-
 
 # Sample data used by every test — small enough to inline-validate.
 SAMPLE = {

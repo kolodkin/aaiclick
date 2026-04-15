@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Sequence
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional, Protocol, Sequence
+from typing import Protocol, cast
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
+
 from ..formats import open_export_writer
 
 
