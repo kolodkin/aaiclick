@@ -54,9 +54,7 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
-from ..sql_utils import quote_identifier
-from . import data_extraction, ingest, operators
-from .refs import ObjectRef, ViewRef
+from ..sql_utils import escape_sql_string, quote_identifier
 
 
 @dataclass
@@ -931,8 +929,7 @@ class Object:
         if where is not None and ";" in where:
             raise ValueError("WHERE clause must not contain ';'")
 
-        # Escape single quotes in URL for safe SQL embedding
-        safe_url = url.replace("'", "\\'")
+        safe_url = escape_sql_string(url)
 
         # Build column selection
         quoted_columns = [quote_identifier(c) for c in columns]

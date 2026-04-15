@@ -6,8 +6,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.ai.agents.tools import get_column_stats, get_schemas_for_nodes, trace_row
 from aaiclick.conftest import make_oplog_node
+from aaiclick.ai.agents.tools import (
+    dispatch_tool,
+    get_column_stats,
+    get_schemas_for_nodes,
+    trace_row,
+)
 from aaiclick.oplog.lineage import RowLineageStep
 
 
@@ -106,3 +111,16 @@ async def test_trace_row_empty_hints_strategy_mode():
     with patch("aaiclick.ai.agents.tools.backward_oplog_row", new=AsyncMock(return_value=[])):
         result = await trace_row("t_none_mode", 1)
     assert "PreservationMode.STRATEGY" in result
+
+
+async def test_dispatch_tool_missing_required_arg_returns_readable_error():
+    """A tool call with no 'table' key must not crash the loop — it gets a
+    retryable error string so the model can correct course."""
+    result = await dispatch_tool("trace_row", {"aai_id": 7})
+    assert "missing required argument" in result
+    assert "trace_row" in result
+
+
+async def test_dispatch_tool_unknown_tool_returns_label():
+    result = await dispatch_tool("does_not_exist", {})
+    assert "unknown tool" in result

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlmodel import col, select
 
 from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -267,7 +268,7 @@ class BackgroundWorker:
         """Look up ownership metadata from table_registry for a list of table names."""
         if not table_names:
             return {}
-        escaped = ", ".join("'" + t.replace("'", "\\'") + "'" for t in table_names)
+        escaped = ", ".join(f"'{escape_sql_string(t)}'" for t in table_names)
         try:
             result = await self._ch_client.query(
                 f"SELECT table_name, job_id, task_id, run_id FROM table_registry "

@@ -31,6 +31,7 @@ def print_report(
     source_table: str,
     explanation: str,
     debug_answer: str,
+    sampling_strategy: dict[str, str],
 ) -> None:
     """Print the full example report as markdown."""
     backward_labels = backward_graph.build_labels()
@@ -45,6 +46,10 @@ def print_report(
             print(f"- **{t.name}**: {t.status.value}{suffix}")
         else:
             print(f"- **{t.name}**: {t.status.value}")
+
+    print("\n## Sampling Strategy\n")
+    for table, clause in sampling_strategy.items():
+        print(f"- `{table}`: `{clause}`")
 
     _print_graph(backward_graph, "Backward Lineage Graph", target_table, backward_labels)
     _print_graph(forward_graph, "Forward Lineage Graph", source_table, forward_labels)

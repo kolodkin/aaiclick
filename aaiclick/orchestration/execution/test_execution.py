@@ -27,6 +27,12 @@ from aaiclick.orchestration.execution.runner import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.jobs import get_task
+from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
+from aaiclick.orchestration.examples.orchestration_dynamic import (
+    chain_pipeline,
+    dynamic_pipeline,
+)
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -430,11 +436,11 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
     )
     assert data_result is None
 
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == child.id))
-        db_child = result.scalar_one()
-        assert db_child.job_id == job.id
+    db_child = await get_task(child.id)
+    assert db_child is not None
+    assert db_child.job_id == job.id
 
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Dependency).where(
                 Dependency.next_id == child.id,

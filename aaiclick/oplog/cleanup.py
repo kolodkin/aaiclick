@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from aaiclick.data.data_context.ch_client import ChClient
 
+from aaiclick.data.sql_utils import escape_sql_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +71,7 @@ async def lineage_aware_drop(
         logger.debug("Failed to create sample for %s", table_name, exc_info=True)
 
     if sample_created and owner is not None and owner.job_id is not None:
-        sample_escaped = sample_name.replace("'", "\\'")
+        sample_escaped = escape_sql_string(sample_name)
         job_val = str(owner.job_id)
         task_val = str(owner.task_id) if owner.task_id is not None else "NULL"
         run_val = str(owner.run_id) if owner.run_id is not None else "NULL"
@@ -89,7 +91,7 @@ async def lineage_aware_drop(
 
 async def _get_lineage_aai_ids(ch_client: ChClient, table_name: str) -> list[int]:
     """Get all aai_ids from a table that are referenced in oplog lineage."""
-    table_escaped = table_name.replace("'", "\\'")
+    table_escaped = escape_sql_string(table_name)
 
     # Collect aai_ids that appear as result_aai_ids for this table
     # or as kwargs_aai_ids values where this table is a source

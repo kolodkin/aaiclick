@@ -62,6 +62,9 @@ from typing import cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake_id import get_snowflake_id
+from ..data_context import create_object
+from ..models import Agg, ColumnInfo, Schema, QueryInfo, GroupByInfo, FIELDTYPE_SCALAR, FIELDTYPE_ARRAY, FIELDTYPE_DICT, parse_ch_type, INT_TYPES, FLOAT_TYPES
+from ..sql_utils import escape_sql_string, quote_identifier
 
 from ..data_context import create_object
 from ..models import (
@@ -432,7 +435,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 
     # Get value column type from source table (use base table for metadata)
     # Use value_column to query the correct column for single-field selection
-    safe_value_column = info.value_column.replace("'", "\\'")
+    safe_value_column = escape_sql_string(info.value_column)
     type_query = f"""
     SELECT type FROM system.columns
     WHERE table = '{info.base_table}' AND name = '{safe_value_column}'

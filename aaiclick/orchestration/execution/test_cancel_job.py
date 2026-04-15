@@ -2,6 +2,9 @@
 
 from sqlmodel import select
 
+from .claiming import cancel_job, check_task_cancelled, claim_next_task, update_job_status, update_task_status
+from ..jobs import get_task
+from ..orch_context import commit_tasks, get_sql_session
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
 from ..orch_context import commit_tasks, get_sql_session
@@ -183,6 +186,6 @@ async def test_update_task_status_refuses_overwrite_cancelled(orch_ctx):
     assert result is False
 
     # Verify status is still CANCELLED
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
-        assert task.status == TaskStatus.CANCELLED
+    task = await get_task(task_id)
+    assert task is not None
+    assert task.status == TaskStatus.CANCELLED

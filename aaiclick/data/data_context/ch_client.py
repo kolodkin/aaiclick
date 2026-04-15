@@ -26,10 +26,26 @@ class ChClient(Protocol):
     """Protocol for async ClickHouse client operations.
 
     Both ChdbClient and clickhouse-connect AsyncClient satisfy this protocol.
+
+    ``parameters`` are ClickHouse ``{name:Type}`` placeholder bindings.
+    Both backends support them natively: clickhouse-connect routes them
+    through its own typed substitution, chdb forwards to ``session.query(
+    sql, fmt, params=...)``. Prefer parameter binding over string
+    interpolation for any value that might be large or user-derived.
     """
 
-    async def command(self, query: str, settings: dict | None = None) -> object: ...
-    async def query(self, query: str, settings: dict | None = None) -> QueryResult: ...
+    async def command(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> object: ...
+    async def query(
+        self,
+        query: str,
+        settings: Optional[dict] = None,
+        parameters: Optional[dict] = None,
+    ) -> QueryResult: ...
     async def insert(
         self,
         table: str,
