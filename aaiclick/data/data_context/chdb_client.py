@@ -14,17 +14,17 @@ import asyncio
 import re
 import tempfile
 import urllib.request
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, List, Optional, Sequence
+from typing import Any
 from urllib.parse import urlparse
 
 import pyarrow as pa
 from chdb.session import Session
 
 from aaiclick.data.sql_utils import escape_sql_string
-
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
@@ -49,7 +49,7 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
         return
 
     replacements: dict[tuple[int, int], str] = {}
-    tmp_files: list[tempfile.NamedTemporaryFile] = []
+    tmp_files: list[Any] = []
     try:
         for m in matches:
             url, fmt = m.group(1), m.group(2)
@@ -75,7 +75,7 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
             tmp.close()
 
 
-def _with_settings(query: str, settings: Optional[dict]) -> str:
+def _with_settings(query: str, settings: dict | None) -> str:
     """Append a SETTINGS clause to a query for chdb.
 
     chdb does not accept settings as keyword arguments, so they must be
@@ -115,7 +115,7 @@ def _serialize_param(value: object) -> object:
     return value
 
 
-def _serialize_parameters(parameters: Optional[dict]) -> Optional[dict]:
+def _serialize_parameters(parameters: dict | None) -> dict | None:
     if not parameters:
         return None
     return {k: _serialize_param(v) for k, v in parameters.items()}
@@ -125,8 +125,8 @@ def _serialize_parameters(parameters: Optional[dict]) -> Optional[dict]:
 class ChdbQueryResult:
     """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
 
-    result_rows: List[tuple] = field(default_factory=list)
-    column_names: List[str] = field(default_factory=list)
+    result_rows: list[tuple] = field(default_factory=list)
+    column_names: list[str] = field(default_factory=list)
 
     @property
     def first_row(self) -> tuple:
@@ -156,8 +156,8 @@ class ChdbClient:
     async def command(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
@@ -189,8 +189,8 @@ class ChdbClient:
     async def query(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 
@@ -226,9 +226,9 @@ class ChdbClient:
         self,
         table: str,
         data: Sequence[Sequence],
-        column_names: Optional[Sequence[str]] = None,
+        column_names: Sequence[str] | None = None,
         column_oriented: bool = False,
-        column_type_names: Optional[Sequence[str]] = None,
+        column_type_names: Sequence[str] | None = None,
     ) -> None:
         """Bulk insert via pyarrow Python() table function.
 
@@ -247,14 +247,14 @@ class ChdbClient:
         if column_oriented:
             cols_data = list(data)
         else:
-            cols_data = [list(col) for col in zip(*data)]
+            cols_data = [list(col) for col in zip(*data, strict=False)]
 
         if column_type_names:
             pa_types = [_ch_type_to_pa(ct) for ct in column_type_names]
         else:
             pa_types = [None] * len(names)
         arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: pa.array(col, type=pa_type) for name, col, pa_type in zip(names, cols_data, pa_types)}
+            {name: pa.array(col, type=pa_type) for name, col, pa_type in zip(names, cols_data, pa_types, strict=False)}
         )
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
@@ -380,7 +380,7 @@ def get_chdb_data_path() -> str:
 _sessions: dict[str, Session] = {}
 
 
-def get_shared_session(path: Optional[str] = None) -> Session:
+def get_shared_session(path: str | None = None) -> Session:
     """Return (or create) the shared chdb Session for a given data path.
 
     Using a singleton ensures all data_context instances in the same process
@@ -409,7 +409,7 @@ def close_session(path: str) -> None:
         session.cleanup()
 
 
-def get_open_session(path: str) -> Optional[Session]:
+def get_open_session(path: str) -> Session | None:
     """Return the cached Session for *path* if already open, else None.
 
     Unlike get_shared_session(), this never creates a new session.
@@ -417,12 +417,12 @@ def get_open_session(path: str) -> Optional[Session]:
     return _sessions.get(path)
 
 
-def create_chdb_session(path: Optional[str] = None) -> Session:
+def create_chdb_session(path: str | None = None) -> Session:
     """Return the shared chdb Session (singleton per data path)."""
     return get_shared_session(path)
 
 
-def create_chdb_client(path: Optional[str] = None) -> ChdbClient:
+def create_chdb_client(path: str | None = None) -> ChdbClient:
     """Create a ChdbClient backed by the shared chdb session."""
     return ChdbClient(get_shared_session(path))
 

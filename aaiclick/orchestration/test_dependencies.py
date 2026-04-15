@@ -3,10 +3,10 @@
 from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
-from .jobs import get_task
-from .orch_context import commit_tasks, get_sql_session
 from .factories import create_job, create_task
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group, Task
+from .jobs import get_task
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
+from .orch_context import commit_tasks, get_sql_session
 
 
 async def test_task_rshift_creates_dependency():

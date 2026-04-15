@@ -220,7 +220,7 @@ async def test_view_or_where_with_group_by(ctx):
     view = obj.where("amount > 10").or_where("category = 'C'")
     result = await view.group_by("category").sum("amount")
     data = await result.data()
-    pairs = dict(zip(data["category"], data["amount"]))
+    pairs = dict(zip(data["category"], data["amount"], strict=False))
     assert pairs["A"] == 15
     assert pairs["B"] == 20
     assert pairs["C"] == 100

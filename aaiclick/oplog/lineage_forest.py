@@ -22,10 +22,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from .lineage import fetch_producing_op
 from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 
+from .lineage import fetch_producing_op
 
 VALUE_COLUMN = "value"
 """Column sampled at every node to ground the forest in real data."""
@@ -56,7 +56,7 @@ class LineageNode:
     operation: str
     role: str | None
     values: dict[str, Any] | None
-    children: dict[str, "LineageNode"] = field(default_factory=dict)
+    children: dict[str, LineageNode] = field(default_factory=dict)
 
 
 @dataclass
@@ -171,7 +171,7 @@ async def _walk(
             for input_role in child_roles
         )
     )
-    children = dict(zip(child_roles, child_nodes))
+    children = dict(zip(child_roles, child_nodes, strict=False))
 
     return _memo(cache, key, LineageNode(
         table=table, aai_id=aai_id, operation=upstream.operation,

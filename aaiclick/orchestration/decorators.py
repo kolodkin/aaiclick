@@ -29,22 +29,23 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List, Union, overload
+from typing import Any, overload
 
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 from aaiclick.oplog.sampling import SamplingStrategy
 
 from ..snowflake_id import get_snowflake_id
-from .orch_context import commit_tasks, get_sql_session, orch_context
-from .sql_context import _sql_engine_var
 from .factories import _callable_to_string, resolve_job_config
 from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .orch_context import commit_tasks, get_sql_session, orch_context
+from .sql_context import _sql_engine_var
 
 
-def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
+def _collect_upstreams(value: Any, upstream_tasks: list[Task]) -> None:
     """Recursively collect Task instances from nested structures."""
     if isinstance(value, Task):
         upstream_tasks.append(value)
@@ -133,7 +134,7 @@ class TaskFactory:
             )
 
         # Collect upstream tasks for dependency creation
-        upstream_tasks: List[Task] = []
+        upstream_tasks: list[Task] = []
         for value in kwargs.values():
             _collect_upstreams(value, upstream_tasks)
 
@@ -161,7 +162,11 @@ class TaskFactory:
         return f"TaskFactory({self.entrypoint})"
 
 
-def task(func: Callable = None, *, name: str = None, max_retries: int = 0) -> Union[TaskFactory, Callable]:
+@overload
+def task(func: Callable) -> TaskFactory: ...
+@overload
+def task(func: None = None, *, name: str | None = None, max_retries: int = 0) -> Callable[[Callable], TaskFactory]: ...
+def task(func: Callable | None = None, *, name: str | None = None, max_retries: int = 0) -> TaskFactory | Callable:
     """Decorator to create a TaskFactory from a function.
 
     Supports both bare and parameterized usage:

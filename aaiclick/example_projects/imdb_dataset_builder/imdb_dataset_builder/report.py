@@ -103,7 +103,7 @@ def _print_report(content: ReportContent) -> None:
 
     print("\n### Published\n")
     if hf_result is None:
-        print(f"- Skipped: HF_TOKEN not set")
+        print("- Skipped: HF_TOKEN not set")
         print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
     elif hf_result.status == "published":
         print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")

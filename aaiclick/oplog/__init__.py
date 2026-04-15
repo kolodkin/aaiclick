@@ -1,4 +1,3 @@
-from .oplog_api import oplog_record, oplog_record_sample, oplog_record_table
 from .lineage import (
     LineageDirection,
     OplogEdge,
@@ -20,4 +19,5 @@ from .lineage_forest import (
     render_routes,
 )
 from .models import init_oplog_tables
+from .oplog_api import oplog_record, oplog_record_sample, oplog_record_table
 from .sampling import SamplingStrategy, apply_strategy

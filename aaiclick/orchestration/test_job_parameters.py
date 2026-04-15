@@ -10,12 +10,12 @@ Tests for job submission parameters: ``preservation_mode`` and
 from __future__ import annotations
 
 import pytest
+from sqlmodel import select
 
 from aaiclick.orchestration.env import get_default_preservation_mode
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.models import Job, PreservationMode
 from aaiclick.orchestration.orch_context import get_sql_session
-from sqlmodel import select
 
 
 async def test_default_mode_is_none_when_env_unset(monkeypatch):

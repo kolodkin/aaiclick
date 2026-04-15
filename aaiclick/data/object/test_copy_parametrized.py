@@ -5,7 +5,8 @@ Tests scalar and array copying with verification that new tables are created.
 """
 
 import pytest
-from aaiclick import create_object_from_value, create_object
+
+from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 

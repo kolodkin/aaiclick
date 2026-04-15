@@ -3,11 +3,11 @@ Tests for Snowflake ID generation (backed by ClickHouse).
 """
 
 from aaiclick.snowflake_id import (
+    MAX_SEQUENCE,
     SnowflakeGenerator,
+    decode_snowflake_id,
     get_snowflake_id,
     get_snowflake_ids,
-    decode_snowflake_id,
-    MAX_SEQUENCE,
 )
 
 
@@ -56,7 +56,7 @@ def test_bulk_generation_edge_cases():
     # Test invalid count
     try:
         gen.generate_bulk(0)
-        assert False, "Should have raised ValueError for count=0"
+        raise AssertionError("Should have raised ValueError for count=0")
     except ValueError as e:
         assert "at least 1" in str(e)
 
@@ -136,7 +136,7 @@ def test_get_snowflake_ids_validation():
     # Invalid sizes - only negative values should fail
     try:
         get_snowflake_ids(-1)
-        assert False, "Should have raised ValueError for size=-1"
+        raise AssertionError("Should have raised ValueError for size=-1")
     except ValueError as e:
         assert ">= 0" in str(e)
 

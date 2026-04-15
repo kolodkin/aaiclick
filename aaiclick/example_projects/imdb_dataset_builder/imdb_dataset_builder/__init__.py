@@ -42,7 +42,6 @@ from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
 
-
 # =============================================================================
 # Tasks
 # =============================================================================
@@ -94,7 +93,7 @@ async def profile_raw(raw: Object) -> RawProfile:
 
     type_obj = await raw.group_by("titleType").agg({"tconst": "count"})
     type_data = await type_obj.data(orient=ORIENT_DICT)
-    type_counts = dict(zip(type_data["titleType"], type_data["tconst"]))
+    type_counts = dict(zip(type_data["titleType"], type_data["tconst"], strict=False))
 
     return RawProfile(
         total_titles=total,

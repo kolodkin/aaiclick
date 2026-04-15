@@ -5,27 +5,28 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator, Dict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_chdb, is_postgres
-from aaiclick.data.data_context.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 from aaiclick.oplog.sampling import SamplingStrategy, apply_strategy
+
 from ..snowflake_id import get_snowflake_id
-from .execution.db_handler import create_db_handler, get_db_handler, _db_handler_var
-from .sql_context import get_sql_session, _sql_engine_var
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .env import get_db_url
+from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Group, Task, TasksType
+from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
 logger = logging.getLogger(__name__)
@@ -280,8 +281,10 @@ class OrchLifecycleHandler(LifecycleHandler):
 
             # -- Oplog (immediate write, no buffer) --
             elif msg.op == DBLifecycleOp.OPLOG_RECORD:
+                assert msg.oplog is not None
                 await self._write_oplog_row(msg.oplog)
             elif msg.op == DBLifecycleOp.OPLOG_SAMPLE:
+                assert msg.oplog is not None
                 kwargs_aai_ids, result_aai_ids = await apply_strategy(
                     get_ch_client(),
                     msg.oplog.result_table,
@@ -291,6 +294,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 )
                 await self._write_oplog_row(msg.oplog, kwargs_aai_ids, result_aai_ids)
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
+                assert msg.oplog_table is not None
                 await self._write_table_registry_row(msg.oplog_table)
 
 
@@ -385,7 +389,7 @@ async def task_scope(
     )
     await lifecycle.start()
 
-    objects: Dict[int, weakref.ref] = {}
+    objects: dict[int, weakref.ref] = {}
     await init_oplog_tables(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
@@ -416,7 +420,7 @@ async def task_scope(
         _lifecycle_var.reset(lc_token)
 
 
-def _collect_from_registry(items: list) -> list:
+def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     """Collect all reachable Task/Group objects via dependency IDs and the task registry.
 
     Walks the dependency graph starting from ``items``, looking up each
@@ -431,10 +435,10 @@ def _collect_from_registry(items: list) -> list:
     if registry is None:
         return items
 
-    visited: dict = {}
-    result: list = []
+    visited: dict[int, Task | Group] = {}
+    result: list[Task | Group] = []
 
-    def visit(node: object) -> None:
+    def visit(node: Task | Group) -> None:
         if id(node) in visited:
             return
         visited[id(node)] = node

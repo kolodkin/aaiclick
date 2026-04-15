@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import ClassVar
 
 from sqlalchemy import BigInteger, Column, String
 from sqlmodel import Field, SQLModel
@@ -70,7 +71,7 @@ class TableContextRef(SQLModel, table=True):
     register the same table independently.
     """
 
-    __tablename__ = "table_context_refs"
+    __tablename__: ClassVar[str] = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
@@ -84,7 +85,7 @@ class TablePinRef(SQLModel, table=True):
     run_ref). Table is droppable when no pin_refs AND no run_refs remain.
     """
 
-    __tablename__ = "table_pin_refs"
+    __tablename__: ClassVar[str] = "table_pin_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     task_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
@@ -99,7 +100,7 @@ class TableRunRef(SQLModel, table=True):
     the ClickHouse table.
     """
 
-    __tablename__ = "table_run_refs"
+    __tablename__: ClassVar[str] = "table_run_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     run_id: str = Field(sa_column=Column(String, primary_key=True))

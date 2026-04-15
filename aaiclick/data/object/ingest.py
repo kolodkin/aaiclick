@@ -7,11 +7,23 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
-from typing import Callable, Awaitable
-
 from aaiclick.oplog.oplog_api import oplog_record_sample
+
 from ..data_context import create_object
-from ..models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from ..models import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    FLOAT_TYPES,
+    INT_TYPES,
+    NUMERIC_TYPES,
+    ColumnInfo,
+    ColumnMeta,
+    CopyInfo,
+    IngestQueryInfo,
+    Schema,
+    parse_ch_type,
+)
 from ..sql_utils import quote_identifier
 
 
@@ -203,6 +215,8 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     """
     alias = " AS v" if copy_info.source_query.startswith('(') else ""
 
+    assert copy_info.selected_fields is not None, "copy_db_selected_fields requires selected_fields"
+
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
         new_schema = Schema(
@@ -386,7 +400,7 @@ async def insert_objects_db(
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
-    target_data_cols = set(k for k in target_columns if k != "aai_id")
+    target_data_cols = {k for k in target_columns if k != "aai_id"}
 
     for i, info in enumerate(source_infos):
         source_columns = info.columns

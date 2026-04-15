@@ -55,6 +55,7 @@ test = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
+    "pyright>=1.1.400",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -106,7 +107,11 @@ select = [
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
+    "B027",  # empty method in abstract base class (intentional no-op defaults)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)
 
 [tool.mypy]
 python_version = "3.10"

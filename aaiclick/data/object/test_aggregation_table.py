@@ -163,7 +163,7 @@ async def test_aggregation_table_duplicate_key_same_source(ctx):
     result = await agg.group_by("key").agg({"value": "any"})
     data = await result.data()
 
-    pairs = dict(zip(data["key"], data["value"]))
+    pairs = dict(zip(data["key"], data["value"], strict=False))
     # any() picks an arbitrary value from the group — either 1 or 2
     assert pairs["X"] in (1, 2)
     assert pairs["Y"] == 3

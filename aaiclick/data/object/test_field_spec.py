@@ -5,7 +5,6 @@ import pytest
 from aaiclick import FieldSpec, create_object_from_value
 from aaiclick.data.data_context import get_ch_client
 
-
 # --- Dict of arrays ---
 
 

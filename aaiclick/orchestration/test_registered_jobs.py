@@ -1,13 +1,12 @@
 """Tests for registered jobs CRUD operations."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
-
 from sqlmodel import select
 
 from .factories import resolve_job_config
-from .models import Job, PreservationMode, RegisteredJob, RunType, Task
+from .models import PreservationMode, RegisteredJob, RunType, Task
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
@@ -141,6 +140,7 @@ async def test_enable_job(orch_ctx):
     job_id = await enable_job("to_enable")
     assert job_id == created.id
     job = await get_registered_job("to_enable")
+    assert job is not None
     assert job.enabled is True
     assert job.next_run_at is not None
 
@@ -159,6 +159,7 @@ async def test_disable_job(orch_ctx):
     job_id = await disable_job("to_disable")
     assert job_id == created.id
     job = await get_registered_job("to_disable")
+    assert job is not None
     assert job.enabled is False
     assert job.next_run_at is None
 
@@ -327,6 +328,7 @@ async def test_register_job_persists_preservation_mode(orch_ctx):
     assert reg.sampling_strategy is None
 
     fetched = await get_registered_job("full_job")
+    assert fetched is not None
     assert fetched.preservation_mode is PreservationMode.FULL
 
 

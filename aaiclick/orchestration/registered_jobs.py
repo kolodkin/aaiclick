@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from croniter import croniter
 from sqlmodel import select
 
 from aaiclick.oplog.sampling import SamplingStrategy
 
+from ..snowflake_id import get_snowflake_id
 from .factories import create_job, create_task
 from .models import Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
-from ..snowflake_id import get_snowflake_id
 
 
-def compute_next_run(cron_expr: str, after: Optional[datetime] = None) -> datetime:
+def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     """Compute the next fire time for a cron expression.
 
     Args:
@@ -30,14 +30,14 @@ def compute_next_run(cron_expr: str, after: Optional[datetime] = None) -> dateti
     return croniter(cron_expr, base).get_next(datetime)
 
 
-def _next_run_at(schedule: Optional[str], enabled: bool, now: datetime) -> Optional[datetime]:
+def _next_run_at(schedule: str | None, enabled: bool, now: datetime) -> datetime | None:
     """Compute next_run_at from schedule if enabled, else None."""
     return compute_next_run(schedule, now) if schedule and enabled else None
 
 
 def _validate_registered_defaults(
-    preservation_mode: Optional[PreservationMode],
-    sampling_strategy: Optional[SamplingStrategy],
+    preservation_mode: PreservationMode | None,
+    sampling_strategy: SamplingStrategy | None,
 ) -> None:
     """Reject impossible combos at registration time.
 
@@ -65,11 +65,11 @@ async def register_job(
     *,
     name: str,
     entrypoint: str,
-    schedule: Optional[str] = None,
-    default_kwargs: Optional[Dict[str, Any]] = None,
+    schedule: str | None = None,
+    default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: Optional[PreservationMode] = None,
-    sampling_strategy: Optional[SamplingStrategy] = None,
+    preservation_mode: PreservationMode | None = None,
+    sampling_strategy: SamplingStrategy | None = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -123,7 +123,7 @@ async def register_job(
     return registered_job
 
 
-async def get_registered_job(name: str) -> Optional[RegisteredJob]:
+async def get_registered_job(name: str) -> RegisteredJob | None:
     """Look up a registered job by name.
 
     Args:
@@ -143,11 +143,11 @@ async def upsert_registered_job(
     *,
     name: str,
     entrypoint: str,
-    schedule: Optional[str] = None,
-    default_kwargs: Optional[Dict[str, Any]] = None,
+    schedule: str | None = None,
+    default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: Optional[PreservationMode] = None,
-    sampling_strategy: Optional[SamplingStrategy] = None,
+    preservation_mode: PreservationMode | None = None,
+    sampling_strategy: SamplingStrategy | None = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
@@ -292,10 +292,10 @@ async def run_job(
     name: str,
     entrypoint: str,
     *,
-    kwargs: Optional[Dict[str, Any]] = None,
+    kwargs: dict[str, Any] | None = None,
     run_type: RunType = RunType.MANUAL,
-    preservation_mode: Optional[PreservationMode] = None,
-    sampling_strategy: Optional[SamplingStrategy] = None,
+    preservation_mode: PreservationMode | None = None,
+    sampling_strategy: SamplingStrategy | None = None,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
 

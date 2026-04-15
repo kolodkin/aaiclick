@@ -6,22 +6,23 @@ import asyncio
 import importlib
 import math
 import sys
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.data.data_context import (
     get_ch_client,
     get_data_lifecycle,
     register_object,
 )
-from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.object.refs import (
     CALLABLE,
     GROUP_RESULTS,
@@ -41,10 +42,10 @@ from aaiclick.data.object.refs import (
 )
 from aaiclick.snowflake_id import get_snowflake_id
 
-from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
 from ..models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from .worker_context import set_current_task_info
 
@@ -161,7 +162,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 Task.group_id == group_id,
                 Task.status == TaskStatus.COMPLETED,
             )
-            .order_by(Task.id)
+            .order_by(col(Task.id))
         )
         rows = result.all()
         deserialized = []
@@ -325,7 +326,7 @@ def _sanitize_for_json(value: Any) -> Any:
     return value
 
 
-def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
+def serialize_task_result(result: Any, job_id: int) -> dict | None:
     """
     Serialize a task result to JSON-storable format.
 

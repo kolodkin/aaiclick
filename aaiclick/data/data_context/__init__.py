@@ -4,6 +4,8 @@ aaiclick.data.data_context - Context management, client, and lifecycle subpackag
 
 from .ch_client import ChClient, get_ch_client
 from .data_context import (
+    _engine_var,
+    _objects_var,
     create_object,
     create_object_from_value,
     data_context,
@@ -18,4 +20,3 @@ from .data_context import (
     register_object,
 )
 from .lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
-from .data_context import _engine_var, _objects_var

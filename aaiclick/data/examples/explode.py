@@ -119,7 +119,7 @@ async def example():
 
     materialized = await obj.explode("items").copy()
     print(f"\nMaterialized type:  {type(materialized).__name__}")
-    print(f"Materialized rows:")
+    print("Materialized rows:")
     for row in await materialized.data(orient=ORIENT_RECORDS):
         print(f"  {row}")
 

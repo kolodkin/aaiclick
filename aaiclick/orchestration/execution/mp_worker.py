@@ -15,7 +15,7 @@ import asyncio
 import multiprocessing
 import os
 import queue
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple
 
 from sqlmodel import select
 
@@ -33,9 +33,9 @@ class _ProcessResult(NamedTuple):
     """Result passed from child process back to main via queue."""
 
     success: bool
-    result_ref: Optional[dict]
-    log_path: Optional[str]
-    error: Optional[str]
+    result_ref: dict | None
+    log_path: str | None
+    error: str | None
 
 
 # "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
@@ -91,7 +91,7 @@ async def _child_run_task(
 async def _run_task_in_child(
     task: Task,
     worker_id: int,
-) -> tuple[bool, Optional[dict], Optional[str], Optional[str]]:
+) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the multiprocessing worker.
 
     Spawns a child process, sends heartbeats from the parent while
@@ -129,9 +129,9 @@ async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
 
 
 async def _poll_child(
-    proc: multiprocessing.Process,
+    proc: Any,
     result_queue: multiprocessing.Queue,
-    timeout: Optional[float],
+    timeout: float | None,
 ) -> _ProcessResult:
     """Poll queue for child result, enforce timeout, detect crashes."""
     poll_interval = CHILD_POLL_INTERVAL
@@ -169,10 +169,10 @@ async def _poll_child(
 # ---------------------------------------------------------------------------
 
 async def mp_worker_main_loop(
-    worker_id: Optional[int] = None,
-    max_tasks: Optional[int] = None,
+    worker_id: int | None = None,
+    max_tasks: int | None = None,
     install_signal_handlers: bool = True,
-    max_empty_polls: Optional[int] = None,
+    max_empty_polls: int | None = None,
 ) -> int:
     """Main worker loop that spawns a multiprocessing.Process per task.
 

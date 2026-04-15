@@ -7,7 +7,6 @@ on both scalar and array string Objects.
 
 from aaiclick import create_object_from_value
 
-
 # =============================================================================
 # match() tests - RE2 regex matching, returns UInt8
 # =============================================================================

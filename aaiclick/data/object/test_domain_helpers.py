@@ -11,7 +11,6 @@ import pytest
 
 from aaiclick import create_object_from_value
 
-
 # =============================================================================
 # Date / time helpers: with_year, with_month, with_day_of_week
 # =============================================================================
@@ -172,7 +171,7 @@ async def test_with_if_chained_with_group_by(ctx):
     view = obj.with_if("score >= 50", "'high'", "'low'", alias="tier")
     result = await view.group_by("tier").count()
     data = await result.data()
-    pairs = dict(zip(data["tier"], data["_count"]))
+    pairs = dict(zip(data["tier"], data["_count"], strict=False))
     assert pairs["low"] == 2
     assert pairs["high"] == 3
 

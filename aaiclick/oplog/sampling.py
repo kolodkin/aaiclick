@@ -13,7 +13,10 @@ Everything is best-effort: a failed lookup logs and returns empty arrays.
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from aaiclick.data.data_context.ch_client import ChClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +41,11 @@ class _Driver(NamedTuple):
 
     table: str
     clause: str
-    parameters: Optional[dict[str, Any]]
+    parameters: dict[str, Any] | None
 
 
 async def apply_strategy(
-    ch_client: object,
+    ch_client: ChClient,
     result_table: str,
     kwargs: dict[str, str],
     strategy: SamplingStrategy,
@@ -117,7 +120,7 @@ def _pick_driver(
 
 
 async def _pick_inherited_driver(
-    ch_client: object,
+    ch_client: ChClient,
     sources: list[tuple[str, str]],
     job_id: int,
 ) -> _Driver | None:
@@ -170,7 +173,7 @@ async def _pick_inherited_driver(
 
 
 async def _apply_positional(
-    ch_client: object,
+    ch_client: ChClient,
     result_table: str,
     sources: list[tuple[str, str]],
     driver: _Driver,
@@ -225,7 +228,7 @@ async def _apply_positional(
     return kwargs_aai_ids, result_ids
 
 
-async def _select_ids(ch_client: object, table: str, driver: _Driver) -> list[int]:
+async def _select_ids(ch_client: ChClient, table: str, driver: _Driver) -> list[int]:
     """Return all ``aai_id``s from ``table`` that match ``driver.clause``."""
     rows = await ch_client.query(
         f"SELECT aai_id FROM {table} WHERE {driver.clause}",

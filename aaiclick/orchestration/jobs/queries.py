@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 
 from aaiclick.data.object.refs import JOB_ID, OBJECT_TYPE
 
-from ..orch_context import get_sql_session
 from ..execution.runner import _deserialize_value
 from ..models import Job, JobStatus, Task
+from ..orch_context import get_sql_session
 
 
-async def get_job(job_id: int) -> Optional[Job]:
+async def get_job(job_id: int) -> Job | None:
     """Get a job by ID.
 
     Args:
@@ -29,8 +29,8 @@ async def get_job(job_id: int) -> Optional[Job]:
 
 async def list_jobs(
     *,
-    status: Optional[JobStatus] = None,
-    name_like: Optional[str] = None,
+    status: JobStatus | None = None,
+    name_like: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Job]:
@@ -50,8 +50,8 @@ async def list_jobs(
         if status is not None:
             query = query.where(Job.status == status)
         if name_like is not None:
-            query = query.where(Job.name.like(name_like))
-        query = query.order_by(Job.created_at.desc()).limit(limit).offset(offset)
+            query = query.where(col(Job.name).like(name_like))
+        query = query.order_by(col(Job.created_at).desc()).limit(limit).offset(offset)
 
         result = await session.execute(query)
         return list(result.scalars().all())
@@ -59,8 +59,8 @@ async def list_jobs(
 
 async def count_jobs(
     *,
-    status: Optional[JobStatus] = None,
-    name_like: Optional[str] = None,
+    status: JobStatus | None = None,
+    name_like: str | None = None,
 ) -> int:
     """Count jobs matching filters.
 
@@ -76,13 +76,13 @@ async def count_jobs(
         if status is not None:
             query = query.where(Job.status == status)
         if name_like is not None:
-            query = query.where(Job.name.like(name_like))
+            query = query.where(col(Job.name).like(name_like))
 
         result = await session.execute(query)
         return result.scalar_one()
 
 
-async def get_task(task_id: int) -> Optional[Task]:
+async def get_task(task_id: int) -> Task | None:
     """Get a task by ID.
 
     Args:
@@ -96,7 +96,7 @@ async def get_task(task_id: int) -> Optional[Task]:
         return result.scalar_one_or_none()
 
 
-async def get_task_result_table(task_id: int) -> Optional[str]:
+async def get_task_result_table(task_id: int) -> str | None:
     """Return the output-table name written by a committed task.
 
     Reads ``Task.result["table"]`` — the canonical slot for an Object-
@@ -123,12 +123,12 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
     """
     async with get_sql_session() as session:
         result = await session.execute(
-            select(Task).where(Task.job_id == job_id).order_by(Task.created_at)
+            select(Task).where(Task.job_id == job_id).order_by(col(Task.created_at))
         )
         return list(result.scalars().all())
 
 
-async def get_latest_job_by_name(name: str) -> Optional[Job]:
+async def get_latest_job_by_name(name: str) -> Job | None:
     """Get the most recent job with the given name.
 
     Args:
@@ -141,13 +141,13 @@ async def get_latest_job_by_name(name: str) -> Optional[Job]:
         result = await session.execute(
             select(Job)
             .where(Job.name == name)
-            .order_by(Job.created_at.desc())
+            .order_by(col(Job.created_at).desc())
             .limit(1)
         )
         return result.scalar_one_or_none()
 
 
-async def resolve_job(ref: str) -> Optional[Job]:
+async def resolve_job(ref: str) -> Job | None:
     """Resolve a job reference to a Job instance.
 
     Tries numeric ID first, then falls back to name lookup (latest).

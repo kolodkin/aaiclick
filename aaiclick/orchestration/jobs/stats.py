@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -16,9 +15,9 @@ class TaskStats(BaseModel):
     id: int
     entrypoint: str
     status: str
-    queue_time: Optional[timedelta] = None
-    exec_time: Optional[timedelta] = None
-    error: Optional[str] = None
+    queue_time: timedelta | None = None
+    exec_time: timedelta | None = None
+    error: str | None = None
 
 
 class JobStats(BaseModel):
@@ -28,13 +27,13 @@ class JobStats(BaseModel):
     job_name: str
     job_status: str
     total_tasks: int
-    status_counts: Dict[str, int]
-    wall_time: Optional[timedelta] = None
-    exec_time: Optional[timedelta] = None
-    tasks: List[TaskStats]
+    status_counts: dict[str, int]
+    wall_time: timedelta | None = None
+    exec_time: timedelta | None = None
+    tasks: list[TaskStats]
 
 
-def _fmt_duration(td: Optional[timedelta]) -> str:
+def _fmt_duration(td: timedelta | None) -> str:
     """Format a timedelta as a human-readable duration string."""
     if td is None:
         return "-"
@@ -66,7 +65,7 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
     Returns:
         JobStats with computed durations and status counts
     """
-    status_counts: Dict[str, int] = {}
+    status_counts: dict[str, int] = {}
     for t in tasks:
         status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
 
@@ -112,8 +111,8 @@ def print_job_stats(stats: JobStats) -> None:
     print(f"\n## Job: {stats.job_name} (ID: {stats.job_id})")
     print()
     parts = [f"{status}: {count}" for status, count in sorted(stats.status_counts.items())]
-    print(f"| Status | Tasks | Wall Time | Exec Time | Breakdown |")
-    print(f"|--------|-------|-----------|-----------|-----------|")
+    print("| Status | Tasks | Wall Time | Exec Time | Breakdown |")
+    print("|--------|-------|-----------|-----------|-----------|")
     print(
         f"| {stats.job_status} "
         f"| {stats.total_tasks} "
@@ -122,8 +121,8 @@ def print_job_stats(stats: JobStats) -> None:
         f"| {', '.join(parts)} |"
     )
     print()
-    print(f"| Task | Status | Queue | Exec |")
-    print(f"|------|--------|-------|------|")
+    print("| Task | Status | Queue | Exec |")
+    print("|------|--------|-------|------|")
     for t in stats.tasks:
         error_suffix = f" `{t.error[:60]}`" if t.error else ""
         print(

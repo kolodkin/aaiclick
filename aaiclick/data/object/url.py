@@ -8,12 +8,16 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
-from ..models import ColumnInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
+from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..sql_utils import escape_sql_string, quote_identifier
+
+if TYPE_CHECKING:
+    from .object import Object
 
 _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",

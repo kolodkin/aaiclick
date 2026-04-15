@@ -1,10 +1,9 @@
 """Tests for count_if() — conditional counting via countIf()."""
 
-import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import create_object
-from aaiclick.data.models import ColumnInfo, FIELDTYPE_ARRAY, Schema
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 
 
 async def test_count_if_str_basic(ctx):

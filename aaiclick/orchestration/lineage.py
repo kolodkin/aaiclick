@@ -33,5 +33,6 @@ def is_input_task(task: Task) -> bool:
     """
     return (
         is_persistent_object_ref(task.result)
+        and task.result is not None
         and task.result[TABLE].startswith("p_")
     )

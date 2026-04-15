@@ -10,7 +10,6 @@ from aaiclick import create_object_from_value
 from aaiclick.data import Computed
 from aaiclick.data.object import View
 
-
 # =============================================================================
 # Basic with_columns on Object
 # =============================================================================
@@ -127,7 +126,7 @@ async def test_with_columns_group_by(ctx):
     })
     result = await view.group_by("bucket").count()
     data = await result.data()
-    pairs = dict(zip(data["bucket"], data["_count"]))
+    pairs = dict(zip(data["bucket"], data["_count"], strict=False))
     assert pairs["low"] == 3
     assert pairs["high"] == 3
 
@@ -213,7 +212,7 @@ async def test_with_bucket_group_by(ctx):
     view = obj.with_bucket("score", 10)
     result = await view.group_by("score_bucket").sum("amount")
     data = await result.data()
-    pairs = dict(zip(data["score_bucket"], data["amount"]))
+    pairs = dict(zip(data["score_bucket"], data["amount"], strict=False))
     assert pairs[0] == 150   # scores 5, 8
     assert pairs[1] == 350   # scores 15, 12
     assert pairs[2] == 550   # scores 25, 22

@@ -12,6 +12,10 @@ the Job → sampling_strategy round trip through SQL + the runner.
 
 from __future__ import annotations
 
+from typing import Any
+
+from sqlmodel import select
+
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.data.object import Object
@@ -21,8 +25,6 @@ from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Job, JobStatus, PreservationMode
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake_id import get_snowflake_id
-from sqlmodel import select
-
 
 # Task fixtures accept the persistent table suffix so each test gets unique
 # p_* tables. That lets parallel xdist workers share a real ClickHouse
@@ -45,7 +47,7 @@ async def _add(left: Object, right: Object) -> Object:
 
 
 @task
-async def _strat_e2e_pipeline(suffix: str) -> Object:
+async def _strat_e2e_pipeline(suffix: str) -> Any:
     left = _make_left(suffix=suffix)
     right = _make_right(suffix=suffix)
     return _add(left=left, right=right)

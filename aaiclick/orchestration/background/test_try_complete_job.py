@@ -45,7 +45,9 @@ async def _get_job(engine, job_id):
             text("SELECT status, completed_at, error FROM jobs WHERE id = :id"),
             {"id": job_id},
         )
-        return result.fetchone()
+        row = result.fetchone()
+        assert row is not None
+        return row
 
 
 async def _run_try_complete(engine, job_id):

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Sequence
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional, Protocol, Sequence
+from typing import Protocol, cast
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
+
 from ..formats import open_export_writer
 
 
@@ -40,22 +42,22 @@ class ChClient(Protocol):
     async def command(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> object: ...
     async def query(
         self,
         query: str,
-        settings: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        settings: dict | None = None,
+        parameters: dict | None = None,
     ) -> QueryResult: ...
     async def insert(
         self,
         table: str,
         data: Sequence[Sequence],
-        column_names: Optional[Sequence[str]] = None,
+        column_names: Sequence[str] | None = None,
         column_oriented: bool = False,
-        column_type_names: Optional[Sequence[str]] = None,
+        column_type_names: Sequence[str] | None = None,
     ) -> None: ...
 
 
@@ -137,7 +139,7 @@ async def create_ch_client() -> ChClient:
 
     from .clickhouse_client import create_clickhouse_client
 
-    return await create_clickhouse_client()
+    return cast(ChClient, await create_clickhouse_client())
 
 
 def create_sync_client(connection_string: str) -> object:

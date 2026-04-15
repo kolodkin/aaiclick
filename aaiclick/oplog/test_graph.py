@@ -93,7 +93,7 @@ async def test_invalid_direction(orch_ctx):
     """oplog_subgraph raises ValueError for unknown direction."""
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
-            await oplog_subgraph("some_table", direction="sideways")
+            await oplog_subgraph("some_table", direction="sideways")  # type: ignore[arg-type]
 
 
 def test_prompt_context_id_breaking_ops_warning():
@@ -181,8 +181,7 @@ async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
     ):
         a2 = await create_object_from_value([10, 20, 30], name="multi_job_left")
         b2 = await create_object_from_value([1, 2, 3], name="multi_job_right")
-        result2 = await (a2 + b2)
-        result2_table = result2.table
+        await (a2 + b2)
 
     ch = await create_ch_client()
     try:

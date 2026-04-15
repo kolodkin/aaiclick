@@ -11,7 +11,10 @@ without creating a sample.
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    from aaiclick.data.data_context.ch_client import ChClient
 
 from aaiclick.data.sql_utils import escape_sql_string
 
@@ -27,7 +30,7 @@ class TableOwner(NamedTuple):
 
 
 async def lineage_aware_drop(
-    ch_client: object,
+    ch_client: ChClient,
     table_name: str,
     owner: TableOwner | None = None,
 ) -> None:
@@ -86,7 +89,7 @@ async def lineage_aware_drop(
         logger.debug("Failed to drop %s", table_name, exc_info=True)
 
 
-async def _get_lineage_aai_ids(ch_client: object, table_name: str) -> list[int]:
+async def _get_lineage_aai_ids(ch_client: ChClient, table_name: str) -> list[int]:
     """Get all aai_ids from a table that are referenced in oplog lineage."""
     table_escaped = escape_sql_string(table_name)
 

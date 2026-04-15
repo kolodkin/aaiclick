@@ -1,17 +1,17 @@
 """Factory functions for creating orchestration objects."""
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Union
 
 from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .env import get_default_preservation_mode
-from .orch_context import get_sql_session
 from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
 
@@ -20,13 +20,13 @@ class ResolvedJobConfig:
     """Resolved preservation mode + sampling strategy after precedence chain."""
 
     preservation_mode: PreservationMode
-    sampling_strategy: Optional[SamplingStrategy]
+    sampling_strategy: SamplingStrategy | None
 
 
 def resolve_job_config(
-    explicit_mode: Optional[PreservationMode],
-    explicit_strategy: Optional[SamplingStrategy],
-    registered: Optional[RegisteredJob] = None,
+    explicit_mode: PreservationMode | None,
+    explicit_strategy: SamplingStrategy | None,
+    registered: RegisteredJob | None = None,
 ) -> ResolvedJobConfig:
     """Resolve ``preservation_mode`` / ``sampling_strategy`` for a job run.
 
@@ -142,7 +142,7 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: str = None, max_retries: int = 0) -> Task:
+def create_task(callback: str | Callable, kwargs: dict | None = None, *, name: str | None = None, max_retries: int = 0) -> Task:
     """Create a Task object (not committed to database).
 
     Args:
@@ -191,13 +191,13 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
 
 async def create_job(
     name: str,
-    entry: Union[str, Callable, Task],
+    entry: str | Callable | Task,
     *,
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
-    preservation_mode: Optional[PreservationMode] = None,
-    sampling_strategy: Optional[SamplingStrategy] = None,
-    registered: Optional[RegisteredJob] = None,
+    preservation_mode: PreservationMode | None = None,
+    sampling_strategy: SamplingStrategy | None = None,
+    registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
 
