@@ -10,16 +10,15 @@ Thread-safe for concurrent access from background workers.
 
 from __future__ import annotations
 
-import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence
 
 from chdb.session import Session
 
 
-def _with_settings(query: str, settings: Optional[dict]) -> str:
+def _with_settings(query: str, settings: dict | None) -> str:
     """Append a SETTINGS clause to a query for chdb.
 
     chdb does not accept settings as keyword arguments, so they must be
@@ -44,7 +43,7 @@ def _with_settings(query: str, settings: Optional[dict]) -> str:
 class ChdbQueryResult:
     """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
 
-    result_rows: List[tuple] = field(default_factory=list)
+    result_rows: list[tuple] = field(default_factory=list)
 
     @property
     def first_row(self) -> tuple:
@@ -71,7 +70,7 @@ class ChdbClient:
         """Access the underlying chdb session (for TableWorker)."""
         return self._session
 
-    async def command(self, query: str, settings: Optional[dict] = None) -> object:
+    async def command(self, query: str, settings: dict | None = None) -> object:
         """Execute DDL or INSERT query, return scalar result if any.
 
         Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
@@ -89,7 +88,7 @@ class ChdbClient:
                     return text
         return None
 
-    async def query(self, query: str, settings: Optional[dict] = None) -> ChdbQueryResult:
+    async def query(self, query: str, settings: dict | None = None) -> ChdbQueryResult:
         """Execute SELECT query, return result with .result_rows.
 
         Matches AsyncClient.query() — returns object with result_rows attribute.
@@ -104,17 +103,14 @@ class ChdbClient:
         columns = table.to_pydict()
         col_names = table.column_names
         n_rows = table.num_rows
-        rows = [
-            tuple(columns[name][i] for name in col_names)
-            for i in range(n_rows)
-        ]
+        rows = [tuple(columns[name][i] for name in col_names) for i in range(n_rows)]
         return ChdbQueryResult(result_rows=rows)
 
     async def insert(
         self,
         table: str,
         data: Sequence[Sequence],
-        column_names: Optional[Sequence[str]] = None,
+        column_names: Sequence[str] | None = None,
     ) -> None:
         """Bulk insert rows into a table.
 
@@ -202,7 +198,7 @@ def get_chdb_data_path() -> str:
 _sessions: dict[str, Session] = {}
 
 
-def get_shared_session(path: Optional[str] = None) -> Session:
+def get_shared_session(path: str | None = None) -> Session:
     """Return (or create) the shared chdb Session for a given data path.
 
     Using a singleton ensures all data_context instances in the same process
@@ -215,12 +211,12 @@ def get_shared_session(path: Optional[str] = None) -> Session:
     return _sessions[data_path]
 
 
-def create_chdb_session(path: Optional[str] = None) -> Session:
+def create_chdb_session(path: str | None = None) -> Session:
     """Return the shared chdb Session (singleton per data path)."""
     return get_shared_session(path)
 
 
-def create_chdb_client(path: Optional[str] = None) -> ChdbClient:
+def create_chdb_client(path: str | None = None) -> ChdbClient:
     """Create a ChdbClient backed by the shared chdb session."""
     return ChdbClient(get_shared_session(path))
 
@@ -231,5 +227,5 @@ def create_chdb_sync_client(connection_string: str) -> ChdbSyncClient:
     Args:
         connection_string: chdb://path/to/data URL.
     """
-    path = connection_string[len("chdb://"):]
+    path = connection_string[len("chdb://") :]
     return ChdbSyncClient(get_shared_session(path))

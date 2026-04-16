@@ -9,9 +9,9 @@ from typing import Any
 
 from litellm import acompletion
 
-from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
 from aaiclick.ai.agents.tools import TOOL_DEFINITIONS, dispatch_tool
 from aaiclick.ai.config import get_ai_provider
+from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
 
 _SYSTEM_PROMPT = """\
 You are a data debugging expert analyzing a ClickHouse data pipeline.
@@ -68,27 +68,31 @@ async def debug_result(target_table: str, question: str) -> str:
         if choice.finish_reason != "tool_calls" or not message.tool_calls:
             return message.content or ""
 
-        messages.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in message.tool_calls
-            ],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in message.tool_calls
+                ],
+            }
+        )
 
         for tc in message.tool_calls:
             args = json.loads(tc.function.arguments)
             result = await dispatch_tool(tc.function.name, args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                }
+            )
 
     # Max rounds reached — ask for final answer without tools
     messages.append({"role": "user", "content": "Please provide your final answer."})

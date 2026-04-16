@@ -2,13 +2,13 @@
 Tests for LifecycleHandler ABC and LocalLifecycleHandler.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.backend import get_ch_url
-from aaiclick.data.data_context import data_context, incref, decref
+from aaiclick.data.data_context import data_context, decref, incref
 from aaiclick.data.lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
 
 

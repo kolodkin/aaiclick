@@ -1,9 +1,9 @@
 """Factory functions for creating orchestration objects."""
 
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Union
 
 from aaiclick.snowflake_id import get_snowflake_id
 
@@ -84,7 +84,7 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: str = None, max_retries: int = 0) -> Task:
+def create_task(callback: str | Callable, kwargs: dict = None, *, name: str = None, max_retries: int = 0) -> Task:
     """Create a Task object (not committed to database).
 
     Args:
@@ -127,7 +127,7 @@ def create_task(callback: Union[str, Callable], kwargs: dict = None, *, name: st
     )
 
 
-async def create_job(name: str, entry: Union[str, Callable, Task]) -> Job:
+async def create_job(name: str, entry: str | Callable | Task) -> Job:
     """Create a Job and commit it to the database.
 
     Args:

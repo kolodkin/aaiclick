@@ -13,39 +13,38 @@ except Exception:
     __version__ = "0.0.0"
 
 # Import context manager (primary API) and factory functions
-from .data import (
-    data_context,
-    get_ch_client,
-    delete_object,
-    delete_persistent_object,
-    delete_persistent_objects,
-    create_object,
-    create_object_from_url,
-    create_object_from_value,
-    list_persistent_objects,
-    open_object,
-    LifecycleHandler,
-    LocalLifecycleHandler,
-)
-
 # Import core objects
-from .data import Object, View, DataResult
 from .data import (
-    Schema,
+    DATE_TYPES,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ORIENT_DICT,
+    ORIENT_RECORDS,
     ColumnInfo,
     ColumnMeta,
     ColumnType,
-    ViewSchema,
+    DataResult,
+    LifecycleHandler,
+    LocalLifecycleHandler,
+    Object,
     QueryInfo,
-    DATE_TYPES,
-    FIELDTYPE_SCALAR,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
-    ORIENT_DICT,
-    ORIENT_RECORDS,
-    ValueScalarType,
+    Schema,
     ValueListType,
+    ValueScalarType,
     ValueType,
+    View,
+    ViewSchema,
+    create_object,
+    create_object_from_url,
+    create_object_from_value,
+    data_context,
+    delete_object,
+    delete_persistent_object,
+    delete_persistent_objects,
+    get_ch_client,
+    list_persistent_objects,
+    open_object,
 )
 
 # Import Snowflake ID generation
@@ -62,9 +61,6 @@ async def explain(target_table: str, question: str | None = None) -> str:
     """
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError:
-        raise ImportError(
-            "AI features require the aaiclick[ai] extra. "
-            "Install with: pip install aaiclick[ai]"
-        )
+    except ImportError as err:
+        raise ImportError("AI features require the aaiclick[ai] extra. Install with: pip install aaiclick[ai]") from err
     return await explain_lineage(target_table, question)

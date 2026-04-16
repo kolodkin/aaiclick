@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,9 +16,7 @@ class PgDbHandler(DbHandler):
     """PostgreSQL: writable CTEs, FOR UPDATE SKIP LOCKED."""
 
     @staticmethod
-    async def claim_next_task(
-        session: AsyncSession, worker_id: int, now: datetime
-    ) -> Optional[Task]:
+    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None:
         result = await session.execute(
             text(f"""
                 WITH claimed_task AS (

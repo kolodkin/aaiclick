@@ -7,8 +7,9 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextvars import ContextVar
-from typing import Optional, Protocol, Sequence
+from typing import Protocol
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
@@ -32,11 +33,11 @@ class ChClient(Protocol):
         self,
         table: str,
         data: Sequence[Sequence],
-        column_names: Optional[Sequence[str]] = None,
+        column_names: Sequence[str] | None = None,
     ) -> None: ...
 
 
-_ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)
+_ch_client_var: ContextVar[ChClient | None] = ContextVar("ch_client", default=None)
 
 
 def get_ch_client() -> ChClient:

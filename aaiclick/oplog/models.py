@@ -8,7 +8,6 @@ import os
 
 from aaiclick.data.ch_client import ChClient
 
-
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
     id           UInt64 DEFAULT generateSnowflakeID(),
@@ -65,15 +64,12 @@ async def _validate_schema(
     expected: dict[str, str],
 ) -> None:
     """Check all expected columns exist with correct types; raise on mismatch."""
-    result = await ch_client.query(
-        f"SELECT name, type FROM system.columns WHERE table = '{table}'"
-    )
+    result = await ch_client.query(f"SELECT name, type FROM system.columns WHERE table = '{table}'")
     actual = {row[0]: row[1] for row in result.result_rows}
     for col, expected_type in expected.items():
         if col not in actual:
             raise RuntimeError(
-                f"Oplog table '{table}' is missing column '{col}'. "
-                f"Drop the table and let aaiclick recreate it."
+                f"Oplog table '{table}' is missing column '{col}'. Drop the table and let aaiclick recreate it."
             )
         if actual[col] != expected_type:
             raise RuntimeError(

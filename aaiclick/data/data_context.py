@@ -10,34 +10,33 @@ from __future__ import annotations
 import re
 import warnings
 import weakref
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import AsyncIterator, Dict, List, Union
 
 import numpy as np
 
 from aaiclick.backend import get_ch_url
+from aaiclick.oplog.collector import OplogCollector, _oplog_collector, oplog_record, oplog_record_table
+from aaiclick.oplog.models import init_oplog_tables
 
-from .ch_client import ChClient, create_ch_client, get_ch_client, _ch_client_var
-from .lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle, _lifecycle_var
+from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
+from .lifecycle import LifecycleHandler, LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle
 from .models import (
-    ColumnInfo,
-    ValueScalarType,
-    ValueListType,
-    ValueType,
-    Schema,
-    ColumnMeta,
-    FIELDTYPE_SCALAR,
+    ENGINE_DEFAULT,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ColumnInfo,
+    ColumnMeta,
     EngineType,
-    ENGINE_DEFAULT,
-    parse_ch_type,
+    Schema,
+    ValueListType,
+    ValueScalarType,
+    ValueType,
 )
 from .sql_utils import quote_identifier
-from aaiclick.oplog.collector import OplogCollector, oplog_record, oplog_record_table, _oplog_collector
-from aaiclick.oplog.models import init_oplog_tables
 
 # clickhouse-connect (0.6.x–0.8.x) triggers FutureWarnings from numpy datetime
 # internals during query result processing. Suppress globally so the filter covers
@@ -51,8 +50,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_co
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
 #   OplogCollector  → collector.py  (_oplog_collector / get_oplog_collector)
-_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_DEFAULT)
-_objects_var: ContextVar[Dict[int, weakref.ref]] = ContextVar('objects')
+_engine_var: ContextVar[EngineType] = ContextVar("engine", default=ENGINE_DEFAULT)
+_objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar("objects")
 
 
 def get_engine() -> EngineType:
@@ -129,7 +128,7 @@ async def data_context(
         lifecycle = LocalLifecycleHandler(get_ch_url())
         await lifecycle.start()
 
-    objects: Dict[int, weakref.ref] = {}
+    objects: dict[int, weakref.ref] = {}
 
     ch_token = _ch_client_var.set(ch_client)
     lc_token = _lifecycle_var.set(lifecycle)
@@ -184,7 +183,7 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-_VALID_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validate_persistent_name(name: str) -> None:
@@ -194,10 +193,7 @@ def _validate_persistent_name(name: str) -> None:
         ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]*
     """
     if not _VALID_NAME_RE.match(name):
-        raise ValueError(
-            f"Invalid persistent name '{name}': "
-            f"must match [a-zA-Z_][a-zA-Z0-9_]*"
-        )
+        raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
 
 
 async def create_object(
@@ -257,7 +253,7 @@ async def create_object(
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
     create_query = f"""
     {create_or} {obj.table} (
-        {', '.join(column_defs)}
+        {", ".join(column_defs)}
     ) {engine_clause}
     """
 
@@ -290,7 +286,7 @@ def _has_nested_dicts(record: dict) -> bool:
     return any(_is_list_of_dicts(v) for v in record.values())
 
 
-def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> Dict[str, ColumnInfo]:
+def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> dict[str, ColumnInfo]:
     """Recursively infer flat column schema from a nested record.
 
     Uses dot-star notation for nested array-of-objects levels.
@@ -304,7 +300,7 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
     Returns:
         Dict mapping flat column names to ColumnInfo
     """
-    columns: Dict[str, ColumnInfo] = {}
+    columns: dict[str, ColumnInfo] = {}
     for key, val in sample.items():
         col_name = f"{prefix}{key}"
 
@@ -357,7 +353,7 @@ def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
     return result
 
 
-def _infer_clickhouse_type(value: Union[ValueScalarType, ValueListType]) -> ColumnInfo:
+def _infer_clickhouse_type(value: ValueScalarType | ValueListType) -> ColumnInfo:
     """Infer ClickHouse column type from Python value using numpy.
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
@@ -415,7 +411,7 @@ async def _create_nested_object(
     val: dict,
     ch: ChClient,
     name: str | None,
-) -> Object:
+) -> Object:  # noqa: F821
     """Create an Object from a single dict with nested list-of-dicts values.
 
     Stores nested list-of-dicts as parallel Array columns using dot-star
@@ -444,7 +440,7 @@ async def _create_nested_records_object(
     val: list,
     ch: ChClient,
     name: str | None,
-) -> Object:
+) -> Object:  # noqa: F821
     """Create an Object from a list of dicts with nested list-of-dicts values.
 
     Each input record becomes one row. Nested list-of-dicts are stored as
@@ -485,7 +481,7 @@ async def _create_nested_records_object(
 async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
-) -> Object:
+) -> Object:  # noqa: F821
     """Create a new Object from Python values with automatic schema inference.
 
     Args:
@@ -528,14 +524,12 @@ async def create_object_from_value(
                         array_len = len(value)
                     elif len(value) != array_len:
                         raise ValueError(
-                            f"All arrays must have same length. "
-                            f"Expected {array_len}, got {len(value)} for key '{key}'"
+                            f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
                         )
                     col_def = _infer_clickhouse_type(value)
                 else:
                     raise ValueError(
-                        f"Dict of arrays requires all values to be lists. "
-                        f"Key '{key}' has type {type(value).__name__}"
+                        f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
                     )
                 columns[key] = col_def
 
@@ -544,7 +538,7 @@ async def create_object_from_value(
 
             if array_len and array_len > 0:
                 keys = list(val.keys())
-                data = [list(row) for row in zip(*[val[key] for key in keys])]
+                data = [list(row) for row in zip(*[val[key] for key in keys], strict=False)]
                 await ch.insert(obj.table, data, column_names=keys)
 
         else:
@@ -644,7 +638,7 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str) -> Object:
+async def open_object(name: str) -> Object:  # noqa: F821
     """Open an existing persistent Object by name.
 
     Args:
@@ -657,8 +651,8 @@ async def open_object(name: str) -> Object:
         ValueError: If name is invalid.
         RuntimeError: If table does not exist.
     """
-    from .object import Object
     from .ingest import _get_table_schema
+    from .object import Object
 
     _validate_persistent_name(name)
     ch = get_ch_client()
@@ -666,10 +660,7 @@ async def open_object(name: str) -> Object:
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
-        raise RuntimeError(
-            f"Persistent object '{name}' does not exist "
-            f"(table {table_name})"
-        )
+        raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     col_fieldtype, columns = await _get_table_schema(table_name, ch)
     is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})

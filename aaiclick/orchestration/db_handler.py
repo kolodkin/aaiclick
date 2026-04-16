@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
@@ -59,16 +58,14 @@ class DbHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def claim_next_task(
-        session: AsyncSession, worker_id: int, now: datetime
-    ) -> Optional[Task]: ...
+    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None: ...
 
     @staticmethod
     @abstractmethod
     def lock_query(query: Select) -> Select: ...
 
 
-def create_db_handler() -> Union["PgDbHandler", "SqliteDbHandler"]:
+def create_db_handler() -> PgDbHandler | SqliteDbHandler:  # noqa: F821
     """Create the appropriate DB handler based on AAICLICK_SQL_URL."""
     if is_sqlite():
         from .sqlite_handler import SqliteDbHandler

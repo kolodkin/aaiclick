@@ -122,10 +122,7 @@ class PgLifecycleHandler(LifecycleHandler):
         """
         async with AsyncSession(self._engine) as session:
             await session.execute(
-                text(
-                    "DELETE FROM table_context_refs "
-                    "WHERE table_name = :table AND context_id = :ctx"
-                ),
+                text("DELETE FROM table_context_refs WHERE table_name = :table AND context_id = :ctx"),
                 {"table": table_name, "ctx": job_id},
             )
             await session.commit()

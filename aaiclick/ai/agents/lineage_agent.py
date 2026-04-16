@@ -4,9 +4,9 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
-from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
 from aaiclick.ai.agents.tools import sample_table
 from aaiclick.ai.config import get_ai_provider
+from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
 
 _SYSTEM_PROMPT = """\
 You are a data lineage expert analyzing a data pipeline built on ClickHouse.

@@ -2,7 +2,7 @@
 
 from aaiclick import create_object, create_object_from_value
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.models import ColumnInfo, ENGINE_AGGREGATING_MERGE_TREE, ENGINE_MEMORY, ENGINE_MERGE_TREE, Schema
+from aaiclick.data.models import ENGINE_AGGREGATING_MERGE_TREE, ENGINE_MEMORY, ENGINE_MERGE_TREE, ColumnInfo, Schema
 
 
 async def test_context_with_memory_engine():

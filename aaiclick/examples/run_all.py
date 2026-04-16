@@ -9,8 +9,8 @@ import asyncio
 import contextlib
 import os
 import pathlib
+from collections.abc import Callable, Coroutine
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Callable, Coroutine
 
 from .aggregation_table import amain as aggregation_table_example
 from .array_operators import amain as array_operators_example
@@ -81,10 +81,7 @@ def main():
     max_workers = os.cpu_count() or 1
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_run_example, title, func): title
-            for title, func in examples
-        }
+        futures = {executor.submit(_run_example, title, func): title for title, func in examples}
         for future in as_completed(futures):
             title = futures[future]
             results[title] = future.result()

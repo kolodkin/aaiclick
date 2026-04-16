@@ -3,16 +3,15 @@
 import pytest
 
 from aaiclick import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_SCALAR,
     ColumnInfo,
     Schema,
     create_object,
     create_object_from_value,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_SCALAR,
 )
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import parse_ch_type
-
 
 # --- ColumnInfo and parse_ch_type utility tests ---
 
@@ -154,10 +153,7 @@ async def test_nullable_dict_columns(ctx):
     obj = await create_object(schema)
     ch = get_ch_client()
 
-    await ch.command(
-        f"INSERT INTO {obj.table} (name, score) VALUES "
-        f"('alice', 95.0), ('bob', NULL), ('carol', 88.5)"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (name, score) VALUES ('alice', 95.0), ('bob', NULL), ('carol', 88.5)")
 
     data = await obj.data()
     assert data["name"] == ["alice", "bob", "carol"]
@@ -361,7 +357,6 @@ async def test_coalesce_with_object(ctx):
 
 async def test_concat_nullable_with_nonnullable(ctx):
     """Concat of nullable and non-nullable promotes result to nullable."""
-    from aaiclick.data.object import Object
 
     schema_nullable = Schema(
         fieldtype=FIELDTYPE_ARRAY,

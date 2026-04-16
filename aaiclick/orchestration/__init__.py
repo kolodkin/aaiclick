@@ -24,11 +24,10 @@ Usage:
 """
 
 from .claiming import cancel_job
-from .execution import TaskResult
 from .context import commit_tasks, get_orch_session, orch_context
 from .debug_execution import ajob_test, job_test
 from .decorators import JobFactory, TaskFactory, job, task
-from .orch_helpers import map, reduce
+from .execution import TaskResult
 from .job_queries import (
     count_jobs,
     get_job,
@@ -40,3 +39,4 @@ from .job_queries import (
 )
 from .job_stats import JobStats, TaskStats, compute_job_stats, print_job_stats
 from .models import JobStatus, TaskStatus
+from .orch_helpers import map, reduce

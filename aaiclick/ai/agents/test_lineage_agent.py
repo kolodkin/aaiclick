@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.oplog.lineage import OplogNode
 from aaiclick.ai.agents.lineage_agent import explain_lineage
+from aaiclick.oplog.lineage import OplogNode
 
 
 def _node(table: str, operation: str, args: list[str] | None = None) -> OplogNode:

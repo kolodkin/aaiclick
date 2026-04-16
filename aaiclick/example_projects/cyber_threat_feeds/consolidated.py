@@ -40,7 +40,9 @@ MERGED_COLUMNS = {
     "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
     "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan','epss']"),
-    "is_kev": ColumnInfo("Bool", nullable=True, description="True if CVE is in the CISA KEV catalog (from source data)"),
+    "is_kev": ColumnInfo(
+        "Bool", nullable=True, description="True if CVE is in the CISA KEV catalog (from source data)"
+    ),
     "vendor": ColumnInfo("String", nullable=True, description="Vendor name (any() aggregated)"),
     "product": ColumnInfo("String", nullable=True, description="Product name (any() aggregated)"),
     "vulnerability_name": ColumnInfo("String", nullable=True, description="Vulnerability title from KEV"),
@@ -81,70 +83,68 @@ async def build_consolidated_table(
 
     # KEV: rename camelCase → snake_case, add source tag
     # All KEV records are KEV by definition → is_kev = true
-    kev_view = (
-        kev
-        .rename({
+    kev_view = kev.rename(
+        {
             "cveID": "cve_id",
             "vendorProject": "vendor",
             "vulnerabilityName": "vulnerability_name",
             "shortDescription": "short_description",
             "dateAdded": "date_added",
             "knownRansomwareCampaignUse": "known_ransomware",
-        })
-        .with_columns({
+        }
+    ).with_columns(
+        {
             "source": Computed("String", "'kev'"),
             "is_kev": Computed("Bool", "true"),
-        })
+        }
     )
     await agg.insert(kev_view)
 
     # Shodan: already snake_case, rename kev → is_kev, add source tag
-    shodan_view = (
-        cves
-        .rename({"kev": "is_kev"})
-        .with_columns({"source": Computed("String", "'shodan'")})
-    )
+    shodan_view = cves.rename({"kev": "is_kev"}).with_columns({"source": Computed("String", "'shodan'")})
     await agg.insert(shodan_view)
 
     # EPSS: rename cve→cve_id, percentile→ranking_epss, add source tag
-    epss_view = (
-        epss
-        .rename({"cve": "cve_id", "percentile": "ranking_epss"})
-        .with_columns({"source": Computed("String", "'epss'")})
+    epss_view = epss.rename({"cve": "cve_id", "percentile": "ranking_epss"}).with_columns(
+        {"source": Computed("String", "'epss'")}
     )
     await agg.insert(epss_view)
 
     # Collapse: merge rows per CVE — groupArrayDistinct for sources, any() for all other columns
     # is_kev comes from source data: true for KEV records, Shodan's kev field for Shodan, NULL for EPSS
-    merged = await agg.group_by("cve_id").agg({
-        "source":             GB_GROUP_ARRAY_DISTINCT,
-        "is_kev":             GB_ANY,
-        "vendor":             GB_ANY,
-        "product":            GB_ANY,
-        "vulnerability_name": GB_ANY,
-        "short_description":  GB_ANY,
-        "date_added":         GB_ANY,
-        "known_ransomware":   GB_ANY,
-        "cvss":               GB_ANY,
-        "cvss_v2":            GB_ANY,
-        "cvss_v3":            GB_ANY,
-        "epss":               GB_ANY,
-        "ranking_epss":       GB_ANY,
-        "summary":            GB_ANY,
-    })
+    merged = await agg.group_by("cve_id").agg(
+        {
+            "source": GB_GROUP_ARRAY_DISTINCT,
+            "is_kev": GB_ANY,
+            "vendor": GB_ANY,
+            "product": GB_ANY,
+            "vulnerability_name": GB_ANY,
+            "short_description": GB_ANY,
+            "date_added": GB_ANY,
+            "known_ransomware": GB_ANY,
+            "cvss": GB_ANY,
+            "cvss_v2": GB_ANY,
+            "cvss_v3": GB_ANY,
+            "epss": GB_ANY,
+            "ranking_epss": GB_ANY,
+            "summary": GB_ANY,
+        }
+    )
     return merged.rename({"source": "sources"})
 
 
 @task
 async def analyze_consolidated(consolidated: Object) -> dict:
     """Analyze the consolidated table for cross-source coverage stats."""
-    stats = await consolidated.count_if({
-        "total_unique_cves":  "1",
-        "in_both_sources":    f"{_HAS_KEV} AND {_HAS_SHODAN}",
-        "kev_only":           f"{_HAS_KEV} AND NOT {_HAS_SHODAN}",
-        "shodan_only":        f"{_HAS_SHODAN} AND NOT {_HAS_KEV}",
-        "kev_with_high_epss": f"{_HAS_KEV} AND epss > 0.5",
-        "epss_coverage":      _HAS_EPSS,
-        "kev_with_epss":      f"{_HAS_KEV} AND {_HAS_EPSS}",
-    })
+    stats = await consolidated.count_if(
+        {
+            "total_unique_cves": "1",
+            "in_both_sources": f"{_HAS_KEV} AND {_HAS_SHODAN}",
+            "kev_only": f"{_HAS_KEV} AND NOT {_HAS_SHODAN}",
+            "shodan_only": f"{_HAS_SHODAN} AND NOT {_HAS_KEV}",
+            "kev_with_high_epss": f"{_HAS_KEV} AND epss > 0.5",
+            "epss_coverage": _HAS_EPSS,
+            "kev_with_epss": f"{_HAS_KEV} AND {_HAS_EPSS}",
+        }
+    )
     return await stats.data()

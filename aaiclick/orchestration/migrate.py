@@ -1,6 +1,5 @@
 """Programmatic database migration runner using Alembic."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -20,8 +19,7 @@ def get_alembic_config() -> Config:
 
     if not alembic_ini.exists():
         raise FileNotFoundError(
-            f"alembic.ini not found at {alembic_ini}. "
-            "Ensure aaiclick is installed correctly with migration files."
+            f"alembic.ini not found at {alembic_ini}. Ensure aaiclick is installed correctly with migration files."
         )
 
     # Create Alembic config

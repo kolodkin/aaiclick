@@ -59,11 +59,7 @@ async def load_shodan_general_cves(start_date: str, end_date: str, limit: int = 
     Uses is_kev=false to fetch general CVEs that are not in CISA KEV,
     providing broader vulnerability coverage with EPSS scores.
     """
-    url = (
-        f"{SHODAN_CVEDB_URL}"
-        f"?is_kev=false&limit={limit}"
-        f"&start_date={start_date}&end_date={end_date}"
-    )
+    url = f"{SHODAN_CVEDB_URL}?is_kev=false&limit={limit}&start_date={start_date}&end_date={end_date}"
     return await create_object_from_url(
         url=url,
         format="RawBLOB",

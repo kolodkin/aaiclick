@@ -4,11 +4,12 @@ aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
-from aaiclick.data.ch_client import create_ch_client, get_ch_client, _ch_client_var
+from aaiclick.data.ch_client import _ch_client_var, create_ch_client, get_ch_client
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -136,8 +137,7 @@ async def backward_oplog(
             task_id=task_id,
             job_id=job_id,
         )
-        for result_table, operation, args, kwargs_raw, sql_template, task_id, job_id
-        in result.result_rows
+        for result_table, operation, args, kwargs_raw, sql_template, task_id, job_id in result.result_rows
     ]
 
 

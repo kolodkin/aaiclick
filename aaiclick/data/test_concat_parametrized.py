@@ -6,8 +6,8 @@ Tests array concatenation with objects, scalar values, and list values.
 
 import pytest
 
-from aaiclick import create_object, create_object_from_value
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
+from aaiclick import create_object_from_value
+from aaiclick.data.models import Computed
 
 THRESHOLD = 1e-5
 
@@ -233,10 +233,12 @@ async def test_concat_view_with_limit(ctx):
 async def test_concat_view_field_selection(ctx):
     """Concat a single-field view from a dict Object."""
     obj_a = await create_object_from_value([1, 2])
-    obj_b = await create_object_from_value({
-        "x": [10, 20],
-        "y": [100, 200],
-    })
+    obj_b = await create_object_from_value(
+        {
+            "x": [10, 20],
+            "y": [100, 200],
+        }
+    )
 
     result = await obj_a.concat(obj_b["x"])
     data = await result.data()
@@ -246,17 +248,25 @@ async def test_concat_view_field_selection(ctx):
 
 async def test_concat_view_with_computed_columns(ctx):
     """Concat a view with computed columns."""
-    obj_a = await create_object_from_value({
-        "name": ["alice"],
-        "active": [1],
-    })
-    obj_b = await create_object_from_value({
-        "name": ["bob", "carol"],
-    })
+    obj_a = await create_object_from_value(
+        {
+            "name": ["alice"],
+            "active": [1],
+        }
+    )
+    obj_b = await create_object_from_value(
+        {
+            "name": ["bob", "carol"],
+        }
+    )
 
-    result = await obj_a.concat(obj_b.with_columns({
-        "active": Computed("UInt8", "1"),
-    }))
+    result = await obj_a.concat(
+        obj_b.with_columns(
+            {
+                "active": Computed("UInt8", "1"),
+            }
+        )
+    )
     data = await result.data()
 
     assert sorted(data["name"]) == ["alice", "bob", "carol"]

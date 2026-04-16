@@ -8,8 +8,7 @@ type coercion and result accuracy.
 import numpy as np
 import pytest
 
-
-from aaiclick import create_object_from_value, create_object
+from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
 
@@ -53,7 +52,13 @@ async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
         pytest.param([10.0, 20.0, 30.0], [1, 2, 3], "+", [11.0, 22.0, 33.0], id="float-plus-int"),
         pytest.param([100, 200, 300], [10.5, 20.5, 30.5], "-", [89.5, 179.5, 269.5], id="int-minus-float"),
         pytest.param([100.5, 200.5, 300.5], [10, 20, 30], "-", [90.5, 180.5, 270.5], id="float-minus-int"),
-        pytest.param([1000000, 2000000, 3000000], [0.001, 0.002, 0.003], "+", [1000000.001, 2000000.002, 3000000.003], id="large-int-small-float"),
+        pytest.param(
+            [1000000, 2000000, 3000000],
+            [0.001, 0.002, 0.003],
+            "+",
+            [1000000.001, 2000000.002, 3000000.003],
+            id="large-int-small-float",
+        ),
         pytest.param([-10, -20, -30], [5.5, 10.5, 15.5], "+", [-4.5, -9.5, -14.5], id="negative-int-plus-float"),
     ],
 )
@@ -69,7 +74,6 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
         assert abs(val - expected[i]) < THRESHOLD
 
 
-
 # =============================================================================
 # Chained Operations with Mixed Types
 # =============================================================================
@@ -78,9 +82,15 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
 @pytest.mark.parametrize(
     "arr_a,arr_b,arr_c,op1,op2,expected",
     [
-        pytest.param([10, 20, 30], [5.5, 10.5, 15.5], [3, 6, 9], "+", "-", [12.5, 24.5, 36.5], id="int-plus-float-minus-int"),
-        pytest.param([100.5, 200.5], [10, 20], [5.25, 10.25], "-", "+", [95.75, 190.75], id="float-minus-int-plus-float"),
-        pytest.param([1, 2, 3], [0.5, 1.0, 1.5], [10, 20, 30], "+", "+", [11.5, 23.0, 34.5], id="int-plus-float-plus-int"),
+        pytest.param(
+            [10, 20, 30], [5.5, 10.5, 15.5], [3, 6, 9], "+", "-", [12.5, 24.5, 36.5], id="int-plus-float-minus-int"
+        ),
+        pytest.param(
+            [100.5, 200.5], [10, 20], [5.25, 10.25], "-", "+", [95.75, 190.75], id="float-minus-int-plus-float"
+        ),
+        pytest.param(
+            [1, 2, 3], [0.5, 1.0, 1.5], [10, 20, 30], "+", "+", [11.5, 23.0, 34.5], id="int-plus-float-plus-int"
+        ),
     ],
 )
 async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
@@ -95,7 +105,6 @@ async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
 
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
-
 
 
 # =============================================================================
@@ -119,7 +128,6 @@ async def test_mixed_statistics_after_operation(ctx):
     assert abs(await (await result.std()).data() - np.std(expected_values, ddof=0)) < THRESHOLD
 
 
-
 async def test_mixed_min_max_after_subtraction(ctx):
     """Test min/max on result of mixed type subtraction. Returns Objects, use .data() to extract values."""
     a = await create_object_from_value([100, 200, 300])
@@ -129,7 +137,6 @@ async def test_mixed_min_max_after_subtraction(ctx):
 
     assert abs(await (await result.min()).data() - 99.9) < THRESHOLD
     assert abs(await (await result.max()).data() - 299.7) < THRESHOLD
-
 
 
 async def test_mixed_sum_mean_precision(ctx):
@@ -148,7 +155,6 @@ async def test_mixed_sum_mean_precision(ctx):
     assert abs(await (await result.mean()).data() - expected_mean) < THRESHOLD
 
 
-
 # =============================================================================
 # Edge Cases with Mixed Types
 # =============================================================================
@@ -165,7 +171,6 @@ async def test_mixed_single_element_arrays(ctx):
     assert abs(data[0] - 42.5) < THRESHOLD
 
 
-
 async def test_mixed_very_small_float_with_large_int(ctx):
     """Test operations with very small float and large int."""
     a = await create_object_from_value([1000000])
@@ -176,7 +181,6 @@ async def test_mixed_very_small_float_with_large_int(ctx):
 
     # Result should be very close to 1000000 due to float precision
     assert abs(data[0] - 1000000.0000000001) < 1e-9
-
 
 
 async def test_mixed_boundary_values(ctx):
@@ -191,7 +195,6 @@ async def test_mixed_boundary_values(ctx):
     expected = [-0.5, 0.5, 1.5]
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
-
 
 
 async def test_mixed_symmetry(ctx):
@@ -215,7 +218,6 @@ async def test_mixed_symmetry(ctx):
     # Results should be identical
     for i in range(len(data1)):
         assert abs(data1[i] - data2[i]) < THRESHOLD
-
 
 
 # =============================================================================

@@ -5,9 +5,7 @@ from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-CISA_KEV_URL = (
-    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-)
+CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 KEV_COLUMNS = {
     "cveID": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
@@ -37,25 +35,31 @@ async def load_kev_data() -> Object:
 
 async def _kev_by_vendor(kev: Object) -> Object:
     """Top vendors by number of known exploited vulnerabilities."""
-    return await kev.group_by("vendorProject").agg({
-        "cveID": "count",
-    })
+    return await kev.group_by("vendorProject").agg(
+        {
+            "cveID": "count",
+        }
+    )
 
 
 async def _kev_by_year(kev: Object) -> Object:
     """KEV entries grouped by year added to the catalog."""
-    kev_with_year = kev.with_columns({
-        "year": Computed("UInt16", "toYear(dateAdded)"),
-    })
+    kev_with_year = kev.with_columns(
+        {
+            "year": Computed("UInt16", "toYear(dateAdded)"),
+        }
+    )
     return await kev_with_year.group_by("year").agg({"cveID": "count"})
 
 
 async def _kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
-    counts = await kev.count_if({
-        "total_kev": "1",
-        "ransomware_linked": "knownRansomwareCampaignUse = 'Known'",
-    })
+    counts = await kev.count_if(
+        {
+            "total_kev": "1",
+            "ransomware_linked": "knownRansomwareCampaignUse = 'Known'",
+        }
+    )
     data = await counts.data()
     total = data["total_kev"]
     linked = data["ransomware_linked"]
@@ -75,14 +79,14 @@ async def analyze_kev(kev: Object) -> dict:
 
     vendor_data = await by_vendor.data()
     vendor_counts = sorted(
-        zip(vendor_data["vendorProject"], vendor_data["cveID"]),
+        zip(vendor_data["vendorProject"], vendor_data["cveID"], strict=False),
         key=lambda x: x[1],
         reverse=True,
     )
 
     year_data = await by_year.data()
     year_counts = sorted(
-        zip(year_data["year"], year_data["cveID"]),
+        zip(year_data["year"], year_data["cveID"], strict=False),
         key=lambda x: x[0],
     )
 
@@ -91,7 +95,7 @@ async def analyze_kev(kev: Object) -> dict:
             "total_vulnerabilities": ransomware["total_kev"],
             "ransomware_linked": ransomware["ransomware_linked"],
             "ransomware_pct": ransomware["ransomware_pct"],
-            "top_vendors": {name: count for name, count in vendor_counts[:10]},
-            "by_year": {year: count for year, count in year_counts},
+            "top_vendors": dict(vendor_counts[:10]),
+            "by_year": dict(year_counts),
         },
     }

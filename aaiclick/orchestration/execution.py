@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,10 +26,10 @@ from aaiclick.data.models import Schema
 from aaiclick.data.object import Object, View
 
 from .context import commit_tasks, get_orch_session
+from .db_lifecycle import PgLifecycleHandler
 from .decorators import JobFactory, TaskFactory
 from .logging import capture_task_output
 from .models import Dependency, Group, Job, JobStatus, Task, TaskStatus
-from .db_lifecycle import PgLifecycleHandler
 from .worker_context import set_current_task_info
 
 
@@ -95,9 +96,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
         ValueError: If upstream task not found or not completed
     """
     task_id = ref["task_id"]
-    db_result = await session.execute(
-        select(Task.result, Task.status, Task.job_id).where(Task.id == task_id)
-    )
+    db_result = await session.execute(select(Task.result, Task.status, Task.job_id).where(Task.id == task_id))
     row = db_result.one_or_none()
 
     if row is None:
@@ -249,10 +248,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         return {}
 
     async with get_orch_session() as session:
-        return {
-            k: await _deserialize_value(v, session)
-            for k, v in serialized_params.items()
-        }
+        return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
 
 
 async def execute_task(
@@ -312,7 +308,7 @@ def _sanitize_for_json(value: Any) -> Any:
     return value
 
 
-def serialize_task_result(result: Any, job_id: int) -> Optional[dict]:
+def serialize_task_result(result: Any, job_id: int) -> dict | None:
     """
     Serialize a task result to JSON-storable format.
 
@@ -503,9 +499,7 @@ async def run_job_tasks(job: Job) -> None:
             task_id = row[0]
 
             # Fetch the full task and update to RUNNING
-            db_result = await session.execute(
-                select(Task).where(Task.id == task_id)
-            )
+            db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
 
             task.status = TaskStatus.RUNNING

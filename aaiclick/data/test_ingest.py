@@ -5,8 +5,7 @@ Tests _are_types_compatible (strict, for UNION ALL) and _are_types_castable
 (permissive, for INSERT with CAST).
 """
 
-from aaiclick.data.ingest import _are_types_compatible, _are_types_castable
-
+from aaiclick.data.ingest import _are_types_castable, _are_types_compatible
 
 # =============================================================================
 # _are_types_compatible (strict - for UNION ALL without CAST)

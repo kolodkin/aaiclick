@@ -8,19 +8,19 @@ including table name, fieldtype, and column details.
 import pytest
 
 from aaiclick import (
-    create_object_from_value,
-    Schema,
-    ViewSchema,
-    ColumnInfo,
-    FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ColumnInfo,
+    Schema,
+    ViewSchema,
+    create_object_from_value,
 )
-
 
 # =============================================================================
 # Basic Schema Tests
 # =============================================================================
+
 
 async def test_schema_array(ctx):
     """Test schema for array object."""
@@ -48,7 +48,7 @@ async def test_schema_scalar(ctx):
 
 async def test_schema_dict(ctx):
     """Test schema for dict object."""
-    obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
 
     schema = obj.schema
 
@@ -62,11 +62,7 @@ async def test_schema_dict(ctx):
 
 async def test_schema_dict_mixed_types(ctx):
     """Test schema for dict with mixed column types."""
-    obj = await create_object_from_value({
-        'ints': [1, 2, 3],
-        'floats': [1.5, 2.5, 3.5],
-        'strings': ['a', 'b', 'c']
-    })
+    obj = await create_object_from_value({"ints": [1, 2, 3], "floats": [1.5, 2.5, 3.5], "strings": ["a", "b", "c"]})
 
     schema = obj.schema
 
@@ -79,6 +75,7 @@ async def test_schema_dict_mixed_types(ctx):
 # =============================================================================
 # ColumnInfo Tests
 # =============================================================================
+
 
 async def test_column_info_structure(ctx):
     """Test that ColumnInfo has expected structure."""
@@ -103,11 +100,12 @@ async def test_column_info_aai_id(ctx):
 # View Schema Tests
 # =============================================================================
 
+
 async def test_view_schema_returns_view_schema(ctx):
     """Test that view.schema returns ViewSchema type."""
-    obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6]})
 
-    view = obj['x']
+    view = obj["x"]
     schema = view.schema
 
     assert isinstance(schema, ViewSchema)
@@ -119,12 +117,12 @@ async def test_view_schema_returns_view_schema(ctx):
 
 async def test_view_schema_selected_fields(ctx):
     """Test that selected_fields is included in ViewSchema."""
-    obj = await create_object_from_value({'param1': [1, 2, 3], 'param2': [4, 5, 6]})
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
 
-    view = obj['param1']
+    view = obj["param1"]
     schema = view.schema
 
-    assert schema.selected_fields == ['param1']
+    assert schema.selected_fields == ["param1"]
     assert schema.where is None
     assert schema.limit is None
     assert schema.offset is None
@@ -191,9 +189,9 @@ async def test_object_returns_schema(ctx):
 
 async def test_copied_view_schema(ctx):
     """Test schema after copying a view."""
-    obj = await create_object_from_value({'x': [1, 2, 3], 'y': [4, 5, 6]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6]})
 
-    view = obj['x']
+    view = obj["x"]
     cloned = await view.copy()
     schema = cloned.schema
 
@@ -208,17 +206,21 @@ async def test_copied_view_schema(ctx):
 # Type Tests (Parametrized)
 # =============================================================================
 
-@pytest.mark.parametrize("value,expected_fieldtype,expected_type", [
-    # String types
-    (["hello", "world"], FIELDTYPE_ARRAY, "String"),
-    ("hello", FIELDTYPE_SCALAR, "String"),
-    # Float types
-    ([1.1, 2.2, 3.3], FIELDTYPE_ARRAY, "Float64"),
-    (3.14, FIELDTYPE_SCALAR, "Float64"),
-    # Int types
-    ([1, 2, 3], FIELDTYPE_ARRAY, "Int64"),
-    (42, FIELDTYPE_SCALAR, "Int64"),
-])
+
+@pytest.mark.parametrize(
+    "value,expected_fieldtype,expected_type",
+    [
+        # String types
+        (["hello", "world"], FIELDTYPE_ARRAY, "String"),
+        ("hello", FIELDTYPE_SCALAR, "String"),
+        # Float types
+        ([1.1, 2.2, 3.3], FIELDTYPE_ARRAY, "Float64"),
+        (3.14, FIELDTYPE_SCALAR, "Float64"),
+        # Int types
+        ([1, 2, 3], FIELDTYPE_ARRAY, "Int64"),
+        (42, FIELDTYPE_SCALAR, "Int64"),
+    ],
+)
 async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type):
     """Test schema correctly reports fieldtype and column type for various value types."""
     obj = await create_object_from_value(value)

@@ -7,8 +7,7 @@ Only creation and data() retrieval are tested.
 
 import pytest
 
-from aaiclick import create_object_from_value, create_object
-
+from aaiclick import create_object_from_value
 
 # =============================================================================
 # Scalar Tests
@@ -35,6 +34,7 @@ async def test_str_scalar_creation(ctx, value):
 # =============================================================================
 # Array Tests
 # =============================================================================
+
 
 async def test_str_array_creation(ctx):
     """Test creating a string array object."""

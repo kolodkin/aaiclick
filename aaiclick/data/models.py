@@ -4,22 +4,37 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from datetime import datetime
-from typing import Optional, Dict, Union, Literal, List, NamedTuple
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Literal, NamedTuple
 
 import yaml
 
-
 # ClickHouse column type literals
 ColumnType = Literal[
-    "UInt8", "UInt16", "UInt32", "UInt64",
-    "Int8", "Int16", "Int32", "Int64",
-    "Float32", "Float64",
-    "String", "FixedString",
-    "Date", "DateTime", "DateTime64",
-    "Bool", "UUID",
-    "Array", "Tuple", "Map", "Nested"
+    "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "Int8",
+    "Int16",
+    "Int32",
+    "Int64",
+    "Float32",
+    "Float64",
+    "String",
+    "FixedString",
+    "Date",
+    "DateTime",
+    "DateTime64",
+    "Bool",
+    "UUID",
+    "Array",
+    "Tuple",
+    "Map",
+    "Nested",
 ]
 
 # Type category sets for runtime type checking
@@ -71,7 +86,6 @@ class ColumnInfo:
         return base
 
 
-
 class Computed(NamedTuple):
     """A computed column definition: ClickHouse type + SQL expression."""
 
@@ -79,7 +93,7 @@ class Computed(NamedTuple):
     expression: str
 
 
-def parse_ch_type(type_str: str) -> "ColumnInfo":
+def parse_ch_type(type_str: str) -> ColumnInfo:
     """Parse a ClickHouse type string into a ColumnInfo.
 
     Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
@@ -141,11 +155,11 @@ GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
 # Value type aliases for factory functions
-ValueScalarType = Union[int, float, bool, str, datetime]
-ValueListType = Union[List[int], List[float], List[bool], List[str], List[datetime]]
-ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
-ValueRecordType = List[ValueDictType]
-ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
+ValueScalarType = int | float | bool | str | datetime
+ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
+ValueDictType = dict[str, ValueScalarType | ValueListType]
+ValueRecordType = list[ValueDictType]
+ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
 
 
 @dataclass
@@ -164,6 +178,7 @@ class QueryInfo:
         fieldtype: Fieldtype of the value column ('s' for scalar, 'a' for array)
         value_type: ClickHouse type of the value column (e.g., 'Int64', 'Float64')
     """
+
     source: str
     base_table: str
     value_column: str
@@ -180,7 +195,8 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
-    columns: Dict[str, "ColumnInfo"] = field(default_factory=dict)
+
+    columns: dict[str, ColumnInfo] = field(default_factory=dict)
 
 
 @dataclass
@@ -198,8 +214,8 @@ class CopyInfo:
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    selected_fields: Optional[List[str]] = None
+    columns: dict[str, ColumnInfo]
+    selected_fields: list[str] | None = None
     is_single_field: bool = False
 
 
@@ -220,11 +236,11 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    table: Optional[str] = None
-    col_fieldtype: Optional[str] = None
-    engine: Optional["EngineType"] = None
-    order_by: Optional[str] = None
+    columns: dict[str, ColumnInfo]
+    table: str | None = None
+    col_fieldtype: str | None = None
+    engine: EngineType | None = None
+    order_by: str | None = None
 
 
 @dataclass
@@ -240,12 +256,12 @@ class ViewSchema(Schema):
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
-    where: Optional[str] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    order_by: Optional[str] = None
-    selected_fields: Optional[List[str]] = None
-    computed_columns: Optional[Dict[str, "Computed"]] = None
+    where: str | None = None
+    limit: int | None = None
+    offset: int | None = None
+    order_by: str | None = None
+    selected_fields: list[str] | None = None
+    computed_columns: dict[str, Computed] | None = None
 
 
 @dataclass
@@ -263,10 +279,10 @@ class GroupByInfo:
 
     source: str
     base_table: str
-    group_keys: List[str]
-    columns: Dict[str, str]
+    group_keys: list[str]
+    columns: dict[str, str]
     fieldtype: str
-    having: Optional[str] = None
+    having: str | None = None
 
 
 @dataclass
@@ -278,7 +294,7 @@ class ColumnMeta:
         fieldtype: 's' for scalar, 'a' for array
     """
 
-    fieldtype: Optional[str] = None
+    fieldtype: str | None = None
 
     def to_yaml(self) -> str:
         """
@@ -293,7 +309,7 @@ class ColumnMeta:
         return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
 
     @classmethod
-    def from_yaml(cls, comment: str) -> "ColumnMeta":
+    def from_yaml(cls, comment: str) -> ColumnMeta:
         """
         Parse YAML from column comment string.
 

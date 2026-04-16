@@ -1,10 +1,8 @@
 """Tests for count_if() — conditional counting via countIf()."""
 
-import pytest
-
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import create_object
-from aaiclick.data.models import ColumnInfo, FIELDTYPE_ARRAY, Schema
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 
 
 async def test_count_if_str_basic(ctx):
@@ -38,10 +36,12 @@ async def test_count_if_str_always_true(ctx):
 async def test_count_if_dict_basic(ctx):
     """count_if with a dict returns dict Object with one row."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.count_if({
-        "small": "value <= 2",
-        "large": "value >= 4",
-    })
+    result = await obj.count_if(
+        {
+            "small": "value <= 2",
+            "large": "value >= 4",
+        }
+    )
     data = await result.data()
     assert data["small"] == 2
     assert data["large"] == 2
@@ -50,10 +50,12 @@ async def test_count_if_dict_basic(ctx):
 async def test_count_if_dict_total_via_always_true(ctx):
     """Dict form with '1' condition acts as total count."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.count_if({
-        "total": "1",
-        "gt3": "value > 3",
-    })
+    result = await obj.count_if(
+        {
+            "total": "1",
+            "gt3": "value > 3",
+        }
+    )
     data = await result.data()
     assert data["total"] == 5
     assert data["gt3"] == 2
@@ -71,16 +73,18 @@ async def test_count_if_dict_on_dict_object(ctx):
     )
     obj = await create_object(schema)
     from aaiclick.data.data_context import get_ch_client
+
     ch = get_ch_client()
     await ch.command(
-        f"INSERT INTO {obj.table} (name, score) VALUES "
-        f"('alice', 90), ('bob', 45), ('carol', 80), ('dave', 30)"
+        f"INSERT INTO {obj.table} (name, score) VALUES ('alice', 90), ('bob', 45), ('carol', 80), ('dave', 30)"
     )
 
-    result = await obj.count_if({
-        "passing": "score >= 50",
-        "failing": "score < 50",
-    })
+    result = await obj.count_if(
+        {
+            "passing": "score >= 50",
+            "failing": "score < 50",
+        }
+    )
     data = await result.data()
     assert data["passing"] == 2
     assert data["failing"] == 2

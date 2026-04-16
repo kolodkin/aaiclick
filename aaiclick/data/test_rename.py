@@ -21,9 +21,7 @@ async def test_rename_basic(ctx):
     )
     obj = await create_object(schema)
     ch = obj.ch_client
-    await ch.command(
-        f"INSERT INTO {obj.table} (old_name, keep_me) VALUES ('hello', 42)"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (old_name, keep_me) VALUES ('hello', 42)")
 
     view = obj.rename({"old_name": "new_name"})
     data = await view.data()
@@ -47,9 +45,7 @@ async def test_rename_insert_into_target(ctx):
     )
     src = await create_object(src_schema)
     ch = src.ch_client
-    await ch.command(
-        f"INSERT INTO {src.table} (src_col, shared) VALUES ('alpha', 10)"
-    )
+    await ch.command(f"INSERT INTO {src.table} (src_col, shared) VALUES ('alpha', 10)")
 
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -82,9 +78,11 @@ async def test_rename_with_computed_columns(ctx):
     ch = obj.ch_client
     await ch.command(f"INSERT INTO {obj.table} (old_col) VALUES (5)")
 
-    view = obj.rename({"old_col": "val"}).with_columns({
-        "doubled": Computed("Int32", "old_col * 2"),
-    })
+    view = obj.rename({"old_col": "val"}).with_columns(
+        {
+            "doubled": Computed("Int32", "old_col * 2"),
+        }
+    )
     data = await view.data()
     assert data["val"] == [5]
     assert data["doubled"] == [10]
@@ -138,9 +136,7 @@ async def test_insert_skips_extra_source_columns(ctx):
     )
     src = await create_object(src_schema)
     ch = src.ch_client
-    await ch.command(
-        f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')"
-    )
+    await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
 
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,

@@ -6,8 +6,8 @@ import asyncio
 import os
 import signal
 import socket
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Callable, Optional
 
 from sqlmodel import select
 
@@ -15,10 +15,10 @@ from aaiclick.data.lifecycle import LifecycleHandler
 from aaiclick.snowflake_id import get_snowflake_id
 
 from .claiming import check_task_cancelled, claim_next_task, update_job_status, update_task_status
-from .db_lifecycle import PgLifecycleHandler
 from .context import get_orch_session
+from .db_lifecycle import PgLifecycleHandler
 from .execution import execute_task, register_returned_tasks, serialize_task_result
-from .models import Job, JobStatus, Task, TaskStatus, Worker, WorkerStatus
+from .models import JobStatus, Task, TaskStatus, Worker, WorkerStatus
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -30,9 +30,7 @@ POLL_INTERVAL = 1
 async def _try_complete_job(job_id: int) -> None:
     """Check if all tasks for a job are done and update job status accordingly."""
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task.status).where(Task.job_id == job_id)
-        )
+        result = await session.execute(select(Task.status).where(Task.job_id == job_id))
         statuses = [row[0] for row in result.all()]
 
         if not statuses:
@@ -52,13 +50,11 @@ async def _try_complete_job(job_id: int) -> None:
 async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> None:
     """Reset a failed task to PENDING with incremented attempt and backoff delay."""
     base_delay = 1  # seconds
-    delay = base_delay * (2 ** current_attempt)
+    delay = base_delay * (2**current_attempt)
     retry_after = datetime.utcnow() + timedelta(seconds=delay)
 
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id).with_for_update()
-        )
+        result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
         task = result.scalar_one()
         task.status = TaskStatus.PENDING
         task.attempt = current_attempt + 1
@@ -73,8 +69,8 @@ async def _schedule_retry(task_id: int, current_attempt: int, error: str) -> Non
 
 
 async def register_worker(
-    hostname: Optional[str] = None,
-    pid: Optional[int] = None,
+    hostname: str | None = None,
+    pid: int | None = None,
 ) -> Worker:
     """
     Register a new worker process.
@@ -121,9 +117,7 @@ async def worker_heartbeat(worker_id: int) -> bool:
         bool: True if worker was found and updated, False otherwise
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
 
         if worker is None:
@@ -151,9 +145,7 @@ async def deregister_worker(worker_id: int) -> bool:
         bool: True if worker was found and updated, False otherwise
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
 
         if worker is None:
@@ -166,7 +158,7 @@ async def deregister_worker(worker_id: int) -> bool:
     return True
 
 
-async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
+async def list_workers(status: WorkerStatus | None = None) -> list[Worker]:
     """
     List workers, optionally filtered by status.
 
@@ -188,7 +180,7 @@ async def list_workers(status: Optional[WorkerStatus] = None) -> list[Worker]:
     return list(workers)
 
 
-async def get_worker(worker_id: int) -> Optional[Worker]:
+async def get_worker(worker_id: int) -> Worker | None:
     """
     Get a worker by ID.
 
@@ -199,9 +191,7 @@ async def get_worker(worker_id: int) -> Optional[Worker]:
         Worker if found, None otherwise
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         return result.scalar_one_or_none()
 
 
@@ -235,10 +225,10 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task) -> None:
 
 
 async def worker_main_loop(
-    worker_id: Optional[int] = None,
-    max_tasks: Optional[int] = None,
+    worker_id: int | None = None,
+    max_tasks: int | None = None,
     install_signal_handlers: bool = True,
-    max_empty_polls: Optional[int] = None,
+    max_empty_polls: int | None = None,
     lifecycle_factory: Callable[[int], LifecycleHandler] = PgLifecycleHandler,
 ) -> int:
     """
@@ -323,9 +313,7 @@ async def worker_main_loop(
                     return await execute_task(t, lifecycle=lifecycle)
 
             exec_task = asyncio.create_task(_run_task(task, lifecycle_factory))
-            monitor = asyncio.create_task(
-                _cancellation_monitor(task.id, exec_task)
-            )
+            monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
 
             try:
                 result = await exec_task
@@ -355,17 +343,12 @@ async def worker_main_loop(
                 print(f"Worker {worker_id} task {task.id} failed: {e}")
                 # Read current retry state from DB to ensure accurate values
                 async with get_orch_session() as session:
-                    row = await session.execute(
-                        select(Task.max_retries, Task.attempt).where(
-                            Task.id == task.id
-                        )
-                    )
+                    row = await session.execute(select(Task.max_retries, Task.attempt).where(Task.id == task.id))
                     max_retries, attempt = row.one()
                 if attempt < max_retries:
                     await _schedule_retry(task.id, attempt, str(e))
                     print(
-                        f"Worker {worker_id} task {task.id} scheduled for retry "
-                        f"(attempt {attempt + 1}/{max_retries})"
+                        f"Worker {worker_id} task {task.id} scheduled for retry (attempt {attempt + 1}/{max_retries})"
                     )
                 else:
                     await update_task_status(task.id, TaskStatus.FAILED, error=str(e))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from sqlmodel import func, select
 
@@ -11,7 +11,7 @@ from .execution import _deserialize_value
 from .models import Job, JobStatus, Task
 
 
-async def get_job(job_id: int) -> Optional[Job]:
+async def get_job(job_id: int) -> Job | None:
     """Get a job by ID.
 
     Args:
@@ -27,8 +27,8 @@ async def get_job(job_id: int) -> Optional[Job]:
 
 async def list_jobs(
     *,
-    status: Optional[JobStatus] = None,
-    name_like: Optional[str] = None,
+    status: JobStatus | None = None,
+    name_like: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Job]:
@@ -57,8 +57,8 @@ async def list_jobs(
 
 async def count_jobs(
     *,
-    status: Optional[JobStatus] = None,
-    name_like: Optional[str] = None,
+    status: JobStatus | None = None,
+    name_like: str | None = None,
 ) -> int:
     """Count jobs matching filters.
 
@@ -90,13 +90,11 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
         List of tasks belonging to the job
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job_id).order_by(Task.created_at)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job_id).order_by(Task.created_at))
         return list(result.scalars().all())
 
 
-async def get_latest_job_by_name(name: str) -> Optional[Job]:
+async def get_latest_job_by_name(name: str) -> Job | None:
     """Get the most recent job with the given name.
 
     Args:
@@ -106,16 +104,11 @@ async def get_latest_job_by_name(name: str) -> Optional[Job]:
         Most recent Job with that name, or None
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Job)
-            .where(Job.name == name)
-            .order_by(Job.created_at.desc())
-            .limit(1)
-        )
+        result = await session.execute(select(Job).where(Job.name == name).order_by(Job.created_at.desc()).limit(1))
         return result.scalar_one_or_none()
 
 
-async def resolve_job(ref: str) -> Optional[Job]:
+async def resolve_job(ref: str) -> Job | None:
     """Resolve a job reference to a Job instance.
 
     Tries numeric ID first, then falls back to name lookup (latest).
@@ -149,8 +142,7 @@ async def get_job_result(job: Job) -> Any:
     """
     async with get_orch_session() as session:
         result_row = await session.execute(
-            select(Task.result, Task.job_id)
-            .where(Task.job_id == job.id, Task.name == job.name)
+            select(Task.result, Task.job_id).where(Task.job_id == job.id, Task.name == job.name)
         )
         row = result_row.one_or_none()
 

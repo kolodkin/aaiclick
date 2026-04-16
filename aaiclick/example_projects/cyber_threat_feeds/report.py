@@ -12,7 +12,7 @@ from aaiclick.orchestration import task
 from .consolidated import MERGED_COLUMNS
 from .epss import EPSS_COLUMNS, EPSS_URL
 from .kev import CISA_KEV_URL, KEV_COLUMNS
-from .shodan import SHODAN_CVEDB_URL, SHODAN_COLUMNS
+from .shodan import SHODAN_COLUMNS, SHODAN_CVEDB_URL
 
 
 @task
@@ -147,12 +147,15 @@ def _print_threat_report(
     _print_md_table(cves_md)
 
     print("\n#### Statistics\n")
-    print(f"- CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
-          f"median: {_fmt(cvss['median'])}, p90: {_fmt(cvss['p90'])}, p99: {_fmt(cvss['p99'])}")
-    print(f"- CVSS — critical (>=9.0): {_fmt(cvss['critical_pct'])}%, "
-          f"high (7.0-8.9): {_fmt(cvss['high_pct'])}%")
-    print(f"- EPSS — mean: {_fmt(shodan_epss['avg'])}, median: {_fmt(shodan_epss['median'])}, "
-          f"p90: {_fmt(shodan_epss['p90'])}, p99: {_fmt(shodan_epss['p99'])}")
+    print(
+        f"- CVSS — mean: {_fmt(cvss['avg'])}, std: {_fmt(cvss['std'])}, "
+        f"median: {_fmt(cvss['median'])}, p90: {_fmt(cvss['p90'])}, p99: {_fmt(cvss['p99'])}"
+    )
+    print(f"- CVSS — critical (>=9.0): {_fmt(cvss['critical_pct'])}%, high (7.0-8.9): {_fmt(cvss['high_pct'])}%")
+    print(
+        f"- EPSS — mean: {_fmt(shodan_epss['avg'])}, median: {_fmt(shodan_epss['median'])}, "
+        f"p90: {_fmt(shodan_epss['p90'])}, p99: {_fmt(shodan_epss['p99'])}"
+    )
     print(f"- EPSS — high probability (>0.5): {_fmt(shodan_epss['high_probability_pct'])}%")
     print(f"- High risk (CVSS>=9 AND EPSS>0.5): {_fmt(hr['high_risk_count'])} ({_fmt(hr['high_risk_pct'])}%)")
 
@@ -170,10 +173,11 @@ def _print_threat_report(
 
     print("\n#### Statistics\n")
     print(f"- Total scored CVEs: {_fmt(epss['total_scored_cves'])}")
-    print(f"- EPSS — mean: {_fmt(epss['avg'])}, median: {_fmt(epss['median'])}, "
-          f"p90: {_fmt(epss['p90'])}, p99: {_fmt(epss['p99'])}")
-    print(f"- High probability (>0.5): {_fmt(epss['high_probability_count'])} "
-          f"({_fmt(epss['high_probability_pct'])}%)")
+    print(
+        f"- EPSS — mean: {_fmt(epss['avg'])}, median: {_fmt(epss['median'])}, "
+        f"p90: {_fmt(epss['p90'])}, p99: {_fmt(epss['p99'])}"
+    )
+    print(f"- High probability (>0.5): {_fmt(epss['high_probability_count'])} ({_fmt(epss['high_probability_pct'])}%)")
 
     # ---- Consolidated Table ----
     cons = report["consolidated"]

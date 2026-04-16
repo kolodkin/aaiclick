@@ -8,24 +8,25 @@ and supports operations through operator overloading.
 from __future__ import annotations
 
 import sys
-from typing import Optional, Dict, List, Tuple, Any, Union
-from dataclasses import dataclass, replace as dataclass_replace
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
+from typing import Any
+
 from typing_extensions import Self
 
-from . import operators, ingest, data_extraction
 from ..oplog.collector import oplog_record
 from ..snowflake_id import get_snowflake_id
-
+from . import data_extraction, ingest, operators
+from .data_context import (
+    create_object_from_value,
+    decref,
+    get_ch_client,
+    incref,
+    register_object,
+)
 from .models import (
-    Schema,
-    ColumnInfo,
-    Computed,
-    CopyInfo,
-    ColumnMeta,
-    ColumnType,
-    parse_ch_type,
-    GroupByInfo,
-    GroupByOpType,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_SCALAR,
     GB_ANY,
     GB_COUNT,
     GB_GROUP_ARRAY_DISTINCT,
@@ -35,22 +36,19 @@ from .models import (
     GB_STD,
     GB_SUM,
     GB_VAR,
-    ViewSchema,
-    QueryInfo,
-    IngestQueryInfo,
-    ValueScalarType,
-    FIELDTYPE_SCALAR,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
     ORIENT_DICT,
-    ORIENT_RECORDS,
-)
-from .data_context import (
-    get_ch_client,
-    incref,
-    decref,
-    register_object,
-    create_object_from_value,
+    ColumnInfo,
+    ColumnMeta,
+    Computed,
+    CopyInfo,
+    GroupByInfo,
+    GroupByOpType,
+    IngestQueryInfo,
+    QueryInfo,
+    Schema,
+    ValueScalarType,
+    ViewSchema,
+    parse_ch_type,
 )
 from .sql_utils import quote_identifier
 
@@ -65,8 +63,8 @@ class DataResult:
         columns: Dict mapping column name to ColumnMeta with datatype/fieldtype info
     """
 
-    rows: List[Tuple[Any, ...]]
-    columns: Dict[str, ColumnMeta]
+    rows: list[tuple[Any, ...]]
+    columns: dict[str, ColumnMeta]
 
 
 class Object:
@@ -87,8 +85,8 @@ class Object:
 
     def __init__(
         self,
-        table: Optional[str] = None,
-        schema: Optional[Schema] = None,
+        table: str | None = None,
+        schema: Schema | None = None,
     ):
         """
         Initialize an Object.
@@ -137,37 +135,37 @@ class Object:
         return self._schema
 
     @property
-    def limit(self) -> Optional[int]:
+    def limit(self) -> int | None:
         """Get LIMIT (None for base Object)."""
         return None
 
     @property
-    def offset(self) -> Optional[int]:
+    def offset(self) -> int | None:
         """Get OFFSET (None for base Object)."""
         return None
 
     @property
-    def order_by(self) -> Optional[str]:
+    def order_by(self) -> str | None:
         """Get ORDER BY clause (None for base Object)."""
         return None
 
     @property
-    def selected_fields(self) -> Optional[List[str]]:
+    def selected_fields(self) -> list[str] | None:
         """Get selected field names (None for base Object)."""
         return None
 
     @property
-    def where_clauses(self) -> List[Tuple[str, str]]:
+    def where_clauses(self) -> list[tuple[str, str]]:
         """Get WHERE clauses (empty for base Object)."""
         return []
 
     @property
-    def computed_columns(self) -> Optional[Dict[str, Computed]]:
+    def computed_columns(self) -> dict[str, Computed] | None:
         """Get computed columns (None for base Object)."""
         return None
 
     @property
-    def renamed_columns(self) -> Optional[Dict[str, str]]:
+    def renamed_columns(self) -> dict[str, str] | None:
         """Get renamed columns mapping old->new (None for base Object)."""
         return None
 
@@ -215,11 +213,9 @@ class Object:
             RuntimeError: If object has been deleted (stale)
         """
         if self._stale:
-            raise RuntimeError(
-                f"Cannot use stale Object. Table '{self.table}' has been deleted."
-            )
+            raise RuntimeError(f"Cannot use stale Object. Table '{self.table}' has been deleted.")
 
-    def _build_where(self) -> Optional[str]:
+    def _build_where(self) -> str | None:
         """Build the combined WHERE clause from stored conditions."""
         if not self.where_clauses:
             return None
@@ -231,7 +227,7 @@ class Object:
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(self, columns: str = "*", default_order_by: str | None = None) -> str:
         """
         Build a SELECT query with view constraints applied.
 
@@ -344,8 +340,8 @@ class Object:
         columns_result = await self.ch_client.query(columns_query)
 
         # Parse YAML from comments and get column names
-        columns: Dict[str, ColumnMeta] = {}
-        column_names: List[str] = []
+        columns: dict[str, ColumnMeta] = {}
+        column_names: list[str] = []
         for name, comment in columns_result.result_rows:
             columns[name] = ColumnMeta.from_yaml(comment)
             column_names.append(name)
@@ -366,7 +362,7 @@ class Object:
             # Array: return list of values
             return await data_extraction.extract_array_data(self)
 
-    async def markdown(self, truncate: Optional[Dict[str, int]] = None) -> str:
+    async def markdown(self, truncate: dict[str, int] | None = None) -> str:
         """Return the object's data formatted as a markdown table.
 
         Fetches data via ``.data()`` and renders it as a plain-text markdown
@@ -413,26 +409,24 @@ class Object:
             v = raw[col]
             return v[i] if isinstance(v, list) else v
 
-        widths: Dict[str, int] = {}
+        widths: dict[str, int] = {}
         for col in columns:
             max_val = max((len(_cell(_get(col, i), col)) for i in range(n_rows)), default=0)
             cap = trunc.get(col)
             w = max(len(col), max_val)
             widths[col] = min(w, cap) if cap is not None else w
 
-        lines: List[str] = []
+        lines: list[str] = []
         header = "| " + " | ".join(f"{col:<{widths[col]}s}" for col in columns) + " |"
         sep = "|" + "|".join("-" * (w + 2) for w in (widths[col] for col in columns)) + "|"
         lines.append(header)
         lines.append(sep)
         for i in range(n_rows):
-            row = "| " + " | ".join(
-                f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns
-            ) + " |"
+            row = "| " + " | ".join(f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns) + " |"
             lines.append(row)
         return "\n".join(lines)
 
-    async def _get_fieldtype(self) -> Optional[str]:
+    async def _get_fieldtype(self) -> str | None:
         """Get the fieldtype of the value column."""
         self.checkstale()
         columns_query = f"""
@@ -446,7 +440,7 @@ class Object:
         return None
 
     @staticmethod
-    async def _ensure_object(value: Union[Object, ValueScalarType]) -> Object:
+    async def _ensure_object(value: Object | ValueScalarType) -> Object:
         """
         Ensure value is an Object, converting Python scalars if needed.
 
@@ -463,7 +457,7 @@ class Object:
             return await create_object_from_value(value)
         return value
 
-    async def _apply_operator(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
+    async def _apply_operator(self, other: Object | ValueScalarType, operator: str) -> Object:
         """
         Apply an operator on two objects using SQL templates.
 
@@ -482,11 +476,9 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators._apply_operator_db(
-            info_a, info_b, operator, self.ch_client
-        )
+        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
 
-    async def _apply_operator_reverse(self, other: Union[Object, ValueScalarType], operator: str) -> Object:
+    async def _apply_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> Object:
         """
         Apply an operator with reversed operands (other op self).
 
@@ -504,115 +496,113 @@ class Object:
         other.checkstale()
         info_a = other._get_query_info()
         info_b = self._get_query_info()
-        return await operators._apply_operator_db(
-            info_a, info_b, operator, self.ch_client
-        )
+        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
 
-    async def __add__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __add__(self, other: Object | ValueScalarType) -> Object:
         """Add: self + other. Supports scalar broadcast."""
         return await self._apply_operator(other, "+")
 
-    async def __radd__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __radd__(self, other: Object | ValueScalarType) -> Object:
         """Reverse add: other + self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "+")
 
-    async def __sub__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __sub__(self, other: Object | ValueScalarType) -> Object:
         """Subtract: self - other. Supports scalar broadcast."""
         return await self._apply_operator(other, "-")
 
-    async def __rsub__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rsub__(self, other: Object | ValueScalarType) -> Object:
         """Reverse subtract: other - self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "-")
 
-    async def __mul__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __mul__(self, other: Object | ValueScalarType) -> Object:
         """Multiply: self * other. Supports scalar broadcast."""
         return await self._apply_operator(other, "*")
 
-    async def __rmul__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rmul__(self, other: Object | ValueScalarType) -> Object:
         """Reverse multiply: other * self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "*")
 
-    async def __truediv__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __truediv__(self, other: Object | ValueScalarType) -> Object:
         """Divide: self / other. Supports scalar broadcast."""
         return await self._apply_operator(other, "/")
 
-    async def __rtruediv__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rtruediv__(self, other: Object | ValueScalarType) -> Object:
         """Reverse divide: other / self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "/")
 
-    async def __floordiv__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __floordiv__(self, other: Object | ValueScalarType) -> Object:
         """Floor divide: self // other. Supports scalar broadcast."""
         return await self._apply_operator(other, "//")
 
-    async def __rfloordiv__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rfloordiv__(self, other: Object | ValueScalarType) -> Object:
         """Reverse floor divide: other // self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "//")
 
-    async def __mod__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __mod__(self, other: Object | ValueScalarType) -> Object:
         """Modulo: self % other. Supports scalar broadcast."""
         return await self._apply_operator(other, "%")
 
-    async def __rmod__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rmod__(self, other: Object | ValueScalarType) -> Object:
         """Reverse modulo: other % self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "%")
 
-    async def __pow__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __pow__(self, other: Object | ValueScalarType) -> Object:
         """Power: self ** other. Supports scalar broadcast."""
         return await self._apply_operator(other, "**")
 
-    async def __rpow__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rpow__(self, other: Object | ValueScalarType) -> Object:
         """Reverse power: other ** self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "**")
 
-    async def __eq__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __eq__(self, other: Object | ValueScalarType) -> Object:
         """Equality: self == other. Supports scalar broadcast."""
         return await self._apply_operator(other, "==")
 
-    async def __ne__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __ne__(self, other: Object | ValueScalarType) -> Object:
         """Inequality: self != other. Supports scalar broadcast."""
         return await self._apply_operator(other, "!=")
 
-    async def __lt__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __lt__(self, other: Object | ValueScalarType) -> Object:
         """Less than: self < other. Supports scalar broadcast."""
         return await self._apply_operator(other, "<")
 
-    async def __le__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __le__(self, other: Object | ValueScalarType) -> Object:
         """Less or equal: self <= other. Supports scalar broadcast."""
         return await self._apply_operator(other, "<=")
 
-    async def __gt__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __gt__(self, other: Object | ValueScalarType) -> Object:
         """Greater than: self > other. Supports scalar broadcast."""
         return await self._apply_operator(other, ">")
 
-    async def __ge__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __ge__(self, other: Object | ValueScalarType) -> Object:
         """Greater or equal: self >= other. Supports scalar broadcast."""
         return await self._apply_operator(other, ">=")
 
-    async def __and__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __and__(self, other: Object | ValueScalarType) -> Object:
         """Bitwise AND: self & other. Supports scalar broadcast."""
         return await self._apply_operator(other, "&")
 
-    async def __rand__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rand__(self, other: Object | ValueScalarType) -> Object:
         """Reverse bitwise AND: other & self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "&")
 
-    async def __or__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __or__(self, other: Object | ValueScalarType) -> Object:
         """Bitwise OR: self | other. Supports scalar broadcast."""
         return await self._apply_operator(other, "|")
 
-    async def __ror__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __ror__(self, other: Object | ValueScalarType) -> Object:
         """Reverse bitwise OR: other | self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "|")
 
-    async def __xor__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __xor__(self, other: Object | ValueScalarType) -> Object:
         """Bitwise XOR: self ^ other. Supports scalar broadcast."""
         return await self._apply_operator(other, "^")
 
-    async def __rxor__(self, other: Union[Object, ValueScalarType]) -> Object:
+    async def __rxor__(self, other: Object | ValueScalarType) -> Object:
         """Reverse bitwise XOR: other ^ self. Supports scalar broadcast."""
         return await self._apply_operator_reverse(other, "^")
 
-    async def copy(self) -> "Object":
+    async def copy(self) -> Object:
         """
         Copy this object to a new object and table.
 
@@ -643,7 +633,7 @@ class Object:
         oplog_record(result.table, "copy", kwargs={"source": source_table})
         return result
 
-    async def concat(self, *args: Union["Object", "ValueType"]) -> "Object":
+    async def concat(self, *args: Object | ValueType) -> Object:  # noqa: F821
         """
         Concatenate multiple objects or values to this object.
 
@@ -715,9 +705,7 @@ class Object:
             result = await self.copy()
         else:
             # Single database operation for all sources
-            result = await ingest.concat_objects_db(
-                query_infos, self.ch_client
-            )
+            result = await ingest.concat_objects_db(query_infos, self.ch_client)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -725,7 +713,7 @@ class Object:
 
         return result
 
-    async def insert(self, *args: Union[Self, "ValueType"]) -> None:
+    async def insert(self, *args: Self | ValueType) -> None:  # noqa: F821
         """
         Insert multiple objects or values into this object in place.
 
@@ -779,9 +767,7 @@ class Object:
 
         # Single database operation for all sources
         if query_infos:
-            await ingest.insert_objects_db(
-                self._get_ingest_query_info(), query_infos, self.ch_client
-            )
+            await ingest.insert_objects_db(self._get_ingest_query_info(), query_infos, self.ch_client)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -825,9 +811,8 @@ class Object:
         """
         from .url import (
             _validate_url,
-            _validate_url_format,
             _validate_url_columns,
-            SUPPORTED_URL_FORMATS,
+            _validate_url_format,
         )
 
         self.checkstale()
@@ -1011,7 +996,7 @@ class Object:
         info = self._get_query_info()
         return await operators.count_agg(info, self.ch_client)
 
-    async def count_if(self, condition: Union[str, Dict[str, str]]) -> Self:
+    async def count_if(self, condition: str | dict[str, str]) -> Self:
         """
         Count rows matching condition(s) using countIf().
 
@@ -1333,7 +1318,7 @@ class Object:
 
     # arrayMap Operator
 
-    async def array_map(self, other: Union["Object", ValueScalarType], operator: str) -> Self:
+    async def array_map(self, other: Object | ValueScalarType, operator: str) -> Self:
         """
         Apply an element-wise operation using ClickHouse's arrayMap function.
 
@@ -1380,7 +1365,7 @@ class Object:
         if "SELECT" in upper.split():
             raise ValueError("Expression must not contain subqueries")
 
-    def with_columns(self, columns: Dict[str, Computed]) -> "View":
+    def with_columns(self, columns: dict[str, Computed]) -> View:
         """Add computed columns to this Object, returning a View.
 
         Synchronous — no database call. The computed columns exist only
@@ -1404,13 +1389,11 @@ class Object:
         existing = set(self._schema.columns.keys())
         for name, computed in columns.items():
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
             self._validate_expression(computed.expression)
         return View(self, computed_columns=columns)
 
-    def rename(self, columns: Dict[str, str]) -> "View":
+    def rename(self, columns: dict[str, str]) -> View:
         """Rename columns, returning a View with aliased column names.
 
         Synchronous — no database call. The renamed columns exist only
@@ -1435,12 +1418,10 @@ class Object:
             raise ValueError("rename() cannot be used on scalar Objects")
         existing = set(self._schema.columns.keys())
         renamed_away = set(columns.keys())
-        effective = (existing - renamed_away) | set(columns.values())
-        for old_name, new_name in columns.items():
+        (existing - renamed_away) | set(columns.values())
+        for old_name, _new_name in columns.items():
             if old_name not in existing:
-                raise ValueError(
-                    f"Column '{old_name}' does not exist in schema"
-                )
+                raise ValueError(f"Column '{old_name}' does not exist in schema")
             if old_name == "aai_id":
                 raise ValueError("Cannot rename 'aai_id' column")
         # Check for duplicate new names
@@ -1451,26 +1432,24 @@ class Object:
         kept = existing - renamed_away - {"aai_id"}
         for new_name in new_names:
             if new_name in kept:
-                raise ValueError(
-                    f"Renamed column '{new_name}' collides with existing column"
-                )
+                raise ValueError(f"Renamed column '{new_name}' collides with existing column")
         return View(self, renamed_columns=columns)
 
     # -----------------------------------------------------------------
     # Domain helpers — each delegates to with_columns()
     # -----------------------------------------------------------------
 
-    def with_year(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_year(self, column: str, *, alias: str | None = None) -> View:
         """Extract year from a Date/DateTime column."""
         name = alias or f"{column}_year"
         return self.with_columns({name: Computed("UInt16", f"toYear({column})")})
 
-    def with_month(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_month(self, column: str, *, alias: str | None = None) -> View:
         """Extract month (1-12) from a Date/DateTime column."""
         name = alias or f"{column}_month"
         return self.with_columns({name: Computed("UInt8", f"toMonth({column})")})
 
-    def with_day_of_week(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_day_of_week(self, column: str, *, alias: str | None = None) -> View:
         """Extract day of week (1=Mon, 7=Sun) from a Date/DateTime column."""
         name = alias or f"{column}_dow"
         return self.with_columns({name: Computed("UInt8", f"toDayOfWeek({column})")})
@@ -1481,8 +1460,8 @@ class Object:
         col_a: str,
         col_b: str,
         *,
-        alias: Optional[str] = None,
-    ) -> "View":
+        alias: str | None = None,
+    ) -> View:
         """Compute date difference between two columns.
 
         Args:
@@ -1492,62 +1471,52 @@ class Object:
             alias: Result column name (default: '{col_a}_{col_b}_diff')
         """
         name = alias or f"{col_a}_{col_b}_diff"
-        return self.with_columns(
-            {name: Computed("Int64", f"dateDiff('{unit}', {col_a}, {col_b})")}
-        )
+        return self.with_columns({name: Computed("Int64", f"dateDiff('{unit}', {col_a}, {col_b})")})
 
-    def with_lower(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_lower(self, column: str, *, alias: str | None = None) -> View:
         """Lowercase a String column."""
         name = alias or f"{column}_lower"
         return self.with_columns({name: Computed("String", f"lower({column})")})
 
-    def with_upper(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_upper(self, column: str, *, alias: str | None = None) -> View:
         """Uppercase a String column."""
         name = alias or f"{column}_upper"
         return self.with_columns({name: Computed("String", f"upper({column})")})
 
-    def with_length(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_length(self, column: str, *, alias: str | None = None) -> View:
         """String length of a column."""
         name = alias or f"{column}_length"
         return self.with_columns({name: Computed("UInt64", f"length({column})")})
 
-    def with_trim(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_trim(self, column: str, *, alias: str | None = None) -> View:
         """Trim whitespace from a String column."""
         name = alias or f"{column}_trimmed"
         return self.with_columns({name: Computed("String", f"trim({column})")})
 
-    def with_abs(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_abs(self, column: str, *, alias: str | None = None) -> View:
         """Absolute value of a numeric column. Result type is Float64."""
         name = alias or f"{column}_abs"
         return self.with_columns({name: Computed("Float64", f"abs({column})")})
 
-    def with_log2(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_log2(self, column: str, *, alias: str | None = None) -> View:
         """Log base 2 of a numeric column."""
         name = alias or f"{column}_log2"
         return self.with_columns({name: Computed("Float64", f"log2({column})")})
 
-    def with_sqrt(self, column: str, *, alias: Optional[str] = None) -> "View":
+    def with_sqrt(self, column: str, *, alias: str | None = None) -> View:
         """Square root of a numeric column."""
         name = alias or f"{column}_sqrt"
         return self.with_columns({name: Computed("Float64", f"sqrt({column})")})
 
-    def with_bucket(
-        self, column: str, size: int, *, alias: Optional[str] = None
-    ) -> "View":
+    def with_bucket(self, column: str, size: int, *, alias: str | None = None) -> View:
         """Integer division bucketing: intDiv(column, size)."""
         name = alias or f"{column}_bucket"
-        return self.with_columns(
-            {name: Computed("Int64", f"intDiv({column}, {size})")}
-        )
+        return self.with_columns({name: Computed("Int64", f"intDiv({column}, {size})")})
 
-    def with_hash_bucket(
-        self, column: str, n_buckets: int, *, alias: Optional[str] = None
-    ) -> "View":
+    def with_hash_bucket(self, column: str, n_buckets: int, *, alias: str | None = None) -> View:
         """Hash bucketing: cityHash64(column) % n_buckets."""
         name = alias or f"{column}_hash"
-        return self.with_columns(
-            {name: Computed("UInt64", f"cityHash64({column}) % {n_buckets}")}
-        )
+        return self.with_columns({name: Computed("UInt64", f"cityHash64({column}) % {n_buckets}")})
 
     def with_if(
         self,
@@ -1557,7 +1526,7 @@ class Object:
         *,
         alias: str,
         type: str = "String",
-    ) -> "View":
+    ) -> View:
         """Conditional column: if(condition, then, else).
 
         Args:
@@ -1567,13 +1536,9 @@ class Object:
             alias: Required — result column name
             type: ClickHouse result type (default 'String')
         """
-        return self.with_columns(
-            {alias: Computed(type, f"if({condition}, {then_value}, {else_value})")}
-        )
+        return self.with_columns({alias: Computed(type, f"if({condition}, {then_value}, {else_value})")})
 
-    def with_cast(
-        self, column: str, ch_type: str, *, alias: Optional[str] = None
-    ) -> "View":
+    def with_cast(self, column: str, ch_type: str, *, alias: str | None = None) -> View:
         """Cast a column to a different ClickHouse type.
 
         Args:
@@ -1587,11 +1552,11 @@ class Object:
 
     def view(
         self,
-        where: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        order_by: Optional[str] = None,
-    ) -> "View":
+        where: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
+    ) -> View:
         """
         Create a read-only view of this object with query constraints.
 
@@ -1611,7 +1576,7 @@ class Object:
         """
         return View(self, where=where, limit=limit, offset=offset, order_by=order_by)
 
-    def where(self, condition: str) -> "View":
+    def where(self, condition: str) -> View:
         """
         Create a View with a WHERE condition.
 
@@ -1631,7 +1596,7 @@ class Object:
         """
         return View(self, where=condition)
 
-    def or_where(self, condition: str) -> "View":
+    def or_where(self, condition: str) -> View:
         """
         Create a View with an OR WHERE condition.
 
@@ -1643,8 +1608,7 @@ class Object:
                        Use where() first: obj.where('x > 5').or_where('y < 3')
         """
         raise ValueError(
-            "or_where() requires a prior where condition. "
-            "Use where() first: obj.where('x > 5').or_where('y < 3')"
+            "or_where() requires a prior where condition. Use where() first: obj.where('x > 5').or_where('y < 3')"
         )
 
     def group_by(self, *keys: str) -> GroupByQuery:
@@ -1678,7 +1642,7 @@ class Object:
         self.checkstale()
         return GroupByQuery(self, list(keys))
 
-    def __getitem__(self, key: Union[str, List[str]]) -> "View":
+    def __getitem__(self, key: str | list[str]) -> View:
         """
         Select field(s) from a dict Object, returning a View.
 
@@ -1734,7 +1698,7 @@ class GroupByQuery:
         >>> await result.data()  # {'category': ['A', 'B'], 'amount': [30, 70]}
     """
 
-    def __init__(self, source: Object, keys: List[str]):
+    def __init__(self, source: Object, keys: list[str]):
         """
         Initialize a GroupByQuery.
 
@@ -1770,14 +1734,11 @@ class GroupByQuery:
 
         for key in keys:
             if key not in available:
-                raise ValueError(
-                    f"Key '{key}' not found in source columns. "
-                    f"Available: {sorted(available)}"
-                )
+                raise ValueError(f"Key '{key}' not found in source columns. Available: {sorted(available)}")
 
         self._source = source
         self._keys = keys
-        self._having_clauses: List[Tuple[str, str]] = []
+        self._having_clauses: list[tuple[str, str]] = []
 
     @property
     def ch_client(self):
@@ -1841,7 +1802,7 @@ class GroupByQuery:
             raise ValueError("or_having() requires a prior having() call")
         return self._clone_with_having(condition.strip(), "OR")
 
-    def _build_having(self) -> Optional[str]:
+    def _build_having(self) -> str | None:
         """Build the combined HAVING clause from stored conditions."""
         if not self._having_clauses:
             return None
@@ -1913,7 +1874,7 @@ class GroupByQuery:
             having=self._build_having(),
         )
 
-    async def agg(self, aggregations: Dict[str, GroupByOpType]) -> Object:
+    async def agg(self, aggregations: dict[str, GroupByOpType]) -> Object:
         """
         Apply aggregations per group. Core method — all convenience methods delegate here.
 
@@ -1994,13 +1955,13 @@ class View(Object):
     def __init__(
         self,
         source: Object,
-        where: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        order_by: Optional[str] = None,
-        selected_fields: Optional[List[str]] = None,
-        computed_columns: Optional[Dict[str, Computed]] = None,
-        renamed_columns: Optional[Dict[str, str]] = None,
+        where: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
+        selected_fields: list[str] | None = None,
+        computed_columns: dict[str, Computed] | None = None,
+        renamed_columns: dict[str, str] | None = None,
         where_connector: str = "AND",
     ):
         """
@@ -2023,22 +1984,20 @@ class View(Object):
 
         # Inherit existing constraints when source is already a View
         is_view = isinstance(source, View)
-        self._where_clauses: List[Tuple[str, str]] = (
-            list(source._where_clauses) if is_view else []
-        )
+        self._where_clauses: list[tuple[str, str]] = list(source._where_clauses) if is_view else []
         if where:
             self._where_clauses.append((where.strip(), where_connector))
         self._limit = limit if limit is not None else (source._limit if is_view else None)
         self._offset = offset if offset is not None else (source._offset if is_view else None)
         self._order_by = order_by if order_by is not None else (source._order_by if is_view else None)
-        self._selected_fields = selected_fields if selected_fields is not None else (
-            source._selected_fields if is_view else None
+        self._selected_fields = (
+            selected_fields if selected_fields is not None else (source._selected_fields if is_view else None)
         )
-        self._computed_columns: Optional[Dict[str, Computed]] = computed_columns if computed_columns is not None else (
-            source._computed_columns if is_view else None
+        self._computed_columns: dict[str, Computed] | None = (
+            computed_columns if computed_columns is not None else (source._computed_columns if is_view else None)
         )
-        self._renamed_columns: Optional[Dict[str, str]] = renamed_columns if renamed_columns is not None else (
-            source._renamed_columns if is_view else None
+        self._renamed_columns: dict[str, str] | None = (
+            renamed_columns if renamed_columns is not None else (source._renamed_columns if is_view else None)
         )
 
         # Register with context for lifecycle tracking and stale marking
@@ -2047,42 +2006,42 @@ class View(Object):
             register_object(self)
 
     @property
-    def limit(self) -> Optional[int]:
+    def limit(self) -> int | None:
         """Get LIMIT."""
         return self._limit
 
     @property
-    def offset(self) -> Optional[int]:
+    def offset(self) -> int | None:
         """Get OFFSET."""
         return self._offset
 
     @property
-    def order_by(self) -> Optional[str]:
+    def order_by(self) -> str | None:
         """Get ORDER BY clause."""
         return self._order_by
 
     @property
-    def where_clauses(self) -> List[Tuple[str, str]]:
+    def where_clauses(self) -> list[tuple[str, str]]:
         """Get WHERE clauses."""
         return self._where_clauses
 
     @property
-    def selected_fields(self) -> Optional[List[str]]:
+    def selected_fields(self) -> list[str] | None:
         """Get selected field names."""
         return self._selected_fields
 
     @property
-    def computed_columns(self) -> Optional[Dict[str, Computed]]:
+    def computed_columns(self) -> dict[str, Computed] | None:
         """Get computed columns."""
         return self._computed_columns
 
     @property
-    def renamed_columns(self) -> Optional[Dict[str, str]]:
+    def renamed_columns(self) -> dict[str, str] | None:
         """Get renamed columns mapping old->new."""
         return self._renamed_columns
 
     @property
-    def _effective_columns(self) -> Dict[str, ColumnInfo]:
+    def _effective_columns(self) -> dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
         Returns the effective column names and types as seen by consumers
@@ -2105,10 +2064,7 @@ class View(Object):
             for f in self._selected_fields:
                 columns[f] = orig[f]
         else:
-            columns = {
-                renames.get(name, name): info
-                for name, info in orig.items()
-            }
+            columns = {renames.get(name, name): info for name, info in orig.items()}
 
         if self._computed_columns:
             for name, comp in self._computed_columns.items():
@@ -2132,7 +2088,7 @@ class View(Object):
             ref["persistent"] = True
         return ref
 
-    def where(self, condition: str) -> "View":
+    def where(self, condition: str) -> View:
         """
         Return a new View with an AND-chained WHERE condition.
 
@@ -2155,7 +2111,7 @@ class View(Object):
             raise ValueError("WHERE condition must be a non-empty string")
         return View(self, where=condition.strip())
 
-    def or_where(self, condition: str) -> "View":
+    def or_where(self, condition: str) -> View:
         """
         Return a new View with an OR-chained WHERE condition.
 
@@ -2180,7 +2136,7 @@ class View(Object):
             raise ValueError("or_where() requires a prior where condition")
         return View(self, where=condition.strip(), where_connector="OR")
 
-    def with_columns(self, columns: Dict[str, Computed]) -> "View":
+    def with_columns(self, columns: dict[str, Computed]) -> View:
         """Add computed columns to this View, returning a new View.
 
         Additive — merges with any existing computed columns.
@@ -2194,16 +2150,14 @@ class View(Object):
         existing = set(self._effective_columns.keys())
         for name, computed in columns.items():
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
             self._validate_expression(computed.expression)
 
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
         return View(self, computed_columns=merged)
 
-    def _build_select(self, columns: str = "*", default_order_by: Optional[str] = None) -> str:
+    def _build_select(self, columns: str = "*", default_order_by: str | None = None) -> str:
         """
         Build a SELECT query with view constraints applied.
 
@@ -2249,8 +2203,7 @@ class View(Object):
         # Append computed column expressions
         if self.computed_columns:
             computed_parts = [
-                f"{comp.expression} AS {quote_identifier(name)}"
-                for name, comp in self.computed_columns.items()
+                f"{comp.expression} AS {quote_identifier(name)}" for name, comp in self.computed_columns.items()
             ]
             select_cols += ", " + ", ".join(computed_parts)
 
@@ -2312,7 +2265,7 @@ class View(Object):
                 return await data_extraction.extract_array_data(self)
             else:
                 # Multiple fields: return as dict with only selected fields
-                columns: Dict[str, ColumnMeta] = {}
+                columns: dict[str, ColumnMeta] = {}
                 for field in self.selected_fields:
                     columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
 
@@ -2321,9 +2274,8 @@ class View(Object):
 
         if self.computed_columns or self._renamed_columns:
             eff = self._effective_columns
-            columns: Dict[str, ColumnMeta] = {
-                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-                for name in eff if name != "aai_id"
+            columns: dict[str, ColumnMeta] = {
+                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY) for name in eff if name != "aai_id"
             }
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)

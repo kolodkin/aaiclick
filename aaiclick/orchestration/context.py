@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from ..snowflake_id import get_snowflake_id
 from .db_handler import DbHandler, create_db_handler
 from .env import get_db_url
-from .models import Group, Task, TasksType
+from .models import Group, TasksType
 
 
 @dataclass
@@ -24,7 +24,7 @@ class OrchCtxState:
 
 
 # ContextVar holding dict[name -> OrchCtxState]
-_orch_contexts: ContextVar[dict[str, OrchCtxState]] = ContextVar('orch_contexts')
+_orch_contexts: ContextVar[dict[str, OrchCtxState]] = ContextVar("orch_contexts")
 
 
 def _get_orch_state(ctx: str = "default") -> OrchCtxState:
@@ -35,14 +35,10 @@ def _get_orch_state(ctx: str = "default") -> OrchCtxState:
     """
     try:
         contexts = _orch_contexts.get()
-    except LookupError:
-        raise RuntimeError(
-            f"No active orch context '{ctx}' - use 'async with orch_context()'"
-        )
+    except LookupError as err:
+        raise RuntimeError(f"No active orch context '{ctx}' - use 'async with orch_context()'") from err
     if ctx not in contexts:
-        raise RuntimeError(
-            f"No active orch context '{ctx}' - use 'async with orch_context()'"
-        )
+        raise RuntimeError(f"No active orch context '{ctx}' - use 'async with orch_context()'")
     return contexts[ctx]
 
 

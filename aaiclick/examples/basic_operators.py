@@ -8,7 +8,7 @@ for automatic schema inference and basic arithmetic operators on Objects.
 import asyncio
 from datetime import datetime, timezone
 
-from aaiclick import ORIENT_RECORDS, Object, create_object_from_value
+from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
 
 
@@ -53,19 +53,13 @@ async def example():
     print("-" * 50)
 
     # Dict of scalars (single row)
-    obj_dict = await create_object_from_value(
-        {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
-    )
+    obj_dict = await create_object_from_value({"id": 1, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Created from dict of scalars: {obj_dict}")
     print(f"Values: {await obj_dict.data()}\n")
 
     # Dict of arrays (multiple rows)
     obj_dict_arrays = await create_object_from_value(
-        {
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [30, 25, 35]
-        }
+        {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [30, 25, 35]}
     )
     print(f"Created from dict of arrays: {obj_dict_arrays}")
 
@@ -120,7 +114,7 @@ async def example():
     print(f"Modulo (a % b): {await result_mod.data()}")
 
     # Power
-    result_pow = await (obj_a ** obj_b)
+    result_pow = await (obj_a**obj_b)
     print(f"Power (a ** b): {await result_pow.data()}")
 
     # Example 5: Comparison operators
@@ -187,28 +181,30 @@ async def example():
     print("-" * 50)
 
     # Scalar datetime
-    dt_scalar = await create_object_from_value(
-        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
-    )
+    dt_scalar = await create_object_from_value(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc))
     print(f"Created from datetime scalar: {dt_scalar}")
     print(f"Value: {await dt_scalar.data()}\n")
 
     # Array of datetimes
-    dt_array = await create_object_from_value([
-        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-        datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
-    ])
+    dt_array = await create_object_from_value(
+        [
+            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+        ]
+    )
     print(f"Created from datetime list: {dt_array}")
     print(f"Values: {await dt_array.data()}\n")
 
     # Dict with datetime column
-    dt_dict = await create_object_from_value({
-        "event_time": [
-            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
-        ],
-        "label": ["start", "end"],
-    })
+    dt_dict = await create_object_from_value(
+        {
+            "event_time": [
+                datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+                datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+            ],
+            "label": ["start", "end"],
+        }
+    )
     print(f"Created from dict with datetime column: {dt_dict}")
     print(f"Values: {await dt_dict.data()}")
 
@@ -219,7 +215,7 @@ async def example():
 
     obj_auto = await create_object_from_value(42)
     obj_auto2 = await create_object_from_value(99)
-    print(f"Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
+    print("Each object gets a unique Snowflake ID as table name (prefixed with 't'):")
     print(f"  Object 1 -> table: {obj_auto.table}")
     print(f"  Object 2 -> table: {obj_auto2.table}")
 

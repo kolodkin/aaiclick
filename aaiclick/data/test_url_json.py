@@ -8,7 +8,6 @@ Integration tests load nested JSON from a local HTTP server.
 import json
 import os
 import threading
-from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -16,7 +15,6 @@ import pytest
 from aaiclick import create_object_from_url
 from aaiclick.data.models import ColumnInfo
 from aaiclick.data.url import _json_extract_expr
-
 
 # =============================================================================
 # Unit tests for _json_extract_expr
@@ -39,7 +37,20 @@ from aaiclick.data.url import _json_extract_expr
         ("vals", ColumnInfo("Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
         ("it's", ColumnInfo("String"), "JSONExtractString(elem, 'it\\'s')"),
     ],
-    ids=["string", "int64", "uint32", "float64", "float32", "bool", "date", "datetime", "array", "nullable", "nullable_array", "escaped"],
+    ids=[
+        "string",
+        "int64",
+        "uint32",
+        "float64",
+        "float32",
+        "bool",
+        "date",
+        "datetime",
+        "array",
+        "nullable",
+        "nullable_array",
+        "escaped",
+    ],
 )
 def test_json_extract_expr(field, col_info, expected):
     assert _json_extract_expr(field, col_info) == expected
@@ -146,7 +157,6 @@ def json_server():
     server.server_close()
 
 
-
 async def test_json_load_all_columns_and_schema(ctx, json_server):
     """Load all columns, verify data and schema."""
     obj = await create_object_from_url(
@@ -171,7 +181,6 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
     assert schema.columns["score"].type == "Float64"
     assert schema.columns["tags"].array is True
     assert schema.columns["tags"].type == "String"
-
 
 
 async def test_json_load_subset_with_limit_and_where(ctx, json_server):
@@ -217,7 +226,6 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
     assert all(s > 80 for s in data_filtered["score"])
 
 
-
 async def test_json_load_array_field(ctx, json_server):
     """Array fields are correctly extracted."""
     obj = await create_object_from_url(
@@ -230,11 +238,10 @@ async def test_json_load_array_field(ctx, json_server):
         },
     )
     data = await obj.data()
-    tags_by_id = dict(zip(data["id"], data["tags"]))
+    tags_by_id = dict(zip(data["id"], data["tags"], strict=False))
     assert set(tags_by_id["A-001"]) == {"x", "y"}
     assert tags_by_id["A-002"] == ["z"]
     assert tags_by_id["A-003"] == []
-
 
 
 async def test_json_load_json_as_string_format(ctx, json_server):

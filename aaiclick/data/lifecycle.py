@@ -13,8 +13,7 @@ from contextvars import ContextVar
 
 from .table_worker import TableWorker
 
-
-_lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
+_lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", default=None)
 
 
 def get_data_lifecycle() -> LifecycleHandler | None:
@@ -47,7 +46,7 @@ class LifecycleHandler(ABC):
     def decref(self, table_name: str) -> None:
         """Decrement reference count for a table."""
 
-    def pin(self, table_name: str) -> None:
+    def pin(self, table_name: str) -> None:  # noqa: B027
         """Mark table as result that survives stop(). Default: no-op."""
 
     async def claim(self, table_name: str, job_id: int) -> None:

@@ -143,7 +143,7 @@ async def example():
 
     # Using concat (non-mutating)
     a1 = await create_object_from_value([1, 2, 3])
-    print(f"concat approach:")
+    print("concat approach:")
     print(f"  Original a1: {await a1.data()}, table: {a1.table}")
     a1_new = await a1.concat([4, 5])
     print(f"  After concat: {await a1_new.data()}, table: {a1_new.table}")
@@ -151,7 +151,7 @@ async def example():
 
     # Using insert (mutating)
     a2 = await create_object_from_value([1, 2, 3])
-    print(f"insert approach:")
+    print("insert approach:")
     print(f"  Original a2: {await a2.data()}, table: {a2.table}")
     await a2.insert([4, 5])
     print(f"  After insert: {await a2.data()}, table: {a2.table} (same)")
@@ -176,7 +176,7 @@ async def example():
     print(f"Added batch 2: {await dataset.data()}")
 
     # Calculate statistics on final dataset (returns Objects, use .data() to extract values)
-    print(f"\nFinal dataset statistics:")
+    print("\nFinal dataset statistics:")
     print(f"  Count: {len(await dataset.data())}")
     print(f"  Min: {await (await dataset.min()).data():.2f}")
     print(f"  Max: {await (await dataset.max()).data():.2f}")

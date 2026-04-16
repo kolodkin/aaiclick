@@ -113,11 +113,13 @@ async def test_url_where_with_semicolon(ctx):
 # =============================================================================
 
 
-
 async def test_url_format_parquet(ctx, fileserver):
     """Load 100 rows from Parquet sample file."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=100,
+        f"{fileserver}/sample.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -125,11 +127,13 @@ async def test_url_format_parquet(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-
 async def test_url_format_csv_with_names(ctx, fileserver):
     """Load 100 rows from CSV sample file."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["id", "price", "name"], format="CSVWithNames", limit=100,
+        f"{fileserver}/sample.csv",
+        columns=["id", "price", "name"],
+        format="CSVWithNames",
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -138,23 +142,27 @@ async def test_url_format_csv_with_names(ctx, fileserver):
     assert len(data["name"]) == 100
 
 
-
 async def test_url_format_tsv_with_names(ctx, fileserver):
     """Load 100 rows from TSV sample file."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.tsv", columns=["id", "price"], format="TSVWithNames", limit=100,
+        f"{fileserver}/sample.tsv",
+        columns=["id", "price"],
+        format="TSVWithNames",
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
     assert len(data["id"]) == 100
     assert len(data["price"]) == 100
-
 
 
 async def test_url_format_json_each_row(ctx, fileserver):
     """Load 100 rows from JSONL sample file."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.jsonl", columns=["id", "price"], format="JSONEachRow", limit=100,
+        f"{fileserver}/sample.jsonl",
+        columns=["id", "price"],
+        format="JSONEachRow",
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -162,11 +170,13 @@ async def test_url_format_json_each_row(ctx, fileserver):
     assert len(data["price"]) == 100
 
 
-
 async def test_url_format_orc(ctx, fileserver):
     """Load 100 rows from ORC sample file."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.orc", columns=["id", "price"], format="ORC", limit=100,
+        f"{fileserver}/sample.orc",
+        columns=["id", "price"],
+        format="ORC",
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -179,11 +189,12 @@ async def test_url_format_orc(ctx, fileserver):
 # =============================================================================
 
 
-
 async def test_url_single_column(ctx, fileserver):
     """Single column load creates an array Object (column renamed to 'value')."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames",
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
     )
     data = await obj.data()
     assert isinstance(data, list)
@@ -191,11 +202,12 @@ async def test_url_single_column(ctx, fileserver):
     assert not obj.stale
 
 
-
 async def test_url_multi_column(ctx, fileserver):
     """Multi-column load creates a dict Object with original column names."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["name", "price"], format="Parquet",
+        f"{fileserver}/sample.parquet",
+        columns=["name", "price"],
+        format="Parquet",
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -204,21 +216,24 @@ async def test_url_multi_column(ctx, fileserver):
     assert len(data["name"]) == _NUM_ROWS
 
 
-
 async def test_url_with_limit(ctx, fileserver):
     """LIMIT restricts the number of loaded rows."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames", limit=3,
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
+        limit=3,
     )
     data = await obj.data()
     assert len(data) == 3
 
 
-
 async def test_url_with_where(ctx, fileserver):
     """WHERE clause filters rows during load."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["id", "price"], format="CSVWithNames",
+        f"{fileserver}/sample.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
         where="price > 200",
     )
     data = await obj.data()
@@ -227,18 +242,19 @@ async def test_url_with_where(ctx, fileserver):
     assert len(data["price"]) < _NUM_ROWS
 
 
-
 async def test_url_snowflake_ids_ordered(ctx, fileserver):
     """Snowflake IDs are monotonically increasing and unique."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["price"], format="Parquet", limit=100,
+        f"{fileserver}/sample.parquet",
+        columns=["price"],
+        format="Parquet",
+        limit=100,
     )
     result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
     ids = [row[0] for row in result.result_rows]
     assert ids == sorted(ids)
     assert len(set(ids)) == len(ids)
     assert len(ids) == 100
-
 
 
 async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
@@ -258,7 +274,10 @@ async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
 async def test_url_aggregation_on_result(ctx, fileserver):
     """Aggregation operators work on Objects loaded from URL."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames", limit=10,
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
+        limit=10,
     )
     # First 10 prices: 1.5, 3.0, 4.5, ..., 15.0 => sum = 82.5
     total = await obj.sum()
@@ -271,7 +290,6 @@ async def test_url_aggregation_on_result(ctx, fileserver):
 # =============================================================================
 
 
-
 async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     """insert_from_url rejects non-HTTP URLs."""
     obj = await create_object_from_url(
@@ -279,7 +297,6 @@ async def test_insert_from_url_invalid_scheme(ctx, fileserver):
     )
     with pytest.raises(ValueError, match="http or https"):
         await obj.insert_from_url("ftp://example.com/data.parquet")
-
 
 
 async def test_insert_from_url_unsupported_format(ctx, fileserver):
@@ -295,7 +312,6 @@ async def test_insert_from_url_unsupported_format(ctx, fileserver):
         )
 
 
-
 async def test_insert_from_url_invalid_limit(ctx, fileserver):
     """insert_from_url rejects invalid limit values."""
     obj = await create_object_from_url(
@@ -307,7 +323,6 @@ async def test_insert_from_url_invalid_limit(ctx, fileserver):
             columns=["id", "price"],
             limit=-1,
         )
-
 
 
 async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
@@ -326,7 +341,6 @@ async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
 # =============================================================================
 # insert_from_url() integration tests (require file server)
 # =============================================================================
-
 
 
 async def test_insert_from_url_appends_data(ctx, fileserver):
@@ -352,7 +366,6 @@ async def test_insert_from_url_appends_data(ctx, fileserver):
     assert final_count == 15
 
 
-
 async def test_insert_from_url_auto_columns(ctx, fileserver):
     """insert_from_url uses object's columns when not specified."""
     obj = await create_object_from_url(
@@ -371,7 +384,6 @@ async def test_insert_from_url_auto_columns(ctx, fileserver):
     data = await obj.data()
     assert len(data["id"]) == 10
     assert len(data["price"]) == 10
-
 
 
 async def test_insert_from_url_with_where(ctx, fileserver):
@@ -396,7 +408,6 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     # Should have more rows than initial, but not all 200
     assert len(data["id"]) > initial_count
     assert len(data["id"]) < initial_count + _NUM_ROWS
-
 
 
 async def test_insert_from_url_snowflake_ids(ctx, fileserver):

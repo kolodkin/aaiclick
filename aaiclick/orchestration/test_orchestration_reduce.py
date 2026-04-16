@@ -8,7 +8,6 @@ from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.orch_helpers import reduce
 
-
 # --- Reduction callbacks (module-level for entrypoint resolution) ---
 
 

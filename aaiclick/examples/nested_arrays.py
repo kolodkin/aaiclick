@@ -21,10 +21,12 @@ async def example():
     print("PART 1: Single record with nested arrays")
     print("=" * 60)
 
-    obj = await create_object_from_value({
-        "a": 2,
-        "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
-    })
+    obj = await create_object_from_value(
+        {
+            "a": 2,
+            "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
+        }
+    )
 
     print("\nInput: {a: 2, b: [{c: [1,2,3], d: 5}, {c: [4,5,6], d: 10}]}")
     print(f"\nSchema columns: {list(obj.schema.columns.keys())}")
@@ -33,7 +35,7 @@ async def example():
             print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
-    print(f"\nReconstructed output:")
+    print("\nReconstructed output:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 
@@ -42,10 +44,12 @@ async def example():
     print("PART 2: Multiple records with nested arrays")
     print("=" * 60)
 
-    obj = await create_object_from_value([
-        {"a": 2, "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}]},
-        {"a": 3, "b": [{"c": [7, 8, 9], "d": 15}]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": 2, "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}]},
+            {"a": 3, "b": [{"c": [7, 8, 9], "d": 15}]},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_RECORDS)
     print(f"\nORIENT_RECORDS ({len(data)} rows):")
@@ -53,7 +57,7 @@ async def example():
         print(f"  [{i}] {row}")
 
     data = await obj.data(orient=ORIENT_DICT)
-    print(f"\nORIENT_DICT:")
+    print("\nORIENT_DICT:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 
@@ -62,10 +66,12 @@ async def example():
     print("PART 3: Nested objects with scalar-only sub-fields")
     print("=" * 60)
 
-    obj = await create_object_from_value({
-        "name": "test",
-        "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": "test",
+            "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+        }
+    )
 
     print("\nInput: {name: 'test', items: [{x: 1, y: 2}, {x: 3, y: 4}]}")
     for name, col in obj.schema.columns.items():
@@ -80,13 +86,15 @@ async def example():
     print("PART 4: Nested objects with array sub-fields → Array(Array(T))")
     print("=" * 60)
 
-    obj = await create_object_from_value({
-        "id": 1,
-        "groups": [
-            {"tags": ["a", "b"], "score": 10},
-            {"tags": ["c"], "score": 20},
-        ],
-    })
+    obj = await create_object_from_value(
+        {
+            "id": 1,
+            "groups": [
+                {"tags": ["a", "b"], "score": 10},
+                {"tags": ["c"], "score": 20},
+            ],
+        }
+    )
 
     print("\nInput: {id: 1, groups: [{tags: ['a','b'], score: 10}, {tags: ['c'], score: 20}]}")
     for name, col in obj.schema.columns.items():
@@ -101,13 +109,15 @@ async def example():
     print("PART 5: Deep nesting (two levels of list-of-dicts)")
     print("=" * 60)
 
-    obj = await create_object_from_value({
-        "root": 1,
-        "level1": [
-            {"name": "first", "level2": [{"val": 10}, {"val": 20}]},
-            {"name": "second", "level2": [{"val": 30}]},
-        ],
-    })
+    obj = await create_object_from_value(
+        {
+            "root": 1,
+            "level1": [
+                {"name": "first", "level2": [{"val": 10}, {"val": 20}]},
+                {"name": "second", "level2": [{"val": 30}]},
+            ],
+        }
+    )
 
     print("\nSchema columns:")
     for name, col in obj.schema.columns.items():
@@ -115,7 +125,7 @@ async def example():
             print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
-    print(f"\nResult:")
+    print("\nResult:")
     for key, val in data.items():
         print(f"  {key}: {val}")
 

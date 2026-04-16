@@ -79,9 +79,7 @@ class TableWorker:
                     break
 
                 elif msg.op == TableOp.INCREF:
-                    self._refcounts[msg.table_name] = (
-                        self._refcounts.get(msg.table_name, 0) + 1
-                    )
+                    self._refcounts[msg.table_name] = self._refcounts.get(msg.table_name, 0) + 1
 
                 elif msg.op == TableOp.DECREF:
                     if msg.table_name in self._refcounts:

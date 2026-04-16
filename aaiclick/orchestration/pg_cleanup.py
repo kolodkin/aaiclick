@@ -135,18 +135,13 @@ class PgCleanupWorker:
 
             for (table_name,) in rows:
                 try:
-                    await self._ch_client.command(
-                        f"DROP TABLE IF EXISTS {table_name}"
-                    )
+                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
                     continue
 
                 await session.execute(
-                    text(
-                        "DELETE FROM table_context_refs "
-                        "WHERE table_name = :table_name"
-                    ),
+                    text("DELETE FROM table_context_refs WHERE table_name = :table_name"),
                     {"table_name": table_name},
                 )
 
@@ -158,11 +153,7 @@ class PgCleanupWorker:
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text(
-                    "SELECT id FROM workers "
-                    "WHERE status = 'ACTIVE' "
-                    "AND last_heartbeat < :cutoff"
-                ),
+                text("SELECT id FROM workers WHERE status = 'ACTIVE' AND last_heartbeat < :cutoff"),
                 {"cutoff": cutoff},
             )
             dead_worker_ids = [row[0] for row in result.fetchall()]
@@ -190,10 +181,7 @@ class PgCleanupWorker:
                     )
             else:
                 await session.execute(
-                    text(
-                        "UPDATE workers SET status = 'STOPPED' "
-                        "WHERE id = ANY(:worker_ids)"
-                    ),
+                    text("UPDATE workers SET status = 'STOPPED' WHERE id = ANY(:worker_ids)"),
                     {"worker_ids": dead_worker_ids},
                 )
                 await session.execute(

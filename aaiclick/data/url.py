@@ -11,16 +11,27 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .data_context import create_object, get_ch_client
-from .models import ColumnInfo, FIELDTYPE_ARRAY, FLOAT_TYPES, INT_TYPES, Schema, parse_ch_type
+from .models import FIELDTYPE_ARRAY, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from .sql_utils import quote_identifier
 
-SUPPORTED_URL_FORMATS = frozenset({
-    "Parquet", "CSV", "CSVWithNames", "CSVWithNamesAndTypes",
-    "TSV", "TSVWithNames", "TSVWithNamesAndTypes",
-    "JSON", "JSONEachRow", "JSONCompactEachRow",
-    "ORC", "Avro",
-    "RawBLOB", "JSONAsString",
-})
+SUPPORTED_URL_FORMATS = frozenset(
+    {
+        "Parquet",
+        "CSV",
+        "CSVWithNames",
+        "CSVWithNamesAndTypes",
+        "TSV",
+        "TSVWithNames",
+        "TSVWithNamesAndTypes",
+        "JSON",
+        "JSONEachRow",
+        "JSONCompactEachRow",
+        "ORC",
+        "Avro",
+        "RawBLOB",
+        "JSONAsString",
+    }
+)
 
 JSON_BLOB_FORMATS = frozenset({"RawBLOB", "JSONAsString"})
 
@@ -34,9 +45,7 @@ def _validate_url(url: str) -> None:
     """Validate URL is a proper HTTP(S) URL."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(
-            f"URL must use http or https scheme, got '{parsed.scheme}'"
-        )
+        raise ValueError(f"URL must use http or https scheme, got '{parsed.scheme}'")
     if not parsed.netloc:
         raise ValueError("URL must have a valid host")
 
@@ -53,10 +62,7 @@ def _validate_url_columns(columns: list[str]) -> None:
 def _validate_url_format(fmt: str) -> None:
     """Validate format is a supported ClickHouse URL format."""
     if fmt not in SUPPORTED_URL_FORMATS:
-        raise ValueError(
-            f"Unsupported format '{fmt}'. "
-            f"Supported formats: {sorted(SUPPORTED_URL_FORMATS)}"
-        )
+        raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(SUPPORTED_URL_FORMATS)}")
 
 
 def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
@@ -136,7 +142,7 @@ async def create_object_from_url(
     json_columns: dict[str, ColumnInfo] | None = None,
     ch_settings: dict[str, str | int] | None = None,
     column_types: dict[str, ColumnInfo] | None = None,
-) -> Object:
+) -> Object:  # noqa: F821
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
 
@@ -195,10 +201,7 @@ async def create_object_from_url(
         if not json_columns:
             raise ValueError("json_columns must be a non-empty dict")
         if format not in JSON_BLOB_FORMATS:
-            raise ValueError(
-                f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, "
-                f"got '{format}'"
-            )
+            raise ValueError(f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, got '{format}'")
         for col_name in json_columns:
             if col_name == "aai_id":
                 raise ValueError("'aai_id' is a reserved column name and cannot be used")
@@ -218,7 +221,7 @@ async def _create_from_tabular(
     limit: int | None,
     ch_settings: dict[str, str | int] | None,
     column_types: dict[str, ColumnInfo] | None = None,
-) -> Object:
+) -> Object:  # noqa: F821
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
     safe_url = url.replace("'", "\\'")
@@ -230,9 +233,7 @@ async def _create_from_tabular(
     if column_types is not None:
         ch_types: dict[str, ColumnInfo] = column_types
     else:
-        describe_query = (
-            f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
-        )
+        describe_query = f"DESCRIBE (SELECT {columns_str} FROM url('{safe_url}', '{format}') LIMIT 0)"
         describe_result = await ch.query(describe_query, settings=settings)
         ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
 
@@ -280,7 +281,7 @@ async def _create_from_json(
     where: str | None,
     limit: int | None,
     ch_settings: dict[str, str | int] | None,
-) -> Object:
+) -> Object:  # noqa: F821
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
     safe_url = url.replace("'", "\\'")
@@ -294,7 +295,10 @@ async def _create_from_json(
     obj = await create_object(schema)
 
     select_exprs, from_subquery = _build_json_select(
-        json_columns, json_path, format, safe_url,
+        json_columns,
+        json_path,
+        format,
+        safe_url,
     )
 
     insert_col_names = [k for k in schema_columns if k != "aai_id"]

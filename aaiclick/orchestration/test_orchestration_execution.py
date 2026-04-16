@@ -7,14 +7,17 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from aaiclick.orchestration.db_lifecycle import PgLifecycleHandler
-
 import pytest
 from sqlalchemy import select
 
 from aaiclick.data.data_context import data_context
 from aaiclick.data.object import Object, View
+from aaiclick.examples.orchestration_dynamic import (
+    chain_pipeline,
+    dynamic_pipeline,
+)
 from aaiclick.orchestration.context import get_orch_session
+from aaiclick.orchestration.db_lifecycle import PgLifecycleHandler
 from aaiclick.orchestration.debug_execution import ajob_test
 from aaiclick.orchestration.execution import (
     TaskResult,
@@ -26,13 +29,8 @@ from aaiclick.orchestration.execution import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.examples.orchestration_dynamic import (
-    chain_pipeline,
-    dynamic_pipeline,
-)
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
-
 
 # Logging tests
 
@@ -362,7 +360,7 @@ def test_task_result_preserves_explicit_dependency(orch_ctx):
     g = Group(id=get_snowflake_id(), name="g1")
     t2 >> t1  # t1 depends on t2
 
-    r = TaskResult(tasks=[t1, g])
+    TaskResult(tasks=[t1, g])
     dep_ids = {d.previous_id for d in t1.previous_dependencies}
     assert t2.id in dep_ids
 
@@ -390,9 +388,7 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
 
     child = create_task("mod.child")
 
-    data_result = await register_returned_tasks(
-        TaskResult(tasks=[child]), parent_task_id=parent.id, job_id=job.id
-    )
+    data_result = await register_returned_tasks(TaskResult(tasks=[child]), parent_task_id=parent.id, job_id=job.id)
     assert data_result is None
 
     async with get_orch_session() as session:
@@ -447,9 +443,7 @@ async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
 
         # Verify entry point task was created
         async with get_orch_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
             assert tasks[0].name == "dynamic_pipeline"
@@ -468,9 +462,7 @@ async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
 
         # Entry point + 2 child tasks = 3 tasks total
         async with get_orch_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id).order_by(Task.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 3
 
@@ -497,9 +489,7 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
 
         # chain_pipeline -> step_one -> step_two = 3 tasks
         async with get_orch_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id).order_by(Task.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 3
 

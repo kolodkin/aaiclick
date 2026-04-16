@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aaiclick.oplog.lineage import OplogNode
 from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.oplog.lineage import OplogNode
 
 
 def _node(table: str, operation: str) -> OplogNode:
@@ -55,7 +55,9 @@ async def test_debug_result_direct_answer():
     with (
         patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=mock_backward),
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=mock_completion),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch(
+            "aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)
+        ),
     ):
         result = await debug_result("result", "Why is this value negative?")
 
@@ -75,7 +77,9 @@ async def test_debug_result_with_one_tool_call():
         patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=AsyncMock(return_value="id | val\n1 | x")),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch(
+            "aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)
+        ),
     ):
         result = await debug_result("result", "Why are there only 3 rows?")
 
@@ -94,7 +98,9 @@ async def test_debug_result_dispatches_correct_tool():
         patch("aaiclick.ai.agents.debug_agent.backward_oplog", new=AsyncMock(return_value=nodes)),
         patch("aaiclick.ai.agents.debug_agent.acompletion", new=AsyncMock(side_effect=[tool_resp, final_resp])),
         patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=mock_dispatch),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)),
+        patch(
+            "aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=MagicMock(model="test/model", _api_key=None)
+        ),
     ):
         await debug_result("result", "What is the schema?")
 

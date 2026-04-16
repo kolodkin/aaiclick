@@ -36,19 +36,23 @@ async def example():
     print("-" * 50)
 
     # Source A: vulnerability catalog (has vendor and severity info)
-    catalog = await create_object_from_value({
-        "cve_id": ["CVE-2024-001", "CVE-2024-002", "CVE-2024-003"],
-        "vendor": ["Apache", "Microsoft", "Linux"],
-        "severity": ["Critical", "High", "Medium"],
-    })
+    catalog = await create_object_from_value(
+        {
+            "cve_id": ["CVE-2024-001", "CVE-2024-002", "CVE-2024-003"],
+            "vendor": ["Apache", "Microsoft", "Linux"],
+            "severity": ["Critical", "High", "Medium"],
+        }
+    )
     print(f"  Catalog: {await (await catalog.count()).data()} CVEs with vendor/severity")
 
     # Source B: scoring database (has CVSS and EPSS scores)
-    scores = await create_object_from_value({
-        "cve_id": ["CVE-2024-001", "CVE-2024-003", "CVE-2024-004"],
-        "cvss": [9.8, 6.5, 8.1],
-        "epss": [0.95, 0.12, 0.67],
-    })
+    scores = await create_object_from_value(
+        {
+            "cve_id": ["CVE-2024-001", "CVE-2024-003", "CVE-2024-004"],
+            "cvss": [9.8, 6.5, 8.1],
+            "epss": [0.95, 0.12, 0.67],
+        }
+    )
     print(f"  Scores:  {await (await scores.count()).data()} CVEs with CVSS/EPSS")
     print()
 
@@ -77,25 +81,27 @@ async def example():
 
     # Verify engine and ORDER BY
     ch = get_ch_client()
-    result = await ch.query(
-        f"SELECT engine, sorting_key FROM system.tables WHERE name = '{agg.table}'"
-    )
+    result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{agg.table}'")
     engine_name, sorting_key = result.result_rows[0]
     print(f"  Engine: {engine_name}, ORDER BY: {sorting_key}")
 
     # Insert catalog with computed flag columns; score columns auto-fill NULL
-    view_catalog = catalog.with_columns({
-        "in_catalog": Computed("UInt8", "1"),
-        "in_scores": Computed("UInt8", "0"),
-    })
+    view_catalog = catalog.with_columns(
+        {
+            "in_catalog": Computed("UInt8", "1"),
+            "in_scores": Computed("UInt8", "0"),
+        }
+    )
     await agg.insert(view_catalog)
     print("  Inserted catalog data (3 rows) — cvss/epss auto-filled with NULL")
 
     # Insert scores with computed flag columns; vendor/severity auto-fill NULL
-    view_scores = scores.with_columns({
-        "in_catalog": Computed("UInt8", "0"),
-        "in_scores": Computed("UInt8", "1"),
-    })
+    view_scores = scores.with_columns(
+        {
+            "in_catalog": Computed("UInt8", "0"),
+            "in_scores": Computed("UInt8", "1"),
+        }
+    )
     await agg.insert(view_scores)
     print("  Inserted scores data (3 rows) — vendor/severity auto-filled with NULL")
     print(f"  Raw table has {await (await agg.count()).data()} rows (before collapse)")
@@ -107,14 +113,16 @@ async def example():
     print("Step 3: Collapse via group_by('cve_id') with any()/max()")
     print("-" * 50)
 
-    merged = await agg.group_by("cve_id").agg({
-        "in_catalog": "max",
-        "in_scores": "max",
-        "vendor": "any",
-        "severity": "any",
-        "cvss": "any",
-        "epss": "any",
-    })
+    merged = await agg.group_by("cve_id").agg(
+        {
+            "in_catalog": "max",
+            "in_scores": "max",
+            "vendor": "any",
+            "severity": "any",
+            "cvss": "any",
+            "epss": "any",
+        }
+    )
 
     data = await merged.data()
     print(f"  Merged table: {len(data['cve_id'])} unique CVEs")
@@ -126,7 +134,7 @@ async def example():
     print("Step 4: Merged results")
     print("-" * 50)
     print(f"  {'CVE':<16} {'Cat':>3} {'Scr':>3} {'Vendor':<12} {'Severity':<10} {'CVSS':>5} {'EPSS':>5}")
-    print(f"  {'-'*14}  {'---':>3} {'---':>3} {'-'*10}   {'-'*8}   {'-----':>5} {'-----':>5}")
+    print(f"  {'-' * 14}  {'---':>3} {'---':>3} {'-' * 10}   {'-' * 8}   {'-----':>5} {'-----':>5}")
 
     for i in range(len(data["cve_id"])):
         cve = data["cve_id"][i]

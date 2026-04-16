@@ -7,9 +7,9 @@ This module provides specialized extraction functions for different table types.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any
 
-from .models import ColumnMeta, FIELDTYPE_ARRAY, ORIENT_RECORDS
+from .models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnMeta
 
 
 def _convert_value(value):
@@ -25,14 +25,11 @@ def _convert_value(value):
     if isinstance(value, datetime) and value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     if isinstance(value, list) and value and isinstance(value[0], datetime):
-        return [
-            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
-            for v in value
-        ]
+        return [v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v for v in value]
     return value
 
 
-def _has_nested_columns(column_names: List[str]) -> bool:
+def _has_nested_columns(column_names: list[str]) -> bool:
     """Check if any column names use dot-star notation for nested arrays."""
     return any(".*." in name for name in column_names)
 
@@ -48,7 +45,7 @@ def _unflatten_record(flat_record: dict) -> dict:
         ``{"a": 2, "b": [{"c": [1,2,3], "d": 5}, {"c": [4,5,6], "d": 10}]}``
     """
     plain: dict = {}
-    nested_groups: Dict[str, Dict[str, Any]] = {}
+    nested_groups: dict[str, dict[str, Any]] = {}
 
     for col, val in flat_record.items():
         # Split on first ".*." occurrence
@@ -57,7 +54,7 @@ def _unflatten_record(flat_record: dict) -> dict:
             plain[col] = val
         else:
             prefix = col[:star_pos]
-            suffix = col[star_pos + 3:]
+            suffix = col[star_pos + 3 :]
             if prefix not in nested_groups:
                 nested_groups[prefix] = {}
             nested_groups[prefix][suffix] = val
@@ -81,7 +78,7 @@ def _unflatten_record(flat_record: dict) -> dict:
     return result
 
 
-async def extract_scalar_data(obj: Object) -> Any:
+async def extract_scalar_data(obj: Object) -> Any:  # noqa: F821
     """
     Extract data from a scalar table (single row with aai_id and value).
 
@@ -97,7 +94,7 @@ async def extract_scalar_data(obj: Object) -> Any:
     return _convert_value(rows[0][0]) if rows else None
 
 
-async def extract_array_data(obj: Object) -> List[Any]:
+async def extract_array_data(obj: Object) -> list[Any]:  # noqa: F821
     """
     Extract data from an array table (multiple rows with aai_id and value).
 
@@ -114,10 +111,10 @@ async def extract_array_data(obj: Object) -> List[Any]:
 
 
 async def extract_dict_data(
-    obj: Object,
-    column_names: List[str],
-    columns: Dict[str, ColumnMeta],
-    orient: str
+    obj: Object,  # noqa: F821
+    column_names: list[str],
+    columns: dict[str, ColumnMeta],
+    orient: str,
 ):
     """
     Extract data from a dict table (multiple columns with aai_id).
@@ -167,8 +164,8 @@ async def extract_dict_data(
 
 def _extract_nested_dict_data(
     rows: list,
-    output_columns: List[str],
-    col_indices: Dict[str, int],
+    output_columns: list[str],
+    col_indices: dict[str, int],
     is_dict_of_arrays: bool,
     orient: str,
 ):

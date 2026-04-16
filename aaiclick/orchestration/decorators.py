@@ -29,9 +29,10 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, List, Union
+from typing import Any
 
 from aaiclick.data.object import Object
 
@@ -41,7 +42,7 @@ from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, Task, TaskStatus
 
 
-def _collect_upstreams(value: Any, upstream_tasks: List[Task]) -> None:
+def _collect_upstreams(value: Any, upstream_tasks: list[Task]) -> None:
     """Recursively collect Task instances from nested structures."""
     if isinstance(value, Task):
         upstream_tasks.append(value)
@@ -123,13 +124,10 @@ class TaskFactory:
             Task: New Task instance with dependencies configured
         """
         if args:
-            raise ValueError(
-                "TaskFactory does not support positional arguments. "
-                "Use keyword arguments instead."
-            )
+            raise ValueError("TaskFactory does not support positional arguments. Use keyword arguments instead.")
 
         # Collect upstream tasks for dependency creation
-        upstream_tasks: List[Task] = []
+        upstream_tasks: list[Task] = []
         for value in kwargs.values():
             _collect_upstreams(value, upstream_tasks)
 
@@ -156,7 +154,7 @@ class TaskFactory:
         return f"TaskFactory({self.entrypoint})"
 
 
-def task(func: Callable = None, *, name: str = None, max_retries: int = 0) -> Union[TaskFactory, Callable]:
+def task(func: Callable = None, *, name: str = None, max_retries: int = 0) -> TaskFactory | Callable:
     """Decorator to create a TaskFactory from a function.
 
     Supports both bare and parameterized usage:

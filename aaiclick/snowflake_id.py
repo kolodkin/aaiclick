@@ -21,14 +21,14 @@ from .backend import is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
-SEQUENCE_BITS = 12    # Bits 11-0: supports 4096 IDs per millisecond
+SEQUENCE_BITS = 12  # Bits 11-0: supports 4096 IDs per millisecond
 
 # Maximum values
 MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1  # 4095
 
 # Bit shifts for decoding the 64-bit ID
 TIMESTAMP_SHIFT = MACHINE_ID_BITS + SEQUENCE_BITS  # 22
-MACHINE_ID_SHIFT = SEQUENCE_BITS                   # 12
+MACHINE_ID_SHIFT = SEQUENCE_BITS  # 12
 
 # Default batch size for pre-fetching IDs from ClickHouse
 _BUFFER_SIZE = 100
@@ -68,18 +68,14 @@ class SnowflakeGenerator:
         client = self._get_client()
         if is_chdb():
             # ChdbSyncClient.command() returns a scalar; use query for multiple rows
-            result = client.command(
-                f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})"
-            )
+            result = client.command(f"SELECT groupArray(generateSnowflakeID()) FROM numbers({count})")
             # chdb returns a string like "[123,456,789]" — parse it
             if isinstance(result, str):
                 result = result.strip("[]")
                 return [int(x) for x in result.split(",") if x.strip()]
             return [int(result)]
         else:
-            result = client.query(
-                f"SELECT generateSnowflakeID() FROM numbers({count})"
-            )
+            result = client.query(f"SELECT generateSnowflakeID() FROM numbers({count})")
             return [row[0] for row in result.result_rows]
 
     def generate(self) -> int:

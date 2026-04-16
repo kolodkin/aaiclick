@@ -216,10 +216,7 @@ def print_benchmark_results(results: list[BenchmarkResult]) -> None:
     print("\n" + "=" * 70)
     print("Operator Latency Benchmarks")
     print("=" * 70)
-    print(
-        f"{'Op':<5} {'Size':>10} {'Total':>12} "
-        f"{'CH Server':>12} {'Overhead':>12}"
-    )
+    print(f"{'Op':<5} {'Size':>10} {'Total':>12} {'CH Server':>12} {'Overhead':>12}")
     print("-" * 70)
 
     for r in results:

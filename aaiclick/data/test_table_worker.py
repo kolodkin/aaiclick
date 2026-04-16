@@ -5,7 +5,7 @@ Tests for TableWorker background thread lifecycle management.
 import time
 from unittest.mock import MagicMock, patch
 
-from aaiclick.data.table_worker import TableWorker, TableOp, TableMessage
+from aaiclick.data.table_worker import TableOp, TableWorker
 
 
 def test_worker_incref_queues_message():

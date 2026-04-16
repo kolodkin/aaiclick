@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import data_context, create_object_from_value
-from aaiclick.oplog.lineage import lineage_context, backward_oplog, forward_oplog, oplog_subgraph
+from aaiclick.data.data_context import create_object_from_value, data_context
+from aaiclick.oplog.lineage import backward_oplog, forward_oplog, lineage_context, oplog_subgraph
 
 
 async def _run_pipeline():

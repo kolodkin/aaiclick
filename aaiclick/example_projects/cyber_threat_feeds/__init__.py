@@ -49,7 +49,7 @@ END_DATE = "2026-01-01"
 
 @job("cyber_threat_feeds")
 def cyber_threat_pipeline(shodan_limit: int = 5000):
-    """
+    r"""
     Cyber Threat Feeds Pipeline.
 
     Loads CISA KEV, Shodan CVEDB, and FIRST EPSS data directly into
@@ -76,7 +76,9 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     # Phase 2: Shodan CVEDB (two parallel loads + combine)
     shodan_kev = load_shodan_kev_cves()
     shodan_general = load_shodan_general_cves(
-        start_date=START_DATE, end_date=END_DATE, limit=shodan_limit,
+        start_date=START_DATE,
+        end_date=END_DATE,
+        limit=shodan_limit,
     )
     cves = combine_shodan_cves(kev_cves=shodan_kev, general_cves=shodan_general)
     shodan_analysis = analyze_shodan_cves(cves=cves)
@@ -103,19 +105,21 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
         end_date=END_DATE,
     )
 
-    return TaskResult(tasks=[
-        kev,
-        kev_report,
-        shodan_kev,
-        shodan_general,
-        cves,
-        shodan_analysis,
-        epss,
-        epss_analysis,
-        consolidated,
-        consolidated_stats,
-        threat_report,
-    ])
+    return TaskResult(
+        tasks=[
+            kev,
+            kev_report,
+            shodan_kev,
+            shodan_general,
+            cves,
+            shodan_analysis,
+            epss,
+            epss_analysis,
+            consolidated,
+            consolidated_stats,
+            threat_report,
+        ]
+    )
 
 
 async def main():

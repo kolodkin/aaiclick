@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from typing import Optional
 
 from .claiming import cancel_job
 from .context import orch_context
+from .db_lifecycle import PgLifecycleHandler
 from .job_queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
 from .job_stats import compute_job_stats, print_job_stats
 from .models import JobStatus
 from .pg_cleanup import PgCleanupWorker
-from .db_lifecycle import PgLifecycleHandler
 from .worker import list_workers, worker_main_loop
 
 
@@ -31,7 +30,9 @@ async def show_workers() -> None:
         print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
         print("-" * 80)
         for w in workers:
-            print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
+            print(
+                f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
+            )
 
 
 async def show_job(job_ref: str) -> None:
@@ -54,8 +55,8 @@ async def show_job(job_ref: str) -> None:
 
 async def show_jobs(
     *,
-    status: Optional[str] = None,
-    name_like: Optional[str] = None,
+    status: str | None = None,
+    name_like: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> None:
@@ -82,7 +83,7 @@ async def show_jobs(
         print(f"\nShowing {offset + 1}-{offset + len(jobs)} of {total}")
 
 
-async def start_worker(max_tasks: Optional[int] = None) -> None:
+async def start_worker(max_tasks: int | None = None) -> None:
     """Start a worker process with cleanup and lifecycle support.
 
     Args:

@@ -16,8 +16,7 @@ def test_map_creates_group_with_expander(orch_ctx):
     """map() returns a Group containing an expander Task with correct kwargs."""
     obj_task = create_task("mymodule.load_data")
 
-    group = map(cbk=_dummy_func, obj=obj_task, partition=500,
-                args=(10,), kwargs={"factor": 2})
+    group = map(cbk=_dummy_func, obj=obj_task, partition=500, args=(10,), kwargs={"factor": 2})
 
     assert isinstance(group, Group)
     expander = group.get_tasks()[0]

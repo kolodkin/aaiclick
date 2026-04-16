@@ -7,7 +7,7 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped
@@ -75,9 +75,9 @@ class Job(SQLModel, table=True):
     name: str = Field(index=True)
     status: JobStatus = Field(default=JobStatus.PENDING, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    started_at: Optional[datetime] = Field(default=None)
-    completed_at: Optional[datetime] = Field(default=None)
-    error: Optional[str] = Field(default=None)
+    started_at: datetime | None = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
+    error: str | None = Field(default=None)
 
 
 class Worker(SQLModel, table=True):
@@ -137,7 +137,9 @@ class Group(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    parent_group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
+    parent_group_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
+    )
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -147,14 +149,14 @@ class Group(SQLModel, table=True):
             self._tasks = []
         self._tasks.append(task)
 
-    def get_tasks(self) -> List["Task"]:
+    def get_tasks(self) -> list["Task"]:
         """Return tasks attached to this group (non-DB)."""
         return getattr(self, "_tasks", [])
 
     # Dependencies where this group is the "next" (i.e., this group depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group
     # intentionally write to Dependency.next_id (polymorphic design via next_type)
-    previous_dependencies: Mapped[List[Dependency]] = Relationship(
+    previous_dependencies: Mapped[list[Dependency]] = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Group.id == foreign(Dependency.next_id), Dependency.next_type == 'group')",
             "cascade": "all, delete-orphan",
@@ -162,7 +164,7 @@ class Group(SQLModel, table=True):
         }
     )
 
-    def depends_on(self, other: Union["Task", "Group"]) -> "Group":
+    def depends_on(self, other: "Task | Group") -> "Group":
         """
         Declare that this group depends on a task or another group.
 
@@ -183,7 +185,7 @@ class Group(SQLModel, table=True):
         self.previous_dependencies.append(dependency)
         return self
 
-    def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
+    def __rshift__(self, other: "Task | Group | list[Task | Group]") -> "Task | Group | list[Task | Group]":
         """A >> B: B depends on A (A executes before B)."""
         if isinstance(other, list):
             for item in other:
@@ -193,7 +195,7 @@ class Group(SQLModel, table=True):
             other.depends_on(self)
             return other
 
-    def __lshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> "Group":
+    def __lshift__(self, other: "Task | Group | list[Task | Group]") -> "Group":
         """A << B: A depends on B (B executes before A)."""
         if isinstance(other, list):
             for item in other:
@@ -202,7 +204,7 @@ class Group(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rrshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> "Group":
+    def __rrshift__(self, other: "Task | Group | list[Task | Group]") -> "Group":
         """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
         if isinstance(other, list):
             for item in other:
@@ -211,7 +213,7 @@ class Group(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rlshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
+    def __rlshift__(self, other: "Task | Group | list[Task | Group]") -> "Task | Group | list[Task | Group]":
         """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
         if isinstance(other, list):
             for item in other:
@@ -233,27 +235,31 @@ class Task(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    group_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
+    group_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
+    )
     entrypoint: str = Field()
     name: str = Field()
-    kwargs: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    kwargs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    claimed_at: Optional[datetime] = Field(default=None)
-    started_at: Optional[datetime] = Field(default=None)
-    completed_at: Optional[datetime] = Field(default=None)
-    worker_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True))
-    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    log_path: Optional[str] = Field(default=None)
-    error: Optional[str] = Field(default=None)
+    claimed_at: datetime | None = Field(default=None)
+    started_at: datetime | None = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
+    worker_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True)
+    )
+    result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    log_path: str | None = Field(default=None)
+    error: str | None = Field(default=None)
     max_retries: int = Field(default=0)
     attempt: int = Field(default=0)
-    retry_after: Optional[datetime] = Field(default=None)
+    retry_after: datetime | None = Field(default=None)
 
     # Dependencies where this task is the "next" (i.e., this task depends on previous)
     # Note: overlaps="previous_dependencies" tells SQLAlchemy that both Task and Group
     # intentionally write to Dependency.next_id (polymorphic design via next_type)
-    previous_dependencies: Mapped[List[Dependency]] = Relationship(
+    previous_dependencies: Mapped[list[Dependency]] = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Task.id == foreign(Dependency.next_id), Dependency.next_type == 'task')",
             "cascade": "all, delete-orphan",
@@ -261,7 +267,7 @@ class Task(SQLModel, table=True):
         }
     )
 
-    def depends_on(self, other: Union["Task", "Group"]) -> "Task":
+    def depends_on(self, other: "Task | Group") -> "Task":
         """
         Declare that this task depends on another task or group.
 
@@ -282,7 +288,7 @@ class Task(SQLModel, table=True):
         self.previous_dependencies.append(dependency)
         return self
 
-    def __rshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
+    def __rshift__(self, other: "Task | Group | list[Task | Group]") -> "Task | Group | list[Task | Group]":
         """A >> B: B depends on A (A executes before B)."""
         if isinstance(other, list):
             for item in other:
@@ -292,7 +298,7 @@ class Task(SQLModel, table=True):
             other.depends_on(self)
             return other
 
-    def __lshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> "Task":
+    def __lshift__(self, other: "Task | Group | list[Task | Group]") -> "Task":
         """A << B: A depends on B (B executes before A)."""
         if isinstance(other, list):
             for item in other:
@@ -301,7 +307,7 @@ class Task(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rrshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> "Task":
+    def __rrshift__(self, other: "Task | Group | list[Task | Group]") -> "Task":
         """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
         if isinstance(other, list):
             for item in other:
@@ -310,7 +316,7 @@ class Task(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rlshift__(self, other: Union["Task", "Group", List[Union["Task", "Group"]]]) -> Union["Task", "Group", List[Union["Task", "Group"]]]:
+    def __rlshift__(self, other: "Task | Group | list[Task | Group]") -> "Task | Group | list[Task | Group]":
         """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
         if isinstance(other, list):
             for item in other:
@@ -322,4 +328,4 @@ class Task(SQLModel, table=True):
 
 
 # Type alias for tasks/groups that can be applied
-TasksType = Union[Task, Group, List[Union[Task, Group]]]
+TasksType = Union[Task, Group, list[Task | Group]]  # noqa: UP007

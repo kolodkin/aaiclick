@@ -53,20 +53,24 @@ def generate_jsonl() -> None:
 
 
 def generate_parquet() -> None:
-    table = pa.table({
-        "id": pa.array(ids, type=pa.int64()),
-        "price": pa.array(prices, type=pa.float64()),
-        "name": pa.array(names, type=pa.string()),
-    })
+    table = pa.table(
+        {
+            "id": pa.array(ids, type=pa.int64()),
+            "price": pa.array(prices, type=pa.float64()),
+            "name": pa.array(names, type=pa.string()),
+        }
+    )
     pq.write_table(table, OUT_DIR / "sample.parquet")
 
 
 def generate_orc() -> None:
-    table = pa.table({
-        "id": pa.array(ids, type=pa.int64()),
-        "price": pa.array(prices, type=pa.float64()),
-        "name": pa.array(names, type=pa.string()),
-    })
+    table = pa.table(
+        {
+            "id": pa.array(ids, type=pa.int64()),
+            "price": pa.array(prices, type=pa.float64()),
+            "name": pa.array(names, type=pa.string()),
+        }
+    )
     orc.write_table(table, OUT_DIR / "sample.orc")
 
 

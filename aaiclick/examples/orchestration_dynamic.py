@@ -120,9 +120,7 @@ async def amain():
         print(f"Job status: {job1.status}")
         if job1.error:
             print(f"Error: {job1.error}")
-        assert job1.status == JobStatus.COMPLETED, (
-            f"Expected COMPLETED, got {job1.status}: {job1.error}"
-        )
+        assert job1.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {job1.status}: {job1.error}"
 
     print("\n" + "=" * 50)
     print("Dynamic example completed successfully!")

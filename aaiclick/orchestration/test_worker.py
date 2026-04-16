@@ -3,10 +3,10 @@
 import asyncio
 
 import pytest
-
-from aaiclick.backend import is_sqlite
 from sqlalchemy import text
 from sqlmodel import select
+
+from aaiclick.backend import is_sqlite
 
 from ..snowflake_id import get_snowflake_id
 from .claiming import claim_next_task, update_task_status
@@ -143,9 +143,7 @@ async def test_worker_main_loop_executes_tasks(orch_ctx, monkeypatch, tmpdir):
 
     # Verify task was completed
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TaskStatus.COMPLETED
 
@@ -180,9 +178,7 @@ async def test_worker_main_loop_handles_failures(orch_ctx, monkeypatch, tmpdir):
 
     # Verify task was marked as failed
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TaskStatus.FAILED
         assert task.error is not None
@@ -259,11 +255,11 @@ async def test_claim_next_task_skip_locked(orch_ctx):
             break
 
     # Create multiple jobs with tasks
-    job1 = await create_job(
+    await create_job(
         "test_claim_job1",
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
     )
-    job2 = await create_job(
+    await create_job(
         "test_claim_job2",
         "aaiclick.orchestration.fixtures.sample_tasks.async_task",
     )
@@ -314,16 +310,14 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     await update_task_status(task1.id, TaskStatus.COMPLETED)
 
     # Now create a second job (newer)
-    job2 = await create_job(
+    await create_job(
         "test_job_new",
         "aaiclick.orchestration.fixtures.sample_tasks.async_task",
     )
 
     # Add another task to job1 (which is already running)
     # Using standalone apply function
-    extra_task = create_task(
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-    )
+    extra_task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     await commit_tasks(extra_task, job_id=job1.id)
 
     # Claim next task - should prioritize job1 (older running job)
@@ -351,9 +345,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
 
     # Get the initial task created by create_job
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         initial_task = result.scalar_one()
 
     # Create a second task that depends on the first
@@ -403,9 +395,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
 
     # Get initial task
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         initial_task = result.scalar_one()
 
     # Create a group and add initial_task to it

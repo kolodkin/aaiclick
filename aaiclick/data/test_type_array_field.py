@@ -7,7 +7,6 @@ import pytest
 
 from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
-
 # =============================================================================
 # Creation Tests
 # =============================================================================
@@ -15,10 +14,12 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
 async def test_records_with_array_and_scalar_fields(ctx):
     """List of dicts where some fields are arrays, some are scalars."""
-    obj = await create_object_from_value([
-        {"a": [1, 2, 3], "b": 10},
-        {"a": [4, 5, 6], "b": 20},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2, 3], "b": 10},
+            {"a": [4, 5, 6], "b": 20},
+        ]
+    )
 
     data = await obj.data()
 
@@ -29,10 +30,12 @@ async def test_records_with_array_and_scalar_fields(ctx):
 
 async def test_records_with_all_array_fields(ctx):
     """List of dicts where all fields are arrays."""
-    obj = await create_object_from_value([
-        {"x": [1, 2], "y": [3, 4]},
-        {"x": [5, 6], "y": [7, 8]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"x": [1, 2], "y": [3, 4]},
+            {"x": [5, 6], "y": [7, 8]},
+        ]
+    )
 
     data = await obj.data()
 
@@ -42,10 +45,12 @@ async def test_records_with_all_array_fields(ctx):
 
 async def test_records_with_all_scalar_fields(ctx):
     """List of dicts where all fields are scalars (no Array columns)."""
-    obj = await create_object_from_value([
-        {"name": "Alice", "age": 30},
-        {"name": "Bob", "age": 25},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"name": "Alice", "age": 30},
+            {"name": "Bob", "age": 25},
+        ]
+    )
 
     data = await obj.data()
 
@@ -55,9 +60,11 @@ async def test_records_with_all_scalar_fields(ctx):
 
 async def test_records_single_record(ctx):
     """Single record in the list."""
-    obj = await create_object_from_value([
-        {"a": [1, 2, 3], "b": 42},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2, 3], "b": 42},
+        ]
+    )
 
     data = await obj.data()
 
@@ -72,10 +79,12 @@ async def test_records_single_record(ctx):
 
 async def test_records_orient_dict(ctx):
     """data() with orient=ORIENT_DICT returns dict of lists."""
-    obj = await create_object_from_value([
-        {"a": [1, 2], "b": 10},
-        {"a": [3, 4], "b": 20},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2], "b": 10},
+            {"a": [3, 4], "b": 20},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_DICT)
 
@@ -86,10 +95,12 @@ async def test_records_orient_dict(ctx):
 
 async def test_records_orient_records(ctx):
     """data() with orient=ORIENT_RECORDS returns list of dicts."""
-    obj = await create_object_from_value([
-        {"a": [1, 2], "b": 10},
-        {"a": [3, 4], "b": 20},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2], "b": 10},
+            {"a": [3, 4], "b": 20},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
@@ -106,11 +117,13 @@ async def test_records_orient_records(ctx):
 
 async def test_records_different_array_lengths(ctx):
     """Different records can have arrays of different lengths."""
-    obj = await create_object_from_value([
-        {"a": [1, 2, 3], "b": 10},
-        {"a": [4, 5], "b": 20},
-        {"a": [6], "b": 30},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2, 3], "b": 10},
+            {"a": [4, 5], "b": 20},
+            {"a": [6], "b": 30},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
@@ -121,10 +134,12 @@ async def test_records_different_array_lengths(ctx):
 
 async def test_records_empty_array_field(ctx):
     """Record with an empty list field."""
-    obj = await create_object_from_value([
-        {"a": [], "b": 10},
-        {"a": [1, 2], "b": 20},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [], "b": 10},
+            {"a": [1, 2], "b": 20},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
@@ -139,9 +154,11 @@ async def test_records_empty_array_field(ctx):
 
 async def test_records_int_array_field(ctx):
     """Array field with int values creates Array(Int64)."""
-    obj = await create_object_from_value([
-        {"values": [1, 2, 3]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"values": [1, 2, 3]},
+        ]
+    )
 
     schema = obj.schema
     assert schema.columns["values"].type == "Int64"
@@ -150,9 +167,11 @@ async def test_records_int_array_field(ctx):
 
 async def test_records_float_array_field(ctx):
     """Array field with float values creates Array(Float64)."""
-    obj = await create_object_from_value([
-        {"values": [1.5, 2.5, 3.5]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"values": [1.5, 2.5, 3.5]},
+        ]
+    )
 
     schema = obj.schema
     assert schema.columns["values"].type == "Float64"
@@ -161,9 +180,11 @@ async def test_records_float_array_field(ctx):
 
 async def test_records_string_array_field(ctx):
     """Array field with string values creates Array(String)."""
-    obj = await create_object_from_value([
-        {"tags": ["hello", "world"]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"tags": ["hello", "world"]},
+        ]
+    )
 
     schema = obj.schema
     assert schema.columns["tags"].type == "String"
@@ -178,10 +199,12 @@ async def test_records_string_array_field(ctx):
 async def test_records_inconsistent_keys_raises(ctx):
     """Records with different keys should raise ValueError."""
     with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value([
-            {"a": [1, 2], "b": 10},
-            {"a": [3, 4], "c": 20},
-        ])
+        await create_object_from_value(
+            [
+                {"a": [1, 2], "b": 10},
+                {"a": [3, 4], "c": 20},
+            ]
+        )
 
 
 # =============================================================================
@@ -191,10 +214,12 @@ async def test_records_inconsistent_keys_raises(ctx):
 
 async def test_records_schema_fieldtype(ctx):
     """schema reports correct fieldtype for records."""
-    obj = await create_object_from_value([
-        {"a": [1, 2], "b": 10},
-        {"a": [3, 4], "b": 20},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": [1, 2], "b": 10},
+            {"a": [3, 4], "b": 20},
+        ]
+    )
 
     schema = obj.schema
 

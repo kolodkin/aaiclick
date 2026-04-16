@@ -4,11 +4,11 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from aaiclick.orchestration.context import get_orch_session
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution import TaskResult
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
-from aaiclick.orchestration.context import get_orch_session
 
 
 async def test_create_task_basic(orch_ctx):

@@ -1,7 +1,6 @@
 """Atomic task claiming and cancellation for distributed workers."""
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import text
 from sqlmodel import select
@@ -13,7 +12,7 @@ from .models import Job, JobStatus, Task, TaskStatus
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
-async def claim_next_task(worker_id: int) -> Optional[Task]:
+async def claim_next_task(worker_id: int) -> Task | None:
     """
     Atomically claim the next available task for a worker.
 
@@ -45,8 +44,8 @@ async def claim_next_task(worker_id: int) -> Optional[Task]:
 async def update_task_status(
     task_id: int,
     status: TaskStatus,
-    error: Optional[str] = None,
-    result: Optional[dict] = None,
+    error: str | None = None,
+    result: dict | None = None,
 ) -> bool:
     """
     Update a task's status and optional error/result.
@@ -86,7 +85,7 @@ async def update_task_status(
         return True
 
 
-async def update_job_status(job_id: int, status: JobStatus, error: Optional[str] = None) -> bool:
+async def update_job_status(job_id: int, status: JobStatus, error: str | None = None) -> bool:
     """
     Update a job's status.
 
@@ -183,8 +182,6 @@ async def check_task_cancelled(task_id: int) -> bool:
         bool: True if task status is CANCELLED
     """
     async with get_orch_session() as session:
-        result = await session.execute(
-            select(Task.status).where(Task.id == task_id)
-        )
+        result = await session.execute(select(Task.status).where(Task.id == task_id))
         status = result.scalar_one_or_none()
         return status == TaskStatus.CANCELLED

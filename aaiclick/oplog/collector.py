@@ -10,10 +10,7 @@ from datetime import datetime, timezone
 
 from aaiclick.data.ch_client import get_ch_client
 
-
-_oplog_collector: ContextVar[OplogCollector | None] = ContextVar(
-    "oplog_collector", default=None
-)
+_oplog_collector: ContextVar[OplogCollector | None] = ContextVar("oplog_collector", default=None)
 
 
 def get_oplog_collector() -> OplogCollector | None:
@@ -97,16 +94,19 @@ class OplogCollector:
                 "operation_log",
                 rows,
                 column_names=[
-                    "result_table", "operation", "args", "kwargs",
-                    "sql_template", "task_id", "job_id", "created_at",
+                    "result_table",
+                    "operation",
+                    "args",
+                    "kwargs",
+                    "sql_template",
+                    "task_id",
+                    "job_id",
+                    "created_at",
                 ],
             )
 
         if self._table_buffer:
-            table_rows = [
-                [tbl, self.job_id, self.task_id, now]
-                for tbl in self._table_buffer
-            ]
+            table_rows = [[tbl, self.job_id, self.task_id, now] for tbl in self._table_buffer]
             await ch_client.insert(
                 "table_registry",
                 table_rows,

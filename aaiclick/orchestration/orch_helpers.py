@@ -28,8 +28,9 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from math import ceil, log
-from typing import Any, Callable, Dict, Tuple, Union
+from typing import Any
 
 from aaiclick.data.data_context import (
     create_object,
@@ -44,9 +45,13 @@ from .execution import TaskResult
 from .models import Group, Task
 
 
-def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
-        partition: int = 5000,
-        args: Tuple = (), kwargs: Dict[str, Any] = None) -> Group:
+def map(
+    cbk: Callable | TaskFactory,
+    obj: Task | Object,
+    partition: int = 5000,
+    args: tuple = (),
+    kwargs: dict[str, Any] = None,
+) -> Group:
     """Create a parallel map operation over partitions of an Object.
 
     At definition time, creates an expander Task + Group and returns the Group.
@@ -82,9 +87,9 @@ def map(cbk: Union[Callable, TaskFactory], obj: Union[Task, Object],
 
 
 @task
-async def _expand_map(cbk: Callable, obj: Object, partition: int,
-                      group_id: int, cbk_args: list,
-                      cbk_kwargs: dict) -> list:
+async def _expand_map(
+    cbk: Callable, obj: Object, partition: int, group_id: int, cbk_args: list, cbk_kwargs: dict
+) -> list:
     """Expander task: queries Object row count and creates partition tasks.
 
     Runs at execution time. Partitions the Object into Views and creates
@@ -129,8 +134,7 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
 
 
 @task
-async def _map_part(cbk: Callable, part: View, out: Object,
-                   cbk_args: list = None, cbk_kwargs: dict = None) -> None:
+async def _map_part(cbk: Callable, part: View, out: Object, cbk_args: list = None, cbk_kwargs: dict = None) -> None:
     """Apply a callback to each row in a partition View.
 
     Reads rows from the partition, calls cbk(row, *args, **kwargs) for each.
@@ -156,12 +160,12 @@ async def _map_part(cbk: Callable, part: View, out: Object,
 
 
 def reduce(
-    cbk: Union[Callable, TaskFactory],
-    obj: Union[Task, Object],
+    cbk: Callable | TaskFactory,
+    obj: Task | Object,
     *,
     partition: int = 5000,
-    args: Tuple = (),
-    kwargs: Dict[str, Any] = None,
+    args: tuple = (),
+    kwargs: dict[str, Any] = None,
 ) -> Group:
     """Create a layered parallel reduction over an Object.
 
@@ -212,11 +216,11 @@ def _reduce_num_layers(count: int, partition: int) -> int:
 
 def _build_layer_group(
     L: int,
-    src: Union[Object, View],
+    src: Object | View,
     layer_obj: Object,
     src_size: int,
     partition: int,
-    prev_group: "Group | None",
+    prev_group: Group | None,
     cbk: Callable,
     cbk_args: list,
     cbk_kwargs: dict,
@@ -289,9 +293,15 @@ async def _expand_reduce(
     for L in range(num_layers):
         src = obj if L == 0 else layer_objs[L - 1]
         group = _build_layer_group(
-            L, src, layer_objs[L], src_size, partition,
+            L,
+            src,
+            layer_objs[L],
+            src_size,
+            partition,
             all_groups[-1] if all_groups else None,
-            cbk, cbk_args, cbk_kwargs,
+            cbk,
+            cbk_args,
+            cbk_kwargs,
         )
         all_groups.append(group)
         src_size = ceil(src_size / partition)

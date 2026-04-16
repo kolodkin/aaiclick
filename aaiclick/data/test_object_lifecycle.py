@@ -8,7 +8,6 @@ from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 from aaiclick.data.object import Object
 
-
 # Object guard tests
 
 

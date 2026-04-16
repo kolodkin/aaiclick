@@ -7,11 +7,22 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
-from typing import Callable, Awaitable
-
 from ..oplog.collector import oplog_record
 from .data_context import create_object
-from .models import ColumnInfo, ColumnMeta, CopyInfo, Schema, QueryInfo, IngestQueryInfo, FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ValueType, parse_ch_type, INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES
+from .models import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    FLOAT_TYPES,
+    INT_TYPES,
+    NUMERIC_TYPES,
+    ColumnInfo,
+    ColumnMeta,
+    CopyInfo,
+    IngestQueryInfo,
+    Schema,
+    parse_ch_type,
+)
 from .sql_utils import quote_identifier
 
 
@@ -140,7 +151,7 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
     result = await create_object(schema)
 
-    alias = " AS s" if copy_info.source_query.startswith('(') else ""
+    alias = " AS s" if copy_info.source_query.startswith("(") else ""
     insert_query = f"INSERT INTO {result.table} SELECT * FROM {copy_info.source_query}{alias}"
     await ch_client.command(insert_query)
 
@@ -161,13 +172,12 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     Returns:
         Object: New Object instance with copied data
     """
-    alias = " AS v" if copy_info.source_query.startswith('(') else ""
+    alias = " AS v" if copy_info.source_query.startswith("(") else ""
 
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
         new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
+            fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
         )
         result = await create_object(new_schema)
         insert_query = f"""
@@ -209,12 +219,9 @@ async def _insert_source(
         ch_client: ClickHouse client instance.
     """
     col_names = sorted(target_types)
-    cast_exprs = ", ".join(
-        f"CAST({col} AS {target_types[col].ch_type()}) AS {col}"
-        for col in col_names
-    )
+    cast_exprs = ", ".join(f"CAST({col} AS {target_types[col].ch_type()}) AS {col}" for col in col_names)
     insert_cols = ", ".join(["aai_id"] + col_names)
-    if info.source.startswith('('):
+    if info.source.startswith("("):
         select = f"SELECT aai_id, {cast_exprs} FROM {info.source} AS s{alias_index}"
     else:
         select = f"SELECT aai_id, {cast_exprs} FROM {info.source}"
@@ -263,10 +270,7 @@ async def concat_objects_db(
         other_data_cols = sorted(k for k in other_columns if k != "aai_id")
 
         if other_data_cols != data_col_names:
-            raise ValueError(
-                f"concat source {i} has columns {other_data_cols}, "
-                f"expected {data_col_names}"
-            )
+            raise ValueError(f"concat source {i} has columns {other_data_cols}, expected {data_col_names}")
 
         for col_name in data_col_names:
             target_def = result_columns[col_name]
@@ -291,7 +295,11 @@ async def concat_objects_db(
     data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
     for i, info in enumerate(query_infos):
         await _insert_source(
-            result.table, info, data_columns, i, ch_client,
+            result.table,
+            info,
+            data_columns,
+            i,
+            ch_client,
         )
 
     oplog_record(result.table, "concat", args=[info.base_table for info in query_infos])
@@ -327,7 +335,7 @@ async def insert_objects_db(
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
-    target_data_cols = set(k for k in target_columns if k != "aai_id")
+    target_data_cols = {k for k in target_columns if k != "aai_id"}
 
     for i, info in enumerate(source_infos):
         source_columns = info.columns
@@ -348,11 +356,16 @@ async def insert_objects_db(
 
         source_target_types = {col: target_columns[col] for col in col_names}
         await _insert_source(
-            target_info.base_table, info, source_target_types, i, ch_client,
+            target_info.base_table,
+            info,
+            source_target_types,
+            i,
+            ch_client,
         )
 
     for info in source_infos:
         oplog_record(
-            target_info.base_table, "insert",
+            target_info.base_table,
+            "insert",
             kwargs={"source": info.base_table, "target": target_info.base_table},
         )

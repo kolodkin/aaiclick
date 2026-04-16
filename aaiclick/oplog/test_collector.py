@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import data_context, create_object_from_value
 from aaiclick.data.ch_client import create_ch_client
-from aaiclick.oplog.collector import get_oplog_collector, OplogCollector
+from aaiclick.data.data_context import create_object_from_value, data_context
+from aaiclick.oplog.collector import OplogCollector, get_oplog_collector
 
 
 async def test_oplog_lifecycle():
@@ -51,15 +51,16 @@ async def test_flush_on_clean_exit():
 
     ch = await create_ch_client()
 
-    row = (await ch.query(
-        f"SELECT operation, task_id, job_id FROM operation_log "
-        f"WHERE result_table = '{table_name}' LIMIT 1"
-    )).result_rows
+    row = (
+        await ch.query(
+            f"SELECT operation, task_id, job_id FROM operation_log WHERE result_table = '{table_name}' LIMIT 1"
+        )
+    ).result_rows
     assert row and row[0] == ("create_from_value", 42, 99)
 
-    reg = (await ch.query(
-        f"SELECT table_name FROM table_registry WHERE table_name = '{table_name}' LIMIT 1"
-    )).result_rows
+    reg = (
+        await ch.query(f"SELECT table_name FROM table_registry WHERE table_name = '{table_name}' LIMIT 1")
+    ).result_rows
     assert reg
 
 

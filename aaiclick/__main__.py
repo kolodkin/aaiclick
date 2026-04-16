@@ -22,8 +22,8 @@ import asyncio
 import os
 import shutil
 import subprocess
-import urllib.request
 import urllib.error
+import urllib.request
 
 from aaiclick.data.cli import (
     delete_object_cmd,
@@ -363,12 +363,14 @@ def main():
         elif args.job_command == "list":
             from aaiclick.orchestration.cli import show_jobs
 
-            asyncio.run(show_jobs(
-                status=args.status,
-                name_like=args.like,
-                limit=args.limit,
-                offset=args.offset,
-            ))
+            asyncio.run(
+                show_jobs(
+                    status=args.status,
+                    name_like=args.like,
+                    limit=args.limit,
+                    offset=args.offset,
+                )
+            )
 
         else:
             job_parser.print_help()
@@ -384,10 +386,12 @@ def main():
             asyncio.run(delete_object_cmd(args.name))
 
         elif args.data_command == "purge":
-            asyncio.run(delete_objects_cmd(
-                after=args.after,
-                before=args.before,
-            ))
+            asyncio.run(
+                delete_objects_cmd(
+                    after=args.after,
+                    before=args.before,
+                )
+            )
 
         else:
             data_parser.print_help()
