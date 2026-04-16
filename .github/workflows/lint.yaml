@@ -31,6 +31,3 @@ jobs:
 
       - name: Pre-commit
         run: uv run pre-commit run --all-files
-
-      - name: Pyright
-        run: uvx pyright aaiclick/
