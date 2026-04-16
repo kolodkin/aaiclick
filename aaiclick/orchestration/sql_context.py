@@ -14,7 +14,7 @@ from contextvars import ContextVar
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-_sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar('sql_engine', default=None)
+_sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar("sql_engine", default=None)
 
 
 @asynccontextmanager
@@ -22,8 +22,6 @@ async def get_sql_session() -> AsyncIterator[AsyncSession]:
     """Yield an AsyncSession from the active orchestration context engine."""
     engine = _sql_engine_var.get()
     if engine is None:
-        raise RuntimeError(
-            "No active orch_context — use 'async with orch_context()'"
-        )
+        raise RuntimeError("No active orch_context — use 'async with orch_context()'")
     async with AsyncSession(engine, expire_on_commit=False) as session:
         yield session

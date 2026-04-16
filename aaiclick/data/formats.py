@@ -93,9 +93,7 @@ COMPRESSION_SUFFIXES: frozenset[str] = frozenset(_COMPRESSION_OPENERS)
 INPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.input)
 OUTPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.output)
 JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
-EXTENSION_TO_FORMAT: dict[str, str] = {
-    ext: f.name for f in FORMATS for ext in f.extensions if f.output
-}
+EXTENSION_TO_FORMAT: dict[str, str] = {ext: f.name for f in FORMATS for ext in f.extensions if f.output}
 
 
 def format_for_extension(path: str) -> str:

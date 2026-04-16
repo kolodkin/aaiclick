@@ -35,6 +35,7 @@ async def test_str_scalar_creation(ctx, value):
 # Array Tests
 # =============================================================================
 
+
 async def test_str_array_creation(ctx):
     """Test creating a string array object."""
     obj = await create_object_from_value(["apple", "banana", "cherry"])
@@ -76,4 +77,3 @@ async def test_str_array_preserves_order(ctx):
     obj = await create_object_from_value(values)
     data = await obj.data()
     assert data == values  # Order should be preserved
-

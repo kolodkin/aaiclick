@@ -49,8 +49,8 @@ if TYPE_CHECKING:
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
 #   Oplog           → oplog/collector.py (delegates to lifecycle handler)
-_engine_var: ContextVar[EngineType] = ContextVar('engine', default=ENGINE_MEMORY)
-_objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar('objects')
+_engine_var: ContextVar[EngineType] = ContextVar("engine", default=ENGINE_MEMORY)
+_objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar("objects")
 
 
 def get_engine() -> EngineType:
@@ -188,7 +188,7 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-_VALID_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validate_persistent_name(name: str) -> None:
@@ -198,10 +198,7 @@ def _validate_persistent_name(name: str) -> None:
         ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]*
     """
     if not _VALID_NAME_RE.match(name):
-        raise ValueError(
-            f"Invalid persistent name '{name}': "
-            f"must match [a-zA-Z_][a-zA-Z0-9_]*"
-        )
+        raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
 
 
 async def create_object(
@@ -274,7 +271,7 @@ async def create_object(
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
     create_query = f"""
     {create_or} {obj.table} (
-        {', '.join(column_defs)}
+        {", ".join(column_defs)}
     ) {engine_clause}
     """
 
@@ -440,10 +437,7 @@ def _apply_field_specs(
             f"fields references unknown columns: {sorted(unknown)}. "
             f"Available columns: {sorted(c for c in columns if c != 'aai_id')}"
         )
-    return {
-        name: _apply_field_spec(col, fields[name]) if name in fields else col
-        for name, col in columns.items()
-    }
+    return {name: _apply_field_spec(col, fields[name]) if name in fields else col for name, col in columns.items()}
 
 
 def _find_non_empty_nested_sample(records: list, key: str) -> dict:
@@ -483,8 +477,10 @@ async def _create_nested_object(
 
     keys = list(flat.keys())
     await ch.insert(
-        obj.table, [[v] for v in flat.values()],
-        column_names=keys, column_oriented=True,
+        obj.table,
+        [[v] for v in flat.values()],
+        column_names=keys,
+        column_oriented=True,
         column_type_names=[columns[k].ch_type() for k in keys],
     )
 
@@ -529,7 +525,10 @@ async def _create_nested_records_object(
     keys = list(all_flat[0].keys())
     col_data = [[flat[key] for flat in all_flat] for key in keys]
     await ch.insert(
-        obj.table, col_data, column_names=keys, column_oriented=True,
+        obj.table,
+        col_data,
+        column_names=keys,
+        column_oriented=True,
         column_type_names=[columns[k].ch_type() for k in keys],
     )
 
@@ -593,14 +592,12 @@ async def create_object_from_value(
                         array_len = len(value)
                     elif len(value) != array_len:
                         raise ValueError(
-                            f"All arrays must have same length. "
-                            f"Expected {array_len}, got {len(value)} for key '{key}'"
+                            f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
                         )
                     col_def = _infer_clickhouse_type(value)
                 else:
                     raise ValueError(
-                        f"Dict of arrays requires all values to be lists. "
-                        f"Key '{key}' has type {type(value).__name__}"
+                        f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
                     )
                 columns[key] = col_def
 
@@ -612,8 +609,10 @@ async def create_object_from_value(
                 keys = list(val.keys())
                 array_cols: list[list[Any]] = [cast("list[Any]", val[k]) for k in keys]
                 await ch.insert(
-                    obj.table, array_cols,
-                    column_names=keys, column_oriented=True,
+                    obj.table,
+                    array_cols,
+                    column_names=keys,
+                    column_oriented=True,
                     column_type_names=[columns[k].ch_type() for k in keys],
                 )
 
@@ -623,13 +622,17 @@ async def create_object_from_value(
                 columns[key] = _infer_clickhouse_type(value)
 
             columns = _apply_field_specs(columns, fields)
-            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause)
+            schema = Schema(
+                fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause
+            )
             obj = await create_object(schema, name=name)
 
             keys = list(val.keys())
             await ch.insert(
-                obj.table, [[v] for v in val.values()],
-                column_names=keys, column_oriented=True,
+                obj.table,
+                [[v] for v in val.values()],
+                column_names=keys,
+                column_oriented=True,
                 column_type_names=[columns[k].ch_type() for k in keys],
             )
 
@@ -675,7 +678,10 @@ async def create_object_from_value(
 
             col_data: list[list[Any]] = [[record[key] for record in records] for key in keys]
             await ch.insert(
-                obj.table, col_data, column_names=keys, column_oriented=True,
+                obj.table,
+                col_data,
+                column_names=keys,
+                column_oriented=True,
                 column_type_names=[columns[k].ch_type() for k in keys],
             )
         else:
@@ -694,7 +700,10 @@ async def create_object_from_value(
 
             if scalars:
                 await ch.insert(
-                    obj.table, [scalars], column_names=["value"], column_oriented=True,
+                    obj.table,
+                    [scalars],
+                    column_names=["value"],
+                    column_oriented=True,
                     column_type_names=[col_def.ch_type()],
                 )
 
@@ -712,7 +721,10 @@ async def create_object_from_value(
         obj = await create_object(schema, name=name)
 
         await ch.insert(
-            obj.table, [[val]], column_names=["value"], column_oriented=True,
+            obj.table,
+            [[val]],
+            column_names=["value"],
+            column_oriented=True,
             column_type_names=[col_def.ch_type()],
         )
 
@@ -742,10 +754,7 @@ async def open_object(name: str) -> Object:
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
-        raise RuntimeError(
-            f"Persistent object '{name}' does not exist "
-            f"(table {table_name})"
-        )
+        raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     col_fieldtype, columns = await _get_table_schema(table_name, ch)
     is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})

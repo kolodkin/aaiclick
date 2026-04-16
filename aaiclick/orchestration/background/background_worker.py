@@ -154,21 +154,25 @@ class BackgroundWorker:
                 has_retries = task.attempt < task.max_retries
                 if has_retries:
                     retry_after = datetime.utcnow() + timedelta(
-                        seconds=RETRY_BASE_DELAY * (2 ** task.attempt),
+                        seconds=RETRY_BASE_DELAY * (2**task.attempt),
                     )
                     await self._handler.transition_pending_cleanup(
-                        session, task.task_id,
+                        session,
+                        task.task_id,
                         has_retries=True,
                         attempt=task.attempt + 1,
                         retry_after=retry_after,
                     )
                     logger.info(
-                        "Task %s cleaned and scheduled for retry "
-                        "(attempt %d/%d)", task.task_id, task.attempt + 1, task.max_retries,
+                        "Task %s cleaned and scheduled for retry (attempt %d/%d)",
+                        task.task_id,
+                        task.attempt + 1,
+                        task.max_retries,
                     )
                 else:
                     await self._handler.transition_pending_cleanup(
-                        session, task.task_id,
+                        session,
+                        task.task_id,
                         has_retries=False,
                         attempt=task.attempt + 1,
                         retry_after=datetime.utcnow(),
@@ -232,11 +236,7 @@ class BackgroundWorker:
             for table_name in table_names:
                 owner = owner_map.get(table_name)
                 job_id = owner.job_id if owner else None
-                mode = (
-                    mode_map.get(job_id, PreservationMode.NONE)
-                    if job_id is not None
-                    else PreservationMode.NONE
-                )
+                mode = mode_map.get(job_id, PreservationMode.NONE) if job_id is not None else PreservationMode.NONE
                 if mode is PreservationMode.FULL:
                     # Keep the table alive until the job expires.
                     continue
@@ -271,13 +271,9 @@ class BackgroundWorker:
         escaped = ", ".join(f"'{escape_sql_string(t)}'" for t in table_names)
         try:
             result = await self._ch_client.query(
-                f"SELECT table_name, job_id, task_id, run_id FROM table_registry "
-                f"WHERE table_name IN ({escaped})"
+                f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({escaped})"
             )
-            return {
-                row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3])
-                for row in result.result_rows
-            }
+            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.result_rows}
         except Exception:
             logger.debug("Failed to lookup owners from table_registry", exc_info=True)
             return {}
@@ -297,9 +293,7 @@ class BackgroundWorker:
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT id FROM jobs "
-                    "WHERE status IN (:completed, :failed, :cancelled) "
-                    "AND completed_at < :cutoff"
+                    "SELECT id FROM jobs WHERE status IN (:completed, :failed, :cancelled) AND completed_at < :cutoff"
                 ),
                 {
                     "completed": JobStatus.COMPLETED.value,
@@ -325,8 +319,7 @@ class BackgroundWorker:
         # 1. Find all CH tables belonging to this job from table_registry
         try:
             result = await self._ch_client.query(
-                "SELECT DISTINCT table_name FROM table_registry "
-                f"WHERE job_id = {job_id}"
+                f"SELECT DISTINCT table_name FROM table_registry WHERE job_id = {job_id}"
             )
             table_names = [row[0] for row in result.result_rows]
         except Exception:
@@ -342,15 +335,11 @@ class BackgroundWorker:
 
         # 3. Delete operation_log and table_registry entries for this job
         try:
-            await self._ch_client.command(
-                f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}"
-            )
+            await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
         except Exception:
             logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
         try:
-            await self._ch_client.command(
-                f"ALTER TABLE table_registry DELETE WHERE job_id = {job_id}"
-            )
+            await self._ch_client.command(f"ALTER TABLE table_registry DELETE WHERE job_id = {job_id}")
         except Exception:
             logger.debug("Failed to delete table_registry for job %s", job_id, exc_info=True)
 
@@ -468,11 +457,7 @@ class BackgroundWorker:
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text(
-                    "SELECT id FROM workers "
-                    "WHERE status IN ('ACTIVE', 'STOPPING') "
-                    "AND last_heartbeat < :cutoff"
-                ),
+                text("SELECT id FROM workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"),
                 {"cutoff": cutoff},
             )
             dead_worker_ids = [row[0] for row in result.fetchall()]
@@ -555,7 +540,9 @@ class BackgroundWorker:
                         "job_id": job_id,
                         "entrypoint": entrypoint,
                         "name": name,
-                        "kwargs": default_kwargs if isinstance(default_kwargs, str) else (json.dumps(default_kwargs) if default_kwargs else "{}"),
+                        "kwargs": default_kwargs
+                        if isinstance(default_kwargs, str)
+                        else (json.dumps(default_kwargs) if default_kwargs else "{}"),
                         "now": now,
                     },
                 )

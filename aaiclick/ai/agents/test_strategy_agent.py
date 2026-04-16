@@ -65,7 +65,7 @@ async def test_strips_markdown_fences():
     graph = _graph(
         make_oplog_node("t_out", "map", {"source": "p_in"}),
     )
-    fenced = "```json\n{\"p_in\": \"x = 1\"}\n```"
+    fenced = '```json\n{"p_in": "x = 1"}\n```'
     strategy, _ = await _run([fenced], graph)
     assert strategy == {"p_in": "x = 1"}
 
@@ -73,7 +73,8 @@ async def test_strips_markdown_fences():
 async def test_retries_on_malformed_json():
     graph = _graph(make_oplog_node("result", "add", {"source": "p_in"}))
     strategy, provider = await _run(
-        ["not-json-at-all", '{"p_in": "id = 42"}'], graph,
+        ["not-json-at-all", '{"p_in": "id = 42"}'],
+        graph,
     )
     assert strategy == {"p_in": "id = 42"}
     assert provider.query.call_count == 2
@@ -144,7 +145,9 @@ async def test_dry_run_accepts_valid_clauses():
     graph = _graph(make_oplog_node("result", "add", {"source": "p_in"}))
     ch_client = _passing_ch_client()
     strategy, _ = await _run(
-        ['{"p_in": "id = 1"}'], graph, ch_client=ch_client,
+        ['{"p_in": "id = 1"}'],
+        graph,
+        ch_client=ch_client,
     )
     assert strategy == {"p_in": "id = 1"}
     assert "LIMIT 0" in ch_client.query.call_args[0][0]

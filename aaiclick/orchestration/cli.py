@@ -53,7 +53,9 @@ async def show_workers() -> None:
         print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
         print("-" * 80)
         for w in workers:
-            print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
+            print(
+                f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
+            )
 
 
 async def stop_worker_cmd(worker_id_str: str) -> None:
@@ -338,9 +340,7 @@ async def replay_job_cmd(
             name=name,
         )
     replayed = result.job
-    print(
-        f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})"
-    )
+    print(f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})")
 
 
 async def enable_job_cmd(name: str) -> None:

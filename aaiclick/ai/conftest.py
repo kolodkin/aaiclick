@@ -26,12 +26,8 @@ def pytest_collection_modifyitems(config, items):
     """
     # Technical debt: LiteLLM async_success_handler still unawaited on Ollama path
     litellm_warnings = [
-        pytest.mark.filterwarnings(
-            "ignore:coroutine 'Logging.async_success_handler' was never awaited:RuntimeWarning"
-        ),
-        pytest.mark.filterwarnings(
-            "ignore:.*async_success_handler.*:pytest.PytestUnraisableExceptionWarning"
-        ),
+        pytest.mark.filterwarnings("ignore:coroutine 'Logging.async_success_handler' was never awaited:RuntimeWarning"),
+        pytest.mark.filterwarnings("ignore:.*async_success_handler.*:pytest.PytestUnraisableExceptionWarning"),
     ]
     if os.environ.get("AAICLICK_AI_LIVE_TESTS") == "1":
         for item in items:

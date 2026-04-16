@@ -54,7 +54,9 @@ async def example_append():
         {"city": ["Paris", "Berlin"], "pop_m": [11, 4]},
         name="cities",
     )
-    print(f"After append: {await obj.data()}")  # → {'city': ['Tokyo', 'London', 'NYC', 'Paris', 'Berlin'], 'pop_m': [14, 9, 8, 11, 4]}
+    print(
+        f"After append: {await obj.data()}"
+    )  # → {'city': ['Tokyo', 'London', 'NYC', 'Paris', 'Berlin'], 'pop_m': [14, 9, 8, 11, 4]}
 
 
 async def example_list_and_cleanup():

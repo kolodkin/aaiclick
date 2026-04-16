@@ -33,7 +33,7 @@ async def apply_operator(obj_a, obj_b, operator: str):
         case "%":
             return await (obj_a % obj_b)
         case "**":
-            return await (obj_a ** obj_b)
+            return await (obj_a**obj_b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -69,7 +69,6 @@ async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_resu
     assert result_data == expected_result
 
 
-
 # =============================================================================
 # Integer Array Tests
 # =============================================================================
@@ -99,7 +98,6 @@ async def test_int_array_operators(ctx, data_a, data_b, operator, expected_resul
     result_data = await result.data()
 
     assert result_data == expected_result
-
 
 
 # =============================================================================
@@ -133,7 +131,6 @@ async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_re
     assert abs(result_data - expected_result) < THRESHOLD
 
 
-
 # =============================================================================
 # Float Array Tests
 # =============================================================================
@@ -164,7 +161,6 @@ async def test_float_array_operators(ctx, data_a, data_b, operator, expected_res
 
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
-
 
 
 # =============================================================================
@@ -202,7 +198,6 @@ async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_resul
             assert abs(val - expected_result[i]) < THRESHOLD
     else:
         assert abs(result_data - expected_result) < THRESHOLD
-
 
 
 # =============================================================================
@@ -280,4 +275,3 @@ async def test_mul_div_array(ctx, data_a, data_b, operator, expected_result):
     result_data = await result.data()
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
-

@@ -394,5 +394,3 @@ or restating what surrounding prose already says. Collapsible `???` for optional
 !!! info "ClickHouse uses RE2 regex syntax"
     No lookaheads or lookbehinds.
 ```
-
-

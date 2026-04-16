@@ -17,10 +17,12 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
 async def test_nested_single_record(ctx):
     """Single dict with nested list-of-dicts."""
-    obj = await create_object_from_value({
-        "a": 2,
-        "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
-    })
+    obj = await create_object_from_value(
+        {
+            "a": 2,
+            "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}],
+        }
+    )
 
     data = await obj.data()
 
@@ -33,10 +35,12 @@ async def test_nested_single_record(ctx):
 
 async def test_nested_single_record_schema(ctx):
     """Schema uses dot-star notation for nested columns."""
-    obj = await create_object_from_value({
-        "a": 2,
-        "b": [{"c": [1, 2, 3], "d": 5}],
-    })
+    obj = await create_object_from_value(
+        {
+            "a": 2,
+            "b": [{"c": [1, 2, 3], "d": 5}],
+        }
+    )
 
     schema = obj.schema
     assert "a" in schema.columns
@@ -56,10 +60,12 @@ async def test_nested_single_record_schema(ctx):
 
 async def test_nested_multiple_records(ctx):
     """List of dicts with nested list-of-dicts."""
-    obj = await create_object_from_value([
-        {"a": 2, "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}]},
-        {"a": 3, "b": [{"c": [7, 8, 9], "d": 15}]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": 2, "b": [{"c": [1, 2, 3], "d": 5}, {"c": [4, 5, 6], "d": 10}]},
+            {"a": 3, "b": [{"c": [7, 8, 9], "d": 15}]},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
@@ -75,10 +81,12 @@ async def test_nested_multiple_records(ctx):
 
 async def test_nested_records_orient_dict(ctx):
     """Orient dict transposes nested records."""
-    obj = await create_object_from_value([
-        {"a": 1, "b": [{"x": 10}]},
-        {"a": 2, "b": [{"x": 20}]},
-    ])
+    obj = await create_object_from_value(
+        [
+            {"a": 1, "b": [{"x": 10}]},
+            {"a": 2, "b": [{"x": 20}]},
+        ]
+    )
 
     data = await obj.data(orient=ORIENT_DICT)
 
@@ -93,10 +101,12 @@ async def test_nested_records_orient_dict(ctx):
 
 async def test_nested_scalar_sub_fields(ctx):
     """Nested objects with only scalar fields."""
-    obj = await create_object_from_value({
-        "name": "test",
-        "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": "test",
+            "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+        }
+    )
 
     data = await obj.data()
 
@@ -111,13 +121,15 @@ async def test_nested_scalar_sub_fields(ctx):
 
 async def test_nested_array_sub_fields(ctx):
     """Nested objects with array fields stored as Array(Array(T))."""
-    obj = await create_object_from_value({
-        "id": 1,
-        "groups": [
-            {"tags": ["a", "b"], "score": 10},
-            {"tags": ["c"], "score": 20},
-        ],
-    })
+    obj = await create_object_from_value(
+        {
+            "id": 1,
+            "groups": [
+                {"tags": ["a", "b"], "score": 10},
+                {"tags": ["c"], "score": 20},
+            ],
+        }
+    )
 
     data = await obj.data()
 
@@ -135,10 +147,12 @@ async def test_nested_array_sub_fields(ctx):
 
 async def test_nested_single_element_array(ctx):
     """Nested array with a single element."""
-    obj = await create_object_from_value({
-        "a": 1,
-        "b": [{"c": 10}],
-    })
+    obj = await create_object_from_value(
+        {
+            "a": 1,
+            "b": [{"c": 10}],
+        }
+    )
 
     data = await obj.data()
 
@@ -167,10 +181,12 @@ async def test_nested_many_elements(ctx):
 async def test_nested_records_inconsistent_keys_raises(ctx):
     """Records with different keys should raise ValueError."""
     with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value([
-            {"a": 1, "b": [{"x": 10}]},
-            {"a": 2, "c": [{"x": 20}]},
-        ])
+        await create_object_from_value(
+            [
+                {"a": 1, "b": [{"x": 10}]},
+                {"a": 2, "c": [{"x": 20}]},
+            ]
+        )
 
 
 # =============================================================================
@@ -180,19 +196,21 @@ async def test_nested_records_inconsistent_keys_raises(ctx):
 
 async def test_deep_nested_two_levels(ctx):
     """Two levels of nested list-of-dicts."""
-    obj = await create_object_from_value({
-        "root": 1,
-        "level1": [
-            {
-                "name": "first",
-                "level2": [{"val": 10}, {"val": 20}],
-            },
-            {
-                "name": "second",
-                "level2": [{"val": 30}],
-            },
-        ],
-    })
+    obj = await create_object_from_value(
+        {
+            "root": 1,
+            "level1": [
+                {
+                    "name": "first",
+                    "level2": [{"val": 10}, {"val": 20}],
+                },
+                {
+                    "name": "second",
+                    "level2": [{"val": 30}],
+                },
+            ],
+        }
+    )
 
     data = await obj.data()
 

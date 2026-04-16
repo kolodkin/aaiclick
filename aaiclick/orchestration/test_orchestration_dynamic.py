@@ -41,7 +41,9 @@ async def row_writer_with_factor(row, factor: int, output_file: str):
 def map_basic_pipeline(output_file: str):
     data = create_test_data()
     group = map(
-        cbk=row_writer, obj=data, partition=5000,
+        cbk=row_writer,
+        obj=data,
+        partition=5000,
         kwargs={"output_file": output_file},
     )
     return tasks_list(data, group)
@@ -51,7 +53,9 @@ def map_basic_pipeline(output_file: str):
 def map_kwargs_pipeline(output_file: str, factor: int):
     data = create_test_data()
     group = map(
-        cbk=row_writer_with_factor, obj=data, partition=5000,
+        cbk=row_writer_with_factor,
+        obj=data,
+        partition=5000,
         kwargs={"factor": factor, "output_file": output_file},
     )
     return tasks_list(data, group)
@@ -61,7 +65,9 @@ def map_kwargs_pipeline(output_file: str, factor: int):
 def map_partitions_pipeline(output_file: str):
     data = create_test_data()
     group = map(
-        cbk=row_writer, obj=data, partition=2,
+        cbk=row_writer,
+        obj=data,
+        partition=2,
         kwargs={"output_file": output_file},
     )
     return tasks_list(data, group)

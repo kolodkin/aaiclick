@@ -426,9 +426,7 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
 
     child = create_task("mod.child")
 
-    data_result = await register_returned_tasks(
-        tasks_list(child), parent_task_id=parent.id, job_id=job.id
-    )
+    data_result = await register_returned_tasks(tasks_list(child), parent_task_id=parent.id, job_id=job.id)
     assert data_result is None
 
     db_child = await get_task(child.id)
@@ -483,9 +481,7 @@ async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
 
         # Verify entry point task was created
         async with get_sql_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
             assert tasks[0].name == "dynamic_pipeline"
@@ -504,9 +500,7 @@ async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
 
         # Entry point + 2 child tasks = 3 tasks total
         async with get_sql_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id).order_by(Task.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 3
 
@@ -533,9 +527,7 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
 
         # chain_pipeline -> step_one -> step_two = 3 tasks
         async with get_sql_session() as session:
-            result = await session.execute(
-                select(Task).where(Task.job_id == job.id).order_by(Task.id)
-            )
+            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 3
 

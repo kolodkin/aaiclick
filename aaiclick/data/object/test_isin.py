@@ -75,10 +75,12 @@ async def test_isin_with_python_list_ints(ctx):
 
 async def test_isin_dict_column(ctx):
     """isin() on a selected column from a dict Object."""
-    obj = await create_object_from_value({
-        "category": ["a", "b", "c", "d"],
-        "value": [1, 2, 3, 4],
-    })
+    obj = await create_object_from_value(
+        {
+            "category": ["a", "b", "c", "d"],
+            "value": [1, 2, 3, 4],
+        }
+    )
     allowed = await create_object_from_value(["a", "c"])
     result = await obj["category"].isin(allowed)
     assert await result.data() == [1, 0, 1, 0]
@@ -95,10 +97,12 @@ async def test_isin_result_chainable(ctx):
 
 async def test_isin_with_view_source(ctx):
     """isin() works when source is a View with WHERE constraint."""
-    obj = await create_object_from_value({
-        "name": ["alice", "bob", "charlie", "dave"],
-        "score": [90, 80, 70, 60],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": ["alice", "bob", "charlie", "dave"],
+            "score": [90, 80, 70, 60],
+        }
+    )
     allowed = await create_object_from_value(["alice", "charlie", "dave"])
     # Filter to score >= 70, then check isin
     view = obj.where("score >= 70")
@@ -109,10 +113,12 @@ async def test_isin_with_view_source(ctx):
 async def test_isin_with_view_allowed(ctx):
     """isin() works when the allowed set is a View (filtered Object)."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    allowed_obj = await create_object_from_value({
-        "value": [1, 2, 3, 10, 20],
-        "active": [1, 0, 1, 1, 0],
-    })
+    allowed_obj = await create_object_from_value(
+        {
+            "value": [1, 2, 3, 10, 20],
+            "active": [1, 0, 1, 1, 0],
+        }
+    )
     # Only allow values where active=1
     allowed_view = allowed_obj.where("active = 1")["value"]
     result = await obj.isin(allowed_view)
@@ -126,10 +132,12 @@ async def test_isin_with_view_allowed(ctx):
 
 async def test_with_isin_basic(ctx):
     """with_isin() adds a boolean column indicating membership."""
-    obj = await create_object_from_value({
-        "category": ["a", "b", "c", "d"],
-        "value": [1, 2, 3, 4],
-    })
+    obj = await create_object_from_value(
+        {
+            "category": ["a", "b", "c", "d"],
+            "value": [1, 2, 3, 4],
+        }
+    )
     allowed = await create_object_from_value(["a", "c"])
     view = obj.with_isin("category", allowed)
     result = await view.data()
@@ -140,10 +148,12 @@ async def test_with_isin_basic(ctx):
 
 async def test_with_isin_custom_alias(ctx):
     """with_isin() respects alias parameter."""
-    obj = await create_object_from_value({
-        "name": ["alice", "bob"],
-        "age": [30, 25],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": ["alice", "bob"],
+            "age": [30, 25],
+        }
+    )
     allowed = await create_object_from_value(["alice"])
     view = obj.with_isin("name", allowed, alias="is_allowed")
     result = await view.data()
@@ -152,10 +162,12 @@ async def test_with_isin_custom_alias(ctx):
 
 async def test_with_isin_chained_with_where(ctx):
     """with_isin() result can be filtered with where()."""
-    obj = await create_object_from_value({
-        "category": ["a", "b", "c", "d"],
-        "value": [10, 20, 30, 40],
-    })
+    obj = await create_object_from_value(
+        {
+            "category": ["a", "b", "c", "d"],
+            "value": [10, 20, 30, 40],
+        }
+    )
     allowed = await create_object_from_value(["a", "c"])
     view = obj.with_isin("category", allowed, alias="is_in")
     filtered = view.where("is_in = 1")
@@ -166,25 +178,29 @@ async def test_with_isin_chained_with_where(ctx):
 
 async def test_with_isin_chained_with_group_by(ctx):
     """with_isin() column works with group_by()."""
-    obj = await create_object_from_value({
-        "category": ["a", "b", "a", "c"],
-        "amount": [10, 20, 30, 40],
-    })
+    obj = await create_object_from_value(
+        {
+            "category": ["a", "b", "a", "c"],
+            "amount": [10, 20, 30, 40],
+        }
+    )
     allowed = await create_object_from_value(["a"])
     view = obj.with_isin("category", allowed, alias="is_target")
     result = await view.group_by("is_target").sum("amount")
     data = await result.data(orient=ORIENT_RECORDS)
     by_flag = {row["is_target"]: row["amount"] for row in data}
-    assert by_flag[1] == 40   # a: 10+30
-    assert by_flag[0] == 60   # b: 20 + c: 40
+    assert by_flag[1] == 40  # a: 10+30
+    assert by_flag[0] == 60  # b: 20 + c: 40
 
 
 async def test_with_isin_on_view(ctx):
     """with_isin() works on a View (not just Object)."""
-    obj = await create_object_from_value({
-        "name": ["alice", "bob", "charlie"],
-        "score": [90, 80, 70],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": ["alice", "bob", "charlie"],
+            "score": [90, 80, 70],
+        }
+    )
     allowed = await create_object_from_value(["alice", "charlie"])
     view = obj.where("score >= 80").with_isin("name", allowed, alias="in_list")
     result = await view.data()

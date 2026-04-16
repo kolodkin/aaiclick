@@ -37,11 +37,13 @@ ROWS = list(zip(ids, prices, names, strict=False))
 
 
 def _arrow_table() -> pa.Table:
-    return pa.table({
-        "id": pa.array(ids, type=pa.int64()),
-        "price": pa.array(prices, type=pa.float64()),
-        "name": pa.array(names, type=pa.string()),
-    })
+    return pa.table(
+        {
+            "id": pa.array(ids, type=pa.int64()),
+            "price": pa.array(prices, type=pa.float64()),
+            "name": pa.array(names, type=pa.string()),
+        }
+    )
 
 
 def _write_csv(path: Path, header: list[list[str]]) -> None:
@@ -134,10 +136,7 @@ def generate_avro() -> None:
     session = get_shared_session()
     table = _arrow_table()  # noqa: F841 — referenced by chdb's Python() table function
     safe_path = str(avro_path).replace("'", "\\'")
-    session.query(
-        f"INSERT INTO FUNCTION file('{safe_path}', 'Avro') "
-        "SELECT * FROM Python(table)"
-    )
+    session.query(f"INSERT INTO FUNCTION file('{safe_path}', 'Avro') SELECT * FROM Python(table)")
 
 
 if __name__ == "__main__":

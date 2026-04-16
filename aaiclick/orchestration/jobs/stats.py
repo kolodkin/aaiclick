@@ -78,14 +78,16 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
         if t.started_at and t.completed_at:
             exec_time = t.completed_at - t.started_at
 
-        task_stats.append(TaskStats(
-            id=t.id,
-            entrypoint=_short_entrypoint(t.entrypoint),
-            status=t.status.value,
-            queue_time=queue_time,
-            exec_time=exec_time,
-            error=t.error,
-        ))
+        task_stats.append(
+            TaskStats(
+                id=t.id,
+                entrypoint=_short_entrypoint(t.entrypoint),
+                status=t.status.value,
+                queue_time=queue_time,
+                exec_time=exec_time,
+                error=t.error,
+            )
+        )
 
     wall_time = None
     if job.created_at and job.completed_at:

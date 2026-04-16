@@ -61,7 +61,7 @@ class ChClient(Protocol):
     ) -> None: ...
 
 
-_ch_client_var: ContextVar[ChClient | None] = ContextVar('ch_client', default=None)
+_ch_client_var: ContextVar[ChClient | None] = ContextVar("ch_client", default=None)
 
 # VS Code's debug console evaluates each `await` in a fresh Python Context, so
 # ContextVar-bound clients are invisible. Setting AAICLICK_DEBUGGER=1 enables a
@@ -83,8 +83,7 @@ def get_ch_client() -> ChClient:
         client = _debug_ch_client
     if client is None:
         raise RuntimeError(
-            "No active data or orch context — "
-            "use 'async with data_context()' or 'async with orch_context()'"
+            "No active data or orch context — use 'async with data_context()' or 'async with orch_context()'"
         )
     return client
 
@@ -110,9 +109,7 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     client = get_ch_client()
     if is_chdb():
         safe_path = abs_path.replace("'", "\\'")
-        await client.command(
-            f"INSERT INTO FUNCTION file('{safe_path}', '{fmt}') {query}"
-        )
+        await client.command(f"INSERT INTO FUNCTION file('{safe_path}', '{fmt}') {query}")
         return abs_path
 
     stream = await client.raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]

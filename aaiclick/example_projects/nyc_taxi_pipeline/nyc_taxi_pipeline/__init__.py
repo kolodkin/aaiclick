@@ -38,16 +38,16 @@ NYC_TAXI_2023_02 = f"{NYC_TAXI_BASE_URL}/yellow_tripdata_2023-02.parquet"
 # Columns to load from NYC taxi data
 # Full schema: https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf
 TAXI_COLUMNS = [
-    "tpep_pickup_datetime",   # Pickup timestamp
+    "tpep_pickup_datetime",  # Pickup timestamp
     "tpep_dropoff_datetime",  # Dropoff timestamp
-    "passenger_count",        # Number of passengers
-    "trip_distance",          # Trip distance in miles
-    "PULocationID",           # Pickup location zone ID
-    "DOLocationID",           # Dropoff location zone ID
-    "payment_type",           # 1=Credit, 2=Cash, 3=No charge, 4=Dispute
-    "fare_amount",            # Base fare
-    "tip_amount",             # Tip (credit card only)
-    "total_amount",           # Total charged
+    "passenger_count",  # Number of passengers
+    "trip_distance",  # Trip distance in miles
+    "PULocationID",  # Pickup location zone ID
+    "DOLocationID",  # Dropoff location zone ID
+    "payment_type",  # 1=Credit, 2=Cash, 3=No charge, 4=Dispute
+    "fare_amount",  # Base fare
+    "tip_amount",  # Tip (credit card only)
+    "total_amount",  # Total charged
 ]
 
 
@@ -187,12 +187,14 @@ async def analyze_by_pickup_zone(trips: Object) -> Object:
 
     Returns Dict Object with zone-level statistics.
     """
-    result = await trips.group_by("PULocationID").agg({
-        "fare_amount": "sum",
-        "tip_amount": "sum",
-        "trip_distance": "mean",
-        "total_amount": "sum",
-    })
+    result = await trips.group_by("PULocationID").agg(
+        {
+            "fare_amount": "sum",
+            "tip_amount": "sum",
+            "trip_distance": "mean",
+            "total_amount": "sum",
+        }
+    )
     return result
 
 
@@ -203,12 +205,14 @@ async def analyze_by_payment_type(trips: Object) -> Object:
 
     Payment types: 1=Credit, 2=Cash, 3=No charge, 4=Dispute, 5=Unknown, 6=Voided
     """
-    result = await trips.group_by("payment_type").agg({
-        "fare_amount": "mean",
-        "tip_amount": "mean",
-        "trip_distance": "mean",
-        "total_amount": "sum",
-    })
+    result = await trips.group_by("payment_type").agg(
+        {
+            "fare_amount": "mean",
+            "tip_amount": "mean",
+            "trip_distance": "mean",
+            "total_amount": "sum",
+        }
+    )
     return result
 
 
@@ -217,11 +221,13 @@ async def analyze_by_passenger_count(trips: Object) -> Object:
     """
     Group by passenger count - analyze trip patterns by group size.
     """
-    result = await trips.group_by("passenger_count").agg({
-        "fare_amount": "mean",
-        "trip_distance": "mean",
-        "total_amount": "sum",
-    })
+    result = await trips.group_by("passenger_count").agg(
+        {
+            "fare_amount": "mean",
+            "trip_distance": "mean",
+            "total_amount": "sum",
+        }
+    )
     return result
 
 
@@ -235,11 +241,13 @@ async def find_top_revenue_zones(trips: Object, min_revenue: float = 100000) -> 
     result = await (
         trips.group_by("PULocationID")
         .having(f"sum(total_amount) > {min_revenue}")
-        .agg({
-            "total_amount": "sum",
-            "fare_amount": "sum",
-            "tip_amount": "sum",
-        })
+        .agg(
+            {
+                "total_amount": "sum",
+                "fare_amount": "sum",
+                "tip_amount": "sum",
+            }
+        )
     )
     return result
 

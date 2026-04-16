@@ -138,9 +138,7 @@ async def test_cancel_preserves_completed_tasks(orch_ctx):
     await cancel_job(job.id)
 
     async with get_sql_session() as session:
-        tasks = (await session.execute(
-            select(Task).where(Task.job_id == job.id).order_by(Task.id)
-        )).scalars().all()
+        tasks = (await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))).scalars().all()
 
         statuses = [t.status for t in tasks]
         assert TaskStatus.COMPLETED in statuses

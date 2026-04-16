@@ -105,6 +105,7 @@ VIEW = "view"
 
 # --- Pydantic models ---------------------------------------------------
 
+
 class _FrozenRef(BaseModel):
     """Shared config: refs are immutable value objects."""
 
@@ -204,6 +205,7 @@ class ViewRef(_FrozenRef):
 
 # --- Constructors (thin wrappers around the models) -------------------
 
+
 def upstream_ref(task_id: int) -> dict[str, Any]:
     """Build an upstream task reference dict."""
     return UpstreamRef(task_id=task_id).to_dict()
@@ -225,6 +227,7 @@ def native_value_ref(value: Any) -> dict[str, Any]:
 
 
 # --- Predicates --------------------------------------------------------
+
 
 def is_upstream_ref(value: Any) -> bool:
     """True iff ``value`` is an upstream task reference dict."""

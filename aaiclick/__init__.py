@@ -73,8 +73,5 @@ async def explain(target_table: str, question: str | None = None) -> str:
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
     except ImportError as err:
-        raise ImportError(
-            "AI features require the aaiclick[ai] extra. "
-            "Install with: pip install aaiclick[ai]"
-        ) from err
+        raise ImportError("AI features require the aaiclick[ai] extra. Install with: pip install aaiclick[ai]") from err
     return await explain_lineage(target_table, question)

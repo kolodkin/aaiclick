@@ -83,10 +83,12 @@ async def profile_raw(raw: Object) -> RawProfile:
     All aggregations run inside ClickHouse — Python only receives the
     small summary dict.
     """
-    counts_obj = await raw.count_if({
-        "total": "1",
-        "adult_count": "isAdult = '1'",
-    })
+    counts_obj = await raw.count_if(
+        {
+            "total": "1",
+            "adult_count": "isAdult = '1'",
+        }
+    )
     counts = await counts_obj.data()
     total = counts["total"]
     adult_count = counts["adult_count"]
@@ -135,16 +137,20 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
     missing_runtime = await missing_obj.data()
 
     # Add typed columns to count range violations
-    typed = movies.with_columns({
-        "year_int":    cast("startYear", "UInt32"),
-        "runtime_int": cast("runtimeMinutes", "UInt32"),
-    })
+    typed = movies.with_columns(
+        {
+            "year_int": cast("startYear", "UInt32"),
+            "runtime_int": cast("runtimeMinutes", "UInt32"),
+        }
+    )
 
-    range_counts = await typed.count_if({
-        "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
-        "long_runtime":  r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
-        "pre_1970":      "toUInt32OrNull(startYear) < 1970",
-    })
+    range_counts = await typed.count_if(
+        {
+            "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
+            "long_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
+            "pre_1970": "toUInt32OrNull(startYear) < 1970",
+        }
+    )
     range_data = await range_counts.data()
 
     return QualityIssues(
@@ -167,9 +173,9 @@ async def normalize_genres(movies: Object) -> Object:
     explode() to produce one row per genre. Adult genre entries are
     filtered out. Result is materialized for downstream analysis.
     """
-    exploded = movies.with_split_by_char(
-        "genres", ",", element_type="LowCardinality(String)", alias="genre"
-    ).explode("genre")
+    exploded = movies.with_split_by_char("genres", ",", element_type="LowCardinality(String)", alias="genre").explode(
+        "genre"
+    )
     return await exploded.copy()
 
 
@@ -193,10 +199,12 @@ async def build_clean_dataset(movies: Object) -> Object:
     filters to post-1970 movies, excludes Adult-genre movies. Returns the
     clean (tconst, primaryTitle, startYear, genres, runtimeMinutes) subset.
     """
-    typed = movies.with_columns({
-        "year_int":    cast("startYear", "UInt32"),
-        "runtime_int": cast("runtimeMinutes", "UInt32"),
-    })
+    typed = movies.with_columns(
+        {
+            "year_int": cast("startYear", "UInt32"),
+            "runtime_int": cast("runtimeMinutes", "UInt32"),
+        }
+    )
     clean = typed.where(r"runtimeMinutes != '\N'")
     clean = clean.where("runtime_int >= 40")
     clean = clean.where("runtime_int <= 300")
@@ -305,11 +313,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
 
     hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
 
-    export_formats = [
-        f.strip().lower()
-        for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",")
-        if f.strip()
-    ]
+    export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
     exports = (
         export_dataset(clean=clean, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
         if export_formats

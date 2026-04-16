@@ -163,9 +163,7 @@ async def test_field_spec_nullable_insert_and_read_null(ctx):
         fields={"score": FieldSpec(nullable=True)},
     )
     ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {obj.table} (name, score) VALUES ('carol', NULL)"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (name, score) VALUES ('carol', NULL)")
     data = await obj.data()
     assert data["name"] == ["alice", "bob", "carol"]
     assert None in data["score"]

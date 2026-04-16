@@ -522,12 +522,14 @@ def main():
         elif args.job_command == "list":
             from aaiclick.orchestration.cli import show_jobs
 
-            asyncio.run(show_jobs(
-                status=args.status,
-                name_like=args.like,
-                limit=args.limit,
-                offset=args.offset,
-            ))
+            asyncio.run(
+                show_jobs(
+                    status=args.status,
+                    name_like=args.like,
+                    limit=args.limit,
+                    offset=args.offset,
+                )
+            )
 
         elif args.job_command == "enable":
             from aaiclick.orchestration.cli import enable_job_cmd
@@ -545,33 +547,39 @@ def main():
     elif args.command == "register-job":
         from aaiclick.orchestration.cli import register_job_cmd
 
-        asyncio.run(register_job_cmd(
-            args.entrypoint,
-            name=args.name,
-            schedule=args.schedule,
-            kwargs_json=args.kwargs,
-            preservation_mode=args.preservation_mode,
-            sampling_strategy_json=args.sampling_strategy,
-        ))
+        asyncio.run(
+            register_job_cmd(
+                args.entrypoint,
+                name=args.name,
+                schedule=args.schedule,
+                kwargs_json=args.kwargs,
+                preservation_mode=args.preservation_mode,
+                sampling_strategy_json=args.sampling_strategy,
+            )
+        )
 
     elif args.command == "run-job":
         from aaiclick.orchestration.cli import run_job_cmd
 
-        asyncio.run(run_job_cmd(
-            args.name,
-            kwargs_json=args.kwargs,
-            preservation_mode=args.preservation_mode,
-            sampling_strategy_json=args.sampling_strategy,
-        ))
+        asyncio.run(
+            run_job_cmd(
+                args.name,
+                kwargs_json=args.kwargs,
+                preservation_mode=args.preservation_mode,
+                sampling_strategy_json=args.sampling_strategy,
+            )
+        )
 
     elif args.command == "replay":
         from aaiclick.orchestration.cli import replay_job_cmd
 
-        asyncio.run(replay_job_cmd(
-            args.job_id,
-            sampling_strategy_json=args.sampling_strategy,
-            name=args.name,
-        ))
+        asyncio.run(
+            replay_job_cmd(
+                args.job_id,
+                sampling_strategy_json=args.sampling_strategy,
+                name=args.name,
+            )
+        )
 
     elif args.command == "registered-job":
         from aaiclick.orchestration.cli import show_registered_jobs
@@ -593,10 +601,12 @@ def main():
             asyncio.run(delete_object_cmd(args.name))
 
         elif args.data_command == "purge":
-            asyncio.run(delete_objects_cmd(
-                after=args.after,
-                before=args.before,
-            ))
+            asyncio.run(
+                delete_objects_cmd(
+                    after=args.after,
+                    before=args.before,
+                )
+            )
 
         else:
             data_parser.print_help()

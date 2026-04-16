@@ -16,7 +16,9 @@ class SqliteBackgroundHandler(BackgroundHandler):
 
     @staticmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
+        session: AsyncSession,
+        dead_worker_ids: list[int],
+        now: datetime,
     ) -> None:
         placeholders, params = in_clause(dead_worker_ids, "wid")
         params["now"] = now
@@ -53,10 +55,12 @@ class SqliteBackgroundHandler(BackgroundHandler):
             ),
         )
         return [
-            PendingCleanupTask._make((
-                *row[:4],
-                row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                *row[5:],
-            ))
+            PendingCleanupTask._make(
+                (
+                    *row[:4],
+                    row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                    *row[5:],
+                )
+            )
             for row in result.fetchall()
         ]

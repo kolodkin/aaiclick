@@ -133,19 +133,14 @@ def make_benchmarks(filter_threshold):
             "CREATE TABLE {tbl} (category String, amount_sum Float64,"
             " amount_mean Float64, amount_min Float64, amount_max Float64)"
             " ENGINE = Memory",
-            "SELECT category, sum(amount), avg(amount), min(amount), max(amount)"
-            " FROM bench.data GROUP BY category",
+            "SELECT category, sum(amount), avg(amount), min(amount), max(amount) FROM bench.data GROUP BY category",
         ),
         "Multi-key group-by": lambda s: _create_and_insert(
-            "CREATE TABLE {tbl} (category String, subcategory String,"
-            " amount Float64) ENGINE = Memory",
-            "SELECT category, subcategory, sum(amount) FROM bench.data"
-            " GROUP BY category, subcategory",
+            "CREATE TABLE {tbl} (category String, subcategory String, amount Float64) ENGINE = Memory",
+            "SELECT category, subcategory, sum(amount) FROM bench.data GROUP BY category, subcategory",
         ),
         "High-card group-by": lambda s: _create_and_insert(
-            "CREATE TABLE {tbl} (subcategory String, amount Float64)"
-            " ENGINE = Memory",
-            "SELECT subcategory, sum(amount) FROM bench.data"
-            " GROUP BY subcategory",
+            "CREATE TABLE {tbl} (subcategory String, amount Float64) ENGINE = Memory",
+            "SELECT subcategory, sum(amount) FROM bench.data GROUP BY subcategory",
         ),
     }

@@ -94,13 +94,13 @@ async def debug_result(
     # context, so skip the tool-call loop entirely. Weak models otherwise
     # waste rounds on redundant tool calls against a large context.
     if forest_text:
-        response = await provider.complete([
-            {"role": "system", "content": _SYSTEM_PROMPT_WITH_FOREST},
-            {"role": "user", "content": user_content},
-        ])
-        return OplogGraph.replace_labels(
-            response.choices[0].message.content or "", labels
+        response = await provider.complete(
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT_WITH_FOREST},
+                {"role": "user", "content": user_content},
+            ]
         )
+        return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -115,29 +115,32 @@ async def debug_result(
         if choice.finish_reason != "tool_calls" or not message.tool_calls:
             return OplogGraph.replace_labels(message.content or "", labels)
 
-        messages.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in message.tool_calls
-            ],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in message.tool_calls
+                ],
+            }
+        )
 
         tool_results = await asyncio.gather(
-            *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments))
-              for tc in message.tool_calls)
+            *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments)) for tc in message.tool_calls)
         )
         for tc, result in zip(message.tool_calls, tool_results, strict=False):
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                }
+            )
 
     messages.append({"role": "user", "content": "Please provide your final answer."})
     response = await provider.complete(messages)

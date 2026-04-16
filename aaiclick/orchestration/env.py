@@ -36,7 +36,4 @@ def get_default_preservation_mode() -> PreservationMode:
         return PreservationMode(raw.upper())
     except ValueError:
         accepted = ", ".join(m.value for m in PreservationMode)
-        raise ValueError(
-            f"Invalid AAICLICK_DEFAULT_PRESERVATION_MODE={raw!r}. "
-            f"Accepted values: {accepted}"
-        ) from None
+        raise ValueError(f"Invalid AAICLICK_DEFAULT_PRESERVATION_MODE={raw!r}. Accepted values: {accepted}") from None

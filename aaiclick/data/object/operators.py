@@ -134,14 +134,10 @@ OPERATOR_EXPRESSIONS = {
 
 async def _validate_array_lengths(source_a, source_b, ch_client):
     """Validate two plain-table sources have equal row counts."""
-    result = await ch_client.query(
-        f"SELECT (SELECT count() FROM {source_a}), (SELECT count() FROM {source_b})"
-    )
+    result = await ch_client.query(f"SELECT (SELECT count() FROM {source_a}), (SELECT count() FROM {source_b})")
     cnt_a, cnt_b = result.result_rows[0]
     if cnt_a != cnt_b:
-        raise ValueError(
-            f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements"
-        )
+        raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
 
 async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client):
@@ -205,9 +201,7 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
         cnt_a, cnt_b = result.result_rows[0]
         if cnt_a != cnt_b:
             await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
-            raise ValueError(
-                f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements"
-            )
+            raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
     return temp_table
 
@@ -243,7 +237,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     schema = Schema(
         fieldtype=fieldtype,
         col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
     )
 
     # Create result object with schema
@@ -281,8 +275,10 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
 
             if either_is_view:
                 temp_table = await _materialize_array_join(
-                    info_a.source, info_a.value_type,
-                    info_b.source, info_b.value_type,
+                    info_a.source,
+                    info_a.value_type,
+                    info_b.source,
+                    info_b.value_type,
                     ch_client,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
@@ -446,7 +442,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
         col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
@@ -470,6 +466,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 
 
 # Aggregation Operators
+
 
 async def min_agg(info: QueryInfo, ch_client):
     """
@@ -599,10 +596,7 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
             columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
         )
         result = await create_object(schema)
-        query = (
-            f"INSERT INTO {result.table} (value) "
-            f"SELECT countIf({condition}) AS value FROM {info.source}"
-        )
+        query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
         await ch_client.command(query)
         return result
 
@@ -620,10 +614,7 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     result = await create_object(schema)
     insert_cols = ", ".join(condition.keys())
     select_str = ", ".join(select_exprs)
-    query = (
-        f"INSERT INTO {result.table} ({insert_cols}) "
-        f"SELECT {select_str} FROM {info.source}"
-    )
+    query = f"INSERT INTO {result.table} ({insert_cols}) SELECT {select_str} FROM {info.source}"
     await ch_client.command(query)
     return result
 
@@ -652,7 +643,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
         col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)}
+        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
@@ -692,10 +683,7 @@ async def unique_group(info: QueryInfo, ch_client):
     source_col_def = ColumnInfo(info.value_type, nullable=info.nullable)
 
     # Build schema for result table (array type - multiple unique values)
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def}
-    )
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def})
 
     # Create result object with schema
     result = await create_object(schema)
@@ -827,6 +815,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
 
 # Group By Operators
 
+
 def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
     """Normalize aggregation spec into flat list of (source_col, Agg).
 
@@ -916,11 +905,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
             rename_exprs.append(f"{tmp_alias} AS {agg.alias}")
         tmp_agg_str = ", ".join(tmp_agg_exprs)
         rename_str = ", ".join(rename_exprs)
-        inner = (
-            f"SELECT {keys_str}, {tmp_agg_str} "
-            f"FROM {info.source} GROUP BY {keys_str} "
-            f"HAVING {info.having}"
-        )
+        inner = f"SELECT {keys_str}, {tmp_agg_str} FROM {info.source} GROUP BY {keys_str} HAVING {info.having}"
         query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
     else:
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
@@ -1173,8 +1158,10 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
         if either_is_view:
             temp_table = await _materialize_array_join(
-                info_a.source, info_a.value_type,
-                info_b.source, info_b.value_type,
+                info_a.source,
+                info_a.value_type,
+                info_b.source,
+                info_b.value_type,
                 ch_client,
             )
             try:

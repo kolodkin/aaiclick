@@ -18,10 +18,10 @@ from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
 @pytest.mark.parametrize(
     "value,expected",
     [
-        pytest.param(42,          42,          id="int-scalar"),
-        pytest.param(3.14,        3.14,        id="float-scalar"),
-        pytest.param(True,        True,        id="bool-scalar"),
-        pytest.param("hello",     "hello",     id="str-scalar"),
+        pytest.param(42, 42, id="int-scalar"),
+        pytest.param(3.14, 3.14, id="float-scalar"),
+        pytest.param(True, True, id="bool-scalar"),
+        pytest.param("hello", "hello", id="str-scalar"),
     ],
 )
 async def test_scalar_returns_value(ctx, value, expected):
@@ -33,10 +33,10 @@ async def test_scalar_returns_value(ctx, value, expected):
 @pytest.mark.parametrize(
     "values",
     [
-        pytest.param([1, 2, 3],             id="int-array"),
-        pytest.param([1.1, 2.2, 3.3],       id="float-array"),
-        pytest.param(["a", "b", "c"],       id="str-array"),
-        pytest.param([True, False, True],   id="bool-array"),
+        pytest.param([1, 2, 3], id="int-array"),
+        pytest.param([1.1, 2.2, 3.3], id="float-array"),
+        pytest.param(["a", "b", "c"], id="str-array"),
+        pytest.param([True, False, True], id="bool-array"),
     ],
 )
 async def test_array_returns_list(ctx, values):
@@ -82,7 +82,7 @@ async def test_dict_orient_records(ctx):
     "rows",
     [
         pytest.param([{"name": "alice", "score": 90}, {"name": "bob", "score": 75}], id="str-int"),
-        pytest.param([{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}],                 id="float-float"),
+        pytest.param([{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}], id="float-float"),
     ],
 )
 async def test_orient_records_round_trip(ctx, rows):

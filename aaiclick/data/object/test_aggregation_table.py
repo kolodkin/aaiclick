@@ -13,17 +13,21 @@ from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
 async def test_aggregation_table_two_sources(ctx):
     """Two sources insert into shared table, collapse picks non-NULL values."""
     # Source A: has name and score
-    source_a = await create_object_from_value({
-        "key": ["CVE-1", "CVE-2"],
-        "name": ["heartbleed", "shellshock"],
-        "score": [9.8, 7.5],
-    })
+    source_a = await create_object_from_value(
+        {
+            "key": ["CVE-1", "CVE-2"],
+            "name": ["heartbleed", "shellshock"],
+            "score": [9.8, 7.5],
+        }
+    )
 
     # Source B: has key and label (different columns)
-    source_b = await create_object_from_value({
-        "key": ["CVE-1", "CVE-3"],
-        "label": ["critical", "medium"],
-    })
+    source_b = await create_object_from_value(
+        {
+            "key": ["CVE-1", "CVE-3"],
+            "label": ["critical", "medium"],
+        }
+    )
 
     # Create aggregation table with all columns
     schema = Schema(
@@ -41,33 +45,36 @@ async def test_aggregation_table_two_sources(ctx):
     agg = await create_object(schema)
 
     # Insert source A with computed flag columns; label auto-fills NULL
-    view_a = source_a.with_columns({
-        "in_a": Computed("UInt8", "1"),
-        "in_b": Computed("UInt8", "0"),
-    })
+    view_a = source_a.with_columns(
+        {
+            "in_a": Computed("UInt8", "1"),
+            "in_b": Computed("UInt8", "0"),
+        }
+    )
     await agg.insert(view_a)
 
     # Insert source B with computed flag columns; name/score auto-fill NULL
-    view_b = source_b.with_columns({
-        "in_a": Computed("UInt8", "0"),
-        "in_b": Computed("UInt8", "1"),
-    })
+    view_b = source_b.with_columns(
+        {
+            "in_a": Computed("UInt8", "0"),
+            "in_b": Computed("UInt8", "1"),
+        }
+    )
     await agg.insert(view_b)
 
     # Collapse: GROUP BY key, merge with max/any
-    result = await agg.group_by("key").agg({
-        "in_a": "max",
-        "in_b": "max",
-        "name": "any",
-        "score": "any",
-        "label": "any",
-    })
+    result = await agg.group_by("key").agg(
+        {
+            "in_a": "max",
+            "in_b": "max",
+            "name": "any",
+            "score": "any",
+            "label": "any",
+        }
+    )
 
     data = await result.data()
-    rows = {
-        k: {col: data[col][i] for col in data}
-        for i, k in enumerate(data["key"])
-    }
+    rows = {k: {col: data[col][i] for col in data} for i, k in enumerate(data["key"])}
 
     # CVE-1: present in both sources
     assert rows["CVE-1"]["in_a"] == 1
@@ -90,18 +97,24 @@ async def test_aggregation_table_two_sources(ctx):
 
 async def test_aggregation_table_three_sources(ctx):
     """Three sources merging via subset insert, no with_columns needed."""
-    src1 = await create_object_from_value({
-        "id": ["A", "B"],
-        "val1": [10, 20],
-    })
-    src2 = await create_object_from_value({
-        "id": ["B", "C"],
-        "val2": [200, 300],
-    })
-    src3 = await create_object_from_value({
-        "id": ["A", "C"],
-        "val3": ["x", "z"],
-    })
+    src1 = await create_object_from_value(
+        {
+            "id": ["A", "B"],
+            "val1": [10, 20],
+        }
+    )
+    src2 = await create_object_from_value(
+        {
+            "id": ["B", "C"],
+            "val2": [200, 300],
+        }
+    )
+    src3 = await create_object_from_value(
+        {
+            "id": ["A", "C"],
+            "val3": ["x", "z"],
+        }
+    )
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -120,17 +133,16 @@ async def test_aggregation_table_three_sources(ctx):
     await agg.insert(src2)
     await agg.insert(src3)
 
-    result = await agg.group_by("id").agg({
-        "val1": "any",
-        "val2": "any",
-        "val3": "any",
-    })
+    result = await agg.group_by("id").agg(
+        {
+            "val1": "any",
+            "val2": "any",
+            "val3": "any",
+        }
+    )
 
     data = await result.data()
-    rows = {
-        k: {col: data[col][i] for col in data}
-        for i, k in enumerate(data["id"])
-    }
+    rows = {k: {col: data[col][i] for col in data} for i, k in enumerate(data["id"])}
 
     assert rows["A"]["val1"] == 10
     assert rows["A"]["val3"] == "x"
@@ -142,10 +154,12 @@ async def test_aggregation_table_three_sources(ctx):
 
 async def test_aggregation_table_duplicate_key_same_source(ctx):
     """When same key appears in one source, any() still picks a value."""
-    src = await create_object_from_value({
-        "key": ["X", "X", "Y"],
-        "value": [1, 2, 3],
-    })
+    src = await create_object_from_value(
+        {
+            "key": ["X", "X", "Y"],
+            "value": [1, 2, 3],
+        }
+    )
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,

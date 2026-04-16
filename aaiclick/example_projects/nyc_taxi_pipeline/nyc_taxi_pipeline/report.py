@@ -66,9 +66,11 @@ def _print_report(
 
     print("\n#### Statistics\n")
     for name, data in report["payment_breakdown"].items():
-        print(f"- **{name}**: avg fare ${_fmt(data['avg_fare'])}, "
-              f"avg tip ${_fmt(data['avg_tip'])}, "
-              f"avg distance {_fmt(data['avg_distance'])} mi")
+        print(
+            f"- **{name}**: avg fare ${_fmt(data['avg_fare'])}, "
+            f"avg tip ${_fmt(data['avg_tip'])}, "
+            f"avg distance {_fmt(data['avg_distance'])} mi"
+        )
 
     print("\n### By Pickup Zone\n")
     print(by_pickup_zone_md)

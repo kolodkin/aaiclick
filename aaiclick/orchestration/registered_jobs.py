@@ -47,14 +47,8 @@ def _validate_registered_defaults(
     symmetrically.
     """
     if preservation_mode is PreservationMode.STRATEGY and not sampling_strategy:
-        raise ValueError(
-            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
-        )
-    if (
-        preservation_mode is not None
-        and preservation_mode is not PreservationMode.STRATEGY
-        and sampling_strategy
-    ):
+        raise ValueError("preservation_mode=STRATEGY requires a non-empty sampling_strategy")
+    if preservation_mode is not None and preservation_mode is not PreservationMode.STRATEGY and sampling_strategy:
         raise ValueError(
             f"sampling_strategy is only valid with preservation_mode=STRATEGY "
             f"(got preservation_mode={preservation_mode.value})"
@@ -110,9 +104,7 @@ async def register_job(
     )
 
     async with get_sql_session() as session:
-        existing = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name)
-        )
+        existing = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         if existing.scalar_one_or_none() is not None:
             raise ValueError(f"Registered job '{name}' already exists")
 
@@ -133,9 +125,7 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
         RegisteredJob if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name)
-        )
+        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         return result.scalar_one_or_none()
 
 
@@ -172,9 +162,7 @@ async def upsert_registered_job(
     now = datetime.utcnow()
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name)
-        )
+        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         existing = result.scalar_one_or_none()
 
         if existing is not None:
@@ -225,9 +213,7 @@ async def enable_job(name: str) -> int:
     now = datetime.utcnow()
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name)
-        )
+        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         job = result.scalar_one_or_none()
         if job is None:
             raise ValueError(f"Registered job '{name}' not found")
@@ -253,9 +239,7 @@ async def disable_job(name: str) -> int:
         ValueError: If no job with this name exists
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name)
-        )
+        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         job = result.scalar_one_or_none()
         if job is None:
             raise ValueError(f"Registered job '{name}' not found")

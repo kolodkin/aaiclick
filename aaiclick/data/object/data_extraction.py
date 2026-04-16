@@ -28,10 +28,7 @@ def _convert_value(value):
     if isinstance(value, datetime) and value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     if isinstance(value, list) and value and isinstance(value[0], datetime):
-        return [
-            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
-            for v in value
-        ]
+        return [v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v for v in value]
     return value
 
 
@@ -60,7 +57,7 @@ def _unflatten_record(flat_record: dict) -> dict:
             plain[col] = val
         else:
             prefix = col[:star_pos]
-            suffix = col[star_pos + 3:]
+            suffix = col[star_pos + 3 :]
             if prefix not in nested_groups:
                 nested_groups[prefix] = {}
             nested_groups[prefix][suffix] = val
@@ -116,12 +113,7 @@ async def extract_array_data(obj: Object) -> list[Any]:
     return [_convert_value(row[0]) for row in rows]
 
 
-async def extract_dict_data(
-    obj: Object,
-    column_names: list[str],
-    columns: dict[str, ColumnMeta],
-    orient: str
-):
+async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[str, ColumnMeta], orient: str):
     """
     Extract data from a dict table (multiple columns with aai_id).
 
@@ -149,9 +141,7 @@ async def extract_dict_data(
 
     # Check if this is dict of arrays by looking at fieldtype
     first_col = output_columns[0] if output_columns else None
-    is_dict_of_arrays = bool(
-        first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY
-    )
+    is_dict_of_arrays = bool(first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY)
 
     if nested:
         return _extract_nested_dict_data(rows, output_columns, col_indices, is_dict_of_arrays, orient)

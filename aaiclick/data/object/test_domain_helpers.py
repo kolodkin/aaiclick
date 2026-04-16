@@ -17,18 +17,18 @@ from aaiclick import create_object_from_value
 
 
 DATES = [
-    datetime(2023, 1, 2, tzinfo=timezone.utc),   # Monday
+    datetime(2023, 1, 2, tzinfo=timezone.utc),  # Monday
     datetime(2024, 6, 15, tzinfo=timezone.utc),  # Saturday
-    datetime(2025, 12, 31, tzinfo=timezone.utc), # Wednesday
+    datetime(2025, 12, 31, tzinfo=timezone.utc),  # Wednesday
 ]
 
 
 @pytest.mark.parametrize(
     "helper,expected_col,expected",
     [
-        pytest.param("with_year",        "ts_year",  [2023, 2024, 2025], id="year"),
-        pytest.param("with_month",       "ts_month", [1, 6, 12],         id="month"),
-        pytest.param("with_day_of_week", "ts_dow",   [1, 6, 3],          id="day_of_week"),
+        pytest.param("with_year", "ts_year", [2023, 2024, 2025], id="year"),
+        pytest.param("with_month", "ts_month", [1, 6, 12], id="month"),
+        pytest.param("with_day_of_week", "ts_dow", [1, 6, 3], id="day_of_week"),
     ],
 )
 async def test_date_helpers(ctx, helper, expected_col, expected):
@@ -41,16 +41,18 @@ async def test_date_helpers(ctx, helper, expected_col, expected):
 
 async def test_with_date_diff(ctx):
     """with_date_diff computes difference between two date columns in given unit."""
-    obj = await create_object_from_value({
-        "start": [
-            datetime(2024, 1, 1, tzinfo=timezone.utc),
-            datetime(2024, 3, 1, tzinfo=timezone.utc),
-        ],
-        "end": [
-            datetime(2024, 1, 31, tzinfo=timezone.utc),
-            datetime(2024, 6, 1, tzinfo=timezone.utc),
-        ],
-    })
+    obj = await create_object_from_value(
+        {
+            "start": [
+                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 3, 1, tzinfo=timezone.utc),
+            ],
+            "end": [
+                datetime(2024, 1, 31, tzinfo=timezone.utc),
+                datetime(2024, 6, 1, tzinfo=timezone.utc),
+            ],
+        }
+    )
     view = obj.with_date_diff("day", "start", "end")
     result = await view.data()
     assert result["start_end_diff"] == [30, 92]
@@ -58,10 +60,12 @@ async def test_with_date_diff(ctx):
 
 async def test_with_date_diff_custom_alias(ctx):
     """with_date_diff accepts alias override."""
-    obj = await create_object_from_value({
-        "a": [datetime(2024, 1, 1, tzinfo=timezone.utc)],
-        "b": [datetime(2024, 4, 1, tzinfo=timezone.utc)],
-    })
+    obj = await create_object_from_value(
+        {
+            "a": [datetime(2024, 1, 1, tzinfo=timezone.utc)],
+            "b": [datetime(2024, 4, 1, tzinfo=timezone.utc)],
+        }
+    )
     view = obj.with_date_diff("month", "a", "b", alias="months_apart")
     result = await view.data()
     assert result["months_apart"] == [3]
@@ -75,10 +79,10 @@ async def test_with_date_diff_custom_alias(ctx):
 @pytest.mark.parametrize(
     "helper,input_vals,col,expected_col,expected",
     [
-        pytest.param("with_lower",  ["Hello", "WORLD"], "name", "name_lower",   ["hello", "world"],   id="lower"),
-        pytest.param("with_upper",  ["hello", "world"], "name", "name_upper",   ["HELLO", "WORLD"],   id="upper"),
-        pytest.param("with_length", ["", "hi", "hey"],  "name", "name_length",  [0, 2, 3],            id="length"),
-        pytest.param("with_trim",   [" a ", " b"],      "name", "name_trimmed", ["a", "b"],           id="trim"),
+        pytest.param("with_lower", ["Hello", "WORLD"], "name", "name_lower", ["hello", "world"], id="lower"),
+        pytest.param("with_upper", ["hello", "world"], "name", "name_upper", ["HELLO", "WORLD"], id="upper"),
+        pytest.param("with_length", ["", "hi", "hey"], "name", "name_length", [0, 2, 3], id="length"),
+        pytest.param("with_trim", [" a ", " b"], "name", "name_trimmed", ["a", "b"], id="trim"),
     ],
 )
 async def test_string_helpers(ctx, helper, input_vals, col, expected_col, expected):
@@ -105,8 +109,8 @@ async def test_string_helpers_custom_alias(ctx):
 @pytest.mark.parametrize(
     "helper,input_vals,expected",
     [
-        pytest.param("with_abs",  [-3, 0, 5],       [3.0, 0.0, 5.0],        id="abs"),
-        pytest.param("with_log2", [1, 2, 4, 8],     [0.0, 1.0, 2.0, 3.0],   id="log2"),
+        pytest.param("with_abs", [-3, 0, 5], [3.0, 0.0, 5.0], id="abs"),
+        pytest.param("with_log2", [1, 2, 4, 8], [0.0, 1.0, 2.0, 3.0], id="log2"),
         pytest.param("with_sqrt", [0, 1, 4, 9, 16], [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
     ],
 )
@@ -128,7 +132,7 @@ async def test_math_helpers(ctx, helper, input_vals, expected):
     "scores,bucket_size,expected_buckets",
     [
         pytest.param([0, 5, 10, 15, 24], 10, [0, 0, 1, 1, 2], id="size-10"),
-        pytest.param([0, 99, 100, 199],  100, [0, 0, 1, 1],    id="size-100"),
+        pytest.param([0, 99, 100, 199], 100, [0, 0, 1, 1], id="size-100"),
     ],
 )
 async def test_with_bucket(ctx, scores, bucket_size, expected_buckets):

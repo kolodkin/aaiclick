@@ -68,9 +68,7 @@ async def test_order_by_mergetree():
             order_by=["date"],
         )
 
-        result = await ch.query(
-            f"SELECT engine, sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
+        result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{obj.table}'")
         assert result.result_rows[0][0] == "MergeTree"
         assert result.result_rows[0][1] == "date, aai_id"
 
@@ -84,9 +82,7 @@ async def test_order_by_multi_column_mergetree():
             order_by=["category", "date"],
         )
 
-        result = await ch.query(
-            f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'"
-        )
+        result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
         assert result.result_rows[0][0] == "category, date, aai_id"
 
 
@@ -97,7 +93,5 @@ async def test_no_order_by_stays_memory(ctx):
         {"date": ["2024-01-01", "2024-01-02"], "val": [10, 20]},
     )
 
-    result = await ch.query(
-        f"SELECT engine FROM system.tables WHERE name = '{obj.table}'"
-    )
+    result = await ch.query(f"SELECT engine FROM system.tables WHERE name = '{obj.table}'")
     assert result.result_rows[0][0] == "Memory"
