@@ -158,9 +158,7 @@ class LineageToolbox:
         self._kinds = _classify_nodes(graph)
         self._node_by_table = {n.table: n for n in graph.nodes}
 
-    async def query_table(
-        self, sql: str, row_limit: int = DEFAULT_ROW_LIMIT
-    ) -> QueryResult | ToolError:
+    async def query_table(self, sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult | ToolError:
         """Execute a read-only SELECT against tables in the current graph.
 
         - Rejects anything that isn't a ``SELECT`` / ``WITH ... SELECT``
@@ -192,8 +190,7 @@ class LineageToolbox:
             sample = ", ".join(sorted(unknown)[:3])
             return ToolError(
                 "out_of_scope",
-                f"Tables not in the lineage graph: {sample}. "
-                f"Use list_graph_nodes() to see what's in scope.",
+                f"Tables not in the lineage graph: {sample}. Use list_graph_nodes() to see what's in scope.",
             )
 
         row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))

@@ -11,7 +11,6 @@ import pytest
 
 from aaiclick.ai.agents.lineage_tools import (
     ColumnSchema,
-    GraphNode,
     LineageToolbox,
     QueryResult,
     TableSchema,
@@ -146,9 +145,7 @@ async def test_list_graph_nodes_classifies_kinds_and_liveness():
     toolbox = LineageToolbox(_sample_graph())
     # Only intermediate and target exist; persistent input is gone.
     mock_client = MagicMock()
-    mock_client.query = AsyncMock(
-        return_value=_mock_query_result([(INTERMEDIATE_TABLE,), (TARGET_TABLE,)], ["name"])
-    )
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(INTERMEDIATE_TABLE,), (TARGET_TABLE,)], ["name"]))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         nodes = await toolbox.list_graph_nodes()
@@ -165,9 +162,7 @@ async def test_list_graph_nodes_classifies_kinds_and_liveness():
 async def test_get_schema_returns_columns():
     toolbox = LineageToolbox(_sample_graph())
     mock_client = MagicMock()
-    mock_client.query = AsyncMock(
-        return_value=_mock_query_result([("id", "UInt64"), ("name", "String")])
-    )
+    mock_client.query = AsyncMock(return_value=_mock_query_result([("id", "UInt64"), ("name", "String")]))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         schema = await toolbox.get_schema(TARGET_TABLE)
@@ -220,9 +215,7 @@ async def test_query_table_allows_keyword_in_string_literal():
     mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(
-            f"SELECT id FROM {TARGET_TABLE} WHERE event_type = 'INSERT'"
-        )
+        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE event_type = 'INSERT'")
 
     assert isinstance(result, QueryResult)
 
@@ -233,9 +226,7 @@ async def test_query_table_allows_semicolon_in_string_literal():
     mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(
-            f"SELECT id FROM {TARGET_TABLE} WHERE name = 'a;b'"
-        )
+        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE name = 'a;b'")
 
     assert isinstance(result, QueryResult)
 
@@ -247,9 +238,7 @@ async def test_query_table_scope_check_ignores_table_id_in_string_literal():
     mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(
-            f"SELECT id FROM {TARGET_TABLE} WHERE ref = 't_99999999999999999999'"
-        )
+        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE ref = 't_99999999999999999999'")
 
     assert isinstance(result, QueryResult)
 
