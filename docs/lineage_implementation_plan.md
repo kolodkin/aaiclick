@@ -3,19 +3,37 @@ Lineage: Implementation Plan
 
 Companion to `docs/lineage.md`. Three phases:
 
-1. **Phase 0** — remove all sampling and strategy machinery, narrow
-   `PreservationMode` to `NONE` / `FULL`
+1. **Phase 0** ✅ — remove all sampling and strategy machinery, narrow
+   `PreservationMode` to `NONE` / `FULL` (merged in #223)
 2. **Phase 1** — Tier 1: agent tool loop over persistent inputs, target
    table, and oplog graph (no replay)
 3. **Phase 2** — Tier 2: agent escalates to a `run_job(..., FULL)` fresh
    run and continues querying against the new run's intermediates
 
-Each phase is independently shippable. Phase 0 is pure deletion and
-unblocks Phases 1 and 2 cleanly — no dead branches to reason about.
+Each phase is independently shippable. Phase 0 was pure deletion and
+unblocked Phases 1 and 2 cleanly — no dead branches to reason about.
 
 ---
 
-# Phase 0 -- Remove Sampling and Strategy
+# Status
+
+| Component                                      | Status      | Implementation / Notes                                                    |
+|------------------------------------------------|-------------|---------------------------------------------------------------------------|
+| `backward_oplog()` / `forward_oplog()`         | Shipped     | `aaiclick/oplog/lineage.py` — recursive graph traversal over `operation_log` |
+| `OplogGraph`                                   | Shipped     | `aaiclick/oplog/lineage.py` — `OplogGraph`, `OplogNode`, `OplogEdge`      |
+| `run_job()` with `preservation_mode`           | Shipped     | `aaiclick/orchestration/registered_jobs.py` — Tier 2 reuses this entry point |
+| `PreservationMode` (narrow to `NONE`/`FULL`)   | ✅ Done     | `aaiclick/orchestration/models.py` — `STRATEGY` variant removed (Phase 0) |
+| Sampling / strategy machinery                  | ✅ Done     | Deleted (Phase 0, #223)                                                   |
+| `replay_job()` / `is_input_task()`             | ✅ Done     | Deleted (Phase 0, #223)                                                   |
+| Tier 1 agent loop + `query_table` tool         | Phase 1     | Replaces `debug_result` single-shot explanation                           |
+| Tier 2 auto-escalation + `request_full_replay` | Phase 2     | Wires Tier 1 to `run_job(..., FULL)`                                      |
+
+---
+
+# Phase 0 -- Remove Sampling and Strategy ✅ Complete
+
+Shipped in #223. Everything below is preserved for historical context —
+the deletions landed as described.
 
 **Objective**: Delete every piece of code that exists because of the
 `SamplingStrategy` / `PreservationMode.STRATEGY` direction. Narrow

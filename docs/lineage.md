@@ -179,6 +179,65 @@ Safety rails on `query_table`:
 - Cheap — `max_execution_time` set to keep accidental table scans from
   tying up the cluster
 
+## Tool Result Types
+
+The agent-facing result types are typed NamedTuples / dataclasses so the
+loop can reason over them without string parsing.
+
+```python
+from typing import Literal, NamedTuple
+
+NodeKind = Literal["input", "intermediate", "target"]
+
+class GraphNode(NamedTuple):
+    table: str            # raw table id, e.g. "t_1234567890123456"
+    kind: NodeKind        # input = persistent `p_*`, target = terminal node
+    operation: str        # oplog operation name
+    live: bool            # whether the table currently exists in ClickHouse
+    task_id: int | None
+    job_id: int | None
+
+class ColumnSchema(NamedTuple):
+    name: str
+    type: str             # ClickHouse type string
+
+class TableSchema(NamedTuple):
+    table: str
+    columns: list[ColumnSchema]
+
+class QueryResult(NamedTuple):
+    columns: list[str]
+    rows: list[tuple]     # at most `row_limit` rows
+    truncated: bool       # true iff the underlying query returned > row_limit
+
+class ReplayHandle(NamedTuple):
+    original_job_id: int
+    replayed_job_id: int
+    drift: dict[str, int] # per-input delta: new_rows - original_rows
+```
+
+Error surface — tools never raise to the agent. Each tool returns a
+discriminated-union shape with either the success payload above or a
+typed error the agent can read and retry from:
+
+```python
+class ToolError(NamedTuple):
+    kind: Literal[
+        "not_select",     # query_table: non-SELECT rejected
+        "out_of_scope",   # query_table: table outside current graph
+        "not_found",      # get_schema / get_op_sql: unknown id
+        "not_live",       # query_table: table exists in graph but not in ClickHouse
+        "replay_timeout", # request_full_replay: new job did not COMPLETE in time
+        "replay_failed",  # request_full_replay: new job ended non-COMPLETE
+    ]
+    message: str          # agent-readable diagnostic
+```
+
+The agent loop surfaces `ToolError` as the tool's return value; the
+prompt instructs the agent to inspect `kind` and either retry with a
+corrected call (`not_select`, `out_of_scope`) or escalate (`not_live`
+triggers `request_full_replay`).
+
 ---
 
 # Why Not Sampling
@@ -203,18 +262,3 @@ The interactive approach is strictly more powerful: Tier 1 gives the
 zero-cost debugging path, Tier 2 gives the full-fidelity path, and the
 agent chooses between them per-question. No strategies to produce, no
 populations to classify, no planners to write.
-
----
-
-# Current State
-
-| Component                                      | Status      | Notes                                           |
-|------------------------------------------------|-------------|-------------------------------------------------|
-| `backward_oplog()` / `forward_oplog()`         | Shipped     | Graph traversal over `operation_log`            |
-| `OplogGraph`                                   | Shipped     | Graph data model                                |
-| `run_job()` with `preservation_mode`           | Shipped     | Existing entry point — Tier 2 reuses it         |
-| `PreservationMode` (narrow to `NONE`/`FULL`)   | ✅ Done     | `STRATEGY` variant removed (Phase 0)            |
-| Sampling / strategy machinery                  | ✅ Done     | Deleted (Phase 0)                               |
-| `replay_job()` / `is_input_task()`             | ✅ Done     | Deleted (Phase 0)                               |
-| Tier 1 agent loop + `query_table` tool         | Phase 1     | Replaces `debug_result` single-shot explanation |
-| Tier 2 auto-escalation + `request_full_replay` | Phase 2     | Wires Tier 1 to `run_job(..., FULL)`            |
