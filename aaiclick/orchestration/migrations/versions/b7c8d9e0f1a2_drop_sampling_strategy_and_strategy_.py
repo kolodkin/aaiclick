@@ -1,7 +1,7 @@
 """drop_sampling_strategy_and_strategy_enum
 
 Revision ID: b7c8d9e0f1a2
-Revises: f3a8b1c42d5e
+Revises: 8ec83b0c3148
 Create Date: 2026-04-16 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b7c8d9e0f1a2"
-down_revision: str | Sequence[str] | None = "f3a8b1c42d5e"
+down_revision: str | Sequence[str] | None = "8ec83b0c3148"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
