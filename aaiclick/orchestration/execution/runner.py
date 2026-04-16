@@ -106,9 +106,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
         ValueError: If upstream task not found or not completed
     """
     task_id = ref[TASK_ID]
-    db_result = await session.execute(
-        select(Task.result, Task.status).where(Task.id == task_id)
-    )
+    db_result = await session.execute(select(Task.result, Task.status).where(Task.id == task_id))
     row = db_result.one_or_none()
 
     if row is None:
@@ -246,10 +244,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         return {}
 
     async with get_sql_session() as session:
-        return {
-            k: await _deserialize_value(v, session)
-            for k, v in serialized_params.items()
-        }
+        return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
 
 
 async def execute_task(task: Task) -> tuple[Any, str]:
@@ -521,9 +516,7 @@ async def run_job_tasks(job: Job) -> None:
             task_id = row[0]
 
             # Fetch the full task and update to RUNNING
-            db_result = await session.execute(
-                select(Task).where(Task.id == task_id)
-            )
+            db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
 
             task.status = TaskStatus.RUNNING

@@ -172,9 +172,7 @@ async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatc
     worker = await register_worker()
     await request_worker_stop(worker.id)
 
-    monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.HEARTBEAT_INTERVAL", 0
-    )
+    monkeypatch.setattr("aaiclick.orchestration.execution.worker.HEARTBEAT_INTERVAL", 0)
 
     tasks_executed = await mp_worker_main_loop(
         worker_id=worker.id,
@@ -303,9 +301,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
 
     # Add another task to job1 (which is already running)
     # Using standalone apply function
-    extra_task = create_task(
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-    )
+    extra_task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     await commit_tasks(extra_task, job_id=job1.id)
 
     # Claim next task - should prioritize job1 (older running job)
@@ -327,9 +323,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
 
     # Get the initial task created by create_job
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         initial_task = result.scalar_one()
 
     # Create a second task that depends on the first
@@ -373,9 +367,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
 
     # Get initial task
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         initial_task = result.scalar_one()
 
     # Create a group and add initial_task to it

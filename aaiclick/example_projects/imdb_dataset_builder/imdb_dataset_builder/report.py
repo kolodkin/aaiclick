@@ -80,7 +80,9 @@ def _print_report(content: ReportContent) -> None:
     print(f"- Dropped (non-movie, adult, missing genres/year): {_fmt(dropped)}")
 
     print("\n### Quality Issues Detected\n")
-    print(f"- Missing runtime (`\\N`): {_fmt(quality_issues.missing_runtime)} ({_fmt(quality_issues.missing_runtime_pct)}%)")
+    print(
+        f"- Missing runtime (`\\N`): {_fmt(quality_issues.missing_runtime)} ({_fmt(quality_issues.missing_runtime_pct)}%)"
+    )
     print(f"- Runtime < 40 min: {_fmt(quality_issues.short_runtime)}")
     print(f"- Runtime > 300 min: {_fmt(quality_issues.long_runtime)}")
     print(f"- Pre-1970 movies: {_fmt(quality_issues.pre_1970)} ({_fmt(quality_issues.pre_1970_pct)}%)")
@@ -129,17 +131,19 @@ async def generate_report(
     exports: dict[str, str] | None = None,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
-    raw_md = await raw[
-        ["tconst", "titleType", "primaryTitle", "startYear", "genres", "runtimeMinutes"]
-    ].view(limit=5).markdown(truncate={"primaryTitle": 40})
+    raw_md = (
+        await raw[["tconst", "titleType", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
+        .view(limit=5)
+        .markdown(truncate={"primaryTitle": 40})
+    )
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
-    genre_with_pct = genre_balance.rename(
-        {"genre": "Genre", "tconst": "Count"}
-    ).with_columns({
-        "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
-    })
+    genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
+        {
+            "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
+        }
+    )
     genre_md = await genre_with_pct.view(order_by="Count DESC", limit=50).markdown()
     genre_data_raw = await genre_balance.data()
     genre_distinct = len(genre_data_raw["genre"])
@@ -147,17 +151,19 @@ async def generate_report(
 
     buf = StringIO()
     with redirect_stdout(buf):
-        _print_report(ReportContent(
-            profile=profile,
-            quality_issues=quality_issues,
-            hf_result=hf_result,
-            raw_md=raw_md,
-            clean_md=clean_md,
-            genre_md=genre_md,
-            genre_distinct=genre_distinct,
-            genre_total=genre_total,
-            exports=exports,
-        ))
+        _print_report(
+            ReportContent(
+                profile=profile,
+                quality_issues=quality_issues,
+                hf_result=hf_result,
+                raw_md=raw_md,
+                clean_md=clean_md,
+                genre_md=genre_md,
+                genre_distinct=genre_distinct,
+                genre_total=genre_total,
+                exports=exports,
+            )
+        )
     rendered = buf.getvalue()
 
     report_file = os.environ.get("AAICLICK_REPORT_FILE")

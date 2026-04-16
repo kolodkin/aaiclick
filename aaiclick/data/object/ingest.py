@@ -178,7 +178,7 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     )
     result = await create_object(schema)
 
-    alias = " AS s" if copy_info.source_query.startswith('(') else ""
+    alias = " AS s" if copy_info.source_query.startswith("(") else ""
 
     # Always exclude aai_id — copies get fresh Snowflake IDs.
     # Preserving source aai_ids would cause duplicates when two copies
@@ -190,9 +190,7 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     cols_str = ", ".join(data_cols)
     order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
     insert_query = (
-        f"INSERT INTO {result.table} ({cols_str})"
-        f" SELECT {cols_str} FROM {copy_info.source_query}{alias}"
-        f"{order_clause}"
+        f"INSERT INTO {result.table} ({cols_str}) SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}"
     )
 
     await ch_client.command(insert_query)
@@ -213,15 +211,14 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     Returns:
         Object: New Object instance with copied data
     """
-    alias = " AS v" if copy_info.source_query.startswith('(') else ""
+    alias = " AS v" if copy_info.source_query.startswith("(") else ""
 
     assert copy_info.selected_fields is not None, "copy_db_selected_fields requires selected_fields"
 
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
         new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
+            fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
         )
         result = await create_object(new_schema)
         insert_query = f"""
@@ -263,11 +260,8 @@ async def _insert_source(
         ch_client: ClickHouse client instance.
     """
     col_names = sorted(target_types)
-    cast_exprs = ", ".join(
-        f"CAST({col} AS {target_types[col].ch_type()}) AS {col}"
-        for col in col_names
-    )
-    alias = f" AS s{alias_index}" if info.source.startswith('(') else ""
+    cast_exprs = ", ".join(f"CAST({col} AS {target_types[col].ch_type()}) AS {col}" for col in col_names)
+    alias = f" AS s{alias_index}" if info.source.startswith("(") else ""
     insert_cols = ", ".join(col_names)
     select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
 
@@ -315,10 +309,7 @@ async def concat_objects_db(
         other_data_cols = sorted(k for k in other_columns if k != "aai_id")
 
         if other_data_cols != data_col_names:
-            raise ValueError(
-                f"concat source {i} has columns {other_data_cols}, "
-                f"expected {data_col_names}"
-            )
+            raise ValueError(f"concat source {i} has columns {other_data_cols}, expected {data_col_names}")
 
         for col_name in data_col_names:
             target_def = result_columns[col_name]
@@ -349,23 +340,18 @@ async def concat_objects_db(
     # ORDER BY _src_ord ensures source-argument order is preserved.
     selects = []
     for i, info in enumerate(query_infos):
-        cast_exprs = ", ".join(
-            f"CAST({col} AS {data_columns[col].ch_type()}) AS {col}"
-            for col in col_names
-        )
-        alias = f" AS s{i}" if info.source.startswith('(') else ""
-        selects.append(
-            f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}"
-        )
+        cast_exprs = ", ".join(f"CAST({col} AS {data_columns[col].ch_type()}) AS {col}" for col in col_names)
+        alias = f" AS s{i}" if info.source.startswith("(") else ""
+        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
     await ch_client.command(
-        f"INSERT INTO {result.table} ({insert_cols})"
-        f" SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
+        f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
     )
 
     oplog_record_sample(
-        result.table, "concat",
+        result.table,
+        "concat",
         kwargs={f"source_{i}": info.base_table for i, info in enumerate(query_infos)},
     )
     return result
@@ -418,13 +404,16 @@ async def insert_objects_db(
 
         source_target_types = {col: target_columns[col] for col in col_names}
         await _insert_source(
-            target_info.base_table, info, source_target_types, i, ch_client,
+            target_info.base_table,
+            info,
+            source_target_types,
+            i,
+            ch_client,
         )
 
     for info in source_infos:
         oplog_record_sample(
-            target_info.base_table, "insert",
+            target_info.base_table,
+            "insert",
             kwargs={"source": info.base_table, "target": target_info.base_table},
         )
-
-

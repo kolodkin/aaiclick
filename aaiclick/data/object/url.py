@@ -29,9 +29,7 @@ def _validate_url(url: str) -> None:
     """Validate URL is a proper HTTP(S) URL."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(
-            f"URL must use http or https scheme, got '{parsed.scheme}'"
-        )
+        raise ValueError(f"URL must use http or https scheme, got '{parsed.scheme}'")
     if not parsed.netloc:
         raise ValueError("URL must have a valid host")
 
@@ -48,10 +46,7 @@ def _validate_url_columns(columns: list[str]) -> None:
 def _validate_url_format(fmt: str) -> None:
     """Validate format is a supported ClickHouse URL format."""
     if fmt not in INPUT_FORMATS:
-        raise ValueError(
-            f"Unsupported format '{fmt}'. "
-            f"Supported formats: {sorted(INPUT_FORMATS)}"
-        )
+        raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(INPUT_FORMATS)}")
 
 
 def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
@@ -190,10 +185,7 @@ async def create_object_from_url(
         if not json_columns:
             raise ValueError("json_columns must be a non-empty dict")
         if format not in JSON_BLOB_FORMATS:
-            raise ValueError(
-                f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, "
-                f"got '{format}'"
-            )
+            raise ValueError(f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, got '{format}'")
         for col_name in json_columns:
             if col_name == "aai_id":
                 raise ValueError("'aai_id' is a reserved column name and cannot be used")
@@ -226,9 +218,7 @@ async def _create_from_tabular(
     if column_types is not None:
         ch_types: dict[str, ColumnInfo] = column_types
     else:
-        describe_query = (
-            f"DESCRIBE (SELECT {columns_str} FROM {safe_source} LIMIT 0)"
-        )
+        describe_query = f"DESCRIBE (SELECT {columns_str} FROM {safe_source} LIMIT 0)"
         describe_result = await ch.query(describe_query, settings=settings)
         ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
 
@@ -290,7 +280,10 @@ async def _create_from_json(
     obj = await create_object(schema)
 
     select_exprs, from_subquery = _build_json_select(
-        json_columns, json_path, format, safe_url,
+        json_columns,
+        json_path,
+        format,
+        safe_url,
     )
 
     insert_col_names = [k for k in schema_columns if k != "aai_id"]

@@ -104,6 +104,6 @@ async def test_bitwise_and_then_sum(ctx):
     """AND mask result can be summed (counts set bits per element)."""
     obj_a = await create_object_from_value([0b1111, 0b1010, 0b0000, 0b1100])
     obj_b = await create_object_from_value([0b1010, 0b1010, 0b1111, 0b0101])
-    masked = await (obj_a & obj_b)   # [0b1010, 0b1010, 0b0000, 0b0100]
+    masked = await (obj_a & obj_b)  # [0b1010, 0b1010, 0b0000, 0b0100]
     total = await (await masked.sum()).data()
     assert total == 0b1010 + 0b1010 + 0b0000 + 0b0100

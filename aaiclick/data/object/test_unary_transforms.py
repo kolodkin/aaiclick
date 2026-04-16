@@ -49,9 +49,9 @@ async def test_month_array(ctx):
 async def test_day_of_week_array(ctx):
     """Extract day of week from DateTimes (1=Mon, 7=Sun)."""
     dates = [
-        datetime(2024, 1, 1, tzinfo=timezone.utc),   # Monday
-        datetime(2024, 1, 3, tzinfo=timezone.utc),   # Wednesday
-        datetime(2024, 1, 7, tzinfo=timezone.utc),   # Sunday
+        datetime(2024, 1, 1, tzinfo=timezone.utc),  # Monday
+        datetime(2024, 1, 3, tzinfo=timezone.utc),  # Wednesday
+        datetime(2024, 1, 7, tzinfo=timezone.utc),  # Sunday
     ]
     obj = await create_object_from_value(dates)
     result = await obj.day_of_week()

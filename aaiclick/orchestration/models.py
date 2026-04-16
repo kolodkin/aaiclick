@@ -30,6 +30,7 @@ DependencyType = Literal["task", "group"]
 if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
+
     class StrEnum(str, Enum):
         """String Enum for Python 3.10 compatibility."""
 
@@ -206,7 +207,9 @@ class Group(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    parent_group_id: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
+    parent_group_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
+    )
     name: str = Field()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -258,7 +261,9 @@ class Group(SQLModel, table=True):
         self.previous_dependencies.append(dependency)
         return self
 
-    def __rshift__(self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
+    def __rshift__(
+        self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
         """A >> B: B depends on A (A executes before B)."""
         if isinstance(other, (Task, Group)):
             other.depends_on(self)
@@ -285,7 +290,9 @@ class Group(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rlshift__(self, other: Union["Task", "Group", list[Union["Task", "Group"]]]) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
+    def __rlshift__(
+        self, other: Union["Task", "Group", list[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
         """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
         if isinstance(other, list):
             for item in other:
@@ -307,7 +314,9 @@ class Task(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
-    group_id: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True))
+    group_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
+    )
     entrypoint: str = Field()
     name: str = Field()
     kwargs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
@@ -316,7 +325,9 @@ class Task(SQLModel, table=True):
     claimed_at: datetime | None = Field(default=None)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
-    worker_id: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True))
+    worker_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True)
+    )
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)
@@ -361,7 +372,9 @@ class Task(SQLModel, table=True):
         self.previous_dependencies.append(dependency)
         return self
 
-    def __rshift__(self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
+    def __rshift__(
+        self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
         """A >> B: B depends on A (A executes before B)."""
         if isinstance(other, (Task, Group)):
             other.depends_on(self)
@@ -388,7 +401,9 @@ class Task(SQLModel, table=True):
             self.depends_on(other)
         return self
 
-    def __rlshift__(self, other: Union["Task", "Group", list[Union["Task", "Group"]]]) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
+    def __rlshift__(
+        self, other: Union["Task", "Group", list[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
         """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
         if isinstance(other, list):
             for item in other:

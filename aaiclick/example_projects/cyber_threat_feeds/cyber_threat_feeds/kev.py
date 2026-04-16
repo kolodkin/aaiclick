@@ -5,9 +5,7 @@ from aaiclick.data.models import ColumnInfo
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-CISA_KEV_URL = (
-    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-)
+CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 KEV_COLUMNS = {
     "cveID": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
@@ -37,9 +35,11 @@ async def load_kev_data() -> Object:
 
 async def _kev_by_vendor(kev: Object) -> Object:
     """Top vendors by number of known exploited vulnerabilities."""
-    return await kev.group_by("vendorProject").agg({
-        "cveID": "count",
-    })
+    return await kev.group_by("vendorProject").agg(
+        {
+            "cveID": "count",
+        }
+    )
 
 
 async def _kev_by_year(kev: Object) -> Object:
@@ -49,10 +49,12 @@ async def _kev_by_year(kev: Object) -> Object:
 
 async def _kev_ransomware(kev: Object) -> dict:
     """Count vulnerabilities linked to known ransomware campaigns."""
-    counts = await kev.count_if({
-        "total_kev": "1",
-        "ransomware_linked": "knownRansomwareCampaignUse = 'Known'",
-    })
+    counts = await kev.count_if(
+        {
+            "total_kev": "1",
+            "ransomware_linked": "knownRansomwareCampaignUse = 'Known'",
+        }
+    )
     data = await counts.data()
     total = data["total_kev"]
     linked = data["ransomware_linked"]

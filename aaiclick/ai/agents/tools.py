@@ -151,9 +151,7 @@ async def get_column_stats(table: str) -> str:
         )
 
     try:
-        result = await ch_client.query(
-            f"SELECT {', '.join(select_parts)} FROM {table_escaped}"
-        )
+        result = await ch_client.query(f"SELECT {', '.join(select_parts)} FROM {table_escaped}")
     except Exception as exc:
         return f"(error querying stats for {table}: {exc})"
 
@@ -164,10 +162,7 @@ async def get_column_stats(table: str) -> str:
     lines = []
     for i, col in enumerate(columns):
         base = i * 4
-        lines.append(
-            f"{col}: count={row[base]}, non_null={row[base + 1]}, "
-            f"min={row[base + 2]}, max={row[base + 3]}"
-        )
+        lines.append(f"{col}: count={row[base]}, non_null={row[base + 1]}, min={row[base + 2]}, max={row[base + 3]}")
 
     return "\n".join(lines)
 
@@ -228,12 +223,8 @@ async def trace_row(table: str, aai_id: int, depth: int = 10) -> str:
         )
     lines = []
     for step in steps:
-        sources = ", ".join(
-            f"{role}={src_id}" for role, src_id in step.source_aai_ids.items()
-        )
-        lines.append(
-            f"{step.table}.aai_id={step.aai_id}  <- {step.operation}({sources})"
-        )
+        sources = ", ".join(f"{role}={src_id}" for role, src_id in step.source_aai_ids.items())
+        lines.append(f"{step.table}.aai_id={step.aai_id}  <- {step.operation}({sources})")
     return "\n".join(lines)
 
 
@@ -258,9 +249,7 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
         elif name == "get_column_stats":
             return await get_column_stats(arguments["table"])
         elif name == "trace_upstream":
-            return await trace_upstream(
-                arguments["table"], depth=arguments.get("depth", 10)
-            )
+            return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
         elif name == "trace_row":
             return await trace_row(
                 arguments["table"],
@@ -271,8 +260,7 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
             return f"(unknown tool: {name})"
     except KeyError as exc:
         return (
-            f"(error calling {name}: missing required argument {exc}. "
-            f"provided arguments: {sorted(arguments.keys())})"
+            f"(error calling {name}: missing required argument {exc}. provided arguments: {sorted(arguments.keys())})"
         )
     except Exception as exc:
         logger.exception("tool %s raised an unexpected exception", name)

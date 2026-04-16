@@ -15,9 +15,7 @@ is no memory leak concern.
 
 from contextvars import ContextVar
 
-_task_registry_var: ContextVar[dict | None] = ContextVar(
-    "task_registry", default=None
-)
+_task_registry_var: ContextVar[dict | None] = ContextVar("task_registry", default=None)
 
 
 def get_task_registry() -> dict | None:

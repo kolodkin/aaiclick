@@ -18,16 +18,14 @@ from sqlalchemy.sql import Select
 from ...backend import is_sqlite
 from ..models import Task
 
-_db_handler_var: ContextVar[DbHandler | None] = ContextVar('db_handler', default=None)
+_db_handler_var: ContextVar[DbHandler | None] = ContextVar("db_handler", default=None)
 
 
 def get_db_handler() -> DbHandler:
     """Return the DbHandler for the active orchestration context."""
     handler = _db_handler_var.get()
     if handler is None:
-        raise RuntimeError(
-            "No active orch_context — use 'async with orch_context()'"
-        )
+        raise RuntimeError("No active orch_context — use 'async with orch_context()'")
     return handler
 
 
@@ -75,9 +73,7 @@ class DbHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def claim_next_task(
-        session: AsyncSession, worker_id: int, now: datetime
-    ) -> Task | None: ...
+    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None: ...
 
     @staticmethod
     @abstractmethod

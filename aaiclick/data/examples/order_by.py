@@ -32,9 +32,7 @@ async def example():
     )
     print(f"Data: {await sales.data(orient=ORIENT_RECORDS)}")
 
-    result = await ch.query(
-        f"SELECT engine, sorting_key FROM system.tables WHERE name = '{sales.table}'"
-    )
+    result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{sales.table}'")
     engine, sorting_key = result.result_rows[0]
     print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: date, aai_id
 
@@ -53,9 +51,7 @@ async def example():
     )
     print(f"Data: {await events.data(orient=ORIENT_RECORDS)}")
 
-    result = await ch.query(
-        f"SELECT sorting_key FROM system.tables WHERE name = '{events.table}'"
-    )
+    result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{events.table}'")
     print(f"ORDER BY: {result.result_rows[0][0]}")  # → ORDER BY: category, date, aai_id
 
     # Example 3: No order_by (default behaviour)
@@ -68,9 +64,7 @@ async def example():
     )
     print(f"Data: {await plain.data(orient=ORIENT_RECORDS)}")
 
-    result = await ch.query(
-        f"SELECT engine FROM system.tables WHERE name = '{plain.table}'"
-    )
+    result = await ch.query(f"SELECT engine FROM system.tables WHERE name = '{plain.table}'")
     print(f"Engine: {result.result_rows[0][0]} (no ORDER BY)")
 
 

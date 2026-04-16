@@ -251,9 +251,7 @@ class Object:
             RuntimeError: If object has been deleted (stale)
         """
         if self._stale:
-            raise RuntimeError(
-                f"Cannot use stale Object. Table '{self.table}' has been deleted."
-            )
+            raise RuntimeError(f"Cannot use stale Object. Table '{self.table}' has been deleted.")
 
     def _build_where(self) -> str | None:
         """Build the combined WHERE clause from stored conditions."""
@@ -307,11 +305,7 @@ class Object:
         Works for both Object (value column) and View (selected field).
         """
         source = f"({self._build_select()})" if self.has_constraints else self.table
-        value_column = (
-            self.selected_fields[0]
-            if self.is_single_field and self.selected_fields
-            else "value"
-        )
+        value_column = self.selected_fields[0] if self.is_single_field and self.selected_fields else "value"
 
         if self.is_single_field:
             fieldtype = FIELDTYPE_ARRAY
@@ -362,10 +356,7 @@ class Object:
         operator fast-path to avoid the expensive JOIN on row_number() when
         two field selections come from the same underlying data.
         """
-        return (
-            self.table == other.table
-            and self._build_constraint_sql() == other._build_constraint_sql()
-        )
+        return self.table == other.table and self._build_constraint_sql() == other._build_constraint_sql()
 
     def _get_ingest_query_info(self) -> IngestQueryInfo:
         """
@@ -514,9 +505,7 @@ class Object:
         lines.append(header)
         lines.append(sep)
         for i in range(n_rows):
-            row = "| " + " | ".join(
-                f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns
-            ) + " |"
+            row = "| " + " | ".join(f"{_cell(_get(col, i), col):<{widths[col]}s}" for col in columns) + " |"
             lines.append(row)
         return "\n".join(lines)
 
@@ -592,9 +581,7 @@ class Object:
         other.checkstale()
         info_a = self._get_query_info()
         info_b = other._get_query_info()
-        return await operators._apply_operator_db(
-            info_a, info_b, operator, self.ch_client
-        )
+        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
 
     async def _apply_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> Object:
         """
@@ -614,9 +601,7 @@ class Object:
         other.checkstale()
         info_a = other._get_query_info()
         info_b = self._get_query_info()
-        return await operators._apply_operator_db(
-            info_a, info_b, operator, self.ch_client
-        )
+        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
 
     async def __add__(self, other: Object | ValueScalarType) -> Object:
         """Add: self + other. Supports scalar broadcast."""
@@ -825,9 +810,7 @@ class Object:
             result = await self.copy()
         else:
             # Single database operation for all sources
-            result = await ingest.concat_objects_db(
-                query_infos, self.ch_client
-            )
+            result = await ingest.concat_objects_db(query_infos, self.ch_client)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -889,9 +872,7 @@ class Object:
 
         # Single database operation for all sources
         if query_infos:
-            await ingest.insert_objects_db(
-                self._get_ingest_query_info(), query_infos, self.ch_client
-            )
+            await ingest.insert_objects_db(self._get_ingest_query_info(), query_infos, self.ch_client)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -1561,9 +1542,7 @@ class Object:
         existing = set(self._schema.columns.keys())
         for name, computed in columns.items():
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
             self._validate_expression(computed.expression)
         return View(self, computed_columns=columns)
 
@@ -1579,9 +1558,7 @@ class Object:
         existing = set(self._schema.columns.keys())
         for name in columns:
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
         return View(self, computed_columns=columns)
 
     def rename(self, columns: dict[str, str]) -> View:
@@ -1612,9 +1589,7 @@ class Object:
         (existing - renamed_away) | set(columns.values())
         for old_name in columns:
             if old_name not in existing:
-                raise ValueError(
-                    f"Column '{old_name}' does not exist in schema"
-                )
+                raise ValueError(f"Column '{old_name}' does not exist in schema")
             if old_name == "aai_id":
                 raise ValueError("Cannot rename 'aai_id' column")
         # Check for duplicate new names
@@ -1625,9 +1600,7 @@ class Object:
         kept = existing - renamed_away - {"aai_id"}
         for new_name in new_names:
             if new_name in kept:
-                raise ValueError(
-                    f"Renamed column '{new_name}' collides with existing column"
-                )
+                raise ValueError(f"Renamed column '{new_name}' collides with existing column")
         return View(self, renamed_columns=columns)
 
     def explode(self, *columns: str, left: bool = False) -> View:
@@ -1666,10 +1639,7 @@ class Object:
                 raise ValueError(f"Column '{col}' does not exist in schema")
             col_info = self._effective_columns[col]
             if not col_info.array:
-                raise ValueError(
-                    f"Column '{col}' is not an Array type. "
-                    "explode() requires Array columns."
-                )
+                raise ValueError(f"Column '{col}' is not an Array type. explode() requires Array columns.")
         return View(self, exploded_columns=list(columns), left_explode=left)
 
     # -----------------------------------------------------------------
@@ -1708,9 +1678,7 @@ class Object:
             alias: Result column name (default: '{col_a}_{col_b}_diff')
         """
         name = alias or f"{col_a}_{col_b}_diff"
-        return self.with_columns(
-            {name: Computed("Int64", f"dateDiff('{unit}', {col_a}, {col_b})")}
-        )
+        return self.with_columns({name: Computed("Int64", f"dateDiff('{unit}', {col_a}, {col_b})")})
 
     def with_lower(self, column: str, *, alias: str | None = None) -> View:
         """Lowercase a String column."""
@@ -1751,6 +1719,7 @@ class Object:
             alias: Result column name (default: '{column}_parts').
         """
         from .transforms import split_by_char
+
         name = alias or f"{column}_parts"
         return self.with_columns({name: split_by_char(column, separator, element_type=element_type)})
 
@@ -1769,23 +1738,15 @@ class Object:
         name = alias or f"{column}_sqrt"
         return self.with_columns({name: Computed("Float64", f"sqrt({column})")})
 
-    def with_bucket(
-        self, column: str, size: int, *, alias: str | None = None
-    ) -> View:
+    def with_bucket(self, column: str, size: int, *, alias: str | None = None) -> View:
         """Integer division bucketing: intDiv(column, size)."""
         name = alias or f"{column}_bucket"
-        return self.with_columns(
-            {name: Computed("Int64", f"intDiv({column}, {size})")}
-        )
+        return self.with_columns({name: Computed("Int64", f"intDiv({column}, {size})")})
 
-    def with_hash_bucket(
-        self, column: str, n_buckets: int, *, alias: str | None = None
-    ) -> View:
+    def with_hash_bucket(self, column: str, n_buckets: int, *, alias: str | None = None) -> View:
         """Hash bucketing: cityHash64(column) % n_buckets."""
         name = alias or f"{column}_hash"
-        return self.with_columns(
-            {name: Computed("UInt64", f"cityHash64({column}) % {n_buckets}")}
-        )
+        return self.with_columns({name: Computed("UInt64", f"cityHash64({column}) % {n_buckets}")})
 
     def with_if(
         self,
@@ -1805,9 +1766,7 @@ class Object:
             alias: Required — result column name
             type: ClickHouse result type (default 'String')
         """
-        return self.with_columns(
-            {alias: Computed(type, f"if({condition}, {then_value}, {else_value})")}
-        )
+        return self.with_columns({alias: Computed(type, f"if({condition}, {then_value}, {else_value})")})
 
     def with_cast(
         self,
@@ -1826,6 +1785,7 @@ class Object:
             alias: Result column name (default: '{column}_{to_type.lower()}').
         """
         from .transforms import cast
+
         name = alias or f"{column}_{to_type.lower()}"
         return self.with_columns({name: cast(column, to_type, nullable=nullable)})
 
@@ -1910,8 +1870,7 @@ class Object:
                        Use where() first: obj.where('x > 5').or_where('y < 3')
         """
         raise ValueError(
-            "or_where() requires a prior where condition. "
-            "Use where() first: obj.where('x > 5').or_where('y < 3')"
+            "or_where() requires a prior where condition. Use where() first: obj.where('x > 5').or_where('y < 3')"
         )
 
     def group_by(self, *keys: str) -> GroupByQuery:
@@ -2037,10 +1996,7 @@ class GroupByQuery:
 
         for key in keys:
             if key not in available:
-                raise ValueError(
-                    f"Key '{key}' not found in source columns. "
-                    f"Available: {sorted(available)}"
-                )
+                raise ValueError(f"Key '{key}' not found in source columns. Available: {sorted(available)}")
 
         self._source = source
         self._keys = keys
@@ -2299,30 +2255,28 @@ class View(Object):
 
         # Inherit existing constraints when source is already a View
         is_view = isinstance(source, View)
-        self._where_clauses: list[tuple[str, str]] = (
-            list(source._where_clauses) if is_view else []
-        )
+        self._where_clauses: list[tuple[str, str]] = list(source._where_clauses) if is_view else []
         if where:
             self._where_clauses.append((where.strip(), where_connector))
         self._limit = limit if limit is not None else (source._limit if is_view else None)
         self._offset = offset if offset is not None else (source._offset if is_view else None)
         self._order_by = order_by if order_by is not None else (source._order_by if is_view else None)
-        self._selected_fields = selected_fields if selected_fields is not None else (
-            source._selected_fields if is_view else None
+        self._selected_fields = (
+            selected_fields if selected_fields is not None else (source._selected_fields if is_view else None)
         )
-        self._computed_columns: dict[str, Computed] | None = computed_columns if computed_columns is not None else (
-            source._computed_columns if is_view else None
+        self._computed_columns: dict[str, Computed] | None = (
+            computed_columns if computed_columns is not None else (source._computed_columns if is_view else None)
         )
-        self._renamed_columns: dict[str, str] | None = renamed_columns if renamed_columns is not None else (
-            source._renamed_columns if is_view else None
+        self._renamed_columns: dict[str, str] | None = (
+            renamed_columns if renamed_columns is not None else (source._renamed_columns if is_view else None)
         )
         self._exploded_columns: list[str] = (
-            list(exploded_columns) if exploded_columns is not None
+            list(exploded_columns)
+            if exploded_columns is not None
             else (list(source._exploded_columns) if is_view else [])
         )
         self._left_explode: bool = (
-            left_explode if exploded_columns is not None
-            else (source._left_explode if is_view else False)
+            left_explode if exploded_columns is not None else (source._left_explode if is_view else False)
         )
 
         # Register with context for lifecycle tracking and stale marking
@@ -2402,10 +2356,7 @@ class View(Object):
             for f in self._selected_fields:
                 columns[f] = orig[f]
         else:
-            columns = {
-                renames.get(name, name): info
-                for name, info in orig.items()
-            }
+            columns = {renames.get(name, name): info for name, info in orig.items()}
 
         if self._computed_columns:
             for name, comp in self._computed_columns.items():
@@ -2505,9 +2456,7 @@ class View(Object):
         existing = set(self._effective_columns.keys())
         for name, computed in columns.items():
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
             self._validate_expression(computed.expression)
 
         merged = dict(self.computed_columns) if self.computed_columns else {}
@@ -2523,9 +2472,7 @@ class View(Object):
         existing = set(self._effective_columns.keys())
         for name in columns:
             if name in existing:
-                raise ValueError(
-                    f"Computed column '{name}' collides with existing column"
-                )
+                raise ValueError(f"Computed column '{name}' collides with existing column")
         merged = dict(self.computed_columns) if self.computed_columns else {}
         merged.update(columns)
         return View(self, computed_columns=merged)
@@ -2702,8 +2649,7 @@ class View(Object):
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
             columns: dict[str, ColumnMeta] = {
-                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-                for name in eff if name != "aai_id"
+                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY) for name in eff if name != "aai_id"
             }
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)

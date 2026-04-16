@@ -98,18 +98,20 @@ async def example():
     print("Example 5: WHERE clause with dict of scalars")
     print("-" * 50)
 
-    obj_dict_scalar = await create_object_from_value(
-        {"id": 101, "name": "Alice", "age": 30, "score": 95.5}
-    )
+    obj_dict_scalar = await create_object_from_value({"id": 101, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Original data: {await obj_dict_scalar.data()}\n")
 
     # Filter by age
     view_dict_where = obj_dict_scalar.view(where="age >= 25")
-    print(f"WHERE age >= 25: {await view_dict_where.data()}")  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
+    print(
+        f"WHERE age >= 25: {await view_dict_where.data()}"
+    )  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Filter by score
     view_dict_score = obj_dict_scalar.view(where="score > 90.0")
-    print(f"WHERE score > 90.0: {await view_dict_score.data()}")  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
+    print(
+        f"WHERE score > 90.0: {await view_dict_score.data()}"
+    )  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Example 6: WHERE clause with dict of arrays
     print("\n" + "=" * 50)
@@ -121,7 +123,7 @@ async def example():
             "id": [1, 2, 3, 4, 5, 6],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"],
             "age": [25, 30, 35, 28, 22, 40],
-            "score": [85.5, 92.0, 78.5, 95.0, 88.0, 91.5]
+            "score": [85.5, 92.0, 78.5, 95.0, 88.0, 91.5],
         }
     )
     print("Original data (all rows):")
@@ -154,7 +156,7 @@ async def example():
         {
             "id": [1, 2, 3, 4, 5, 6, 7, 8],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry"],
-            "department": ["HR", "IT", "Sales", "IT", "HR", "Sales", "IT", "HR"]
+            "department": ["HR", "IT", "Sales", "IT", "HR", "Sales", "IT", "HR"],
         }
     )
     print("Original data (8 people):")
@@ -196,7 +198,7 @@ async def example():
             "id": [101, 102, 103, 104, 105],
             "name": ["Laptop", "Mouse", "Keyboard", "Monitor", "Headset"],
             "price": [999.99, 25.50, 75.00, 350.00, 125.00],
-            "stock": [15, 50, 30, 8, 22]
+            "stock": [15, 50, 30, 8, 22],
         }
     )
     print("Original data:")
@@ -238,7 +240,7 @@ async def example():
             "id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "name": ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"],
             "grade": [85, 92, 78, 95, 88, 72, 90, 83, 96, 87],
-            "class": ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"]
+            "class": ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"],
         }
     )
     print("Original data (10 students):")
@@ -264,12 +266,7 @@ async def example():
     print()
 
     # Pagination: second page of students with grade >= 85 (sorted by grade)
-    page_2_high_grades = students.view(
-        where="grade >= 85",
-        order_by="grade DESC",
-        offset=3,
-        limit=3
-    )
+    page_2_high_grades = students.view(where="grade >= 85", order_by="grade DESC", offset=3, limit=3)
     page_2_data = await page_2_high_grades.data(orient=ORIENT_RECORDS)
     print("Page 2 of students with grade >= 85 (OFFSET 3 LIMIT 3):")
     for student in page_2_data:

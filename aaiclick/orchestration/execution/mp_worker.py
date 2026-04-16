@@ -46,6 +46,7 @@ _mp_ctx = multiprocessing.get_context("spawn")
 # Child process (runs in spawned process)
 # ---------------------------------------------------------------------------
 
+
 def _child_process_target(
     task_id: int,
     job_id: int,
@@ -55,9 +56,14 @@ def _child_process_target(
     try:
         asyncio.run(_child_run_task(task_id, job_id, result_queue))
     except BaseException as e:
-        result_queue.put(_ProcessResult(
-            success=False, result_ref=None, log_path=None, error=str(e),
-        ))
+        result_queue.put(
+            _ProcessResult(
+                success=False,
+                result_ref=None,
+                log_path=None,
+                error=str(e),
+            )
+        )
 
 
 async def _child_run_task(
@@ -70,23 +76,27 @@ async def _child_run_task(
 
     async with orch_context():
         async with get_sql_session() as session:
-            db_result = await session.execute(
-                select(Task).where(Task.id == task_id)
-            )
+            db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
 
         data_result, log_path = await execute_task(task)
         data_result = await register_returned_tasks(data_result, task.id, task.job_id)
         result_ref = serialize_task_result(data_result, job_id)
 
-        result_queue.put(_ProcessResult(
-            success=True, result_ref=result_ref, log_path=log_path, error=None,
-        ))
+        result_queue.put(
+            _ProcessResult(
+                success=True,
+                result_ref=result_ref,
+                log_path=log_path,
+                error=None,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
 # Parent process
 # ---------------------------------------------------------------------------
+
 
 async def _run_task_in_child(
     task: Task,
@@ -140,7 +150,8 @@ async def _poll_child(
     while True:
         try:
             result = await asyncio.to_thread(
-                result_queue.get, timeout=poll_interval,
+                result_queue.get,
+                timeout=poll_interval,
             )
             await asyncio.to_thread(proc.join)
             return result
@@ -153,13 +164,17 @@ async def _poll_child(
             proc.kill()
             await asyncio.to_thread(proc.join, timeout=5)
             return _ProcessResult(
-                success=False, result_ref=None, log_path=None,
+                success=False,
+                result_ref=None,
+                log_path=None,
                 error=f"Task timed out after {timeout}s",
             )
 
         if not proc.is_alive():
             return _ProcessResult(
-                success=False, result_ref=None, log_path=None,
+                success=False,
+                result_ref=None,
+                log_path=None,
                 error=f"Child process exited with code {proc.exitcode}",
             )
 
@@ -167,6 +182,7 @@ async def _poll_child(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 async def mp_worker_main_loop(
     worker_id: int | None = None,

@@ -58,20 +58,14 @@ def _task_row(task_id, result=None, kwargs=None, name="t", entrypoint="mod.fn") 
 
 def test_is_wiring_task_none_result():
     """None-result task with dynamically-spawned children is wiring."""
-    assert (
-        _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids={1})
-        is True
-    )
+    assert _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids={1}) is True
 
 
 def test_is_wiring_task_none_result_no_dynamic_children():
     """None-result task that did NOT spawn children at runtime is NOT
     wiring — e.g. a legitimate compute task that happened to return
     None. It should be cloned and re-executed rather than skipped."""
-    assert (
-        _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids=set())
-        is False
-    )
+    assert _is_wiring_task(_task_row(1, result=None), dynamic_parent_ids=set()) is False
 
 
 def test_is_wiring_task_upstream_ref_result():
@@ -106,9 +100,7 @@ def test_rewrite_value_replaces_input_ref():
     rewritten = _rewrite_value(
         {"left": {"ref_type": "upstream", "task_id": 10}},
         _empty_ctx(
-            input_task_refs={
-                10: {"object_type": "object", "table": "p_foo", "persistent": True}
-            },
+            input_task_refs={10: {"object_type": "object", "table": "p_foo", "persistent": True}},
         ),
     )
     assert rewritten == {
@@ -241,12 +233,8 @@ async def _insert_synthetic_job(
                 result=add_result,
             )
         )
-        session.add(
-            Dependency(previous_id=ml_id, previous_type="task", next_id=add_id, next_type="task")
-        )
-        session.add(
-            Dependency(previous_id=mr_id, previous_type="task", next_id=add_id, next_type="task")
-        )
+        session.add(Dependency(previous_id=ml_id, previous_type="task", next_id=add_id, next_type="task"))
+        session.add(Dependency(previous_id=mr_id, previous_type="task", next_id=add_id, next_type="task"))
         await session.commit()
 
     return job_id, ml_id, mr_id, add_id
@@ -281,11 +269,7 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
     assert add_id in result.task_id_map
 
     async with get_sql_session() as session:
-        cloned_tasks = list(
-            (
-                await session.execute(select(Task).where(Task.job_id == replayed.id))
-            ).scalars().all()
-        )
+        cloned_tasks = list((await session.execute(select(Task).where(Task.job_id == replayed.id))).scalars().all())
         cloned_deps = list(
             (
                 await session.execute(
@@ -294,7 +278,9 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
                         Dependency.next_type == "task",
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     # Only the compute task got cloned.
@@ -313,9 +299,7 @@ async def test_replay_job_clones_compute_tasks_and_inlines_inputs(orch_ctx_no_ch
     }
 
     # Dependencies touching input tasks are dropped — the clone has none.
-    clone_deps = [
-        d for d in cloned_deps if d.previous_id == cloned.id or d.next_id == cloned.id
-    ]
+    clone_deps = [d for d in cloned_deps if d.previous_id == cloned.id or d.next_id == cloned.id]
     assert clone_deps == []
 
 
@@ -406,9 +390,7 @@ def _rp_pipeline(suffix: str):
 
 async def _assert_completed(job_id: int) -> None:
     async with get_sql_session() as session:
-        db_job = (
-            await session.execute(select(Job).where(Job.id == job_id))
-        ).scalar_one()
+        db_job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one()
     assert db_job.status == JobStatus.COMPLETED, f"Job failed: {db_job.error}"
 
 
@@ -433,11 +415,7 @@ async def test_replay_job_end_to_end(orch_ctx):
 
     # Exactly one compute task (the _rp_add clone) should be present.
     async with get_sql_session() as session:
-        cloned_tasks = list(
-            (
-                await session.execute(select(Task).where(Task.job_id == replayed.id))
-            ).scalars().all()
-        )
+        cloned_tasks = list((await session.execute(select(Task).where(Task.job_id == replayed.id))).scalars().all())
     assert len(cloned_tasks) == 1
     clone = cloned_tasks[0]
     assert clone.entrypoint.endswith("_rp_add")
@@ -463,8 +441,7 @@ async def test_replay_job_end_to_end(orch_ctx):
         # result_aai_ids populated by STRATEGY-mode sampling.
         rows = (
             await ch.query(
-                "SELECT operation, kwargs_aai_ids, result_aai_ids "
-                f"FROM operation_log WHERE job_id = {replayed.id}"
+                f"SELECT operation, kwargs_aai_ids, result_aai_ids FROM operation_log WHERE job_id = {replayed.id}"
             )
         ).result_rows
         assert rows, f"No oplog rows for replayed job {replayed.id}"
@@ -472,11 +449,7 @@ async def test_replay_job_end_to_end(orch_ctx):
         add_rows = [(op, k, r) for op, k, r in rows if op == "+"]
         assert add_rows, f"No '+' oplog row; got {[r[0] for r in rows]}"
         _, kwargs_aai_ids_raw, result_aai_ids_raw = add_rows[0]
-        kwargs_aai_ids = (
-            dict(kwargs_aai_ids_raw)
-            if not isinstance(kwargs_aai_ids_raw, dict)
-            else kwargs_aai_ids_raw
-        )
+        kwargs_aai_ids = dict(kwargs_aai_ids_raw) if not isinstance(kwargs_aai_ids_raw, dict) else kwargs_aai_ids_raw
         result_aai_ids = list(result_aai_ids_raw)
         assert set(kwargs_aai_ids.keys()) == {"left", "right"}
         assert len(result_aai_ids) == 1

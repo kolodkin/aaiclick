@@ -389,10 +389,12 @@ async def test_insert_view_with_limit(ctx):
 
 async def test_insert_view_field_selection(ctx):
     """Insert a single-field view from a dict Object."""
-    src = await create_object_from_value({
-        "x": [10, 20, 30],
-        "y": [100, 200, 300],
-    })
+    src = await create_object_from_value(
+        {
+            "x": [10, 20, 30],
+            "y": [100, 200, 300],
+        }
+    )
     target = await create_object_from_value([1, 2])
 
     await target.insert(src["x"])
@@ -403,9 +405,11 @@ async def test_insert_view_field_selection(ctx):
 
 async def test_insert_view_with_computed_columns(ctx):
     """Insert a view with computed columns into a wider target."""
-    src = await create_object_from_value({
-        "name": ["alice", "bob"],
-    })
+    src = await create_object_from_value(
+        {
+            "name": ["alice", "bob"],
+        }
+    )
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
@@ -426,10 +430,12 @@ async def test_insert_view_with_computed_columns(ctx):
 
 async def test_insert_subset_columns_nullable_fill(ctx):
     """Insert source with fewer columns; missing nullable columns fill NULL."""
-    src = await create_object_from_value({
-        "id": ["A", "B"],
-        "val1": [10, 20],
-    })
+    src = await create_object_from_value(
+        {
+            "id": ["A", "B"],
+            "val1": [10, 20],
+        }
+    )
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
@@ -451,9 +457,11 @@ async def test_insert_subset_columns_nullable_fill(ctx):
 
 async def test_insert_subset_non_nullable_gets_default(ctx):
     """Insert with missing non-nullable column uses ClickHouse default."""
-    src = await create_object_from_value({
-        "id": ["A", "B"],
-    })
+    src = await create_object_from_value(
+        {
+            "id": ["A", "B"],
+        }
+    )
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
@@ -473,10 +481,12 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
 
 async def test_insert_skips_extra_source_columns(ctx):
     """Insert with extra source columns silently skips them."""
-    src = await create_object_from_value({
-        "id": ["A"],
-        "extra": [999],
-    })
+    src = await create_object_from_value(
+        {
+            "id": ["A"],
+            "extra": [999],
+        }
+    )
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={

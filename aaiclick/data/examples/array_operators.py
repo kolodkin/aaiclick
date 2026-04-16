@@ -51,7 +51,7 @@ async def example():
     result = await (a % b)
     print(f"a %% b = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
-    result = await (a ** b)
+    result = await (a**b)
     print(f"a ** b = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
 
     # Scalar broadcast
@@ -70,7 +70,7 @@ async def example():
     result = await (100 - a)
     print(f"100 - a = {await result.data()}")  # → [99, 98, 97, 96, 95]
 
-    result = await (2 ** a)
+    result = await (2**a)
     print(f"2 ** a  = {await result.data()}")  # → [2, 4, 8, 16, 32]
 
     # Comparison

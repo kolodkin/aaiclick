@@ -1,6 +1,5 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
-
 from ..models import Computed
 
 

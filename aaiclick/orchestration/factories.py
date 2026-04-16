@@ -57,13 +57,10 @@ def resolve_job_config(
         strategy = registered.sampling_strategy
 
     if mode is PreservationMode.STRATEGY and not strategy:
-        raise ValueError(
-            "preservation_mode=STRATEGY requires a non-empty sampling_strategy"
-        )
+        raise ValueError("preservation_mode=STRATEGY requires a non-empty sampling_strategy")
     if mode is not PreservationMode.STRATEGY and strategy:
         raise ValueError(
-            f"sampling_strategy is only valid with preservation_mode=STRATEGY "
-            f"(got preservation_mode={mode.value})"
+            f"sampling_strategy is only valid with preservation_mode=STRATEGY (got preservation_mode={mode.value})"
         )
 
     return ResolvedJobConfig(preservation_mode=mode, sampling_strategy=strategy)
@@ -142,7 +139,9 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: str | Callable, kwargs: dict | None = None, *, name: str | None = None, max_retries: int = 0) -> Task:
+def create_task(
+    callback: str | Callable, kwargs: dict | None = None, *, name: str | None = None, max_retries: int = 0
+) -> Task:
     """Create a Task object (not committed to database).
 
     Args:

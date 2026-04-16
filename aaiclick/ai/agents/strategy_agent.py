@@ -69,9 +69,9 @@ async def produce_strategy(
 
     for attempt in range(_MAX_RETRIES + 1):
         prompt = (
-            base_prompt if retry_error is None
-            else f"Your previous output failed validation: {retry_error}\n"
-                 f"Return a corrected JSON object. {base_prompt}"
+            base_prompt
+            if retry_error is None
+            else f"Your previous output failed validation: {retry_error}\nReturn a corrected JSON object. {base_prompt}"
         )
         raw = await provider.query(prompt, context=context, system=STRATEGY_SYSTEM_PROMPT)
         try:
@@ -115,14 +115,9 @@ def _parse(raw: str, known_tables: set[str]) -> SamplingStrategy:
     strategy: SamplingStrategy = {}
     for key, value in decoded.items():
         if not isinstance(key, str) or not isinstance(value, str):
-            raise ValueError(
-                f"strategy entries must be string→string, got {key!r}→{value!r}"
-            )
+            raise ValueError(f"strategy entries must be string→string, got {key!r}→{value!r}")
         if key not in known_tables:
-            raise ValueError(
-                f"table {key!r} is not in the lineage graph "
-                f"(known: {sorted(known_tables)})"
-            )
+            raise ValueError(f"table {key!r} is not in the lineage graph (known: {sorted(known_tables)})")
         clause = value.strip()
         if not clause:
             raise ValueError(f"empty WHERE clause for table {key!r}")
@@ -157,18 +152,12 @@ async def _dry_run(strategy: SamplingStrategy) -> None:
 
     async def _check(table: str, clause: str) -> tuple[str, BaseException | None]:
         try:
-            await ch_client.query(
-                f"SELECT aai_id FROM {table} WHERE {clause} LIMIT 0"
-            )
+            await ch_client.query(f"SELECT aai_id FROM {table} WHERE {clause} LIMIT 0")
             return table, None
         except Exception as exc:
             return table, exc
 
-    results = await asyncio.gather(
-        *(_check(table, clause) for table, clause in strategy.items())
-    )
+    results = await asyncio.gather(*(_check(table, clause) for table, clause in strategy.items()))
     for table, exc in results:
         if exc is not None:
-            raise ValueError(
-                f"clause for {table!r} failed validation: {exc}"
-            ) from exc
+            raise ValueError(f"clause for {table!r} failed validation: {exc}") from exc

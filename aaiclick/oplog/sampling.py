@@ -153,14 +153,13 @@ async def _pick_inherited_driver(
         )
     except Exception:
         logger.error(
-            "Failed to look up inherited matches for %s", src_tables,
+            "Failed to look up inherited matches for %s",
+            src_tables,
             exc_info=True,
         )
         return None
 
-    ids_by_table: dict[str, list[int]] = {
-        row[0]: list(row[1]) for row in rows.result_rows
-    }
+    ids_by_table: dict[str, list[int]] = {row[0]: list(row[1]) for row in rows.result_rows}
     for _, src_table in sources:
         inherited_ids = ids_by_table.get(src_table)
         if inherited_ids:
@@ -196,25 +195,20 @@ async def _apply_positional(
     for i, (_, src_table) in enumerate(sources):
         alias = f"s{i}"
         selects.append(f"{alias}.aai_id")
-        subquery = (
-            f"(SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
-            f"FROM {src_table}) {alias}"
-        )
+        subquery = f"(SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn FROM {src_table}) {alias}"
         parts.append(subquery if i == 0 else f"INNER JOIN {subquery} ON {alias}.rn = s0.rn")
         if src_table == driver.table and driver_alias is None:
             driver_alias = alias
 
     selects.append("r.aai_id")
     parts.append(
-        f"INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn "
-        f"FROM {result_table}) r ON r.rn = s0.rn"
+        f"INNER JOIN (SELECT aai_id, row_number() OVER (ORDER BY aai_id) AS rn FROM {result_table}) r ON r.rn = s0.rn"
     )
     if driver.table == result_table:
         driver_alias = "r"
 
     sql = (
-        f"SELECT {', '.join(selects)} FROM " + " ".join(parts) +
-        f" WHERE {driver_alias}.aai_id IN ("
+        f"SELECT {', '.join(selects)} FROM " + " ".join(parts) + f" WHERE {driver_alias}.aai_id IN ("
         f"SELECT aai_id FROM {driver.table} WHERE {driver.clause})"
     )
     rows = await ch_client.query(sql, parameters=driver.parameters)

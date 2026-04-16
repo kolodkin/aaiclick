@@ -58,14 +58,16 @@ async def _groupby_count(obj):
 
 async def _groupby_multi(obj):
     """Single .agg() call — one GROUP BY query with all four aggregations."""
-    return await obj.group_by("category").agg({
-        "amount": [
-            Agg("sum", "amount_sum"),
-            Agg("mean", "amount_mean"),
-            Agg("min", "amount_min"),
-            Agg("max", "amount_max"),
-        ],
-    })
+    return await obj.group_by("category").agg(
+        {
+            "amount": [
+                Agg("sum", "amount_sum"),
+                Agg("mean", "amount_mean"),
+                Agg("min", "amount_min"),
+                Agg("max", "amount_max"),
+            ],
+        }
+    )
 
 
 async def _groupby_multikey(obj):

@@ -147,17 +147,31 @@ async def _walk(
     values = await _fetch_row_values(table, aai_id)
 
     if depth >= max_depth:
-        return _memo(cache, key, LineageNode(
-            table=table, aai_id=aai_id, operation=_TRUNCATED,
-            role=role, values=values,
-        ))
+        return _memo(
+            cache,
+            key,
+            LineageNode(
+                table=table,
+                aai_id=aai_id,
+                operation=_TRUNCATED,
+                role=role,
+                values=values,
+            ),
+        )
 
     upstream = await fetch_producing_op(table, aai_id, job_id=job_id)
     if upstream is None:
-        return _memo(cache, key, LineageNode(
-            table=table, aai_id=aai_id, operation=_SOURCE,
-            role=role, values=values,
-        ))
+        return _memo(
+            cache,
+            key,
+            LineageNode(
+                table=table,
+                aai_id=aai_id,
+                operation=_SOURCE,
+                role=role,
+                values=values,
+            ),
+        )
 
     child_roles = list(upstream.sources)
     child_nodes = await asyncio.gather(
@@ -165,18 +179,29 @@ async def _walk(
             _walk(
                 upstream.sources[input_role][0],
                 upstream.sources[input_role][1],
-                role=input_role, depth=depth + 1,
-                max_depth=max_depth, job_id=job_id, cache=cache,
+                role=input_role,
+                depth=depth + 1,
+                max_depth=max_depth,
+                job_id=job_id,
+                cache=cache,
             )
             for input_role in child_roles
         )
     )
     children = dict(zip(child_roles, child_nodes, strict=False))
 
-    return _memo(cache, key, LineageNode(
-        table=table, aai_id=aai_id, operation=upstream.operation,
-        role=role, values=values, children=children,
-    ))
+    return _memo(
+        cache,
+        key,
+        LineageNode(
+            table=table,
+            aai_id=aai_id,
+            operation=upstream.operation,
+            role=role,
+            values=values,
+            children=children,
+        ),
+    )
 
 
 def _memo(
@@ -196,8 +221,7 @@ async def _fetch_row_values(
     ch_client = get_ch_client()
     try:
         result = await ch_client.query(
-            f"SELECT {quote_identifier(VALUE_COLUMN)} FROM {quote_identifier(table)} "
-            f"WHERE aai_id = {aai_id} LIMIT 1"
+            f"SELECT {quote_identifier(VALUE_COLUMN)} FROM {quote_identifier(table)} WHERE aai_id = {aai_id} LIMIT 1"
         )
     except Exception:
         return None
@@ -236,8 +260,7 @@ def collapse_to_routes(forest: list[LineageNode]) -> list[Route]:
             root_table=paths[0][-1].table,
             root_values=[_extract_value(p[-1]) for p in paths],
             exemplars=[
-                [(n.table, n.aai_id, _extract_value(n)) for n in path]
-                for path in paths[:MAX_EXEMPLARS_PER_ROUTE]
+                [(n.table, n.aai_id, _extract_value(n)) for n in path] for path in paths[:MAX_EXEMPLARS_PER_ROUTE]
             ],
         )
         for signature, paths in path_groups.items()
@@ -282,14 +305,8 @@ def render_routes(routes: list[Route]) -> str:
         lines.append("")
         lines.append(f"### Route {idx}: {_render_signature(route.signature)}")
         lines.append(f"- matched: {route.match_count} rows")
-        lines.append(
-            f"- leaf values (`{route.leaf_table}`): "
-            f"{_format_values(route.leaf_values)}"
-        )
-        lines.append(
-            f"- root values (`{route.root_table}`): "
-            f"{_format_values(route.root_values)}"
-        )
+        lines.append(f"- leaf values (`{route.leaf_table}`): {_format_values(route.leaf_values)}")
+        lines.append(f"- root values (`{route.root_table}`): {_format_values(route.root_values)}")
 
         shown = len(route.exemplars)
         hidden = route.match_count - shown
@@ -328,9 +345,7 @@ def _render_signature(
 
 
 def _render_exemplar(path: list[tuple[str, int, Any]]) -> str:
-    return " → ".join(
-        f"`{table}`#{aai_id}={value}" for table, aai_id, value in path
-    )
+    return " → ".join(f"`{table}`#{aai_id}={value}" for table, aai_id, value in path)
 
 
 def _format_values(values: list[Any]) -> str:
@@ -351,7 +366,9 @@ async def build_and_render(
 ) -> str:
     """Convenience: ``build_forest`` → ``collapse_to_routes`` → ``render_routes``."""
     forest = await build_forest(
-        target_table, job_id=job_id, max_depth=max_depth,
+        target_table,
+        job_id=job_id,
+        max_depth=max_depth,
     )
     if not forest:
         return ""

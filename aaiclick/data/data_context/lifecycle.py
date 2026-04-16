@@ -14,7 +14,7 @@ from contextvars import ContextVar
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
-_lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar('lifecycle', default=None)
+_lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", default=None)
 
 
 def get_data_lifecycle() -> LifecycleHandler | None:
@@ -61,14 +61,14 @@ class LifecycleHandler(ABC):
     def unpin(self, table_name: str) -> None:
         """Remove this task's pin for a table. Default: no-op."""
 
-    def oplog_record(self, result_table: str, operation: str,
-                     kwargs: dict[str, str] | None = None,
-                     sql: str | None = None) -> None:
+    def oplog_record(
+        self, result_table: str, operation: str, kwargs: dict[str, str] | None = None, sql: str | None = None
+    ) -> None:
         """Record an oplog entry. No-op in local mode."""
 
-    def oplog_record_sample(self, result_table: str, operation: str,
-                            kwargs: dict[str, str] | None = None,
-                            sql: str | None = None) -> None:
+    def oplog_record_sample(
+        self, result_table: str, operation: str, kwargs: dict[str, str] | None = None, sql: str | None = None
+    ) -> None:
         """Record an oplog entry with lineage sampling. No-op in local mode."""
 
     def oplog_record_table(self, table_name: str) -> None:

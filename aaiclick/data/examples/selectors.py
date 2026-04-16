@@ -20,20 +20,17 @@ async def example():
     print("Example 1: Basic dict selector")
     print("-" * 50)
 
-    obj = await create_object_from_value({
-        'param1': [123, 234, 345],
-        'param2': [456, 567, 678]
-    })
+    obj = await create_object_from_value({"param1": [123, 234, 345], "param2": [456, 567, 678]})
     print("Created dict Object with columns: param1, param2")
     print(f"Full data: {await obj.data()}\n")  # → {'param1': [123, 234, 345], 'param2': [456, 567, 678]}
 
     # Select param1 using __getitem__
-    view_param1 = obj['param1']
+    view_param1 = obj["param1"]
     print(f"obj['param1'] creates a View: {view_param1}")
     print(f"View data: {await view_param1.data()}")  # → [123, 234, 345]
 
     # Select param2
-    view_param2 = obj['param2']
+    view_param2 = obj["param2"]
     print(f"obj['param2'] data: {await view_param2.data()}")  # → [456, 567, 678]
 
     # Example 2: Object metadata
@@ -54,7 +51,7 @@ async def example():
     print("Example 3: View metadata with selected_fields")
     print("-" * 50)
 
-    view = obj['param1']
+    view = obj["param1"]
     view_schema = view.schema
     print("ViewSchema for obj['param1']:")
     print(f"  table: {view_schema.table}")
@@ -70,7 +67,7 @@ async def example():
     print("Example 4: Copy view to array Object")
     print("-" * 50)
 
-    view = obj['param1']
+    view = obj["param1"]
     print(f"View data: {await view.data()}")  # → [123, 234, 345]
 
     # copy() materializes the view as a new array Object
@@ -92,14 +89,11 @@ async def example():
     print("Example 5: Operations with selected fields")
     print("-" * 50)
 
-    data = await create_object_from_value({
-        'prices': [10, 20, 30, 40, 50],
-        'quantities': [2, 3, 1, 4, 2]
-    })
+    data = await create_object_from_value({"prices": [10, 20, 30, 40, 50], "quantities": [2, 3, 1, 4, 2]})
     print(f"Data: {await data.data()}\n")
 
-    prices = data['prices']
-    quantities = data['quantities']
+    prices = data["prices"]
+    quantities = data["quantities"]
 
     # Multiply selected columns
     totals = await (prices * quantities)
@@ -116,13 +110,15 @@ async def example():
     print("Example 6: Aggregations on selected fields")
     print("-" * 50)
 
-    metrics = await create_object_from_value({
-        'values': [15, 8, 42, 23, 4, 16, 35, 12, 28, 50],
-        'weights': [1.0, 0.5, 2.0, 1.5, 0.8, 1.2, 1.8, 0.9, 1.4, 2.5]
-    })
+    metrics = await create_object_from_value(
+        {
+            "values": [15, 8, 42, 23, 4, 16, 35, 12, 28, 50],
+            "weights": [1.0, 0.5, 2.0, 1.5, 0.8, 1.2, 1.8, 0.9, 1.4, 2.5],
+        }
+    )
     print(f"Metrics data: {await metrics.data()}\n")
 
-    values = metrics['values']
+    values = metrics["values"]
     print(f"values: {await values.data()}")  # → [15, 8, 42, 23, 4, 16, 35, 12, 28, 50]
 
     # Aggregations on selected field

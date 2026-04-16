@@ -11,6 +11,7 @@ from aaiclick import create_object_from_value
 # match() tests - RE2 regex matching, returns UInt8
 # =============================================================================
 
+
 async def test_match_array_basic(ctx):
     obj = await create_object_from_value(["apple", "banana", "avocado"])
     result = await obj.match("^a")
@@ -38,6 +39,7 @@ async def test_match_all_match(ctx):
 # =============================================================================
 # like() tests - SQL LIKE pattern matching, returns UInt8
 # =============================================================================
+
 
 async def test_like_array_prefix(ctx):
     obj = await create_object_from_value(["apple", "banana", "avocado"])
@@ -73,6 +75,7 @@ async def test_like_underscore_wildcard(ctx):
 # ilike() tests - case-insensitive LIKE, returns UInt8
 # =============================================================================
 
+
 async def test_ilike_case_insensitive(ctx):
     obj = await create_object_from_value(["Apple", "BANANA", "avocado"])
     result = await obj.ilike("a%")
@@ -88,6 +91,7 @@ async def test_ilike_scalar(ctx):
 # =============================================================================
 # extract() tests - regex group extraction, returns String
 # =============================================================================
+
 
 async def test_extract_digits(ctx):
     obj = await create_object_from_value(["user_123", "user_456", "admin_789"])
@@ -110,6 +114,7 @@ async def test_extract_scalar(ctx):
 # =============================================================================
 # replace() tests - regex replacement, returns String
 # =============================================================================
+
 
 async def test_replace_basic(ctx):
     obj = await create_object_from_value(["hello world", "foo bar"])
@@ -138,6 +143,7 @@ async def test_replace_scalar(ctx):
 # =============================================================================
 # Chaining tests - regex results used in further operations
 # =============================================================================
+
 
 async def test_match_result_used_in_sum(ctx):
     """match() returns UInt8 which can be summed to count matches."""

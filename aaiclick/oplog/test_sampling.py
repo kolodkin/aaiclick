@@ -21,7 +21,10 @@ async def test_empty_strategy_returns_empty(orch_ctx):
 
     ch = await create_ch_client()
     kwargs_aai_ids, result_aai_ids = await apply_strategy(
-        ch, a_table, {"left": b_table}, {},
+        ch,
+        a_table,
+        {"left": b_table},
+        {},
     )
     assert kwargs_aai_ids == {}
     assert result_aai_ids == []
@@ -39,7 +42,10 @@ async def test_strategy_with_unrelated_tables_returns_empty(orch_ctx):
 
     ch = await create_ch_client()
     kwargs_aai_ids, result_aai_ids = await apply_strategy(
-        ch, a_table, {"left": b_table}, {"p_something_else": "x = 1"},
+        ch,
+        a_table,
+        {"left": b_table},
+        {"p_something_else": "x = 1"},
     )
     assert kwargs_aai_ids == {}
     assert result_aai_ids == []
@@ -56,7 +62,10 @@ async def test_strategy_matches_result_table_nullary(orch_ctx):
 
     ch = await create_ch_client()
     kwargs_aai_ids, result_aai_ids = await apply_strategy(
-        ch, a_table, {}, {a_table: "value = 20"},
+        ch,
+        a_table,
+        {},
+        {a_table: "value = 20"},
     )
     assert kwargs_aai_ids == {}
     assert len(result_aai_ids) == 1
@@ -75,7 +84,10 @@ async def test_strategy_matches_source_in_unary(orch_ctx):
 
     ch = await create_ch_client()
     kwargs_aai_ids, result_aai_ids = await apply_strategy(
-        ch, dst_table, {"source": src_table}, {src_table: "value = 20"},
+        ch,
+        dst_table,
+        {"source": src_table},
+        {src_table: "value = 20"},
     )
     assert list(kwargs_aai_ids.keys()) == ["source"]
     assert len(kwargs_aai_ids["source"]) == 1
@@ -208,12 +220,8 @@ async def test_inherited_driver_propagates_through_multi_op_pipeline(orch_ctx):
         run_id=100,
         sampling_strategy={"p_big_prices": "value >= 0"},
     ):
-        prices = await create_object_from_value(
-            [float(v) for v in range(100)], name="big_prices"
-        )
-        quantities = await create_object_from_value(
-            [2.0] * 100, name="big_quantities"
-        )
+        prices = await create_object_from_value([float(v) for v in range(100)], name="big_prices")
+        quantities = await create_object_from_value([2.0] * 100, name="big_quantities")
         mul = await (prices * quantities)
         bonus = await create_object_from_value([1.0] * 100, name="big_bonus")
         add = await (mul + bonus)
@@ -250,16 +258,10 @@ async def test_strategy_propagates_through_multi_op_pipeline(orch_ctx):
         run_id=100,
         sampling_strategy={"p_prop_prices": "value >= 40"},
     ):
-        prices = await create_object_from_value(
-            [10.0, 20.0, 30.0, 40.0, 50.0], name="prop_prices"
-        )
-        quantities = await create_object_from_value(
-            [2.0, 3.0, 1.0, 5.0, 4.0], name="prop_quantities"
-        )
+        prices = await create_object_from_value([10.0, 20.0, 30.0, 40.0, 50.0], name="prop_prices")
+        quantities = await create_object_from_value([2.0, 3.0, 1.0, 5.0, 4.0], name="prop_quantities")
         mul = await (prices * quantities)
-        bonus = await create_object_from_value(
-            [5.0, 5.0, 5.0, 5.0, 5.0], name="prop_bonus"
-        )
+        bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0], name="prop_bonus")
         add = await (mul + bonus)
         add_table = add.table
         mul_table = mul.table
@@ -291,9 +293,7 @@ async def test_strategy_propagates_through_multi_op_pipeline(orch_ctx):
         add_kwargs_raw, add_results_raw = add_rows[0]
         add_kwargs = dict(add_kwargs_raw) if not isinstance(add_kwargs_raw, dict) else add_kwargs_raw
         add_results = list(add_results_raw)
-        assert len(add_results) == 2, (
-            f"propagation should carry 2 matches into add, got {len(add_results)}"
-        )
+        assert len(add_results) == 2, f"propagation should carry 2 matches into add, got {len(add_results)}"
         assert set(add_kwargs.keys()) == {"left", "right"}
         assert len(add_kwargs["left"]) == 2
         assert len(add_kwargs["right"]) == 2

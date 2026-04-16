@@ -124,23 +124,30 @@ async def test_url_where_with_semicolon(ctx):
 @pytest.mark.parametrize(
     "filename,fmt,columns",
     [
-        pytest.param("sample.parquet",        "Parquet",              ["id", "price", "name"], id="Parquet"),
-        pytest.param("sample.csv",            "CSVWithNames",         ["id", "price", "name"], id="CSVWithNames"),
-        pytest.param("sample_noheader.csv",   "CSV",                  ["c1", "c2", "c3"],      id="CSV-no-header"),
-        pytest.param("sample_withtypes.csv",  "CSVWithNamesAndTypes", ["id", "price", "name"], id="CSVWithNamesAndTypes"),
-        pytest.param("sample.tsv",            "TSVWithNames",         ["id", "price", "name"], id="TSVWithNames"),
-        pytest.param("sample_noheader.tsv",   "TSV",                  ["c1", "c2", "c3"],      id="TSV-no-header"),
-        pytest.param("sample_withtypes.tsv",  "TSVWithNamesAndTypes", ["id", "price", "name"], id="TSVWithNamesAndTypes"),
-        pytest.param("sample.jsonl",          "JSONEachRow",          ["id", "price", "name"], id="JSONEachRow"),
-        pytest.param("sample_compact.jsonl",  "JSONCompactEachRow",   ["c1", "c2", "c3"],      id="JSONCompactEachRow"),
-        pytest.param("sample.orc",            "ORC",                  ["id", "price", "name"], id="ORC"),
-        pytest.param("sample.avro",           "Avro",                 ["id", "price", "name"], id="Avro"),
+        pytest.param("sample.parquet", "Parquet", ["id", "price", "name"], id="Parquet"),
+        pytest.param("sample.csv", "CSVWithNames", ["id", "price", "name"], id="CSVWithNames"),
+        pytest.param("sample_noheader.csv", "CSV", ["c1", "c2", "c3"], id="CSV-no-header"),
+        pytest.param(
+            "sample_withtypes.csv", "CSVWithNamesAndTypes", ["id", "price", "name"], id="CSVWithNamesAndTypes"
+        ),
+        pytest.param("sample.tsv", "TSVWithNames", ["id", "price", "name"], id="TSVWithNames"),
+        pytest.param("sample_noheader.tsv", "TSV", ["c1", "c2", "c3"], id="TSV-no-header"),
+        pytest.param(
+            "sample_withtypes.tsv", "TSVWithNamesAndTypes", ["id", "price", "name"], id="TSVWithNamesAndTypes"
+        ),
+        pytest.param("sample.jsonl", "JSONEachRow", ["id", "price", "name"], id="JSONEachRow"),
+        pytest.param("sample_compact.jsonl", "JSONCompactEachRow", ["c1", "c2", "c3"], id="JSONCompactEachRow"),
+        pytest.param("sample.orc", "ORC", ["id", "price", "name"], id="ORC"),
+        pytest.param("sample.avro", "Avro", ["id", "price", "name"], id="Avro"),
     ],
 )
 async def test_url_format(ctx, fileserver, filename, fmt, columns):
     """Load 100 rows in each supported URL input format."""
     obj = await create_object_from_url(
-        f"{fileserver}/{filename}", columns=columns, format=fmt, limit=100,
+        f"{fileserver}/{filename}",
+        columns=columns,
+        format=fmt,
+        limit=100,
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -160,7 +167,9 @@ async def test_url_format(ctx, fileserver, filename, fmt, columns):
 async def test_url_single_column(ctx, fileserver):
     """Single column load creates an array Object (column renamed to 'value')."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames",
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
     )
     data = await obj.data()
     assert isinstance(data, list)
@@ -171,7 +180,9 @@ async def test_url_single_column(ctx, fileserver):
 async def test_url_multi_column(ctx, fileserver):
     """Multi-column load creates a dict Object with original column names."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["name", "price"], format="Parquet",
+        f"{fileserver}/sample.parquet",
+        columns=["name", "price"],
+        format="Parquet",
     )
     data = await obj.data()
     assert isinstance(data, dict)
@@ -183,7 +194,9 @@ async def test_url_multi_column(ctx, fileserver):
 async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
     """Multi-column URL object has FIELDTYPE_DICT schema (not FIELDTYPE_ARRAY)."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["name", "price"], format="Parquet",
+        f"{fileserver}/sample.parquet",
+        columns=["name", "price"],
+        format="Parquet",
     )
     assert obj._schema.fieldtype == FIELDTYPE_DICT
 
@@ -191,7 +204,10 @@ async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
 async def test_url_with_limit(ctx, fileserver):
     """LIMIT restricts the number of loaded rows."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames", limit=3,
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
+        limit=3,
     )
     data = await obj.data()
     assert len(data) == 3
@@ -200,7 +216,9 @@ async def test_url_with_limit(ctx, fileserver):
 async def test_url_with_where(ctx, fileserver):
     """WHERE clause filters rows during load."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["id", "price"], format="CSVWithNames",
+        f"{fileserver}/sample.csv",
+        columns=["id", "price"],
+        format="CSVWithNames",
         where="price > 200",
     )
     data = await obj.data()
@@ -212,7 +230,10 @@ async def test_url_with_where(ctx, fileserver):
 async def test_url_snowflake_ids_ordered(ctx, fileserver):
     """Snowflake IDs are monotonically increasing and unique."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["price"], format="Parquet", limit=100,
+        f"{fileserver}/sample.parquet",
+        columns=["price"],
+        format="Parquet",
+        limit=100,
     )
     result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
     ids = [row[0] for row in result.result_rows]
@@ -238,7 +259,10 @@ async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
 async def test_url_aggregation_on_result(ctx, fileserver):
     """Aggregation operators work on Objects loaded from URL."""
     obj = await create_object_from_url(
-        f"{fileserver}/sample.csv", columns=["price"], format="CSVWithNames", limit=10,
+        f"{fileserver}/sample.csv",
+        columns=["price"],
+        format="CSVWithNames",
+        limit=10,
     )
     total = await obj.sum()
     total_data = await total.data()
@@ -408,7 +432,20 @@ async def test_insert_from_url_snowflake_ids(ctx, fileserver):
         ("vals", ColumnInfo("Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
         ("it's", ColumnInfo("String"), "JSONExtractString(elem, 'it\\'s')"),
     ],
-    ids=["string", "int64", "uint32", "float64", "float32", "bool", "date", "datetime", "array", "nullable", "nullable_array", "escaped"],
+    ids=[
+        "string",
+        "int64",
+        "uint32",
+        "float64",
+        "float32",
+        "bool",
+        "date",
+        "datetime",
+        "array",
+        "nullable",
+        "nullable_array",
+        "escaped",
+    ],
 )
 def test_json_extract_expr(field, col_info, expected):
     assert _json_extract_expr(field, col_info) == expected

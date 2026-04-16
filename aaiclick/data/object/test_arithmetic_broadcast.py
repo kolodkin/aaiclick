@@ -48,7 +48,7 @@ async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, operator, expected):
         case "%":
             result = await (obj % scalar)
         case "**":
-            result = await (obj ** scalar)
+            result = await (obj**scalar)
 
     data = await result.data()
     assert abs(data - expected) < THRESHOLD
@@ -89,7 +89,7 @@ async def test_scalar_reverse_op(ctx, scalar, obj_val, operator, expected):
         case "%":
             result = await (scalar % obj)
         case "**":
-            result = await (scalar ** obj)
+            result = await (scalar**obj)
 
     data = await result.data()
     assert abs(data - expected) < THRESHOLD
@@ -130,7 +130,7 @@ async def test_array_obj_op_scalar(ctx, arr, scalar, operator, expected):
         case "%":
             result = await (obj % scalar)
         case "**":
-            result = await (obj ** scalar)
+            result = await (obj**scalar)
 
     data = await result.data()
     for i, val in enumerate(data):
@@ -172,7 +172,7 @@ async def test_scalar_op_array_obj(ctx, scalar, arr, operator, expected):
         case "%":
             result = await (scalar % obj)
         case "**":
-            result = await (scalar ** obj)
+            result = await (scalar**obj)
 
     data = await result.data()
     for i, val in enumerate(data):

@@ -17,14 +17,18 @@ from aaiclick.data.object import View
 
 async def test_with_columns_computed(ctx):
     """Add computed columns; returns View; original unchanged."""
-    obj = await create_object_from_value({
-        "price": [10, 20, 30],
-        "quantity": [2, 3, 1],
-    })
-    view = obj.with_columns({
-        "total": Computed("Int64", "price * quantity"),
-        "double_price": Computed("Int64", "price * 2"),
-    })
+    obj = await create_object_from_value(
+        {
+            "price": [10, 20, 30],
+            "quantity": [2, 3, 1],
+        }
+    )
+    view = obj.with_columns(
+        {
+            "total": Computed("Int64", "price * quantity"),
+            "double_price": Computed("Int64", "price * 2"),
+        }
+    )
     # Returns a View, not an Object
     assert isinstance(view, View)
     result = await view.data()
@@ -72,21 +76,27 @@ async def test_with_columns_expression_validation(ctx):
 
 async def test_view_with_columns_preserves_constraints(ctx):
     """Computed columns work with WHERE and LIMIT."""
-    obj = await create_object_from_value({
-        "price": [10, 20, 30, 40, 50],
-        "qty": [5, 3, 2, 1, 4],
-    })
+    obj = await create_object_from_value(
+        {
+            "price": [10, 20, 30, 40, 50],
+            "qty": [5, 3, 2, 1, 4],
+        }
+    )
     # WHERE
-    view_w = obj.where("price > 15").with_columns({
-        "total": Computed("Int64", "price * qty"),
-    })
+    view_w = obj.where("price > 15").with_columns(
+        {
+            "total": Computed("Int64", "price * qty"),
+        }
+    )
     result_w = await view_w.data()
     assert result_w["price"] == [20, 30, 40, 50]
     assert result_w["total"] == [60, 60, 40, 200]
     # LIMIT
-    view_l = obj.view(limit=3).with_columns({
-        "doubled": Computed("Int64", "price * 2"),
-    })
+    view_l = obj.view(limit=3).with_columns(
+        {
+            "doubled": Computed("Int64", "price * 2"),
+        }
+    )
     result_l = await view_l.data()
     assert result_l["price"] == [10, 20, 30]
     assert result_l["doubled"] == [20, 40, 60]
@@ -118,12 +128,16 @@ async def test_view_with_columns_chaining(ctx):
 
 async def test_with_columns_group_by(ctx):
     """group_by can use computed columns as keys."""
-    obj = await create_object_from_value({
-        "score": [10, 25, 35, 50, 75, 90],
-    })
-    view = obj.with_columns({
-        "bucket": Computed("String", "if(score < 50, 'low', 'high')"),
-    })
+    obj = await create_object_from_value(
+        {
+            "score": [10, 25, 35, 50, 75, 90],
+        }
+    )
+    view = obj.with_columns(
+        {
+            "bucket": Computed("String", "if(score < 50, 'low', 'high')"),
+        }
+    )
     result = await view.group_by("bucket").count()
     data = await result.data()
     pairs = dict(zip(data["bucket"], data["_count"], strict=False))
@@ -139,12 +153,7 @@ async def test_with_columns_group_by(ctx):
 async def test_string_helpers(ctx):
     """with_lower, with_upper, with_length, with_trim."""
     obj = await create_object_from_value({"name": ["  Alice ", "BOB", " x"]})
-    view = (
-        obj.with_lower("name")
-           .with_upper("name")
-           .with_length("name")
-           .with_trim("name")
-    )
+    view = obj.with_lower("name").with_upper("name").with_length("name").with_trim("name")
     result = await view.data()
     assert result["name_lower"] == ["  alice ", "bob", " x"]
     assert result["name_upper"] == ["  ALICE ", "BOB", " X"]
@@ -177,10 +186,7 @@ async def test_with_bucket(ctx):
 async def test_with_if_and_cast(ctx):
     """with_if() conditional and with_cast() type conversion."""
     obj = await create_object_from_value({"val": [1, 5, 10]})
-    view = (
-        obj.with_if("val > 3", "'high'", "'low'", alias="level")
-           .with_cast("val", "String")
-    )
+    view = obj.with_if("val > 3", "'high'", "'low'", alias="level").with_cast("val", "String")
     result = await view.data()
     assert result["level"] == ["low", "high", "high"]
     assert result["val_string"] == ["1", "5", "10"]
@@ -188,10 +194,12 @@ async def test_with_if_and_cast(ctx):
 
 async def test_helper_alias_chaining_and_where(ctx):
     """Custom alias, chaining, and WHERE interaction."""
-    obj = await create_object_from_value({
-        "name": ["Alice", "Bob", "Charlie"],
-        "score": [90, 40, 70],
-    })
+    obj = await create_object_from_value(
+        {
+            "name": ["Alice", "Bob", "Charlie"],
+            "score": [90, 40, 70],
+        }
+    )
     # Custom alias
     view = obj.with_lower("name", alias="lc_name")
     r = await view.data()
@@ -205,14 +213,16 @@ async def test_helper_alias_chaining_and_where(ctx):
 
 async def test_with_bucket_group_by(ctx):
     """with_bucket() + group_by() for binned aggregation."""
-    obj = await create_object_from_value({
-        "score": [5, 15, 25, 12, 22, 8],
-        "amount": [100, 200, 300, 150, 250, 50],
-    })
+    obj = await create_object_from_value(
+        {
+            "score": [5, 15, 25, 12, 22, 8],
+            "amount": [100, 200, 300, 150, 250, 50],
+        }
+    )
     view = obj.with_bucket("score", 10)
     result = await view.group_by("score_bucket").sum("amount")
     data = await result.data()
     pairs = dict(zip(data["score_bucket"], data["amount"], strict=False))
-    assert pairs[0] == 150   # scores 5, 8
-    assert pairs[1] == 350   # scores 15, 12
-    assert pairs[2] == 550   # scores 25, 22
+    assert pairs[0] == 150  # scores 5, 8
+    assert pairs[1] == 350  # scores 15, 12
+    assert pairs[2] == 550  # scores 25, 22

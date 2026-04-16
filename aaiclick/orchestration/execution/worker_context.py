@@ -20,7 +20,7 @@ class TaskInfo:
     job_id: int
 
 
-_current_task_info: ContextVar[TaskInfo] = ContextVar('current_task_info')
+_current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
 
 
 def set_current_task_info(task_id: int, job_id: int) -> None:
@@ -38,6 +38,5 @@ def get_current_task_info() -> TaskInfo:
         return _current_task_info.get()
     except LookupError as err:
         raise RuntimeError(
-            "No task is currently executing. "
-            "get_current_task_info() can only be called during task execution."
+            "No task is currently executing. get_current_task_info() can only be called during task execution."
         ) from err
