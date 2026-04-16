@@ -1,273 +1,167 @@
 Future Plans
 ---
 
-Unimplemented features and planned work across aaiclick. See individual spec docs for context.
+Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Object API
+# High Priority
 
-## Explode (Array Join)
+## `join()` Operator
 
-Explode Array column(s) into individual rows for aggregation. Returns a **View** (lazy subquery, no materialization).
-
-## Problem
-
-Dict Objects can have `Array(T)` columns (e.g., `tags: Array(String)`, `scores: Array(Int64)`).
-Aggregation operators (`unique`, `max`, `sum`, `group_by`, etc.) work on **rows**, not on elements
-inside array columns. To aggregate over array elements, we need an **explode** step that flattens
-array columns into individual rows first.
-
-## ClickHouse Primitives
-
-| Mechanism              | Syntax                                    | Notes                                                        |
-|------------------------|-------------------------------------------|--------------------------------------------------------------|
-| `ARRAY JOIN` clause    | `SELECT ... FROM t ARRAY JOIN col`        | Table-level clause, expands Array columns into rows          |
-| `LEFT ARRAY JOIN`      | `SELECT ... FROM t LEFT ARRAY JOIN col`   | Same but preserves rows with empty arrays (emits NULL)       |
-| `arrayJoin(expr)` func | `SELECT arrayJoin(col) FROM t`            | Inline function, same effect, usable in any expression       |
-
-Both produce the same result — each array element becomes its own row, with scalar columns duplicated:
-
-```sql
--- Input row:  user='Alice', tags=['python','rust']
--- After ARRAY JOIN tags:
---   user='Alice', tags='python'
---   user='Alice', tags='rust'
-```
-
-**Multiple columns**: `ARRAY JOIN col1, col2` zips arrays (like Python `zip`).
-Shorter arrays pad with type defaults. This is NOT a Cartesian product.
-
-**Reference**: https://clickhouse.com/docs/sql-reference/statements/select/array-join
-
-## Approach: Hybrid View
-
-`explode()` returns a **View** (lazy subquery), not a materialized table.
-Downstream operators fuse into a single SQL query. Materialization available via `View.copy()`.
-
-**Why this fits the architecture:**
-
-- `View` class already provides lazy subquery wrapping
-- All operators accept `QueryInfo.source` as table name or `(subquery)`
-- No changes needed to aggregation operators — they work on the exploded view transparently
-- Materialization available via `View.copy()` when needed
-
-## Method Signature
+Distributed join of two Objects on a key column:
 
 ```python
-class Object:
-    def explode(self, *columns: str, left: bool = False) -> "View":
-        """
-        Explode Array column(s) into individual rows.
-
-        Returns a View (lazy, no materialization). Each element in the
-        specified Array column(s) becomes its own row. Scalar columns
-        are duplicated per element.
-
-        Args:
-            *columns: Array column name(s) to explode.
-            left: If True, use LEFT ARRAY JOIN (preserve rows with empty
-                  arrays, emitting NULL for the exploded column).
-
-        Returns:
-            View with exploded rows.
-
-        Raises:
-            ValueError: If column doesn't exist.
-            ValueError: If column is not an Array type.
-            ValueError: If Object is not a dict type.
-        """
+basics.join(ratings, on="tconst", how="left")
 ```
 
-## Usage Patterns
+Core data operation — table-stakes for any data framework.
 
-```python
-obj = await create_object_from_value([
-    {"user": "Alice", "tags": ["python", "rust"], "scores": [90, 85]},
-    {"user": "Bob",   "tags": ["python", "go"],   "scores": [70, 95]},
-])
+## Insert Advisory Lock for Concurrent Workers
 
-# 1. Explode + unique
-flat = obj.explode("tags")
-unique_tags = await flat['tags'].unique()
-await unique_tags.data()  # ["go", "python", "rust"]
+Concurrent workers inserting into the same persistent Object can produce interleaved Snowflake IDs within the same millisecond.
 
-# 2. Explode + group_by + count
-tag_counts = await flat.group_by('tags').count()
-await tag_counts.data()  # {"tags": ["go", "python", "rust"], "_count": [1, 2, 1]}
+Serialize via PostgreSQL advisory locks (`pg_advisory_lock(table_hash)`) per-table. SQLite mode is single-process and needs no lock.
 
-# 3. Explode + scalar aggregation
-max_score = await obj.explode("scores")['scores'].max()
-await max_score.data()  # 95
+## Progressive Tutorial
 
-# 4. Explode multiple columns (zip, not cartesian)
-flat2 = obj.explode("tags", "scores")
-await flat2.data()
-# {"user": ["Alice", "Alice", "Bob", "Bob"],
-#  "tags": ["python", "rust", "python", "go"],
-#  "scores": [90, 85, 70, 95]}
+7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
+example files — 6 of 7 pages need zero new code. Pages: Your First Object, Operations,
+Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. Add
+`# --8<-- [start:name]` / `# --8<-- [end:name]` markers to example `.py` files, then
+include specific sections in tutorial `.md` pages via snippet syntax.
 
-# 5. LEFT explode (preserve empty arrays)
-obj2 = await create_object_from_value([
-    {"user": "Alice", "tags": ["python"]},
-    {"user": "Bob",   "tags": []},
-])
-flat3 = obj2.explode("tags", left=True)
-await flat3.data()
-# {"user": ["Alice", "Bob"], "tags": ["python", None]}
-
-# 6. Materialize if needed
-materialized = await flat.copy()  # Creates real table with new Snowflake IDs
-```
-
-## Generated SQL
-
-**Single column explode:**
-
-```sql
--- View source (subquery, not materialized):
-(SELECT user, tags FROM {source} ARRAY JOIN tags)
-
--- With LEFT:
-(SELECT user, tags FROM {source} LEFT ARRAY JOIN tags)
-```
-
-**Chained with unique:**
-
-```sql
--- flat['tags'].unique() fuses into:
-INSERT INTO {result} (value)
-SELECT value FROM (
-    SELECT tags AS value FROM {source} ARRAY JOIN tags
-) GROUP BY value
-```
-
-**Chained with group_by + count:**
-
-```sql
--- flat.group_by('tags').count() fuses into:
-INSERT INTO {result} (tags, _count)
-SELECT tags, count() AS _count FROM (
-    SELECT user, tags FROM {source} ARRAY JOIN tags
-) GROUP BY tags
-```
-
-## Schema Change After Explode
-
-The exploded column changes type in the View's schema:
-
-| Before explode                 | After explode              |
-|--------------------------------|----------------------------|
-| `tags: Array(String)` (array)  | `tags: String` (scalar)    |
-| `scores: Array(Int64)` (array) | `scores: Int64` (scalar)   |
-| `user: String` (scalar)        | `user: String` (unchanged) |
-
-The `ColumnInfo.array` flag becomes `False` for exploded columns.
-Non-exploded columns keep their original type.
-
-## View Class Extension
-
-The `View` class needs new attributes to track exploded columns:
-
-```python
-class View:
-    def __init__(self, source, ..., exploded_columns=None, left_explode=False):
-        self._exploded_columns = exploded_columns or []
-        self._left_explode = left_explode
-```
-
-The View's source subquery incorporates the `ARRAY JOIN` clause.
-The View's cached schema reflects the post-explode column types.
-
-**ClickHouse constraint**: `ARRAY JOIN` is a single clause per query — you cannot mix
-`ARRAY JOIN col1` with `LEFT ARRAY JOIN col2` in the same SELECT. The `LEFT` modifier
-applies uniformly to all exploded columns. Therefore `left_explode` is a single flag on
-the View, not a per-column setting.
-
-## Snowflake ID Handling
-
-- Exploded rows share the parent row's `aai_id`
-- This is correct for View (read-only, no lifecycle)
-- If materialized via `copy()`, new Snowflake IDs are generated
-- ClickHouse preserves array element order within each exploded group
-
-## Validation
-
-- `explode()` only valid on dict Objects (`fieldtype == 'd'`)
-- Each specified column must exist and have `ColumnInfo.array == True`
-- At least one column must be specified
-
-## Empty Arrays
-
-| Mode                   | Row with `tags=[]`    |
-|------------------------|-----------------------|
-| `ARRAY JOIN` (default) | Row is **dropped**    |
-| `LEFT ARRAY JOIN`      | Row kept, `tags=NULL` |
-
-The `left=True` parameter controls this behavior.
+Add "See Also" footers and cross-page links alongside the tutorial.
 
 ---
 
-# Orchestration
+# Medium Priority
 
-## flatMap() and join() Operators
+## Two-Tier Persistent Tables: `p_*` (user-managed) + `j_<job_id>_*` (job-scoped)
 
-Planned custom operators for the orchestration layer, parallel to the existing `map()` and `reduce()` helpers in `aaiclick/orchestration/orch_helpers.py`:
+Today only one "persistent" tier exists — `p_<name>` created via `create_object_from_value(val, name=...)`. It serves two conflicting goals:
 
-- `flatMap()` — like `map()` but each callback returns multiple rows, flattened into the output Object
-- `join()` — distributed join of two Objects across partitions
+1. **User-managed durable data** ("survives everything, only the user deletes it")
+2. **Pinned intermediate outputs** ("survives one job's cleanup so downstream tasks can reference it by name")
 
-## Operation Provenance Integration (Phase 3)
+The two goals are both needed but have opposite cleanup rules, and the current code half-supports both:
 
-Wire `OplogCollector` into `execute_task()` so all jobs automatically capture provenance with no user code changes. Spec: `docs/ai_layer_plan.md` Phase 3, `docs/ai.md`.
+- `_cleanup_unreferenced_tables()` correctly skips `p_*` (they don't get refcount-dropped), so goal 1 looks honored mid-job.
+- But `_delete_job_data()` at `background_worker.py:323` drops **every** table registered to an expired job via `table_registry`, which today includes `p_*` — so `AAICLICK_JOB_TTL_DAYS` silently nukes user-managed persistent tables. Pre-existing bug.
+- And two parallel jobs using `name="kev_catalog"` both write to `p_kev_catalog` (append-on-existing), which is surprising at best.
 
-**Tasks**:
+**Proposed split**:
 
-1. **Wire OplogCollector into `execute_task()`**
-   - Always creates `OplogCollector(task_id=task.id, job_id=job.id)`
-   - Passes as `data_context(oplog=collector)` — no Job-level flag needed
-   - Collector auto-flushes on context exit
+| Tier         | Prefix             | Lifetime                                           | API                                                             |
+|--------------|--------------------|----------------------------------------------------|-----------------------------------------------------------------|
+| User tables  | `p_<name>`         | Forever; only the user deletes via `data delete`  | `create_object_from_value(val, name="foo")` (unchanged)         |
+| Job-scoped   | `j_<job_id>_<name>` | Until the owning job TTL-expires                  | `create_object_from_value(val, name="foo", scope="job")` or new helper |
 
-2. **AI agents as `@task` wrappers** — lazy import, participates in normal DAG dependencies
+**Invariant changes**:
 
-3. **Integration tests** — job execution → verify `operation_log` populated
+- `p_*` is **exempt** from `_delete_job_data()` / `_cleanup_expired_jobs()` — add a `NOT LIKE 'p\_%'` guard in the `table_registry` drop list (or stop registering `p_*` in `table_registry` in the first place and rely on a separate `persistent_tables` catalog).
+- `j_<job_id>_<name>` is **always** cleaned up at job TTL via a pure prefix match (`SHOW TABLES LIKE 'j_<id>_%'`) — no `table_registry` lookup needed.
+- Two parallel jobs never collide on `j_<id>_<name>` because `job_id` is globally unique.
+- `is_input_task()` detects **either** tier as an input: persistent tables that survive cleanup are valid replay inputs.
 
-**Target**: `aaiclick/orchestration/execution.py` — wire into `execute_task()`
+**Replay (Phase 3b) implications**: a replay job references the original's job-scoped inputs as `j_<original_job_id>_<name>`. User-tier `p_<name>` is already referenced by name. Both are stable across the replay.
+
+**Work**:
+- `aaiclick/data/data_context/data_context.py` — add `scope` kwarg to `create_object_from_value()`; route `scope="job"` through a job-id-aware name builder (pulls from orch context).
+- `aaiclick/data/object/object.py` — `persistent` property recognizes both `p_*` and `j_*`; add an `is_user_persistent` / `is_job_scoped` split if callers need to distinguish.
+- `aaiclick/orchestration/background/background_worker.py` — `_delete_job_data()` excludes `p_*` from the drop list; `_cleanup_expired_jobs()` adds a `SHOW TABLES LIKE 'j_<id>_%'` pass.
+- `aaiclick/orchestration/lineage.py::is_input_task` — recognize both prefixes.
+- `aaiclick/oplog/cleanup.py` — same prefix check update.
+- Examples that use `name=` for intermediate outputs (basic-lineage, cyber-threat-feeds, imdb, nyc-taxi) migrate to `scope="job"` where appropriate; genuinely user-facing catalog tables stay as `p_*`.
+- Docs across `data_context.md`, `object.md`, `orchestration.md`, `lineage_3_phases.md`.
+
+Wide blast radius — ship in its own PR. Pairs naturally with the `table_registry` → SQL move below.
+
+## Move `table_registry` from ClickHouse to SQL
+
+`table_registry` (table → owning `job_id` / `task_id` / `run_id`) currently lives in ClickHouse alongside `operation_log`, but it's cleanup metadata — not append-only audit. Every consumer is a keyed lookup or owner join during background cleanup, which already reads `table_context_refs` / `table_pin_refs` / `table_run_refs` from SQL.
+
+Moving it to SQL collapses `_cleanup_unreferenced_tables` to a single query that joins unreferenced tables → registry → jobs, enabling mode-aware filtering in-database (e.g. `WHERE j.preservation_mode != 'FULL'`). The background worker stops needing a ClickHouse client for metadata scans; it only needs CH to issue the `DROP TABLE` itself. Also unblocks cleaner Phase 3 replay queries.
+
+**Work**: Alembic migration creating `table_registry` in SQL; one-time copy from CH on upgrade; flip `OrchLifecycleHandler._write_table_registry_row` to a SQL INSERT; rewrite `_lookup_table_owners` / `_cleanup_unreferenced_tables` / `_cleanup_expired_jobs` scans; drop the CH-side table.
+
+## Lineage: Three-Phase Debugging
+
+Question-driven lineage debugging in three phases: graph structure (have today), targeted sampling via WHERE clauses derived from the user's question, and row-level trace using those targeted samples. Replaces random pre-sampling with on-demand, question-driven sampling.
+
+**Design**: `docs/lineage_3_phases.md`
+
+## Clear Task + Downstream
+
+Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
+
+## ClickHouse Migration Framework
+
+aaiclick has no migration system for the ClickHouse side. Alembic manages the SQL schema (`jobs`, `tasks`, `dependencies`, `registered_jobs`, …), but ClickHouse tables created via the `ChClient` — `operation_log`, `table_registry`, all `p_*` / `t_*` / `j_*` data tables produced at runtime — are created with `CREATE TABLE IF NOT EXISTS` in `aaiclick/oplog/models.py` plus a column-existence validator. No versions, no history, no upgrade path.
+
+The consequence: any DDL change in the Python source that would need to alter an existing table is silently a no-op on installs that already have it. Today this has bitten the `operation_log` `ORDER BY` change; it will keep biting every time anything structural changes on the CH side. Column types, new required columns, MergeTree key changes, TTL clauses, materialized projections, etc. all need a coordinated server-side update that the current setup cannot perform.
+
+Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` can only append freshly added columns to the sort key, you can't reshape existing ones without rebuilding the table. So even a "real" migration framework has to handle per-change execution strategies (pure ALTER, shadow-table-rebuild, or drop-and-recreate with manual data move), not just a linear script runner.
+
+**What a minimal framework would look like**:
+
+- A `schema_version` table in ClickHouse tracked per-database.
+- Versioned DDL scripts under `aaiclick/oplog/migrations/` (or a broader `aaiclick/ch_migrations/`) applied in order by `init_oplog_tables()` on startup.
+- Each script declares its own execution strategy — inline `ALTER`, shadow-table rewrite, or a Python callable for data-move logic.
+- A `--dry-run` mode for operators.
+- Column validator (`_validate_schema`) grows a version check and surfaces a clear error ("your table is at v3, code expects v5, run `aaiclick migrate`").
+
+**Alternatives to building a framework**:
+
+- **Release-notes recipe** — document a maintenance step per release. Zero code, high operator burden, easy to miss.
+- **Per-change maintenance CLIs** — `aaiclick maintenance rebuild-oplog`, etc. Works but doesn't scale past a handful of changes.
+
+No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
+
+## Structural-First Lineage Forest Walker
+
+`aaiclick/oplog/lineage_forest.py::build_forest` walks backward from every strategy-matched row in the target, up to `MAX_FOREST_ROOTS=200`. Each root issues one oplog lookup + one value-column fetch per hop, memoized by `(table, aai_id)` so shared ancestors are deduped. For a 200-root × 5-hop pipeline with no DAG collapse, that's ~2000 queries — parallelized via `asyncio.gather` but still a lot of round-trips.
+
+`collapse_to_routes` then throws ~95% of that work away: 200 rows sharing a pipeline shape become one `Route` record with `match_count=200`, aggregated leaf/root value lists, and `MAX_EXEMPLARS_PER_ROUTE=5` concrete paths. The rendered prompt context stays small (routes × 5 exemplars × hops ≈ tens of lines) regardless of match count, so there is **no LLM context bloat** — the waste is purely in fetch work.
+
+**Smarter algorithm for count-preserving pipelines** (multiply, add, concat, with_columns, rename, view — the common case):
+
+1. **Walk DAG structure once**, not per-row. Start from the target's oplog row, follow `kwargs` → upstream ops → recurse. One query per *producing op*, not per row. Enumerates the routes directly.
+2. **Match count comes free**: `length(result_aai_ids)` on the target's oplog row already tells you how many rows fit each route.
+3. **Exemplars in one batched fetch per leaf**: pick the first N aai_ids at the target, positionally map backward through each hop's `kwargs_aai_ids` in memory (no queries), then issue one `SELECT aai_id, value FROM leaf WHERE aai_id IN {ids:Array(UInt64)}` per leaf table to grab the real column values.
+
+Total drops from **O(roots × depth)** oplog + value fetches to **O(route_shapes × depth)** structural fetches + **O(route_shapes)** batched exemplar fetches. For basic_lineage that's ~6 queries instead of ~12; for a 10k-matched-row pipeline it's still ~10 queries instead of ~20k.
+
+**Why the current per-row walker exists anyway**: uniformity breaks when the pipeline contains `insert`, `group_by`, or (eventually) `join` — different matched roots can take different DAG paths or collapse together in ways the structural walk can't predict from the target alone. The current implementation is correct for every topology; the smarter one is only correct when every hop is count-preserving.
+
+**Work**:
+
+- Add a uniformity probe to `_walk` (or a new structural pass): walk once, detect whether every hop's `result_aai_ids` length matches its source's, and whether each source row maps 1:1 to a result row.
+- When uniform, route enumeration runs structurally and exemplar fetches batch per leaf table.
+- When divergent, fall back to the current per-row walker for the affected subtree.
+- Keep the memoization cache — it still wins when shared ancestors appear within the per-row fallback.
+
+No action today. Revisit when a strategy match set pushes the per-row walker into noticeable latency (> ~1s of fetch time on chdb, or > ~5s on remote ClickHouse) on a real pipeline. The `MAX_FOREST_ROOTS=200` cap buys breathing room until then.
 
 ---
 
-# Oplog
+# Deferred
 
-## Table Lifecycle & Cleanup (Phase 3)
+Items deferred until preconditions are met.
 
-On job completion (COMPLETED / FAILED / CANCELLED), a cleanup worker replaces each ephemeral table with a 10-row sample, keeping `operation_log` references valid:
+## `Object.export()` HTML Format
 
-```python
-result = await ch_client.query(
-    "SELECT table_name FROM table_registry WHERE job_id = {job_id:UInt64}"
-)
-for (table,) in result.result_rows:
-    await ch_client.command(f"CREATE TABLE {table}_sample AS {table}")
-    await ch_client.command(f"INSERT INTO {table}_sample SELECT * FROM {table} LIMIT 10")
-    await ch_client.command(f"DROP TABLE {table}")
-    await ch_client.command(f"RENAME TABLE {table}_sample TO {table}")
-await ch_client.command("DELETE FROM table_registry WHERE job_id = {job_id:UInt64}")
-```
+`.html` extension → ClickHouse `HTML` output format. The format is supported
+by upstream ClickHouse but the chdb build that aaiclick ships against rejects
+it with `UNKNOWN_FORMAT` (chdb appears to omit the HTML output handler). Add
+the `.html` → `HTML` mapping to `_EXPORT_FORMATS` and the corresponding test
+once chdb's build includes it, or once aaiclick gains a way to fall back to
+clickhouse-connect for formats chdb doesn't ship.
 
-`CREATE TABLE new AS source` copies ENGINE, ORDER BY, and codecs without data. Renaming back to the original name keeps `operation_log` references valid. AI agents calling `sample_table()` on historical nodes transparently return the preserved sample.
+## Comparison Page
 
-Persistent tables (`p_` prefix) excluded — no `job_id` in registry.
+`docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.
 
-**Deliverables**:
-- Post-job table sampling preserves lineage-accessible data
-- Cleanup worker integrated into `PgCleanupWorker` or standalone background service
+## Changelog
 
-## Pinned Row Sampling (Phase 5)
-
-Allow user-defined predicates that ensure matching rows always survive cleanup. Phase 3 preserves an arbitrary 10 rows; Phase 5 lets you guarantee semantically important rows are included.
-
-```python
-pin_rows("my_table", where="value < 5")
-```
-
-Rules are WHERE clause predicates registered during task execution (before job completion triggers cleanup). Cleanup prioritises matching rows, fills remainder up to 10 with arbitrary rows.
+`docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.

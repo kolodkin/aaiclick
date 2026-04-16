@@ -4,31 +4,35 @@ aaiclick.oplog.models - ClickHouse DDL and schema validation for oplog tables.
 
 from __future__ import annotations
 
-import os
-
-from aaiclick.data.ch_client import ChClient
+from aaiclick.data.data_context import ChClient
 
 OPERATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS operation_log (
-    id           UInt64 DEFAULT generateSnowflakeID(),
-    result_table String,
-    operation    String,
-    args         Array(String),
-    kwargs       Map(String, String),
-    sql_template Nullable(String),
-    task_id      Nullable(UInt64),
-    job_id       Nullable(UInt64),
-    created_at   DateTime64(3)
+    id              UInt64 DEFAULT generateSnowflakeID(),
+    result_table    String,
+    operation       String,
+    kwargs          Map(String, String),
+    kwargs_aai_ids  Map(String, Array(UInt64)),
+    result_aai_ids  Array(UInt64),
+    sql_template    Nullable(String),
+    task_id         Nullable(UInt64),
+    job_id          Nullable(UInt64),
+    run_id          Nullable(UInt64),
+    created_at      DateTime64(3)
 ) ENGINE = MergeTree()
-ORDER BY created_at
-TTL created_at + INTERVAL {ttl_days} DAY DELETE
+ORDER BY (result_table, created_at)
 """
+# result_table leads the sort key so every oplog consumer
+# (backward_oplog, fetch_producing_op, _pick_inherited_driver, ...)
+# gets skip-index-friendly lookups; created_at breaks ties within a
+# table so "most recent row" stays a tail scan.
 
 TABLE_REGISTRY_DDL = """
 CREATE TABLE IF NOT EXISTS table_registry (
     table_name   String,
     job_id       Nullable(UInt64),
     task_id      Nullable(UInt64),
+    run_id       Nullable(UInt64),
     created_at   DateTime64(3)
 ) ENGINE = MergeTree()
 ORDER BY (created_at,)
@@ -38,11 +42,13 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "id": "UInt64",  # DEFAULT generateSnowflakeID() — type check only
     "result_table": "String",
     "operation": "String",
-    "args": "Array(String)",
     "kwargs": "Map(String, String)",
+    "kwargs_aai_ids": "Map(String, Array(UInt64))",
+    "result_aai_ids": "Array(UInt64)",
     "sql_template": "Nullable(String)",
     "task_id": "Nullable(UInt64)",
     "job_id": "Nullable(UInt64)",
+    "run_id": "Nullable(UInt64)",
     "created_at": "DateTime64(3)",
 }
 
@@ -50,12 +56,9 @@ TABLE_REGISTRY_EXPECTED_COLUMNS: dict[str, str] = {
     "table_name": "String",
     "job_id": "Nullable(UInt64)",
     "task_id": "Nullable(UInt64)",
+    "run_id": "Nullable(UInt64)",
     "created_at": "DateTime64(3)",
 }
-
-
-def _ttl_days() -> int:
-    return int(os.environ.get("AAICLICK_OPLOG_TTL_DAYS", "90"))
 
 
 async def _validate_schema(
@@ -81,7 +84,7 @@ async def _validate_schema(
 
 async def init_oplog_tables(ch_client: ChClient) -> None:
     """Create oplog tables if they don't exist; validate schema if they do."""
-    await ch_client.command(OPERATION_LOG_DDL.format(ttl_days=_ttl_days()))
+    await ch_client.command(OPERATION_LOG_DDL)
     await ch_client.command(TABLE_REGISTRY_DDL)
     await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
     await _validate_schema(ch_client, "table_registry", TABLE_REGISTRY_EXPECTED_COLUMNS)

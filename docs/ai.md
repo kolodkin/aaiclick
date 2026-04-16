@@ -1,7 +1,7 @@
 AI Layer
 ---
 
-Optional AI-powered lineage querying and debugging for aaiclick. Lives in `aaiclick/ai/` within the core package — installed via `pip install aaiclick[ai]`. The core `aaiclick` package works identically without it.
+Optional AI-powered lineage querying and debugging (`pip install aaiclick[ai]`); the core package works identically without it.
 
 **Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 
@@ -107,18 +107,51 @@ async def debug_result(target_table: str, question: str) -> str:
     """
 ```
 
-## Agent Tools
+`debug_result` invokes the strategy agent up-front to build a row-level filter
+from the question; when it succeeds the suggested filter is added to the LLM
+context, enabling the debug agent to reference specific rows. Strategy
+failures are non-fatal — the debug agent falls back to schema + graph context.
 
-Tools the AI can call for deeper inspection via tool-calling protocol:
+## Strategy Agent
+
+```python
+# aaiclick/ai/agents/strategy_agent.py
+
+async def produce_strategy(
+    question: str,
+    graph: OplogGraph,
+    *,
+    dry_run: bool = True,
+) -> SamplingStrategy:
+    """Translate a question + lineage graph into a SamplingStrategy
+    (``dict[table_name, where_clause]``) suitable for Phase 3 replay.
+    """
+```
+
+The strategy agent is the Phase 2 entry point for question-driven lineage
+debugging. Given a natural-language question and the ``OplogGraph`` for the
+target table, it asks the LLM for a JSON object that maps table names to raw
+ClickHouse WHERE clauses. The returned dict is then used (eventually, under
+``PreservationMode.STRATEGY``) to populate row-level ``kwargs_aai_ids`` in
+the oplog, enabling exact row tracing.
+
+Each emitted clause is dry-run against ClickHouse (``SELECT aai_id FROM
+<table> WHERE <clause> LIMIT 0``) before the strategy is returned. Malformed
+JSON, unknown table keys, and bad SQL all trigger a single retry with the
+validation error fed back to the model. Pass ``dry_run=False`` to skip the
+ClickHouse round trip in environments without a live client.
+
+## Agent Tools
 
 Tools callable by the AI via tool-calling protocol — see `aaiclick/ai/agents/tools.py`:
 
-| Tool             | Parameters                          | Returns                          |
-|------------------|-------------------------------------|----------------------------------|
-| `sample_table`   | `table`, `limit=10`, `where=None`   | Formatted rows as text           |
-| `get_schema`     | `table`                             | Column names and types           |
-| `get_stats`      | `table`, `column`                   | count, non_null, min, max        |
-| `trace_upstream` | `table`, `depth=10`                 | Upstream operation graph as text |
+| Tool               | Parameters                          | Returns                                                     |
+|--------------------|-------------------------------------|-------------------------------------------------------------|
+| `sample_table`     | `table`, `limit=10`, `where=None`   | Formatted rows as text                                      |
+| `get_schema`       | `table`                             | Column names and types                                      |
+| `get_column_stats` | `table`                             | count, non_null, min, max for every column                  |
+| `trace_upstream`   | `table`, `depth=10`                 | Upstream operation graph as text                            |
+| `trace_row`        | `table`, `aai_id`, `depth=10`       | Row-level lineage chain (empty under `PreservationMode.NONE`) |
 
 ---
 
@@ -131,10 +164,7 @@ async def explain(target_table: str, question: str | None = None) -> str:
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
     except ImportError:
-        raise ImportError(
-            "AI features require the aaiclick[ai] extra. "
-            "Install with: pip install aaiclick[ai]"
-        )
+        raise ImportError("AI features require aaiclick[ai]: pip install aaiclick[ai]")
     return await explain_lineage(target_table, question)
 ```
 
@@ -142,4 +172,4 @@ async def explain(target_table: str, question: str | None = None) -> str:
 
 # Historical Tables
 
-After job cleanup, each table is replaced with a 10-row sample (same name, same schema — see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently return the preserved sample rows.
+After job cleanup, each table is replaced with a sample of rows referenced by oplog lineage — inputs and outputs of recorded operations (see `docs/oplog.md`). AI agents calling `sample_table()` on historical nodes transparently get the preserved sample.

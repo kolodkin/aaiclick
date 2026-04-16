@@ -5,11 +5,11 @@ from pathlib import Path
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
-from aaiclick.orchestration import TaskResult
-from aaiclick.orchestration.debug_execution import ajob_test
+from aaiclick.orchestration import tasks_list
 from aaiclick.orchestration.decorators import job, task
+from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.models import JobStatus
-from aaiclick.orchestration.orch_helpers import map
+from aaiclick.orchestration.operators import map
 
 # --- Task fixtures ---
 
@@ -46,7 +46,7 @@ def map_basic_pipeline(output_file: str):
         partition=5000,
         kwargs={"output_file": output_file},
     )
-    return TaskResult(tasks=[data, group])
+    return tasks_list(data, group)
 
 
 @job("test_map_kwargs_exec")
@@ -58,7 +58,7 @@ def map_kwargs_pipeline(output_file: str, factor: int):
         partition=5000,
         kwargs={"factor": factor, "output_file": output_file},
     )
-    return TaskResult(tasks=[data, group])
+    return tasks_list(data, group)
 
 
 @job("test_map_partitions")
@@ -70,7 +70,7 @@ def map_partitions_pipeline(output_file: str):
         partition=2,
         kwargs={"output_file": output_file},
     )
-    return TaskResult(tasks=[data, group])
+    return tasks_list(data, group)
 
 
 # --- Execution tests ---

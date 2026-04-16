@@ -1,31 +1,38 @@
 """CLI entry point for aaiclick package.
 
 Usage:
-    python -m aaiclick setup              # Initialize local dev environment
-    python -m aaiclick setup --ai         # Also pull the configured Ollama model
-    python -m aaiclick migrate            # Run database migrations
-    python -m aaiclick migrate --help     # Show migration help
-    python -m aaiclick worker start       # Start a worker process
-    python -m aaiclick worker list        # List workers
-    python -m aaiclick job get <ref>      # Get job details (by ID or name)
-    python -m aaiclick job stats <ref>    # Show job execution stats
-    python -m aaiclick job cancel <ref>   # Cancel a job
-    python -m aaiclick job list           # List jobs
-    python -m aaiclick data list          # List persistent objects
-    python -m aaiclick data get <name>    # Show persistent object details
-    python -m aaiclick data delete <name> # Delete persistent object
-    python -m aaiclick background start   # Start background cleanup worker
+    python -m aaiclick setup                    # Initialize local dev environment
+    python -m aaiclick setup --ai               # Also pull the configured Ollama model
+    python -m aaiclick migrate                  # Run database migrations
+    python -m aaiclick migrate --help           # Show migration help
+    python -m aaiclick local start              # Start worker + background (local mode)
+    python -m aaiclick local stop <worker_id>   # Stop a local worker
+    python -m aaiclick worker start             # Start a distributed worker process
+    python -m aaiclick worker list              # List workers
+    python -m aaiclick worker stop <worker_id>  # Stop a worker gracefully
+    python -m aaiclick background start         # Start background cleanup worker
+    python -m aaiclick job get <ref>            # Get job details (by ID or name)
+    python -m aaiclick job stats <ref>          # Show job execution stats
+    python -m aaiclick job cancel <ref>         # Cancel a job
+    python -m aaiclick job list                 # List jobs
+    python -m aaiclick job enable <name>        # Enable a registered job
+    python -m aaiclick job disable <name>       # Disable a registered job
+    python -m aaiclick register-job <entrypoint> # Register a job
+    python -m aaiclick run-job <name>           # Run a job immediately
+    python -m aaiclick registered-job list      # List registered jobs
+    python -m aaiclick data list                # List persistent objects
+    python -m aaiclick data get <name>          # Show persistent object details
+    python -m aaiclick data delete <name>       # Delete persistent object
 """
 
 import argparse
 import asyncio
+import json
 import os
-import shutil
-import subprocess
 import urllib.error
 import urllib.request
 
-from aaiclick.data.cli import (
+from aaiclick.data.object.cli import (
     delete_object_cmd,
     delete_objects_cmd,
     list_objects_cmd,
@@ -34,100 +41,97 @@ from aaiclick.data.cli import (
 
 
 def _setup_ollama_model(model: str) -> None:
-    """Pull an Ollama model, checking that Ollama is installed and running."""
+    """Pull an Ollama model via the Ollama HTTP API."""
     # model is like "ollama/llama3.2:3b" — strip the provider prefix
     model_name = model.removeprefix("ollama/")
+    base_url = "http://localhost:11434"
 
     print(f"\nAI model: {model}")
 
-    if not shutil.which("ollama"):
-        print("  ollama: NOT INSTALLED")
-        print("  Install with:  curl -fsSL https://ollama.com/install.sh | sh")
-        return
-
-    print("  ollama: installed")
-
     # Check if Ollama server is reachable
     try:
-        urllib.request.urlopen("http://localhost:11434", timeout=2)  # noqa: S310
+        urllib.request.urlopen(base_url, timeout=2)  # noqa: S310
         print("  ollama server: running")
     except (urllib.error.URLError, OSError):
         print("  ollama server: NOT RUNNING")
         print("  Start with:    ollama serve &")
+        print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
         return
 
-    # Check if model is already present
-    result = subprocess.run(
-        ["ollama", "list"],
-        capture_output=True,
-        text=True,
+    # Check if model is already present via HTTP API
+    req = urllib.request.Request(  # noqa: S310
+        f"{base_url}/api/show",
+        data=json.dumps({"model": model_name}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    if model_name in result.stdout:
+    try:
+        urllib.request.urlopen(req, timeout=5)  # noqa: S310
         print(f"  model '{model_name}': already downloaded")
         return
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
 
+    # Pull via HTTP API (stream=false waits for completion)
     print(f"  Pulling '{model_name}' (this may take a few minutes)...")
-    pull = subprocess.run(["ollama", "pull", model_name])
-    if pull.returncode == 0:
-        print(f"  model '{model_name}': OK")
-    else:
-        print(f"  model '{model_name}': pull failed (exit {pull.returncode})")
+    pull_req = urllib.request.Request(  # noqa: S310
+        f"{base_url}/api/pull",
+        data=json.dumps({"model": model_name, "stream": False}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(pull_req, timeout=600) as resp:  # noqa: S310
+            result = json.loads(resp.read())
+        if result.get("status") == "success":
+            print(f"  model '{model_name}': OK")
+        else:
+            print(f"  model '{model_name}': unexpected response: {result}")
+    except (urllib.error.URLError, OSError) as e:
+        print(f"  model '{model_name}': pull failed: {e}")
 
 
 def _run_setup(ai: bool = False):
     """Initialize local dev environment."""
     from pathlib import Path
 
-    from aaiclick.backend import get_ch_url, get_sql_url, is_chdb, is_sqlite
+    from aaiclick.backend import get_ch_url, get_root, get_sql_url, is_chdb, is_local, is_sqlite
 
+    print(f"Root:    {get_root()}")
     print(f"CH URL:  {get_ch_url()}")
     print(f"SQL URL: {get_sql_url()}")
+    print(f"Mode:    {'local' if is_local() else 'distributed'}")
 
     if is_chdb():
-        try:
-            from chdb.session import Session
+        from chdb.session import Session
 
-            print("  chdb: OK")
-        except ImportError:
-            print("  chdb: MISSING - install with: pip install chdb")
-            return
-
-        from aaiclick.data.chdb_client import get_chdb_data_path
+        from aaiclick.data.data_context.chdb_client import get_chdb_data_path
 
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)
         sess = Session(chdb_path)
         sess.query("SELECT 1")
         sess.cleanup()
-        print(f"  chdb data: {chdb_path}")
+        print(f"  chdb: OK ({chdb_path})")
     else:
-        print("  ClickHouse: remote server (no local setup needed)")
+        print("  ClickHouse: remote server — requires pip install aaiclick[distributed]")
 
     if is_sqlite():
-        try:
-            import aiosqlite  # noqa: F401
+        from sqlalchemy import create_engine
 
-            print("  aiosqlite: OK")
-        except ImportError:
-            print("  aiosqlite: MISSING - install with: pip install aiosqlite")
-            return
+        from aaiclick.orchestration.env import get_db_url
+        from aaiclick.orchestration.models import SQLModel
 
-        try:
-            from sqlalchemy import create_engine
-
-            from aaiclick.orchestration.env import get_db_url
-            from aaiclick.orchestration.models import SQLModel
-
-            db_url = get_db_url()
-            sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-            engine = create_engine(sync_url)
-            SQLModel.metadata.create_all(engine)
-            engine.dispose()
-            print(f"  SQLite DB: {db_url}")
-        except ImportError:
-            print("  SQLite DB: skipped (orchestration extras not installed)")
+        db_url = get_db_url()
+        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
+        engine = create_engine(sync_url)
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+        print(f"  SQLite DB: OK ({db_url})")
     else:
-        print("  PostgreSQL: use 'python -m aaiclick migrate upgrade head' for database setup")
+        print("  PostgreSQL: requires pip install aaiclick[distributed]")
+        print("  Run migrations: python -m aaiclick migrate upgrade head")
 
     if ai:
         model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
@@ -136,7 +140,18 @@ def _run_setup(ai: bool = False):
         else:
             print(f"\nAI model: {model} (not an Ollama model — nothing to pull)")
 
+    # Write setup_done flag
+    root = get_root()
+    Path(root).mkdir(parents=True, exist_ok=True)
+    (root / "setup_done").write_text("")
     print("Setup complete.")
+
+
+def setup_done() -> bool:
+    """Return True if setup has already been run."""
+    from aaiclick.backend import get_root as _get_root
+
+    return (_get_root() / "setup_done").exists()
 
 
 def main():
@@ -170,10 +185,42 @@ def main():
         help="Additional arguments for migration command",
     )
 
-    # Add worker subcommand
+    # Add local subcommand (single-process: worker + background)
+    local_parser = subparsers.add_parser(
+        "local",
+        help="Local mode commands (single process, chdb + SQLite)",
+    )
+    local_subparsers = local_parser.add_subparsers(
+        dest="local_command",
+        help="Local commands",
+    )
+
+    # local start
+    local_start_parser = local_subparsers.add_parser(
+        "start",
+        help="Start worker + background in a single process",
+    )
+    local_start_parser.add_argument(
+        "--max-tasks",
+        type=int,
+        default=None,
+        help="Maximum tasks to execute (default: unlimited)",
+    )
+
+    # local stop
+    local_stop_parser = local_subparsers.add_parser(
+        "stop",
+        help="Request a local worker to stop gracefully",
+    )
+    local_stop_parser.add_argument(
+        "worker_id",
+        help="Worker ID to stop",
+    )
+
+    # Add worker subcommand (distributed mode)
     worker_parser = subparsers.add_parser(
         "worker",
-        help="Worker management commands",
+        help="Distributed worker management commands",
     )
     worker_subparsers = worker_parser.add_subparsers(
         dest="worker_command",
@@ -183,7 +230,7 @@ def main():
     # worker start
     worker_start_parser = worker_subparsers.add_parser(
         "start",
-        help="Start a worker process",
+        help="Start a distributed worker process",
     )
     worker_start_parser.add_argument(
         "--max-tasks",
@@ -196,6 +243,16 @@ def main():
     worker_subparsers.add_parser(
         "list",
         help="List workers",
+    )
+
+    # worker stop
+    worker_stop_parser = worker_subparsers.add_parser(
+        "stop",
+        help="Request a worker to stop gracefully",
+    )
+    worker_stop_parser.add_argument(
+        "worker_id",
+        help="Worker ID to stop",
     )
 
     # Add job subcommand
@@ -256,6 +313,93 @@ def main():
         type=int,
         default=0,
         help="Skip N results (default: 0)",
+    )
+
+    # job enable <name>
+    job_enable_parser = job_subparsers.add_parser(
+        "enable",
+        help="Enable a registered job",
+    )
+    job_enable_parser.add_argument("name", type=str, help="Registered job name")
+
+    # job disable <name>
+    job_disable_parser = job_subparsers.add_parser(
+        "disable",
+        help="Disable a registered job",
+    )
+    job_disable_parser.add_argument("name", type=str, help="Registered job name")
+
+    # Add register-job subcommand
+    register_job_parser = subparsers.add_parser(
+        "register-job",
+        help="Register a job in the catalog",
+    )
+    register_job_parser.add_argument("entrypoint", type=str, help="Python dotted path (e.g. myapp.pipelines.etl_job)")
+    register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
+    register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
+    register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+    register_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Default preservation mode for every run of this job (runs can override)",
+    )
+    register_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Default sampling strategy as JSON (required when preservation_mode=STRATEGY)",
+    )
+
+    # Add run-job subcommand
+    run_job_parser = subparsers.add_parser(
+        "run-job",
+        help="Run a job immediately (auto-registers if needed)",
+    )
+    run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
+    run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+    run_job_parser.add_argument(
+        "--preservation-mode",
+        choices=["NONE", "FULL", "STRATEGY"],
+        default=None,
+        help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
+    )
+    run_job_parser.add_argument(
+        "--sampling-strategy",
+        default=None,
+        help="Sampling strategy as JSON object (required when preservation_mode=STRATEGY)",
+    )
+
+    # Add replay subcommand
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Replay a completed job with a sampling strategy",
+    )
+    replay_parser.add_argument("job_id", type=str, help="Original job ID to replay")
+    replay_parser.add_argument(
+        "--sampling-strategy",
+        required=True,
+        help="Sampling strategy as JSON object (required)",
+    )
+    replay_parser.add_argument(
+        "--name",
+        default=None,
+        help="Override name for the replayed job (default: inherit the original's name)",
+    )
+
+    # Add registered-job subcommand
+    registered_job_parser = subparsers.add_parser(
+        "registered-job",
+        help="Registered job management commands",
+    )
+    registered_job_subparsers = registered_job_parser.add_subparsers(
+        dest="registered_job_command",
+        help="Registered job commands",
+    )
+
+    # registered-job list
+    registered_job_subparsers.add_parser(
+        "list",
+        help="List registered jobs",
     )
 
     # Add data subcommand
@@ -336,14 +480,29 @@ def main():
 
         run_migrations(args.args if hasattr(args, "args") else [])
 
+    elif args.command == "local":
+        from aaiclick.orchestration.cli import start_local, stop_worker_cmd
+
+        if args.local_command == "start":
+            asyncio.run(start_local(max_tasks=args.max_tasks))
+
+        elif args.local_command == "stop":
+            asyncio.run(stop_worker_cmd(args.worker_id))
+
+        else:
+            local_parser.print_help()
+
     elif args.command == "worker":
-        from aaiclick.orchestration.cli import show_workers, start_worker
+        from aaiclick.orchestration.cli import show_workers, start_worker, stop_worker_cmd
 
         if args.worker_command == "start":
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
             asyncio.run(show_workers())
+
+        elif args.worker_command == "stop":
+            asyncio.run(stop_worker_cmd(args.worker_id))
 
         else:
             worker_parser.print_help()
@@ -372,8 +531,64 @@ def main():
                 )
             )
 
+        elif args.job_command == "enable":
+            from aaiclick.orchestration.cli import enable_job_cmd
+
+            asyncio.run(enable_job_cmd(args.name))
+
+        elif args.job_command == "disable":
+            from aaiclick.orchestration.cli import disable_job_cmd
+
+            asyncio.run(disable_job_cmd(args.name))
+
         else:
             job_parser.print_help()
+
+    elif args.command == "register-job":
+        from aaiclick.orchestration.cli import register_job_cmd
+
+        asyncio.run(
+            register_job_cmd(
+                args.entrypoint,
+                name=args.name,
+                schedule=args.schedule,
+                kwargs_json=args.kwargs,
+                preservation_mode=args.preservation_mode,
+                sampling_strategy_json=args.sampling_strategy,
+            )
+        )
+
+    elif args.command == "run-job":
+        from aaiclick.orchestration.cli import run_job_cmd
+
+        asyncio.run(
+            run_job_cmd(
+                args.name,
+                kwargs_json=args.kwargs,
+                preservation_mode=args.preservation_mode,
+                sampling_strategy_json=args.sampling_strategy,
+            )
+        )
+
+    elif args.command == "replay":
+        from aaiclick.orchestration.cli import replay_job_cmd
+
+        asyncio.run(
+            replay_job_cmd(
+                args.job_id,
+                sampling_strategy_json=args.sampling_strategy,
+                name=args.name,
+            )
+        )
+
+    elif args.command == "registered-job":
+        from aaiclick.orchestration.cli import show_registered_jobs
+
+        if args.registered_job_command == "list":
+            asyncio.run(show_registered_jobs())
+
+        else:
+            registered_job_parser.print_help()
 
     elif args.command == "data":
         if args.data_command == "list":

@@ -13,9 +13,9 @@ from aaiclick import (
     FIELDTYPE_SCALAR,
     ColumnInfo,
     Schema,
-    ViewSchema,
     create_object_from_value,
 )
+from aaiclick.data.models import ViewSchema
 
 # =============================================================================
 # Basic Schema Tests

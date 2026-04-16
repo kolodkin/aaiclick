@@ -3,9 +3,10 @@
 from sqlmodel import select
 
 from ..snowflake_id import get_snowflake_id
-from .context import commit_tasks, get_orch_session
 from .factories import create_job, create_task
+from .jobs import get_task
 from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
+from .orch_context import commit_tasks, get_sql_session
 
 
 async def test_task_rshift_creates_dependency():
@@ -150,6 +151,44 @@ async def test_group_to_group_dependency():
     assert dep.next_type == DEPENDENCY_GROUP
 
 
+async def test_commit_tasks_persists_upstream_graph(orch_ctx):
+    """Passing only the terminal task to commit_tasks() should persist all upstream tasks.
+
+    This is a regression test for the bug where intermediate tasks were never
+    saved to the DB when the developer only returned the terminal task from a
+    @job function, causing workers to fail with 'Upstream task not found'.
+    """
+    job = await create_job(
+        "test_graph_persist_job",
+        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
+    )
+
+    # Build a three-task pipeline: raw >> transform >> report
+    raw = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    transform = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    report = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    raw >> transform >> report
+
+    # Only pass the terminal task — framework must auto-collect the full graph
+    await commit_tasks(report, job_id=job.id)
+
+    # All three tasks must exist in the DB
+    for task in (raw, transform, report):
+        assert await get_task(task.id) is not None, f"Task {task.id} ({task.entrypoint}) was not persisted"
+
+    # Dependencies must also be saved
+    async with get_sql_session() as session:
+        dep1 = await session.execute(
+            select(Dependency).where(Dependency.previous_id == raw.id, Dependency.next_id == transform.id)
+        )
+        assert dep1.scalar_one_or_none() is not None
+
+        dep2 = await session.execute(
+            select(Dependency).where(Dependency.previous_id == transform.id, Dependency.next_id == report.id)
+        )
+        assert dep2.scalar_one_or_none() is not None
+
+
 async def test_apply_saves_dependencies(orch_ctx):
     """Test that commit_tasks() saves dependencies to database."""
     # Create job
@@ -167,7 +206,7 @@ async def test_apply_saves_dependencies(orch_ctx):
     await commit_tasks([task1, task2], job_id=job.id)
 
     # Verify dependency was saved
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         result = await session.execute(
             select(Dependency).where(
                 Dependency.previous_id == task1.id,

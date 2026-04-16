@@ -6,15 +6,16 @@ run_all.py already outputs markdown with collapsible <details> sections,
 so this script just passes the content through to GITHUB_STEP_SUMMARY.
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
 
 
-def generate_summary():
+def generate_summary(title: str):
     """Generate markdown summary from example output."""
     summary_parts = []
-    summary_parts.append("## Examples Output\n")
+    summary_parts.append(f"## {title}\n")
 
     output_file = Path("tmp/examples_output.txt")
     if not output_file.exists():
@@ -32,7 +33,11 @@ def generate_summary():
 
 def main():
     """Main entry point."""
-    summary = generate_summary()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--title", default="Examples Output")
+    args = parser.parse_args()
+
+    summary = generate_summary(args.title)
 
     summary_file = os.getenv("GITHUB_STEP_SUMMARY")
 

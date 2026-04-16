@@ -4,11 +4,9 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, Optional
 
 import yaml
 
@@ -38,7 +36,7 @@ ColumnType = Literal[
 ]
 
 # Type category sets for runtime type checking
-INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
+INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"})
 FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
@@ -86,6 +84,23 @@ class ColumnInfo:
         return base
 
 
+class FieldSpec(NamedTuple):
+    """Field specification for overriding inferred column properties.
+
+    Used with ``create_object_from_value(fields=...)`` to control nullable
+    and low_cardinality flags without manually specifying the full schema.
+
+    Attributes:
+        nullable: Whether the column allows NULL values.
+        low_cardinality: Whether to use LowCardinality encoding.
+        type: Override the inferred ClickHouse base type (e.g., 'Float32' instead of 'Float64').
+    """
+
+    nullable: bool = False
+    low_cardinality: bool = False
+    type: str | None = None
+
+
 class Computed(NamedTuple):
     """A computed column definition: ClickHouse type + SQL expression."""
 
@@ -93,7 +108,7 @@ class Computed(NamedTuple):
     expression: str
 
 
-def parse_ch_type(type_str: str) -> ColumnInfo:
+def parse_ch_type(type_str: str) -> "ColumnInfo":
     """Parse a ClickHouse type string into a ColumnInfo.
 
     Handles plain types ('Int64'), nullable ('Nullable(Int64)'),
@@ -154,6 +169,16 @@ GB_ANY = "any"
 GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
+
+# Named tuple for (operator, alias) aggregation entries
+class Agg(NamedTuple):
+    op: GroupByOpType
+    alias: str
+
+
+# Aggregation spec: plain op, single Agg, or list of Agg
+AggSpec = GroupByOpType | Agg | list[Agg]
+
 # Value type aliases for factory functions
 ValueScalarType = int | float | bool | str | datetime
 ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
@@ -185,6 +210,7 @@ class QueryInfo:
     fieldtype: str
     value_type: str
     nullable: bool = False
+    constraint_sql: str = ""
 
 
 @dataclass
@@ -196,7 +222,7 @@ class IngestQueryInfo(QueryInfo):
     schemas without querying system.columns.
     """
 
-    columns: dict[str, ColumnInfo] = field(default_factory=dict)
+    columns: dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 
 @dataclass
@@ -210,13 +236,18 @@ class CopyInfo:
         columns: Column name to ClickHouse type mapping (from cached schema)
         selected_fields: Fields to select from dict (None for base copy)
         is_single_field: True if single field selection
+        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT.
+                       Propagated from source schema so copied tables have
+                       correct column comments for data() to work correctly.
     """
 
     source_query: str
     fieldtype: str
-    columns: dict[str, ColumnInfo]
+    columns: dict[str, "ColumnInfo"]
     selected_fields: list[str] | None = None
     is_single_field: bool = False
+    col_fieldtype: str | None = None
+    order_by: str | None = None
 
 
 @dataclass
@@ -236,11 +267,28 @@ class Schema:
     """
 
     fieldtype: str
-    columns: dict[str, ColumnInfo]
+    columns: dict[str, "ColumnInfo"]
     table: str | None = None
     col_fieldtype: str | None = None
-    engine: EngineType | None = None
+    engine: Optional["EngineType"] = None
     order_by: str | None = None
+
+
+def build_order_by_clause(columns: list[str]) -> str:
+    """Build an ORDER BY clause string from column names.
+
+    ``aai_id`` is always appended as the last column (and deduplicated
+    if already present).
+
+    Args:
+        columns: Column names for the ORDER BY clause.
+
+    Returns:
+        Parenthesised ORDER BY expression, e.g. ``(date, aai_id)``.
+    """
+    cols = [c for c in columns if c != "aai_id"]
+    cols.append("aai_id")
+    return f"({', '.join(cols)})"
 
 
 @dataclass
@@ -261,7 +309,7 @@ class ViewSchema(Schema):
     offset: int | None = None
     order_by: str | None = None
     selected_fields: list[str] | None = None
-    computed_columns: dict[str, Computed] | None = None
+    computed_columns: dict[str, "Computed"] | None = None
 
 
 @dataclass
@@ -309,7 +357,7 @@ class ColumnMeta:
         return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
 
     @classmethod
-    def from_yaml(cls, comment: str) -> ColumnMeta:
+    def from_yaml(cls, comment: str) -> "ColumnMeta":
         """
         Parse YAML from column comment string.
 

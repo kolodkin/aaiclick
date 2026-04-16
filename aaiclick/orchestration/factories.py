@@ -2,13 +2,68 @@
 
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from aaiclick.oplog.sampling import SamplingStrategy
 from aaiclick.snowflake_id import get_snowflake_id
 
-from .context import get_orch_session
-from .models import Job, JobStatus, Task, TaskStatus
+from .env import get_default_preservation_mode
+from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .orch_context import get_sql_session
+from .task_registry import get_task_registry
+
+
+@dataclass(frozen=True)
+class ResolvedJobConfig:
+    """Resolved preservation mode + sampling strategy after precedence chain."""
+
+    preservation_mode: PreservationMode
+    sampling_strategy: SamplingStrategy | None
+
+
+def resolve_job_config(
+    explicit_mode: PreservationMode | None,
+    explicit_strategy: SamplingStrategy | None,
+    registered: RegisteredJob | None = None,
+) -> ResolvedJobConfig:
+    """Resolve ``preservation_mode`` / ``sampling_strategy`` for a job run.
+
+    Precedence (highest first):
+
+    1. Explicit ``explicit_mode`` / ``explicit_strategy`` argument
+    2. ``registered.preservation_mode`` / ``registered.sampling_strategy``
+    3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var (mode only)
+    4. ``PreservationMode.NONE`` + empty strategy (hardcoded fallback)
+
+    The explicit override is considered "set" when it's not ``None`` —
+    this lets callers pass ``None`` to mean "inherit from the next level"
+    without colliding with "I explicitly want no strategy".
+
+    Raises:
+        ValueError: When the resolved mode is ``STRATEGY`` but no
+            non-empty strategy was resolved, or when a non-empty
+            strategy was resolved under a non-STRATEGY mode.
+    """
+    mode = explicit_mode
+    if mode is None and registered is not None:
+        mode = registered.preservation_mode
+    if mode is None:
+        mode = get_default_preservation_mode()
+
+    strategy = explicit_strategy
+    if strategy is None and registered is not None:
+        strategy = registered.sampling_strategy
+
+    if mode is PreservationMode.STRATEGY and not strategy:
+        raise ValueError("preservation_mode=STRATEGY requires a non-empty sampling_strategy")
+    if mode is not PreservationMode.STRATEGY and strategy:
+        raise ValueError(
+            f"sampling_strategy is only valid with preservation_mode=STRATEGY (got preservation_mode={mode.value})"
+        )
+
+    return ResolvedJobConfig(preservation_mode=mode, sampling_strategy=strategy)
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -25,7 +80,7 @@ def _resolve_main_module(func: Callable) -> str:
         func: A callable function
 
     Returns:
-        The resolved module path (e.g., 'aaiclick.example_projects.basic_worker_register')
+        The resolved module path (e.g., 'basic_worker')
     """
     # Strategy 1: Try __spec__ (cleanest when available, e.g., python -m)
     main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
@@ -84,7 +139,9 @@ def _callable_to_string(func: Callable) -> str:
     return f"{module}.{name}"
 
 
-def create_task(callback: str | Callable, kwargs: dict = None, *, name: str = None, max_retries: int = 0) -> Task:
+def create_task(
+    callback: str | Callable, kwargs: dict | None = None, *, name: str | None = None, max_retries: int = 0
+) -> Task:
     """Create a Task object (not committed to database).
 
     Args:
@@ -116,7 +173,7 @@ def create_task(callback: str | Callable, kwargs: dict = None, *, name: str = No
         entrypoint = callback
         resolved_name = name or entrypoint.rsplit(".", 1)[-1]
 
-    return Task(
+    task = Task(
         id=task_id,
         entrypoint=entrypoint,
         name=resolved_name,
@@ -125,14 +182,40 @@ def create_task(callback: str | Callable, kwargs: dict = None, *, name: str = No
         created_at=datetime.utcnow(),
         max_retries=max_retries,
     )
+    registry = get_task_registry()
+    if registry is not None:
+        registry[task_id] = task
+    return task
 
 
-async def create_job(name: str, entry: str | Callable | Task) -> Job:
+async def create_job(
+    name: str,
+    entry: str | Callable | Task,
+    *,
+    run_type: RunType = RunType.MANUAL,
+    registered_job_id: int | None = None,
+    preservation_mode: PreservationMode | None = None,
+    sampling_strategy: SamplingStrategy | None = None,
+    registered: RegisteredJob | None = None,
+) -> Job:
     """Create a Job and commit it to the database.
 
     Args:
         name: Job name
         entry: Callback string, callable function, or Task object
+        run_type: How the job was triggered (MANUAL or SCHEDULED)
+        registered_job_id: FK to registered_jobs (optional)
+        preservation_mode: Which tables survive after the job completes.
+            Overrides the registered job's default; falls through to the
+            ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
+            ``PreservationMode.NONE``.
+        sampling_strategy: Per-table WHERE clauses that tell the oplog which
+            rows to track. Follows the same precedence chain as
+            ``preservation_mode``. Required when the resolved mode is
+            ``STRATEGY``; rejected in every other mode.
+        registered: Optional ``RegisteredJob`` to source level-2 defaults
+            from. When supplied, ``registered.preservation_mode`` and
+            ``registered.sampling_strategy`` become the fallback values.
 
     Returns:
         Job object with id populated after database commit
@@ -148,14 +231,17 @@ async def create_job(name: str, entry: str | Callable | Task) -> Job:
         task = create_task("mymodule.task1", {"param": "value"})
         job = await create_job("my_job", task)
     """
-    # Generate job ID
-    job_id = get_snowflake_id()
+    config = resolve_job_config(preservation_mode, sampling_strategy, registered)
 
-    # Create Job object
+    job_id = get_snowflake_id()
     job = Job(
         id=job_id,
         name=name,
         status=JobStatus.PENDING,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
+        preservation_mode=config.preservation_mode,
+        sampling_strategy=config.sampling_strategy,
         created_at=datetime.utcnow(),
     )
 
@@ -169,12 +255,18 @@ async def create_job(name: str, entry: str | Callable | Task) -> Job:
     task.job_id = job_id
 
     # Commit to database using OrchContext session
-    async with get_orch_session() as session:
+    async with get_sql_session() as session:
         # Add job and task using ORM
         session.add(job)
         session.add(task)
 
         # Commit transaction
         await session.commit()
+
+    # Remove the entry task from the registry after commit so that subsequent
+    # registry lookups for the same task ID don't return the now-detached object.
+    registry = get_task_registry()
+    if registry is not None:
+        registry.pop(task.id, None)
 
     return job

@@ -27,8 +27,25 @@ class AIProvider:
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages}
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        response = await acompletion(**kwargs)
+        response: Any = await acompletion(**kwargs)
         return response.choices[0].message.content or ""
+
+    async def complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Any:
+        """Low-level completion with full message history.
+
+        Returns the raw litellm response. Use this for multi-turn agentic
+        loops that manage their own message list.
+        """
+        kwargs: dict[str, Any] = {"model": self.model, "messages": messages}
+        if tools:
+            kwargs["tools"] = tools
+        if self._api_key:
+            kwargs["api_key"] = self._api_key
+        return await acompletion(**kwargs)
 
     async def query_with_tools(
         self,
@@ -48,7 +65,7 @@ class AIProvider:
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages, "tools": tools}
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        response = await acompletion(**kwargs)
+        response: Any = await acompletion(**kwargs)
         message = response.choices[0].message
         return {
             "content": message.content,

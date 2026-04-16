@@ -8,25 +8,28 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+PYTHON="${PYTHON:-uv run python}"
 
 echo "=== Basic Worker Example ==="
 echo
 
 # Step 1: Register the job
 echo "Registering job..."
-uv run python -m aaiclick.example_projects.basic_worker
+$PYTHON -m basic_worker
 echo
 
 # Step 2: Start background cleanup worker
 echo "Starting background cleanup worker..."
-uv run python -m aaiclick background start &
+$PYTHON -m aaiclick background start &
 BACKGROUND_PID=$!
 echo "Background worker started (PID: $BACKGROUND_PID)"
 echo
 
 # Step 3: Start worker in background
 echo "Starting worker..."
-uv run python -m aaiclick worker start &
+$PYTHON -m aaiclick worker start &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo

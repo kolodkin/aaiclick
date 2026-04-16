@@ -17,7 +17,7 @@ chdb is an embedded ClickHouse engine for Python that allows you to run ClickHou
 
 ## Running with uv
 
-This project uses `uv`. Run chdb scripts with:
+chdb is included as a project dependency — `uv sync` installs it automatically. Run chdb scripts with:
 
 ```bash
 uv run python script.py
@@ -28,8 +28,6 @@ Or run inline Python:
 ```bash
 uv run python -c "import chdb; print(chdb.query('SELECT 1 + 1'))"
 ```
-
-No need to manually `pip install chdb` — `uv` handles dependencies from `pyproject.toml`.
 
 ## Basic Usage
 

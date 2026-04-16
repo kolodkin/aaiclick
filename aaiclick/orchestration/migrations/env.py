@@ -29,6 +29,14 @@ def get_url() -> str:
     falls back to individual POSTGRES_* env vars.
     """
     sql_url = os.getenv("AAICLICK_SQL_URL")
+    if not sql_url or sql_url.startswith("postgresql"):
+        try:
+            import psycopg2  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                "PostgreSQL migrations require the aaiclick[distributed] extra. "
+                "Install with: pip install aaiclick[distributed]"
+            ) from e
     if sql_url:
         return sql_url.replace("postgresql+asyncpg://", "postgresql://")
 

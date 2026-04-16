@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=8.0"]
+requires = ["setuptools>=82.0", "wheel", "setuptools-scm>=10.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,41 +27,53 @@ classifiers = [
 ]
 
 dependencies = [
-    "clickhouse-connect>=0.6.0",
-    "numpy>=1.24.0",
-    "python-dotenv>=1.0.0",
-    "pyyaml>=6.0",
+    "pyarrow>=23.0.0",
+    "python-dotenv>=1.2.0",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.12.0",
+    "sqlmodel>=0.0.38",
+    "alembic>=1.18.0",
+    "chdb>=4.1.0",
+    "aiosqlite>=0.22.0",
+    "greenlet>=3.0.0",
+    "croniter>=6.0.0",
 ]
 
 [project.optional-dependencies]
-orch = [
-    "sqlmodel>=0.0.14",
-    "asyncpg>=0.29.0",
-    "alembic>=1.13.0",
-    "psycopg2-binary>=2.9.9",
-]
-test = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.5.0",
-]
-local = [
-    "chdb>=4.0.0",
-    "aiosqlite>=0.19.0",
+distributed = [
+    "clickhouse-connect>=0.15.0",
+    "asyncpg>=0.31.0",
+    "psycopg2-binary>=2.9.11",
 ]
 ai = [
-    "litellm>=1.0",
+    "litellm>=1.83.0",
+    "ollama>=0.6.0",
+]
+all = ["aaiclick[distributed,ai]"]
+test = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "pyright>=1.1.400",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.0",
+    "mkdocstrings[python]>=1.0.0",
 ]
 dev = [
-    "aaiclick[orch,test,local]",
-    "pre-commit>=4.0.0",
+    "aaiclick[all,test]",
+    "black>=26.3.0",
+    "ruff>=0.15.0",
+    "mypy>=1.20.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/kolodkin/aaiclick"
 Repository = "https://github.com/kolodkin/aaiclick"
 Issues = "https://github.com/kolodkin/aaiclick/issues"
+Documentation = "https://aaiclick.readthedocs.io"
 
 [tool.setuptools.packages.find]
 include = ["aaiclick*"]
@@ -73,6 +85,10 @@ aaiclick = ["py.typed"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
+
+[tool.black]
+line-length = 120
+target-version = ['py310']
 
 [tool.ruff]
 line-length = 120
@@ -89,19 +105,31 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long (handled by ruff format)
+    "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
+    "B027",  # empty method in abstract base class (intentional no-op defaults)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]  # re-exports in __init__.py are intentional
+"__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --strict-markers -W error"
+addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --strict-markers"
 asyncio_mode = "auto"
 filterwarnings = [
     "error",
