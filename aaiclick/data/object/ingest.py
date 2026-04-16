@@ -344,25 +344,19 @@ async def concat_objects_db(
     col_names = sorted(data_columns)
     insert_cols = ", ".join(col_names)
 
-    # Build a single INSERT with UNION ALL so all rows share one
-    # generateSnowflakeID() context (monotonic within one INSERT).
-    # ORDER BY _src_ord ensures source-argument order is preserved.
-    selects = []
+    # Insert each source sequentially. Snowflake IDs are time-based and
+    # monotonically increasing, so sequential INSERTs naturally preserve
+    # source-argument order without requiring a UNION ALL subquery.
     for i, info in enumerate(query_infos):
         cast_exprs = ", ".join(
             f"CAST({col} AS {data_columns[col].ch_type()}) AS {col}"
             for col in col_names
         )
         alias = f" AS s{i}" if info.source.startswith('(') else ""
-        selects.append(
-            f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}"
+        await ch_client.command(
+            f"INSERT INTO {result.table} ({insert_cols})"
+            f" SELECT {cast_exprs} FROM {info.source}{alias}"
         )
-
-    union_query = " UNION ALL ".join(selects)
-    await ch_client.command(
-        f"INSERT INTO {result.table} ({insert_cols})"
-        f" SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
-    )
 
     oplog_record_sample(
         result.table, "concat",
