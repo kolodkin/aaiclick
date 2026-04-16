@@ -64,9 +64,7 @@ docs = [
 ]
 dev = [
     "aaiclick[all,test]",
-    "black>=26.3.0",
-    "ruff>=0.15.0",
-    "mypy>=1.20.0",
+    "pre-commit>=4.0.0",
 ]
 
 [project.urls]
