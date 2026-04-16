@@ -174,23 +174,17 @@ async def test_commit_tasks_persists_upstream_graph(orch_ctx):
 
     # All three tasks must exist in the DB
     for task in (raw, transform, report):
-        assert await get_task(task.id) is not None, (
-            f"Task {task.id} ({task.entrypoint}) was not persisted"
-        )
+        assert await get_task(task.id) is not None, f"Task {task.id} ({task.entrypoint}) was not persisted"
 
     # Dependencies must also be saved
     async with get_sql_session() as session:
         dep1 = await session.execute(
-            select(Dependency).where(
-                Dependency.previous_id == raw.id, Dependency.next_id == transform.id
-            )
+            select(Dependency).where(Dependency.previous_id == raw.id, Dependency.next_id == transform.id)
         )
         assert dep1.scalar_one_or_none() is not None
 
         dep2 = await session.execute(
-            select(Dependency).where(
-                Dependency.previous_id == transform.id, Dependency.next_id == report.id
-            )
+            select(Dependency).where(Dependency.previous_id == transform.id, Dependency.next_id == report.id)
         )
         assert dep2.scalar_one_or_none() is not None
 

@@ -68,6 +68,7 @@ def test_enumerate_paths_branching_tree():
 
 def test_collapse_merges_structurally_identical_trees():
     """Two trees with the same (table, op, role) chain collapse to one route."""
+
     def _tree(root_id: int, leaf_id: int, leaf_val: float) -> LineageNode:
         leaf = _leaf("p_prices", leaf_id, leaf_val, role="left")
         return LineageNode(
@@ -124,16 +125,12 @@ def test_collapse_splits_distinct_routes():
 
 
 def test_extract_value_returns_first_column():
-    node = LineageNode(
-        table="t", aai_id=1, operation="source", role=None, values={"value": 42}
-    )
+    node = LineageNode(table="t", aai_id=1, operation="source", role=None, values={"value": 42})
     assert _extract_value(node) == 42
 
 
 def test_extract_value_handles_missing_values():
-    node = LineageNode(
-        table="t", aai_id=1, operation="source", role=None, values=None
-    )
+    node = LineageNode(table="t", aai_id=1, operation="source", role=None, values=None)
     assert _extract_value(node) is None
 
 

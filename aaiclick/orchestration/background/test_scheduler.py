@@ -47,10 +47,7 @@ async def test_check_schedules_creates_job(orch_ctx):
     # Verify Job was created
     async with get_sql_session() as session:
         result = await session.execute(
-            text(
-                "SELECT id, name, run_type, registered_job_id FROM jobs "
-                "WHERE registered_job_id = :reg_id"
-            ),
+            text("SELECT id, name, run_type, registered_job_id FROM jobs WHERE registered_job_id = :reg_id"),
             {"reg_id": reg.id},
         )
         jobs = result.fetchall()

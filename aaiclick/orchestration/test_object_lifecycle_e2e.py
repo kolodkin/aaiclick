@@ -91,7 +91,7 @@ TRACKED_TABLES = {"table_pin_refs", "table_run_refs", "table_context_refs"}
 
 class RefEvent(NamedTuple):
     action: str  # INSERT or DELETE
-    table: str   # table_pin_refs, table_run_refs, table_context_refs
+    table: str  # table_pin_refs, table_run_refs, table_context_refs
 
 
 def _install_hook(async_engine):

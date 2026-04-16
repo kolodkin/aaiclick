@@ -201,9 +201,7 @@ async def test_run_job_creates_entry_task(orch_ctx):
     job = await run_job("task_check", "myapp.task_check", kwargs={"x": 1})
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         tasks = list(result.scalars().all())
 
     assert len(tasks) == 1
@@ -220,9 +218,7 @@ async def test_run_job_merges_default_kwargs(orch_ctx):
     job = await run_job("merge_kw", "myapp.merge_kw", kwargs={"b": 99, "c": 3})
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
 
     assert task.kwargs == {"a": 1, "b": 99, "c": 3}
@@ -245,7 +241,9 @@ async def test_run_job_with_existing_registration(orch_ctx):
 def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     registered = RegisteredJob(
-        id=1, name="x", entrypoint="foo",
+        id=1,
+        name="x",
+        entrypoint="foo",
         preservation_mode=PreservationMode.FULL,
     )
     resolved = resolve_job_config(PreservationMode.NONE, None, registered)
@@ -256,7 +254,9 @@ def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
 def test_resolve_registered_mode_wins_over_env(monkeypatch):
     monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "NONE")
     registered = RegisteredJob(
-        id=1, name="x", entrypoint="foo",
+        id=1,
+        name="x",
+        entrypoint="foo",
         preservation_mode=PreservationMode.FULL,
     )
     resolved = resolve_job_config(None, None, registered)
@@ -280,12 +280,16 @@ def test_resolve_hardcoded_fallback(monkeypatch):
 def test_resolve_explicit_strategy_wins_over_registered(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     registered = RegisteredJob(
-        id=1, name="x", entrypoint="foo",
+        id=1,
+        name="x",
+        entrypoint="foo",
         preservation_mode=PreservationMode.STRATEGY,
         sampling_strategy={"p_foo": "x = 1"},
     )
     resolved = resolve_job_config(
-        None, {"p_foo": "x = 99"}, registered,
+        None,
+        {"p_foo": "x = 99"},
+        registered,
     )
     assert resolved.preservation_mode is PreservationMode.STRATEGY
     assert resolved.sampling_strategy == {"p_foo": "x = 99"}
@@ -294,7 +298,9 @@ def test_resolve_explicit_strategy_wins_over_registered(monkeypatch):
 def test_resolve_inherits_registered_strategy(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     registered = RegisteredJob(
-        id=1, name="x", entrypoint="foo",
+        id=1,
+        name="x",
+        entrypoint="foo",
         preservation_mode=PreservationMode.STRATEGY,
         sampling_strategy={"p_foo": "x = 1"},
     )

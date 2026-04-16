@@ -106,7 +106,9 @@ async def run(num_rows, num_runs):
 
         console.print(f"  Ingest [{chdb_mod.NAME}]...")
         t, m = measure_sync(
-            lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD), raw_data, num_runs,
+            lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD),
+            raw_data,
+            num_runs,
         )
         results["Ingest"]["chdb"] = {"time": t, "memory": m}
         chdb_mod.cleanup_results()
@@ -127,7 +129,9 @@ async def run(num_rows, num_runs):
 
         console.print(f"  Ingest [{aai_mod.NAME}]...")
         t, m = await measure_async(
-            lambda d: aai_mod.convert(d, FILTER_THRESHOLD), raw_data, num_runs,
+            lambda d: aai_mod.convert(d, FILTER_THRESHOLD),
+            raw_data,
+            num_runs,
         )
         results["Ingest"]["aaiclick"] = {"time": t, "memory": m}
 

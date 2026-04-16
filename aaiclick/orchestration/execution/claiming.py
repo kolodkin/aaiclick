@@ -196,8 +196,6 @@ async def check_task_cancelled(task_id: int) -> bool:
         bool: True if task status is CANCELLED
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task.status).where(Task.id == task_id)
-        )
+        result = await session.execute(select(Task.status).where(Task.id == task_id))
         status = result.scalar_one_or_none()
         return status == TaskStatus.CANCELLED

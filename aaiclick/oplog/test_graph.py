@@ -126,9 +126,7 @@ async def test_backward_oplog_row_strategy_populated(orch_ctx):
         result_table = result.table
 
     ch = await create_ch_client()
-    rows = (await ch.query(
-        f"SELECT aai_id FROM {result_table} WHERE value = 22"
-    )).result_rows
+    rows = (await ch.query(f"SELECT aai_id FROM {result_table} WHERE value = 22")).result_rows
     assert rows, f"expected value=22 in {result_table}"
     target_id = rows[0][0]
 
@@ -165,7 +163,9 @@ async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
 
     # Job 100: strategy matches value = 20 → left row at aai_id ending "second"
     async with task_scope(
-        task_id=1, job_id=100, run_id=10,
+        task_id=1,
+        job_id=100,
+        run_id=10,
         sampling_strategy={left_table: "value = 20"},
     ):
         a1 = await create_object_from_value([10, 20, 30], name="multi_job_left")
@@ -176,7 +176,9 @@ async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
     # Job 200: same persistent input tables, strategy matches value = 30
     # (a different row). Writes fresh oplog rows for the same source tables.
     async with task_scope(
-        task_id=2, job_id=200, run_id=20,
+        task_id=2,
+        job_id=200,
+        run_id=20,
         sampling_strategy={left_table: "value = 30"},
     ):
         a2 = await create_object_from_value([10, 20, 30], name="multi_job_left")
@@ -187,17 +189,15 @@ async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
     try:
         # Walk from job 100's result table — with job_id scoping, the hop
         # backward lands on job 100's oplog row, not job 200's.
-        rows = (
-            await ch.query(
-                f"SELECT aai_id FROM {result1_table} WHERE value = 22"
-            )
-        ).result_rows
+        rows = (await ch.query(f"SELECT aai_id FROM {result1_table} WHERE value = 22")).result_rows
         assert rows, f"expected value=22 in {result1_table}"
         target_id = rows[0][0]
 
         async with lineage_context():
             scoped_steps = await backward_oplog_row(
-                result1_table, target_id, job_id=100,
+                result1_table,
+                target_id,
+                job_id=100,
             )
 
         assert scoped_steps, "expected steps under job 100"
@@ -205,15 +205,9 @@ async def test_backward_oplog_row_scopes_to_job_id(orch_ctx):
         # The second hop lands in left_table — verify its aai_id matches
         # job 100's left row (value=20), not job 200's (value=30).
         left_id = scoped_steps[0].source_aai_ids["left"]
-        left_value_rows = (
-            await ch.query(
-                f"SELECT value FROM {left_table} WHERE aai_id = {left_id}"
-            )
-        ).result_rows
+        left_value_rows = (await ch.query(f"SELECT value FROM {left_table} WHERE aai_id = {left_id}")).result_rows
         assert left_value_rows, "left aai_id should exist"
-        assert left_value_rows[0][0] == 20, (
-            "scoped walk should stay in job 100's matched row (value=20)"
-        )
+        assert left_value_rows[0][0] == 20, "scoped walk should stay in job 100's matched row (value=20)"
     finally:
         await ch.command(f"DROP TABLE IF EXISTS {left_table}")
         await ch.command(f"DROP TABLE IF EXISTS {right_table}")

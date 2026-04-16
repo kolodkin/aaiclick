@@ -31,13 +31,22 @@ from .task_registry import _task_registry_var, get_task_registry
 
 logger = logging.getLogger(__name__)
 
-_OPLOG_COLS = ["result_table", "operation", "kwargs", "kwargs_aai_ids",
-               "result_aai_ids", "sql_template", "task_id", "job_id", "run_id", "created_at"]
+_OPLOG_COLS = [
+    "result_table",
+    "operation",
+    "kwargs",
+    "kwargs_aai_ids",
+    "result_aai_ids",
+    "sql_template",
+    "task_id",
+    "job_id",
+    "run_id",
+    "created_at",
+]
 _OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
 
 _REG_COLS = ["table_name", "job_id", "task_id", "run_id", "created_at"]
 _REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
-
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -118,9 +127,13 @@ class OrchLifecycleHandler(LifecycleHandler):
         consumer task_ids are discovered via the dependencies table —
         this is the only point where table→task mapping exists.
         """
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.PIN, table_name, pin_task_id=self._task_id,
-        ))
+        self._enqueue(
+            DBLifecycleMessage(
+                DBLifecycleOp.PIN,
+                table_name,
+                pin_task_id=self._task_id,
+            )
+        )
 
     def unpin(self, table_name: str) -> None:
         """Remove this task's pin ref for a table.
@@ -128,9 +141,13 @@ class OrchLifecycleHandler(LifecycleHandler):
         Enqueued through the FIFO queue so it executes AFTER any preceding
         INCREF, ensuring the run_ref is committed before the pin is released.
         """
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.UNPIN, table_name, pin_task_id=self._task_id,
-        ))
+        self._enqueue(
+            DBLifecycleMessage(
+                DBLifecycleOp.UNPIN,
+                table_name,
+                pin_task_id=self._task_id,
+            )
+        )
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -154,45 +171,70 @@ class OrchLifecycleHandler(LifecycleHandler):
             sampling_strategy=sampling_strategy,
         )
 
-    def oplog_record(self, result_table: str, operation: str,
-                     kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.OPLOG_RECORD,
-            oplog=self._make_payload(result_table, operation, kwargs, sql),
-        ))
+    def oplog_record(
+        self, result_table: str, operation: str, kwargs: dict[str, str] | None = None, sql: str | None = None
+    ) -> None:
+        self._enqueue(
+            DBLifecycleMessage(
+                DBLifecycleOp.OPLOG_RECORD,
+                oplog=self._make_payload(result_table, operation, kwargs, sql),
+            )
+        )
 
-    def oplog_record_sample(self, result_table: str, operation: str,
-                            kwargs: dict[str, str] | None = None, sql: str | None = None) -> None:
+    def oplog_record_sample(
+        self, result_table: str, operation: str, kwargs: dict[str, str] | None = None, sql: str | None = None
+    ) -> None:
         if not self._sampling_strategy:
             self.oplog_record(result_table, operation, kwargs, sql)
             return
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.OPLOG_SAMPLE,
-            oplog=self._make_payload(
-                result_table, operation, kwargs, sql,
-                sampling_strategy=self._sampling_strategy,
-            ),
-        ))
+        self._enqueue(
+            DBLifecycleMessage(
+                DBLifecycleOp.OPLOG_SAMPLE,
+                oplog=self._make_payload(
+                    result_table,
+                    operation,
+                    kwargs,
+                    sql,
+                    sampling_strategy=self._sampling_strategy,
+                ),
+            )
+        )
 
     def oplog_record_table(self, table_name: str) -> None:
-        self._enqueue(DBLifecycleMessage(
-            DBLifecycleOp.OPLOG_TABLE,
-            oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id, self._run_id),
-        ))
+        self._enqueue(
+            DBLifecycleMessage(
+                DBLifecycleOp.OPLOG_TABLE,
+                oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id, self._run_id),
+            )
+        )
 
     # -- Internal --
 
-    async def _write_oplog_row(self, p: OplogPayload,
-                               kwargs_aai_ids: dict[str, list[int]] | None = None,
-                               result_aai_ids: list[int] | None = None) -> None:
+    async def _write_oplog_row(
+        self,
+        p: OplogPayload,
+        kwargs_aai_ids: dict[str, list[int]] | None = None,
+        result_aai_ids: list[int] | None = None,
+    ) -> None:
         """Insert a single oplog row to ClickHouse. Best effort."""
         now = datetime.now(timezone.utc)
         try:
             await get_ch_client().insert(
                 "operation_log",
-                [[p.result_table, p.operation, p.kwargs,
-                  kwargs_aai_ids or {}, result_aai_ids or [],
-                  p.sql, p.task_id, p.job_id, p.run_id, now]],
+                [
+                    [
+                        p.result_table,
+                        p.operation,
+                        p.kwargs,
+                        kwargs_aai_ids or {},
+                        result_aai_ids or [],
+                        p.sql,
+                        p.task_id,
+                        p.job_id,
+                        p.run_id,
+                        now,
+                    ]
+                ],
                 column_names=_OPLOG_COLS,
                 column_type_names=_OPLOG_TYPE_NAMES,
             )
@@ -243,10 +285,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                         )
                     elif msg.op == DBLifecycleOp.DECREF:
                         await session.execute(
-                            text(
-                                "DELETE FROM table_run_refs "
-                                "WHERE table_name = :table_name AND run_id = :run_id"
-                            ),
+                            text("DELETE FROM table_run_refs WHERE table_name = :table_name AND run_id = :run_id"),
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
@@ -271,10 +310,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                             )
                     elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(
-                            text(
-                                "DELETE FROM table_pin_refs "
-                                "WHERE table_name = :table_name AND task_id = :task_id"
-                            ),
+                            text("DELETE FROM table_pin_refs WHERE table_name = :table_name AND task_id = :task_id"),
                             {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                         )
                     await session.commit()
@@ -296,7 +332,6 @@ class OrchLifecycleHandler(LifecycleHandler):
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
                 assert msg.oplog_table is not None
                 await self._write_table_registry_row(msg.oplog_table)
-
 
 
 @asynccontextmanager
@@ -326,8 +361,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
             import asyncpg  # noqa: F401
         except ImportError as e:
             raise ImportError(
-                "PostgreSQL requires the aaiclick[distributed] extra. "
-                "Install with: pip install aaiclick[distributed]"
+                "PostgreSQL requires the aaiclick[distributed] extra. Install with: pip install aaiclick[distributed]"
             ) from e
     engine = create_async_engine(get_db_url(), echo=False)
     handler = create_db_handler()

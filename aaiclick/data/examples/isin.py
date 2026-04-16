@@ -57,11 +57,13 @@ async def example():
     print("Example 4: isin() on a dict column")
     print("-" * 50)
 
-    employees = await create_object_from_value({
-        "name": ["Alice", "Bob", "Charlie", "Diana"],
-        "department": ["engineering", "sales", "engineering", "marketing"],
-        "salary": [120000, 80000, 110000, 90000],
-    })
+    employees = await create_object_from_value(
+        {
+            "name": ["Alice", "Bob", "Charlie", "Diana"],
+            "department": ["engineering", "sales", "engineering", "marketing"],
+            "salary": [120000, 80000, 110000, 90000],
+        }
+    )
     tech_depts = await create_object_from_value(["engineering", "data science"])
     mask = await employees["department"].isin(tech_depts)
     print(f"Departments: {(await employees.data())['department']}")

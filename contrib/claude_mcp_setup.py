@@ -9,6 +9,7 @@ Usage:
     --config PATH   Path to mcp.json (default: contrib/mcp.json)
     server_name     One or more server names to install (default: all)
 """
+
 import argparse
 import json
 import logging
@@ -32,7 +33,7 @@ def find_claude_cmd() -> str | None:
 
 def setup_mcp_servers(mcp_json_path: str, server_names: list[str] | None = None) -> None:
     try:
-        with open(mcp_json_path, "r") as f:
+        with open(mcp_json_path) as f:
             config = json.load(f)
     except FileNotFoundError:
         logger.error("MCP config not found: %s", mcp_json_path)
@@ -50,7 +51,9 @@ def setup_mcp_servers(mcp_json_path: str, server_names: list[str] | None = None)
     if server_names:
         unknown = set(server_names) - set(all_servers)
         if unknown:
-            logger.error("Unknown server(s): %s. Available: %s", ", ".join(sorted(unknown)), ", ".join(sorted(all_servers)))
+            logger.error(
+                "Unknown server(s): %s. Available: %s", ", ".join(sorted(unknown)), ", ".join(sorted(all_servers))
+            )
             return
         servers = {name: all_servers[name] for name in server_names}
     else:
@@ -87,7 +90,9 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser(description="Install Claude MCP servers from mcp.json configuration.")
-    parser.add_argument("--config", default=str(Path(__file__).parent / "mcp.json"), help="Path to mcp.json (default: contrib/mcp.json)")
+    parser.add_argument(
+        "--config", default=str(Path(__file__).parent / "mcp.json"), help="Path to mcp.json (default: contrib/mcp.json)"
+    )
     parser.add_argument("servers", nargs="*", help="Specific server names to install (default: all)")
     args = parser.parse_args()
 

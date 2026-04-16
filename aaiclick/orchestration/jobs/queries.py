@@ -104,9 +104,7 @@ async def get_task_result_table(task_id: int) -> str | None:
     has no result, or stored a non-Object result.
     """
     async with get_sql_session() as session:
-        result = (
-            await session.execute(select(Task.result).where(Task.id == task_id))
-        ).scalar_one_or_none()
+        result = (await session.execute(select(Task.result).where(Task.id == task_id))).scalar_one_or_none()
     if isinstance(result, dict):
         return result.get("table")
     return None
@@ -122,9 +120,7 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
         List of tasks belonging to the job
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job_id).order_by(col(Task.created_at))
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job_id).order_by(col(Task.created_at)))
         return list(result.scalars().all())
 
 
@@ -139,10 +135,7 @@ async def get_latest_job_by_name(name: str) -> Job | None:
     """
     async with get_sql_session() as session:
         result = await session.execute(
-            select(Job)
-            .where(Job.name == name)
-            .order_by(col(Job.created_at).desc())
-            .limit(1)
+            select(Job).where(Job.name == name).order_by(col(Job.created_at).desc()).limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -181,8 +174,7 @@ async def get_job_result(job: Job) -> Any:
     """
     async with get_sql_session() as session:
         result_row = await session.execute(
-            select(Task.result, Task.job_id)
-            .where(Task.job_id == job.id, Task.name == job.name)
+            select(Task.result, Task.job_id).where(Task.job_id == job.id, Task.name == job.name)
         )
         row = result_row.one_or_none()
 

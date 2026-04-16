@@ -46,9 +46,13 @@ from .models import Group, Task
 from .result import TaskResult, data_list, task_result, tasks_list
 
 
-def map(cbk: Callable | TaskFactory, obj: Task | Object,
-        partition: int = 5000,
-        args: tuple = (), kwargs: dict[str, Any] | None = None) -> Group:
+def map(
+    cbk: Callable | TaskFactory,
+    obj: Task | Object,
+    partition: int = 5000,
+    args: tuple = (),
+    kwargs: dict[str, Any] | None = None,
+) -> Group:
     """Create a parallel map operation over partitions of an Object.
 
     At definition time, creates an expander Task + Group and returns the Group.
@@ -84,9 +88,9 @@ def map(cbk: Callable | TaskFactory, obj: Task | Object,
 
 
 @task
-async def _expand_map(cbk: Callable, obj: Object, partition: int,
-                      group_id: int, cbk_args: list,
-                      cbk_kwargs: dict) -> TaskResult:
+async def _expand_map(
+    cbk: Callable, obj: Object, partition: int, group_id: int, cbk_args: list, cbk_kwargs: dict
+) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
     Runs at execution time. Partitions the Object into Views and creates
@@ -130,8 +134,9 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int,
 
 
 @task
-async def _map_part(cbk: Callable, part: View, out: Object,
-                   cbk_args: list | None = None, cbk_kwargs: dict | None = None) -> None:
+async def _map_part(
+    cbk: Callable, part: View, out: Object, cbk_args: list | None = None, cbk_kwargs: dict | None = None
+) -> None:
     """Apply a callback to each row in a partition View.
 
     Reads rows from the partition, calls cbk(row, *args, **kwargs) for each.
@@ -289,9 +294,15 @@ async def _expand_reduce(
     for L in range(num_layers):
         src = obj if L == 0 else layer_objs[L - 1]
         group = _build_layer_group(
-            L, src, layer_objs[L], src_size, partition,
+            L,
+            src,
+            layer_objs[L],
+            src_size,
+            partition,
             all_groups[-1] if all_groups else None,
-            cbk, cbk_args, cbk_kwargs,
+            cbk,
+            cbk_args,
+            cbk_kwargs,
         )
         all_groups.append(group)
         src_size = ceil(src_size / partition)

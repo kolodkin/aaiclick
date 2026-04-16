@@ -154,10 +154,7 @@ async def test_nullable_dict_columns(ctx):
     obj = await create_object(schema)
     ch = get_ch_client()
 
-    await ch.command(
-        f"INSERT INTO {obj.table} (name, score) VALUES "
-        f"('alice', 95.0), ('bob', NULL), ('carol', 88.5)"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (name, score) VALUES ('alice', 95.0), ('bob', NULL), ('carol', 88.5)")
 
     data = await obj.data()
     assert data["name"] == ["alice", "bob", "carol"]

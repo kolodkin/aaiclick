@@ -4,9 +4,18 @@ After completing each task, use the `check-pr` skill to verify GitHub Actions wo
 
 If any workflows fail, analyze the error logs and fix issues automatically.
 
+## Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) for automated checks before each commit.
+
+**Install hooks before your first commit**:
+```bash
+uv run pre-commit install
+```
+
 ## Commit Guidelines
 
-This project uses pre-commit hooks that may modify files during commit (formatting, linting, etc.).
+Pre-commit hooks may modify files during commit (formatting, whitespace, notebook cleanup, etc.).
 
 **Commit message format** (conventional commits):
 
@@ -394,5 +403,3 @@ or restating what surrounding prose already says. Collapsible `???` for optional
 !!! info "ClickHouse uses RE2 regex syntax"
     No lookaheads or lookbehinds.
 ```
-
-

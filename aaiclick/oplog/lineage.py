@@ -41,8 +41,7 @@ def _row_to_oplog_node(row: tuple) -> OplogNode:
     result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
     sql_template, task_id, job_id.
     """
-    (result_table, operation, kwargs_raw, kwargs_aai_ids_raw,
-     result_aai_ids_raw, sql_template, task_id, job_id) = row
+    (result_table, operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw, sql_template, task_id, job_id) = row
     return OplogNode(
         table=result_table,
         operation=operation,
@@ -75,7 +74,10 @@ class OplogEdge:
 
 
 _OP_LABEL_NAMES: dict[str, str] = {
-    "+": "add", "-": "subtract", "*": "multiply", "/": "divide",
+    "+": "add",
+    "-": "subtract",
+    "*": "multiply",
+    "/": "divide",
 }
 
 
@@ -89,9 +91,7 @@ class OplogGraph:
     @property
     def tables(self) -> set[str]:
         """Return every table that appears in the graph as a node or a kwarg source."""
-        return {n.table for n in self.nodes} | {
-            src for n in self.nodes for src in n.kwargs.values() if src
-        }
+        return {n.table for n in self.nodes} | {src for n in self.nodes for src in n.kwargs.values() if src}
 
     def build_labels(self) -> dict[str, str]:
         """Map every referenced table ID to a human-readable label.
@@ -166,8 +166,7 @@ class OplogGraph:
                 lines.append(f"- SQL: `{node.sql_template}`")
             if node.operation in self._ID_BREAKING_OPS:
                 lines.append(
-                    f"- ⚠ `{node.operation}` generates fresh aai_id values — "
-                    "source and target aai_ids do NOT match."
+                    f"- ⚠ `{node.operation}` generates fresh aai_id values — source and target aai_ids do NOT match."
                 )
 
         if self.edges:
@@ -414,18 +413,22 @@ async def backward_oplog_row(
 
     for _ in range(max_depth):
         upstream = await fetch_producing_op(
-            current_table, current_id, job_id=job_id,
+            current_table,
+            current_id,
+            job_id=job_id,
         )
         if upstream is None:
             break
 
         source_aai_ids = {role: aid for role, (_, aid) in upstream.sources.items()}
-        steps.append(RowLineageStep(
-            table=current_table,
-            aai_id=current_id,
-            operation=upstream.operation,
-            source_aai_ids=source_aai_ids,
-        ))
+        steps.append(
+            RowLineageStep(
+                table=current_table,
+                aai_id=current_id,
+                operation=upstream.operation,
+                source_aai_ids=source_aai_ids,
+            )
+        )
 
         if not upstream.sources:
             break
@@ -433,4 +436,3 @@ async def backward_oplog_row(
         current_table, current_id = upstream.sources[first_role]
 
     return steps
-

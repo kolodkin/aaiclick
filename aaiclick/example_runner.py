@@ -61,10 +61,7 @@ def run_all(examples: ExampleList, banner: str):
         # "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
         mp_ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_ctx) as executor:
-            futures = {
-                executor.submit(run_example, title, func): title
-                for title, func in examples
-            }
+            futures = {executor.submit(run_example, title, func): title for title, func in examples}
             for future in as_completed(futures):
                 title = futures[future]
                 results[title] = future.result()

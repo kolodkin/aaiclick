@@ -15,13 +15,12 @@ class PgBackgroundHandler(BackgroundHandler):
 
     @staticmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
+        session: AsyncSession,
+        dead_worker_ids: list[int],
+        now: datetime,
     ) -> None:
         await session.execute(
-            text(
-                "UPDATE workers SET status = 'STOPPED' "
-                "WHERE id = ANY(:worker_ids)"
-            ),
+            text("UPDATE workers SET status = 'STOPPED' WHERE id = ANY(:worker_ids)"),
             {"worker_ids": dead_worker_ids},
         )
         await session.execute(

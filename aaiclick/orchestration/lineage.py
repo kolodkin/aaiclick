@@ -31,8 +31,4 @@ def is_input_task(task: Task) -> bool:
     Tasks whose result is a non-Object value (int, dict, pydantic model)
     are not input tasks either — only persistent data objects qualify.
     """
-    return (
-        is_persistent_object_ref(task.result)
-        and task.result is not None
-        and task.result[TABLE].startswith("p_")
-    )
+    return is_persistent_object_ref(task.result) and task.result is not None and task.result[TABLE].startswith("p_")

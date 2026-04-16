@@ -57,7 +57,6 @@ def _collect_upstreams(value: Any, upstream_tasks: list[Task]) -> None:
             _collect_upstreams(v, upstream_tasks)
 
 
-
 def _serialize_value(value: Any) -> Any:
     """Serialize a value for storage in task kwargs.
 
@@ -128,10 +127,7 @@ class TaskFactory:
             Task: New Task instance with dependencies configured
         """
         if args:
-            raise ValueError(
-                "TaskFactory does not support positional arguments. "
-                "Use keyword arguments instead."
-            )
+            raise ValueError("TaskFactory does not support positional arguments. Use keyword arguments instead.")
 
         # Collect upstream tasks for dependency creation
         upstream_tasks: list[Task] = []
@@ -241,6 +237,7 @@ class JobFactory:
         Returns:
             Job: Created job with entry point task committed
         """
+
         async def _run() -> Job:
             return await self._create_job(
                 preservation_mode=preservation_mode,
@@ -269,9 +266,7 @@ class JobFactory:
         # explicit overrides, the AAICLICK_DEFAULT_PRESERVATION_MODE env var,
         # and any future registered-job defaults instead of silently
         # defaulting to NONE.
-        config = resolve_job_config(
-            preservation_mode, sampling_strategy, registered=None
-        )
+        config = resolve_job_config(preservation_mode, sampling_strategy, registered=None)
 
         job = Job(
             id=get_snowflake_id(),
@@ -316,7 +311,9 @@ def job(name_or_func: Callable, *, name: None = None) -> JobFactory: ...
 def job(name_or_func: str | None = None, *, name: str | None = None) -> Callable[[Callable], JobFactory]: ...
 
 
-def job(name_or_func: str | Callable | None = None, *, name: str | None = None) -> JobFactory | Callable[[Callable], JobFactory]:
+def job(
+    name_or_func: str | Callable | None = None, *, name: str | None = None
+) -> JobFactory | Callable[[Callable], JobFactory]:
     """Decorator to mark a function as a job's entry point task.
 
     The decorated function runs on a worker as the first task of the job.

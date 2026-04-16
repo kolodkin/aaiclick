@@ -96,11 +96,13 @@ async def example():
     print("-" * 50)
 
     obj = await create_object_from_value([{"city": "NYC"}, {"city": "London"}])
-    view = obj.with_columns({
-        "source": literal("survey_2024", "String"),
-        "active": literal(True, "UInt8"),
-        "weight": literal(1.0, "Float64"),
-    })
+    view = obj.with_columns(
+        {
+            "source": literal("survey_2024", "String"),
+            "active": literal(True, "UInt8"),
+            "weight": literal(1.0, "Float64"),
+        }
+    )
     result = await view.data()
     print(f"source: {result['source']}")  # → ['survey_2024', 'survey_2024']
     print(f"active: {result['active']}")  # → [1, 1]

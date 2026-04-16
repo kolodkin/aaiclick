@@ -64,10 +64,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     now = datetime.utcnow()
     if failed:
         await session.execute(
-            text(
-                "UPDATE jobs SET status = :status, completed_at = :now, "
-                "error = :error WHERE id = :job_id"
-            ),
+            text("UPDATE jobs SET status = :status, completed_at = :now, error = :error WHERE id = :job_id"),
             {
                 "job_id": job_id,
                 "now": now,
@@ -77,10 +74,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
         )
     else:
         await session.execute(
-            text(
-                "UPDATE jobs SET status = :status, completed_at = :now "
-                "WHERE id = :job_id"
-            ),
+            text("UPDATE jobs SET status = :status, completed_at = :now WHERE id = :job_id"),
             {"job_id": job_id, "now": now, "status": JobStatus.COMPLETED.value},
         )
 
@@ -103,7 +97,9 @@ class BackgroundHandler(ABC):
     @staticmethod
     @abstractmethod
     async def mark_dead_workers(
-        session: AsyncSession, dead_worker_ids: list[int], now: datetime,
+        session: AsyncSession,
+        dead_worker_ids: list[int],
+        now: datetime,
     ) -> None:
         """Mark dead workers as STOPPED and their tasks as PENDING_CLEANUP."""
         ...
@@ -171,11 +167,7 @@ class BackgroundHandler(ABC):
             )
         else:
             await session.execute(
-                text(
-                    "UPDATE tasks SET status = :status, "
-                    "completed_at = :now "
-                    "WHERE id = :task_id"
-                ),
+                text("UPDATE tasks SET status = :status, completed_at = :now WHERE id = :task_id"),
                 {
                     "task_id": task_id,
                     "now": datetime.utcnow(),

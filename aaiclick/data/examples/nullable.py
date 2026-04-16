@@ -95,9 +95,7 @@ async def example():
     print("-" * 50)
 
     obj_with_nulls = await create_object(schema)
-    await ch.command(
-        f"INSERT INTO {obj_with_nulls.table} (value) VALUES (5), (NULL), (15)"
-    )
+    await ch.command(f"INSERT INTO {obj_with_nulls.table} (value) VALUES (5), (NULL), (15)")
 
     added = await (obj_with_nulls + 10)
     print(f"Original:    {await obj_with_nulls.data()}")  # → [5, None, 15]
@@ -110,9 +108,7 @@ async def example():
     print("-" * 50)
 
     obj_nulls = await create_object(schema)
-    await ch.command(
-        f"INSERT INTO {obj_nulls.table} (value) VALUES (1), (NULL), (3), (NULL), (5)"
-    )
+    await ch.command(f"INSERT INTO {obj_nulls.table} (value) VALUES (1), (NULL), (3), (NULL), (5)")
     print(f"Before coalesce: {await obj_nulls.data()}")  # → [1, None, 3, None, 5]
 
     filled = await obj_nulls.coalesce(0)

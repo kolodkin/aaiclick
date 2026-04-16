@@ -53,25 +53,21 @@ async def example():
     print("-" * 50)
 
     # Dict of scalars (single row)
-    obj_dict = await create_object_from_value(
-        {"id": 1, "name": "Alice", "age": 30, "score": 95.5}
-    )
+    obj_dict = await create_object_from_value({"id": 1, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Created from dict of scalars: {obj_dict}")
     print(f"Values: {await obj_dict.data()}\n")  # → {'id': 1, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
     # Dict of arrays (multiple rows)
     obj_dict_arrays = await create_object_from_value(
-        {
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [30, 25, 35]
-        }
+        {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [30, 25, 35]}
     )
     print(f"Created from dict of arrays: {obj_dict_arrays}")
 
     # Default: returns first row as dict
     first_row = await obj_dict_arrays.data()
-    print(f"First row (default): {first_row}")  # → {'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie'], 'age': [30, 25, 35]}
+    print(
+        f"First row (default): {first_row}"
+    )  # → {'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie'], 'age': [30, 25, 35]}
 
     # With orient='records': returns all rows as list of dicts
     all_rows = await obj_dict_arrays.data(orient=ORIENT_RECORDS)
@@ -120,7 +116,7 @@ async def example():
     print(f"Modulo (a % b): {await result_mod.data()}")  # → [0.0, 0.0, 0.0]
 
     # Power
-    result_pow = await (obj_a ** obj_b)
+    result_pow = await (obj_a**obj_b)
     print(f"Power (a ** b): {await result_pow.data()}")  # → [100.0, 160000.0, 24300000.0]
 
     # Example 5: Comparison operators
@@ -187,28 +183,30 @@ async def example():
     print("-" * 50)
 
     # Scalar datetime
-    dt_scalar = await create_object_from_value(
-        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
-    )
+    dt_scalar = await create_object_from_value(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc))
     print(f"Created from datetime scalar: {dt_scalar}")
     print(f"Value: {await dt_scalar.data()}\n")  # → 2024-01-15 10:30:00+00:00
 
     # Array of datetimes
-    dt_array = await create_object_from_value([
-        datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-        datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
-    ])
+    dt_array = await create_object_from_value(
+        [
+            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+        ]
+    )
     print(f"Created from datetime list: {dt_array}")
     print(f"Values: {await dt_array.data()}\n")
 
     # Dict with datetime column
-    dt_dict = await create_object_from_value({
-        "event_time": [
-            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
-        ],
-        "label": ["start", "end"],
-    })
+    dt_dict = await create_object_from_value(
+        {
+            "event_time": [
+                datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+                datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+            ],
+            "label": ["start", "end"],
+        }
+    )
     print(f"Created from dict with datetime column: {dt_dict}")
     print(f"Values: {await dt_dict.data()}")
 

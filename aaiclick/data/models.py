@@ -12,13 +12,27 @@ import yaml
 
 # ClickHouse column type literals
 ColumnType = Literal[
-    "UInt8", "UInt16", "UInt32", "UInt64",
-    "Int8", "Int16", "Int32", "Int64",
-    "Float32", "Float64",
-    "String", "FixedString",
-    "Date", "DateTime", "DateTime64",
-    "Bool", "UUID",
-    "Array", "Tuple", "Map", "Nested"
+    "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "Int8",
+    "Int16",
+    "Int32",
+    "Int64",
+    "Float32",
+    "Float64",
+    "String",
+    "FixedString",
+    "Date",
+    "DateTime",
+    "DateTime64",
+    "Bool",
+    "UUID",
+    "Array",
+    "Tuple",
+    "Map",
+    "Nested",
 ]
 
 # Type category sets for runtime type checking
@@ -68,7 +82,6 @@ class ColumnInfo:
         for _ in range(depth):
             base = f"Array({base})"
         return base
-
 
 
 class FieldSpec(NamedTuple):
@@ -156,10 +169,12 @@ GB_ANY = "any"
 GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
+
 # Named tuple for (operator, alias) aggregation entries
 class Agg(NamedTuple):
     op: GroupByOpType
     alias: str
+
 
 # Aggregation spec: plain op, single Agg, or list of Agg
 AggSpec = GroupByOpType | Agg | list[Agg]
@@ -188,6 +203,7 @@ class QueryInfo:
         fieldtype: Fieldtype of the value column ('s' for scalar, 'a' for array)
         value_type: ClickHouse type of the value column (e.g., 'Int64', 'Float64')
     """
+
     source: str
     base_table: str
     value_column: str
@@ -205,6 +221,7 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
+
     columns: dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 

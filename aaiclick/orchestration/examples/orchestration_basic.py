@@ -36,11 +36,13 @@ async def multiply(x: int, y: int) -> int:
 @task
 async def create_sales() -> Object:
     """Create a sales dataset and return as Object."""
-    sales = await create_object_from_value({
-        "product": ["Widget", "Gadget", "Gizmo"],
-        "quantity": [10, 5, 8],
-        "price": [9.99, 24.99, 14.99],
-    })
+    sales = await create_object_from_value(
+        {
+            "product": ["Widget", "Gadget", "Gizmo"],
+            "quantity": [10, 5, 8],
+            "price": [9.99, 24.99, 14.99],
+        }
+    )
     count = await (await sales.count()).data()
     print(f"Sales: {count} rows")  # → 3
     return sales

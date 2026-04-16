@@ -80,11 +80,6 @@ def test_is_upstream_ref_predicate():
 
 
 def test_is_persistent_object_ref_predicate():
-    assert (
-        is_persistent_object_ref(
-            ObjectRef(table="p_x", persistent=True).to_dict()
-        )
-        is True
-    )
+    assert is_persistent_object_ref(ObjectRef(table="p_x", persistent=True).to_dict()) is True
     assert is_persistent_object_ref(ObjectRef(table="t_x").to_dict()) is False
     assert is_persistent_object_ref(ViewRef(table="t_x").to_dict()) is False

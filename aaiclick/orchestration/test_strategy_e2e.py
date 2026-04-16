@@ -59,9 +59,7 @@ def _entry_task(suffix: str):
 
 async def _assert_completed(job: Job) -> None:
     async with get_sql_session() as session:
-        db_job = (
-            await session.execute(select(Job).where(Job.id == job.id))
-        ).scalar_one()
+        db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
     assert db_job.status == JobStatus.COMPLETED, f"Job failed: {db_job.error}"
 
 
@@ -83,20 +81,17 @@ async def test_strategy_mode_e2e_populates_lineage(orch_ctx):
         await run_job_tasks(job)
         await _assert_completed(job)
 
-        rows = (await ch.query(
-            "SELECT operation, kwargs_aai_ids, result_aai_ids FROM operation_log "
-            f"WHERE job_id = {job.id}"
-        )).result_rows
+        rows = (
+            await ch.query(
+                f"SELECT operation, kwargs_aai_ids, result_aai_ids FROM operation_log WHERE job_id = {job.id}"
+            )
+        ).result_rows
         assert rows, f"No oplog rows for job {job.id}"
 
         add_rows = [(op, k, r) for op, k, r in rows if op == "+"]
         assert add_rows, f"No '+' oplog row; got operations: {[r[0] for r in rows]}"
         _, kwargs_aai_ids_raw, result_aai_ids_raw = add_rows[0]
-        kwargs_aai_ids = (
-            dict(kwargs_aai_ids_raw)
-            if not isinstance(kwargs_aai_ids_raw, dict)
-            else kwargs_aai_ids_raw
-        )
+        kwargs_aai_ids = dict(kwargs_aai_ids_raw) if not isinstance(kwargs_aai_ids_raw, dict) else kwargs_aai_ids_raw
         result_aai_ids = list(result_aai_ids_raw)
 
         assert set(kwargs_aai_ids.keys()) == {"left", "right"}
@@ -125,16 +120,13 @@ async def test_none_mode_e2e_leaves_lineage_empty(orch_ctx):
         await run_job_tasks(job)
         await _assert_completed(job)
 
-        rows = (await ch.query(
-            "SELECT kwargs_aai_ids, result_aai_ids FROM operation_log "
-            f"WHERE job_id = {job.id}"
-        )).result_rows
+        rows = (
+            await ch.query(f"SELECT kwargs_aai_ids, result_aai_ids FROM operation_log WHERE job_id = {job.id}")
+        ).result_rows
         assert rows, f"No oplog rows for job {job.id}"
         for kwargs_aai_ids_raw, result_aai_ids in rows:
             kwargs_aai_ids = (
-                dict(kwargs_aai_ids_raw)
-                if not isinstance(kwargs_aai_ids_raw, dict)
-                else kwargs_aai_ids_raw
+                dict(kwargs_aai_ids_raw) if not isinstance(kwargs_aai_ids_raw, dict) else kwargs_aai_ids_raw
             )
             assert kwargs_aai_ids == {}
             assert list(result_aai_ids) == []

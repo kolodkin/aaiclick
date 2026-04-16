@@ -205,13 +205,9 @@ async def replay_job(
             "every task is either an input task or a wiring task"
         )
 
-    config = resolve_job_config(
-        PreservationMode.STRATEGY, sampling_strategy, registered=None
-    )
+    config = resolve_job_config(PreservationMode.STRATEGY, sampling_strategy, registered=None)
 
-    task_id_map: dict[int, int] = {
-        task.id: get_snowflake_id() for task in compute_tasks
-    }
+    task_id_map: dict[int, int] = {task.id: get_snowflake_id() for task in compute_tasks}
     rewrite_ctx = _RewriteCtx(
         task_id_map=task_id_map,
         input_task_refs=input_task_refs,

@@ -23,8 +23,8 @@ from aaiclick import create_object_from_value
 
 # Sample data used by every test — small enough to inline-validate.
 SAMPLE = {
-    "id":    [1, 2, 3],
-    "name":  ["alice", "bob", "charlie"],
+    "id": [1, 2, 3],
+    "name": ["alice", "bob", "charlie"],
     "score": [10.5, 20.0, 30.25],
 }
 
@@ -144,23 +144,23 @@ def _validate_json_gz(path: str) -> None:
 
 
 FORMATS: list[tuple[str, Callable[[str], None]]] = [
-    ("data.csv",         _validate_csv),
-    ("data.tsv",         _validate_tsv),
-    ("data.json",        _validate_json),
-    ("data.jsonl",       _validate_json),
-    ("data.ndjson",      _validate_json),
-    ("data.parquet",     _validate_parquet),
-    ("data.arrow",       _validate_arrow),
-    ("data.orc",         _validate_orc),
-    ("data.avro",        _validate_avro),
-    ("data.md",          _validate_markdown),
-    ("data.xml",         _validate_xml),
-    ("data.sql",         _validate_sql),
+    ("data.csv", _validate_csv),
+    ("data.tsv", _validate_tsv),
+    ("data.json", _validate_json),
+    ("data.jsonl", _validate_json),
+    ("data.ndjson", _validate_json),
+    ("data.parquet", _validate_parquet),
+    ("data.arrow", _validate_arrow),
+    ("data.orc", _validate_orc),
+    ("data.avro", _validate_avro),
+    ("data.md", _validate_markdown),
+    ("data.xml", _validate_xml),
+    ("data.sql", _validate_sql),
     # Compression: ClickHouse picks the codec from the trailing suffix
-    ("data.csv.gz",      _validate_csv_gz),
-    ("data.csv.xz",      _validate_csv_xz),
-    ("data.parquet.gz",  _validate_parquet_gz),
-    ("data.json.gz",     _validate_json_gz),
+    ("data.csv.gz", _validate_csv_gz),
+    ("data.csv.xz", _validate_csv_xz),
+    ("data.parquet.gz", _validate_parquet_gz),
+    ("data.json.gz", _validate_json_gz),
 ]
 
 

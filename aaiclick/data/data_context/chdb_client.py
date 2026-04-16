@@ -216,10 +216,7 @@ class ChdbClient:
             columns = table.to_pydict()
             col_names = list(table.column_names)
             n_rows = table.num_rows
-            rows = [
-                tuple(columns[name][i] for name in col_names)
-                for i in range(n_rows)
-            ]
+            rows = [tuple(columns[name][i] for name in col_names) for i in range(n_rows)]
             return ChdbQueryResult(result_rows=rows, column_names=col_names)
 
     async def insert(
@@ -291,7 +288,6 @@ class ChdbSyncClient:
         """No-op — session lifecycle managed by ChdbClient."""
 
 
-
 _PA_BASE_TYPES: dict[str, pa.DataType] = {
     "UInt8": pa.uint8(),
     "UInt16": pa.uint16(),
@@ -325,9 +321,7 @@ def _ch_type_to_pa(ch_type: str) -> pa.DataType:
         return pa.map_(_ch_type_to_pa(key_type), _ch_type_to_pa(val_type))
     if ch_type.startswith("Tuple("):
         elem_types = _split_top_level(ch_type[6:-1])
-        return pa.struct(
-            [(f"f{i}", _ch_type_to_pa(t)) for i, t in enumerate(elem_types)]
-        )
+        return pa.struct([(f"f{i}", _ch_type_to_pa(t)) for i, t in enumerate(elem_types)])
     return pa.string()
 
 
@@ -340,7 +334,7 @@ def _split_map_args(inner: str) -> tuple[str, str]:
         elif ch == ")":
             depth -= 1
         elif ch == "," and depth == 0:
-            return inner[:i].strip(), inner[i + 1:].strip()
+            return inner[:i].strip(), inner[i + 1 :].strip()
     return inner, ""
 
 
@@ -433,5 +427,5 @@ def create_chdb_sync_client(connection_string: str) -> ChdbSyncClient:
     Args:
         connection_string: chdb://path/to/data URL.
     """
-    path = connection_string[len("chdb://"):]
+    path = connection_string[len("chdb://") :]
     return ChdbSyncClient(get_shared_session(path))

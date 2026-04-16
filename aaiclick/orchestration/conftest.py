@@ -35,13 +35,16 @@ def _tmp_log_dir(tmp_path, monkeypatch):
 def fast_poll(monkeypatch):
     """Reduce polling and retry delays for worker-loop tests."""
     monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.POLL_INTERVAL", 0.5,
+        "aaiclick.orchestration.execution.worker.POLL_INTERVAL",
+        0.5,
     )
     monkeypatch.setattr(
-        "aaiclick.orchestration.background.background_worker.RETRY_BASE_DELAY", 0.01,
+        "aaiclick.orchestration.background.background_worker.RETRY_BASE_DELAY",
+        0.01,
     )
     monkeypatch.setattr(
-        "aaiclick.orchestration.execution.mp_worker.CHILD_POLL_INTERVAL", 0.1,
+        "aaiclick.orchestration.execution.mp_worker.CHILD_POLL_INTERVAL",
+        0.1,
     )
 
 
@@ -193,9 +196,15 @@ async def _teardown_jobs() -> None:
     """Cancel non-terminal jobs and orphan tasks."""
     async with get_sql_session() as session:
         result = await session.execute(
-            select(Job.id).where(col(Job.status).notin_([
-                JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED,
-            ]))
+            select(Job.id).where(
+                col(Job.status).notin_(
+                    [
+                        JobStatus.COMPLETED,
+                        JobStatus.FAILED,
+                        JobStatus.CANCELLED,
+                    ]
+                )
+            )
         )
         for (job_id,) in result.all():
             await cancel_job(job_id)

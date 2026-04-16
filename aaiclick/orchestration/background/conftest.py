@@ -43,10 +43,7 @@ async def insert_job(engine, job_id, *, status="RUNNING"):
 async def insert_context_ref(engine, table_name, context_id):
     async with AsyncSession(engine) as session:
         await session.execute(
-            text(
-                "INSERT INTO table_context_refs (table_name, context_id) "
-                "VALUES (:t, :c)"
-            ),
+            text("INSERT INTO table_context_refs (table_name, context_id) VALUES (:t, :c)"),
             {"t": table_name, "c": context_id},
         )
         await session.commit()
@@ -55,10 +52,7 @@ async def insert_context_ref(engine, table_name, context_id):
 async def insert_pin_ref(engine, table_name, task_id):
     async with AsyncSession(engine) as session:
         await session.execute(
-            text(
-                "INSERT INTO table_pin_refs (table_name, task_id) "
-                "VALUES (:t, :tid)"
-            ),
+            text("INSERT INTO table_pin_refs (table_name, task_id) VALUES (:t, :tid)"),
             {"t": table_name, "tid": task_id},
         )
         await session.commit()
@@ -67,10 +61,7 @@ async def insert_pin_ref(engine, table_name, task_id):
 async def insert_run_ref(engine, table_name, run_id):
     async with AsyncSession(engine) as session:
         await session.execute(
-            text(
-                "INSERT INTO table_run_refs (table_name, run_id) "
-                "VALUES (:t, :r)"
-            ),
+            text("INSERT INTO table_run_refs (table_name, run_id) VALUES (:t, :r)"),
             {"t": table_name, "r": run_id},
         )
         await session.commit()

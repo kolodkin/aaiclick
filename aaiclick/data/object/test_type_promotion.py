@@ -74,9 +74,7 @@ async def test_agg_type_promotion(ctx, agg_func, source_type):
     """Verify _determine_agg_result_type matches ClickHouse toTypeName()."""
     ch = get_ch_client()
     ch_func = {"mean": "avg", "std": "stddevPop", "var": "varPop"}.get(agg_func, agg_func)
-    result = await ch.query(
-        f"SELECT toTypeName({ch_func}(x)) FROM (SELECT CAST(1, '{source_type}') AS x)"
-    )
+    result = await ch.query(f"SELECT toTypeName({ch_func}(x)) FROM (SELECT CAST(1, '{source_type}') AS x)")
     ch_type = result.result_rows[0][0]
 
     our_type = _determine_agg_result_type(agg_func, source_type)

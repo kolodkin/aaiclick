@@ -39,10 +39,10 @@ def main():
 
     summary = generate_summary(args.title)
 
-    summary_file = os.getenv('GITHUB_STEP_SUMMARY')
+    summary_file = os.getenv("GITHUB_STEP_SUMMARY")
 
     if summary_file:
-        with open(summary_file, 'a') as f:
+        with open(summary_file, "a") as f:
             f.write(summary)
         print("Summary written to GITHUB_STEP_SUMMARY")
     else:

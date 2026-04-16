@@ -33,9 +33,7 @@ POLL_INTERVAL = 1
 async def _set_pending_cleanup(task_id: int, error: str) -> None:
     """Transition a failed task to PENDING_CLEANUP for background ref cleanup."""
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.id == task_id).with_for_update()
-        )
+        result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
         task = result.scalar_one()
         task.status = TaskStatus.PENDING_CLEANUP
         task.error = error
@@ -94,9 +92,7 @@ async def worker_heartbeat(worker_id: int) -> WorkerStatus | None:
         The worker's current status after update, or None if worker not found.
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
 
         if worker is None:
@@ -126,9 +122,7 @@ async def request_worker_stop(worker_id: int) -> bool:
               False if not found or already in a terminal state
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
 
         if worker is None:
@@ -158,9 +152,7 @@ async def deregister_worker(worker_id: int) -> bool:
         bool: True if worker was found and updated, False otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         worker = result.scalar_one_or_none()
 
         if worker is None:
@@ -206,9 +198,7 @@ async def get_worker(worker_id: int) -> Worker | None:
         Worker if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Worker).where(Worker.id == worker_id)
-        )
+        result = await session.execute(select(Worker).where(Worker.id == worker_id))
         return result.scalar_one_or_none()
 
 

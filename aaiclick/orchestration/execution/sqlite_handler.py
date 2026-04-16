@@ -17,9 +17,7 @@ class SqliteDbHandler(DbHandler):
     """SQLite: sequential SELECT + UPDATE, no row locking."""
 
     @staticmethod
-    async def claim_next_task(
-        session: AsyncSession, worker_id: int, now: datetime
-    ) -> Task | None:
+    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None:
         # Step 1: find the next eligible task
         find_result = await session.execute(
             text(f"""
@@ -77,9 +75,7 @@ class SqliteDbHandler(DbHandler):
         )
 
         # Step 4: fetch the claimed task
-        task_result = await session.execute(
-            select(Task).where(Task.id == task_id)
-        )
+        task_result = await session.execute(select(Task).where(Task.id == task_id))
         return task_result.scalar_one()
 
     @staticmethod

@@ -63,25 +63,19 @@ class AsyncTableWorker:
         call_soon_threadsafe.
         """
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(
-                self._queue.put_nowait, TableMessage(TableOp.SHUTDOWN, "")
-            )
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, TableMessage(TableOp.SHUTDOWN, ""))
         if self._task is not None:
             await self._task
 
     def incref(self, table_name: str) -> None:
         """Increment reference count for table. Non-blocking, safe from any thread."""
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(
-                self._queue.put_nowait, TableMessage(TableOp.INCREF, table_name)
-            )
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, TableMessage(TableOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
         """Decrement reference count for table. Non-blocking, safe from any thread."""
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(
-                self._queue.put_nowait, TableMessage(TableOp.DECREF, table_name)
-            )
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, TableMessage(TableOp.DECREF, table_name))
 
     async def flush(self) -> None:
         """Wait until all pending incref/decref messages have been processed.
@@ -94,9 +88,7 @@ class AsyncTableWorker:
         if self._loop is None:
             return
         event = asyncio.Event()
-        self._loop.call_soon_threadsafe(
-            self._queue.put_nowait, TableMessage(TableOp.FLUSH, "", event)
-        )
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, TableMessage(TableOp.FLUSH, "", event))
         await event.wait()
 
     async def _run(self) -> None:
@@ -114,9 +106,7 @@ class AsyncTableWorker:
                 continue
 
             elif msg.op == TableOp.INCREF:
-                self._refcounts[msg.table_name] = (
-                    self._refcounts.get(msg.table_name, 0) + 1
-                )
+                self._refcounts[msg.table_name] = self._refcounts.get(msg.table_name, 0) + 1
 
             elif msg.op == TableOp.DECREF:
                 if msg.table_name in self._refcounts:

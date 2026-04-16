@@ -27,9 +27,7 @@ async def test_mp_worker_executes_task(orch_ctx_no_ch):
     assert tasks_executed == 1
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TaskStatus.COMPLETED
 
@@ -50,9 +48,7 @@ async def test_mp_worker_handles_failure(orch_ctx_no_ch):
     assert tasks_executed == 0
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(Task).where(Task.job_id == job.id)
-        )
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TaskStatus.PENDING_CLEANUP
         assert task.error is not None
