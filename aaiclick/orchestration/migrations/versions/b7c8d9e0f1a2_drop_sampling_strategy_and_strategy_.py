@@ -1,6 +1,6 @@
 """drop_sampling_strategy_and_strategy_enum
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: b7c8d9e0f1a2
 Revises: f3a8b1c42d5e
 Create Date: 2026-04-16 12:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "b7c8d9e0f1a2"
 down_revision: str | Sequence[str] | None = "f3a8b1c42d5e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
