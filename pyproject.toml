@@ -100,6 +100,9 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # re-exports in __init__.py are intentional
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
