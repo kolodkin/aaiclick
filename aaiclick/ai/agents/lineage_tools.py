@@ -11,9 +11,10 @@ for the rollout plan (Phase 1).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
@@ -251,3 +252,130 @@ class LineageToolbox:
             return ToolError("not_live", f"Could not describe {table}: {exc}")
         columns = [ColumnSchema(name=row[0], type=row[1]) for row in result.result_rows]
         return TableSchema(table=table, columns=columns)
+
+    async def dispatch_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        """Invoke a tool by name and format the result as LLM-readable text.
+
+        Missing arguments, unknown tools, and in-tool ``ToolError`` results are
+        all returned as strings so one bad call doesn't abort the loop — the
+        model can read the error and retry.
+        """
+        try:
+            if name == "query_table":
+                result = await self.query_table(
+                    arguments["sql"],
+                    row_limit=arguments.get("row_limit", DEFAULT_ROW_LIMIT),
+                )
+            elif name == "get_op_sql":
+                result = await self.get_op_sql(arguments["table"])
+            elif name == "list_graph_nodes":
+                result = await self.list_graph_nodes()
+            elif name == "get_schema":
+                result = await self.get_schema(arguments["table"])
+            else:
+                return f"(unknown tool: {name})"
+        except KeyError as exc:
+            return f"(error calling {name}: missing required argument {exc})"
+        except Exception as exc:
+            logger.exception("tool %s raised an unexpected exception", name)
+            return f"(error calling {name}: {exc})"
+        return _format_tool_result(result)
+
+
+def _format_tool_result(result: Any) -> str:
+    """Serialize a tool's typed result as compact text for the LLM."""
+    if isinstance(result, ToolError):
+        return f'{{"error": {{"kind": "{result.kind}", "message": {json.dumps(result.message)}}}}}'
+    if isinstance(result, QueryResult):
+        if not result.rows and not result.columns:
+            return "(empty result)"
+        header = " | ".join(result.columns)
+        body = "\n".join(" | ".join(str(v) for v in row) for row in result.rows)
+        suffix = f"\n(truncated to {len(result.rows)} rows)" if result.truncated else ""
+        return f"{header}\n{body}{suffix}" if body else f"{header}\n(no rows){suffix}"
+    if isinstance(result, TableSchema):
+        lines = [f"{c.name}: {c.type}" for c in result.columns]
+        return f"`{result.table}`:\n" + "\n".join(lines) if lines else f"`{result.table}`: (no columns)"
+    if isinstance(result, list):
+        lines = []
+        for n in result:
+            lines.append(
+                f"- {n.table} [{n.kind}] operation={n.operation} live={n.live} "
+                f"task_id={n.task_id} job_id={n.job_id}"
+            )
+        return "\n".join(lines) if lines else "(no nodes)"
+    if isinstance(result, str):
+        return result or "(empty)"
+    return str(result)
+
+
+LINEAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_graph_nodes",
+            "description": (
+                "List every table in the current lineage graph with its kind "
+                "(input / intermediate / target), the operation that produced it, "
+                "and whether it currently exists in ClickHouse."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_op_sql",
+            "description": (
+                "Return the rendered SQL template for the operation that produced "
+                "`table`. Use this first to form a hypothesis before running queries."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table": {"type": "string", "description": "Table in the graph"},
+                },
+                "required": ["table"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_schema",
+            "description": (
+                "Return column names and types for a table in the graph. "
+                "Rejects tables outside the graph."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table": {"type": "string", "description": "Table in the graph"},
+                },
+                "required": ["table"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_table",
+            "description": (
+                "Execute a read-only SELECT (or WITH ... SELECT) against tables in "
+                "the current lineage graph. Rejects non-SELECT and out-of-scope "
+                "tables. Automatically LIMITs results when no LIMIT is given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {"type": "string", "description": "SELECT statement"},
+                    "row_limit": {
+                        "type": "integer",
+                        "description": f"Max rows returned (default {DEFAULT_ROW_LIMIT}, ceiling {ROW_LIMIT_CEILING})",
+                    },
+                },
+                "required": ["sql"],
+            },
+        },
+    },
+]

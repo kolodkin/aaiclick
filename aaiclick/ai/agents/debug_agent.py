@@ -1,5 +1,11 @@
 """
-aaiclick.ai.agents.debug_agent - LLM-powered result debugging with tool calling.
+aaiclick.ai.agents.debug_agent - Tier 1 lineage debugger.
+
+`debug_result()` runs an LLM tool loop scoped to the backward lineage graph of
+the target table. The agent reads rendered SQL templates, queries live tables
+via ``LineageToolbox``, and produces an explanation citing concrete evidence.
+
+See ``docs/lineage.md`` and ``docs/lineage_implementation_plan.md`` (Phase 1).
 """
 
 from __future__ import annotations
@@ -9,68 +15,56 @@ import json
 import logging
 from typing import Any
 
-from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
-from aaiclick.ai.agents.tools import (
-    TOOL_DEFINITIONS,
-    dispatch_tool,
-    get_schemas_for_nodes,
-)
+from aaiclick.ai.agents.lineage_tools import LINEAGE_TOOL_DEFINITIONS, LineageToolbox
+from aaiclick.ai.agents.prompts import LINEAGE_TIER1_SYSTEM_PROMPT
 from aaiclick.ai.config import get_ai_provider
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
 logger = logging.getLogger(__name__)
 
-
-def _system_prompt(body: str) -> str:
-    return (
-        f"You are a data debugging expert analyzing a ClickHouse data pipeline.\n"
-        f"{body}\n\n{AAI_ID_WARNING}\n\n{OUTPUT_FORMAT}"
-    )
-
-
-_SYSTEM_PROMPT = _system_prompt(
-    "Use the available tools to investigate data and answer the question.\n"
-    "Be specific: cite actual values and trace the root cause."
-)
-
-_MAX_TOOL_ROUNDS = 5
+DEFAULT_MAX_ITERATIONS = 10
 
 
 async def debug_result(
     target_table: str,
     question: str,
     graph: OplogGraph | None = None,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
 ) -> str:
-    """Answer 'why' questions about a result by tracing lineage
-    and inspecting intermediate data.
+    """Tier 1 lineage debug loop.
 
-    Examples:
-        "Why is this value negative?"
-        "Why are there only 3 rows instead of 10?"
-        "Which input caused the NaN values?"
+    The agent starts with the question, the backward oplog graph of
+    `target_table`, and the four graph-scoped tools from ``LineageToolbox``.
+    It iterates up to `max_iterations` rounds of tool calls before producing
+    a final explanation.
 
-    Pass `graph` to reuse a pre-built backward lineage graph and skip the traversal.
+    Pass `graph` to reuse a pre-built backward lineage graph and skip
+    traversal.
     """
     if graph is None:
         graph = await oplog_subgraph(target_table, direction="backward")
     labels = graph.build_labels()
+    toolbox = LineageToolbox(graph)
+
     context = graph.to_prompt_context()
+    nodes = await toolbox.list_graph_nodes()
+    liveness_lines = [
+        f"- {n.table} [{n.kind}] live={n.live}" for n in nodes
+    ]
+    context += "\n\n# Graph Node Liveness\n" + "\n".join(liveness_lines)
 
-    schemas = await get_schemas_for_nodes(graph.nodes)
-    if schemas:
-        context += "\n\n" + schemas
-
-    provider = get_ai_provider()
-    prompt = f"Target table: `{target_table}`\n\nQuestion: {question}"
-    user_content = f"Context:\n{context}\n\n{prompt}"
+    user_content = (
+        f"Context:\n{context}\n\nTarget table: `{target_table}`\n\nQuestion: {question}"
+    )
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": LINEAGE_TIER1_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
 
-    for _ in range(_MAX_TOOL_ROUNDS):
-        response = await provider.complete(messages, tools=TOOL_DEFINITIONS)
+    provider = get_ai_provider()
+    for _ in range(max_iterations):
+        response = await provider.complete(messages, tools=LINEAGE_TOOL_DEFINITIONS)
         choice = response.choices[0]
         message = choice.message
 
@@ -85,7 +79,10 @@ async def debug_result(
                     {
                         "id": tc.id,
                         "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
                     }
                     for tc in message.tool_calls
                 ],
@@ -93,7 +90,10 @@ async def debug_result(
         )
 
         tool_results = await asyncio.gather(
-            *(dispatch_tool(tc.function.name, json.loads(tc.function.arguments)) for tc in message.tool_calls)
+            *(
+                toolbox.dispatch_tool(tc.function.name, _parse_arguments(tc.function.arguments))
+                for tc in message.tool_calls
+            )
         )
         for tc, result in zip(message.tool_calls, tool_results, strict=False):
             messages.append(
@@ -107,3 +107,19 @@ async def debug_result(
     messages.append({"role": "user", "content": "Please provide your final answer."})
     response = await provider.complete(messages)
     return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
+
+
+def _parse_arguments(raw: str | None) -> dict[str, Any]:
+    """Parse a tool call's JSON arguments, returning {} on malformed input.
+
+    A model occasionally emits empty-string arguments for zero-arg tools;
+    tolerate that instead of aborting the loop.
+    """
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("tool arguments not valid JSON: %r", raw)
+        return {}
+    return parsed if isinstance(parsed, dict) else {}

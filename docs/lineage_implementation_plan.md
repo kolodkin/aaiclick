@@ -25,7 +25,8 @@ unblocked Phases 1 and 2 cleanly — no dead branches to reason about.
 | `PreservationMode` (narrow to `NONE`/`FULL`)   | ✅ Done     | `aaiclick/orchestration/models.py` — `STRATEGY` variant removed (Phase 0) |
 | Sampling / strategy machinery                  | ✅ Done     | Deleted (Phase 0, #223)                                                   |
 | `replay_job()` / `is_input_task()`             | ✅ Done     | Deleted (Phase 0, #223)                                                   |
-| Tier 1 agent loop + `query_table` tool         | Phase 1     | Replaces `debug_result` single-shot explanation                           |
+| Tier 1 `LineageToolbox` (scoped tools)         | ✅ Done     | `aaiclick/ai/agents/lineage_tools.py` (#225)                              |
+| Tier 1 agent loop over `LineageToolbox`        | ✅ Done     | `aaiclick/ai/agents/debug_agent.py` — `debug_result()` tool loop          |
 | Tier 2 auto-escalation + `request_full_replay` | Phase 2     | Wires Tier 1 to `run_job(..., FULL)`                                      |
 
 ---
@@ -137,12 +138,15 @@ and simpler before Phase 1 adds anything new.
 
 ---
 
-# Phase 1 -- Tier 1: Static Reasoning
+# Phase 1 -- Tier 1: Static Reasoning ✅ Complete
 
 **Objective**: Give the debug agent a tool loop over persistent inputs,
 the target table, and the oplog graph. No replay happens. The agent
 forms hypotheses from SQL templates and verifies them against live
 tables.
+
+Shipped across #225 (toolbox) and the follow-up on
+`claude/continue-lineage-plan-DFEUg` (prompt + `debug_result()` loop).
 
 ## Tasks
 

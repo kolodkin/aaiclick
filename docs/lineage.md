@@ -44,15 +44,16 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools (⚠️ Phase 1/2 — not yet implemented; see "Agent Tools" below for
-planned signatures):
+Agent tools — Tier 1 tools are implemented in
+`aaiclick/ai/agents/lineage_tools.py` (`LineageToolbox`); `request_full_replay`
+is Phase 2 and not yet implemented.
 
-- `query_table` — arbitrary read-only SQL against any node in the graph
-- `get_op_sql` — rendered SQL for a specific operation
-- `list_graph_nodes` — all tables in the lineage graph with their node
+- `query_table` ✅ — arbitrary read-only SQL against any node in the graph
+- `get_op_sql` ✅ — rendered SQL for a specific operation
+- `list_graph_nodes` ✅ — all tables in the lineage graph with their node
   kind (input / intermediate / target) and liveness
-- `get_schema` — columns and types for a table
-- `request_full_replay` — escalate to Tier 2
+- `get_schema` ✅ — columns and types for a table
+- `request_full_replay` ⚠️ Phase 2 — escalate to Tier 2
 
 The loop:
 
@@ -133,7 +134,9 @@ Precedence:
 
 # Agent Tools
 
-⚠️ NOT YET IMPLEMENTED — Phase 1/2 planned tools.
+Tier 1 tools are implemented in `aaiclick/ai/agents/lineage_tools.py`
+(`LineageToolbox`). `request_full_replay` is Phase 2 and not yet
+implemented.
 
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job, preventing

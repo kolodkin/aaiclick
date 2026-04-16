@@ -1,5 +1,8 @@
 """
-Tests for debug_result — mocks oplog_subgraph, provider.complete, and dispatch_tool.
+Tests for debug_result — the Tier 1 lineage tool loop.
+
+Mocks oplog_subgraph, the AI provider, and LineageToolbox so tests exercise
+the loop contract without hitting ClickHouse or an LLM.
 """
 
 from __future__ import annotations
@@ -7,12 +10,15 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aaiclick.ai.agents.debug_agent import debug_result
+from aaiclick.ai.agents.lineage_tools import GraphNode
 from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogGraph
 
+TARGET = "t_22222222222222222222"
+INPUT = "p_sales"
+
 
 def _mock_provider(*responses):
-    """Create a mock AIProvider whose complete() returns responses in order."""
     provider = MagicMock()
     if len(responses) == 1:
         provider.complete = AsyncMock(return_value=responses[0])
@@ -45,76 +51,144 @@ def _mock_graph(*nodes):
     return OplogGraph(nodes=list(nodes), edges=[])
 
 
+def _mock_toolbox(list_nodes=None, dispatch_side_effect=None):
+    """Patch LineageToolbox with a MagicMock whose list_graph_nodes / dispatch_tool are AsyncMocks."""
+    toolbox = MagicMock()
+    toolbox.list_graph_nodes = AsyncMock(
+        return_value=list_nodes
+        or [GraphNode(table=TARGET, kind="target", operation="filter", live=True, task_id=1, job_id=1)]
+    )
+    toolbox.dispatch_tool = AsyncMock(side_effect=dispatch_side_effect or ["tool-result"])
+    return toolbox
+
+
 async def test_debug_result_direct_answer():
-    """Model answers without tools: oplog_subgraph is called and result contains the AI answer."""
-    graph = _mock_graph(make_oplog_node("result", "add"))
+    """Model answers without tool calls: returns the model content verbatim (after label replacement)."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    provider = _mock_provider(_stop_response("Because the filter removed negatives."))
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=_mock_toolbox()),
+    ):
+        result = await debug_result(TARGET, "Why is row count low?")
+
+    assert result == "Because the filter removed negatives."
+
+
+async def test_debug_result_invokes_lineage_tool():
+    """Tool call loop: model calls query_table, receives result, then gives final answer."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    tool_resp = _tool_response("query_table", f'{{"sql": "SELECT count() FROM {TARGET}"}}')
+    final_resp = _stop_response("3 rows remain after filter.")
+
+    toolbox = _mock_toolbox(dispatch_side_effect=["count\n3"])
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        result = await debug_result(TARGET, "Why so few rows?")
+
+    assert "3 rows" in result
+    toolbox.dispatch_tool.assert_awaited_once_with(
+        "query_table", {"sql": f"SELECT count() FROM {TARGET}"}
+    )
+
+
+async def test_debug_result_dispatches_tool_with_parsed_arguments():
+    """The loop parses JSON arguments before calling dispatch_tool."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    tool_resp = _tool_response("get_schema", f'{{"table": "{TARGET}"}}')
+    final_resp = _stop_response("Schema analyzed.")
+    toolbox = _mock_toolbox(dispatch_side_effect=["id: UInt64\nval: Float64"])
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        await debug_result(TARGET, "What's the schema?")
+
+    toolbox.dispatch_tool.assert_awaited_once_with("get_schema", {"table": TARGET})
+
+
+async def test_debug_result_handles_empty_arguments_for_zero_arg_tool():
+    """A zero-arg tool like list_graph_nodes is dispatched with {} when arguments are empty."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    tool_resp = _tool_response("list_graph_nodes", "")
+    final_resp = _stop_response("Done.")
+    toolbox = _mock_toolbox(dispatch_side_effect=["- t_... [target]"])
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        await debug_result(TARGET, "What's in the graph?")
+
+    toolbox.dispatch_tool.assert_awaited_once_with("list_graph_nodes", {})
+
+
+async def test_debug_result_context_includes_liveness():
+    """The liveness of each graph node is surfaced in the user context so the agent
+    knows which tables to query versus which require escalation."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    provider = _mock_provider(_stop_response("ok"))
+    toolbox = _mock_toolbox(
+        list_nodes=[
+            GraphNode(table=INPUT, kind="input", operation="(input)", live=True, task_id=None, job_id=None),
+            GraphNode(table=TARGET, kind="target", operation="filter", live=False, task_id=1, job_id=1),
+        ]
+    )
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        await debug_result(TARGET, "Why?")
+
+    user_msg = provider.complete.call_args[0][0][1]["content"]
+    assert "Graph Node Liveness" in user_msg
+    assert f"{INPUT} [input] live=True" in user_msg
+    assert f"{TARGET} [target] live=False" in user_msg
+
+
+async def test_debug_result_respects_max_iterations():
+    """A model that keeps calling tools indefinitely is cut off after max_iterations."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    tool_resp = _tool_response("query_table", f'{{"sql": "SELECT 1 FROM {TARGET}"}}')
+    final_resp = _stop_response("forced-final")
+
+    # 3 iterations of tool calls, then the forced final answer prompt uses a 4th response.
+    toolbox = _mock_toolbox(dispatch_side_effect=["r1", "r2", "r3"])
+    provider = _mock_provider(tool_resp, tool_resp, tool_resp, final_resp)
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        result = await debug_result(TARGET, "loop forever?", max_iterations=3)
+
+    assert result == "forced-final"
+    assert provider.complete.await_count == 4
+    assert toolbox.dispatch_tool.await_count == 3
+
+
+async def test_debug_result_with_prebuilt_graph_skips_subgraph():
+    """Passing graph= avoids the backward_oplog traversal."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
     mock_subgraph = AsyncMock(return_value=graph)
-    provider = _mock_provider(_stop_response("Because input was negative"))
 
     with (
         patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=mock_subgraph),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
-        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(_stop_response("ok"))),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=_mock_toolbox()),
     ):
-        result = await debug_result("result", "Why is this value negative?")
+        result = await debug_result(TARGET, "Why?", graph=graph)
 
-    assert result == "Because input was negative"
-    mock_subgraph.assert_called_once_with("result", direction="backward")
-    messages = provider.complete.call_args[0][0]
-    all_content = " ".join(str(m.get("content") or "") for m in messages)
-    assert "Why is this value negative?" in all_content
-
-
-async def test_debug_result_with_one_tool_call():
-    """Tool call loop: model calls sample_table, receives result, then gives final answer."""
-    graph = _mock_graph(make_oplog_node("result", "filter"))
-    tool_resp = _tool_response("sample_table", '{"table": "result"}')
-    final_resp = _stop_response("After sampling: 3 rows found")
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=AsyncMock(return_value="id | val\n1 | x")),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
-        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
-    ):
-        result = await debug_result("result", "Why are there only 3 rows?")
-
-    assert "3 rows" in result
-
-
-async def test_debug_result_dispatches_correct_tool():
-    """dispatch_tool() is called with the exact tool name and parsed arguments from the model."""
-    graph = _mock_graph(make_oplog_node("result", "add"))
-    tool_resp = _tool_response("get_schema", '{"table": "result"}')
-    final_resp = _stop_response("Schema analysis done")
-
-    mock_dispatch = AsyncMock(return_value="id: UInt64\nval: Float64")
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.dispatch_tool", new=mock_dispatch),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
-        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
-    ):
-        await debug_result("result", "What is the schema?")
-
-    mock_dispatch.assert_called_once_with("get_schema", {"table": "result"})
-
-
-async def test_debug_result_context_includes_schemas():
-    """When schemas are available, they appear in the context sent to the LLM."""
-    graph = _mock_graph(make_oplog_node("result", "add"))
-    schema_text = "# Table Schemas\n\n`result`:\n  aai_id: UInt64\n  val: Float64"
-    provider = _mock_provider(_stop_response("done"))
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
-        patch("aaiclick.ai.agents.debug_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
-    ):
-        await debug_result("result", "Why?")
-
-    messages = provider.complete.call_args[0][0]
-    user_msg = messages[1]["content"]
-    assert "Table Schemas" in user_msg
-    assert "val: Float64" in user_msg
+    assert result == "ok"
+    mock_subgraph.assert_not_called()

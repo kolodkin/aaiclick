@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aaiclick.ai.agents.lineage_tools import (
+    LINEAGE_TOOL_DEFINITIONS,
     ColumnSchema,
     LineageToolbox,
     QueryResult,
@@ -260,3 +261,71 @@ async def test_query_table_rejects_write_statements(sql):
     err = await toolbox.query_table(sql)
     assert isinstance(err, ToolError)
     assert err.kind == "not_select"
+
+
+def test_lineage_tool_definitions_cover_every_toolbox_method():
+    """LINEAGE_TOOL_DEFINITIONS must mention exactly the tools dispatch_tool handles."""
+    declared = {t["function"]["name"] for t in LINEAGE_TOOL_DEFINITIONS}
+    assert declared == {"list_graph_nodes", "get_op_sql", "get_schema", "query_table"}
+
+
+async def test_dispatch_tool_unknown_returns_error_string():
+    toolbox = LineageToolbox(_sample_graph())
+    result = await toolbox.dispatch_tool("does_not_exist", {})
+    assert "unknown tool" in result
+
+
+async def test_dispatch_tool_missing_required_arg_returns_error_string():
+    toolbox = LineageToolbox(_sample_graph())
+    result = await toolbox.dispatch_tool("query_table", {})
+    assert "missing required argument" in result
+
+
+async def test_dispatch_tool_formats_query_result_as_table():
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(1, "a"), (2, "b")], ["id", "name"]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.dispatch_tool("query_table", {"sql": f"SELECT id, name FROM {TARGET_TABLE}"})
+
+    assert "id | name" in result
+    assert "1 | a" in result
+    assert "2 | b" in result
+
+
+async def test_dispatch_tool_formats_tool_error_with_kind():
+    toolbox = LineageToolbox(_sample_graph())
+    result = await toolbox.dispatch_tool("query_table", {"sql": "SELECT * FROM t_99999999999999999999"})
+    assert '"kind": "out_of_scope"' in result
+
+
+async def test_dispatch_tool_formats_list_graph_nodes():
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(TARGET_TABLE,)], ["name"]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.dispatch_tool("list_graph_nodes", {})
+
+    assert TARGET_TABLE in result
+    assert "[target]" in result
+    assert "live=True" in result
+
+
+async def test_dispatch_tool_formats_get_op_sql():
+    toolbox = LineageToolbox(_sample_graph())
+    result = await toolbox.dispatch_tool("get_op_sql", {"table": TARGET_TABLE})
+    assert f"SELECT sum(x) FROM {INTERMEDIATE_TABLE}" == result
+
+
+async def test_dispatch_tool_formats_get_schema():
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([("id", "UInt64"), ("val", "Float64")]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.dispatch_tool("get_schema", {"table": TARGET_TABLE})
+
+    assert "id: UInt64" in result
+    assert "val: Float64" in result
