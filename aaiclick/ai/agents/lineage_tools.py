@@ -28,8 +28,6 @@ ToolErrorKind = Literal[
     "out_of_scope",
     "not_found",
     "not_live",
-    "replay_timeout",
-    "replay_failed",
 ]
 
 
@@ -138,15 +136,9 @@ class LineageToolbox:
     outside ``graph.tables``.
     """
 
-    def __init__(
-        self,
-        graph: OplogGraph,
-        row_limit_ceiling: int = ROW_LIMIT_CEILING,
-        max_execution_time: int = DEFAULT_MAX_EXECUTION_TIME,
-    ):
+    def __init__(self, graph: OplogGraph):
         self.graph = graph
-        self.row_limit_ceiling = row_limit_ceiling
-        self.max_execution_time = max_execution_time
+        self._tables = graph.tables
         self._kinds = _classify_nodes(graph)
         self._node_by_table = {n.table: n for n in graph.nodes}
 
@@ -178,7 +170,7 @@ class LineageToolbox:
             )
 
         referenced = set(_TABLE_REF_RE.findall(stripped))
-        unknown = referenced - self.graph.tables
+        unknown = referenced - self._tables
         if unknown:
             sample = ", ".join(sorted(unknown)[:3])
             return ToolError(
@@ -187,15 +179,15 @@ class LineageToolbox:
                 f"Use list_graph_nodes() to see what's in scope.",
             )
 
-        row_limit = max(1, min(row_limit, self.row_limit_ceiling))
+        row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
         effective_sql = sql if _LIMIT_RE.search(stripped) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
 
         ch_client = get_ch_client()
         result = await ch_client.query(
             effective_sql,
             settings={
-                "max_execution_time": self.max_execution_time,
-                "max_result_rows": self.row_limit_ceiling + 1,
+                "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
+                "max_result_rows": ROW_LIMIT_CEILING + 1,
             },
         )
 
@@ -214,9 +206,9 @@ class LineageToolbox:
 
     async def list_graph_nodes(self) -> list[GraphNode]:
         """Every table in the graph with kind + liveness."""
-        liveness = await _liveness(self.graph.tables)
+        liveness = await _liveness(self._tables)
         nodes: list[GraphNode] = []
-        for table in sorted(self.graph.tables):
+        for table in sorted(self._tables):
             node = self._node_by_table.get(table)
             operation = node.operation if node else "(input)"
             task_id = node.task_id if node else None
@@ -235,7 +227,7 @@ class LineageToolbox:
 
     async def get_schema(self, table: str) -> TableSchema | ToolError:
         """Columns and types for a table in the graph."""
-        if table not in self.graph.tables:
+        if table not in self._tables:
             return ToolError("out_of_scope", f"{table} is not in the lineage graph.")
         ch_client = get_ch_client()
         try:
