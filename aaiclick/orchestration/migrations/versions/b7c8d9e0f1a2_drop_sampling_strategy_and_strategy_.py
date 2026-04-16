@@ -36,6 +36,9 @@ def upgrade() -> None:
     # Narrow the enum: remove STRATEGY
     # PostgreSQL does not support removing values from enums directly.
     # Recreate the type with only NONE and FULL.
+    # Must drop column defaults before altering the type, then restore them.
+    op.execute("ALTER TABLE jobs ALTER COLUMN preservation_mode DROP DEFAULT")
+    op.execute("ALTER TABLE registered_jobs ALTER COLUMN preservation_mode DROP DEFAULT")
     op.execute("ALTER TYPE preservationmode RENAME TO preservationmode_old")
     op.execute("CREATE TYPE preservationmode AS ENUM ('NONE', 'FULL')")
     op.execute(
@@ -47,6 +50,7 @@ def upgrade() -> None:
         "TYPE preservationmode USING preservation_mode::text::preservationmode"
     )
     op.execute("DROP TYPE preservationmode_old")
+    op.execute("ALTER TABLE jobs ALTER COLUMN preservation_mode SET DEFAULT 'NONE'")
 
 
 def downgrade() -> None:
