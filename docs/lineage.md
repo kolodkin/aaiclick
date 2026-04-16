@@ -44,7 +44,8 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools (see "Agent Tools" below for signatures):
+Agent tools (⚠️ Phase 1/2 — not yet implemented; see "Agent Tools" below for
+planned signatures):
 
 - `query_table` — arbitrary read-only SQL against any node in the graph
 - `get_op_sql` — rendered SQL for a specific operation
@@ -132,6 +133,8 @@ Precedence:
 
 # Agent Tools
 
+⚠️ NOT YET IMPLEMENTED — Phase 1/2 planned tools.
+
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job, preventing
 accidental cross-job queries.
@@ -180,11 +183,12 @@ Safety rails on `query_table`:
 
 # Why Not Sampling
 
-An earlier iteration of this work shipped a `SamplingStrategy` type —
-`dict[table_name, where_clause]` — and a `PreservationMode.STRATEGY`
-that kept strategy-matched rows through cleanup. The idea: an AI agent
-would emit a strategy from a natural-language question, and replay
-would tag those rows across every operation to give a row-level trace.
+An earlier iteration of this work shipped a `SamplingStrategy` type and
+a `PreservationMode.STRATEGY` mode that kept strategy-matched rows
+through cleanup. That code has been deleted (Phase 0). The idea was:
+an AI agent would emit a strategy from a natural-language question, and
+replay would tag those rows across every operation to give a row-level
+trace.
 
 The premise was wrong. A debugger does not want "these 10 rows that
 match my WHERE clause" — they want to see the shape of the data, ask
