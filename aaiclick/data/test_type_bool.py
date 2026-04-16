@@ -84,4 +84,3 @@ async def test_bool_array_sub(ctx):
     data = await result.data()
 
     assert data == [1, 0, 1]
-

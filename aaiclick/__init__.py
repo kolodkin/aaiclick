@@ -68,4 +68,3 @@ async def explain(target_table: str, question: str | None = None) -> str:
             "Install with: pip install aaiclick[ai]"
         )
     return await explain_lineage(target_table, question)
-

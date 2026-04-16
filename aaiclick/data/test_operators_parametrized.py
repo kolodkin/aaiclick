@@ -240,4 +240,3 @@ async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected
 
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD
-

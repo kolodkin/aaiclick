@@ -4,9 +4,22 @@ After completing each task, use the `check-pr` skill to verify GitHub Actions wo
 
 If any workflows fail, analyze the error logs and fix issues automatically.
 
+## Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) for automated checks before each commit:
+- **trailing-whitespace**: Trims trailing whitespace from all files
+- **end-of-file-fixer**: Ensures files end with a newline
+- **mixed-line-ending**: Prevents mixed line endings
+- **nbstripout**: Strips outputs and execution counts from Jupyter notebooks
+
+**Install hooks before your first commit**:
+```bash
+uv run pre-commit install
+```
+
 ## Commit Guidelines
 
-This project uses pre-commit hooks that may modify files during commit (formatting, linting, etc.).
+Pre-commit hooks may modify files during commit (formatting, whitespace, notebook cleanup, etc.).
 
 **Commit message format** (conventional commits):
 
@@ -455,4 +468,3 @@ See `docs/orchestration.md` for the full specification:
 4. Commit with descriptive messages
 5. Push to feature branch
 6. Run `check-pr` skill to verify CI passes
-

@@ -298,6 +298,3 @@ async def test_mixed_insert_float_list_into_int_succeeds(ctx):
 
     # Float values get truncated when cast to int
     assert data == [1, 2, 3, 4, 5]
-
-
-

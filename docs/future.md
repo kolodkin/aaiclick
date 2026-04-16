@@ -271,4 +271,3 @@ pin_rows("my_table", where="value < 5")
 ```
 
 Rules are WHERE clause predicates registered during task execution (before job completion triggers cleanup). Cleanup prioritises matching rows, fills remainder up to 10 with arbitrary rows.
-

@@ -77,4 +77,3 @@ async def test_str_array_preserves_order(ctx):
     obj = await create_object_from_value(values)
     data = await obj.data()
     assert data == values  # Order should be preserved
-

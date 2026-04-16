@@ -242,4 +242,3 @@ async def test_dict_of_arrays_records_preserves_order(ctx):
     assert data[0] == {"letter": "z", "number": 3}
     assert data[1] == {"letter": "a", "number": 1}
     assert data[2] == {"letter": "m", "number": 2}
-

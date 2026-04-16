@@ -356,5 +356,3 @@ async def insert_objects_db(
             target_info.base_table, "insert",
             kwargs={"source": info.base_table, "target": target_info.base_table},
         )
-
-
