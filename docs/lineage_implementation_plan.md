@@ -15,6 +15,21 @@ unblocked Phases 1 and 2 cleanly — no dead branches to reason about.
 
 ---
 
+# Status
+
+| Component                                      | Status      | Implementation / Notes                                                    |
+|------------------------------------------------|-------------|---------------------------------------------------------------------------|
+| `backward_oplog()` / `forward_oplog()`         | Shipped     | `aaiclick/oplog/lineage.py` — recursive graph traversal over `operation_log` |
+| `OplogGraph`                                   | Shipped     | `aaiclick/oplog/lineage.py` — `OplogGraph`, `OplogNode`, `OplogEdge`      |
+| `run_job()` with `preservation_mode`           | Shipped     | `aaiclick/orchestration/registered_jobs.py` — Tier 2 reuses this entry point |
+| `PreservationMode` (narrow to `NONE`/`FULL`)   | ✅ Done     | `aaiclick/orchestration/models.py` — `STRATEGY` variant removed (Phase 0) |
+| Sampling / strategy machinery                  | ✅ Done     | Deleted (Phase 0, #223)                                                   |
+| `replay_job()` / `is_input_task()`             | ✅ Done     | Deleted (Phase 0, #223)                                                   |
+| Tier 1 agent loop + `query_table` tool         | Phase 1     | Replaces `debug_result` single-shot explanation                           |
+| Tier 2 auto-escalation + `request_full_replay` | Phase 2     | Wires Tier 1 to `run_job(..., FULL)`                                      |
+
+---
+
 # Phase 0 -- Remove Sampling and Strategy ✅ Complete
 
 Shipped in #223. Everything below is preserved for historical context —
