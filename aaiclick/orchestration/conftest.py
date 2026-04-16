@@ -53,21 +53,21 @@ def _shared_chdb_dir():
     """Session-scoped chdb data directory (autouse for all orchestration tests).
 
     chdb's embedded server can only be initialized once per process with a
-    single data path. Sets AAICLICK_CH_URL at the session level so that any
-    code reading the env (e.g. snowflake_id) uses the correct path even
-    outside per-test fixtures.
+    single data path. If pytest_configure (root conftest) already set
+    AAICLICK_CH_URL for an xdist worker, reuse that path instead of
+    creating a second one — chdb forbids multiple paths in one process.
     """
     if not is_sqlite():
         yield ""
         return
+    existing_url = os.environ.get("AAICLICK_CH_URL", "")
+    if existing_url.startswith("chdb://"):
+        yield existing_url.removeprefix("chdb://")
+        return
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
-    old_url = os.environ.get("AAICLICK_CH_URL")
     os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
     yield tmp_dir
-    if old_url is not None:
-        os.environ["AAICLICK_CH_URL"] = old_url
-    else:
-        os.environ.pop("AAICLICK_CH_URL", None)
+    os.environ.pop("AAICLICK_CH_URL", None)
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
