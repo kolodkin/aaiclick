@@ -18,7 +18,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18.3
         env:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
