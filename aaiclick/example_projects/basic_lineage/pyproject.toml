@@ -1,0 +1,9 @@
+[project]
+name = "basic-lineage"
+version = "0.1.0"
+description = "AI-powered lineage explanation for a revenue pipeline"
+requires-python = ">=3.10"
+
+dependencies = [
+    "aaiclick[ai]",
+]

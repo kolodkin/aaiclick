@@ -8,15 +8,14 @@ including table name, fieldtype, and column details.
 import pytest
 
 from aaiclick import (
-    create_object_from_value,
-    Schema,
-    ViewSchema,
-    ColumnInfo,
-    FIELDTYPE_SCALAR,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ColumnInfo,
+    Schema,
+    create_object_from_value,
 )
-
+from aaiclick.data.models import ViewSchema
 
 # =============================================================================
 # Basic Schema Tests

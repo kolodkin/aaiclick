@@ -1,18 +1,21 @@
 """
 Pytest configuration for aaiclick tests.
 
-This module provides test fixtures. ClickHouse setup is handled by
-scripts/setup_and_test.py or manually via docker-compose.
+This module provides:
+- pytest_configure: xdist worker isolation for chdb
+- event_loop: session-scoped event loop for async tests
+- orch_ctx: fallback for tests outside the orchestration package (e.g. oplog)
 """
 
 import asyncio
 import os
+import shutil
 import tempfile
 
 import pytest
 
 from aaiclick.backend import is_chdb
-from aaiclick.data.data_context import data_context
+from aaiclick.oplog.lineage import OplogNode
 
 
 def pytest_configure(config):
@@ -20,7 +23,7 @@ def pytest_configure(config):
 
     chdb (embedded ClickHouse) is single-process — multiple workers cannot
     share the same data directory. When running under pytest-xdist, each
-    worker gets a unique temp directory via AAICLICK_CHDB_PATH.
+    worker gets a unique temp directory via AAICLICK_CH_URL.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER")
     if worker_id is not None and is_chdb():
@@ -30,21 +33,55 @@ def pytest_configure(config):
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """
-    Create an event loop for async tests.
-    """
+    """Create an event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
 
 @pytest.fixture(scope="session")
-async def ctx():
-    """
-    Session-scoped data context shared across all tests in a worker.
+def _orch_chdb_dir():
+    """Provide a chdb path, reusing AAICLICK_CH_URL if already set.
 
-    Objects are cleaned up via refcounting when they go out of scope,
-    so table accumulation is not a concern.
+    chdb only allows one data path per process. If the orchestration
+    conftest already set AAICLICK_CH_URL (autouse session fixture),
+    reuse that path. Otherwise create a temp dir.
     """
-    async with data_context():
+    ch_url = os.environ.get("AAICLICK_CH_URL", "")
+    if ch_url.startswith("chdb://"):
+        yield ch_url.removeprefix("chdb://")
+        return
+    tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
+    yield tmp_dir
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def make_oplog_node(
+    table: str,
+    operation: str,
+    kwargs: dict[str, str] | None = None,
+) -> OplogNode:
+    """Create an OplogNode with sensible defaults for tests."""
+    return OplogNode(
+        table=table,
+        operation=operation,
+        kwargs=kwargs or {},
+        kwargs_aai_ids={},
+        result_aai_ids=[],
+        sql_template=None,
+        task_id=None,
+        job_id=None,
+    )
+
+
+@pytest.fixture
+async def orch_ctx(monkeypatch, _orch_chdb_dir):
+    """Function-scoped orch context with dedicated sql_url.
+
+    Fallback for tests outside aaiclick/orchestration/ (e.g. oplog tests).
+    The orchestration package has its own conftest with the same fixture.
+    """
+    from aaiclick.orchestration.conftest import _orch_test_env
+
+    async with _orch_test_env(monkeypatch, _orch_chdb_dir):
         yield

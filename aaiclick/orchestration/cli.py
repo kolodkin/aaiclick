@@ -7,22 +7,44 @@ the CLI entry point stays thin.
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
-from typing import Optional
+from typing import Any
 
-from .claiming import cancel_job
-from .context import orch_context
-from .job_queries import count_jobs, get_tasks_for_job, list_jobs, resolve_job
-from .job_stats import compute_job_stats, print_job_stats
-from .models import JobStatus
-from .pg_cleanup import PgCleanupWorker
-from .db_lifecycle import PgLifecycleHandler
-from .worker import list_workers, worker_main_loop
+from aaiclick.backend import is_local
+
+from .background import BackgroundWorker
+from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
+from .jobs import compute_job_stats, count_jobs, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
+from .models import JobStatus, PreservationMode
+from .orch_context import orch_context
+from .registered_jobs import (
+    disable_job,
+    enable_job,
+    list_registered_jobs,
+    register_job,
+    run_job,
+)
+from .replay import replay_job
+
+
+def _parse_sampling_strategy(json_str: str | None) -> dict[str, str] | None:
+    """Decode a ``--sampling-strategy`` CLI flag into a dict.
+
+    Returns ``None`` when the flag was omitted; raises with a clear
+    message when the JSON is well-formed but not a dict.
+    """
+    if not json_str:
+        return None
+    strategy = json.loads(json_str)
+    if not isinstance(strategy, dict):
+        raise ValueError("--sampling-strategy must decode to a JSON object")
+    return strategy
 
 
 async def show_workers() -> None:
     """List all registered workers."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         workers = await list_workers()
         if not workers:
             print("No workers found")
@@ -34,9 +56,25 @@ async def show_workers() -> None:
             print(f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
 
 
+async def stop_worker_cmd(worker_id_str: str) -> None:
+    """Request a worker to stop gracefully after its current task."""
+    try:
+        worker_id = int(worker_id_str)
+    except ValueError:
+        print(f"Invalid worker ID: {worker_id_str}")
+        return
+
+    async with orch_context(with_ch=False):
+        success = await request_worker_stop(worker_id)
+        if success:
+            print(f"Stop requested for worker {worker_id}")
+        else:
+            print(f"Worker {worker_id} not found or already stopped")
+
+
 async def show_job(job_ref: str) -> None:
     """Show details for a single job."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")
@@ -45,6 +83,8 @@ async def show_job(job_ref: str) -> None:
         print(f"ID:           {job.id}")
         print(f"Name:         {job.name}")
         print(f"Status:       {job.status.value}")
+        print(f"Run type:     {job.run_type.value}")
+        print(f"Registered:   {job.registered_job_id or '-'}")
         print(f"Created at:   {job.created_at}")
         print(f"Started at:   {job.started_at or '-'}")
         print(f"Completed at: {job.completed_at or '-'}")
@@ -54,15 +94,15 @@ async def show_job(job_ref: str) -> None:
 
 async def show_jobs(
     *,
-    status: Optional[str] = None,
-    name_like: Optional[str] = None,
+    status: str | None = None,
+    name_like: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> None:
     """List jobs with optional filtering and pagination."""
     job_status = JobStatus(status) if status else None
 
-    async with orch_context():
+    async with orch_context(with_ch=False):
         total = await count_jobs(status=job_status, name_like=name_like)
         jobs = await list_jobs(
             status=job_status,
@@ -74,35 +114,73 @@ async def show_jobs(
             print("No jobs found")
             return
 
-        print(f"{'ID':<20} {'Name':<30} {'Status':<12} {'Created':<20}")
-        print("-" * 82)
+        print(f"{'ID':<20} {'Name':<25} {'Status':<12} {'Type':<10} {'Created':<20}")
+        print("-" * 87)
         for j in jobs:
             created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"{j.id:<20} {j.name:<30} {j.status.value:<12} {created:<20}")
+            print(f"{j.id:<20} {j.name:<25} {j.status.value:<12} {j.run_type.value:<10} {created:<20}")
         print(f"\nShowing {offset + 1}-{offset + len(jobs)} of {total}")
 
 
-async def start_worker(max_tasks: Optional[int] = None) -> None:
-    """Start a worker process with cleanup and lifecycle support.
+async def start_worker(max_tasks: int | None = None) -> None:
+    """Start a distributed worker process.
+
+    Each task runs in a dedicated child process for isolation.  The main
+    process handles SQL (claim/status), the child process connects to
+    ClickHouse.  Run ``background start`` separately for table cleanup
+    and job scheduling.
+
+    Requires distributed backends (ClickHouse server + PostgreSQL).
+
+    Args:
+        max_tasks: Maximum tasks to execute (None for unlimited).
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
+    """
+    if is_local():
+        raise RuntimeError(
+            "'worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite)."
+        )
+    async with orch_context(with_ch=False):
+        await mp_worker_main_loop(max_tasks=max_tasks)
+
+
+async def start_local(max_tasks: int | None = None) -> None:
+    """Start worker + background cleanup in a single process (local mode).
+
+    Everything runs in one process: the background worker, task claiming,
+    and task execution all share one chdb session via the process-level
+    singleton.  This avoids the file-lock conflict that occurs when
+    multiple OS processes open the same chdb data directory.
+
+    Automatically runs setup if it hasn't been run yet.
 
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
-    pg_cleanup = PgCleanupWorker()
-    await pg_cleanup.start()
+    from aaiclick.__main__ import setup_done
+
+    if not setup_done():
+        from aaiclick.__main__ import _run_setup
+
+        print("Setup not yet run — running setup automatically...\n")
+        _run_setup()
+        print()
+
+    background = BackgroundWorker()
+    await background.start()
     try:
-        async with orch_context():
-            await worker_main_loop(
-                max_tasks=max_tasks,
-                lifecycle_factory=lambda job_id: PgLifecycleHandler(job_id),
-            )
+        async with orch_context(with_ch=True):
+            await worker_main_loop(max_tasks=max_tasks)
     finally:
-        await pg_cleanup.stop()
+        await background.stop()
 
 
 async def show_job_stats(job_ref: str) -> None:
     """Show execution stats for a job."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")
@@ -115,7 +193,7 @@ async def show_job_stats(job_ref: str) -> None:
 
 async def cancel_job_cmd(job_ref: str) -> None:
     """Cancel a job and all its non-terminal tasks."""
-    async with orch_context():
+    async with orch_context(with_ch=False):
         job = await resolve_job(job_ref)
         if job is None:
             print(f"Job not found: {job_ref}")
@@ -134,8 +212,16 @@ async def start_background(poll_interval: float = 10.0) -> None:
 
     Args:
         poll_interval: Cleanup poll interval in seconds.
+
+    Raises:
+        RuntimeError: If running in local mode (chdb + SQLite).
     """
-    cleanup = PgCleanupWorker(poll_interval=poll_interval)
+    if is_local():
+        raise RuntimeError(
+            "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
+        )
+    cleanup = BackgroundWorker(poll_interval=poll_interval)
     await cleanup.start()
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -145,3 +231,143 @@ async def start_background(poll_interval: float = 10.0) -> None:
     await shutdown.wait()
     print("Shutting down background cleanup worker...")
     await cleanup.stop()
+
+
+async def register_job_cmd(
+    entrypoint: str,
+    *,
+    name: str | None = None,
+    schedule: str | None = None,
+    kwargs_json: str | None = None,
+    preservation_mode: str | None = None,
+    sampling_strategy_json: str | None = None,
+) -> None:
+    """Register a job in the catalog."""
+    resolved_name = name or entrypoint.rsplit(".", 1)[-1]
+    default_kwargs: dict[str, Any] | None = None
+    if kwargs_json:
+        default_kwargs = json.loads(kwargs_json)
+
+    mode: PreservationMode | None = None
+    if preservation_mode is not None:
+        mode = PreservationMode(preservation_mode.upper())
+
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
+
+    async with orch_context(with_ch=False):
+        job = await register_job(
+            name=resolved_name,
+            entrypoint=entrypoint,
+            schedule=schedule,
+            default_kwargs=default_kwargs,
+            preservation_mode=mode,
+            sampling_strategy=strategy,
+        )
+    print(f"Registered job '{job.name}' (id={job.id})")
+    if job.schedule:
+        print(f"  Schedule:         {job.schedule}")
+    if job.preservation_mode:
+        print(f"  Preservation:     {job.preservation_mode.value}")
+    if job.sampling_strategy:
+        print(f"  Sampling strategy: {job.sampling_strategy}")
+    if job.next_run_at:
+        print(f"  Next run at:      {job.next_run_at}")
+
+
+async def run_job_cmd(
+    name_or_entrypoint: str,
+    *,
+    kwargs_json: str | None = None,
+    preservation_mode: str | None = None,
+    sampling_strategy_json: str | None = None,
+) -> None:
+    """Run a job immediately."""
+    kwargs: dict[str, Any] | None = None
+    if kwargs_json:
+        kwargs = json.loads(kwargs_json)
+
+    mode: PreservationMode | None = None
+    if preservation_mode is not None:
+        mode = PreservationMode(preservation_mode.upper())
+
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
+
+    # If it looks like a dotted path, use as entrypoint; otherwise treat as name
+    if "." in name_or_entrypoint:
+        entrypoint = name_or_entrypoint
+        name = name_or_entrypoint.rsplit(".", 1)[-1]
+    else:
+        name = name_or_entrypoint
+        entrypoint = name_or_entrypoint
+
+    async with orch_context(with_ch=False):
+        job = await run_job(
+            name=name,
+            entrypoint=entrypoint,
+            kwargs=kwargs,
+            preservation_mode=mode,
+            sampling_strategy=strategy,
+        )
+    print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
+
+
+async def replay_job_cmd(
+    job_ref: str,
+    *,
+    sampling_strategy_json: str,
+    name: str | None = None,
+) -> None:
+    """Replay a completed job with a sampling strategy.
+
+    Clones the original job's task graph, skips input tasks (reusing
+    their persistent outputs in place), and submits the clone as a
+    new job running under ``PreservationMode.STRATEGY``.
+    """
+    strategy = _parse_sampling_strategy(sampling_strategy_json)
+    if strategy is None:
+        raise ValueError("--sampling-strategy is required for replay")
+
+    async with orch_context(with_ch=False):
+        job = await resolve_job(job_ref)
+        if job is None:
+            print(f"Job not found: {job_ref}")
+            return
+        result = await replay_job(
+            job.id,
+            sampling_strategy=strategy,
+            name=name,
+        )
+    replayed = result.job
+    print(
+        f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})"
+    )
+
+
+async def enable_job_cmd(name: str) -> None:
+    """Enable a registered job."""
+    async with orch_context(with_ch=False):
+        job_id = await enable_job(name)
+    print(f"Job '{name}' enabled (id={job_id})")
+
+
+async def disable_job_cmd(name: str) -> None:
+    """Disable a registered job."""
+    async with orch_context(with_ch=False):
+        job_id = await disable_job(name)
+    print(f"Job '{name}' disabled (id={job_id})")
+
+
+async def show_registered_jobs() -> None:
+    """List registered jobs."""
+    async with orch_context(with_ch=False):
+        jobs = await list_registered_jobs()
+
+    if not jobs:
+        print("No registered jobs found")
+        return
+
+    print(f"{'ID':<20} {'Name':<25} {'Enabled':<9} {'Schedule':<15} {'Next Run':<20}")
+    print("-" * 89)
+    for j in jobs:
+        next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
+        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {j.schedule or '-':<15} {next_run:<20}")

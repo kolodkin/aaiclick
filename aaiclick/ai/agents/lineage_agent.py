@@ -4,41 +4,56 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
-from aaiclick.oplog.lineage import OplogEdge, OplogGraph, backward_oplog
-from aaiclick.ai.agents.tools import sample_table
+import asyncio
+
+from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
+from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
 from aaiclick.ai.config import get_ai_provider
+from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
-_SYSTEM_PROMPT = """\
-You are a data lineage expert analyzing a data pipeline built on ClickHouse.
-Explain clearly and concisely how the target table was produced, including
-the sequence of operations and the role of each input table."""
+_SYSTEM_PROMPT = f"""\
+You are a data lineage expert analyzing a ClickHouse data pipeline.
+Explain how the target table was produced as a short numbered list of steps.
+Each step: operation, input tables, output table.
+
+{AAI_ID_WARNING}
+
+{OUTPUT_FORMAT}"""
 
 
-async def explain_lineage(target_table: str, question: str | None = None) -> str:
+async def explain_lineage(
+    target_table: str,
+    question: str | None = None,
+    graph: OplogGraph | None = None,
+) -> str:
     """Trace and explain how target_table was produced.
 
     Calls backward_oplog(), samples each node, formats context for LLM.
-    Can be called standalone or as a @task in a job.
+    Post-processes the response to replace raw table IDs with labels.
+    Pass `graph` to reuse a pre-built lineage graph and skip the traversal.
     """
-    nodes = await backward_oplog(target_table)
-
-    edges: list[OplogEdge] = []
-    for node in nodes:
-        for src in node.args:
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
-        for src in node.kwargs.values():
-            edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
-
-    graph = OplogGraph(nodes=nodes, edges=edges)
+    if graph is None:
+        graph = await oplog_subgraph(target_table, direction="backward")
+    labels = graph.build_labels()
     context = graph.to_prompt_context()
 
-    for node in nodes:
-        try:
-            sample = await sample_table(node.table, limit=3)
-            context += f"\n\nSample rows from `{node.table}`:\n{sample}"
-        except Exception:
-            pass
+    schemas = await get_schemas_for_nodes(graph.nodes)
+    if schemas:
+        context += "\n\n" + schemas
+
+    samples = await asyncio.gather(
+        *(sample_table(node.table, limit=3) for node in graph.nodes),
+        return_exceptions=True,
+    )
+    parts = [
+        f"\n\nSample rows from `{node.table}`:\n{sample}"
+        for node, sample in zip(graph.nodes, samples, strict=False)
+        if not isinstance(sample, Exception)
+    ]
+    if parts:
+        context += "".join(parts)
 
     prompt = question or f"Explain how the table `{target_table}` was produced."
     provider = get_ai_provider()
-    return await provider.query(prompt, context=context, system=_SYSTEM_PROMPT)
+    response = await provider.query(prompt, context=context, system=_SYSTEM_PROMPT)
+    return OplogGraph.replace_labels(response, labels)

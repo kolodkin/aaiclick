@@ -51,7 +51,6 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 **Local testing is supported with the default backend (chdb + SQLite).**
 
-- Run `uv run python -m aaiclick setup` before first test run
 - Default URLs use chdb + SQLite — no infrastructure needed
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
@@ -77,11 +76,42 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Do NOT modify, skip, or weaken unrelated tests to make them pass
   - If unsure whether the test or the implementation is wrong, ask the user
 
+- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/object/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file. When a domain helper is tightly coupled to an operator (e.g., `with_isin` ↔ `isin`), tests go in the operator's test file (`test_isin.py`), not `test_domain_helpers.py`.
+
+- **No tests for Python defaults or plain assignment**: Do NOT write tests whose only purpose is to verify that Python's `__init__`, dataclass/NamedTuple/Pydantic defaults, or decorator argument passthrough works. Python is already tested — trust it.
+  - **Skip**: constructing an object and asserting constructor-assigned fields equal the inputs
+  - **Skip**: asserting default values of dataclass / Pydantic / NamedTuple fields (`assert obj.x is None`, `assert obj.retries == 0`)
+  - **Skip**: decorator tests that only check `@task(name="x")` stores `name == "x"` on the resulting object
+  - **Skip**: trivial factory passthrough tests (`factory(a, b)` → assert fields match `a`, `b`)
+  - **Write tests for real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing, etc.
+  ```python
+  # BAD — only checks Python assignment works
+  def test_task_default_max_retries():
+      t = create_task("mod.fn")
+      assert t.max_retries == 0
+      assert t.attempt == 0
+
+  # BAD — only checks decorator stores its argument
+  def test_task_decorator_with_name():
+      @task(name="custom")
+      async def f(): pass
+      assert f().name == "custom"
+
+  # GOOD — tests real validation behavior
+  def test_strategy_mode_requires_strategy():
+      with pytest.raises(ValueError, match="requires a non-empty sampling_strategy"):
+          resolve_job_config(PreservationMode.STRATEGY, None, None)
+
+  # GOOD — tests branching logic
+  def test_data_list_single_vs_multiple():
+      assert data_list("only").data == "only"
+      assert data_list("a", "b").data == ["a", "b"]
+  ```
+
 
 # Code Quality
 
-- **Fail on warnings**: pytest is configured with `-W error` flag
-- All warnings are treated as errors in tests
+- **No unhandled warnings**: `filterwarnings = ["error"]` in `pyproject.toml` turns any unhandled warning into a test failure. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` around the call that triggers it. This keeps the suppression scoped and next to the code that causes it.
 - Use `--strict-markers` for pytest marker validation
 - Code coverage reporting is enabled via pytest-cov
 
@@ -135,10 +165,48 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     __all__ = ["Job", "Task", "Worker"]
     ```
 
+- **Top-level `__init__.py` is public API only**: `aaiclick/__init__.py` exports only user-facing symbols; subpackage `__init__.py` files may also re-export internals for intra-package import convenience
+
 - **No compromising on typing**: Never use `Any` as a shortcut to avoid proper typing
   - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
+
+- **Prefer NamedTuples over plain tuples in APIs**: When a function accepts or returns tuples with fixed fields, define a `NamedTuple` instead
+  - Use named attributes (`.op`, `.alias`) in internal code — not positional unpacking
+  - Convert plain tuples to NamedTuples at API boundaries via `Cls._make(t)` to validate input format
+  - Example:
+    ```python
+    from typing import NamedTuple, Literal
+
+    # GOOD — NamedTuple with named access
+    class Agg(NamedTuple):
+        op: Literal["sum", "mean"]
+        alias: str
+
+    for source_col, agg in entries:
+        sql_func = FUNCTIONS[agg.op]
+        result[agg.alias] = compute(source_col, agg.op)
+
+    # BAD — anonymous tuple, positional unpacking
+    for source_col, agg_func, alias in triples:
+        sql_func = FUNCTIONS[agg_func]
+        result[alias] = compute(source_col, agg_func)
+    ```
+
+- **Example files** (`aaiclick/data/examples/*.py`, `aaiclick/orchestration/examples/*.py`): Add `# →` output comments inline next to `print()` calls that show computed results. Only annotate data results — not headers, separators, or static text. Skip loop bodies.
+  ```python
+  # GOOD — result is visible where the reader's eyes are
+  print(f"Addition (a + b): {await result.data()}")  # → [12.0, 24.0, 35.0]
+
+  # BAD — no output shown
+  print(f"Addition (a + b): {await result.data()}")
+
+  # SKIP — headers and loops don't need output comments
+  print("Example 1: Arithmetic operators")
+  for row in rows:
+      print(f"  {row}")
+  ```
 
 ## ClickHouse Client Guidelines
 
@@ -214,108 +282,6 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 - Fill in `upgrade()` and `downgrade()` functions with actual migration code
 - Test both upgrade and downgrade paths
 
-# Environment Variables
-
-Connection URLs:
-- `AAICLICK_CH_URL` (default: `chdb:///~/.aaiclick/chdb_data`) — ClickHouse data connection
-  - chdb (embedded): `chdb:///path/to/data`
-  - Remote server: `clickhouse://user:pass@host:8123/database`
-- `AAICLICK_SQL_URL` (default: `sqlite+aiosqlite:///~/.aaiclick/local.db`) — Orchestration SQL database
-  - SQLite: `sqlite+aiosqlite:///path/to/file.db`
-  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/database`
-
-Helper functions:
-- `is_chdb()` — True when `AAICLICK_CH_URL` starts with `chdb://`
-- `is_sqlite()` — True when `AAICLICK_SQL_URL` starts with `sqlite`
-
-Legacy env vars (read by Alembic migrations as fallback when `AAICLICK_SQL_URL` is not set):
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-
-Orchestration logging (optional):
-- `AAICLICK_LOG_DIR` - Override default OS-dependent log directory
-  - macOS default: `~/.aaiclick/logs`
-  - Linux default: `/var/log/aaiclick`
-
-**Note**: `SNOWFLAKE_MACHINE_ID` is no longer used. All Snowflake IDs are generated by ClickHouse via `generateSnowflakeID()`.
-
-# Project Structure
-
-```
-aaiclick/
-├── aaiclick/                # Main package
-│   ├── conftest.py          # Shared test fixtures
-│   ├── snowflake_id.py      # Snowflake ID generation (CH-backed with buffer)
-│   ├── test_snowflake.py    # Tests for snowflake_id.py
-│   ├── data/                # Data module
-│   │   ├── data_context.py  # DataContext manager
-│   │   ├── object.py        # Core Object class
-│   │   ├── test_*.py        # Tests alongside modules
-│   │   └── ...
-│   ├── examples/            # Example scripts
-│   │   ├── run_all.py       # Run all examples
-│   │   └── ...
-│   └── orchestration/       # Orchestration module
-│       ├── factories.py
-│       ├── test_*.py        # Tests alongside modules
-│       └── ...
-├── pyproject.toml           # Project configuration
-└── CLAUDE.md                # This file
-```
-
-# Architecture
-
-- **DataContext**: Primary API for managing Object lifecycle
-  - Manages ClickHouse client lifecycle
-  - Tracks Objects via weakref for automatic cleanup
-  - Uses ContextVar for async-safe global context management
-  - Accessed via `async with DataContext():` pattern or `get_data_context()` function
-- **Module-level Functions**: `create_object()` and `create_object_from_value()`
-  - Exported from package for direct use
-  - Use `get_data_context()` internally to access the current context
-  - No need to pass context explicitly
-- **Connection Pool**: Shared urllib3 PoolManager across all DataContext instances
-  - Defined in `data_context.py` as global `_pool`
-  - All clients share the same connection pool for efficiency
-  - `get_ch_client()` creates clients using the shared pool
-
-# Object API
-
-See [docs/object.md](docs/object.md) for full operator reference, usage patterns, and implementation details.
-
-This pattern ensures all data stays within ClickHouse - Python only orchestrates the SQL operations.
-
-# Distributed Computing & Order Preservation
-
-aaiclick is a **distributed computing framework** where order is automatically preserved via **Snowflake IDs**:
-
-- **Snowflake IDs encode timestamps**: Each ID contains creation timestamp (millisecond precision)
-- **Temporal ordering**: IDs naturally preserve chronological order across distributed operations
-- **No explicit ordering needed**: Operations like `insert()` and `concat()` don't need ORDER BY clauses
-- **Insert/Concat behavior**: Preserve existing Snowflake IDs from source data
-  - IDs already encode temporal order from when data was created
-  - Order maintained when data is retrieved (via `.data()`)
-  - Simpler logic - no ID renumbering or conflict detection needed
-  - More efficient - direct database operations without Python round-trips
-
-**Important**: Order after concat/insert is **always creation order**, not argument order!
-
-**Example showing creation order**:
-```python
-# Scenario 1: obj_a created first
-obj_a = await create_object_from_value([1, 2, 3])  # Created at time T1
-obj_b = await create_object_from_value([4, 5, 6])  # Created at time T2
-result = await concat(obj_a, obj_b)  # Result: [1, 2, 3, 4, 5, 6]
-result = await concat(obj_b, obj_a)  # Result: [1, 2, 3, 4, 5, 6] (same!)
-
-# Scenario 2: obj_b created first
-obj_b = await create_object_from_value([4, 5, 6])  # Created at time T1
-obj_a = await create_object_from_value([1, 2, 3])  # Created at time T2
-result = await concat(obj_a, obj_b)  # Result: [4, 5, 6, 1, 2, 3]
-result = await concat(obj_b, obj_a)  # Result: [4, 5, 6, 1, 2, 3] (same!)
-```
-
-The concat argument order doesn't matter - results are always ordered by Snowflake ID timestamps from when objects were created. This ensures temporal causality in distributed systems.
-
 # Future Plans
 
 `docs/future.md` is the single source of truth for unimplemented features. Move planned work there instead of marking it `⚠️ NOT YET IMPLEMENTED` inline. Spec docs may briefly reference it. Remove items when implemented.
@@ -354,6 +320,8 @@ The concat argument order doesn't matter - results are always ordered by Snowfla
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
 ## Documentation Guidelines
+
+**Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
 
 **Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
 
@@ -405,54 +373,26 @@ Document Title
 | `_data_ctx_ref is None` | Object was never registered |
 ```
 
-## Documentation Patterns
+**Admonitions** — use `!!! tip`, `!!! warning`, `??? info` only at genuine pitfall points
+where a user would hit a confusing error without the callout. Never for emphasis, decoration,
+or restating what surrounding prose already says. Collapsible `???` for optional context.
 
-**For Implemented Features**:
 ```markdown
-## Feature Name ✅ IMPLEMENTED
+# GOOD — real pitfall, saves debugging time
+!!! warning "`or_where()` requires a prior `where()`"
+    Calling `or_where()` without a preceding `where()` raises `ValueError`.
 
-**Implementation**: `path/to/file.py` - see `ClassName.method()` or `function_name()`
+# GOOD — optional context, reader can skip
+??? info "Which deployment mode?"
+    Start with the default (chdb + SQLite) — it needs zero setup.
 
-Brief description with link to code instead of duplicating implementation details.
-See actual code for complete implementation.
+# BAD — restating what the code already shows
+!!! tip
+    Use `await` to get the result of an operation.
+
+# BAD — decorating a reference table
+!!! info "ClickHouse uses RE2 regex syntax"
+    No lookaheads or lookbehinds.
 ```
 
-**For Unimplemented Features**:
-```markdown
-## Feature Name ⚠️ NOT YET IMPLEMENTED (Phase N+)
-
-Detailed specification with code examples, data models, and API design.
-This serves as the design document for future implementation.
-```
-
-**For Data Models**:
-```markdown
-## ModelName
-
-**Implementation**: `aaiclick/module/models.py` - see `ModelName` class
-
-**Note**: Actual implementation details (e.g., "uses UPPERCASE enums", "BIGINT for IDs")
-
-```python
-# Show actual code structure from implementation
-class ModelName:
-    field: Type = ...
-```
-```
-
-## Example: Orchestration Backend
-
-See `docs/orchestration.md` for the full specification:
-
-- **Specification**: Comprehensive design document referencing actual code
-- **No Duplication**: Implemented features point to code instead of duplicating
-
-# Making Changes
-
-1. Read relevant files before editing
-2. Make focused, minimal changes
-3. Update tests if needed
-4. Commit with descriptive messages
-5. Push to feature branch
-6. Run `check-pr` skill to verify CI passes
 

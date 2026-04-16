@@ -12,60 +12,69 @@ try:
 except Exception:
     __version__ = "0.0.0"
 
-# Import context manager (primary API) and factory functions
+# Context manager (primary API)
+# Factory functions
+# Core types
+# Helper functions
+# Schema definition
+# Field type and orientation constants
+# Value type aliases
+# Persistent object management
 from .data import (
-    data_context,
-    get_ch_client,
-    delete_object,
-    delete_persistent_object,
-    delete_persistent_objects,
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ORIENT_DICT,
+    ORIENT_RECORDS,
+    ColumnInfo,
+    ColumnType,
+    DataResult,
+    FieldSpec,
+    Object,
+    Schema,
+    ValueListType,
+    ValueScalarType,
+    ValueType,
+    View,
+    cast,
     create_object,
     create_object_from_url,
     create_object_from_value,
+    data_context,
+    delete_persistent_object,
+    delete_persistent_objects,
     list_persistent_objects,
+    literal,
     open_object,
-    LifecycleHandler,
-    LocalLifecycleHandler,
+    split_by_char,
 )
-
-# Import core objects
-from .data import Object, View, DataResult
-from .data import (
-    Schema,
-    ColumnInfo,
-    ColumnMeta,
-    ColumnType,
-    ViewSchema,
-    QueryInfo,
-    DATE_TYPES,
-    FIELDTYPE_SCALAR,
-    FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
-    ORIENT_DICT,
-    ORIENT_RECORDS,
-    ValueScalarType,
-    ValueListType,
-    ValueType,
-)
-
-# Import Snowflake ID generation
-from .snowflake_id import get_snowflake_id, get_snowflake_ids
-
-# Note: Ingest functions (copy_db, concat_objects_db, insert_objects_db) are internal.
-# Use Object.copy(), Object.concat(), Object.insert() methods instead.
 
 
 async def explain(target_table: str, question: str | None = None) -> str:
-    """Trace and explain how target_table was produced using AI lineage analysis.
+    """Trace and explain how a table was produced using AI lineage analysis.
 
-    Requires: pip install aaiclick[ai]
+    Walks the operation log to reconstruct the lineage of `target_table` and
+    returns a human-readable explanation. An optional `question` focuses the
+    analysis (e.g. "why does this column contain nulls?").
+
+    Args:
+        target_table: ClickHouse table name to explain.
+        question: Optional natural-language question to focus the analysis.
+
+    Returns:
+        Human-readable explanation string describing how the table was produced.
+
+    Raises:
+        ImportError: If `aaiclick[ai]` is not installed.
+
+    Note:
+        Requires ``pip install "aaiclick[ai]"``.
     """
     try:
         from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "AI features require the aaiclick[ai] extra. "
             "Install with: pip install aaiclick[ai]"
-        )
+        ) from err
     return await explain_lineage(target_table, question)
-

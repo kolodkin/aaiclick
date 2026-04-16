@@ -4,12 +4,11 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from datetime import datetime
-from typing import Optional, Dict, Union, Literal, List, NamedTuple
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Literal, NamedTuple, Optional
 
 import yaml
-
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -23,7 +22,7 @@ ColumnType = Literal[
 ]
 
 # Type category sets for runtime type checking
-INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"})
+INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"})
 FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
@@ -70,6 +69,23 @@ class ColumnInfo:
             base = f"Array({base})"
         return base
 
+
+
+class FieldSpec(NamedTuple):
+    """Field specification for overriding inferred column properties.
+
+    Used with ``create_object_from_value(fields=...)`` to control nullable
+    and low_cardinality flags without manually specifying the full schema.
+
+    Attributes:
+        nullable: Whether the column allows NULL values.
+        low_cardinality: Whether to use LowCardinality encoding.
+        type: Override the inferred ClickHouse base type (e.g., 'Float32' instead of 'Float64').
+    """
+
+    nullable: bool = False
+    low_cardinality: bool = False
+    type: str | None = None
 
 
 class Computed(NamedTuple):
@@ -140,12 +156,20 @@ GB_ANY = "any"
 GB_GROUP_ARRAY_DISTINCT = "group_array_distinct"
 GroupByOpType = Literal["sum", "mean", "min", "max", "count", "std", "var", "any", "group_array_distinct"]
 
+# Named tuple for (operator, alias) aggregation entries
+class Agg(NamedTuple):
+    op: GroupByOpType
+    alias: str
+
+# Aggregation spec: plain op, single Agg, or list of Agg
+AggSpec = GroupByOpType | Agg | list[Agg]
+
 # Value type aliases for factory functions
-ValueScalarType = Union[int, float, bool, str, datetime]
-ValueListType = Union[List[int], List[float], List[bool], List[str], List[datetime]]
-ValueDictType = Dict[str, Union[ValueScalarType, ValueListType]]
-ValueRecordType = List[ValueDictType]
-ValueType = Union[ValueScalarType, ValueListType, ValueDictType, ValueRecordType]
+ValueScalarType = int | float | bool | str | datetime
+ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
+ValueDictType = dict[str, ValueScalarType | ValueListType]
+ValueRecordType = list[ValueDictType]
+ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
 
 
 @dataclass
@@ -170,6 +194,7 @@ class QueryInfo:
     fieldtype: str
     value_type: str
     nullable: bool = False
+    constraint_sql: str = ""
 
 
 @dataclass
@@ -180,7 +205,7 @@ class IngestQueryInfo(QueryInfo):
     Adds column metadata so concat_objects_db and insert_objects_db can validate
     schemas without querying system.columns.
     """
-    columns: Dict[str, "ColumnInfo"] = field(default_factory=dict)
+    columns: dict[str, "ColumnInfo"] = field(default_factory=dict)
 
 
 @dataclass
@@ -194,13 +219,18 @@ class CopyInfo:
         columns: Column name to ClickHouse type mapping (from cached schema)
         selected_fields: Fields to select from dict (None for base copy)
         is_single_field: True if single field selection
+        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT.
+                       Propagated from source schema so copied tables have
+                       correct column comments for data() to work correctly.
     """
 
     source_query: str
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    selected_fields: Optional[List[str]] = None
+    columns: dict[str, "ColumnInfo"]
+    selected_fields: list[str] | None = None
     is_single_field: bool = False
+    col_fieldtype: str | None = None
+    order_by: str | None = None
 
 
 @dataclass
@@ -220,11 +250,28 @@ class Schema:
     """
 
     fieldtype: str
-    columns: Dict[str, "ColumnInfo"]
-    table: Optional[str] = None
-    col_fieldtype: Optional[str] = None
+    columns: dict[str, "ColumnInfo"]
+    table: str | None = None
+    col_fieldtype: str | None = None
     engine: Optional["EngineType"] = None
-    order_by: Optional[str] = None
+    order_by: str | None = None
+
+
+def build_order_by_clause(columns: list[str]) -> str:
+    """Build an ORDER BY clause string from column names.
+
+    ``aai_id`` is always appended as the last column (and deduplicated
+    if already present).
+
+    Args:
+        columns: Column names for the ORDER BY clause.
+
+    Returns:
+        Parenthesised ORDER BY expression, e.g. ``(date, aai_id)``.
+    """
+    cols = [c for c in columns if c != "aai_id"]
+    cols.append("aai_id")
+    return f"({', '.join(cols)})"
 
 
 @dataclass
@@ -240,12 +287,12 @@ class ViewSchema(Schema):
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
     """
 
-    where: Optional[str] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    order_by: Optional[str] = None
-    selected_fields: Optional[List[str]] = None
-    computed_columns: Optional[Dict[str, "Computed"]] = None
+    where: str | None = None
+    limit: int | None = None
+    offset: int | None = None
+    order_by: str | None = None
+    selected_fields: list[str] | None = None
+    computed_columns: dict[str, "Computed"] | None = None
 
 
 @dataclass
@@ -263,10 +310,10 @@ class GroupByInfo:
 
     source: str
     base_table: str
-    group_keys: List[str]
-    columns: Dict[str, str]
+    group_keys: list[str]
+    columns: dict[str, str]
     fieldtype: str
-    having: Optional[str] = None
+    having: str | None = None
 
 
 @dataclass
@@ -278,7 +325,7 @@ class ColumnMeta:
         fieldtype: 's' for scalar, 'a' for array
     """
 
-    fieldtype: Optional[str] = None
+    fieldtype: str | None = None
 
     def to_yaml(self) -> str:
         """

@@ -1,0 +1,40 @@
+"""Debug execution utilities for orchestration jobs.
+
+This module provides functions for running jobs in debug/test mode.
+"""
+
+import asyncio
+
+from ..models import Job
+from ..orch_context import orch_context
+from .runner import run_job_tasks
+
+
+def job_test(job: Job) -> None:
+    """
+    Execute job synchronously in current process (test mode).
+
+    Invokes the worker execute flow for testing/debugging.
+    Similar to Airflow's test execution mode.
+
+    Args:
+        job: Job to execute
+
+    Example:
+        job = await create_job("my_job", "mymodule.task1")
+        job_test(job)  # Blocks until job completes
+    """
+    asyncio.run(ajob_test(job))
+
+
+async def ajob_test(job: Job) -> None:
+    """
+    Async implementation of test execution.
+
+    Runs all tasks for this job within an OrchContext.
+
+    Args:
+        job: Job to execute
+    """
+    async with orch_context():
+        await run_job_tasks(job)
