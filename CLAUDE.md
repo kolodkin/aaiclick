@@ -6,11 +6,7 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 ## Pre-commit Hooks
 
-This project uses [pre-commit](https://pre-commit.com/) for automated checks before each commit:
-- **trailing-whitespace**: Trims trailing whitespace from all files
-- **end-of-file-fixer**: Ensures files end with a newline
-- **mixed-line-ending**: Prevents mixed line endings
-- **nbstripout**: Strips outputs and execution counts from Jupyter notebooks
+This project uses [pre-commit](https://pre-commit.com/) for automated checks before each commit.
 
 **Install hooks before your first commit**:
 ```bash

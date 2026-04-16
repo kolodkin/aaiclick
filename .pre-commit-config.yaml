@@ -6,6 +6,7 @@ repos:
         exclude_types: [json]
       - id: end-of-file-fixer
       - id: mixed-line-ending
+        exclude_types: [markdown]
 
   - repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
