@@ -1,7 +1,7 @@
 Operation Log (oplog)
 ---
 
-The `aaiclick/oplog/` module captures operation provenance inside ClickHouse with zero AI dependencies — every object created or transformed is recorded for lineage tracing, debugging, and post-job data sampling.
+The `aaiclick/oplog/` module captures operation provenance inside ClickHouse with zero AI dependencies — every object created or transformed is recorded for lineage tracing and debugging.
 
 ---
 
@@ -11,9 +11,9 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ## operation_log
 
-Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `kwargs_aai_ids` (Map), `result_aai_ids` (Array), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `created_at` (nullable `job_id` excluded from sorting key). Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
+Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `created_at` (nullable `job_id` excluded from sorting key). Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
-All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops). `kwargs_aai_ids` and `result_aai_ids` track sampled row-level lineage by key.
+All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops).
 
 ## table_registry
 
@@ -71,26 +71,8 @@ All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup do
 |--------------|-------------------------------------------------------------------------------|
 | `NONE`       | Drop unpinned tables as soon as refs fall to zero (default).                  |
 | `FULL`       | Skip the drop entirely — tables live until the job TTL expires.               |
-| `STRATEGY`   | Drop via `lineage_aware_drop()`; rows matched by the job's `sampling_strategy` are preserved in a `{table}_sample`. |
 
-`lineage_aware_drop()` replaces an ephemeral table with a `{table}_sample` containing only the rows referenced in `kwargs_aai_ids` / `result_aai_ids` and registers the sample in `table_registry` with the owning job's metadata. When there are no referenced rows (the common `NONE` case) the table is dropped without creating a sample. `BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, samples, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
-
----
-
-# Sampling Strategy
-
-**Implementation**: `aaiclick/oplog/sampling.py` — see `SamplingStrategy`, `apply_strategy()`
-
-A `SamplingStrategy` is a `dict[str, str]` mapping fully-qualified table names to raw ClickHouse WHERE clauses:
-
-```python
-strategy: SamplingStrategy = {
-    "p_kev_catalog": "cve_id = 'CVE-2024-001'",
-    "t_merged": "vendor IS NULL",
-}
-```
-
-`apply_strategy()` is invoked by the lifecycle queue whenever a `STRATEGY`-mode job records an operation. It translates each matched table's WHERE clause into a positional lookup and populates `kwargs_aai_ids` / `result_aai_ids` so later traversal can walk the exact rows the user asked about. Outside `STRATEGY` mode the function is never called and both arrays stay empty.
+`BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
 
 ---
 
@@ -99,4 +81,4 @@ strategy: SamplingStrategy = {
 | Variable                             | Default | Description                                                                   |
 |--------------------------------------|---------|-------------------------------------------------------------------------------|
 | `AAICLICK_JOB_TTL_DAYS`              | `90`    | Days after job completion before all job data is deleted.                     |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Default preservation mode for jobs that don't pass one explicitly. One of `NONE`, `FULL`, `STRATEGY`. |
+| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Default preservation mode for jobs that don't pass one explicitly. One of `NONE`, `FULL`. |

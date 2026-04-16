@@ -66,8 +66,6 @@ def make_oplog_node(
         table=table,
         operation=operation,
         kwargs=kwargs or {},
-        kwargs_aai_ids={},
-        result_aai_ids=[],
         sql_template=None,
         task_id=None,
         job_id=None,

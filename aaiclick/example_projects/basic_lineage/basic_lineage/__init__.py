@@ -3,11 +3,9 @@ AI-powered lineage explanation for a revenue pipeline.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline under PreservationMode.STRATEGY with a hardcoded
-sampling strategy targeting the top-priced rows, so the operation log
-carries populated ``kwargs_aai_ids`` / ``result_aai_ids`` arrays. That
-lets the debug agent's ``trace_row`` tool actually walk the row-level
-lineage on the first call — no replay required.
+Runs the pipeline under PreservationMode.FULL so all intermediate tables
+are preserved for debugging. The debug agent uses its tool loop to inspect
+tables and trace the computation graph.
 """
 
 import asyncio
@@ -69,17 +67,12 @@ def revenue_pipeline(suffix: str):
 
 
 async def main():
-    # Persistent table names are pinned per run so the sampling strategy
-    # can reference them by name before the pipeline executes.
     suffix = str(get_snowflake_id())
-    prices_table = f"p_basic_lineage_prices_{suffix}"
-    sampling_strategy = {prices_table: "value >= 40"}
 
     async with orch_context():
         pipeline = await revenue_pipeline(
             suffix=suffix,
-            preservation_mode=PreservationMode.STRATEGY,
-            sampling_strategy=sampling_strategy,
+            preservation_mode=PreservationMode.FULL,
         )
         await ajob_test(pipeline)
         assert pipeline.status == JobStatus.COMPLETED, f"Job failed: {pipeline.error}"
@@ -101,9 +94,8 @@ async def main():
             debug_answer = await debug_result(
                 target_table,
                 question=(
-                    "The sampling strategy tracks prices >= 40. Which output row has "
-                    "the highest value, and which input rows drove it? Use trace_row "
-                    "to follow the row-level lineage back to the persistent inputs."
+                    "Which output row has the highest value, and which input "
+                    "rows drove it? Use the tools to inspect the tables."
                 ),
                 graph=backward_graph,
             )
@@ -116,5 +108,4 @@ async def main():
             source_table=source_table,
             explanation=explanation,
             debug_answer=debug_answer,
-            sampling_strategy=sampling_strategy,
         )

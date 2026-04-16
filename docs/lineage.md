@@ -44,7 +44,8 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools (see "Agent Tools" below for signatures):
+Agent tools (⚠️ Phase 1/2 — not yet implemented; see "Agent Tools" below for
+planned signatures):
 
 - `query_table` — arbitrary read-only SQL against any node in the graph
 - `get_op_sql` — rendered SQL for a specific operation
@@ -112,18 +113,17 @@ evidence for the price of one run.
 
 # Preservation Mode
 
-Two values. Same per-job selector that exists today, minus the
-`STRATEGY` variant.
+Two values.
 
 | Mode     | What survives after job      | Use case                                      |
 |----------|------------------------------|-----------------------------------------------|
 | `NONE`   | Persistent tables only       | Production runs, Tier 1 debugging             |
 | `FULL`   | All tables until job TTL     | Development, Tier 2 debugging, replay target  |
 
-Precedence unchanged from Phase 4:
+Precedence:
 
 ```
-1. Explicit run_job(...) / replay_job(preservation_mode=...) argument
+1. Explicit run_job(..., preservation_mode=...) argument
 2. RegisteredJob.preservation_mode
 3. AAICLICK_DEFAULT_PRESERVATION_MODE env var
 4. PreservationMode.NONE
@@ -132,6 +132,8 @@ Precedence unchanged from Phase 4:
 ---
 
 # Agent Tools
+
+⚠️ NOT YET IMPLEMENTED — Phase 1/2 planned tools.
 
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job, preventing
@@ -181,11 +183,12 @@ Safety rails on `query_table`:
 
 # Why Not Sampling
 
-An earlier iteration of this work shipped a `SamplingStrategy` type —
-`dict[table_name, where_clause]` — and a `PreservationMode.STRATEGY`
-that kept strategy-matched rows through cleanup. The idea: an AI agent
-would emit a strategy from a natural-language question, and replay
-would tag those rows across every operation to give a row-level trace.
+An earlier iteration of this work shipped a `SamplingStrategy` type and
+a `PreservationMode.STRATEGY` mode that kept strategy-matched rows
+through cleanup. That code has been deleted (Phase 0). The idea was:
+an AI agent would emit a strategy from a natural-language question, and
+replay would tag those rows across every operation to give a row-level
+trace.
 
 The premise was wrong. A debugger does not want "these 10 rows that
 match my WHERE clause" — they want to see the shape of the data, ask
@@ -210,8 +213,8 @@ populations to classify, no planners to write.
 | `backward_oplog()` / `forward_oplog()`         | Shipped     | Graph traversal over `operation_log`            |
 | `OplogGraph`                                   | Shipped     | Graph data model                                |
 | `run_job()` with `preservation_mode`           | Shipped     | Existing entry point — Tier 2 reuses it         |
-| `PreservationMode` (narrow to `NONE`/`FULL`)   | Phase 0     | Drop `STRATEGY` variant                         |
-| Sampling / strategy machinery                  | Phase 0     | Delete — see implementation plan                |
-| `replay_job()` / `is_input_task()`             | Phase 0     | Delete — Tier 2 uses `run_job(..., FULL)`       |
+| `PreservationMode` (narrow to `NONE`/`FULL`)   | ✅ Done     | `STRATEGY` variant removed (Phase 0)            |
+| Sampling / strategy machinery                  | ✅ Done     | Deleted (Phase 0)                               |
+| `replay_job()` / `is_input_task()`             | ✅ Done     | Deleted (Phase 0)                               |
 | Tier 1 agent loop + `query_table` tool         | Phase 1     | Replaces `debug_result` single-shot explanation |
 | Tier 2 auto-escalation + `request_full_replay` | Phase 2     | Wires Tier 1 to `run_job(..., FULL)`            |
