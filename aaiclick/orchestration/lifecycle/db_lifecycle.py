@@ -24,14 +24,13 @@ class DBLifecycleOp(Enum):
     PIN = auto()
     UNPIN = auto()
     OPLOG_RECORD = auto()
-    OPLOG_SAMPLE = auto()
     OPLOG_TABLE = auto()
     SHUTDOWN = auto()
 
 
 @dataclass
 class OplogPayload:
-    """Payload for OPLOG_RECORD and OPLOG_SAMPLE messages."""
+    """Payload for OPLOG_RECORD messages."""
 
     result_table: str
     operation: str
@@ -40,7 +39,6 @@ class OplogPayload:
     task_id: int | None = None
     job_id: int | None = None
     run_id: int | None = None
-    sampling_strategy: dict[str, str] | None = None
 
 
 @dataclass

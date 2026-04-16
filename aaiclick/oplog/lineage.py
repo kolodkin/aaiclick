@@ -27,27 +27,17 @@ def _to_dict(kwargs_raw: Any) -> dict[str, str]:
     return dict(kwargs_raw)
 
 
-def _to_aai_ids_dict(raw: Any) -> dict[str, list[int]]:
-    """Normalize kwargs_aai_ids from ClickHouse Map(String, Array(UInt64)) column."""
-    if isinstance(raw, dict):
-        return {k: list(v) for k, v in raw.items()}
-    return {k: list(v) for k, v in raw}
-
-
 def _row_to_oplog_node(row: tuple) -> OplogNode:
     """Build an OplogNode from a raw operation_log row tuple.
 
-    The query must select these 8 columns in order:
-    result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
-    sql_template, task_id, job_id.
+    The query must select these 6 columns in order:
+    result_table, operation, kwargs, sql_template, task_id, job_id.
     """
-    (result_table, operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw, sql_template, task_id, job_id) = row
+    (result_table, operation, kwargs_raw, sql_template, task_id, job_id) = row
     return OplogNode(
         table=result_table,
         operation=operation,
         kwargs=_to_dict(kwargs_raw),
-        kwargs_aai_ids=_to_aai_ids_dict(kwargs_aai_ids_raw),
-        result_aai_ids=list(result_aai_ids_raw),
         sql_template=sql_template,
         task_id=task_id,
         job_id=job_id,
@@ -59,8 +49,6 @@ class OplogNode:
     table: str
     operation: str
     kwargs: dict[str, str]
-    kwargs_aai_ids: dict[str, list[int]]
-    result_aai_ids: list[int]
     sql_template: str | None
     task_id: int | None
     job_id: int | None
@@ -211,7 +199,7 @@ async def backward_oplog(
     table_escaped = escape_sql_string(table)
     result = await ch_client.query(f"""
         WITH RECURSIVE upstream AS (
-            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+            SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id,
                    0 AS depth, [result_table] AS visited
             FROM operation_log
@@ -219,8 +207,8 @@ async def backward_oplog(
 
             UNION ALL
 
-            SELECT ol.result_table, ol.operation, ol.kwargs, ol.kwargs_aai_ids,
-                   ol.result_aai_ids, ol.sql_template, ol.task_id, ol.job_id,
+            SELECT ol.result_table, ol.operation, ol.kwargs,
+                   ol.sql_template, ol.task_id, ol.job_id,
                    u.depth + 1, arrayConcat(u.visited, [ol.result_table])
             FROM upstream u
             INNER JOIN operation_log ol
@@ -228,7 +216,7 @@ async def backward_oplog(
             WHERE u.depth < {max_depth}
               AND NOT has(u.visited, ol.result_table)
         )
-        SELECT DISTINCT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+        SELECT DISTINCT result_table, operation, kwargs,
                sql_template, task_id, job_id
         FROM upstream
     """)
@@ -247,7 +235,7 @@ async def forward_oplog(
 
     table_escaped = escape_sql_string(table)
     seed = await ch_client.query(f"""
-        SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+        SELECT result_table, operation, kwargs,
                sql_template, task_id, job_id
         FROM operation_log
         WHERE result_table = '{table_escaped}'
@@ -265,7 +253,7 @@ async def forward_oplog(
 
         placeholders = ", ".join(f"'{t}'" for t in frontier)
         result = await ch_client.query(f"""
-            SELECT result_table, operation, kwargs, kwargs_aai_ids, result_aai_ids,
+            SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id
             FROM operation_log
             WHERE arrayExists(v -> v IN ({placeholders}), mapValues(kwargs))
@@ -305,134 +293,3 @@ async def oplog_subgraph(
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)
-
-
-@dataclass
-class RowLineageStep:
-    """One hop in a row-level lineage trace.
-
-    ``source_aai_ids`` maps each input role to the aligned source row id
-    for the current position, so callers can walk backward one role at
-    a time or render the full graph.
-    """
-
-    table: str
-    aai_id: int
-    operation: str
-    source_aai_ids: dict[str, int]
-
-
-@dataclass
-class RowUpstream:
-    """Producing-operation record for one ``(table, aai_id)`` pair.
-
-    Returned by :func:`fetch_producing_op`. ``sources`` maps each input
-    role to the ``(source_table, source_aai_id)`` that fed this target
-    at that role — already positionally resolved, so consumers never
-    touch raw ``result_aai_ids`` / ``kwargs_aai_ids`` arrays.
-    """
-
-    operation: str
-    sources: dict[str, tuple[str, int]]
-
-
-async def fetch_producing_op(
-    table: str,
-    aai_id: int,
-    *,
-    job_id: int | None = None,
-) -> RowUpstream | None:
-    """Return the oplog row that produced ``(table, aai_id)``, or ``None``.
-
-    When ``job_id`` is provided the lookup is scoped to that job so the
-    walk doesn't cross job boundaries — strongly recommended for
-    persistent tables that may have been re-produced by multiple jobs
-    (replays / repeated runs with the same persistent name). Without
-    ``job_id`` the most recent matching oplog row wins, which is fine
-    for fresh ephemeral ``t_*`` tables whose snowflake ids make
-    collisions impossible.
-
-    Returns ``None`` for rows whose lineage arrays are empty (the
-    operation ran under ``PreservationMode.NONE`` / ``FULL``).
-    """
-    ch_client = get_ch_client()
-    job_filter = f"AND job_id = {job_id}" if job_id is not None else ""
-    result = await ch_client.query(
-        f"SELECT operation, kwargs, kwargs_aai_ids, result_aai_ids "
-        f"FROM operation_log "
-        f"WHERE result_table = '{escape_sql_string(table)}' "
-        f"  AND has(result_aai_ids, {aai_id}) {job_filter} "
-        f"ORDER BY created_at DESC LIMIT 1"
-    )
-    if not result.result_rows:
-        return None
-    operation, kwargs_raw, kwargs_aai_ids_raw, result_aai_ids_raw = result.result_rows[0]
-    result_aai_ids = list(result_aai_ids_raw)
-    try:
-        position = result_aai_ids.index(aai_id)
-    except ValueError:
-        return None
-
-    kwargs = _to_dict(kwargs_raw)
-    kwargs_aai_ids = _to_aai_ids_dict(kwargs_aai_ids_raw)
-    sources: dict[str, tuple[str, int]] = {}
-    for role, ids in kwargs_aai_ids.items():
-        if position >= len(ids):
-            continue
-        source_table = kwargs.get(role)
-        if not source_table:
-            continue
-        sources[role] = (source_table, ids[position])
-
-    return RowUpstream(operation=operation, sources=sources)
-
-
-async def backward_oplog_row(
-    table: str,
-    aai_id: int,
-    max_depth: int = 10,
-    *,
-    job_id: int | None = None,
-) -> list[RowLineageStep]:
-    """Trace a single ``aai_id`` backward through the oplog.
-
-    Reads the per-operation ``kwargs_aai_ids`` / ``result_aai_ids`` that
-    are populated under ``PreservationMode.STRATEGY``. Steps are ordered
-    most-recent-first. Returns ``[]`` when no oplog row carries this id
-    (common under ``NONE`` / ``FULL`` mode).
-
-    When ``job_id`` is provided, every hop's oplog lookup is scoped to
-    that job so the walk cannot cross job boundaries. Pass it when the
-    starting table is persistent (``p_*``) and may have been re-produced
-    by other jobs; omit it for freshly-generated ephemeral tables whose
-    snowflake ids guarantee uniqueness.
-    """
-    steps: list[RowLineageStep] = []
-    current_table = table
-    current_id = aai_id
-
-    for _ in range(max_depth):
-        upstream = await fetch_producing_op(
-            current_table,
-            current_id,
-            job_id=job_id,
-        )
-        if upstream is None:
-            break
-
-        source_aai_ids = {role: aid for role, (_, aid) in upstream.sources.items()}
-        steps.append(
-            RowLineageStep(
-                table=current_table,
-                aai_id=current_id,
-                operation=upstream.operation,
-                source_aai_ids=source_aai_ids,
-            )
-        )
-
-        if not upstream.sources:
-            break
-        first_role = next(iter(upstream.sources))
-        current_table, current_id = upstream.sources[first_role]
-
-    return steps

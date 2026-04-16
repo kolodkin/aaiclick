@@ -48,5 +48,4 @@ from .jobs import (
     resolve_job,
 )
 from .models import JobStatus, PreservationMode, TaskStatus
-from .replay import replay_job
 # fmt: on

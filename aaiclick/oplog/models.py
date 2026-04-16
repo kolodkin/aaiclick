@@ -12,8 +12,6 @@ CREATE TABLE IF NOT EXISTS operation_log (
     result_table    String,
     operation       String,
     kwargs          Map(String, String),
-    kwargs_aai_ids  Map(String, Array(UInt64)),
-    result_aai_ids  Array(UInt64),
     sql_template    Nullable(String),
     task_id         Nullable(UInt64),
     job_id          Nullable(UInt64),
@@ -23,9 +21,9 @@ CREATE TABLE IF NOT EXISTS operation_log (
 ORDER BY (result_table, created_at)
 """
 # result_table leads the sort key so every oplog consumer
-# (backward_oplog, fetch_producing_op, _pick_inherited_driver, ...)
-# gets skip-index-friendly lookups; created_at breaks ties within a
-# table so "most recent row" stays a tail scan.
+# (backward_oplog, ...) gets skip-index-friendly lookups;
+# created_at breaks ties within a table so "most recent row"
+# stays a tail scan.
 
 TABLE_REGISTRY_DDL = """
 CREATE TABLE IF NOT EXISTS table_registry (
@@ -43,8 +41,6 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "result_table": "String",
     "operation": "String",
     "kwargs": "Map(String, String)",
-    "kwargs_aai_ids": "Map(String, Array(UInt64))",
-    "result_aai_ids": "Array(UInt64)",
     "sql_template": "Nullable(String)",
     "task_id": "Nullable(UInt64)",
     "job_id": "Nullable(UInt64)",

@@ -148,15 +148,14 @@ See [Orchestration documentation](orchestration.md) — "Distributed Object Life
 
 **Implementation**: `aaiclick/orchestration/models.py` — see `PreservationMode`
 
-Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in all three modes — only the cleanup step differs.
+Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in both modes — only the cleanup step differs.
 
 | Mode         | What survives after job              | Use case                       |
 |--------------|--------------------------------------|--------------------------------|
 | `NONE`       | Persistent tables only (default)     | Production runs (as today)     |
 | `FULL`       | All tables until the job TTL expires | Development / debugging        |
-| `STRATEGY`   | Persistent + rows matched by `sampling_strategy` | Lineage replay (Phase 2+3) |
 
-The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`, `STRATEGY`) and overridden per submission:
+The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`) and overridden per submission:
 
 ```python
 from aaiclick.orchestration import PreservationMode
@@ -169,12 +168,3 @@ await run_job(
 )
 ```
 
-The `STRATEGY` mode additionally requires a `sampling_strategy: dict[str, str]` mapping table names to WHERE clauses — see `docs/oplog.md` for the query semantics.
-
-## Input Tasks
-
-**Implementation**: `aaiclick/orchestration/lineage.py` — see `is_input_task()`
-
-A task is an *input task* when its result is a **persistent Object** — i.e. the serialized result is `{"object_type": "object", "table": "p_...", "persistent": true}`. Input tasks are the boundary between external data and the rest of the pipeline: they fetch raw data into a `p_*` table that survives job cleanup.
-
-This classification is what makes Phase 3b replay (`replay_job()`) cheap: cloned task graphs reuse input-task tables in place rather than re-running the fetch. See [Orchestration — Replay](orchestration.md#replay) for how the replay builder consumes this signal.

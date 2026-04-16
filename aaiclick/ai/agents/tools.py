@@ -10,7 +10,7 @@ from typing import Any
 
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string
-from aaiclick.oplog.lineage import OplogNode, backward_oplog, backward_oplog_row
+from aaiclick.oplog.lineage import OplogNode, backward_oplog
 
 logger = logging.getLogger(__name__)
 
@@ -74,29 +74,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "depth": {"type": "integer", "description": "Max traversal depth (default 10)"},
                 },
                 "required": ["table"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "trace_row",
-            "description": (
-                "Trace one row backward through the oplog, returning the "
-                "operation and positionally-aligned source aai_id at each "
-                "step. Only returns data when the job ran under "
-                "PreservationMode.STRATEGY (otherwise the lineage id "
-                "arrays are empty and the trace is empty). Start from "
-                "the target table with a specific aai_id you care about."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table": {"type": "string", "description": "Table the row currently lives in"},
-                    "aai_id": {"type": "integer", "description": "The aai_id of the row to trace"},
-                    "depth": {"type": "integer", "description": "Max traversal depth (default 10)"},
-                },
-                "required": ["table", "aai_id"],
             },
         },
     },
@@ -213,21 +190,6 @@ async def trace_upstream(table: str, depth: int = 10) -> str:
     return "\n".join(lines)
 
 
-async def trace_row(table: str, aai_id: int, depth: int = 10) -> str:
-    """Trace one aai_id backward through the oplog, returning formatted text."""
-    steps = await backward_oplog_row(table, aai_id, max_depth=depth)
-    if not steps:
-        return (
-            f"(no row-level lineage for {table}.aai_id={aai_id} — "
-            f"run the job under PreservationMode.STRATEGY to populate the trace)"
-        )
-    lines = []
-    for step in steps:
-        sources = ", ".join(f"{role}={src_id}" for role, src_id in step.source_aai_ids.items())
-        lines.append(f"{step.table}.aai_id={step.aai_id}  <- {step.operation}({sources})")
-    return "\n".join(lines)
-
-
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
     """Dispatch a tool call by name to the appropriate function.
 
@@ -250,12 +212,6 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
             return await get_column_stats(arguments["table"])
         elif name == "trace_upstream":
             return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
-        elif name == "trace_row":
-            return await trace_row(
-                arguments["table"],
-                arguments["aai_id"],
-                depth=arguments.get("depth", 10),
-            )
         else:
             return f"(unknown tool: {name})"
     except KeyError as exc:

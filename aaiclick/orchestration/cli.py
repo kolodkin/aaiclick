@@ -7,7 +7,6 @@ the CLI entry point stays thin.
 from __future__ import annotations
 
 import asyncio
-import json
 import signal
 from typing import Any
 
@@ -25,21 +24,6 @@ from .registered_jobs import (
     register_job,
     run_job,
 )
-from .replay import replay_job
-
-
-def _parse_sampling_strategy(json_str: str | None) -> dict[str, str] | None:
-    """Decode a ``--sampling-strategy`` CLI flag into a dict.
-
-    Returns ``None`` when the flag was omitted; raises with a clear
-    message when the JSON is well-formed but not a dict.
-    """
-    if not json_str:
-        return None
-    strategy = json.loads(json_str)
-    if not isinstance(strategy, dict):
-        raise ValueError("--sampling-strategy must decode to a JSON object")
-    return strategy
 
 
 async def show_workers() -> None:
@@ -242,9 +226,10 @@ async def register_job_cmd(
     schedule: str | None = None,
     kwargs_json: str | None = None,
     preservation_mode: str | None = None,
-    sampling_strategy_json: str | None = None,
 ) -> None:
     """Register a job in the catalog."""
+    import json
+
     resolved_name = name or entrypoint.rsplit(".", 1)[-1]
     default_kwargs: dict[str, Any] | None = None
     if kwargs_json:
@@ -254,8 +239,6 @@ async def register_job_cmd(
     if preservation_mode is not None:
         mode = PreservationMode(preservation_mode.upper())
 
-    strategy = _parse_sampling_strategy(sampling_strategy_json)
-
     async with orch_context(with_ch=False):
         job = await register_job(
             name=resolved_name,
@@ -263,15 +246,12 @@ async def register_job_cmd(
             schedule=schedule,
             default_kwargs=default_kwargs,
             preservation_mode=mode,
-            sampling_strategy=strategy,
         )
     print(f"Registered job '{job.name}' (id={job.id})")
     if job.schedule:
         print(f"  Schedule:         {job.schedule}")
     if job.preservation_mode:
         print(f"  Preservation:     {job.preservation_mode.value}")
-    if job.sampling_strategy:
-        print(f"  Sampling strategy: {job.sampling_strategy}")
     if job.next_run_at:
         print(f"  Next run at:      {job.next_run_at}")
 
@@ -281,9 +261,10 @@ async def run_job_cmd(
     *,
     kwargs_json: str | None = None,
     preservation_mode: str | None = None,
-    sampling_strategy_json: str | None = None,
 ) -> None:
     """Run a job immediately."""
+    import json
+
     kwargs: dict[str, Any] | None = None
     if kwargs_json:
         kwargs = json.loads(kwargs_json)
@@ -291,8 +272,6 @@ async def run_job_cmd(
     mode: PreservationMode | None = None
     if preservation_mode is not None:
         mode = PreservationMode(preservation_mode.upper())
-
-    strategy = _parse_sampling_strategy(sampling_strategy_json)
 
     # If it looks like a dotted path, use as entrypoint; otherwise treat as name
     if "." in name_or_entrypoint:
@@ -308,39 +287,8 @@ async def run_job_cmd(
             entrypoint=entrypoint,
             kwargs=kwargs,
             preservation_mode=mode,
-            sampling_strategy=strategy,
         )
     print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
-
-
-async def replay_job_cmd(
-    job_ref: str,
-    *,
-    sampling_strategy_json: str,
-    name: str | None = None,
-) -> None:
-    """Replay a completed job with a sampling strategy.
-
-    Clones the original job's task graph, skips input tasks (reusing
-    their persistent outputs in place), and submits the clone as a
-    new job running under ``PreservationMode.STRATEGY``.
-    """
-    strategy = _parse_sampling_strategy(sampling_strategy_json)
-    if strategy is None:
-        raise ValueError("--sampling-strategy is required for replay")
-
-    async with orch_context(with_ch=False):
-        job = await resolve_job(job_ref)
-        if job is None:
-            print(f"Job not found: {job_ref}")
-            return
-        result = await replay_job(
-            job.id,
-            sampling_strategy=strategy,
-            name=name,
-        )
-    replayed = result.job
-    print(f"Replayed job {job.id} as new job '{replayed.name}' (id={replayed.id})")
 
 
 async def enable_job_cmd(name: str) -> None:
