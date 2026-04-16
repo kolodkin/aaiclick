@@ -72,13 +72,29 @@ _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"DETACH|OPTIMIZE|GRANT|REVOKE|USE|SET|SYSTEM|KILL|REPLACE|EXCHANGE)\b",
     re.IGNORECASE,
 )
+# Any LIMIT anywhere (including in a subquery) suppresses outer-LIMIT
+# injection. max_result_rows still caps the overall result, so the
+# worst case is an unbounded outer query truncated at the ceiling.
 _LIMIT_RE = re.compile(r"\bLIMIT\b\s+\d+", re.IGNORECASE)
 _COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _SEMICOLON_RE = re.compile(r";\s*\S")
+# Single-quoted SQL string literal with '' or \' escape handling.
+_STRING_LITERAL_RE = re.compile(r"'(?:\\.|''|[^'\\])*'", re.DOTALL)
 
 
 def _strip_comments(sql: str) -> str:
     return _COMMENT_RE.sub(" ", sql)
+
+
+def _strip_literals(sql: str) -> str:
+    """Replace single-quoted string literals with empty ``''`` placeholders.
+
+    Used before keyword / semicolon / scope / LIMIT regex passes so that
+    a legitimate ``WHERE event = 'INSERT'`` doesn't trip the forbidden-
+    keyword guard, and ``WHERE name = 't_12345678901234567890'`` doesn't
+    trip the scope check.
+    """
+    return _STRING_LITERAL_RE.sub("''", sql)
 
 
 def _target_tables(graph: OplogGraph) -> set[str]:
@@ -156,20 +172,21 @@ class LineageToolbox:
           accidental scan can't tie up the cluster
         """
         stripped = _strip_comments(sql).strip()
-        if _SEMICOLON_RE.search(stripped):
+        scan = _strip_literals(stripped)
+        if _SEMICOLON_RE.search(scan):
             return ToolError("not_select", "Only a single SELECT statement is allowed.")
-        if not _STATEMENT_START_RE.match(stripped):
+        if not _STATEMENT_START_RE.match(scan):
             return ToolError(
                 "not_select",
                 "query_table accepts only SELECT (or WITH ... SELECT) statements.",
             )
-        if _FORBIDDEN_KEYWORDS_RE.search(stripped):
+        if _FORBIDDEN_KEYWORDS_RE.search(scan):
             return ToolError(
                 "not_select",
                 "query_table rejects DDL/DML keywords; only SELECT is permitted.",
             )
 
-        referenced = set(_TABLE_REF_RE.findall(stripped))
+        referenced = set(_TABLE_REF_RE.findall(scan))
         unknown = referenced - self._tables
         if unknown:
             sample = ", ".join(sorted(unknown)[:3])
@@ -180,7 +197,7 @@ class LineageToolbox:
             )
 
         row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
-        effective_sql = sql if _LIMIT_RE.search(stripped) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
+        effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
 
         ch_client = get_ch_client()
         result = await ch_client.query(
@@ -216,7 +233,7 @@ class LineageToolbox:
             nodes.append(
                 GraphNode(
                     table=table,
-                    kind=self._kinds.get(table, "intermediate"),
+                    kind=self._kinds[table],
                     operation=operation,
                     live=liveness.get(table, False),
                     task_id=task_id,

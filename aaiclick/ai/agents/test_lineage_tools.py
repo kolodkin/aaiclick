@@ -187,6 +187,73 @@ async def test_get_schema_rejects_out_of_scope():
     assert err.kind == "out_of_scope"
 
 
+async def test_get_schema_not_live_when_describe_fails():
+    """DESCRIBE TABLE raising (e.g., table dropped mid-session) → ToolError('not_live')."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(side_effect=RuntimeError("UNKNOWN_TABLE"))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        err = await toolbox.get_schema(TARGET_TABLE)
+
+    assert isinstance(err, ToolError)
+    assert err.kind == "not_live"
+    assert TARGET_TABLE in err.message
+
+
+async def test_query_table_accepts_persistent_input():
+    """A SELECT against a p_* persistent input must pass the scope check."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(1,)], ["id"]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(f"SELECT id FROM {PERSISTENT_INPUT}")
+
+    assert isinstance(result, QueryResult)
+
+
+async def test_query_table_allows_keyword_in_string_literal():
+    """A keyword inside a single-quoted literal (e.g. 'INSERT') must not be rejected."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(
+            f"SELECT id FROM {TARGET_TABLE} WHERE event_type = 'INSERT'"
+        )
+
+    assert isinstance(result, QueryResult)
+
+
+async def test_query_table_allows_semicolon_in_string_literal():
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(
+            f"SELECT id FROM {TARGET_TABLE} WHERE name = 'a;b'"
+        )
+
+    assert isinstance(result, QueryResult)
+
+
+async def test_query_table_scope_check_ignores_table_id_in_string_literal():
+    """A table-id-shaped token inside a literal must not trigger out_of_scope."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(
+            f"SELECT id FROM {TARGET_TABLE} WHERE ref = 't_99999999999999999999'"
+        )
+
+    assert isinstance(result, QueryResult)
+
+
 @pytest.mark.parametrize(
     "sql",
     [
