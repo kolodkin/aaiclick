@@ -85,13 +85,23 @@ def get_ai_provider() -> AIProvider:
 ```python
 # aaiclick/ai/agents/lineage_agent.py
 
-async def explain_lineage(target_table: str, question: str | None = None) -> str:
+async def explain_lineage(
+    target_table: str,
+    question: str | None = None,
+    graph: OplogGraph | None = None,
+) -> str:
     """Trace and explain how target_table was produced.
 
-    Calls backward_oplog(), samples each node, formats context for LLM.
-    Can be called standalone or as a @task in a job.
+    Single-shot LLM call. Context is purely structural — the operation
+    graph, rendered SQL templates, and table schemas. No row samples:
+    partial data invited the model to invent narratives about values
+    it couldn't see. For value-level questions use ``debug_result()``
+    instead, which hands the agent live-query tools.
     """
 ```
+
+Use `explain_lineage()` for *"how was this produced?"* (structure).
+Use `debug_result()` for *"why does this row look wrong?"* (values).
 
 ## Debug Agent
 
@@ -124,8 +134,10 @@ once for a final explanation.
 
 Two toolsets live under `aaiclick/ai/agents/`:
 
-- `tools.py` — generic table-inspection tools used by `explain_lineage()`.
+- `tools.py` — generic table-inspection tools (used by legacy callers).
 - `lineage_tools.py` — Tier 1 graph-scoped tools used by `debug_result()`.
+  `explain_lineage()` does not invoke tools; it passes structural context
+  to the LLM in a single shot.
 
 ### Lineage Tools (Tier 1)
 
