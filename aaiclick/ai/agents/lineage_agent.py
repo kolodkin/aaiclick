@@ -4,10 +4,8 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
-import asyncio
-
 from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
-from aaiclick.ai.agents.tools import get_schemas_for_nodes, sample_table
+from aaiclick.ai.agents.tools import get_schemas_for_nodes
 from aaiclick.ai.config import get_ai_provider
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
@@ -28,9 +26,12 @@ async def explain_lineage(
 ) -> str:
     """Trace and explain how target_table was produced.
 
-    Calls backward_oplog(), samples each node, formats context for LLM.
-    Post-processes the response to replace raw table IDs with labels.
-    Pass `graph` to reuse a pre-built lineage graph and skip the traversal.
+    Context given to the LLM is purely structural: the operation graph, the
+    rendered SQL templates, and the table schemas. No row samples — they
+    invited the model to invent narratives about partial data.
+
+    For value-level questions use ``debug_result()``, which hands the agent
+    live-query tools.
     """
     if graph is None:
         graph = await oplog_subgraph(target_table, direction="backward")
@@ -40,18 +41,6 @@ async def explain_lineage(
     schemas = await get_schemas_for_nodes(graph.nodes)
     if schemas:
         context += "\n\n" + schemas
-
-    samples = await asyncio.gather(
-        *(sample_table(node.table, limit=3) for node in graph.nodes),
-        return_exceptions=True,
-    )
-    parts = [
-        f"\n\nSample rows from `{node.table}`:\n{sample}"
-        for node, sample in zip(graph.nodes, samples, strict=False)
-        if not isinstance(sample, Exception)
-    ]
-    if parts:
-        context += "".join(parts)
 
     prompt = question or f"Explain how the table `{target_table}` was produced."
     provider = get_ai_provider()

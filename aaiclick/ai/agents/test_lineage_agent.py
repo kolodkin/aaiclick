@@ -1,5 +1,5 @@
 """
-Tests for explain_lineage — mocks oplog_subgraph, sample_table, and AIProvider.
+Tests for explain_lineage — mocks oplog_subgraph, schema fetch, and AIProvider.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ async def test_explain_lineage_returns_string_and_calls_oplog_subgraph():
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=mock_subgraph),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="c1\nv1")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("Result")),
         patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
@@ -39,7 +38,7 @@ async def test_explain_lineage_returns_string_and_calls_oplog_subgraph():
 
 
 async def test_explain_lineage_context_and_custom_question():
-    """lineage graph is passed as context; custom question= overrides the default prompt."""
+    """Graph is passed as context; custom question= overrides the default prompt."""
     graph = _mock_graph(make_oplog_node("result", "add"))
     captured_context: list[str] = []
     captured_prompts: list[str] = []
@@ -54,7 +53,6 @@ async def test_explain_lineage_context_and_custom_question():
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
         patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
@@ -65,45 +63,26 @@ async def test_explain_lineage_context_and_custom_question():
     assert "Why is this table empty?" in captured_prompts[0]
 
 
-async def test_explain_lineage_sample_error_does_not_raise():
-    """sample_table() errors are swallowed so explain_lineage() still returns an answer."""
-    graph = _mock_graph(make_oplog_node("result", "copy"))
+async def test_explain_lineage_context_excludes_row_samples():
+    """No row-sample text is injected — only graph structure + schemas."""
+    graph = _mock_graph(make_oplog_node("result", "add", {"source_0": "a"}))
+    captured_context: list[str] = []
 
-    async def failing_sample(*args, **kwargs):
-        raise RuntimeError("Table not found")
+    async def mock_query(prompt, context="", system=""):
+        captured_context.append(context)
+        return "ok"
 
-    with (
-        patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=failing_sample),
-        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("ok")),
-        patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
-    ):
-        result = await explain_lineage("result")
-
-    assert result == "ok"
-
-
-async def test_explain_lineage_samples_each_node():
-    """sample_table() is called once per unique node in the lineage graph."""
-    graph = _mock_graph(
-        make_oplog_node("result", "concat", {"source_0": "a", "source_1": "b"}),
-        make_oplog_node("a", "create_from_value"),
-    )
-    sampled_tables: list[str] = []
-
-    async def mock_sample(table, limit=3):
-        sampled_tables.append(table)
-        return f"sample_{table}"
+    mock_provider = MagicMock()
+    mock_provider.query = mock_query
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=mock_sample),
-        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider()),
+        patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
         patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
         await explain_lineage("result")
 
-    assert set(sampled_tables) == {"result", "a"}
+    assert "Sample rows" not in captured_context[0]
 
 
 async def test_explain_lineage_with_prebuilt_graph_skips_subgraph():
@@ -113,7 +92,6 @@ async def test_explain_lineage_with_prebuilt_graph_skips_subgraph():
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=mock_subgraph),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=_mock_provider("ok")),
         patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value="")),
     ):
@@ -138,7 +116,6 @@ async def test_explain_lineage_context_includes_schemas():
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.lineage_agent.sample_table", new=AsyncMock(return_value="sample")),
         patch("aaiclick.ai.agents.lineage_agent.get_ai_provider", return_value=mock_provider),
         patch("aaiclick.ai.agents.lineage_agent.get_schemas_for_nodes", new=AsyncMock(return_value=schema_text)),
     ):
