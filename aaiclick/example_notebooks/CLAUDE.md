@@ -1,50 +1,39 @@
 # Example Notebooks Guidelines
 
-**Example notebooks target Google Colab and MUST use the aaiclick API exclusively** — same rules as `example_projects/CLAUDE.md` (no raw `ch.command()`/`ch.query()`; ask before adding raw SQL).
+Colab-targeted examples. **Must use the aaiclick API exclusively** — same rules as `example_projects/CLAUDE.md`.
 
-## Project Structure
-
-Each example is a standalone directory containing a single `.ipynb` with all logic inlined:
+## Structure
 
 ```
 example_notebooks/<name>/
-├── <name>.ipynb       # All code in cells — no sibling .py modules
-└── README.md          # Title, description, Colab badge (see README Convention)
+├── <name>.ipynb       # All code inline — Colab only opens this file
+└── README.md          # Setext title, one paragraph, Colab badge
 ```
 
-Colab opens a single `.ipynb` — it does **not** fetch sibling files. Inline the `@task`/`@job` definitions, report rendering, and `main()` directly in cells. If the same logic exists as a runnable package under `example_projects/<name>/`, the notebook is a Colab mirror, not a symlink.
+When a mirror exists under `example_projects/<name>/`, the notebook copies the logic inline — Colab doesn't fetch sibling `.py` files.
 
-## Notebook Layout
+## Notebook Cells
 
-Cells, in order:
+See `basic_lineage/basic_lineage.ipynb` for the canonical layout:
 
-1. **Title markdown** — `# <Name>` plus one paragraph describing the pipeline.
-2. **Setup cell** (single code cell) — combines everything a fresh Colab runtime needs:
-   - `!pip install 'aaiclick[ai]'`
-   - `!python -m aaiclick setup` (creates SQLite tables + chdb data dir)
-   - Optional provider bootstrap (e.g. Ollama: `apt-get install zstd`, install script, `nohup ollama serve &`, `ollama pull <model>`)
-   - `logging.basicConfig(level=logging.INFO, ...)` — aaiclick doesn't configure logging itself
-   - `os.environ.setdefault("AAICLICK_AI_MODEL", ...)` with commented-out hosted-provider alternatives (Gemini / OpenAI / Anthropic) and a `google.colab.userdata` pointer for secrets
-3. **Imports cell** — all `from aaiclick...` imports grouped at the top (after setup runs).
-4. **Task / job / report cells** — inlined from the mirror project; split by logical section with markdown headings.
-5. **`async def main()` cell** — same body as `example_projects/<name>/__init__.py::main`.
-6. **Run cell** — a single `await main()`. Do **not** use `asyncio.run(main())`; Colab/Jupyter already have a running event loop.
+1. Title markdown
+2. **Setup cell** — `!pip install 'aaiclick[ai]'`, `!python -m aaiclick setup`, optional Ollama bootstrap (`apt-get install zstd`, installer, `nohup ollama serve &`, `ollama pull <model>`), `logging.basicConfig(level=INFO)`, `os.environ.setdefault("AAICLICK_AI_MODEL", ...)` with commented hosted-provider alternatives (Gemini / OpenAI / Anthropic)
+3. Imports
+4. `@task` / `@job` / report functions
+5. `async def main()` (mirrors `example_projects/<name>/__init__.py::main`)
+6. `await main()` — never `asyncio.run(main())` (Jupyter/Colab already runs a loop)
 
-## README Convention
+`setdefault` keeps the cell idempotent across Colab and local Jupyter.
 
-Same setext-title format as `example_projects`, plus a Colab badge pointing at `main`:
+## README
 
 ```markdown
 Project Title
 ---
 
-One-paragraph description (what the pipeline does, which aaiclick features it demonstrates).
+One paragraph — what it does, which aaiclick features it demonstrates.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kolodkin/aaiclick/blob/main/aaiclick/example_notebooks/<name>/<name>.ipynb)
 ```
 
-The badge URL targets `main`, so it only resolves after the branch is merged. On feature branches, share the equivalent `blob/<branch>/...` URL manually.
-
-## Running Locally
-
-A notebook opened in Jupyter still works — the setup cell is idempotent and `setdefault` leaves a pre-set `AAICLICK_AI_MODEL` alone. Colab-specific bits (`google.colab.userdata`) stay commented out so local runs don't break on missing imports.
+Badge URL targets `main` — share `blob/<branch>/...` on feature branches.
