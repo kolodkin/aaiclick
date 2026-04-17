@@ -92,9 +92,7 @@ async def test_debug_result_invokes_lineage_tool():
         result = await debug_result(TARGET, "Why so few rows?")
 
     assert "3 rows" in result
-    toolbox.dispatch_tool.assert_awaited_once_with(
-        "query_table", {"sql": f"SELECT count() FROM {TARGET}"}
-    )
+    toolbox.dispatch_tool.assert_awaited_once_with("query_table", {"sql": f"SELECT count() FROM {TARGET}"})
 
 
 async def test_debug_result_dispatches_tool_with_parsed_arguments():
@@ -176,6 +174,24 @@ async def test_debug_result_respects_max_iterations():
     assert result == "forced-final"
     assert provider.complete.await_count == max_iterations + 1
     assert toolbox.dispatch_tool.await_count == max_iterations
+
+
+async def test_debug_result_provider_failure_returns_graceful_message():
+    """A provider exception (e.g. LLM timeout) is caught and surfaced as a string
+    instead of crashing the caller."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    provider = MagicMock()
+    provider.complete = AsyncMock(side_effect=RuntimeError("upstream timeout"))
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=_mock_toolbox()),
+    ):
+        result = await debug_result(TARGET, "Why?")
+
+    assert "did not converge" in result
+    assert "upstream timeout" in result
 
 
 async def test_debug_result_with_prebuilt_graph_skips_subgraph():

@@ -307,8 +307,7 @@ def _format_tool_result(result: Any) -> str:
         lines = []
         for n in result:
             lines.append(
-                f"- {n.table} [{n.kind}] operation={n.operation} live={n.live} "
-                f"task_id={n.task_id} job_id={n.job_id}"
+                f"- {n.table} [{n.kind}] operation={n.operation} live={n.live} task_id={n.task_id} job_id={n.job_id}"
             )
         return "\n".join(lines) if lines else "(no nodes)"
     if isinstance(result, str):
@@ -351,8 +350,7 @@ LINEAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "get_schema",
             "description": (
-                "Return column names and types for a table in the graph. "
-                "Rejects tables outside the graph."
+                "Return column names and types for a table in the graph. Rejects tables outside the graph."
             ),
             "parameters": {
                 "type": "object",

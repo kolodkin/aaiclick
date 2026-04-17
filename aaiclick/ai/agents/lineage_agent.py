@@ -46,4 +46,3 @@ async def explain_lineage(
     provider = get_ai_provider()
     response = await provider.query(prompt, context=context, system=_SYSTEM_PROMPT)
     return OplogGraph.replace_labels(response, labels)
-

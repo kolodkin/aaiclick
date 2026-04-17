@@ -46,14 +46,10 @@ async def debug_result(
 
     context = graph.to_prompt_context()
     nodes = await toolbox.list_graph_nodes()
-    liveness_lines = [
-        f"- {n.table} [{n.kind}] live={n.live}" for n in nodes
-    ]
+    liveness_lines = [f"- {n.table} [{n.kind}] live={n.live}" for n in nodes]
     context += "\n\n# Graph Node Liveness\n" + "\n".join(liveness_lines)
 
-    user_content = (
-        f"Context:\n{context}\n\nTarget table: `{target_table}`\n\nQuestion: {question}"
-    )
+    user_content = f"Context:\n{context}\n\nTarget table: `{target_table}`\n\nQuestion: {question}"
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": LINEAGE_TIER1_SYSTEM_PROMPT},
@@ -61,50 +57,54 @@ async def debug_result(
     ]
 
     provider = get_ai_provider()
-    for _ in range(max_iterations):
-        response = await provider.complete(messages, tools=LINEAGE_TOOL_DEFINITIONS)
-        choice = response.choices[0]
-        message = choice.message
+    try:
+        for _ in range(max_iterations):
+            response = await provider.complete(messages, tools=LINEAGE_TOOL_DEFINITIONS)
+            choice = response.choices[0]
+            message = choice.message
 
-        if choice.finish_reason != "tool_calls" or not message.tool_calls:
-            return OplogGraph.replace_labels(message.content or "", labels)
+            if choice.finish_reason != "tool_calls" or not message.tool_calls:
+                return OplogGraph.replace_labels(message.content or "", labels)
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": message.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in message.tool_calls
-                ],
-            }
-        )
-
-        tool_results = await asyncio.gather(
-            *(
-                toolbox.dispatch_tool(tc.function.name, _parse_arguments(tc.function.arguments))
-                for tc in message.tool_calls
-            )
-        )
-        for tc, result in zip(message.tool_calls, tool_results, strict=False):
             messages.append(
                 {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in message.tool_calls
+                    ],
                 }
             )
 
-    messages.append({"role": "user", "content": "Please provide your final answer."})
-    response = await provider.complete(messages)
-    return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
+            tool_results = await asyncio.gather(
+                *(
+                    toolbox.dispatch_tool(tc.function.name, _parse_arguments(tc.function.arguments))
+                    for tc in message.tool_calls
+                )
+            )
+            for tc, result in zip(message.tool_calls, tool_results, strict=False):
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    }
+                )
+
+        messages.append({"role": "user", "content": "Please provide your final answer."})
+        response = await provider.complete(messages)
+        return OplogGraph.replace_labels(response.choices[0].message.content or "", labels)
+    except Exception as exc:
+        logger.warning("debug_result provider call failed: %s", exc)
+        return f"(debug agent did not converge: {exc})"
 
 
 def _parse_arguments(raw: str | None) -> dict[str, Any]:
