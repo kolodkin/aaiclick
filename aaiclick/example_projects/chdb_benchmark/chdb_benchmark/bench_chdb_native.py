@@ -22,11 +22,7 @@ _session = None
 _sink_seq = 0
 
 _COLUMNS_DDL = (
-    "id Int64, "
-    "category LowCardinality(String), "
-    "subcategory LowCardinality(String), "
-    "amount Float64, "
-    "quantity Int64"
+    "id Int64, category LowCardinality(String), subcategory LowCardinality(String), amount Float64, quantity Int64"
 )
 
 
@@ -80,23 +76,14 @@ BENCHMARKS = {
         _COLUMNS_DDL,
         "SELECT id, category, subcategory, amount, quantity FROM bench.data ORDER BY amount DESC",
     ),
-    "Count distinct": lambda s: s.query(
-        "SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)"
-    ),
-    "Group-by sum": lambda s: s.query(
-        "SELECT category, sum(amount) FROM bench.data GROUP BY category"
-    ),
-    "Group-by count": lambda s: s.query(
-        "SELECT category, count() FROM bench.data GROUP BY category"
-    ),
+    "Count distinct": lambda s: s.query("SELECT count() FROM (SELECT category FROM bench.data GROUP BY category)"),
+    "Group-by sum": lambda s: s.query("SELECT category, sum(amount) FROM bench.data GROUP BY category"),
+    "Group-by count": lambda s: s.query("SELECT category, count() FROM bench.data GROUP BY category"),
     "Group-by multi-agg": lambda s: s.query(
-        "SELECT category, sum(amount), avg(amount), min(amount), max(amount) "
-        "FROM bench.data GROUP BY category"
+        "SELECT category, sum(amount), avg(amount), min(amount), max(amount) FROM bench.data GROUP BY category"
     ),
     "Multi-key group-by": lambda s: s.query(
         "SELECT category, subcategory, sum(amount) FROM bench.data GROUP BY category, subcategory"
     ),
-    "High-card group-by": lambda s: s.query(
-        "SELECT subcategory, sum(amount) FROM bench.data GROUP BY subcategory"
-    ),
+    "High-card group-by": lambda s: s.query("SELECT subcategory, sum(amount) FROM bench.data GROUP BY subcategory"),
 }
