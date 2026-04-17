@@ -162,7 +162,7 @@ async def test_debug_result_respects_max_iterations():
     tool_resp = _tool_response("query_table", f'{{"sql": "SELECT 1 FROM {TARGET}"}}')
     final_resp = _stop_response("forced-final")
 
-    # 3 iterations of tool calls, then the forced final answer prompt uses a 4th response.
+    max_iterations = 3
     toolbox = _mock_toolbox(dispatch_side_effect=["r1", "r2", "r3"])
     provider = _mock_provider(tool_resp, tool_resp, tool_resp, final_resp)
 
@@ -171,11 +171,11 @@ async def test_debug_result_respects_max_iterations():
         patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
         patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
     ):
-        result = await debug_result(TARGET, "loop forever?", max_iterations=3)
+        result = await debug_result(TARGET, "loop forever?", max_iterations=max_iterations)
 
     assert result == "forced-final"
-    assert provider.complete.await_count == 4
-    assert toolbox.dispatch_tool.await_count == 3
+    assert provider.complete.await_count == max_iterations + 1
+    assert toolbox.dispatch_tool.await_count == max_iterations
 
 
 async def test_debug_result_with_prebuilt_graph_skips_subgraph():

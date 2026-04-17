@@ -160,6 +160,19 @@ async def test_list_graph_nodes_classifies_kinds_and_liveness():
     assert by_table[TARGET_TABLE].live is True
 
 
+async def test_list_graph_nodes_caches_liveness_within_session():
+    """Repeat calls reuse the cached liveness map — no second system.tables round-trip."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(TARGET_TABLE,)], ["name"]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        await toolbox.list_graph_nodes()
+        await toolbox.list_graph_nodes()
+
+    assert mock_client.query.await_count == 1
+
+
 async def test_get_schema_returns_columns():
     toolbox = LineageToolbox(_sample_graph())
     mock_client = MagicMock()

@@ -158,6 +158,7 @@ class LineageToolbox:
         self._tables = graph.tables
         self._kinds = _classify_nodes(graph)
         self._node_by_table = {n.table: n for n in graph.nodes}
+        self._liveness_cache: dict[str, bool] | None = None
 
     async def query_table(self, sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult | ToolError:
         """Execute a read-only SELECT against tables in the current graph.
@@ -220,8 +221,15 @@ class LineageToolbox:
         return node.sql_template or ""
 
     async def list_graph_nodes(self) -> list[GraphNode]:
-        """Every table in the graph with kind + liveness."""
-        liveness = await _liveness(self._tables)
+        """Every table in the graph with kind + liveness.
+
+        The liveness lookup is cached for the lifetime of the toolbox so the
+        agent can re-call the tool (or both seed-context and tool call) without
+        a second round-trip to ``system.tables``.
+        """
+        if self._liveness_cache is None:
+            self._liveness_cache = await _liveness(self._tables)
+        liveness = self._liveness_cache
         nodes: list[GraphNode] = []
         for table in sorted(self._tables):
             node = self._node_by_table.get(table)
@@ -260,20 +268,11 @@ class LineageToolbox:
         all returned as strings so one bad call doesn't abort the loop — the
         model can read the error and retry.
         """
+        handler = _TOOL_HANDLERS.get(name)
+        if handler is None:
+            return f"(unknown tool: {name})"
         try:
-            if name == "query_table":
-                result = await self.query_table(
-                    arguments["sql"],
-                    row_limit=arguments.get("row_limit", DEFAULT_ROW_LIMIT),
-                )
-            elif name == "get_op_sql":
-                result = await self.get_op_sql(arguments["table"])
-            elif name == "list_graph_nodes":
-                result = await self.list_graph_nodes()
-            elif name == "get_schema":
-                result = await self.get_schema(arguments["table"])
-            else:
-                return f"(unknown tool: {name})"
+            result = await handler(self, arguments)
         except KeyError as exc:
             return f"(error calling {name}: missing required argument {exc})"
         except Exception as exc:
@@ -282,10 +281,18 @@ class LineageToolbox:
         return _format_tool_result(result)
 
 
+_TOOL_HANDLERS: dict[str, Any] = {
+    "query_table": lambda tb, a: tb.query_table(a["sql"], row_limit=a.get("row_limit", DEFAULT_ROW_LIMIT)),
+    "get_op_sql": lambda tb, a: tb.get_op_sql(a["table"]),
+    "list_graph_nodes": lambda tb, _a: tb.list_graph_nodes(),
+    "get_schema": lambda tb, a: tb.get_schema(a["table"]),
+}
+
+
 def _format_tool_result(result: Any) -> str:
     """Serialize a tool's typed result as compact text for the LLM."""
     if isinstance(result, ToolError):
-        return f'{{"error": {{"kind": "{result.kind}", "message": {json.dumps(result.message)}}}}}'
+        return json.dumps({"error": {"kind": result.kind, "message": result.message}})
     if isinstance(result, QueryResult):
         if not result.rows and not result.columns:
             return "(empty result)"

@@ -22,14 +22,12 @@ from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_ITERATIONS = 10
-
 
 async def debug_result(
     target_table: str,
     question: str,
     graph: OplogGraph | None = None,
-    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    max_iterations: int = 10,
 ) -> str:
     """Tier 1 lineage debug loop.
 
