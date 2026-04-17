@@ -1,8 +1,13 @@
 """Benchmark runner — generates data, measures chdb vs aaiclick, prints report.
 
-Libraries run in strict serial order: all chdb benchmarks first (with its
-context), then all aaiclick benchmarks (with its context). Only one chdb
-engine is active at a time, avoiding compute resource competition.
+Each benchmark operation runs inside its own fresh context (chdb Session or
+aaiclick DataContext). This isolates memory measurements per operation and
+removes the need for manual result-table cleanup between benchmarks.
+
+Memory is tracked via process RSS (/proc/self/statm) rather than
+``tracemalloc`` so that native C++ allocations from chdb show up — using
+``tracemalloc`` would under-measure chdb while fully counting aaiclick's
+Python orchestration, producing an unfair comparison.
 
 Usage:
     python -m chdb_benchmark
@@ -11,31 +16,16 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import os
 import random
 import time
-import tracemalloc
 
 from . import bench_aaiclick, bench_chdb_native
+from .config import BENCH_NAMES, CATEGORIES, FILTER_THRESHOLD, NUM_ROWS, NUM_RUNS, SUBCATEGORIES
 from .report import console, print_results
 
-BENCH_NAMES = [
-    "Ingest",
-    "Column sum",
-    "Column multiply",
-    "Filter rows",
-    "Sort",
-    "Count distinct",
-    "Group-by sum",
-    "Group-by count",
-    "Group-by multi-agg",
-    "Multi-key group-by",
-    "High-card group-by",
-]
-
-CATEGORIES = [f"cat_{i}" for i in range(10)]
-SUBCATEGORIES = [f"sub_{i}" for i in range(1000)]
-FILTER_THRESHOLD = 500.0
+MODULES = [bench_chdb_native, bench_aaiclick]
 
 
 def generate_raw_data(num_rows):
@@ -49,19 +39,25 @@ def generate_raw_data(num_rows):
     }
 
 
+def _get_rss():
+    """Current RSS in bytes via /proc/self/statm (Linux)."""
+    with open("/proc/self/statm") as f:
+        pages = int(f.read().split()[1])
+    return pages * os.sysconf("SC_PAGE_SIZE")
+
+
 def measure_sync(fn, data, num_runs):
     fn(data)  # warmup
     times = []
     peak_mem = 0
     for _ in range(num_runs):
-        tracemalloc.start()
+        rss_before = _get_rss()
         t0 = time.perf_counter()
         fn(data)
         elapsed = time.perf_counter() - t0
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        rss_after = _get_rss()
         times.append(elapsed)
-        peak_mem = max(peak_mem, peak)
+        peak_mem = max(peak_mem, rss_after - rss_before)
     return sum(times) / num_runs, peak_mem
 
 
@@ -70,89 +66,93 @@ async def measure_async(fn, data, num_runs):
     times = []
     peak_mem = 0
     for _ in range(num_runs):
-        tracemalloc.start()
+        rss_before = _get_rss()
         t0 = time.perf_counter()
         await fn(data)
         elapsed = time.perf_counter() - t0
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
+        rss_after = _get_rss()
         times.append(elapsed)
-        peak_mem = max(peak_mem, peak)
+        peak_mem = max(peak_mem, rss_after - rss_before)
     return sum(times) / num_runs, peak_mem
 
 
+@contextlib.contextmanager
+def _nullctx():
+    yield
+
+
+async def _run_in_ctx(ctx_fn, coro_fn):
+    """Run a coroutine inside a sync or async context."""
+    ctx = _nullctx() if ctx_fn is None else ctx_fn()
+    if hasattr(ctx, "__aenter__"):
+        async with ctx:
+            return await coro_fn()
+    with ctx:
+        return await coro_fn()
+
+
+async def bench_module(mod, raw_data, num_runs, results):
+    """Run every benchmark for one library, with a fresh context per operation."""
+    is_async = getattr(mod, "IS_ASYNC", False)
+    ctx_fn = getattr(mod, "context", None)
+
+    for bench_name in BENCH_NAMES:
+        if bench_name == "Ingest":
+            console.print(f"  Ingest ({mod.NAME})...")
+
+            async def _ingest():
+                if is_async:
+                    return await measure_async(mod.convert, raw_data, num_runs)
+                return measure_sync(mod.convert, raw_data, num_runs)
+
+            avg_time, peak_mem = await _run_in_ctx(ctx_fn, _ingest)
+            results["Ingest"][mod.NAME] = {"time": avg_time, "memory": peak_mem}
+            continue
+
+        if bench_name not in mod.BENCHMARKS:
+            continue
+        console.print(f"  {bench_name} ({mod.NAME})...")
+        fn = mod.BENCHMARKS[bench_name]
+
+        async def _bench(fn=fn):
+            if is_async:
+                dataset = await mod.convert(raw_data)
+                return await measure_async(fn, dataset, num_runs)
+            dataset = mod.convert(raw_data)
+            return measure_sync(fn, dataset, num_runs)
+
+        avg_time, peak_mem = await _run_in_ctx(ctx_fn, _bench)
+        results[bench_name][mod.NAME] = {"time": avg_time, "memory": peak_mem}
+
+
 async def run(num_rows, num_runs):
-    lib_names = [bench_chdb_native.NAME, bench_aaiclick.NAME]
-    versions = [
-        f"{bench_chdb_native.NAME} {bench_chdb_native.VERSION}",
-        f"{bench_aaiclick.NAME} {bench_aaiclick.VERSION}",
-    ]
+    versions = [f"{m.NAME} {m.VERSION}" for m in MODULES]
+    lib_names = [m.NAME for m in MODULES]
 
     console.print("\n[bold]chdb vs aaiclick Benchmark[/bold]")
     console.print(f"  {', '.join(versions)}")
     console.print(f"  {num_rows:,} rows, {num_runs} runs per operation")
     console.print(f"  Filter threshold: {FILTER_THRESHOLD}")
     console.print(f"  Categories: {len(CATEGORIES)}, Subcategories: {len(SUBCATEGORIES)}")
-    console.print("  Serial execution (chdb context → aaiclick context)\n")
+    console.print("  Fresh context per operation (chdb runs first, then aaiclick)\n")
 
     raw_data = generate_raw_data(num_rows)
     results = {name: {} for name in BENCH_NAMES}
 
-    # Phase 1: chdb — open context, run all benchmarks, close context
-    chdb_mod = bench_chdb_native
-    with chdb_mod.context():
-        chdb_dataset = chdb_mod.convert(raw_data, FILTER_THRESHOLD)
-        chdb_benchmarks = chdb_mod.make_benchmarks(FILTER_THRESHOLD)
-
-        console.print(f"  Ingest [{chdb_mod.NAME}]...")
-        t, m = measure_sync(
-            lambda d: chdb_mod.ingest_only(d, FILTER_THRESHOLD),
-            raw_data,
-            num_runs,
-        )
-        results["Ingest"]["chdb"] = {"time": t, "memory": m}
-        chdb_mod.cleanup_results()
-
-        for bench_name in BENCH_NAMES:
-            if bench_name == "Ingest" or bench_name not in chdb_benchmarks:
-                continue
-            console.print(f"  {bench_name} [{chdb_mod.NAME}]...")
-            t, m = measure_sync(chdb_benchmarks[bench_name], chdb_dataset, num_runs)
-            results[bench_name]["chdb"] = {"time": t, "memory": m}
-            chdb_mod.cleanup_results()
-
-    # Phase 2: aaiclick — open context, run all benchmarks, close context
-    aai_mod = bench_aaiclick
-    async with aai_mod.context():
-        aai_dataset = await aai_mod.convert(raw_data, FILTER_THRESHOLD)
-        aai_benchmarks = aai_mod.make_benchmarks(FILTER_THRESHOLD)
-
-        console.print(f"  Ingest [{aai_mod.NAME}]...")
-        t, m = await measure_async(
-            lambda d: aai_mod.convert(d, FILTER_THRESHOLD),
-            raw_data,
-            num_runs,
-        )
-        results["Ingest"]["aaiclick"] = {"time": t, "memory": m}
-
-        for bench_name in BENCH_NAMES:
-            if bench_name == "Ingest" or bench_name not in aai_benchmarks:
-                continue
-            console.print(f"  {bench_name} [{aai_mod.NAME}]...")
-            t, m = await measure_async(aai_benchmarks[bench_name], aai_dataset, num_runs)
-            results[bench_name]["aaiclick"] = {"time": t, "memory": m}
+    for mod in MODULES:
+        await bench_module(mod, raw_data, num_runs, results)
 
     print_results(results, BENCH_NAMES, lib_names, num_rows, num_runs)
 
 
 def main():
     parser = argparse.ArgumentParser(description="chdb vs aaiclick benchmark")
-    parser.add_argument("--rows", type=int, default=1_000_000, help="Number of rows")
-    parser.add_argument("--runs", type=int, default=10, help="Runs per operation")
+    parser.add_argument("--rows", type=int, default=NUM_ROWS, help="Number of rows")
+    parser.add_argument("--runs", type=int, default=NUM_RUNS, help="Runs per operation")
     args = parser.parse_args()
 
     # Use in-memory chdb — must be set before any Session is created
-    # (including snowflake ID generator). chdb allows only one path per process.
+    # (including the Snowflake ID generator). chdb allows one path per process.
     os.environ["AAICLICK_CH_URL"] = "chdb://:memory:"
 
     asyncio.run(run(args.rows, args.runs))
