@@ -43,10 +43,7 @@ async def insert_job(engine, job_id, *, status="RUNNING"):
 async def insert_context_ref(engine, table_name, context_id, advisory_id=1):
     async with AsyncSession(engine) as session:
         await session.execute(
-            text(
-                "INSERT INTO table_context_refs (table_name, context_id, advisory_id) "
-                "VALUES (:t, :c, :a)"
-            ),
+            text("INSERT INTO table_context_refs (table_name, context_id, advisory_id) VALUES (:t, :c, :a)"),
             {"t": table_name, "c": context_id, "a": advisory_id},
         )
         await session.commit()

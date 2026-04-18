@@ -245,10 +245,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                         # bound to this table_name; otherwise mint a fresh one.
                         existing = (
                             await session.execute(
-                                text(
-                                    "SELECT advisory_id FROM table_context_refs "
-                                    "WHERE table_name = :n LIMIT 1"
-                                ),
+                                text("SELECT advisory_id FROM table_context_refs WHERE table_name = :n LIMIT 1"),
                                 {"n": msg.table_name},
                             )
                         ).scalar_one_or_none()

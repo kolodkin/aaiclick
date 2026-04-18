@@ -36,10 +36,7 @@ async def test_load_advisory_id_mints_sentinel_row_when_missing(orch_ctx):
 
     async with get_sql_session() as session:
         result = await session.execute(
-            text(
-                "SELECT context_id, advisory_id FROM table_context_refs "
-                "WHERE table_name = 'p_test_mint'"
-            )
+            text("SELECT context_id, advisory_id FROM table_context_refs WHERE table_name = 'p_test_mint'")
         )
         rows = result.fetchall()
 

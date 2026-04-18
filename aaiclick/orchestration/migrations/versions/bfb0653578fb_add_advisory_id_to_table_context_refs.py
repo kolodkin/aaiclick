@@ -40,9 +40,7 @@ def upgrade() -> None:
     names = bind.execute(sa.text("SELECT DISTINCT table_name FROM table_context_refs")).scalars().all()
     for table_name in names:
         bind.execute(
-            sa.text(
-                "UPDATE table_context_refs SET advisory_id = :aid WHERE table_name = :tn"
-            ),
+            sa.text("UPDATE table_context_refs SET advisory_id = :aid WHERE table_name = :tn"),
             {"aid": get_snowflake_id(), "tn": table_name},
         )
 
