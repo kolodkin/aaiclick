@@ -145,9 +145,7 @@ def resolve_join_keys(
         raise ValueError("join: left_on and right_on must both be set")
 
     if len(left_list) != len(right_list):
-        raise ValueError(
-            f"join: left_on and right_on must be same length, got {len(left_list)} vs {len(right_list)}"
-        )
+        raise ValueError(f"join: left_on and right_on must be same length, got {len(left_list)} vs {len(right_list)}")
 
     return JoinKeys(left=left_list, right=right_list)
 
@@ -201,13 +199,11 @@ def build_join_schema(
         if k not in right_cols:
             raise ValueError(f"join: right key {k!r} not found in right columns {sorted(right_cols)}")
 
-    for lk, rk in zip(keys.left, keys.right):
+    for lk, rk in zip(keys.left, keys.right, strict=True):
         lc = left_cols[lk]
         rc = right_cols[rk]
         if not _are_types_compatible(lc.type, rc.type):
-            raise ValueError(
-                f"join: key types incompatible for {lk!r} ({lc.type}) vs {rk!r} ({rc.type})"
-            )
+            raise ValueError(f"join: key types incompatible for {lk!r} ({lc.type}) vs {rk!r} ({rc.type})")
 
     using_form = keys.left == keys.right
     promote_left, promote_right = _nullable_sides(how)
@@ -245,9 +241,11 @@ def build_join_schema(
     left_nonkey = [c for c in left_cols if c != "aai_id" and c not in keys.left]
     right_nonkey = [c for c in right_cols if c != "aai_id" and c not in keys.right]
 
-    collisions = (set(left_nonkey) & set(right_nonkey)) | (
-        set(left_nonkey) & set(result_columns)
-    ) | (set(right_nonkey) & set(result_columns))
+    collisions = (
+        (set(left_nonkey) & set(right_nonkey))
+        | (set(left_nonkey) & set(result_columns))
+        | (set(right_nonkey) & set(result_columns))
+    )
 
     resolved = _resolve_suffixes(suffixes)
 
@@ -358,7 +356,7 @@ async def join_objects_db(
     if how == "cross":
         on_clause = ""
     else:
-        conds = " AND ".join(f"l.{lk} = r.{rk}" for lk, rk in zip(keys.left, keys.right))
+        conds = " AND ".join(f"l.{lk} = r.{rk}" for lk, rk in zip(keys.left, keys.right, strict=True))
         on_clause = f" ON {conds}"
 
     # Outer joins need join_use_nulls=1 so misses materialize as NULL against

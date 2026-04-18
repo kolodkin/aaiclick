@@ -229,9 +229,7 @@ def test_schema_empty_suffix_raises():
 def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
     left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
     right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
-    schema, _, _, _ = build_join_schema(
-        left, right, JoinKeys(left=["k"], right=["k"]), how=how, suffixes=None
-    )
+    schema, _, _, _ = build_join_schema(left, right, JoinKeys(left=["k"], right=["k"]), how=how, suffixes=None)
 
     assert schema.columns["a"].nullable is left_nullable
     assert schema.columns["b"].nullable is right_nullable
@@ -242,9 +240,7 @@ def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
 def test_schema_low_cardinality_preserved_and_promoted():
     left = _cols(k=ColumnInfo("Int64"), tag=ColumnInfo("String", low_cardinality=True))
     right = _cols(k=ColumnInfo("Int64"))
-    schema, _, _, _ = build_join_schema(
-        left, right, JoinKeys(left=["k"], right=["k"]), how="right", suffixes=None
-    )
+    schema, _, _, _ = build_join_schema(left, right, JoinKeys(left=["k"], right=["k"]), how="right", suffixes=None)
 
     tag = schema.columns["tag"]
     assert tag.low_cardinality is True
@@ -254,9 +250,7 @@ def test_schema_low_cardinality_preserved_and_promoted():
 def test_schema_cross_join_has_no_keys():
     left = _cols(a=ColumnInfo("String"))
     right = _cols(b=ColumnInfo("Float64"))
-    schema, lproj, rproj, _ = build_join_schema(
-        left, right, JoinKeys(left=[], right=[]), how="cross", suffixes=None
-    )
+    schema, lproj, rproj, _ = build_join_schema(left, right, JoinKeys(left=[], right=[]), how="cross", suffixes=None)
 
     assert list(schema.columns) == ["aai_id", "a", "b"]
     assert lproj == [("a", "a")]
@@ -280,12 +274,8 @@ def test_schema_aai_id_never_projected():
 
 
 async def test_join_inner_records(ctx):
-    users = await create_object_from_value(
-        {"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]}
-    )
-    orders = await create_object_from_value(
-        {"id": [1, 1, 4], "total": [9.5, 14.0, 2.0]}
-    )
+    users = await create_object_from_value({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]})
+    orders = await create_object_from_value({"id": [1, 1, 4], "total": [9.5, 14.0, 2.0]})
 
     joined = await users.join(orders, on="id")
     rows = await joined.data(orient="records")
@@ -296,12 +286,8 @@ async def test_join_inner_records(ctx):
 
 
 async def test_join_left_fills_null(ctx):
-    users = await create_object_from_value(
-        {"id": [1, 2], "name": ["Alice", "Bob"]}
-    )
-    orders = await create_object_from_value(
-        {"id": [1], "total": [9.5]}
-    )
+    users = await create_object_from_value({"id": [1, 2], "name": ["Alice", "Bob"]})
+    orders = await create_object_from_value({"id": [1], "total": [9.5]})
 
     joined = await users.join(orders, on="id", how="left")
     rows = await joined.data(orient="records")

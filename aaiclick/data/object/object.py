@@ -57,7 +57,8 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import escape_sql_string, quote_identifier
-from . import data_extraction, ingest, join as join_module, operators
+from . import data_extraction, ingest, operators
+from . import join as join_module
 from .refs import ObjectRef, ViewRef
 
 
