@@ -23,7 +23,7 @@ from ..models import (
     IngestQueryInfo,
     Schema,
 )
-from .ingest import _are_types_compatible
+from .ingest import _are_types_compatible, promote_nullable
 
 JoinHow = Literal["inner", "left", "right", "full", "cross"]
 
@@ -33,6 +33,16 @@ HOW_TO_SQL: dict[str, str] = {
     "right": "RIGHT JOIN",
     "full": "FULL OUTER JOIN",
     "cross": "CROSS JOIN",
+}
+
+# Under USING form (keys share names across sides), the merged key column in
+# the output comes from the side that is guaranteed non-null for that row.
+# FULL joins can have misses on either side, so coalesce.
+_USING_KEY_TEMPLATE: dict[str, str] = {
+    "inner": "l.{0}",
+    "left": "l.{0}",
+    "right": "r.{0}",
+    "full": "coalesce(l.{0}, r.{0})",
 }
 
 
@@ -49,8 +59,27 @@ class JoinKeys(NamedTuple):
     right: list[str]
 
 
+class JoinSchema(NamedTuple):
+    """Result of ``build_join_schema``.
+
+    Attributes:
+        schema: Result-table ``Schema``.
+        left_projection: ``(source_col, output_col)`` pairs for columns
+            drawn from the left source.
+        right_projection: ``(source_col, output_col)`` pairs for columns
+            drawn from the right source.
+        using_form: True when left and right keys share names (and will be
+            merged into a single output column).
+    """
+
+    schema: Schema
+    left_projection: list[tuple[str, str]]
+    right_projection: list[tuple[str, str]]
+    using_form: bool
+
+
 def _as_key_list(keys: str | list[str] | None) -> list[str] | None:
-    """Normalize a key argument to list[str] or None.
+    """Normalize a key argument to ``list[str]`` or ``None``.
 
     ``"k"`` → ``["k"]``; ``["k"]`` passes through; ``None`` stays ``None``.
     Rejects empty strings and empty lists as invalid inputs.
@@ -119,21 +148,8 @@ def resolve_join_keys(
     return JoinKeys(left=left_list, right=right_list)
 
 
-def _promote_nullable(col: ColumnInfo) -> ColumnInfo:
-    """Return ``col`` with ``nullable=True`` (no-op if already nullable)."""
-    if col.nullable:
-        return col
-    return ColumnInfo(
-        type=col.type,
-        nullable=True,
-        array=col.array,
-        low_cardinality=col.low_cardinality,
-        description=col.description,
-    )
-
-
 def _nullable_sides(how: str) -> tuple[bool, bool]:
-    """Return (promote_left, promote_right) per the join-type nullability rules."""
+    """Return ``(promote_left, promote_right)`` per the join-type nullability rules."""
     if how == "left":
         return (False, True)
     if how == "right":
@@ -149,19 +165,17 @@ def build_join_schema(
     keys: JoinKeys,
     how: JoinHow,
     suffixes: tuple[str, str] | None,
-) -> tuple[Schema, list[tuple[str, str]], list[tuple[str, str]]]:
-    """Compute the result schema + output-column mappings for a join.
+) -> JoinSchema:
+    """Compute the result schema and per-side output-column mappings.
 
-    Returns:
-        A tuple ``(schema, left_projection, right_projection)`` where each
-        projection is a list of ``(source_column, output_column)`` pairs.
-        Key columns appear in ``left_projection`` only when the result holds
-        a single copy (``on=`` form); under ``left_on``/``right_on`` both sides
-        project their key columns under their original names.
+    Under USING form (left keys == right keys), the merged key survives
+    once in the output schema and is projected by the left side. Under
+    separate ``left_on`` / ``right_on``, both key columns survive under
+    their original names.
 
     Raises:
         ValueError: Key missing on either side, key types incompatible,
-            non-key column collision without suffixes, or empty suffix.
+            non-key column collision without ``suffixes``, or empty suffix.
     """
     for k in keys.left:
         if k not in left_cols:
@@ -179,49 +193,44 @@ def build_join_schema(
             )
 
     using_form = keys.left == keys.right
-
     promote_left, promote_right = _nullable_sides(how)
 
     result_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
     left_projection: list[tuple[str, str]] = []
     right_projection: list[tuple[str, str]] = []
 
-    key_out_names: set[str] = set()
     if using_form:
         for k in keys.left:
             col = left_cols[k]
             if promote_left and promote_right:
-                col = _promote_nullable(col)
+                col = promote_nullable(col)
             result_columns[k] = col
             left_projection.append((k, k))
-            key_out_names.add(k)
     else:
         for lk in keys.left:
             col = left_cols[lk]
             if promote_left:
-                col = _promote_nullable(col)
+                col = promote_nullable(col)
             result_columns[lk] = col
             left_projection.append((lk, lk))
-            key_out_names.add(lk)
         for rk in keys.right:
-            col = right_cols[rk]
-            if promote_right:
-                col = _promote_nullable(col)
             if rk in result_columns:
                 raise ValueError(
                     f"join: right key {rk!r} collides with an existing result column; "
                     f"rename the right key or use on= when names match"
                 )
+            col = right_cols[rk]
+            if promote_right:
+                col = promote_nullable(col)
             result_columns[rk] = col
             right_projection.append((rk, rk))
-            key_out_names.add(rk)
 
     left_nonkey = [c for c in left_cols if c != "aai_id" and c not in keys.left]
     right_nonkey = [c for c in right_cols if c != "aai_id" and c not in keys.right]
 
-    collisions = set(left_nonkey) & set(right_nonkey)
-    collisions |= {c for c in left_nonkey if c in key_out_names and c not in keys.left}
-    collisions |= {c for c in right_nonkey if c in key_out_names and c not in keys.right}
+    collisions = (set(left_nonkey) & set(right_nonkey)) | (
+        set(left_nonkey) & set(result_columns)
+    ) | (set(right_nonkey) & set(result_columns))
 
     if collisions and suffixes is None:
         raise ValueError(
@@ -236,31 +245,35 @@ def build_join_schema(
     else:
         lsuf = rsuf = ""
 
-    def _suffix(col: str, suf: str) -> str:
-        return f"{col}{suf}" if col in collisions else col
+    def _add_nonkey(
+        source_cols: dict[str, ColumnInfo],
+        names: list[str],
+        suf: str,
+        promote: bool,
+        projection: list[tuple[str, str]],
+    ) -> None:
+        for col in names:
+            out = f"{col}{suf}" if col in collisions else col
+            if out in result_columns:
+                raise ValueError(f"join: suffixed column {out!r} still collides; rename first")
+            info = source_cols[col]
+            if promote:
+                info = promote_nullable(info)
+            result_columns[out] = info
+            projection.append((col, out))
 
-    for col in left_nonkey:
-        out = _suffix(col, lsuf)
-        if out in result_columns:
-            raise ValueError(f"join: suffixed left column {out!r} still collides; rename first")
-        info = left_cols[col]
-        if promote_left:
-            info = _promote_nullable(info)
-        result_columns[out] = info
-        left_projection.append((col, out))
-
-    for col in right_nonkey:
-        out = _suffix(col, rsuf)
-        if out in result_columns:
-            raise ValueError(f"join: suffixed right column {out!r} still collides; rename first")
-        info = right_cols[col]
-        if promote_right:
-            info = _promote_nullable(info)
-        result_columns[out] = info
-        right_projection.append((col, out))
+    _add_nonkey(left_cols, left_nonkey, lsuf, promote_left, left_projection)
+    _add_nonkey(right_cols, right_nonkey, rsuf, promote_right, right_projection)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    return schema, left_projection, right_projection
+    return JoinSchema(schema, left_projection, right_projection, using_form)
+
+
+def _project_expr(side: str, src: str, source_type: str, target_type: str) -> str:
+    """Build a column projection, skipping the CAST when source/target match."""
+    if source_type == target_type:
+        return f"{side}.{src}"
+    return f"CAST({side}.{src} AS {target_type})"
 
 
 async def join_objects_db(
@@ -277,64 +290,51 @@ async def join_objects_db(
     Follows the ``concat_objects_db`` pattern: build the result ``Schema`` in
     Python, call ``create_object(schema)`` to CREATE the destination, then
     issue a single ``INSERT INTO {result} ({cols}) SELECT ... FROM {left} AS l
-    {HOW} JOIN {right} AS r {USING|ON}``. Fresh Snowflake IDs are generated
-    by the destination table's DEFAULT; source ``aai_id`` columns are never
-    projected.
+    {HOW} JOIN {right} AS r ON ...``.  Fresh Snowflake IDs are generated by
+    the destination table's DEFAULT; source ``aai_id`` columns are never
+    projected.  Self-join is supported via the ``AS l`` / ``AS r`` aliases.
 
-    Self-join is supported via the ``AS l`` / ``AS r`` aliases.
-
-    Args:
-        left: Left-hand source.
-        right: Right-hand source.
-        keys: Resolved join keys from ``resolve_join_keys``.
-        how: Join type.
-        suffixes: Suffix pair applied to non-key collisions; None means
-            collisions raise.
-        ch_client: Active ClickHouse client.
-
-    Returns:
-        Object: New Object containing the join result.
+    The SQL always uses ON form (never USING) even when the user passed
+    ``on=``, because ClickHouse's ``SETTINGS join_use_nulls=1`` makes the
+    USING-merged key nullable in the result set regardless of which side
+    drives, conflicting with the non-nullable key we model for LEFT/RIGHT.
+    Under ON form we can pick the key from the driving side (or coalesce
+    for FULL) explicitly — see ``_USING_KEY_TEMPLATE``.
     """
-    schema, left_proj, right_proj = build_join_schema(
+    jschema = build_join_schema(
         left_cols=left.columns,
         right_cols=right.columns,
         keys=keys,
         how=how,
         suffixes=suffixes,
     )
+    schema, left_proj, right_proj, using_form = jschema
+    using_keys = set(keys.left) if using_form else set()
 
     result = await create_object(schema)
 
-    using_form = keys.left == keys.right and keys.left != []
     insert_cols = [out for _, out in left_proj] + [out for _, out in right_proj]
     insert_cols_sql = ", ".join(insert_cols)
 
-    # Always emit ON form internally so outer-join NULL semantics line up with
-    # our schema: join_use_nulls=1 makes ClickHouse's USING-merged key column
-    # nullable regardless of which side drives, which conflicts with the
-    # non-nullable key we model for LEFT / RIGHT. Under ON form we can pick
-    # the key from the driving side (or COALESCE for FULL) explicitly.
     select_parts: list[str] = []
-    using_key_names = set(keys.left) if using_form else set()
-
     for src, out in left_proj:
-        target_type = schema.columns[out].ch_type()
-        if using_form and out in using_key_names:
-            if how == "full":
-                expr = f"coalesce(l.{src}, r.{src})"
-            elif how == "right":
-                expr = f"r.{src}"
-            else:
-                expr = f"l.{src}"
+        target_col = schema.columns[out]
+        target_type = target_col.ch_type()
+        if using_form and out in using_keys:
+            expr = _USING_KEY_TEMPLATE[how].format(out)
+            # For USING form, both sides share the key type, so CAST only if
+            # the target differs from the left source type (e.g., promoted to
+            # Nullable under FULL).
+            if target_type != left.columns[out].ch_type():
+                expr = f"CAST({expr} AS {target_type})"
         else:
-            expr = f"l.{src}"
-        select_parts.append(f"CAST({expr} AS {target_type}) AS {out}")
+            expr = _project_expr("l", src, left.columns[src].ch_type(), target_type)
+        select_parts.append(f"{expr} AS {out}")
     for src, out in right_proj:
-        target_type = schema.columns[out].ch_type()
-        select_parts.append(f"CAST(r.{src} AS {target_type}) AS {out}")
+        target_col = schema.columns[out]
+        expr = _project_expr("r", src, right.columns[src].ch_type(), target_col.ch_type())
+        select_parts.append(f"{expr} AS {out}")
     select_sql = ", ".join(select_parts)
-
-    join_sql = HOW_TO_SQL[how]
 
     if how == "cross":
         on_clause = ""
@@ -342,15 +342,15 @@ async def join_objects_db(
         conds = " AND ".join(f"l.{lk} = r.{rk}" for lk, rk in zip(keys.left, keys.right))
         on_clause = f" ON {conds}"
 
-    # For outer joins, make the misses materialize as NULL instead of the
-    # missing side's type default. Our schema already marks the outer-side
-    # columns Nullable; this setting aligns the runtime with the schema.
+    # Outer joins need join_use_nulls=1 so misses materialize as NULL against
+    # the Nullable-promoted result schema instead of the missing side's type
+    # default.
     settings_clause = " SETTINGS join_use_nulls = 1" if how in ("left", "right", "full") else ""
 
     await ch_client.command(
         f"INSERT INTO {result.table} ({insert_cols_sql}) "
         f"SELECT {select_sql} FROM {left.source} AS l "
-        f"{join_sql} {right.source} AS r{on_clause}{settings_clause}"
+        f"{HOW_TO_SQL[how]} {right.source} AS r{on_clause}{settings_clause}"
     )
 
     oplog_record_sample(

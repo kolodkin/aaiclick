@@ -88,7 +88,7 @@ def test_schema_using_form_dedupes_key():
     left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
     right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
 
-    schema, lproj, rproj = build_join_schema(
+    schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=["k"], right=["k"]), how="inner", suffixes=None
     )
 
@@ -103,7 +103,7 @@ def test_schema_on_form_keeps_both_keys():
     left = _cols(id=ColumnInfo("Int64"), name=ColumnInfo("String"))
     right = _cols(tconst=ColumnInfo("Int64"), total=ColumnInfo("Float64"))
 
-    schema, lproj, rproj = build_join_schema(
+    schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=["id"], right=["tconst"]), how="inner", suffixes=None
     )
 
@@ -146,7 +146,7 @@ def test_schema_incompatible_key_types_raises():
 
 
 def test_schema_compatible_int_types_accepted():
-    schema, _, _ = build_join_schema(
+    schema, _, _, _ = build_join_schema(
         _cols(k=ColumnInfo("Int32")),
         _cols(k=ColumnInfo("Int64")),
         JoinKeys(left=["k"], right=["k"]),
@@ -169,7 +169,7 @@ def test_schema_collision_without_suffixes_raises():
 
 
 def test_schema_collision_with_suffixes_renames_both():
-    schema, lproj, rproj = build_join_schema(
+    schema, lproj, rproj, _ = build_join_schema(
         _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
         _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
         JoinKeys(left=["k"], right=["k"]),
@@ -205,7 +205,7 @@ def test_schema_empty_suffix_raises():
 def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
     left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
     right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
-    schema, _, _ = build_join_schema(
+    schema, _, _, _ = build_join_schema(
         left, right, JoinKeys(left=["k"], right=["k"]), how=how, suffixes=None
     )
 
@@ -218,7 +218,7 @@ def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
 def test_schema_low_cardinality_preserved_and_promoted():
     left = _cols(k=ColumnInfo("Int64"), tag=ColumnInfo("String", low_cardinality=True))
     right = _cols(k=ColumnInfo("Int64"))
-    schema, _, _ = build_join_schema(
+    schema, _, _, _ = build_join_schema(
         left, right, JoinKeys(left=["k"], right=["k"]), how="right", suffixes=None
     )
 
@@ -230,7 +230,7 @@ def test_schema_low_cardinality_preserved_and_promoted():
 def test_schema_cross_join_has_no_keys():
     left = _cols(a=ColumnInfo("String"))
     right = _cols(b=ColumnInfo("Float64"))
-    schema, lproj, rproj = build_join_schema(
+    schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=[], right=[]), how="cross", suffixes=None
     )
 
@@ -242,7 +242,7 @@ def test_schema_cross_join_has_no_keys():
 def test_schema_aai_id_never_projected():
     left = _cols(k=ColumnInfo("Int64"))
     right = _cols(k=ColumnInfo("Int64"))
-    schema, lproj, rproj = build_join_schema(
+    schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=["k"], right=["k"]), how="inner", suffixes=None
     )
 
