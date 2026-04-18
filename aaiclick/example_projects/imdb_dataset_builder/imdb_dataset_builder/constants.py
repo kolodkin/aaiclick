@@ -38,7 +38,7 @@ CLEAN_COLUMNS: dict[str, ColumnInfo] = {
     "runtimeMinutes": ColumnInfo("String", description="Runtime in minutes (40-300)"),
 }
 
-HF_REPO_ID = os.environ.get("HF_REPO_ID", "aaiclick/imdb-curated-genres")
+HF_REPO_ID = os.environ.get("HF_REPO_ID", "aaiclick/imdb-wikipedia-enriched")
 
 WIKIPEDIA_COLUMNS: dict[str, ColumnInfo] = {
     "id": ColumnInfo("String", description="Wikipedia page ID"),
