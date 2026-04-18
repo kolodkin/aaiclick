@@ -18,6 +18,7 @@ from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
+from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 
 from ..snowflake_id import get_snowflake_id
@@ -232,14 +233,25 @@ class OrchLifecycleHandler(LifecycleHandler):
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
+                        # lookup_advisory_id holds the hashtext xact lock in
+                        # distributed mode, so concurrent INCREFs on the same
+                        # table_name serialize and agree on one advisory_id.
+                        existing = await lookup_advisory_id(session, msg.table_name)
+                        advisory_id = existing if existing is not None else get_snowflake_id()
+
                         # Register table in context refs (idempotent)
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id) "
-                                "VALUES (:table_name, :context_id) "
+                                "INSERT INTO table_context_refs "
+                                "(table_name, context_id, advisory_id) "
+                                "VALUES (:table_name, :context_id, :advisory_id) "
                                 "ON CONFLICT (table_name, context_id) DO NOTHING"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id},
+                            {
+                                "table_name": msg.table_name,
+                                "context_id": self._task_id,
+                                "advisory_id": advisory_id,
+                            },
                         )
                         # Add run ref
                         await session.execute(
