@@ -16,8 +16,8 @@ class QualityIssues(BaseModel):
     missing_runtime_pct: float
     short_runtime: int
     long_runtime: int
-    pre_1970: int
-    pre_1970_pct: float
+    pre_1980: int
+    pre_1980_pct: float
 
 
 class HFPublishResult(BaseModel):
@@ -25,3 +25,14 @@ class HFPublishResult(BaseModel):
     repo: str
     reason: str | None = None
     rows: int | None = None
+
+
+class EnrichmentStats(BaseModel):
+    total_clean: int
+    titles_resolved: int
+    titles_resolved_pct: float
+    articles_matched: int
+    articles_matched_pct: float
+    plots_usable: int
+    plots_usable_pct: float
+    avg_plot_chars: float
