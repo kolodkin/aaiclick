@@ -134,9 +134,9 @@ async def resolve_wikipedia_titles(clean: Object) -> Object:
     Wikipedia article. The non-resolved subset is simply absent — coverage
     is reported downstream by ``measure_enrichment``.
     """
-    data = await clean[["tconst"]].data()
-    tconsts = data["tconst"] if isinstance(data, dict) else [row[0] for row in data]
+    tconsts: list[str] = await clean["tconst"].data()
     tconsts = list(dict.fromkeys(tconsts))  # dedupe, preserve order
+    print(f"[resolve_wikipedia_titles] resolving {len(tconsts)} IMDb IDs via Wikidata SPARQL...")
 
     resolved: list[tuple[str, str]] = []
     for i in range(0, len(tconsts), SPARQL_BATCH):
@@ -144,6 +144,14 @@ async def resolve_wikipedia_titles(clean: Object) -> Object:
         query = _sparql_query(chunk)
         pairs = await asyncio.to_thread(_sparql_post, query)
         resolved.extend(pairs)
+        if (i // SPARQL_BATCH) % 20 == 0:
+            print(
+                f"[resolve_wikipedia_titles] batch {i // SPARQL_BATCH + 1}"
+                f"/{(len(tconsts) + SPARQL_BATCH - 1) // SPARQL_BATCH}: "
+                f"{len(resolved)} mappings so far"
+            )
+
+    print(f"[resolve_wikipedia_titles] done: {len(resolved)} total mappings")
 
     if not resolved:
         return await create_object_from_value({"tconst": [], "wp_title": []})
