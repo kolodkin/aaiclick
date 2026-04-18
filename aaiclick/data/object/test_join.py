@@ -168,17 +168,25 @@ def test_schema_collision_without_suffixes_raises():
         )
 
 
-def test_schema_suffixes_true_uses_default_pair():
+@pytest.mark.parametrize(
+    "suffixes,expected_l,expected_r",
+    [
+        pytest.param(True, "score_l", "score_r", id="true-default"),
+        pytest.param(("_l", "_r"), "score_l", "score_r", id="tuple-matches-default"),
+        pytest.param(("_a", "_b"), "score_a", "score_b", id="tuple-custom"),
+    ],
+)
+def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
     schema, lproj, rproj, _ = build_join_schema(
         _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
         _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
         JoinKeys(left=["k"], right=["k"]),
         how="inner",
-        suffixes=True,
+        suffixes=suffixes,
     )
-    assert list(schema.columns) == ["aai_id", "k", "score_l", "score_r"]
-    assert lproj == [("k", "k"), ("score", "score_l")]
-    assert rproj == [("score", "score_r")]
+    assert list(schema.columns) == ["aai_id", "k", expected_l, expected_r]
+    assert lproj == [("k", "k"), ("score", expected_l)]
+    assert rproj == [("score", expected_r)]
 
 
 def test_schema_suffixes_false_treated_as_none():
@@ -190,20 +198,6 @@ def test_schema_suffixes_false_treated_as_none():
             how="inner",
             suffixes=False,
         )
-
-
-def test_schema_collision_with_suffixes_renames_both():
-    schema, lproj, rproj, _ = build_join_schema(
-        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-        JoinKeys(left=["k"], right=["k"]),
-        how="inner",
-        suffixes=("_l", "_r"),
-    )
-
-    assert list(schema.columns) == ["aai_id", "k", "score_l", "score_r"]
-    assert lproj == [("k", "k"), ("score", "score_l")]
-    assert rproj == [("score", "score_r")]
 
 
 def test_schema_empty_suffix_raises():

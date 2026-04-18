@@ -252,7 +252,7 @@ def build_join_schema(
     if collisions and resolved is None:
         raise ValueError(
             f"join: column collision on {sorted(collisions)}; "
-            f"pass suffixes=True or suffixes=('_x', '_y') or rename first"
+            f"pass suffixes=True or suffixes={DEFAULT_SUFFIXES!r} or rename first"
         )
 
     if resolved is not None:

@@ -77,6 +77,13 @@ async def example():
     rows = sorted(await merged.data(orient=ORIENT_RECORDS), key=lambda r: r["id"])
     print(f"Rows: {rows}")  # → [{'id': 1, 'score_l': 10, 'score_r': 99}, {'id': 2, 'score_l': 20, 'score_r': 88}]
 
+    # Custom suffixes — any non-empty pair works
+    custom = await a.join(b, on="id", suffixes=("_old", "_new"))
+    rows = sorted(await custom.data(orient=ORIENT_RECORDS), key=lambda r: r["id"])
+    print(
+        f"Custom: {rows}"
+    )  # → [{'id': 1, 'score_old': 10, 'score_new': 99}, {'id': 2, 'score_old': 20, 'score_new': 88}]
+
     # Example 5: cross join
     print("\n" + "=" * 50)
     print("Example 5: Cross join (every color × every size)")
