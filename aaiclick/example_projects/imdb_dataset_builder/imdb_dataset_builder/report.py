@@ -132,14 +132,8 @@ def _print_report(content: ReportContent) -> None:
         f"- Titles resolved via Wikidata: {_fmt(stats.titles_resolved)} "
         f"({_fmt(stats.titles_resolved_pct)}% of {_fmt(stats.total_clean)})"
     )
-    print(
-        f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} "
-        f"({_fmt(stats.articles_matched_pct)}%)"
-    )
-    print(
-        f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} "
-        f"({_fmt(stats.plots_usable_pct)}%)"
-    )
+    print(f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} ({_fmt(stats.articles_matched_pct)}%)")
+    print(f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} ({_fmt(stats.plots_usable_pct)}%)")
     print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
 
     print("\n#### Sample (first 3 rows)\n")
@@ -185,11 +179,7 @@ async def generate_report(
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
     wiki_total = await (await wiki["id"].count()).data()
-    wiki_sample_md = (
-        await wiki[["id", "title", "text"]]
-        .view(limit=5)
-        .markdown(truncate={"title": 40, "text": 120})
-    )
+    wiki_sample_md = await wiki[["id", "title", "text"]].view(limit=5).markdown(truncate={"title": 40, "text": 120})
 
     genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
         {
@@ -202,9 +192,7 @@ async def generate_report(
     genre_total = sum(genre_data_raw["tconst"])
 
     plots_md = (
-        await plots.where("length(plot) >= 120")[
-            ["tconst", "primaryTitle", "wp_title", "plot"]
-        ]
+        await plots.where("length(plot) >= 120")[["tconst", "primaryTitle", "wp_title", "plot"]]
         .view(limit=3)
         .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
     )

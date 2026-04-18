@@ -28,7 +28,7 @@ import os
 import urllib.parse
 import urllib.request
 
-from aaiclick import create_object_from_url, create_object_from_value, literal
+from aaiclick import create_object_from_url, create_object_from_value
 from aaiclick.data.data_context import create_object
 from aaiclick.data.models import (
     ENGINE_AGGREGATING_MERGE_TREE,
@@ -320,9 +320,7 @@ async def extract_plot_text(enriched: Object) -> Object:
         {
             "plot": Computed(
                 "String",
-                "replaceRegexpAll("
-                "if(length(plot_raw) >= 120, plot_raw, lead), "
-                "'[\\\\[\\\\]]+', '')",
+                "replaceRegexpAll(if(length(plot_raw) >= 120, plot_raw, lead), '[\\\\[\\\\]]+', '')",
             ),
         }
     )
