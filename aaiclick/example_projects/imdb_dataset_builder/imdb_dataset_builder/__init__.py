@@ -230,15 +230,17 @@ async def build_clean_dataset(movies: Object) -> Object:
 
 
 @task
-async def publish_to_huggingface(clean: Object) -> HFPublishResult:
+async def publish_to_huggingface(enriched: Object) -> HFPublishResult:
     """
-    Publish curated dataset to Hugging Face Hub as a Parquet dataset.
+    Publish the enriched (plot-carrying) curated dataset to Hugging Face Hub.
 
-    Requires HF_TOKEN environment variable. If not set, returns a
-    skipped status without raising an error.
+    The published dataset contains the clean IMDb subset plus the resolved
+    Wikipedia article title and plot text (``wp_title``, ``plot``). Rows
+    with no Wikipedia match are naturally absent because the enrichment
+    pipeline inner-joins on ``wp_title``.
 
-    The data is pulled from ClickHouse into a pandas DataFrame, written
-    to Parquet, then uploaded via huggingface_hub.HfApi.
+    Requires ``HF_TOKEN`` — without it, returns a skipped result without
+    raising.
     """
     token = os.environ.get("HF_TOKEN")
     if not token:
@@ -247,7 +249,7 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     import pandas as pd
     from huggingface_hub import HfApi
 
-    data = await clean.data(orient=ORIENT_DICT)
+    data = await enriched.data(orient=ORIENT_DICT)
     df = pd.DataFrame(data)
 
     parquet_path = "/tmp/imdb_curated.parquet"
@@ -267,14 +269,14 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
 
 
 @task
-async def export_dataset(clean: Object, formats: list[str], out_dir: str) -> dict[str, str]:
-    """Export the clean dataset to ``out_dir`` in each requested format.
+async def export_dataset(enriched: Object, formats: list[str], out_dir: str) -> dict[str, str]:
+    """Export the enriched (plot-carrying) dataset in each requested format.
 
     Exports run concurrently — ClickHouse streams each file independently.
     """
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     paths = {fmt: str(Path(out_dir) / f"imdb_curated.{fmt}") for fmt in formats}
-    await asyncio.gather(*(clean.export(p) for p in paths.values()))
+    await asyncio.gather(*(enriched.export(p) for p in paths.values()))
     for fmt, path in paths.items():
         print(f"Exported {fmt}: {path}")
     return paths
@@ -343,31 +345,32 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     clean = build_clean_dataset(movies=movies)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
-
-    export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
-    exports = (
-        export_dataset(clean=clean, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
-        if export_formats
-        else None
-    )
-
     title_map = resolve_wikipedia_titles(clean=clean)
     wiki = load_wikipedia_dump(title_map=title_map)
     enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
     plots = extract_plot_text(enriched=enriched)
     enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
 
+    hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
+
+    export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
+    exports = (
+        export_dataset(enriched=plots, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
+        if export_formats
+        else None
+    )
+
     return generate_report(
         raw=raw,
         movies=movies,
         clean=clean,
         genre_balance=genre_balance,
+        plots=plots,
+        wiki=wiki,
         profile=profile,
         quality_issues=quality_issues,
         hf_result=hf_result,
         exports=exports,
-        plots=plots,
         enrichment_stats=enrichment_stats,
     )
 

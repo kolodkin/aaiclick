@@ -39,3 +39,10 @@ CLEAN_COLUMNS: dict[str, ColumnInfo] = {
 }
 
 HF_REPO_ID = os.environ.get("HF_REPO_ID", "aaiclick/imdb-curated-genres")
+
+WIKIPEDIA_COLUMNS: dict[str, ColumnInfo] = {
+    "id": ColumnInfo("String", description="Wikipedia page ID"),
+    "url": ColumnInfo("String", description="Canonical Wikipedia article URL"),
+    "title": ColumnInfo("String", description="Article title (aligns with Wikidata P345 sitelink)"),
+    "text": ColumnInfo("String", description="Cleaned plaintext article body"),
+}

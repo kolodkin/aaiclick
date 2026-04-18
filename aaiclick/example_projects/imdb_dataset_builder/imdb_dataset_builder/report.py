@@ -11,8 +11,9 @@ from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL
+from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL, WIKIPEDIA_COLUMNS
 from .models import EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
+from .wikipedia import HF_WIKIPEDIA_SHARDS, HF_WIKIPEDIA_SNAPSHOT, HF_WIKIPEDIA_URL_TEMPLATE
 
 
 def _fmt(value: object) -> str:
@@ -51,6 +52,8 @@ class ReportContent:
     exports: dict[str, str] | None
     enrichment_stats: EnrichmentStats
     plots_md: str
+    wiki_total: int
+    wiki_sample_md: str
 
 
 def _print_report(content: ReportContent) -> None:
@@ -121,6 +124,22 @@ def _print_report(content: ReportContent) -> None:
             print(f"- {fmt}: `{path}`")
 
     stats = content.enrichment_stats
+    print("\n### Wikipedia Raw Data Profile\n")
+    wiki_url = HF_WIKIPEDIA_URL_TEMPLATE.format(
+        snapshot=HF_WIKIPEDIA_SNAPSHOT,
+        last=HF_WIKIPEDIA_SHARDS - 1,
+        total=HF_WIKIPEDIA_SHARDS,
+    )
+    print(f"URL: {wiki_url}")
+    print(f"Snapshot: {HF_WIKIPEDIA_SNAPSHOT} (English), {HF_WIKIPEDIA_SHARDS} shards")
+    print(f"Articles loaded (pre-filtered to IMDb matches): {_fmt(content.wiki_total)}")
+
+    print("\n#### Field Schema\n")
+    _print_field_table(WIKIPEDIA_COLUMNS)
+
+    print("\n#### Sample (first 5 rows)\n")
+    print(content.wiki_sample_md)
+
     print("\n### Wikipedia Enrichment\n")
     print("- Source: `wikimedia/wikipedia` (Hugging Face Parquet dump)")
     print("- ID resolver: Wikidata SPARQL (property `P345`, IMDb ID)")
@@ -149,6 +168,7 @@ async def generate_report(
     clean: Object,
     genre_balance: Object,
     plots: Object,
+    wiki: Object,
     profile: RawProfile,
     quality_issues: QualityIssues,
     enrichment_stats: EnrichmentStats,
@@ -164,6 +184,13 @@ async def generate_report(
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
+    wiki_total = await (await wiki["id"].count()).data()
+    wiki_sample_md = (
+        await wiki[["id", "title", "text"]]
+        .view(limit=5)
+        .markdown(truncate={"title": 40, "text": 120})
+    )
+
     genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
         {
             "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
@@ -175,7 +202,9 @@ async def generate_report(
     genre_total = sum(genre_data_raw["tconst"])
 
     plots_md = (
-        await plots[["tconst", "primaryTitle", "wp_title", "plot"]]
+        await plots.where("length(plot) >= 120")[
+            ["tconst", "primaryTitle", "wp_title", "plot"]
+        ]
         .view(limit=3)
         .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
     )
@@ -195,6 +224,8 @@ async def generate_report(
                 exports=exports,
                 enrichment_stats=enrichment_stats,
                 plots_md=plots_md,
+                wiki_total=wiki_total,
+                wiki_sample_md=wiki_sample_md,
             )
         )
     rendered = buf.getvalue()
