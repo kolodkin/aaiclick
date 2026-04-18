@@ -41,7 +41,7 @@ _LOCK_ONLY_CONTEXT_ID = -1
 _advisory_id_cache: dict[str, int] = {}
 
 
-async def _lookup_advisory_id(session, table_name: str) -> int | None:
+async def lookup_advisory_id(session, table_name: str) -> int | None:
     """Return the advisory_id bound to ``table_name``, or None if unregistered.
 
     In distributed mode, first acquires a transient
@@ -89,7 +89,7 @@ async def load_advisory_id(table_name: str) -> int | None:
         return None
 
     async with get_sql_session() as session:
-        existing = await _lookup_advisory_id(session, table_name)
+        existing = await lookup_advisory_id(session, table_name)
 
         if existing is not None:
             advisory_id = existing
