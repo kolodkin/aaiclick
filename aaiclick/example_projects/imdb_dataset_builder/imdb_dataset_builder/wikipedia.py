@@ -170,6 +170,10 @@ async def load_wikipedia_dump() -> Object:
     ClickHouse's native ``url()`` function expands ``{0..40}`` brace patterns
     into parallel HTTP reads, so all shards stream in concurrently with zero
     Python involvement. Dump schema: (id, url, title, text).
+
+    Hugging Face resolves ``/resolve/main/...`` URLs with a 302 redirect to a
+    CDN host; ClickHouse's default ``max_http_get_redirects=0`` rejects any
+    redirect, so we raise it explicitly.
     """
     last = HF_WIKIPEDIA_SHARDS - 1
     total = HF_WIKIPEDIA_SHARDS
@@ -188,6 +192,7 @@ async def load_wikipedia_dump() -> Object:
             "title": ColumnInfo("String"),
             "text": ColumnInfo("String"),
         },
+        ch_settings={"max_http_get_redirects": 10},
     )
 
 
