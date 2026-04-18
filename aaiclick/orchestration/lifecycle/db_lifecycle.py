@@ -67,12 +67,19 @@ class TableContextRef(SQLModel, table=True):
 
     Composite PK (table_name, context_id) allows multiple contexts to
     register the same table independently.
+
+    advisory_id is a 64-bit Snowflake ID used as the pg_advisory_lock key
+    that serializes concurrent inserts into the same shared CH table in
+    distributed mode.  All rows sharing the same table_name MUST carry the
+    same advisory_id; the invariant is enforced in OrchLifecycleHandler's
+    INCREF handler, not in the DB schema.
     """
 
     __tablename__: ClassVar[str] = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    advisory_id: int = Field(sa_column=Column(BigInteger, nullable=False))
 
 
 class TablePinRef(SQLModel, table=True):
