@@ -547,6 +547,12 @@ sorted_copy = await obj.view(order_by="amount DESC").copy()
 await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
 
+!!! warning "`copy()` is not serialized across workers"
+    Unlike `insert()` and `concat()`, `copy()` does not take a per-table
+    advisory lock. Two concurrent `copy()` calls into the same named
+    destination will interleave their rows non-deterministically. Structure
+    your pipeline so a named destination has a single writer.
+
 **Tests**: `aaiclick/data/test_copy_parametrized.py`
 
 # Operation Provenance (Oplog)

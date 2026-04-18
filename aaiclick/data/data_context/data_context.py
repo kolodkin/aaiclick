@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pyarrow as pa
 
+from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
 
 from ..models import (
@@ -56,6 +57,17 @@ _objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar("objects")
 def get_engine() -> EngineType:
     """Return the table engine for the active data context."""
     return _engine_var.get()
+
+
+@asynccontextmanager
+async def _maybe_insert_lock(table: str, name: str | None) -> AsyncIterator[None]:
+    """Acquire the per-table insert lock when writing to a named (persistent)
+    destination; no-op for fresh/temp destinations that cannot race."""
+    if name is None:
+        yield
+        return
+    async with table_insert_lock(await load_advisory_id(table)):
+        yield
 
 
 def incref(table_name: str) -> None:
@@ -476,13 +488,14 @@ async def _create_nested_object(
     obj = await create_object(schema, name=name)
 
     keys = list(flat.keys())
-    await ch.insert(
-        obj.table,
-        [[v] for v in flat.values()],
-        column_names=keys,
-        column_oriented=True,
-        column_type_names=[columns[k].ch_type() for k in keys],
-    )
+    async with _maybe_insert_lock(obj.table, name):
+        await ch.insert(
+            obj.table,
+            [[v] for v in flat.values()],
+            column_names=keys,
+            column_oriented=True,
+            column_type_names=[columns[k].ch_type() for k in keys],
+        )
 
     return obj
 
@@ -524,13 +537,14 @@ async def _create_nested_records_object(
     all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
     col_data = [[flat[key] for flat in all_flat] for key in keys]
-    await ch.insert(
-        obj.table,
-        col_data,
-        column_names=keys,
-        column_oriented=True,
-        column_type_names=[columns[k].ch_type() for k in keys],
-    )
+    async with _maybe_insert_lock(obj.table, name):
+        await ch.insert(
+            obj.table,
+            col_data,
+            column_names=keys,
+            column_oriented=True,
+            column_type_names=[columns[k].ch_type() for k in keys],
+        )
 
     return obj
 
@@ -608,13 +622,14 @@ async def create_object_from_value(
             if array_len and array_len > 0:
                 keys = list(val.keys())
                 array_cols: list[list[Any]] = [cast("list[Any]", val[k]) for k in keys]
-                await ch.insert(
-                    obj.table,
-                    array_cols,
-                    column_names=keys,
-                    column_oriented=True,
-                    column_type_names=[columns[k].ch_type() for k in keys],
-                )
+                async with _maybe_insert_lock(obj.table, name):
+                    await ch.insert(
+                        obj.table,
+                        array_cols,
+                        column_names=keys,
+                        column_oriented=True,
+                        column_type_names=[columns[k].ch_type() for k in keys],
+                    )
 
         else:
             columns = {"aai_id": ColumnInfo("UInt64")}
@@ -628,13 +643,14 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             keys = list(val.keys())
-            await ch.insert(
-                obj.table,
-                [[v] for v in val.values()],
-                column_names=keys,
-                column_oriented=True,
-                column_type_names=[columns[k].ch_type() for k in keys],
-            )
+            async with _maybe_insert_lock(obj.table, name):
+                await ch.insert(
+                    obj.table,
+                    [[v] for v in val.values()],
+                    column_names=keys,
+                    column_oriented=True,
+                    column_type_names=[columns[k].ch_type() for k in keys],
+                )
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
@@ -677,13 +693,14 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             col_data: list[list[Any]] = [[record[key] for record in records] for key in keys]
-            await ch.insert(
-                obj.table,
-                col_data,
-                column_names=keys,
-                column_oriented=True,
-                column_type_names=[columns[k].ch_type() for k in keys],
-            )
+            async with _maybe_insert_lock(obj.table, name):
+                await ch.insert(
+                    obj.table,
+                    col_data,
+                    column_names=keys,
+                    column_oriented=True,
+                    column_type_names=[columns[k].ch_type() for k in keys],
+                )
         else:
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
@@ -699,13 +716,14 @@ async def create_object_from_value(
             obj = await create_object(schema, name=name)
 
             if scalars:
-                await ch.insert(
-                    obj.table,
-                    [scalars],
-                    column_names=["value"],
-                    column_oriented=True,
-                    column_type_names=[col_def.ch_type()],
-                )
+                async with _maybe_insert_lock(obj.table, name):
+                    await ch.insert(
+                        obj.table,
+                        [scalars],
+                        column_names=["value"],
+                        column_oriented=True,
+                        column_type_names=[col_def.ch_type()],
+                    )
 
     else:
         col_def = _infer_clickhouse_type(val)
@@ -720,13 +738,14 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name)
 
-        await ch.insert(
-            obj.table,
-            [[val]],
-            column_names=["value"],
-            column_oriented=True,
-            column_type_names=[col_def.ch_type()],
-        )
+        async with _maybe_insert_lock(obj.table, name):
+            await ch.insert(
+                obj.table,
+                [[val]],
+                column_names=["value"],
+                column_oriented=True,
+                column_type_names=[col_def.ch_type()],
+            )
 
     oplog_record(obj.table, "create_from_value")
     return obj

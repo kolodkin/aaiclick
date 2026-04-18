@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.backend import is_chdb, is_postgres
+from aaiclick.backend import is_chdb, is_distributed, is_postgres
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
@@ -232,14 +232,41 @@ class OrchLifecycleHandler(LifecycleHandler):
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
+                        # In distributed mode, take a transient hashtext-keyed
+                        # txn lock so two concurrent contexts cannot bind the
+                        # same table_name to two different advisory_ids.
+                        if is_distributed():
+                            await session.execute(
+                                text("SELECT pg_advisory_xact_lock(hashtext(:n))"),
+                                {"n": msg.table_name},
+                            )
+
+                        # Reuse the advisory_id any earlier context already
+                        # bound to this table_name; otherwise mint a fresh one.
+                        existing = (
+                            await session.execute(
+                                text(
+                                    "SELECT advisory_id FROM table_context_refs "
+                                    "WHERE table_name = :n LIMIT 1"
+                                ),
+                                {"n": msg.table_name},
+                            )
+                        ).scalar_one_or_none()
+                        advisory_id = existing if existing is not None else get_snowflake_id()
+
                         # Register table in context refs (idempotent)
                         await session.execute(
                             text(
-                                "INSERT INTO table_context_refs (table_name, context_id) "
-                                "VALUES (:table_name, :context_id) "
+                                "INSERT INTO table_context_refs "
+                                "(table_name, context_id, advisory_id) "
+                                "VALUES (:table_name, :context_id, :advisory_id) "
                                 "ON CONFLICT (table_name, context_id) DO NOTHING"
                             ),
-                            {"table_name": msg.table_name, "context_id": self._task_id},
+                            {
+                                "table_name": msg.table_name,
+                                "context_id": self._task_id,
+                                "advisory_id": advisory_id,
+                            },
                         )
                         # Add run ref
                         await session.execute(

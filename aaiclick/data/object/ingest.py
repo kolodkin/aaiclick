@@ -7,6 +7,7 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
+from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..data_context import create_object
@@ -345,9 +346,11 @@ async def concat_objects_db(
         selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
-    await ch_client.command(
-        f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
-    )
+    advisory_id = await load_advisory_id(result.table)
+    async with table_insert_lock(advisory_id):
+        await ch_client.command(
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
+        )
 
     oplog_record_sample(
         result.table,
@@ -388,28 +391,30 @@ async def insert_objects_db(
     target_columns = target_info.columns
     target_data_cols = {k for k in target_columns if k != "aai_id"}
 
-    for i, info in enumerate(source_infos):
-        source_columns = info.columns
-        all_source_cols = sorted(k for k in source_columns if k != "aai_id")
-        col_names = [c for c in all_source_cols if c in target_data_cols]
+    advisory_id = await load_advisory_id(target_info.base_table)
+    async with table_insert_lock(advisory_id):
+        for i, info in enumerate(source_infos):
+            source_columns = info.columns
+            all_source_cols = sorted(k for k in source_columns if k != "aai_id")
+            col_names = [c for c in all_source_cols if c in target_data_cols]
 
-        for col_name in col_names:
-            target_def = target_columns[col_name]
-            source_def = source_columns[col_name]
-            if not _are_types_castable(target_def.type, source_def.type):
-                raise ValueError(
-                    f"Cannot insert {source_def.type} into {target_def.type} "
-                    f"for column '{col_name}': types are incompatible"
-                )
+            for col_name in col_names:
+                target_def = target_columns[col_name]
+                source_def = source_columns[col_name]
+                if not _are_types_castable(target_def.type, source_def.type):
+                    raise ValueError(
+                        f"Cannot insert {source_def.type} into {target_def.type} "
+                        f"for column '{col_name}': types are incompatible"
+                    )
 
-        source_target_types = {col: target_columns[col] for col in col_names}
-        await _insert_source(
-            target_info.base_table,
-            info,
-            source_target_types,
-            i,
-            ch_client,
-        )
+            source_target_types = {col: target_columns[col] for col in col_names}
+            await _insert_source(
+                target_info.base_table,
+                info,
+                source_target_types,
+                i,
+                ch_client,
+            )
 
     for info in source_infos:
         oplog_record_sample(
