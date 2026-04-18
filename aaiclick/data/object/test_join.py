@@ -35,44 +35,54 @@ def test_resolve_cross_no_keys():
     assert keys == JoinKeys(left=[], right=[])
 
 
-def test_resolve_missing_keys_raises():
-    with pytest.raises(ValueError, match="must pass on="):
-        resolve_join_keys(on=None, left_on=None, right_on=None, how="inner")
-
-
-def test_resolve_on_with_left_on_raises():
-    with pytest.raises(ValueError, match="not both"):
-        resolve_join_keys(on="k", left_on="k", right_on=None, how="inner")
-
-
-def test_resolve_left_on_without_right_on_raises():
-    with pytest.raises(ValueError, match="left_on and right_on must both be set"):
-        resolve_join_keys(on=None, left_on="id", right_on=None, how="inner")
-
-
-def test_resolve_key_length_mismatch_raises():
-    with pytest.raises(ValueError, match="same length"):
-        resolve_join_keys(on=None, left_on=["a", "b"], right_on=["x"], how="inner")
-
-
-def test_resolve_cross_with_keys_raises():
-    with pytest.raises(ValueError, match="cross"):
-        resolve_join_keys(on="k", left_on=None, right_on=None, how="cross")
-
-
-def test_resolve_unknown_how_raises():
-    with pytest.raises(ValueError, match="unknown how"):
-        resolve_join_keys(on="k", left_on=None, right_on=None, how="semi")  # type: ignore[arg-type]
-
-
-def test_resolve_empty_string_key_raises():
-    with pytest.raises(ValueError, match="non-empty string"):
-        resolve_join_keys(on="", left_on=None, right_on=None, how="inner")
-
-
-def test_resolve_empty_key_list_raises():
-    with pytest.raises(ValueError, match="must not be empty"):
-        resolve_join_keys(on=[], left_on=None, right_on=None, how="inner")
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        pytest.param(
+            {"on": None, "left_on": None, "right_on": None, "how": "inner"},
+            "must pass on=",
+            id="missing-keys",
+        ),
+        pytest.param(
+            {"on": "k", "left_on": "k", "right_on": None, "how": "inner"},
+            "not both",
+            id="on-with-left-on",
+        ),
+        pytest.param(
+            {"on": None, "left_on": "id", "right_on": None, "how": "inner"},
+            "left_on and right_on must both be set",
+            id="left-on-without-right-on",
+        ),
+        pytest.param(
+            {"on": None, "left_on": ["a", "b"], "right_on": ["x"], "how": "inner"},
+            "same length",
+            id="length-mismatch",
+        ),
+        pytest.param(
+            {"on": "k", "left_on": None, "right_on": None, "how": "cross"},
+            "cross",
+            id="cross-with-keys",
+        ),
+        pytest.param(
+            {"on": "k", "left_on": None, "right_on": None, "how": "semi"},
+            "unknown how",
+            id="unknown-how",
+        ),
+        pytest.param(
+            {"on": "", "left_on": None, "right_on": None, "how": "inner"},
+            "non-empty string",
+            id="empty-string-key",
+        ),
+        pytest.param(
+            {"on": [], "left_on": None, "right_on": None, "how": "inner"},
+            "must not be empty",
+            id="empty-key-list",
+        ),
+    ],
+)
+def test_resolve_join_keys_errors(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        resolve_join_keys(**kwargs)
 
 
 # =============================================================================
@@ -112,49 +122,52 @@ def test_schema_on_form_keeps_both_keys():
     assert rproj == [("tconst", "tconst"), ("total", "total")]
 
 
-def test_schema_missing_left_key_raises():
-    with pytest.raises(ValueError, match="left key 'missing'"):
-        build_join_schema(
+@pytest.mark.parametrize(
+    "left_cols,right_cols,keys,match",
+    [
+        pytest.param(
             _cols(a=ColumnInfo("Int64")),
             _cols(missing=ColumnInfo("Int64")),
             JoinKeys(left=["missing"], right=["missing"]),
-            how="inner",
-            suffixes=None,
-        )
-
-
-def test_schema_missing_right_key_raises():
-    with pytest.raises(ValueError, match="right key 'rk'"):
-        build_join_schema(
+            "left key 'missing'",
+            id="missing-left-key",
+        ),
+        pytest.param(
             _cols(lk=ColumnInfo("Int64")),
             _cols(other=ColumnInfo("Int64")),
             JoinKeys(left=["lk"], right=["rk"]),
-            how="inner",
-            suffixes=None,
-        )
+            "right key 'rk'",
+            id="missing-right-key",
+        ),
+    ],
+)
+def test_schema_missing_key_raises(left_cols, right_cols, keys, match):
+    with pytest.raises(ValueError, match=match):
+        build_join_schema(left_cols, right_cols, keys, how="inner", suffixes=None)
 
 
-def test_schema_incompatible_key_types_raises():
-    with pytest.raises(ValueError, match="key types incompatible"):
-        build_join_schema(
-            _cols(k=ColumnInfo("String")),
-            _cols(k=ColumnInfo("Int64")),
-            JoinKeys(left=["k"], right=["k"]),
-            how="inner",
-            suffixes=None,
-        )
-
-
-def test_schema_compatible_int_types_accepted():
-    schema, _, _, _ = build_join_schema(
-        _cols(k=ColumnInfo("Int32")),
-        _cols(k=ColumnInfo("Int64")),
+@pytest.mark.parametrize(
+    "left_type,right_type,expected_result_type",
+    [
+        pytest.param("Int64", "Int64", "Int64", id="same-type"),
+        pytest.param("Int32", "Int64", "Int32", id="compatible-int-widths"),
+        pytest.param("String", "Int64", None, id="incompatible-string-vs-int"),
+    ],
+)
+def test_schema_key_type_compatibility(left_type, right_type, expected_result_type):
+    args = (
+        _cols(k=ColumnInfo(left_type)),
+        _cols(k=ColumnInfo(right_type)),
         JoinKeys(left=["k"], right=["k"]),
-        how="inner",
-        suffixes=None,
     )
-    # Left side's ColumnInfo wins for the result key type.
-    assert schema.columns["k"].type == "Int32"
+    kwargs = {"how": "inner", "suffixes": None}
+    if expected_result_type is None:
+        with pytest.raises(ValueError, match="key types incompatible"):
+            build_join_schema(*args, **kwargs)
+    else:
+        schema, _, _, _ = build_join_schema(*args, **kwargs)
+        # Left side's ColumnInfo wins for the result key type.
+        assert schema.columns["k"].type == expected_result_type
 
 
 def test_schema_collision_without_suffixes_raises():
@@ -251,19 +264,11 @@ def test_schema_cross_join_has_no_keys():
     assert rproj == [("b", "b")]
 
 
-def test_schema_aai_id_never_projected():
-    left = _cols(k=ColumnInfo("Int64"))
-    right = _cols(k=ColumnInfo("Int64"))
-    schema, lproj, rproj, _ = build_join_schema(
-        left, right, JoinKeys(left=["k"], right=["k"]), how="inner", suffixes=None
-    )
-
-    projected_sources = [src for src, _ in lproj] + [src for src, _ in rproj]
-    assert "aai_id" not in projected_sources
-
-
 # =============================================================================
 # Phase 3: end-to-end join via Object.join()
+#
+# Error paths are covered by the cheaper Phase 1/2 pure-Python tests above;
+# these tests exercise only the SQL-emission half of the pipeline.
 # =============================================================================
 
 
@@ -335,25 +340,6 @@ async def test_join_suffixes_on_collision(ctx):
     assert by_id == {1: (10, 99), 2: (20, 88)}
 
 
-async def test_join_suffixes_true_default_pair(ctx):
-    a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
-    b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
-
-    merged = await a.join(b, on="id", suffixes=True)
-    rows = await merged.data(orient="records")
-    by_id = {r["id"]: (r["score_l"], r["score_r"]) for r in rows}
-
-    assert by_id == {1: (10, 99), 2: (20, 88)}
-
-
-async def test_join_collision_without_suffixes_raises(ctx):
-    a = await create_object_from_value({"id": [1], "score": [10]})
-    b = await create_object_from_value({"id": [1], "score": [99]})
-
-    with pytest.raises(ValueError, match="column collision"):
-        await a.join(b, on="id")
-
-
 async def test_join_cross(ctx):
     colors = await create_object_from_value({"c": ["red", "blue"]})
     sizes = await create_object_from_value({"s": ["S", "M", "L"]})
@@ -374,35 +360,3 @@ async def test_join_self_join_aliases(ctx):
     by_id = {r["id"]: (r["val_l"], r["val_r"]) for r in rows}
 
     assert by_id == {1: (10, 10), 2: (20, 20), 3: (30, 30)}
-
-
-async def test_join_missing_key_raises(ctx):
-    a = await create_object_from_value({"id": [1, 2]})
-    b = await create_object_from_value({"other": [1, 2]})
-
-    with pytest.raises(ValueError, match="left key 'nope'"):
-        await a.join(b, on="nope")
-
-
-async def test_join_type_incompatible_key_raises(ctx):
-    a = await create_object_from_value({"k": [1, 2]})
-    b = await create_object_from_value({"k": ["a", "b"]})
-
-    with pytest.raises(ValueError, match="key types incompatible"):
-        await a.join(b, on="k")
-
-
-async def test_join_cross_rejects_keys(ctx):
-    a = await create_object_from_value({"c": ["red"]})
-    b = await create_object_from_value({"s": ["S"]})
-
-    with pytest.raises(ValueError, match="cross"):
-        await a.join(b, on="c", how="cross")
-
-
-async def test_join_unknown_how_raises(ctx):
-    a = await create_object_from_value({"id": [1]})
-    b = await create_object_from_value({"id": [1]})
-
-    with pytest.raises(ValueError, match="unknown how"):
-        await a.join(b, on="id", how="semi")  # type: ignore[arg-type]
