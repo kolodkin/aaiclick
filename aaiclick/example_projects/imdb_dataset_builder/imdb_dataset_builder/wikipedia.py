@@ -244,8 +244,10 @@ async def enrich_with_wikipedia(
         )
     )
     await stage_b.insert(matched)  # wiki_text auto-NULL
-    # Rename wiki side so titles align; strip to the two columns we care about.
-    wiki_view = wiki[["title", "text"]].rename({"title": "wp_title", "text": "wiki_text"})
+    # Rename wiki side so titles align; ``insert`` silently drops the
+    # extra id/url columns that aren't in the target schema (same idiom
+    # used by cyber_threat_feeds/consolidated.py).
+    wiki_view = wiki.rename({"title": "wp_title", "text": "wiki_text"})
     await stage_b.insert(wiki_view)  # IMDb columns auto-NULL
 
     enriched = await stage_b.group_by("wp_title").agg(
