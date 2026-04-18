@@ -353,7 +353,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     )
 
     title_map = resolve_wikipedia_titles(clean=clean)
-    wiki = load_wikipedia_dump()
+    wiki = load_wikipedia_dump(title_map=title_map)
     enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
     plots = extract_plot_text(enriched=enriched)
     enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)

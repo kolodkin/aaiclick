@@ -164,16 +164,20 @@ async def resolve_wikipedia_titles(clean: Object) -> Object:
 
 
 @task
-async def load_wikipedia_dump() -> Object:
-    """Load the English Wikipedia article dump from Hugging Face as Parquet.
+async def load_wikipedia_dump(title_map: Object) -> Object:
+    """Load the English Wikipedia article dump from Hugging Face as Parquet,
+    pre-filtered to the set of titles resolved in ``title_map``.
+
+    Filtering happens INSIDE ClickHouse's ``INSERT … SELECT … WHERE title IN (…)``,
+    so the full ~20 GB dump is streamed but only the matched ~tens of thousands
+    of rows are written to disk — crucial on constrained CI runners.
 
     ClickHouse's native ``url()`` function expands ``{0..40}`` brace patterns
-    into parallel HTTP reads, so all shards stream in concurrently with zero
-    Python involvement. Dump schema: (id, url, title, text).
+    into parallel HTTP reads, so all shards stream concurrently.
 
-    Hugging Face resolves ``/resolve/main/...`` URLs with a 302 redirect to a
-    CDN host; ClickHouse's default ``max_http_get_redirects=0`` rejects any
-    redirect, so we raise it explicitly.
+    Hugging Face 302-redirects ``/resolve/main/...`` URLs to a CDN host;
+    ClickHouse's default ``max_http_get_redirects=0`` rejects any redirect,
+    so we raise it explicitly.
     """
     last = HF_WIKIPEDIA_SHARDS - 1
     total = HF_WIKIPEDIA_SHARDS
@@ -193,6 +197,7 @@ async def load_wikipedia_dump() -> Object:
             "text": ColumnInfo("String"),
         },
         ch_settings={"max_http_get_redirects": 10},
+        where=f"title IN (SELECT wp_title FROM {title_map.table})",
     )
 
 
