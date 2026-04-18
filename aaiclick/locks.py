@@ -30,9 +30,10 @@ from .snowflake_id import get_snowflake_id
 
 # Sentinel context_id for "lock-only" registrations of persistent tables
 # (p_*) that bypass the regular incref/decref lifecycle. Real context IDs
-# are positive Snowflake values, so 0 cannot collide. The background
-# cleanup query already excludes p_* tables, so this row is inert.
-_LOCK_ONLY_CONTEXT_ID = 0
+# are positive Snowflake values; a negative value cannot be produced by
+# any legitimate code path. The background cleanup query already excludes
+# p_* tables, so this row is inert.
+_LOCK_ONLY_CONTEXT_ID = -1
 
 # Per-process cache: table_name -> advisory_id. Safe because advisory_id
 # never changes for a table's lifetime; entries become stale only after the
