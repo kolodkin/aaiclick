@@ -108,21 +108,6 @@ def _print_report(content: ReportContent) -> None:
     print("\n#### Sample (first 5 rows)\n")
     print(content.clean_md)
 
-    print("\n### Published\n")
-    if hf_result is None:
-        print("- Skipped: HF_TOKEN not set")
-        print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
-    elif hf_result.status == "published":
-        print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")
-        print(f"- Rows published: {_fmt(hf_result.rows)}")
-    else:
-        print(f"- Status: {hf_result.status}")
-
-    if content.exports:
-        print("\n### Local Exports\n")
-        for fmt, path in content.exports.items():
-            print(f"- {fmt}: `{path}`")
-
     stats = content.enrichment_stats
     print("\n### Wikipedia Raw Data Profile\n")
     wiki_url = HF_WIKIPEDIA_URL_TEMPLATE.format(
@@ -159,6 +144,21 @@ def _print_report(content: ReportContent) -> None:
 
     print("\n#### Sample (first 3 rows)\n")
     print(content.plots_md)
+
+    if content.exports:
+        print("\n### Local Exports\n")
+        for fmt, path in content.exports.items():
+            print(f"- {fmt}: `{path}`")
+
+    print("\n### Published\n")
+    if hf_result is None:
+        print("- Skipped: HF_TOKEN not set")
+        print(f"- Set `HF_TOKEN` to publish to: https://huggingface.co/datasets/{HF_REPO_ID}")
+    elif hf_result.status == "published":
+        print(f"- Hugging Face: https://huggingface.co/datasets/{hf_result.repo}")
+        print(f"- Rows published: {_fmt(hf_result.rows)}")
+    else:
+        print(f"- Status: {hf_result.status}")
 
 
 @task
