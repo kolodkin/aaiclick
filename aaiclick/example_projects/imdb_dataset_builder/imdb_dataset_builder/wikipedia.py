@@ -275,33 +275,46 @@ async def extract_plot_text(enriched: Object) -> Object:
 
     The HF ``wikimedia/wikipedia`` dump stores articles as cleaned plaintext —
     section headings are bare lines (``"Plot\\n"``), templates/refs stripped.
-    Strategy:
-      1. Extract ``Plot|Synopsis|Premise|Story`` section via regex up to the
-         next heading-shaped line (short line starting with a capital).
-      2. Always expose ``lead`` = first 2000 chars as a universal fallback.
-      3. ``plot`` column coalesces: plot section if found, else lead.
+    RE2 (ClickHouse's regex engine) rejects bounded repetitions above ~1000,
+    so rather than rely on a regex range we locate the heading via
+    ``position(...)`` and take a fixed-size window with ``substring(...)``.
+
+      1. Find the earliest occurrence of any of ``\\nPlot\\n``,
+         ``\\nSynopsis\\n``, ``\\nPremise\\n``, ``\\nStory\\n``.
+      2. Take the 5000-char window starting at that heading (keeps the label
+         in the output and avoids offset bookkeeping per variant).
+      3. Expose ``lead`` = first 2500 chars as a universal fallback.
+      4. ``plot`` coalesces: plot window when it's long enough, else lead.
     """
-    # ClickHouse extract() returns the first capture group; empty if no match.
-    plot_regex = (
-        r"(?:^|\n)(?:Plot|Synopsis|Premise|Story)\s*\n+"
-        r"([\s\S]{50,6000}?)"
-        r"(?:\n[A-Z][A-Za-z][A-Za-z ]{1,30}\n|$)"
-    )
-    with_plot = enriched.with_columns(
+    with_pos = enriched.with_columns(
         {
-            "plot_raw": Computed("String", f"extract(wiki_text, {_sql_str(plot_regex)})"),
-            "lead": Computed("String", "substring(wiki_text, 1, 2000)"),
+            "plot_pos": Computed(
+                "UInt32",
+                "greatest("
+                "position(wiki_text, '\\nPlot\\n'), "
+                "position(wiki_text, '\\nSynopsis\\n'), "
+                "position(wiki_text, '\\nPremise\\n'), "
+                "position(wiki_text, '\\nStory\\n')"
+                ")",
+            ),
+            "lead": Computed("String", "substring(wiki_text, 1, 2500)"),
         }
     )
-    # Strip a few residual wiki artefacts still present in the HF plaintext
-    # (orphan brackets, double-space collapse).
-    with_clean = with_plot.with_columns(
+    with_raw = with_pos.with_columns(
+        {
+            "plot_raw": Computed(
+                "String",
+                "if(plot_pos > 0, substring(wiki_text, plot_pos + 1, 5000), '')",
+            ),
+        }
+    )
+    with_clean = with_raw.with_columns(
         {
             "plot": Computed(
                 "String",
-                "if(length(plot_raw) >= 120, "
-                "replaceRegexpAll(plot_raw, '[\\\\[\\\\]]+', ''), "
-                "replaceRegexpAll(lead, '[\\\\[\\\\]]+', ''))",
+                "replaceRegexpAll("
+                "if(length(plot_raw) >= 120, plot_raw, lead), "
+                "'[\\\\[\\\\]]+', '')",
             ),
         }
     )
@@ -359,9 +372,3 @@ async def measure_enrichment(
         plots_usable_pct=pct(plots_usable),
         avg_plot_chars=float(avg or 0.0),
     )
-
-
-def _sql_str(s: str) -> str:
-    """Escape a Python string as a single-quoted ClickHouse SQL literal."""
-    escaped = s.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
