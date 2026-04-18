@@ -49,8 +49,8 @@ class ReportContent:
     genre_distinct: int
     genre_total: int
     exports: dict[str, str] | None
-    enrichment_stats: EnrichmentStats | None
-    plots_md: str | None
+    enrichment_stats: EnrichmentStats
+    plots_md: str
 
 
 def _print_report(content: ReportContent) -> None:
@@ -120,28 +120,26 @@ def _print_report(content: ReportContent) -> None:
         for fmt, path in content.exports.items():
             print(f"- {fmt}: `{path}`")
 
-    if content.enrichment_stats is not None:
-        stats = content.enrichment_stats
-        print("\n### Wikipedia Enrichment\n")
-        print("- Source: `wikimedia/wikipedia` (Hugging Face Parquet dump)")
-        print("- ID resolver: Wikidata SPARQL (property `P345`, IMDb ID)")
-        print(
-            f"- Titles resolved via Wikidata: {_fmt(stats.titles_resolved)} "
-            f"({_fmt(stats.titles_resolved_pct)}% of {_fmt(stats.total_clean)})"
-        )
-        print(
-            f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} "
-            f"({_fmt(stats.articles_matched_pct)}%)"
-        )
-        print(
-            f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} "
-            f"({_fmt(stats.plots_usable_pct)}%)"
-        )
-        print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
+    stats = content.enrichment_stats
+    print("\n### Wikipedia Enrichment\n")
+    print("- Source: `wikimedia/wikipedia` (Hugging Face Parquet dump)")
+    print("- ID resolver: Wikidata SPARQL (property `P345`, IMDb ID)")
+    print(
+        f"- Titles resolved via Wikidata: {_fmt(stats.titles_resolved)} "
+        f"({_fmt(stats.titles_resolved_pct)}% of {_fmt(stats.total_clean)})"
+    )
+    print(
+        f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} "
+        f"({_fmt(stats.articles_matched_pct)}%)"
+    )
+    print(
+        f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} "
+        f"({_fmt(stats.plots_usable_pct)}%)"
+    )
+    print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
 
-        if content.plots_md:
-            print("\n#### Sample (first 3 rows)\n")
-            print(content.plots_md)
+    print("\n#### Sample (first 3 rows)\n")
+    print(content.plots_md)
 
 
 @task
@@ -150,12 +148,12 @@ async def generate_report(
     movies: Object,
     clean: Object,
     genre_balance: Object,
+    plots: Object,
     profile: RawProfile,
     quality_issues: QualityIssues,
+    enrichment_stats: EnrichmentStats,
     hf_result: HFPublishResult | None = None,
     exports: dict[str, str] | None = None,
-    plots: Object | None = None,
-    enrichment_stats: EnrichmentStats | None = None,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
     raw_md = (
@@ -176,13 +174,11 @@ async def generate_report(
     genre_distinct = len(genre_data_raw["genre"])
     genre_total = sum(genre_data_raw["tconst"])
 
-    plots_md: str | None = None
-    if plots is not None:
-        plots_md = (
-            await plots[["tconst", "primaryTitle", "wp_title", "plot"]]
-            .view(limit=3)
-            .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
-        )
+    plots_md = (
+        await plots[["tconst", "primaryTitle", "wp_title", "plot"]]
+        .view(limit=3)
+        .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
+    )
 
     buf = StringIO()
     with redirect_stdout(buf):
@@ -215,5 +211,5 @@ async def generate_report(
         "total_titles": profile.total_titles,
         "total_movies": quality_issues.total_movies,
         "hf_status": hf_result.status if hf_result is not None else "skipped",
-        "enrichment_plots_usable": (enrichment_stats.plots_usable if enrichment_stats is not None else None),
+        "enrichment_plots_usable": enrichment_stats.plots_usable,
     }

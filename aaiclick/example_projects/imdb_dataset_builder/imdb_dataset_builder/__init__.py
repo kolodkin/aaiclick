@@ -10,7 +10,7 @@ loaded directly from the official IMDb datasets URL:
 - Array Explode (one genre per row from comma-separated strings)
 - Group By Aggregations (genre distribution analysis)
 - Data Quality Profiling (countIf for missing runtime and out-of-range detection)
-- Wikipedia Plot Enrichment (optional, via IMDB_ENRICH=wikipedia)
+- Wikipedia Plot Enrichment (always on)
   - Wikidata SPARQL resolution of IMDb tconst → Wikipedia article title (P345)
   - Bulk Parquet load of the HF wikimedia/wikipedia dump (brace-expansion URL)
   - Two-stage AggregatingMergeTree merge to avoid string-matching on titles
@@ -32,7 +32,6 @@ Usage:
 Environment variables:
     HF_TOKEN           — Hugging Face token for dataset publishing (optional)
     IMDB_URL           — Override IMDb data URL (useful for local testing)
-    IMDB_ENRICH        — set to ``wikipedia`` to add plot text enrichment
     IMDB_WIKI_SNAPSHOT — Wikipedia snapshot date (default 20231101)
     IMDB_WIKI_SHARDS   — number of Parquet shards to load (default 41)
     IMDB_SPARQL_BATCH  — IDs per SPARQL batch (default 400)
@@ -313,7 +312,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
                                                            |                  |
                                                            +--> publish_to_hf |
                                                            |                  |
-                                 (IMDB_ENRICH=wikipedia)  +--> resolve_wp_titles
+                                                           +--> resolve_wp_titles
                                                            |           \\
                                                            |  load_wikipedia_dump
                                                            |           \\
@@ -330,9 +329,6 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
 
     Environment variables:
         HF_TOKEN              — publish curated dataset to Hugging Face Hub
-        IMDB_ENRICH           — set to ``wikipedia`` to enrich clean titles with
-                                plot text pulled from the HF Wikipedia dump
-                                via Wikidata P345 title resolution
         IMDB_WIKI_SNAPSHOT    — Wikipedia snapshot date (default 20231101)
         IMDB_WIKI_SHARDS      — number of Parquet shards to load (default 41)
         IMDB_SPARQL_BATCH     — IDs per SPARQL batch (default 400)
@@ -356,16 +352,11 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         else None
     )
 
-    enrich_mode = os.environ.get("IMDB_ENRICH", "").strip().lower()
-    if enrich_mode == "wikipedia":
-        title_map = resolve_wikipedia_titles(clean=clean)
-        wiki = load_wikipedia_dump()
-        enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
-        plots = extract_plot_text(enriched=enriched)
-        enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
-    else:
-        plots = None
-        enrichment_stats = None
+    title_map = resolve_wikipedia_titles(clean=clean)
+    wiki = load_wikipedia_dump()
+    enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
+    plots = extract_plot_text(enriched=enriched)
+    enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
 
     return generate_report(
         raw=raw,
