@@ -7,16 +7,6 @@ Planned work across aaiclick, ordered by priority.
 
 # High Priority
 
-## `join()` Operator
-
-Distributed join of two Objects on a key column:
-
-```python
-basics.join(ratings, on="tconst", how="left")
-```
-
-Core data operation — table-stakes for any data framework.
-
 ## Insert Advisory Lock for Concurrent Workers
 
 Concurrent workers inserting into the same persistent Object can produce interleaved Snowflake IDs within the same millisecond.

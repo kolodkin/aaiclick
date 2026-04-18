@@ -7,6 +7,8 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
+from dataclasses import replace as dataclass_replace
+
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..data_context import create_object
@@ -25,6 +27,13 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
+
+
+def promote_nullable(col: ColumnInfo) -> ColumnInfo:
+    """Return ``col`` with ``nullable=True``; no-op if already nullable."""
+    if col.nullable:
+        return col
+    return dataclass_replace(col, nullable=True)
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -319,14 +328,8 @@ async def concat_objects_db(
                     f"concat source {i} column '{col_name}' has incompatible type "
                     f"{source_def.type} (target: {target_def.type})"
                 )
-            # Promote to nullable if any source is nullable
             if source_def.nullable and not target_def.nullable:
-                result_columns[col_name] = ColumnInfo(
-                    target_def.type,
-                    nullable=True,
-                    array=target_def.array,
-                    low_cardinality=target_def.low_cardinality,
-                )
+                result_columns[col_name] = promote_nullable(target_def)
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)

@@ -4,6 +4,7 @@ from aaiclick.example_runner import run_all
 
 from .aggregation_table import amain as aggregation_table_example
 from .array_operators import amain as array_operators_example
+from .basic_join import amain as basic_join_example
 from .basic_operators import amain as basic_operators_example
 from .data_manipulation import amain as data_manipulation_example
 from .explode import amain as explode_example
@@ -29,6 +30,7 @@ EXAMPLES = [
     ("Views", views_example),
     ("Group By", group_by_example),
     ("Isin", isin_example),
+    ("Join", basic_join_example),
     ("Nullable Columns", nullable_example),
     ("Dict Selectors", selectors_example),
     ("Aggregation Table", aggregation_table_example),
