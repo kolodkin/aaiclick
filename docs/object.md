@@ -364,7 +364,7 @@ async def join(
 | `left_on`  | Left-side key(s) when names differ. Requires matching-length `right_on`.         |
 | `right_on` | Right-side key(s) when names differ.                                             |
 | `how`      | Join type. Default `"inner"`.                                                    |
-| `suffixes` | Suffix pair for non-key column collisions. `None` → collision raises `ValueError`. |
+| `suffixes` | Suffix handling for non-key column collisions. `True` → default `("_l", "_r")`; a tuple picks custom suffixes; `None` / `False` → collision raises `ValueError`. |
 
 Exactly one of `{on}` or `{left_on, right_on}` must be set, except `how="cross"` which forbids all three.
 
@@ -383,7 +383,7 @@ Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materiali
 ### Column semantics
 
 - **Key dedup**: under `on=` the key appears once under its original name; under `left_on`/`right_on` both key columns survive. `FULL` joins with `on=` coalesce the merged key across sides.
-- **Collisions**: non-key columns that appear on both sides raise `ValueError` unless `suffixes=("_x", "_y")` is passed. Both sides get a suffix — empty suffixes are rejected.
+- **Collisions**: non-key columns that appear on both sides raise `ValueError` unless `suffixes=True` (shorthand for `("_l", "_r")`) or a custom `suffixes=("_x", "_y")` tuple is passed. Both sides get a suffix — empty suffixes are rejected.
 - **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
 - **`aai_id`**: the result gets fresh `generateSnowflakeID()` values; source `aai_id` columns are never projected, even under `suffixes`.
 - **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
@@ -409,11 +409,14 @@ orders2 = await create_object_from_value({"user_id": [1, 2], "total": [9.5, 3.0]
 await users.join(orders2, left_on="id", right_on="user_id")
 # → rows include both 'id' and 'user_id'
 
-# Suffixes on non-key collision
+# Suffixes on non-key collision — True picks the default ("_l", "_r")
 a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
 b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
-merged = await a.join(b, on="id", suffixes=("_l", "_r"))
+merged = await a.join(b, on="id", suffixes=True)
 # → columns: id, score_l, score_r
+
+# Or supply a custom tuple:
+merged = await a.join(b, on="id", suffixes=("_old", "_new"))
 
 # Cross join — Cartesian product
 colors = await create_object_from_value({"c": ["red", "blue"]})

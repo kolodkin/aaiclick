@@ -826,7 +826,7 @@ class Object:
         left_on: str | list[str] | None = None,
         right_on: str | list[str] | None = None,
         how: join_module.JoinHow = "inner",
-        suffixes: tuple[str, str] | None = None,
+        suffixes: join_module.SuffixesArg = None,
     ) -> Object:
         """Join two Objects on one or more key columns.
 
@@ -842,7 +842,9 @@ class Object:
             right_on: Right-side key(s) when names differ.
             how: ``"inner" | "left" | "right" | "full" | "cross"``.
             suffixes: Applied to non-key columns that collide between left
-                and right. When ``None``, a collision raises ``ValueError``.
+                and right. ``True`` uses the default ``("_l", "_r")`` pair;
+                a tuple lets you pick custom suffixes; ``None`` (the
+                default) / ``False`` make a collision raise ``ValueError``.
 
         Returns:
             Object: new dict Object with the joined rows.

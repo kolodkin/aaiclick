@@ -56,14 +56,14 @@ async def example():
     rows = sorted(await joined.data(orient=ORIENT_RECORDS), key=lambda r: r["total"])
     print(f"Rows: {rows}")  # → [{'id': 2, 'user_id': 2, 'name': 'Bob', 'total': 3.0}, {'id': 1, 'user_id': 1, 'name': 'Alice', 'total': 9.5}, {'id': 1, 'user_id': 1, 'name': 'Alice', 'total': 14.0}]
 
-    # Example 4: suffixes on non-key collision
+    # Example 4: suffixes on non-key collision — True uses default ("_l", "_r")
     print("\n" + "=" * 50)
-    print("Example 4: suffixes=('_l', '_r') on non-key collision")
+    print("Example 4: suffixes=True on non-key collision")
     print("-" * 50)
 
     a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
     b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
-    merged = await a.join(b, on="id", suffixes=("_l", "_r"))
+    merged = await a.join(b, on="id", suffixes=True)
     rows = sorted(await merged.data(orient=ORIENT_RECORDS), key=lambda r: r["id"])
     print(f"Rows: {rows}")  # → [{'id': 1, 'score_l': 10, 'score_r': 99}, {'id': 2, 'score_l': 20, 'score_r': 88}]
 

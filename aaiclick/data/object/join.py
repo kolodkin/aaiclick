@@ -27,6 +27,10 @@ from .ingest import _are_types_compatible, promote_nullable
 
 JoinHow = Literal["inner", "left", "right", "full", "cross"]
 
+DEFAULT_SUFFIXES: tuple[str, str] = ("_l", "_r")
+
+SuffixesArg = tuple[str, str] | bool | None
+
 HOW_TO_SQL: dict[str, str] = {
     "inner": "INNER JOIN",
     "left": "LEFT JOIN",
@@ -159,12 +163,25 @@ def _nullable_sides(how: str) -> tuple[bool, bool]:
     return (False, False)
 
 
+def _resolve_suffixes(suffixes: SuffixesArg) -> tuple[str, str] | None:
+    """Normalize the ``suffixes`` argument.
+
+    ``True`` expands to the default ``("_l", "_r")`` pair. ``False`` is a
+    synonym for ``None`` (collisions raise). A tuple passes through.
+    """
+    if suffixes is True:
+        return DEFAULT_SUFFIXES
+    if suffixes is False or suffixes is None:
+        return None
+    return suffixes
+
+
 def build_join_schema(
     left_cols: dict[str, ColumnInfo],
     right_cols: dict[str, ColumnInfo],
     keys: JoinKeys,
     how: JoinHow,
-    suffixes: tuple[str, str] | None,
+    suffixes: SuffixesArg,
 ) -> JoinSchema:
     """Compute the result schema and per-side output-column mappings.
 
@@ -232,16 +249,18 @@ def build_join_schema(
         set(left_nonkey) & set(result_columns)
     ) | (set(right_nonkey) & set(result_columns))
 
-    if collisions and suffixes is None:
+    resolved = _resolve_suffixes(suffixes)
+
+    if collisions and resolved is None:
         raise ValueError(
             f"join: column collision on {sorted(collisions)}; "
-            f"pass suffixes=('_x', '_y') or rename first"
+            f"pass suffixes=True or suffixes=('_x', '_y') or rename first"
         )
 
-    if suffixes is not None:
-        lsuf, rsuf = suffixes
+    if resolved is not None:
+        lsuf, rsuf = resolved
         if not lsuf or not rsuf:
-            raise ValueError(f"join: suffixes must both be non-empty, got {suffixes!r}")
+            raise ValueError(f"join: suffixes must both be non-empty, got {resolved!r}")
     else:
         lsuf = rsuf = ""
 
@@ -282,7 +301,7 @@ async def join_objects_db(
     *,
     keys: JoinKeys,
     how: JoinHow,
-    suffixes: tuple[str, str] | None,
+    suffixes: SuffixesArg,
     ch_client,
 ):
     """Materialize a join into a new Object via CREATE + INSERT...SELECT...JOIN.

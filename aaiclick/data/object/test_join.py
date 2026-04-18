@@ -168,6 +168,30 @@ def test_schema_collision_without_suffixes_raises():
         )
 
 
+def test_schema_suffixes_true_uses_default_pair():
+    schema, lproj, rproj, _ = build_join_schema(
+        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+        JoinKeys(left=["k"], right=["k"]),
+        how="inner",
+        suffixes=True,
+    )
+    assert list(schema.columns) == ["aai_id", "k", "score_l", "score_r"]
+    assert lproj == [("k", "k"), ("score", "score_l")]
+    assert rproj == [("score", "score_r")]
+
+
+def test_schema_suffixes_false_treated_as_none():
+    with pytest.raises(ValueError, match="column collision"):
+        build_join_schema(
+            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+            JoinKeys(left=["k"], right=["k"]),
+            how="inner",
+            suffixes=False,
+        )
+
+
 def test_schema_collision_with_suffixes_renames_both():
     schema, lproj, rproj, _ = build_join_schema(
         _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
@@ -325,6 +349,17 @@ async def test_join_suffixes_on_collision(ctx):
     b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
 
     merged = await a.join(b, on="id", suffixes=("_l", "_r"))
+    rows = await merged.data(orient="records")
+    by_id = {r["id"]: (r["score_l"], r["score_r"]) for r in rows}
+
+    assert by_id == {1: (10, 99), 2: (20, 88)}
+
+
+async def test_join_suffixes_true_default_pair(ctx):
+    a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
+    b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
+
+    merged = await a.join(b, on="id", suffixes=True)
     rows = await merged.data(orient="records")
     by_id = {r["id"]: (r["score_l"], r["score_r"]) for r in rows}
 
