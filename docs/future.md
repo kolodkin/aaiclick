@@ -71,6 +71,33 @@ Moving it to SQL collapses `_cleanup_unreferenced_tables` to a single query that
 
 **Work**: Alembic migration creating `table_registry` in SQL; one-time copy from CH on upgrade; flip `OrchLifecycleHandler._write_table_registry_row` to a SQL INSERT; rewrite `_lookup_table_owners` / `_cleanup_unreferenced_tables` / `_cleanup_expired_jobs` scans; drop the CH-side table.
 
+## Retry `create_object_from_url` on Transient Upstream Failures
+
+`create_object_from_url` currently surfaces any HTTP failure from the
+remote host as a hard task failure. Transient upstream blips — `502 Bad
+Gateway`, `503 Service Unavailable`, `504 Gateway Timeout`, socket
+resets, DNS hiccups — are common on public datasets (Wikidata SPARQL,
+HuggingFace CDN, IMDb mirrors) and routinely kill an otherwise healthy
+pipeline run.
+
+Add retries with exponential backoff (e.g. 2 s / 4 s / 8 s / 16 s, up
+to 4 attempts) for a bounded set of retryable errors: `5xx` status
+codes, `ConnectionError`, `TimeoutError`. Non-retryable errors (`4xx`
+other than `429`, TLS failures, DNS NXDOMAIN) should still fail fast.
+Settings override via `ch_settings` keyword or dedicated
+`retry`/`retry_backoff` kwargs.
+
+Example motivation: the IMDb dataset builder pipeline's Wikidata
+SPARQL resolver hit a single `502 Bad Gateway` in one CI run and
+failed the whole job, even though a retry 2 s later would have
+succeeded. Same concern applies to HF Parquet downloads.
+
+**Work**: wrap the internal `ch.command()` / `ch.query()` call path in
+`aaiclick/data/object/url.py` with a retry decorator that inspects the
+exception type and status code; ensure the retry is idempotent (same
+INSERT … SELECT … LIMIT … is safe to replay since each invocation
+targets a fresh target table).
+
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
 Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
