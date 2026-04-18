@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from aaiclick.orchestration.models import SQLModel
+from aaiclick.snowflake_id import get_snowflake_id
 
 
 @pytest.fixture
@@ -40,7 +41,10 @@ async def insert_job(engine, job_id, *, status="RUNNING"):
         await session.commit()
 
 
-async def insert_context_ref(engine, table_name, context_id, advisory_id=1):
+async def insert_context_ref(engine, table_name, context_id, advisory_id=None):
+    # Auto-mint so separate tables never silently share a lock key in tests.
+    if advisory_id is None:
+        advisory_id = get_snowflake_id()
     async with AsyncSession(engine) as session:
         await session.execute(
             text("INSERT INTO table_context_refs (table_name, context_id, advisory_id) VALUES (:t, :c, :a)"),

@@ -2,7 +2,7 @@
 
 from sqlalchemy import text
 
-from aaiclick.locks import _LOCK_ONLY_CONTEXT_ID, _advisory_id_cache, load_advisory_id, table_insert_lock
+from aaiclick.locks import _advisory_id_cache, load_advisory_id, table_insert_lock
 from aaiclick.orchestration.sql_context import get_sql_session
 
 
@@ -40,7 +40,11 @@ async def test_load_advisory_id_mints_sentinel_row_when_missing(orch_ctx):
         )
         rows = result.fetchall()
 
-    assert rows == [(_LOCK_ONLY_CONTEXT_ID, advisory_id)]
+    # Sentinel context_id is negative (out of band vs positive Snowflake IDs);
+    # exact value is an implementation detail.
+    assert len(rows) == 1
+    assert rows[0][0] < 0
+    assert rows[0][1] == advisory_id
 
 
 async def test_load_advisory_id_caches_per_process(orch_ctx):

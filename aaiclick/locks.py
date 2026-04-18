@@ -41,6 +41,27 @@ _LOCK_ONLY_CONTEXT_ID = -1
 _advisory_id_cache: dict[str, int] = {}
 
 
+async def _lookup_advisory_id(session, table_name: str) -> int | None:
+    """Return the advisory_id bound to ``table_name``, or None if unregistered.
+
+    In distributed mode, first acquires a transient
+    ``pg_advisory_xact_lock(hashtext(table_name))`` so two concurrent callers
+    cannot bind different advisory_ids to the same table_name. The caller
+    decides how to handle None (mint + INSERT, sentinel, etc.).
+    """
+    if is_distributed():
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:n))"),
+            {"n": table_name},
+        )
+    return (
+        await session.execute(
+            text("SELECT advisory_id FROM table_context_refs WHERE table_name = :n LIMIT 1"),
+            {"n": table_name},
+        )
+    ).scalar_one_or_none()
+
+
 async def load_advisory_id(table_name: str) -> int | None:
     """Return the advisory_id bound to ``table_name`` in table_context_refs.
 
@@ -68,21 +89,7 @@ async def load_advisory_id(table_name: str) -> int | None:
         return None
 
     async with get_sql_session() as session:
-        # In distributed mode, take a transient hashtext-keyed txn lock so
-        # two concurrent callers cannot bind the same table_name to two
-        # different advisory_ids.
-        if is_distributed():
-            await session.execute(
-                text("SELECT pg_advisory_xact_lock(hashtext(:n))"),
-                {"n": table_name},
-            )
-
-        existing = (
-            await session.execute(
-                text("SELECT advisory_id FROM table_context_refs WHERE table_name = :n LIMIT 1"),
-                {"n": table_name},
-            )
-        ).scalar_one_or_none()
+        existing = await _lookup_advisory_id(session, table_name)
 
         if existing is not None:
             advisory_id = existing

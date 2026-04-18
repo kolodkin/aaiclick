@@ -12,12 +12,13 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.backend import is_chdb, is_distributed, is_postgres
+from aaiclick.backend import is_chdb, is_postgres
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
+from aaiclick.locks import _lookup_advisory_id
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
 
 from ..snowflake_id import get_snowflake_id
@@ -232,23 +233,12 @@ class OrchLifecycleHandler(LifecycleHandler):
             if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
-                        # In distributed mode, take a transient hashtext-keyed
-                        # txn lock so two concurrent contexts cannot bind the
-                        # same table_name to two different advisory_ids.
-                        if is_distributed():
-                            await session.execute(
-                                text("SELECT pg_advisory_xact_lock(hashtext(:n))"),
-                                {"n": msg.table_name},
-                            )
-
                         # Reuse the advisory_id any earlier context already
                         # bound to this table_name; otherwise mint a fresh one.
-                        existing = (
-                            await session.execute(
-                                text("SELECT advisory_id FROM table_context_refs WHERE table_name = :n LIMIT 1"),
-                                {"n": msg.table_name},
-                            )
-                        ).scalar_one_or_none()
+                        # _lookup_advisory_id also holds the hashtext xact lock
+                        # in distributed mode, preventing concurrent contexts
+                        # from binding different ids to the same table_name.
+                        existing = await _lookup_advisory_id(session, msg.table_name)
                         advisory_id = existing if existing is not None else get_snowflake_id()
 
                         # Register table in context refs (idempotent)
