@@ -4,7 +4,7 @@ Orchestration test configuration.
 Each test gets:
 - SQLite: dedicated temp database per test
 - PostgreSQL: per-xdist-worker database with Alembic migrations
-- chdb: session-scoped shared directory (chdb allows one path per process)
+- chdb: module-scoped data directory (chdb allows one path per process)
 """
 
 import os
@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlmodel import col, select
 
 from aaiclick.backend import is_sqlite
+from aaiclick.data.data_context.chdb_client import _sessions, close_session
 from aaiclick.orchestration.execution.claiming import cancel_job
 from aaiclick.orchestration.models import Job, JobStatus, SQLModel, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
@@ -48,27 +49,44 @@ def fast_poll(monkeypatch):
     )
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True, scope="module")
 def _shared_chdb_dir():
-    """Session-scoped chdb data directory (autouse for all orchestration tests).
+    """Module-scoped chdb data directory (autouse for all orchestration tests).
 
-    chdb's embedded server can only be initialized once per process with a
-    single data path. If pytest_configure (root conftest) already set
-    AAICLICK_CH_URL for an xdist worker, reuse that path instead of
-    creating a second one — chdb forbids multiple paths in one process.
+    chdb's embedded server is a process-wide singleton bound to one data
+    path until cleanup() is called. Per-module isolation bounds the number
+    of t_* tables that accumulate on disk per chdb session, avoiding the
+    chdb async-loader recursive_mutex bug that fires above some threshold.
+
+    On teardown the chdb session is closed (releasing the embedded server)
+    so the next module can re-init with a fresh path. The prior
+    AAICLICK_CH_URL is restored so any non-chdb path falls back cleanly.
+
+    If another chdb Session is already active in this process (e.g. from
+    a session-scoped data-test fixture sharing the same xdist worker),
+    skip the override and reuse the existing path — chdb forbids two
+    paths per process and we must not break the live data session.
     """
     if not is_sqlite():
         yield ""
         return
-    existing_url = os.environ.get("AAICLICK_CH_URL", "")
-    if existing_url.startswith("chdb://"):
-        yield existing_url.removeprefix("chdb://")
-        return
+    if _sessions:
+        existing_url = os.environ.get("AAICLICK_CH_URL", "")
+        if existing_url.startswith("chdb://"):
+            yield existing_url.removeprefix("chdb://")
+            return
+    prior_url = os.environ.get("AAICLICK_CH_URL")
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
     os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
-    yield tmp_dir
-    os.environ.pop("AAICLICK_CH_URL", None)
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    try:
+        yield tmp_dir
+    finally:
+        close_session(tmp_dir)
+        if prior_url is None:
+            os.environ.pop("AAICLICK_CH_URL", None)
+        else:
+            os.environ["AAICLICK_CH_URL"] = prior_url
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # -- PostgreSQL per-worker isolation --

@@ -39,21 +39,40 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def _orch_chdb_dir():
-    """Provide a chdb path, reusing AAICLICK_CH_URL if already set.
+    """Provide a module-scoped chdb path for tests outside the orchestration package.
 
-    chdb only allows one data path per process. If the orchestration
-    conftest already set AAICLICK_CH_URL (autouse session fixture),
-    reuse that path. Otherwise create a temp dir.
+    chdb's embedded server is a process-wide singleton bound to one data
+    path until cleanup() is called. Per-module isolation bounds the number
+    of t_* tables that accumulate on disk per chdb session. On teardown
+    the chdb session is closed so the next module can re-init with a fresh
+    path; the prior AAICLICK_CH_URL is restored.
+
+    If another chdb Session is already active in this process (e.g. from
+    a session-scoped data-test fixture sharing the same xdist worker),
+    skip the override and reuse the existing path — chdb forbids two
+    paths per process.
     """
-    ch_url = os.environ.get("AAICLICK_CH_URL", "")
-    if ch_url.startswith("chdb://"):
-        yield ch_url.removeprefix("chdb://")
-        return
+    from aaiclick.data.data_context.chdb_client import _sessions, close_session
+
+    if _sessions:
+        existing_url = os.environ.get("AAICLICK_CH_URL", "")
+        if existing_url.startswith("chdb://"):
+            yield existing_url.removeprefix("chdb://")
+            return
+    prior_url = os.environ.get("AAICLICK_CH_URL")
     tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
-    yield tmp_dir
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
+    try:
+        yield tmp_dir
+    finally:
+        close_session(tmp_dir)
+        if prior_url is None:
+            os.environ.pop("AAICLICK_CH_URL", None)
+        else:
+            os.environ["AAICLICK_CH_URL"] = prior_url
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def make_oplog_node(
