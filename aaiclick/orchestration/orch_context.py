@@ -213,7 +213,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         Idempotent via ON CONFLICT DO NOTHING — a re-register of the same
         table_name keeps the original owner (first-writer-wins).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         try:
             async with get_sql_session() as session:
                 await session.execute(
