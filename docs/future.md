@@ -7,12 +7,6 @@ Planned work across aaiclick, ordered by priority.
 
 # High Priority
 
-## Insert Advisory Lock for Concurrent Workers
-
-Concurrent workers inserting into the same persistent Object can produce interleaved Snowflake IDs within the same millisecond.
-
-Serialize via PostgreSQL advisory locks (`pg_advisory_lock(table_hash)`) per-table. SQLite mode is single-process and needs no lock.
-
 ## Progressive Tutorial
 
 7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
