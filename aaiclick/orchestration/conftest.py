@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 import pytest
 from sqlalchemy import create_engine, text
 
-from aaiclick.backend import is_sqlite
+from aaiclick.backend import is_chdb, is_sqlite
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
@@ -157,13 +157,20 @@ async def _reset_sql_tables() -> None:
 
 
 async def _drop_all_ch_tables() -> None:
-    """Drop every table in the default chdb database.
+    """Drop every table in the default chdb database (chdb-only).
 
     Singletons (operation_log) are recreated lazily by init_oplog_tables on
     next task_scope entry. Bounded per-test cleanup keeps t_* tables from
     accumulating on disk and triggering chdb's async-loader recursive_mutex
     bug above some threshold.
+
+    Skipped against a real ClickHouse server: that server is shared across
+    all xdist workers, so dropping `default` would obliterate other
+    workers' in-flight tests. Real CH does not exhibit the chdb loader
+    bug, so per-test reset is unnecessary there.
     """
+    if not is_chdb():
+        return
     ch = get_ch_client()
     result = await ch.query("SELECT name FROM system.tables WHERE database = 'default'")
     for row in result.result_rows:
