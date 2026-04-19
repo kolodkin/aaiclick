@@ -18,6 +18,8 @@ from .sql_context import get_sql_session
 
 logger = logging.getLogger(__name__)
 
+_migration_done = False
+
 
 async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
     """Copy any CH ``table_registry`` rows into SQL, then drop the CH table.
@@ -28,12 +30,21 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
       CH side to finish the migration.
     - ``ON CONFLICT DO NOTHING`` on each insert makes concurrent workers safe.
 
+    Guarded by a module-level flag so only the first call per process does
+    CH I/O; subsequent calls return immediately. This keeps the
+    ``task_scope`` hot path free of a CH round-trip after the first task.
+
     Runs at startup (not in Alembic) because migrations execute in a sync
     context and the CH client is async (chdb has no sync path).
     """
+    global _migration_done
+    if _migration_done:
+        return
+
     try:
         exists = await ch_client.query("EXISTS TABLE table_registry")
         if not exists.result_rows or not exists.result_rows[0][0]:
+            _migration_done = True
             return
     except Exception:
         logger.debug("EXISTS TABLE table_registry check failed", exc_info=True)
@@ -46,6 +57,7 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
                 await ch_client.command("DROP TABLE IF EXISTS table_registry")
             except Exception:
                 logger.debug("Failed to drop CH table_registry after SQL already populated", exc_info=True)
+            _migration_done = True
             return
 
         try:
@@ -56,7 +68,7 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
             logger.debug("Failed to read CH table_registry for backfill", exc_info=True)
             return
 
-        for table_name, job_id, task_id, run_id, created_at in ch_rows.result_rows:
+        if ch_rows.result_rows:
             await session.execute(
                 text(
                     "INSERT INTO table_registry "
@@ -64,18 +76,23 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
                     "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at) "
                     "ON CONFLICT (table_name) DO NOTHING"
                 ),
-                {
-                    "table_name": table_name,
-                    "job_id": job_id,
-                    "task_id": task_id,
-                    "run_id": run_id,
-                    "created_at": created_at,
-                },
+                [
+                    {
+                        "table_name": row[0],
+                        "job_id": row[1],
+                        "task_id": row[2],
+                        "run_id": row[3],
+                        "created_at": row[4],
+                    }
+                    for row in ch_rows.result_rows
+                ],
             )
-        await session.commit()
-        logger.info("Migrated %d table_registry rows from ClickHouse to SQL", len(ch_rows.result_rows))
+            await session.commit()
+            logger.info("Migrated %d table_registry rows from ClickHouse to SQL", len(ch_rows.result_rows))
 
     try:
         await ch_client.command("DROP TABLE IF EXISTS table_registry")
     except Exception:
         logger.debug("Failed to drop CH table_registry after backfill", exc_info=True)
+
+    _migration_done = True

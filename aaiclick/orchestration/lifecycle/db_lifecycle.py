@@ -128,9 +128,9 @@ class TableRegistry(SQLModel, table=True):
     __tablename__: ClassVar[str] = "table_registry"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
-    job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True, index=True))
-    task_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
-    run_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    job_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True))
+    task_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
+    run_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime, nullable=False, index=True),

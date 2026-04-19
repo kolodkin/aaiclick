@@ -304,13 +304,13 @@ class BackgroundWorker:
                 except Exception:
                     logger.debug("Failed to drop table %s", table_name, exc_info=True)
 
-            # 3. Delete operation_log entries for this job (still on CH)
+            # operation_log still lives on CH, not SQL.
             try:
                 await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
             except Exception:
                 logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
 
-            # 4. Delete SQL metadata (including table_registry rows for this job)
+            # 4. Delete SQL metadata
             await session.execute(
                 text("DELETE FROM table_registry WHERE job_id = :job_id"),
                 {"job_id": job_id},
@@ -376,15 +376,12 @@ class BackgroundWorker:
         """Clean up CH resources with no job association older than the TTL.
 
         Handles resources that were never associated with a job (local mode,
-        pre-migration data, or failed registration).
-
-        1. Drop CH tables in table_registry with job_id IS NULL older than TTL
-        2. Delete orphaned operation_log entries (job_id IS NULL) older than TTL
-        3. Delete orphaned table_registry entries (job_id IS NULL) older than TTL
+        pre-migration data, or failed registration). Drops CH tables named
+        in orphaned ``table_registry`` rows, deletes those rows, and deletes
+        matching orphaned ``operation_log`` entries.
         """
         cutoff = datetime.utcnow() - timedelta(days=ttl_days)
 
-        # 1. Drop orphaned CH tables from table_registry (SQL)
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text("SELECT DISTINCT table_name FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
@@ -399,14 +396,13 @@ class BackgroundWorker:
                 except Exception:
                     logger.debug("Failed to drop orphaned table %s", table_name, exc_info=True)
 
-            # 3. Delete orphaned table_registry entries
             await session.execute(
                 text("DELETE FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
                 {"cutoff": cutoff},
             )
             await session.commit()
 
-        # 2. Delete orphaned operation_log entries (still on CH)
+        # operation_log still lives on CH — prune orphaned rows there.
         try:
             await self._ch_client.command(
                 "ALTER TABLE operation_log DELETE "
