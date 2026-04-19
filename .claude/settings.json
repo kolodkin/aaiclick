@@ -32,7 +32,7 @@
   },
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true
+    "superpowers@superpowers-dev": true
   },
   "extraKnownMarketplaces": {
     "obra-superpowers": {
