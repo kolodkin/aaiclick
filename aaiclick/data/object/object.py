@@ -58,6 +58,7 @@ from ..models import (
 )
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
+from . import join as join_module
 from .refs import ObjectRef, ViewRef
 
 
@@ -817,6 +818,55 @@ class Object:
             await self.ch_client.command(f"DROP TABLE IF EXISTS {temp.table}")
 
         return result
+
+    async def join(
+        self,
+        other: Object,
+        *,
+        on: str | list[str] | None = None,
+        left_on: str | list[str] | None = None,
+        right_on: str | list[str] | None = None,
+        how: join_module.JoinHow = "inner",
+        suffixes: join_module.SuffixesArg = None,
+    ) -> Object:
+        """Join two Objects on one or more key columns.
+
+        Matches the familiar pandas / Spark shape.  The result is always a
+        new dict-fieldtype Object materialized in ClickHouse.
+
+        Args:
+            other: Right-hand Object.
+            on: Key column name(s) present under the same name in both
+                Objects. Mutually exclusive with ``left_on`` / ``right_on``.
+            left_on: Left-side key(s) when names differ. Requires
+                ``right_on`` of equal length.
+            right_on: Right-side key(s) when names differ.
+            how: ``"inner" | "left" | "right" | "full" | "cross"``.
+            suffixes: Applied to non-key columns that collide between left
+                and right. ``True`` uses the default ``("_l", "_r")`` pair;
+                a tuple lets you pick custom suffixes; ``None`` (the
+                default) / ``False`` make a collision raise ``ValueError``.
+
+        Returns:
+            Object: new dict Object with the joined rows.
+
+        Raises:
+            ValueError: Conflicting key arguments, missing keys, incompatible
+                key types, non-key column collision without ``suffixes``, or
+                unknown ``how``.
+        """
+        self.checkstale()
+        other.checkstale()
+
+        keys = join_module.resolve_join_keys(on=on, left_on=left_on, right_on=right_on, how=how)
+        return await join_module.join_objects_db(
+            self._get_ingest_query_info(),
+            other._get_ingest_query_info(),
+            keys=keys,
+            how=how,
+            suffixes=suffixes,
+            ch_client=self.ch_client,
+        )
 
     async def insert(self, *args: Self | ValueType) -> None:
         """

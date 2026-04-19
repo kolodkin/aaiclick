@@ -49,6 +49,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.insert(*sources)`                              | Ingest           | Insert data from Objects / scalars / lists    | [insert()](#insert)                                                  |
 | `.insert_from_url(url)`                          | Ingest           | Insert rows from a remote URL                 | [insert_from_url()](#insert_from_url)                                |
 | `.concat(*sources)` / `concat(a, b, …)`          | Ingest           | Concatenate sources into a new Object         | [concat()](#concat)                                                  |
+| `.join(other, on, how)`                          | Join             | Join two Objects on key columns → dict Object | [join()](#join)                                                      |
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
 | `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
@@ -335,6 +336,100 @@ result = await obj_a.concat(obj_b)  # Result: [1, 2, 3, 4, 5, 6]
 result = await obj_b.concat(obj_a)  # Result: [4, 5, 6, 1, 2, 3]
 ```
 
+# Join
+
+## join()
+
+Joins two Objects on one or more key columns into a new dict Object.
+
+**Implementation**: `aaiclick/data/object/join.py` — see `resolve_join_keys`, `build_join_schema`, and `join_objects_db`.
+
+```python
+async def join(
+    self,
+    other: Object,
+    *,
+    on: str | list[str] | None = None,
+    left_on: str | list[str] | None = None,
+    right_on: str | list[str] | None = None,
+    how: Literal["inner", "left", "right", "full", "cross"] = "inner",
+    suffixes: tuple[str, str] | None = None,
+) -> Object
+```
+
+| Argument   | Purpose                                                                          |
+|------------|----------------------------------------------------------------------------------|
+| `other`    | Right-hand Object.                                                               |
+| `on`       | Key column name(s) present under the same name in both Objects.                  |
+| `left_on`  | Left-side key(s) when names differ. Requires matching-length `right_on`.         |
+| `right_on` | Right-side key(s) when names differ.                                             |
+| `how`      | Join type. Default `"inner"`.                                                    |
+| `suffixes` | Suffix handling for non-key column collisions. `True` → default `("_l", "_r")`; a tuple picks custom suffixes; `None` / `False` → collision raises `ValueError`. |
+
+Exactly one of `{on}` or `{left_on, right_on}` must be set, except `how="cross"` which forbids all three.
+
+### Join types
+
+| `how`    | ClickHouse keyword | Left cols nullable? | Right cols nullable? |
+|----------|--------------------|---------------------|----------------------|
+| `inner`  | `INNER JOIN`       | no                  | no                   |
+| `left`   | `LEFT JOIN`        | no                  | yes (promoted)       |
+| `right`  | `RIGHT JOIN`       | yes (promoted)      | no                   |
+| `full`   | `FULL OUTER JOIN`  | yes (promoted)      | yes (promoted)       |
+| `cross`  | `CROSS JOIN`       | no                  | no                   |
+
+Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materialize as `NULL` instead of the outer-side type's default.
+
+### Column semantics
+
+- **Key dedup**: under `on=` the key appears once under its original name; under `left_on`/`right_on` both key columns survive. `FULL` joins with `on=` coalesce the merged key across sides.
+- **Collisions**: non-key columns that appear on both sides raise `ValueError` unless `suffixes=True` (shorthand for `("_l", "_r")`) or a custom `suffixes=("_x", "_y")` tuple is passed. Both sides get a suffix — empty suffixes are rejected.
+- **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
+- **`aai_id`**: the result gets fresh `generateSnowflakeID()` values; source `aai_id` columns are never projected, even under `suffixes`.
+- **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
+- **Order**: join output has no intrinsic order. `data()` returns rows via `ORDER BY aai_id` (stable-but-arbitrary). Use `.view(order_by=...)` if deterministic order is required.
+
+### Examples
+
+```python
+# Inner join on a shared key
+users  = await create_object_from_value({"id":  [1, 2, 3], "name": ["A", "B", "C"]})
+orders = await create_object_from_value({"id":  [1, 1, 4], "total": [9.5, 14.0, 2.0]})
+
+joined = await users.join(orders, on="id")
+await joined.data(orient="records")
+# → [{"id": 1, "name": "A", "total": 9.5}, {"id": 1, "name": "A", "total": 14.0}]
+
+# Left join — unmatched rows keep left, right columns become NULL
+enriched = await users.join(orders, on="id", how="left")
+# → rows for id=2, 3 have total=None; schema marks 'total' Nullable(Float64)
+
+# left_on / right_on when key names differ — both keys survive
+orders2 = await create_object_from_value({"user_id": [1, 2], "total": [9.5, 3.0]})
+await users.join(orders2, left_on="id", right_on="user_id")
+# → rows include both 'id' and 'user_id'
+
+# Suffixes on non-key collision — True picks the default ("_l", "_r")
+a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
+b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
+merged = await a.join(b, on="id", suffixes=True)
+# → columns: id, score_l, score_r
+
+# Or supply a custom tuple:
+merged = await a.join(b, on="id", suffixes=("_old", "_new"))
+
+# Cross join — Cartesian product
+colors = await create_object_from_value({"c": ["red", "blue"]})
+sizes  = await create_object_from_value({"s": ["S", "M"]})
+skus   = await colors.join(sizes, how="cross")  # 4 rows
+```
+
+### Distributed considerations
+
+The default chdb backend is single-shard, so the naive `JOIN` suffices. For a future sharded backend, `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`) are the next levers — deferred to `docs/future.md`. Nothing in the v1 API precludes a later `strategy=` kwarg.
+
+Semi / anti / asof joins are deferred: each has semantic nuance (left-only output schema, required `order_by`, tolerance) worth its own mini-spec.
+
 # Data Retrieval
 
 ## data()
@@ -546,6 +641,12 @@ subset = await obj.where("x > 5").copy()  # filtered copy
 sorted_copy = await obj.view(order_by="amount DESC").copy()
 await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
+
+!!! warning "`copy()` is not serialized across workers"
+    Unlike `insert()` and `concat()`, `copy()` does not take a per-table
+    advisory lock. Two concurrent `copy()` calls into the same named
+    destination will interleave their rows non-deterministically. Structure
+    your pipeline so a named destination has a single writer.
 
 **Tests**: `aaiclick/data/test_copy_parametrized.py`
 

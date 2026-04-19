@@ -127,10 +127,11 @@ This project uses pre-commit hooks that may modify files during commit (formatti
     2. External packages: `import pytest`, `import numpy`
     3. Current package: `from aaiclick import DataContext`
   - **Never** import inside functions, methods, loops, conditionals, or test functions
-  - **Only exception** — lazy imports to break circular dependencies:
-    - Use `from __future__ import annotations` for type hints (defers evaluation)
-    - Use inline imports inside methods only when two modules need each other at runtime
-    - Do NOT use `TYPE_CHECKING` pattern — prefer restructuring code instead
+  - **Circular dependencies — prefer restructuring over inline imports**. When two modules pull each other in at import time, try these in order:
+    1. **Move the shared code to a common/neutral module** that neither of the cyclic modules has to import from the other. This is the preferred fix — it surfaces the right module boundary.
+    2. Use `from __future__ import annotations` so type-hint imports resolve lazily.
+    3. **Only as a last resort**, use an inline import inside a method with a one-line comment explaining why restructuring was not possible.
+    - Do NOT use the `TYPE_CHECKING` pattern — prefer restructuring code instead.
     ```python
     # GOOD — top of file
     from sqlmodel import select
@@ -146,9 +147,12 @@ This project uses pre-commit hooks that may modify files during commit (formatti
         result = await session.execute(select(Task).where(Task.id == task_id))
         return result.scalar_one()
 
-    # OK — lazy import to break circular dependency
+    # BEST — extract the shared logic to a neutral module so the cycle disappears
+    # (e.g. move the helper to aaiclick/common/foo.py that both sides import)
+
+    # LAST RESORT — lazy import inside a method, only when restructuring is blocked
     def method(self):
-        from .other_module import something  # Circular dep workaround
+        from .other_module import something  # Circular dep: restructuring blocked by X.
         something()
     ```
 

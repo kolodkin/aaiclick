@@ -75,6 +75,16 @@ def is_local() -> bool:
     return is_chdb() and is_sqlite()
 
 
+def is_distributed() -> bool:
+    """True when orchestration uses PostgreSQL (multi-process backend).
+
+    Used to gate features that require cross-process coordination — e.g.
+    advisory locks for serializing concurrent inserts into shared CH tables.
+    Local mode (chdb + SQLite) is single-process and needs no such gating.
+    """
+    return is_postgres()
+
+
 def parse_ch_url() -> dict:
     """Parse AAICLICK_CH_URL into clickhouse-connect connection parameters.
 

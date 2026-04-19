@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from aaiclick.orchestration.models import SQLModel
+from aaiclick.snowflake_id import get_snowflake_id
 
 
 @pytest.fixture
@@ -40,11 +41,14 @@ async def insert_job(engine, job_id, *, status="RUNNING"):
         await session.commit()
 
 
-async def insert_context_ref(engine, table_name, context_id):
+async def insert_context_ref(engine, table_name, context_id, advisory_id=None):
+    # Auto-mint so separate tables never silently share a lock key in tests.
+    if advisory_id is None:
+        advisory_id = get_snowflake_id()
     async with AsyncSession(engine) as session:
         await session.execute(
-            text("INSERT INTO table_context_refs (table_name, context_id) VALUES (:t, :c)"),
-            {"t": table_name, "c": context_id},
+            text("INSERT INTO table_context_refs (table_name, context_id, advisory_id) VALUES (:t, :c, :a)"),
+            {"t": table_name, "c": context_id, "a": advisory_id},
         )
         await session.commit()
 
@@ -63,6 +67,24 @@ async def insert_run_ref(engine, table_name, run_id):
         await session.execute(
             text("INSERT INTO table_run_refs (table_name, run_id) VALUES (:t, :r)"),
             {"t": table_name, "r": run_id},
+        )
+        await session.commit()
+
+
+async def insert_table_registry(engine, table_name, job_id=None, task_id=None, run_id=None):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO table_registry (table_name, job_id, task_id, run_id, created_at) "
+                "VALUES (:tn, :jid, :tid, :rid, :now)"
+            ),
+            {
+                "tn": table_name,
+                "jid": job_id,
+                "tid": task_id,
+                "rid": run_id,
+                "now": datetime.utcnow(),
+            },
         )
         await session.commit()
 

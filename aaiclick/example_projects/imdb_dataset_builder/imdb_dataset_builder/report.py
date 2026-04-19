@@ -11,8 +11,9 @@ from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL
-from .models import HFPublishResult, QualityIssues, RawProfile
+from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL, WIKIPEDIA_COLUMNS
+from .models import EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
+from .wikipedia import HF_WIKIPEDIA_SHARDS, HF_WIKIPEDIA_SNAPSHOT, HF_WIKIPEDIA_URL_TEMPLATE
 
 
 def _fmt(value: object) -> str:
@@ -49,6 +50,10 @@ class ReportContent:
     genre_distinct: int
     genre_total: int
     exports: dict[str, str] | None
+    enrichment_stats: EnrichmentStats
+    plots_md: str
+    wiki_total: int
+    wiki_sample_md: str
 
 
 def _print_report(content: ReportContent) -> None:
@@ -85,7 +90,7 @@ def _print_report(content: ReportContent) -> None:
     )
     print(f"- Runtime < 40 min: {_fmt(quality_issues.short_runtime)}")
     print(f"- Runtime > 300 min: {_fmt(quality_issues.long_runtime)}")
-    print(f"- Pre-1970 movies: {_fmt(quality_issues.pre_1970)} ({_fmt(quality_issues.pre_1970_pct)}%)")
+    print(f"- Pre-1980 movies: {_fmt(quality_issues.pre_1980)} ({_fmt(quality_issues.pre_1980_pct)}%)")
 
     if content.genre_distinct > 50:
         print(f"\n### Genre Distribution (top 50 of {_fmt(content.genre_distinct)})\n")
@@ -103,6 +108,42 @@ def _print_report(content: ReportContent) -> None:
     print("\n#### Sample (first 5 rows)\n")
     print(content.clean_md)
 
+    stats = content.enrichment_stats
+    print("\n### Wikipedia Raw Data Profile\n")
+    wiki_url = HF_WIKIPEDIA_URL_TEMPLATE.format(
+        snapshot=HF_WIKIPEDIA_SNAPSHOT,
+        last=HF_WIKIPEDIA_SHARDS - 1,
+        total=HF_WIKIPEDIA_SHARDS,
+    )
+    print(f"URL: {wiki_url}")
+    print(f"Snapshot: {HF_WIKIPEDIA_SNAPSHOT} (English), {HF_WIKIPEDIA_SHARDS} shards")
+    print(f"Articles loaded (pre-filtered to IMDb matches): {_fmt(content.wiki_total)}")
+
+    print("\n#### Field Schema\n")
+    _print_field_table(WIKIPEDIA_COLUMNS)
+
+    print("\n#### Sample (first 5 rows)\n")
+    print(content.wiki_sample_md)
+
+    print("\n### Wikipedia Enrichment\n")
+    print("- Source: `wikimedia/wikipedia` (Hugging Face Parquet dump)")
+    print("- ID resolver: Wikidata SPARQL (property `P345`, IMDb ID)")
+    print(
+        f"- Titles resolved via Wikidata: {_fmt(stats.titles_resolved)} "
+        f"({_fmt(stats.titles_resolved_pct)}% of {_fmt(stats.total_clean)})"
+    )
+    print(f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} ({_fmt(stats.articles_matched_pct)}%)")
+    print(f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} ({_fmt(stats.plots_usable_pct)}%)")
+    print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
+
+    print("\n#### Sample (first 3 rows)\n")
+    print(content.plots_md)
+
+    if content.exports:
+        print("\n### Local Exports\n")
+        for fmt, path in content.exports.items():
+            print(f"- {fmt}: `{path}`")
+
     print("\n### Published\n")
     if hf_result is None:
         print("- Skipped: HF_TOKEN not set")
@@ -113,11 +154,6 @@ def _print_report(content: ReportContent) -> None:
     else:
         print(f"- Status: {hf_result.status}")
 
-    if content.exports:
-        print("\n### Local Exports\n")
-        for fmt, path in content.exports.items():
-            print(f"- {fmt}: `{path}`")
-
 
 @task
 async def generate_report(
@@ -125,8 +161,11 @@ async def generate_report(
     movies: Object,
     clean: Object,
     genre_balance: Object,
+    plots: Object,
+    wiki: Object,
     profile: RawProfile,
     quality_issues: QualityIssues,
+    enrichment_stats: EnrichmentStats,
     hf_result: HFPublishResult | None = None,
     exports: dict[str, str] | None = None,
 ) -> dict:
@@ -139,6 +178,9 @@ async def generate_report(
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
+    wiki_total = await (await wiki["id"].count()).data()
+    wiki_sample_md = await wiki[["id", "title", "text"]].view(limit=5).markdown(truncate={"title": 40, "text": 120})
+
     genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
         {
             "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
@@ -148,6 +190,12 @@ async def generate_report(
     genre_data_raw = await genre_balance.data()
     genre_distinct = len(genre_data_raw["genre"])
     genre_total = sum(genre_data_raw["tconst"])
+
+    plots_md = (
+        await plots.where("length(plot) >= 120")[["tconst", "primaryTitle", "wp_title", "plot"]]
+        .view(limit=3)
+        .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
+    )
 
     buf = StringIO()
     with redirect_stdout(buf):
@@ -162,6 +210,10 @@ async def generate_report(
                 genre_distinct=genre_distinct,
                 genre_total=genre_total,
                 exports=exports,
+                enrichment_stats=enrichment_stats,
+                plots_md=plots_md,
+                wiki_total=wiki_total,
+                wiki_sample_md=wiki_sample_md,
             )
         )
     rendered = buf.getvalue()
@@ -178,4 +230,5 @@ async def generate_report(
         "total_titles": profile.total_titles,
         "total_movies": quality_issues.total_movies,
         "hf_status": hf_result.status if hf_result is not None else "skipped",
+        "enrichment_plots_usable": enrichment_stats.plots_usable,
     }
