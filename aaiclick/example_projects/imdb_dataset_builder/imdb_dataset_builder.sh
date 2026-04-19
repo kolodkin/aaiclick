@@ -59,8 +59,10 @@ echo "Worker started (PID: $WORKER_PID)"
 echo
 
 # Step 4: Poll job status until completed or failed
+# Wikipedia enrichment (SPARQL batching + HF Parquet dump download) adds
+# several minutes even in demo mode, so the window is set conservatively.
 echo "Waiting for pipeline execution..."
-MAX_WAIT=600
+MAX_WAIT=2400
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     sleep 5

@@ -10,6 +10,11 @@ loaded directly from the official IMDb datasets URL:
 - Array Explode (one genre per row from comma-separated strings)
 - Group By Aggregations (genre distribution analysis)
 - Data Quality Profiling (countIf for missing runtime and out-of-range detection)
+- Wikipedia Plot Enrichment (always on)
+  - Wikidata SPARQL resolution of IMDb tconst → Wikipedia article title (P345)
+  - Bulk Parquet load of the HF wikimedia/wikipedia dump (brace-expansion URL)
+  - Two-stage AggregatingMergeTree merge to avoid string-matching on titles
+  - ClickHouse-side plot section extraction via extract()/replace() regex
 - Hugging Face Publishing (optional, requires HF_TOKEN env var)
 
 Data source: IMDb Non-Commercial Datasets (title.basics)
@@ -25,8 +30,11 @@ Usage:
     python -m aaiclick worker start
 
 Environment variables:
-    HF_TOKEN  — Hugging Face token for dataset publishing (optional)
-    IMDB_URL  — Override IMDb data URL (useful for local testing)
+    HF_TOKEN           — Hugging Face token for dataset publishing (optional)
+    IMDB_URL           — Override IMDb data URL (useful for local testing)
+    IMDB_WIKI_SNAPSHOT — Wikipedia snapshot date (default 20231101)
+    IMDB_WIKI_SHARDS   — number of Parquet shards to load (default 41)
+    IMDB_SPARQL_BATCH  — IDs per SPARQL batch (default 400)
 """
 
 import asyncio
@@ -41,6 +49,13 @@ from aaiclick.orchestration import job, task
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
+from .wikipedia import (
+    enrich_with_wikipedia,
+    extract_plot_text,
+    load_wikipedia_dump,
+    measure_enrichment,
+    resolve_wikipedia_titles,
+)
 
 # =============================================================================
 # Tasks
@@ -148,7 +163,7 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         {
             "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
             "long_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
-            "pre_1970": "toUInt32OrNull(startYear) < 1970",
+            "pre_1980": "toUInt32OrNull(startYear) < 1980",
         }
     )
     range_data = await range_counts.data()
@@ -159,8 +174,8 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         missing_runtime_pct=(missing_runtime / total * 100) if total > 0 else 0.0,
         short_runtime=range_data["short_runtime"],
         long_runtime=range_data["long_runtime"],
-        pre_1970=range_data["pre_1970"],
-        pre_1970_pct=(range_data["pre_1970"] / total * 100) if total > 0 else 0.0,
+        pre_1980=range_data["pre_1980"],
+        pre_1980_pct=(range_data["pre_1980"] / total * 100) if total > 0 else 0.0,
     )
 
 
@@ -196,7 +211,7 @@ async def build_clean_dataset(movies: Object) -> Object:
     Build the final curated dataset ready for publishing.
 
     Applies quality filters: removes missing runtime, clips to 40–300 min,
-    filters to post-1970 movies, excludes Adult-genre movies. Returns the
+    filters to post-1980 movies, excludes Adult-genre movies. Returns the
     clean (tconst, primaryTitle, startYear, genres, runtimeMinutes) subset.
     """
     typed = movies.with_columns(
@@ -208,22 +223,24 @@ async def build_clean_dataset(movies: Object) -> Object:
     clean = typed.where(r"runtimeMinutes != '\N'")
     clean = clean.where("runtime_int >= 40")
     clean = clean.where("runtime_int <= 300")
-    clean = clean.where("year_int >= 1970")
+    clean = clean.where("year_int >= 1980")
     clean = clean.where("match(genres, 'Adult') = 0")
     clean = clean[["tconst", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
     return await clean.copy()
 
 
 @task
-async def publish_to_huggingface(clean: Object) -> HFPublishResult:
+async def publish_to_huggingface(enriched: Object) -> HFPublishResult:
     """
-    Publish curated dataset to Hugging Face Hub as a Parquet dataset.
+    Publish the enriched (plot-carrying) curated dataset to Hugging Face Hub.
 
-    Requires HF_TOKEN environment variable. If not set, returns a
-    skipped status without raising an error.
+    The published dataset contains the clean IMDb subset plus the resolved
+    Wikipedia article title and plot text (``wp_title``, ``plot``). Rows
+    with no Wikipedia match are naturally absent because the enrichment
+    pipeline inner-joins on ``wp_title``.
 
-    The data is pulled from ClickHouse into a pandas DataFrame, written
-    to Parquet, then uploaded via huggingface_hub.HfApi.
+    Requires ``HF_TOKEN`` — without it, returns a skipped result without
+    raising.
     """
     token = os.environ.get("HF_TOKEN")
     if not token:
@@ -232,7 +249,7 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
     import pandas as pd
     from huggingface_hub import HfApi
 
-    data = await clean.data(orient=ORIENT_DICT)
+    data = await enriched.data(orient=ORIENT_DICT)
     df = pd.DataFrame(data)
 
     parquet_path = "/tmp/imdb_curated.parquet"
@@ -252,14 +269,14 @@ async def publish_to_huggingface(clean: Object) -> HFPublishResult:
 
 
 @task
-async def export_dataset(clean: Object, formats: list[str], out_dir: str) -> dict[str, str]:
-    """Export the clean dataset to ``out_dir`` in each requested format.
+async def export_dataset(enriched: Object, formats: list[str], out_dir: str) -> dict[str, str]:
+    """Export the enriched (plot-carrying) dataset in each requested format.
 
     Exports run concurrently — ClickHouse streams each file independently.
     """
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     paths = {fmt: str(Path(out_dir) / f"imdb_curated.{fmt}") for fmt in formats}
-    await asyncio.gather(*(clean.export(p) for p in paths.values()))
+    await asyncio.gather(*(enriched.export(p) for p in paths.values()))
     for fmt, path in paths.items():
         print(f"Exported {fmt}: {path}")
     return paths
@@ -297,10 +314,27 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
                                                            |                  |
                                                            +--> publish_to_hf |
                                                            |                  |
+                                                           +--> resolve_wp_titles
+                                                           |           \\
+                                                           |  load_wikipedia_dump
+                                                           |           \\
+                                                           |  enrich_with_wikipedia
+                                                           |           |
+                                                           |   extract_plot_text
+                                                           |           |
+                                                           |   measure_enrichment
+                                                           |           |
                                                            +--> generate_report <--+
 
     Args:
         limit: Row limit for demo runs. Set to None for the full ~10M-row dataset.
+
+    Environment variables:
+        HF_TOKEN              — publish curated dataset to Hugging Face Hub
+        IMDB_WIKI_SNAPSHOT    — Wikipedia snapshot date (default 20231101)
+        IMDB_WIKI_SHARDS      — number of Parquet shards to load (default 41)
+        IMDB_SPARQL_BATCH     — IDs per SPARQL batch (default 400)
+        IMDB_DATASET_EXPORTS  — comma-separated export formats (parquet,csv,...)
     """
     raw = load_raw_data(limit=limit)
     profile = profile_raw(raw=raw)
@@ -311,11 +345,17 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     clean = build_clean_dataset(movies=movies)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    hf_result = publish_to_huggingface(clean=clean) if os.environ.get("HF_TOKEN") else None
+    title_map = resolve_wikipedia_titles(clean=clean)
+    wiki = load_wikipedia_dump(title_map=title_map)
+    enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
+    plots = extract_plot_text(enriched=enriched)
+    enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
+
+    hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
 
     export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
     exports = (
-        export_dataset(clean=clean, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
+        export_dataset(enriched=plots, formats=export_formats, out_dir=os.environ.get("IMDB_OUT_DIR", "./tmp"))
         if export_formats
         else None
     )
@@ -325,10 +365,13 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         movies=movies,
         clean=clean,
         genre_balance=genre_balance,
+        plots=plots,
+        wiki=wiki,
         profile=profile,
         quality_issues=quality_issues,
         hf_result=hf_result,
         exports=exports,
+        enrichment_stats=enrichment_stats,
     )
 
 
