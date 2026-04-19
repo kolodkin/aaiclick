@@ -8,8 +8,8 @@ BackgroundWorker polls the database for:
 5. Scheduled jobs — creates Job runs when next_run_at is due
 
 All resource cleanup is job-driven: every CH table, sample, and oplog entry
-traces to a job_id via table_registry. Resources without a job_id (orphans)
-are cleaned up after the same TTL.
+traces to a job_id via table_registry (SQL). Resources without a job_id
+(orphans) are cleaned up after the same TTL.
 
 Completely independent of DataContext and OrchContext — has its own DB engine and CH client.
 """
@@ -28,15 +28,13 @@ from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlmodel import col, select
 
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake_id import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import Job, JobStatus, PreservationMode
+from ..models import JobStatus, PreservationMode
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -193,22 +191,18 @@ class BackgroundWorker:
         A table is eligible when all consumers have unpinned AND no
         run_refs remain.
 
-        Looks up the owning job_id from table_registry so the sample
-        table created by lineage_aware_drop is registered with the job
-        and cleaned up when the job expires.
-
-        Preservation mode gates the actual drop:
-
-        - ``NONE``: drop via ``lineage_aware_drop`` (no lineage refs → hard drop).
-        - ``STRATEGY``: drop via ``lineage_aware_drop`` — strategy-matched
-          rows survive as a ``_sample`` table registered with the job.
-        - ``FULL``: skip the drop entirely. The table lives until the job
-          TTL expires and ``_cleanup_expired_jobs`` collects it.
+        Joins table_registry and jobs in a single SQL query to skip
+        FULL-preservation jobs in-database. Owner metadata flows through
+        to lineage_aware_drop so any sample tables it creates inherit
+        the job_id and get cleaned up when the job expires.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT DISTINCT tcr.table_name FROM table_context_refs tcr "
+                    "SELECT DISTINCT tcr.table_name, tr.job_id, tr.task_id, tr.run_id "
+                    "FROM table_context_refs tcr "
+                    "LEFT JOIN table_registry tr ON tr.table_name = tcr.table_name "
+                    "LEFT JOIN jobs j ON j.id = tr.job_id "
                     "WHERE tcr.table_name NOT LIKE 'p\\_%' "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_pin_refs tpr "
@@ -217,29 +211,18 @@ class BackgroundWorker:
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM table_run_refs trr "
                     "  WHERE trr.table_name = tcr.table_name"
-                    ")"
-                )
+                    ") "
+                    "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode)"
+                ),
+                {"full_mode": PreservationMode.FULL.value},
             )
             rows = result.fetchall()
             if not rows:
                 return
 
-            table_names = [r[0] for r in rows]
-
-            # Batch-lookup ownership from table_registry in ClickHouse
-            owner_map = await self._lookup_table_owners(table_names)
-
-            owning_job_ids = {o.job_id for o in owner_map.values() if o.job_id is not None}
-            mode_map = await self._lookup_job_preservation_modes(session, owning_job_ids)
-
             dropped_tables: list[str] = []
-            for table_name in table_names:
-                owner = owner_map.get(table_name)
-                job_id = owner.job_id if owner else None
-                mode = mode_map.get(job_id, PreservationMode.NONE) if job_id is not None else PreservationMode.NONE
-                if mode is PreservationMode.FULL:
-                    # Keep the table alive until the job expires.
-                    continue
+            for table_name, job_id, task_id, run_id in rows:
+                owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
                 try:
                     await lineage_aware_drop(self._ch_client, table_name, owner=owner)
                 except Exception:
@@ -248,35 +231,25 @@ class BackgroundWorker:
 
             if dropped_tables:
                 await _delete_table_refs(session, dropped_tables)
+                ph, params = in_clause(dropped_tables, "tn")
+                await session.execute(
+                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                    params,
+                )
 
             await session.commit()
-
-    async def _lookup_job_preservation_modes(
-        self,
-        session: AsyncSession,
-        job_ids: set[int],
-    ) -> dict[int, PreservationMode]:
-        """Return ``{job_id: PreservationMode}`` for the given jobs."""
-        if not job_ids:
-            return {}
-        result = await session.execute(
-            select(Job.id, Job.preservation_mode).where(col(Job.id).in_(job_ids)),
-        )
-        return {row[0]: row[1] for row in result.all()}
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
         """Look up ownership metadata from table_registry for a list of table names."""
         if not table_names:
             return {}
-        escaped = ", ".join(f"'{escape_sql_string(t)}'" for t in table_names)
-        try:
-            result = await self._ch_client.query(
-                f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({escaped})"
+        async with AsyncSession(self._engine) as session:
+            ph, params = in_clause(table_names, "tn")
+            result = await session.execute(
+                text(f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({ph})"),
+                params,
             )
-            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.result_rows}
-        except Exception:
-            logger.debug("Failed to lookup owners from table_registry", exc_info=True)
-            return {}
+            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.fetchall()}
 
     async def _cleanup_expired_jobs(self) -> None:
         """Delete all data for expired jobs and orphaned resources.
@@ -316,35 +289,32 @@ class BackgroundWorker:
 
     async def _delete_job_data(self, job_id: int) -> None:
         """Delete all CH and SQL data for a single job."""
-        # 1. Find all CH tables belonging to this job from table_registry
-        try:
-            result = await self._ch_client.query(
-                f"SELECT DISTINCT table_name FROM table_registry WHERE job_id = {job_id}"
-            )
-            table_names = [row[0] for row in result.result_rows]
-        except Exception:
-            logger.debug("Failed to query table_registry for job %s", job_id, exc_info=True)
-            table_names = []
-
-        # 2. Drop all CH tables (includes samples registered in table_registry)
-        for table_name in table_names:
-            try:
-                await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-            except Exception:
-                logger.debug("Failed to drop table %s", table_name, exc_info=True)
-
-        # 3. Delete operation_log and table_registry entries for this job
-        try:
-            await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
-        except Exception:
-            logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
-        try:
-            await self._ch_client.command(f"ALTER TABLE table_registry DELETE WHERE job_id = {job_id}")
-        except Exception:
-            logger.debug("Failed to delete table_registry for job %s", job_id, exc_info=True)
-
-        # 4. Delete SQL metadata
         async with AsyncSession(self._engine) as session:
+            # 1. Find all CH tables belonging to this job from table_registry
+            result = await session.execute(
+                text("SELECT DISTINCT table_name FROM table_registry WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            )
+            table_names = [row[0] for row in result.fetchall()]
+
+            # 2. Drop all CH tables (includes samples registered in table_registry)
+            for table_name in table_names:
+                try:
+                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+                except Exception:
+                    logger.debug("Failed to drop table %s", table_name, exc_info=True)
+
+            # 3. Delete operation_log entries for this job (still on CH)
+            try:
+                await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
+            except Exception:
+                logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
+
+            # 4. Delete SQL metadata (including table_registry rows for this job)
+            await session.execute(
+                text("DELETE FROM table_registry WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            )
             # Get task IDs for this job
             result = await session.execute(
                 text("SELECT id FROM tasks WHERE job_id = :job_id"),
@@ -412,23 +382,34 @@ class BackgroundWorker:
         2. Delete orphaned operation_log entries (job_id IS NULL) older than TTL
         3. Delete orphaned table_registry entries (job_id IS NULL) older than TTL
         """
-        # 1. Drop orphaned CH tables from table_registry
-        try:
-            result = await self._ch_client.query(
-                "SELECT DISTINCT table_name FROM table_registry "
-                "WHERE job_id IS NULL "
-                f"AND created_at < now() - INTERVAL {ttl_days} DAY"
+        cutoff = datetime.utcnow() - timedelta(days=ttl_days)
+
+        # 1. Drop orphaned CH tables from table_registry (SQL)
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text(
+                    "SELECT DISTINCT table_name FROM table_registry "
+                    "WHERE job_id IS NULL AND created_at < :cutoff"
+                ),
+                {"cutoff": cutoff},
             )
-            for (table_name,) in result.result_rows:
+            orphan_tables = [row[0] for row in result.fetchall()]
+
+            for table_name in orphan_tables:
                 try:
                     await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
                     logger.debug("Dropped orphaned table %s", table_name)
                 except Exception:
                     logger.debug("Failed to drop orphaned table %s", table_name, exc_info=True)
-        except Exception:
-            logger.debug("Failed to query orphaned tables", exc_info=True)
 
-        # 2. Delete orphaned operation_log entries
+            # 3. Delete orphaned table_registry entries
+            await session.execute(
+                text("DELETE FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
+                {"cutoff": cutoff},
+            )
+            await session.commit()
+
+        # 2. Delete orphaned operation_log entries (still on CH)
         try:
             await self._ch_client.command(
                 "ALTER TABLE operation_log DELETE "
@@ -437,16 +418,6 @@ class BackgroundWorker:
             )
         except Exception:
             logger.debug("Failed to delete orphaned operation_log entries", exc_info=True)
-
-        # 3. Delete orphaned table_registry entries
-        try:
-            await self._ch_client.command(
-                "ALTER TABLE table_registry DELETE "
-                "WHERE job_id IS NULL "
-                f"AND created_at < now() - INTERVAL {ttl_days} DAY"
-            )
-        except Exception:
-            logger.debug("Failed to delete orphaned table_registry entries", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
         """Detect dead workers, mark their running tasks as PENDING_CLEANUP.

@@ -4,9 +4,12 @@ Tests for oplog recording via the lifecycle handler queue.
 
 from __future__ import annotations
 
+from sqlalchemy import text
+
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration.sql_context import get_sql_session
 
 
 async def test_oplog_writes_on_operation(orch_ctx):
@@ -24,10 +27,17 @@ async def test_oplog_writes_on_operation(orch_ctx):
     ).result_rows
     assert row and row[0] == ("create_from_value", 42, 99, 420)
 
-    reg = (
-        await ch.query(f"SELECT table_name FROM table_registry WHERE table_name = '{table_name}' LIMIT 1")
-    ).result_rows
-    assert reg
+    async with get_sql_session() as session:
+        result = await session.execute(
+            text("SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name = :tn"),
+            {"tn": table_name},
+        )
+        reg = result.fetchone()
+    assert reg is not None
+    assert reg[0] == table_name
+    assert reg[1] == 99
+    assert reg[2] == 42
+    assert reg[3] == 420
 
 
 async def test_concat_records_kwargs(orch_ctx):

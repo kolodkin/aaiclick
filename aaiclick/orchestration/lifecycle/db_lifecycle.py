@@ -9,10 +9,11 @@ and oplog recording.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar
 
-from sqlalchemy import BigInteger, Column, String
+from sqlalchemy import BigInteger, Column, DateTime, String
 from sqlmodel import Field, SQLModel
 
 
@@ -109,3 +110,28 @@ class TableRunRef(SQLModel, table=True):
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     run_id: str = Field(sa_column=Column(String, primary_key=True))
+
+
+class TableRegistry(SQLModel, table=True):
+    """Ownership metadata for every ClickHouse data table aaiclick creates.
+
+    One row per table, keyed by ``table_name`` (strict 1:1). Written once
+    when the table is created; deleted by the background worker when the
+    owning job TTL-expires or (for orphans with ``job_id IS NULL``) when
+    the orphan TTL expires.
+
+    Previously lived in ClickHouse as an append-only MergeTree table.
+    Moved to SQL because every consumer is a keyed lookup or owner join
+    during background cleanup — not append-only audit.
+    """
+
+    __tablename__: ClassVar[str] = "table_registry"
+
+    table_name: str = Field(sa_column=Column(String, primary_key=True))
+    job_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True, index=True))
+    task_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    run_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime, nullable=False, index=True),
+    )

@@ -71,6 +71,24 @@ async def insert_run_ref(engine, table_name, run_id):
         await session.commit()
 
 
+async def insert_table_registry(engine, table_name, job_id=None, task_id=None, run_id=None):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO table_registry (table_name, job_id, task_id, run_id, created_at) "
+                "VALUES (:tn, :jid, :tid, :rid, :now)"
+            ),
+            {
+                "tn": table_name,
+                "jid": job_id,
+                "tid": task_id,
+                "rid": run_id,
+                "now": datetime.utcnow(),
+            },
+        )
+        await session.commit()
+
+
 async def get_run_refs(engine, table_name):
     async with AsyncSession(engine) as session:
         result = await session.execute(
