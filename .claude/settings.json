@@ -32,14 +32,6 @@
   },
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
-    "superpowers@superpowers-dev": true
-  },
-  "extraKnownMarketplaces": {
-    "obra-superpowers": {
-      "source": {
-        "source": "github",
-        "repo": "obra/superpowers"
-      }
-    }
+    "superpowers@claude-plugins-official": true
   }
 }
