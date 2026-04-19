@@ -147,10 +147,7 @@ async def _reset_sql_tables() -> None:
         return
     async with get_sql_session() as session:
         result = await session.execute(
-            text(
-                "SELECT tablename FROM pg_tables "
-                "WHERE schemaname = 'public' AND tablename != 'alembic_version'"
-            )
+            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version'")
         )
         tables = [r[0] for r in result.all()]
         if tables:
