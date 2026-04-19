@@ -7,7 +7,7 @@ import logging
 import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -185,7 +185,7 @@ class OrchLifecycleHandler(LifecycleHandler):
 
     async def _write_oplog_row(self, p: OplogPayload) -> None:
         """Insert a single oplog row to ClickHouse. Best effort."""
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         try:
             await get_ch_client().insert(
                 "operation_log",
