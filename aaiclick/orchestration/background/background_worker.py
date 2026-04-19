@@ -387,10 +387,7 @@ class BackgroundWorker:
         # 1. Drop orphaned CH tables from table_registry (SQL)
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text(
-                    "SELECT DISTINCT table_name FROM table_registry "
-                    "WHERE job_id IS NULL AND created_at < :cutoff"
-                ),
+                text("SELECT DISTINCT table_name FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
                 {"cutoff": cutoff},
             )
             orphan_tables = [row[0] for row in result.fetchall()]
