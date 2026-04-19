@@ -1,10 +1,10 @@
 """
 Orchestration test configuration.
 
-Each test gets:
-- SQLite: dedicated temp database per test
-- PostgreSQL: per-xdist-worker database with Alembic migrations
-- chdb: session-scoped shared directory (chdb allows one path per process)
+Each test starts with empty SQL and chdb state via per-test reset:
+- SQLite: dedicated temp database per test (created via SQLModel.metadata.create_all)
+- PostgreSQL: per-xdist-worker database (Alembic-migrated once) + per-test TRUNCATE
+- chdb: per-worker shared directory + per-test DROP of all tables in default
 """
 
 import os
@@ -15,11 +15,10 @@ from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlmodel import col, select
 
 from aaiclick.backend import is_sqlite
-from aaiclick.orchestration.execution.claiming import cancel_job
-from aaiclick.orchestration.models import Job, JobStatus, SQLModel, TaskStatus
+from aaiclick.data.data_context import get_ch_client
+from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
 
 _BASE_DB = os.environ.get("POSTGRES_DB", "aaiclick")
@@ -135,6 +134,45 @@ def _pg_worker_db():
     conn.close()
 
 
+# -- Per-test reset helpers --
+
+
+async def _reset_sql_tables() -> None:
+    """Truncate all user tables in the active SQL database (Postgres path).
+
+    SQLite is handled via tempdir-per-test in _orch_test_env, so the SQLite
+    DB is already empty at test start — nothing to do here.
+    """
+    if is_sqlite():
+        return
+    async with get_sql_session() as session:
+        result = await session.execute(
+            text(
+                "SELECT tablename FROM pg_tables "
+                "WHERE schemaname = 'public' AND tablename != 'alembic_version'"
+            )
+        )
+        tables = [r[0] for r in result.all()]
+        if tables:
+            quoted = ", ".join(f'"{t}"' for t in tables)
+            await session.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+        await session.commit()
+
+
+async def _drop_all_ch_tables() -> None:
+    """Drop every table in the default chdb database.
+
+    Singletons (operation_log) are recreated lazily by init_oplog_tables on
+    next task_scope entry. Bounded per-test cleanup keeps t_* tables from
+    accumulating on disk and triggering chdb's async-loader recursive_mutex
+    bug above some threshold.
+    """
+    ch = get_ch_client()
+    result = await ch.query("SELECT name FROM system.tables WHERE database = 'default'")
+    for row in result.result_rows:
+        await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
+
+
 # -- Shared test environment --
 
 
@@ -145,10 +183,14 @@ async def _orch_test_env(
     *,
     with_ch: bool = True,
 ) -> AsyncIterator[None]:
-    """Shared setup/teardown for all orch_ctx variants.
+    """Shared setup for all orch_ctx variants.
 
-    SQLite: creates an isolated DB per test.
-    PostgreSQL: uses the session-scoped worker DB (via _pg_worker_db).
+    Single per-test reset methodology: every test starts with empty SQL +
+    empty chdb state, so test ordering and crash recovery are irrelevant.
+
+    SQLite: dedicated temp DB per test (effectively a drop+create).
+    PostgreSQL: TRUNCATE all user tables in the per-worker DB.
+    chdb: DROP all tables in the default database.
     """
     if is_sqlite():
         tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_sql_")
@@ -163,14 +205,17 @@ async def _orch_test_env(
 
         try:
             async with orch_context(with_ch=with_ch):
+                if with_ch:
+                    await _drop_all_ch_tables()
                 yield
-                await _teardown_jobs()
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
     else:
         async with orch_context(with_ch=with_ch):
+            await _reset_sql_tables()
+            if with_ch:
+                await _drop_all_ch_tables()
             yield
-            await _teardown_jobs()
 
 
 @pytest.fixture
@@ -190,30 +235,3 @@ async def orch_ctx_no_ch(monkeypatch, _shared_chdb_dir, _pg_worker_db):
     """
     async with _orch_test_env(monkeypatch, _shared_chdb_dir, with_ch=False):
         yield
-
-
-async def _teardown_jobs() -> None:
-    """Cancel non-terminal jobs and orphan tasks."""
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Job.id).where(
-                col(Job.status).notin_(
-                    [
-                        JobStatus.COMPLETED,
-                        JobStatus.FAILED,
-                        JobStatus.CANCELLED,
-                    ]
-                )
-            )
-        )
-        for (job_id,) in result.all():
-            await cancel_job(job_id)
-
-        await session.execute(
-            text(
-                "UPDATE tasks SET status = :cancelled "
-                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
-            ),
-            {"cancelled": TaskStatus.CANCELLED.value},
-        )
-        await session.commit()
