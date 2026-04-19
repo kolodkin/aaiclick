@@ -13,12 +13,11 @@ from unittest.mock import AsyncMock
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
-from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref, insert_table_registry
 
 
 async def _get_context_tables(engine):
@@ -137,15 +136,12 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await _insert_job(bg_db, 777, "FULL")
     await insert_context_ref(bg_db, "t_full", 100)
+    await insert_table_registry(bg_db, "t_full", job_id=777)
 
     worker = BackgroundWorker()
     worker._engine = bg_db
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
-    # Stub the owner lookup: table belongs to job 777.
-    worker._lookup_table_owners = AsyncMock(
-        return_value={"t_full": TableOwner(job_id=777)},
-    )
 
     await worker._cleanup_unreferenced_tables()
 
@@ -159,14 +155,12 @@ async def test_cleanup_none_mode_drops(bg_db):
     """Tables belonging to a NONE-mode job are dropped as normal."""
     await _insert_job(bg_db, 888, "NONE")
     await insert_context_ref(bg_db, "t_none", 100)
+    await insert_table_registry(bg_db, "t_none", job_id=888)
 
     worker = BackgroundWorker()
     worker._engine = bg_db
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
-    worker._lookup_table_owners = AsyncMock(
-        return_value={"t_none": TableOwner(job_id=888)},
-    )
 
     await worker._cleanup_unreferenced_tables()
 

@@ -25,17 +25,6 @@ ORDER BY (result_table, created_at)
 # created_at breaks ties within a table so "most recent row"
 # stays a tail scan.
 
-TABLE_REGISTRY_DDL = """
-CREATE TABLE IF NOT EXISTS table_registry (
-    table_name   String,
-    job_id       Nullable(UInt64),
-    task_id      Nullable(UInt64),
-    run_id       Nullable(UInt64),
-    created_at   DateTime64(3)
-) ENGINE = MergeTree()
-ORDER BY (created_at,)
-"""
-
 OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "id": "UInt64",  # DEFAULT generateSnowflakeID() — type check only
     "result_table": "String",
@@ -44,14 +33,6 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "sql_template": "Nullable(String)",
     "task_id": "Nullable(UInt64)",
     "job_id": "Nullable(UInt64)",
-    "run_id": "Nullable(UInt64)",
-    "created_at": "DateTime64(3)",
-}
-
-TABLE_REGISTRY_EXPECTED_COLUMNS: dict[str, str] = {
-    "table_name": "String",
-    "job_id": "Nullable(UInt64)",
-    "task_id": "Nullable(UInt64)",
     "run_id": "Nullable(UInt64)",
     "created_at": "DateTime64(3)",
 }
@@ -81,6 +62,4 @@ async def _validate_schema(
 async def init_oplog_tables(ch_client: ChClient) -> None:
     """Create oplog tables if they don't exist; validate schema if they do."""
     await ch_client.command(OPERATION_LOG_DDL)
-    await ch_client.command(TABLE_REGISTRY_DDL)
     await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
-    await _validate_schema(ch_client, "table_registry", TABLE_REGISTRY_EXPECTED_COLUMNS)

@@ -5,23 +5,27 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ---
 
-# ClickHouse Tables
+# Storage
 
-**Implementation**: `aaiclick/oplog/models.py` — see `OPERATION_LOG_DDL`, `TABLE_REGISTRY_DDL`, `init_oplog_tables()`
+## operation_log (ClickHouse)
 
-## operation_log
+**Implementation**: `aaiclick/oplog/models.py` — see `OPERATION_LOG_DDL`, `init_oplog_tables()`
 
-Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `created_at` (nullable `job_id` excluded from sorting key). Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
+Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
 All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops).
 
-## table_registry
+## table_registry (SQL)
 
-Maps every table to its owning `job_id` for post-job cleanup. Both ephemeral (`t_`) and persistent (`p_`) tables are registered with the job that created them. All entries are deleted by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires.
+**Implementation**: `aaiclick/orchestration/lifecycle/db_lifecycle.py` — see `TableRegistry`
+
+Ownership metadata for every ClickHouse data table: `table_name` (PK) → `(job_id, task_id, run_id, created_at)`. Written once at creation by the lifecycle handler's queued `OPLOG_TABLE` op; deleted by `BackgroundWorker._cleanup_unreferenced_tables()` when the table is dropped, and by `_cleanup_expired_jobs()` / `_cleanup_orphaned_resources()` for TTL'd rows.
+
+Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL because every consumer is a keyed lookup or owner join during background cleanup — not append-only audit.
 
 ## Initialization
 
-`init_oplog_tables(ch_client)` creates both tables idempotently then validates schema via `_validate_schema()`. Raises `RuntimeError` on column name/type mismatch (stale table detection).
+`init_oplog_tables(ch_client)` creates `operation_log` on CH idempotently and validates its schema via `_validate_schema()`. It also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
 
 ---
 
@@ -29,7 +33,7 @@ Maps every table to its owning `job_id` for post-job cleanup. Both ephemeral (`t
 
 **Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector`, `get_oplog_collector()`
 
-Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to both `operation_log` and `table_registry` on `flush()`. Accessed via ContextVar `_oplog_collector`.
+Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to `operation_log` (CH) and `table_registry` (SQL) on `flush()`. Accessed via ContextVar `_oplog_collector`.
 
 ---
 

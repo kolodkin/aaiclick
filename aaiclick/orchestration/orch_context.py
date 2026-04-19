@@ -19,13 +19,14 @@ from aaiclick.data.data_context.data_context import _engine_var, _objects_var, d
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id
-from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, TABLE_REGISTRY_EXPECTED_COLUMNS, init_oplog_tables
+from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, init_oplog_tables
 
 from ..snowflake_id import get_snowflake_id
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Group, Task, TasksType
+from .oplog_backfill import migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
@@ -42,9 +43,6 @@ _OPLOG_COLS = [
     "created_at",
 ]
 _OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
-
-_REG_COLS = ["table_name", "job_id", "task_id", "run_id", "created_at"]
-_REG_TYPE_NAMES = [TABLE_REGISTRY_EXPECTED_COLUMNS[c] for c in _REG_COLS]
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -210,15 +208,30 @@ class OrchLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
 
     async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
-        """Insert a single table_registry row to ClickHouse. Best effort."""
+        """Insert a single table_registry row to SQL. Best effort.
+
+        Idempotent via ON CONFLICT DO NOTHING — a re-register of the same
+        table_name keeps the original owner (first-writer-wins).
+        """
         now = datetime.now(timezone.utc)
         try:
-            await get_ch_client().insert(
-                "table_registry",
-                [[p.table_name, p.job_id, p.task_id, p.run_id, now]],
-                column_names=_REG_COLS,
-                column_type_names=_REG_TYPE_NAMES,
-            )
+            async with get_sql_session() as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO table_registry "
+                        "(table_name, job_id, task_id, run_id, created_at) "
+                        "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at) "
+                        "ON CONFLICT (table_name) DO NOTHING"
+                    ),
+                    {
+                        "table_name": p.table_name,
+                        "job_id": p.job_id,
+                        "task_id": p.task_id,
+                        "run_id": p.run_id,
+                        "created_at": now,
+                    },
+                )
+                await session.commit()
         except Exception:
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
@@ -389,6 +402,7 @@ async def task_scope(
 
     objects: dict[int, weakref.ref] = {}
     await init_oplog_tables(get_ch_client())
+    await migrate_table_registry_to_sql(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
