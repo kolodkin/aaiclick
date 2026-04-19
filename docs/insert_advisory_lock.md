@@ -241,8 +241,7 @@ path and has nothing to verify there.
   table also removes its `table_context_refs` rows, so a stale cached id
   would only cause a no-op lock acquisition against a key no other worker
   uses. Probably safe to leave; revisit if it becomes a leak source.
-- Now that `table_registry` lives in SQL (see
-  `docs/table_registry_sql_migration.md`), a future cleanup could fold
+- Now that `table_registry` lives in SQL, a future cleanup could fold
   `advisory_id` into the single `table_registry` row instead of
   carrying it as a redundant column on every `table_context_refs` row.
   Optional follow-up; not required for this feature to ship.
