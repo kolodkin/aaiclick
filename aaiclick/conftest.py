@@ -17,11 +17,19 @@ from alembic import command
 from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
+import importlib
+
+from aaiclick.data.data_context import chdb_client as _chdb_client
 from aaiclick.oplog.lineage import OplogNode
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.test_utils import reset_test_state
+
+# ``aaiclick.orchestration`` re-exports the ``orch_context`` function from the
+# same-named submodule, which shadows the submodule attribute on the package.
+# Fetch the submodule by fully-qualified name so we can patch its bindings.
+_orch_context_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
@@ -32,6 +40,40 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _pin_chdb_session():
+    """Keep the chdb Session alive for the entire pytest run.
+
+    chdb's embedded ClickHouse carries one Poco Application singleton + one
+    native ThreadPool per process. Tearing that down and rebuilding it
+    repeatedly (which ``orch_context()`` does on every exit via
+    ``close_session()``) races lingering ThreadPool workers against
+    reinitialization and trips a glibc ``pthread_mutex_lock`` assertion
+    inside ``_chdb.abi3.so``. The crash is intermittent (~25–40% of full
+    test-suite runs) and fully inside chdb's native code — see
+    ``docs/technical_debt.md`` and chdb-io/chdb#229.
+
+    Test-only mitigation: no-op ``close_session`` for the life of the
+    pytest session. The chdb Session becomes a true per-process
+    singleton, which is what chdb actually supports.
+    """
+    if not is_chdb():
+        yield
+        return
+    noop = lambda _path: None  # noqa: E731 — intentional trivial no-op stub
+    # ``orch_context`` imported ``close_session`` by name, so patch the
+    # binding in both the source module and the importer.
+    original_src = _chdb_client.close_session
+    original_orch = _orch_context_module.close_session
+    _chdb_client.close_session = noop
+    _orch_context_module.close_session = noop
+    try:
+        yield
+    finally:
+        _chdb_client.close_session = original_src
+        _orch_context_module.close_session = original_orch
 
 
 @pytest.fixture(autouse=True, scope="session")

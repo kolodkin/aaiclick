@@ -21,6 +21,17 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## Make `close_session()` Opt-In Instead of Unconditional on `orch_context` Exit
+
+`orch_context.py` unconditionally calls `close_session(get_chdb_data_path())` in its `finally` block when running on chdb. The reason is real — a subprocess worker about to be spawned needs the chdb file lock — but in-process-only callers pay the cost for nothing, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)). Tests work around it today via the `_pin_chdb_session` fixture; production code shouldn't need a test fixture to stay stable.
+
+**Proposal**: gate the close behind an explicit signal that the caller is about to hand the chdb file off to another process. Shapes to consider:
+- A `release_chdb_session: bool = False` kwarg on `orch_context()` that the worker-spawning path sets to `True`.
+- A context manager `with releasing_chdb_session():` around the code that spawns workers.
+- An env var (`AAICLICK_CHDB_RELEASE_ON_EXIT=1`) for test-runner-style callers.
+
+**Work**: `aaiclick/orchestration/orch_context.py` — remove the unconditional `close_session()` from the `finally` branch; add the opt-in signal above; update any worker-spawning path (`aaiclick/orchestration/execution/mp_worker.py`, etc.) to invoke it. Remove the `_pin_chdb_session` fixture once this lands.
+
 ## Retry `create_object_from_url` on Transient Upstream Failures
 
 `create_object_from_url` currently surfaces any HTTP failure from the

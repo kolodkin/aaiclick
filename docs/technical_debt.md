@@ -1,6 +1,14 @@
 Technical Debt
 ---
 
+# chdb Session Not Safe to Close + Reopen In-Process
+
+- **`_pin_chdb_session` fixture** (`aaiclick/conftest.py`)
+  - **Issue**: chdb embeds the entire ClickHouse server (Poco `Application` singleton, logger, settings manager, a native `ThreadPool`) as per-process state. Calling `chdb.session.Session.cleanup()` and then instantiating another `Session(path)` in the same process races lingering ThreadPool workers against reinitialization. Intermittently trips a glibc assertion `___pthread_mutex_lock: Assertion 'mutex->__data.__owner == 0' failed` inside `_chdb.abi3.so`, abort()ing the process. Reproduces ~25–40 % of full test-suite runs; gdb confirms the fault is entirely in chdb ThreadPool threads, zero aaiclick frames on the crashing stack.
+  - **Root cause**: chdb's documented constraint — one active session per process. `aaiclick/orchestration/orch_context.py` calls `close_session()` on every context exit (needed so a subprocess worker can acquire the chdb file lock); under pytest, ~500+ orch_context cycles amplify the teardown race.
+  - **Workaround**: `_pin_chdb_session` (session-scoped, autouse) replaces `close_session` with a no-op in both `aaiclick.data.data_context.chdb_client` and the `aaiclick.orchestration.orch_context` import binding for the duration of the pytest run. The chdb `Session` becomes a true per-process singleton, matching what chdb supports. Subprocess-worker tests (which legitimately need the close) aren't affected — they own their own child process, unaffected by the parent's patched binding.
+  - **Debt**: Remove the fixture once chdb ships a `Session` implementation that tolerates repeated teardown+reopen in-process. No upstream fix across chdb 4.0 → 4.1.6 (see [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229), [#197](https://github.com/chdb-io/chdb/issues/197)). A complementary production-side improvement — making `close_session()` opt-in (only when about to spawn a chdb-owning subprocess) instead of unconditional on every `orch_context` exit — is tracked separately in `docs/future.md`.
+
 # chdb `url()` Table Function
 
 - **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/data_context/chdb_client.py`)
