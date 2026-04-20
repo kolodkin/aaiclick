@@ -15,12 +15,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 
 from aaiclick.backend import is_local
-from aaiclick.data.data_context import get_ch_client
 from aaiclick.orchestration.models import SQLModel
-from aaiclick.orchestration.orch_context import get_sql_session, orch_context
+from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.test_utils import drop_all_ch_tables, reset_sql_tables
 
 _BASE_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
@@ -48,7 +48,7 @@ def fast_poll(monkeypatch):
     )
 
 
-# -- PostgreSQL per-worker isolation --
+# -- SQL per-worker isolation (Postgres; no-op in local mode) --
 
 
 def _pg_connect(dbname: str):
@@ -65,8 +65,12 @@ def _pg_connect(dbname: str):
 
 
 @pytest.fixture(scope="session")
-def _pg_worker_db():
-    """Create and drop an isolated PostgreSQL database per xdist worker."""
+def _sql_worker_setup():
+    """Per-worker SQL isolation — Postgres database per xdist worker.
+
+    Parallel to ``_ch_worker_setup``. Local mode (SQLite) is a no-op
+    because ``_orch_test_env`` uses tempdir-per-test for full isolation.
+    """
     if is_local():
         yield
         return
@@ -93,7 +97,6 @@ def _pg_worker_db():
     cur.close()
     conn.close()
 
-    os.environ["POSTGRES_DB"] = db_name
     sql_url = os.environ.get("AAICLICK_SQL_URL")
     if sql_url and "postgresql" in sql_url:
         base = sql_url.rsplit("/", 1)[0]
@@ -110,42 +113,6 @@ def _pg_worker_db():
     cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
     cur.close()
     conn.close()
-
-
-# -- Per-test reset helpers --
-
-
-async def _reset_sql_tables() -> None:
-    """Truncate all user tables in the active SQL database (distributed mode).
-
-    Local mode uses tempdir-per-test SQLite in _orch_test_env, so the DB
-    is already empty at test start — nothing to do here.
-    """
-    if is_local():
-        return
-    async with get_sql_session() as session:
-        result = await session.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version'")
-        )
-        tables = [r[0] for r in result.all()]
-        if tables:
-            quoted = ", ".join(f'"{t}"' for t in tables)
-            await session.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
-        await session.commit()
-
-
-async def _drop_all_ch_tables() -> None:
-    """Drop every table in the active CH database.
-
-    Singletons (operation_log) are recreated lazily by init_oplog_tables
-    on next task_scope entry. Safe against real CH because
-    _ch_worker_setup gives each xdist worker its own database, so this
-    never touches another worker's tables.
-    """
-    ch = get_ch_client()
-    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
-    for row in result.result_rows:
-        await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
 
 
 # -- Shared test environment --
@@ -180,27 +147,27 @@ async def _orch_test_env(
         try:
             async with orch_context(with_ch=with_ch):
                 if with_ch:
-                    await _drop_all_ch_tables()
+                    await drop_all_ch_tables()
                 yield
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
     else:
         async with orch_context(with_ch=with_ch):
-            await _reset_sql_tables()
+            await reset_sql_tables()
             if with_ch:
-                await _drop_all_ch_tables()
+                await drop_all_ch_tables()
             yield
 
 
 @pytest.fixture
-async def orch_ctx(monkeypatch, _ch_worker_setup, _pg_worker_db):
+async def orch_ctx(monkeypatch, _ch_worker_setup, _sql_worker_setup):
     """Function-scoped orch context with full CH + SQL."""
     async with _orch_test_env(monkeypatch):
         yield
 
 
 @pytest.fixture
-async def orch_ctx_no_ch(monkeypatch, _ch_worker_setup, _pg_worker_db):
+async def orch_ctx_no_ch(monkeypatch, _ch_worker_setup, _sql_worker_setup):
     """Function-scoped orch context without CH (with_ch=False).
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
