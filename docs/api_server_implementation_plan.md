@@ -33,34 +33,22 @@ tested, nothing else is affected.
 
 ## Tasks
 
-1. **Create `aaiclick/view_models.py`**
-   - `Page[T]` generic — `items: list[T]`, `total: int | None`,
-     `next_cursor: str | None`.
-   - `Problem` error shape — `title`, `status`, `detail`, `code`.
-   - `RefId = Annotated[int | str, ...]` — id or name.
-   - `RunJobRequest`, `RegisterJobRequest`.
-   - `JobListFilter`, `WorkerFilter`, `ObjectFilter`, `RegisteredJobFilter`.
+Fields and model signatures are defined in `api_server.md` "View Model
+Catalogue" — do not restate them here.
 
-2. **Create `aaiclick/orchestration/view_models.py`**
-   - `JobView`, `JobDetail` with computed `duration_ms`.
-   - `JobStatsView` — rehome of `aaiclick/orchestration/jobs/stats.py::JobStats`.
-   - `TaskView`, `TaskDetail`.
-   - `WorkerView`.
-   - `RegisteredJobView`.
-   - `to_view()` adapters: one module-level classmethod per `SQLModel →
-     View` mapping. Keeps imports one-directional (adapters pull in
-     SQLModel; view models do not).
-
-3. **Create `aaiclick/data/view_models.py`**
-   - `ColumnView`, `SchemaView`.
-   - `ObjectView`, `ObjectDetail`.
-   - `to_view()` adapters from `aaiclick.data.object.object.Object`.
-
-4. **Tests**
-   - `aaiclick/orchestration/test_view_models.py` — round-trip each
-     SQLModel through `to_view()` and assert the dumped shape.
-   - `aaiclick/data/test_view_models.py` — same for `Object`.
-   - No decorator-only or default-only tests (per `CLAUDE.md`).
+1. **Create `aaiclick/view_models.py`** — shared models (`Page[T]`,
+   `Problem`, `RefId`, `*Request`, `*Filter`).
+2. **Create `aaiclick/orchestration/view_models.py`** — orchestration views
+   plus `to_view()` adapters. `JobStatsView` rehomes
+   `aaiclick/orchestration/jobs/stats.py::JobStats`. Adapters pull in
+   SQLModel; view models do not (keeps imports one-directional).
+3. **Create `aaiclick/data/view_models.py`** — data views plus `to_view()`
+   adapters from `aaiclick.data.object.object.Object`.
+4. **Tests** — round-trip each SQLModel / `Object` through `to_view()`
+   and assert the dumped shape. Co-located per `CLAUDE.md`
+   (`aaiclick/orchestration/test_view_models.py`,
+   `aaiclick/data/test_view_models.py`). No decorator-only or
+   default-only tests.
 
 ## Deliverables
 
@@ -81,7 +69,8 @@ Phase 1. CLI gains `--json`.
 
 1. Create `aaiclick/internal_api/<group>.py`.
 2. Move each command's logic from its current home into a function that
-   takes a context + typed request/filter and returns a view model.
+   takes an explicit `AsyncSession` or `ChClient` (per the contract in
+   `api_server.md`) plus a typed request/filter, and returns a view model.
 3. Delete the old `*_cmd` / helper function — **no shim**, per the
    "no backwards-compat hacks" rule in `CLAUDE.md`.
 4. Update `aaiclick/__main__.py`: the argparse handler does
