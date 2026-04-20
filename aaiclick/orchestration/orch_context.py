@@ -181,6 +181,9 @@ class OrchLifecycleHandler(LifecycleHandler):
             )
         )
 
+    def current_job_id(self) -> int | None:
+        return self._job_id
+
     # -- Internal --
 
     async def _write_oplog_row(self, p: OplogPayload) -> None:
