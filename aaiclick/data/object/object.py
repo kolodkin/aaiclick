@@ -25,7 +25,6 @@ from ..data_context import (
     incref,
     register_object,
 )
-from ..scope import ObjectScope, is_persistent_table, scope_of
 from ..data_context.ch_client import export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
@@ -57,6 +56,7 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
+from ..scope import ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
