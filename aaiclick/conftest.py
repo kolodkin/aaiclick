@@ -19,6 +19,8 @@ from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import chdb_client as _chdb_client
+from aaiclick.data.data_context.chdb_client import close_session as _real_close_session
+from aaiclick.data.data_context.chdb_client import get_chdb_data_path as _real_chdb_path
 from aaiclick.oplog.lineage import OplogNode
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
@@ -264,6 +266,14 @@ async def orch_ctx_no_ch():
     For tests where the child process owns chdb (e.g. multiprocessing
     worker); the parent releases its lock before spawning the child
     (see ``mp_worker._run_task_in_child``).
+
+    ``_pin_chdb_session`` no-ops ``close_session`` for the pytest run to
+    dodge a chdb teardown race, but mp-worker tests rely on the parent's
+    chdb file lock being released so the child can open it. Release the
+    pinned session here using the real ``close_session`` before entering
+    the no-ch orch context.
     """
+    if is_chdb():
+        _real_close_session(_real_chdb_path())
     async with reset_test_state(orch_context(with_ch=False), reset_ch=False, reset_sql=True):
         yield
