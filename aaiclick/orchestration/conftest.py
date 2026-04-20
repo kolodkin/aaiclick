@@ -1,10 +1,11 @@
 """
 Orchestration test configuration.
 
-Each test starts with empty SQL and chdb state via per-test reset:
-- SQLite: dedicated temp database per test (created via SQLModel.metadata.create_all)
-- PostgreSQL: per-xdist-worker database (Alembic-migrated once) + per-test TRUNCATE
-- chdb: per-worker shared directory + per-test DROP of all tables in default
+Each test starts with empty SQL and CH state via per-test reset:
+- SQL (SQLite or Postgres): per-xdist-worker DB (schema set up once),
+  per-test TRUNCATE of all user tables.
+- CH (chdb or real ClickHouse): per-xdist-worker DB (embedded chdb dir
+  or dedicated real-CH database), per-test DROP of all tables.
 """
 
 import os
@@ -16,7 +17,7 @@ from contextlib import asynccontextmanager
 import pytest
 from sqlalchemy import create_engine, text
 
-from aaiclick.backend import is_chdb, is_sqlite
+from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
@@ -68,6 +69,62 @@ def _shared_chdb_dir():
     yield tmp_dir
     os.environ.pop("AAICLICK_CH_URL", None)
     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# -- Real ClickHouse per-worker isolation --
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _ch_worker_db():
+    """Create and drop an isolated ClickHouse database per xdist worker.
+
+    chdb mode already has per-worker isolation via the shared data
+    directory (each worker's `default` DB is in its own tempdir) so this
+    is a no-op there. Real ClickHouse is a single shared server across
+    all xdist workers; without a per-worker database the per-test DROP
+    would obliterate other workers' tables.
+    """
+    if is_chdb():
+        yield
+        return
+
+    import clickhouse_connect
+
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+    if not worker:
+        yield
+        return
+
+    params = parse_ch_url()
+    base_db = params["database"]
+    db_name = f"{base_db}_{worker}"
+
+    admin = clickhouse_connect.get_client(
+        host=params["host"],
+        port=params["port"],
+        username=params["username"],
+        password=params["password"],
+        database=base_db,
+    )
+    admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
+    admin.command(f"CREATE DATABASE `{db_name}`")
+    admin.close()
+
+    prior_url = os.environ["AAICLICK_CH_URL"]
+    os.environ["AAICLICK_CH_URL"] = prior_url.rsplit("/", 1)[0] + f"/{db_name}"
+
+    yield
+
+    os.environ["AAICLICK_CH_URL"] = prior_url
+    admin = clickhouse_connect.get_client(
+        host=params["host"],
+        port=params["port"],
+        username=params["username"],
+        password=params["password"],
+        database=base_db,
+    )
+    admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
+    admin.close()
 
 
 # -- PostgreSQL per-worker isolation --
@@ -157,22 +214,15 @@ async def _reset_sql_tables() -> None:
 
 
 async def _drop_all_ch_tables() -> None:
-    """Drop every table in the default chdb database (chdb-only).
+    """Drop every table in the active CH database.
 
-    Singletons (operation_log) are recreated lazily by init_oplog_tables on
-    next task_scope entry. Bounded per-test cleanup keeps t_* tables from
-    accumulating on disk and triggering chdb's async-loader recursive_mutex
-    bug above some threshold.
-
-    Skipped against a real ClickHouse server: that server is shared across
-    all xdist workers, so dropping `default` would obliterate other
-    workers' in-flight tests. Real CH does not exhibit the chdb loader
-    bug, so per-test reset is unnecessary there.
+    Singletons (operation_log) are recreated lazily by init_oplog_tables
+    on next task_scope entry. Safe against real CH because _ch_worker_db
+    gives each xdist worker its own database, so this never touches
+    another worker's tables.
     """
-    if not is_chdb():
-        return
     ch = get_ch_client()
-    result = await ch.query("SELECT name FROM system.tables WHERE database = 'default'")
+    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
     for row in result.result_rows:
         await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
 
