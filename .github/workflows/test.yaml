@@ -69,7 +69,7 @@ jobs:
           - group: Data local
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
           - group: Orch local
-            test-paths: "aaiclick/orchestration/"
+            test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
     steps:
       - name: Checkout code
@@ -114,7 +114,7 @@ jobs:
           - group: Data dist
             test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
           - group: Orch dist
-            test-paths: "aaiclick/orchestration/"
+            test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
     services:
       clickhouse:
