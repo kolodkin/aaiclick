@@ -13,11 +13,15 @@ import shutil
 import tempfile
 
 import pytest
+from alembic import command
 from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.oplog.lineage import OplogNode
+from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
+from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.test_utils import reset_test_state
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
@@ -62,6 +66,7 @@ def _ch_worker_setup():
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
+    # Distributed extra only — keep inline so local-only installs can import this conftest.
     import clickhouse_connect
 
     if not worker:
@@ -99,6 +104,7 @@ def _ch_worker_setup():
 
 def _pg_connect(dbname: str):
     """Connect to PostgreSQL with environment-based credentials."""
+    # Distributed extra only — keep inline so local-only installs can import this conftest.
     import psycopg2
 
     return psycopg2.connect(
@@ -142,10 +148,8 @@ def _sql_worker_setup():
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
-    from alembic import command
+    # Distributed extra only — keep inline so local-only installs can import this conftest.
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
-    from aaiclick.orchestration.migrate import get_alembic_config
 
     if not worker:
         config = get_alembic_config()
@@ -204,9 +208,6 @@ async def orch_ctx():
     Single definition — visible to every test via pytest's conftest
     hierarchy, so oplog and orchestration tests share one fixture.
     """
-    from aaiclick.orchestration.orch_context import orch_context
-    from aaiclick.test_utils import reset_test_state
-
     async with reset_test_state(orch_context(), reset_sql=True):
         yield
 
@@ -219,8 +220,5 @@ async def orch_ctx_no_ch():
     worker); the parent releases its lock before spawning the child
     (see ``mp_worker._run_task_in_child``).
     """
-    from aaiclick.orchestration.orch_context import orch_context
-    from aaiclick.test_utils import reset_test_state
-
     async with reset_test_state(orch_context(with_ch=False), reset_ch=False, reset_sql=True):
         yield
