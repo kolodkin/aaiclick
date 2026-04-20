@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data local
@@ -108,7 +108,7 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data dist
@@ -200,7 +200,7 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data examples
