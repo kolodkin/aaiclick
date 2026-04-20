@@ -1,10 +1,10 @@
 """
 Pytest configuration for aaiclick tests.
 
-This module provides:
-- _ch_worker_setup: session-scoped per-worker CH isolation (autouse)
-- event_loop: session-scoped event loop for async tests
-- orch_ctx: fallback for tests outside the orchestration package (e.g. oplog)
+Session-scoped autouse fixtures set up per-xdist-worker CH and SQL
+databases. Per-test reset (drop CH tables, truncate SQL) happens inside
+each ``orch_ctx`` / ``ctx`` fixture via ``reset_test_state`` from
+``aaiclick.test_utils``.
 """
 
 import asyncio
@@ -13,9 +13,13 @@ import shutil
 import tempfile
 
 import pytest
+from sqlalchemy import create_engine
 
-from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.oplog.lineage import OplogNode
+from aaiclick.orchestration.models import SQLModel
+
+_BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
 
 @pytest.fixture(scope="session")
@@ -93,6 +97,90 @@ def _ch_worker_setup():
         admin.close()
 
 
+def _pg_connect(dbname: str):
+    """Connect to PostgreSQL with environment-based credentials."""
+    import psycopg2
+
+    return psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=os.environ.get("POSTGRES_PORT", "5432"),
+        user=os.environ.get("POSTGRES_USER", "aaiclick"),
+        password=os.environ.get("POSTGRES_PASSWORD", "secret"),
+        dbname=dbname,
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _sql_worker_setup():
+    """Per-worker SQL isolation — SQLite file for local, database for Postgres.
+
+    Local mode: one SQLite file per worker. Schema is created once via
+    ``SQLModel.metadata.create_all``; per-test cleanup is a ``DELETE FROM``
+    sweep in ``reset_sql_tables`` — no tempdir-per-test needed.
+
+    Distributed mode: one Postgres database per worker, migrated once via
+    Alembic; per-test cleanup is ``TRUNCATE ... RESTART IDENTITY CASCADE``.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+
+    if is_local():
+        tmp_dir = tempfile.mkdtemp(prefix=f"aaiclick_sql_{worker or 'main'}_")
+        db_path = os.path.join(tmp_dir, "test.db")
+        prior_url = os.environ.get("AAICLICK_SQL_URL")
+        os.environ["AAICLICK_SQL_URL"] = f"sqlite+aiosqlite:///{db_path}"
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+        try:
+            yield
+        finally:
+            if prior_url is None:
+                os.environ.pop("AAICLICK_SQL_URL", None)
+            else:
+                os.environ["AAICLICK_SQL_URL"] = prior_url
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return
+
+    from alembic import command
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
+    from aaiclick.orchestration.migrate import get_alembic_config
+
+    if not worker:
+        config = get_alembic_config()
+        command.upgrade(config, "head")
+        yield
+        return
+
+    db_name = f"{_BASE_SQL_DB}_{worker}"
+
+    conn = _pg_connect("postgres")
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cur = conn.cursor()
+    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    cur.execute(f'CREATE DATABASE "{db_name}"')
+    cur.close()
+    conn.close()
+
+    sql_url = os.environ.get("AAICLICK_SQL_URL")
+    if sql_url and "postgresql" in sql_url:
+        base = sql_url.rsplit("/", 1)[0]
+        os.environ["AAICLICK_SQL_URL"] = f"{base}/{db_name}"
+
+    config = get_alembic_config()
+    command.upgrade(config, "head")
+
+    yield
+
+    conn = _pg_connect("postgres")
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cur = conn.cursor()
+    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    cur.close()
+    conn.close()
+
+
 def make_oplog_node(
     table: str,
     operation: str,
@@ -110,15 +198,29 @@ def make_oplog_node(
 
 
 @pytest.fixture
-async def orch_ctx(monkeypatch):
-    """Function-scoped orch context for tests outside aaiclick/orchestration/.
+async def orch_ctx():
+    """Function-scoped orch context with per-test CH + SQL reset.
 
-    (E.g. oplog tests.) Delegates to the orchestration package's
-    ``_orch_test_env`` which reads the per-worker AAICLICK_CH_URL set by
-    ``_ch_worker_setup`` (defined in this file, visible to all tests
-    via pytest's conftest hierarchy).
+    Single definition — visible to every test via pytest's conftest
+    hierarchy, so oplog and orchestration tests share one fixture.
     """
-    from aaiclick.orchestration.conftest import _orch_test_env
+    from aaiclick.orchestration.orch_context import orch_context
+    from aaiclick.test_utils import reset_test_state
 
-    async with _orch_test_env(monkeypatch):
+    async with reset_test_state(orch_context(), reset_sql=True):
+        yield
+
+
+@pytest.fixture
+async def orch_ctx_no_ch():
+    """Function-scoped orch context without CH (``with_ch=False``).
+
+    For tests where the child process owns chdb (e.g. multiprocessing
+    worker); the parent releases its lock before spawning the child
+    (see ``mp_worker._run_task_in_child``).
+    """
+    from aaiclick.orchestration.orch_context import orch_context
+    from aaiclick.test_utils import reset_test_state
+
+    async with reset_test_state(orch_context(with_ch=False), reset_ch=False, reset_sql=True):
         yield

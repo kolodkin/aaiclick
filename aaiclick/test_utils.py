@@ -5,6 +5,9 @@ oplog, ai, data — can import the same primitives. conftests stay small
 and compose these helpers into fixtures.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+
 from sqlalchemy import text
 
 from aaiclick.backend import is_local
@@ -13,21 +16,28 @@ from aaiclick.orchestration.orch_context import get_sql_session
 
 
 async def reset_sql_tables() -> None:
-    """Truncate all user tables in the active SQL database (distributed mode).
+    """Delete rows from every user table in the active SQL database.
 
-    Local mode (SQLite) is expected to use tempdir-per-test, so the DB is
-    already empty at test start — this is a no-op there.
+    Uses ``DELETE FROM`` on SQLite and ``TRUNCATE ... RESTART IDENTITY
+    CASCADE`` on Postgres. Alembic's ``alembic_version`` is preserved so
+    migrations don't have to re-run between tests.
     """
-    if is_local():
-        return
     async with get_sql_session() as session:
-        result = await session.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version'")
-        )
-        tables = [r[0] for r in result.all()]
-        if tables:
-            quoted = ", ".join(f'"{t}"' for t in tables)
-            await session.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+        if is_local():
+            result = await session.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+            )
+            tables = [r[0] for r in result.all() if r[0] != "alembic_version"]
+            for name in tables:
+                await session.execute(text(f'DELETE FROM "{name}"'))
+        else:
+            result = await session.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version'")
+            )
+            tables = [r[0] for r in result.all()]
+            if tables:
+                quoted = ", ".join(f'"{t}"' for t in tables)
+                await session.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
         await session.commit()
 
 
@@ -43,3 +53,25 @@ async def drop_all_ch_tables() -> None:
     result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
     for row in result.result_rows:
         await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
+
+
+@asynccontextmanager
+async def reset_test_state(
+    ctx: AbstractAsyncContextManager[None],
+    *,
+    reset_ch: bool = True,
+    reset_sql: bool = False,
+) -> AsyncIterator[None]:
+    """Enter ``ctx``, reset the requested backend state, then yield.
+
+    Single per-test reset primitive shared by every conftest (data,
+    orchestration, oplog, ai, ...). ``ctx`` is whatever async context the
+    test needs open to have a live CH/SQL client — typically
+    ``data_context()`` or ``orch_context()``.
+    """
+    async with ctx:
+        if reset_ch:
+            await drop_all_ch_tables()
+        if reset_sql:
+            await reset_sql_tables()
+        yield
