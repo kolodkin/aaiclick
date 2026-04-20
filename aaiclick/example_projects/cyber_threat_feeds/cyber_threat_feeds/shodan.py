@@ -45,7 +45,10 @@ async def load_shodan_kev_cves() -> Object:
             json_columns=SHODAN_COLUMNS,
         )
         count = await (await page["cve_id"].count()).data()
-        result = page if result is None else await result.concat(page)
+        if result is None:
+            result = page
+        else:
+            await result.insert(page)
         if count < _PAGE_SIZE:
             break
         skip += _PAGE_SIZE
