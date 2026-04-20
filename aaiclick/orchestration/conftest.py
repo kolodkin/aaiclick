@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 import pytest
 from sqlalchemy import create_engine, text
 
-from aaiclick.backend import is_chdb, is_sqlite, parse_ch_url
+from aaiclick.backend import is_local
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context
@@ -48,85 +48,6 @@ def fast_poll(monkeypatch):
     )
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _shared_chdb_dir():
-    """Session-scoped chdb data directory (autouse for all orchestration tests).
-
-    chdb's embedded server can only be initialized once per process with a
-    single data path. If pytest_configure (root conftest) already set
-    AAICLICK_CH_URL for an xdist worker, reuse that path instead of
-    creating a second one — chdb forbids multiple paths in one process.
-    """
-    if not is_sqlite():
-        yield ""
-        return
-    existing_url = os.environ.get("AAICLICK_CH_URL", "")
-    if existing_url.startswith("chdb://"):
-        yield existing_url.removeprefix("chdb://")
-        return
-    tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_chdb_")
-    os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
-    yield tmp_dir
-    os.environ.pop("AAICLICK_CH_URL", None)
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-# -- Real ClickHouse per-worker isolation --
-
-
-@pytest.fixture(autouse=True, scope="session")
-def _ch_worker_db():
-    """Create and drop an isolated ClickHouse database per xdist worker.
-
-    chdb mode already has per-worker isolation via the shared data
-    directory (each worker's `default` DB is in its own tempdir) so this
-    is a no-op there. Real ClickHouse is a single shared server across
-    all xdist workers; without a per-worker database the per-test DROP
-    would obliterate other workers' tables.
-    """
-    if is_chdb():
-        yield
-        return
-
-    import clickhouse_connect
-
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
-    if not worker:
-        yield
-        return
-
-    params = parse_ch_url()
-    base_db = params["database"]
-    db_name = f"{base_db}_{worker}"
-
-    admin = clickhouse_connect.get_client(
-        host=params["host"],
-        port=params["port"],
-        username=params["username"],
-        password=params["password"],
-        database=base_db,
-    )
-    admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-    admin.command(f"CREATE DATABASE `{db_name}`")
-    admin.close()
-
-    prior_url = os.environ["AAICLICK_CH_URL"]
-    os.environ["AAICLICK_CH_URL"] = prior_url.rsplit("/", 1)[0] + f"/{db_name}"
-
-    yield
-
-    os.environ["AAICLICK_CH_URL"] = prior_url
-    admin = clickhouse_connect.get_client(
-        host=params["host"],
-        port=params["port"],
-        username=params["username"],
-        password=params["password"],
-        database=base_db,
-    )
-    admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-    admin.close()
-
-
 # -- PostgreSQL per-worker isolation --
 
 
@@ -146,7 +67,7 @@ def _pg_connect(dbname: str):
 @pytest.fixture(scope="session")
 def _pg_worker_db():
     """Create and drop an isolated PostgreSQL database per xdist worker."""
-    if is_sqlite():
+    if is_local():
         yield
         return
 
@@ -195,12 +116,12 @@ def _pg_worker_db():
 
 
 async def _reset_sql_tables() -> None:
-    """Truncate all user tables in the active SQL database (Postgres path).
+    """Truncate all user tables in the active SQL database (distributed mode).
 
-    SQLite is handled via tempdir-per-test in _orch_test_env, so the SQLite
-    DB is already empty at test start — nothing to do here.
+    Local mode uses tempdir-per-test SQLite in _orch_test_env, so the DB
+    is already empty at test start — nothing to do here.
     """
-    if is_sqlite():
+    if is_local():
         return
     async with get_sql_session() as session:
         result = await session.execute(
@@ -217,9 +138,9 @@ async def _drop_all_ch_tables() -> None:
     """Drop every table in the active CH database.
 
     Singletons (operation_log) are recreated lazily by init_oplog_tables
-    on next task_scope entry. Safe against real CH because _ch_worker_db
-    gives each xdist worker its own database, so this never touches
-    another worker's tables.
+    on next task_scope entry. Safe against real CH because
+    _ch_worker_setup gives each xdist worker its own database, so this
+    never touches another worker's tables.
     """
     ch = get_ch_client()
     result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
@@ -233,25 +154,24 @@ async def _drop_all_ch_tables() -> None:
 @asynccontextmanager
 async def _orch_test_env(
     monkeypatch: pytest.MonkeyPatch,
-    chdb_path: str,
     *,
     with_ch: bool = True,
 ) -> AsyncIterator[None]:
     """Shared setup for all orch_ctx variants.
 
     Single per-test reset methodology: every test starts with empty SQL +
-    empty chdb state, so test ordering and crash recovery are irrelevant.
+    empty CH state, so test ordering and crash recovery are irrelevant.
 
-    SQLite: dedicated temp DB per test (effectively a drop+create).
-    PostgreSQL: TRUNCATE all user tables in the per-worker DB.
-    chdb: DROP all tables in the default database.
+    Local mode (chdb+SQLite): dedicated temp SQLite per test
+        (effectively a drop+create).
+    Distributed mode (real CH + Postgres): TRUNCATE all user tables in
+        the per-worker DB.
+    CH: DROP all tables in the active per-worker database.
     """
-    if is_sqlite():
+    if is_local():
         tmp_dir = tempfile.mkdtemp(prefix="aaiclick_orch_sql_")
         db_path = os.path.join(tmp_dir, "test.db")
-
         monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db_path}")
-        monkeypatch.setenv("AAICLICK_CH_URL", f"chdb://{chdb_path}")
 
         engine = create_engine(f"sqlite:///{db_path}")
         SQLModel.metadata.create_all(engine)
@@ -273,19 +193,19 @@ async def _orch_test_env(
 
 
 @pytest.fixture
-async def orch_ctx(monkeypatch, _shared_chdb_dir, _pg_worker_db):
-    """Function-scoped orch context with full chdb + SQL."""
-    async with _orch_test_env(monkeypatch, _shared_chdb_dir):
+async def orch_ctx(monkeypatch, _ch_worker_setup, _pg_worker_db):
+    """Function-scoped orch context with full CH + SQL."""
+    async with _orch_test_env(monkeypatch):
         yield
 
 
 @pytest.fixture
-async def orch_ctx_no_ch(monkeypatch, _shared_chdb_dir, _pg_worker_db):
-    """Function-scoped orch context without chdb (with_ch=False).
+async def orch_ctx_no_ch(monkeypatch, _ch_worker_setup, _pg_worker_db):
+    """Function-scoped orch context without CH (with_ch=False).
 
     For tests where the child process owns chdb (e.g. multiprocessing worker).
-    Uses the shared chdb dir — the parent releases its lock before spawning
-    the child (see mp_worker._run_task_in_child).
+    The parent releases its lock before spawning the child
+    (see mp_worker._run_task_in_child).
     """
-    async with _orch_test_env(monkeypatch, _shared_chdb_dir, with_ch=False):
+    async with _orch_test_env(monkeypatch, with_ch=False):
         yield
