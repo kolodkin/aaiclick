@@ -8,6 +8,7 @@ each ``orch_ctx`` / ``ctx`` fixture via ``reset_test_state`` from
 """
 
 import asyncio
+import importlib
 import os
 import shutil
 import tempfile
@@ -17,8 +18,6 @@ from alembic import command
 from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
-import importlib
-
 from aaiclick.data.data_context import chdb_client as _chdb_client
 from aaiclick.oplog.lineage import OplogNode
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -64,16 +63,17 @@ def _pin_chdb_session():
         return
     noop = lambda _path: None  # noqa: E731 — intentional trivial no-op stub
     # ``orch_context`` imported ``close_session`` by name, so patch the
-    # binding in both the source module and the importer.
+    # binding in both the source module and the importer. pyright balks at
+    # assigning to ``ModuleType`` attributes — intentional monkey-patch.
     original_src = _chdb_client.close_session
     original_orch = _orch_context_module.close_session
-    _chdb_client.close_session = noop
-    _orch_context_module.close_session = noop
+    _chdb_client.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
+    _orch_context_module.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
     try:
         yield
     finally:
-        _chdb_client.close_session = original_src
-        _orch_context_module.close_session = original_orch
+        _chdb_client.close_session = original_src  # pyright: ignore[reportAttributeAccessIssue]
+        _orch_context_module.close_session = original_orch  # pyright: ignore[reportAttributeAccessIssue]
 
 
 @pytest.fixture(autouse=True, scope="session")
