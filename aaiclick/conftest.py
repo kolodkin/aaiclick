@@ -159,6 +159,9 @@ def _sql_worker_setup():
 
     db_name = f"{_BASE_SQL_DB}_{worker}"
 
+    # Postgres forbids CREATE/DROP DATABASE inside a transaction; psycopg2
+    # wraps every statement in one by default. Autocommit disables the
+    # wrapping for this connection, which is used only for that DDL.
     conn = _pg_connect("postgres")
     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cur = conn.cursor()
