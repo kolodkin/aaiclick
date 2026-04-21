@@ -63,7 +63,7 @@ def _object_name_from_table(table: str) -> str:
     - ``t_<snowflake>`` → the table name itself (unnamed temp)
     """
     if table.startswith(GLOBAL_PREFIX):
-        return table[len(GLOBAL_PREFIX):]
+        return table[len(GLOBAL_PREFIX) :]
     if JOB_SCOPED_RE.match(table):
         return table.split("_", 2)[2]
     return table
