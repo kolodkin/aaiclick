@@ -35,6 +35,7 @@ class JobView(BaseModel):
     status: JobStatus
     run_type: RunType
     preservation_mode: PreservationMode
+    registered_job_id: int | None = None
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -142,6 +143,7 @@ def job_to_view(job: Job) -> JobView:
         status=job.status,
         run_type=job.run_type,
         preservation_mode=job.preservation_mode,
+        registered_job_id=job.registered_job_id,
         created_at=job.created_at,
         started_at=job.started_at,
         completed_at=job.completed_at,
@@ -190,6 +192,7 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         status=job.status,
         run_type=job.run_type,
         preservation_mode=job.preservation_mode,
+        registered_job_id=job.registered_job_id,
         created_at=job.created_at,
         started_at=job.started_at,
         completed_at=job.completed_at,

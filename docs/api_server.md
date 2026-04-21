@@ -162,28 +162,22 @@ model families.
 Every function in `aaiclick/internal_api/` follows one shape:
 
 ```python
-async def list_jobs(
-    session: AsyncSession,
-    filter: JobListFilter = JobListFilter(),
-) -> Page[JobView]: ...
+async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: ...
 
-async def list_objects(
-    ch: ChClient,
-    filter: ObjectFilter = ObjectFilter(),
-) -> Page[ObjectView]: ...
+async def list_objects(filter: ObjectFilter = ObjectFilter()) -> Page[ObjectView]: ...
 ```
 
 Rules:
 
 - **Input**: primitives or `*Request` / `*Filter` view models.
 - **Output**: a view model (`JobView`, `Page[JobView]`, `JobDetail`, ...).
-- **Contexts are explicit parameters**: orchestration functions take an
-  `AsyncSession` (sqlmodel), data functions take a `ChClient`
-  (`aaiclick.data.data_context.ch_client.ChClient`). Callers obtain these
-  either via `get_sql_session()` / `get_ch_client()` inside an
-  `orch_context()` / `data_context()` scope, or construct them directly for
-  tests. `internal_api` functions never call the contextvar getters
-  themselves — every dependency arrives through the signature.
+- **Contexts arrive via ContextVars, not parameters**: every function runs
+  inside an active `orch_context()` (orchestration) or `data_context()`
+  (data) and reads SQL/CH resources through the getters
+  (`get_sql_session()`, `get_ch_client()`). This matches the rest of the
+  codebase — decorators, execution, CRUD helpers — so callers do not have
+  to thread resources through. CLI wrappers, FastAPI request handlers, and
+  MCP tools each establish the surrounding context once per invocation.
 - **Errors** raise `internal_api.errors.*` (`NotFound`, `Conflict`, `Invalid`).
   CLI formats them; FastAPI maps them to `Problem` + HTTP status; FastMCP
   surfaces them as tool errors.
@@ -191,27 +185,25 @@ Rules:
 
 ## CLI verb → internal_api → REST → MCP
 
-`session` = `AsyncSession`; `ch` = `ChClient`.
-
-| CLI today                  | Internal API                                | REST                               | MCP tool                  |
-|----------------------------|---------------------------------------------|------------------------------------|---------------------------|
-| `job list`                 | `list_jobs(session, filter)`                | `GET /jobs`                        | `list_jobs`               |
-| `job get <ref>`            | `get_job(session, ref)`                     | `GET /jobs/{ref}`                  | `get_job`                 |
-| `job stats <ref>`          | `job_stats(session, ref)`                   | `GET /jobs/{ref}/stats`            | `job_stats`               |
-| `job cancel <ref>`         | `cancel_job(session, ref)`                  | `POST /jobs/{ref}/cancel`          | `cancel_job`              |
-| `run-job <name>`           | `run_job(session, RunJobRequest)`           | `POST /jobs:run`                   | `run_job`                 |
-| `register-job <entry>`     | `register_job(session, RegisterJobRequest)` | `POST /registered-jobs`            | `register_job`            |
-| `registered-job list`      | `list_registered_jobs(session, filter)`     | `GET /registered-jobs`             | `list_registered_jobs`    |
-| `job enable <name>`        | `enable_job(session, name)`                 | `POST /registered-jobs/{n}/enable` | `enable_job`              |
-| `job disable <name>`       | `disable_job(session, name)`                | `POST /registered-jobs/{n}/disable`| `disable_job`             |
-| `worker list`              | `list_workers(session, filter)`             | `GET /workers`                     | `list_workers`            |
-| `worker start`             | `start_worker(session)`                     | `POST /workers`                    | `start_worker`            |
-| `worker stop <id>`         | `stop_worker(session, id)`                  | `POST /workers/{id}/stop`          | `stop_worker`             |
-| `data list`                | `list_objects(ch, filter)`                  | `GET /objects`                     | `list_objects`            |
-| `data get <name>`          | `get_object(ch, name)`                      | `GET /objects/{name}`              | `get_object`              |
-| `data delete <name>`       | `delete_object(ch, name)`                   | `DELETE /objects/{name}`           | `delete_object`           |
-| `data purge`               | `purge_objects(ch, filter)`                 | `POST /objects:purge`              | `purge_objects`           |
-| *(new)* task detail        | `get_task(session, id)`                     | `GET /tasks/{id}`                  | `get_task`                |
+| CLI today                  | Internal API                       | REST                               | MCP tool                  |
+|----------------------------|------------------------------------|------------------------------------|---------------------------|
+| `job list`                 | `list_jobs(filter)`                | `GET /jobs`                        | `list_jobs`               |
+| `job get <ref>`            | `get_job(ref)`                     | `GET /jobs/{ref}`                  | `get_job`                 |
+| `job stats <ref>`          | `job_stats(ref)`                   | `GET /jobs/{ref}/stats`            | `job_stats`               |
+| `job cancel <ref>`         | `cancel_job(ref)`                  | `POST /jobs/{ref}/cancel`          | `cancel_job`              |
+| `run-job <name>`           | `run_job(RunJobRequest)`           | `POST /jobs:run`                   | `run_job`                 |
+| `register-job <entry>`     | `register_job(RegisterJobRequest)` | `POST /registered-jobs`            | `register_job`            |
+| `registered-job list`      | `list_registered_jobs(filter)`     | `GET /registered-jobs`             | `list_registered_jobs`    |
+| `job enable <name>`        | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable` | `enable_job`              |
+| `job disable <name>`       | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`| `disable_job`             |
+| `worker list`              | `list_workers(filter)`             | `GET /workers`                     | `list_workers`            |
+| `worker start`             | `start_worker()`                   | `POST /workers`                    | `start_worker`            |
+| `worker stop <id>`         | `stop_worker(id)`                  | `POST /workers/{id}/stop`          | `stop_worker`             |
+| `data list`                | `list_objects(filter)`             | `GET /objects`                     | `list_objects`            |
+| `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
+| `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
+| `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
+| *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
 
 # CLI Rendering Contract
 
@@ -219,7 +211,8 @@ Rules:
 
 ```python
 async def cmd_job_list(args):
-    page = await internal_api.list_jobs(session, _filter_from_args(args))
+    async with orch_context(with_ch=False):
+        page = await internal_api.list_jobs(_filter_from_args(args))
     if args.json:
         print(page.model_dump_json())
     else:
@@ -236,16 +229,19 @@ async def cmd_job_list(args):
 
 # REST Surface
 
-`aaiclick/server/app.py` exposes a FastAPI app. Each router is a thin wrapper:
+`aaiclick/server/app.py` exposes a FastAPI app. Each router is a thin wrapper
+that runs inside an `orch_context()` (or `data_context()` for data routes)
+scoped to the request:
 
 ```python
 @router.get("/jobs", response_model=Page[JobView])
-async def list_jobs(
-    filter: JobListFilter = Depends(),
-    session: AsyncSession = Depends(session_dep),
-):
-    return await internal_api.list_jobs(session, filter)
+async def list_jobs(filter: JobListFilter = Depends(), _=Depends(orch_scope)):
+    return await internal_api.list_jobs(filter)
 ```
+
+`orch_scope` is a FastAPI dependency that enters `orch_context(with_ch=False)`
+on request start and exits on response — the contextvar getters inside
+`internal_api` see the session/client for the duration of the call.
 
 - **Error mapping**: one exception handler turns `internal_api.errors.NotFound`
   into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`.
@@ -257,13 +253,13 @@ async def list_jobs(
 # MCP Surface
 
 `aaiclick/server/mcp.py` mounts a FastMCP server on the same app. Each tool
-is a direct wrapper:
+is a direct wrapper that opens the surrounding context:
 
 ```python
 @mcp.tool()
 async def run_job(req: RunJobRequest) -> JobView:
-    async with get_sql_session() as session:
-        return await internal_api.run_job(session, req)
+    async with orch_context(with_ch=False):
+        return await internal_api.run_job(req)
 ```
 
 FastMCP generates tool schemas from the pydantic models — identical inputs

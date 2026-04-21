@@ -11,13 +11,15 @@ shippable, each leaves the tree green.
 | Phase 1 | Shared `aaiclick/view_models.py`                     | ✅      | `aaiclick/view_models.py`                   |
 | Phase 1 | `aaiclick/orchestration/view_models.py` + adapters   | ✅      | `aaiclick/orchestration/view_models.py`     |
 | Phase 1 | `aaiclick/data/view_models.py` + adapters            | ✅      | `aaiclick/data/view_models.py`              |
-| Phase 2 | `aaiclick/internal_api/jobs.py`                      | Pending | Migrate from `__main__.py`                  |
+| Phase 2 | `aaiclick/internal_api/errors.py`                    | ✅      | `aaiclick/internal_api/errors.py`           |
+| Phase 2 | `aaiclick/internal_api/jobs.py`                      | ✅      | `aaiclick/internal_api/jobs.py`             |
+| Phase 2 | `--json` flag on the `job` + `run-job` verbs         | ✅      | `aaiclick/__main__.py` + `cli_renderers.py` |
 | Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/tasks.py`                     | Pending | Brand-new `task get`                        |
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | Pending | Migrate from `data/object/cli.py`           |
 | Phase 2 | `aaiclick/internal_api/setup.py`                     | Pending | Migrate from `__main__.py`                  |
-| Phase 2 | `--json` flag on every CLI verb                      | Pending |                                             |
+| Phase 2 | `--json` flag on remaining CLI verbs                 | Pending | Worker, registered-job, data, task          |
 | Phase 3 | `aaiclick[server]` optional extra                    | Pending | `pyproject.toml`                            |
 | Phase 3 | `aaiclick/server/app.py` + routers                   | Pending |                                             |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |

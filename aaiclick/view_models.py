@@ -72,6 +72,7 @@ class JobListFilter(BaseModel):
     name: str | None = None
     since: datetime | None = None
     limit: int = 50
+    offset: int = 0
     cursor: str | None = None
 
 

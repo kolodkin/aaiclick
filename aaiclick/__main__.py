@@ -29,15 +29,27 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 
+from aaiclick import cli_renderers, internal_api
 from aaiclick.data.object.cli import (
     delete_object_cmd,
     delete_objects_cmd,
     list_objects_cmd,
     show_object_cmd,
 )
+from aaiclick.internal_api.errors import InternalApiError
+from aaiclick.orchestration.models import JobStatus, PreservationMode
+from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.view_models import JobListFilter, RunJobRequest
+
+_JSON_HELP = "Emit JSON instead of a table"
+
+
+def _add_json_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", help=_JSON_HELP)
 
 
 def _setup_ollama_model(model: str) -> None:
@@ -152,6 +164,63 @@ def setup_done() -> bool:
     from aaiclick.backend import get_root as _get_root
 
     return (_get_root() / "setup_done").exists()
+
+
+def _print_json(model) -> None:
+    """Dump a pydantic view model as JSON on stdout."""
+    print(model.model_dump_json())
+
+
+def _render(args: argparse.Namespace, view, text_renderer) -> None:
+    """Pick JSON or text rendering based on ``--json``."""
+    if args.json:
+        _print_json(view)
+    else:
+        text_renderer(view)
+
+
+async def _run_internal_api(coro):
+    """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1."""
+    try:
+        async with orch_context(with_ch=False):
+            return await coro
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+async def _run_job_list(args: argparse.Namespace) -> None:
+    filter = JobListFilter(
+        status=JobStatus(args.status) if args.status else None,
+        name=args.like,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(internal_api.list_jobs(filter))
+    _render(args, page, lambda p: cli_renderers.render_jobs_page(p, offset=args.offset))
+
+
+async def _run_job_get(args: argparse.Namespace) -> None:
+    detail = await _run_internal_api(internal_api.get_job(args.ref))
+    _render(args, detail, cli_renderers.render_job_detail)
+
+
+async def _run_job_stats(args: argparse.Namespace) -> None:
+    stats = await _run_internal_api(internal_api.job_stats(args.ref))
+    _render(args, stats, cli_renderers.render_job_stats)
+
+
+async def _run_job_cancel(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(internal_api.cancel_job(args.ref))
+    _render(args, view, cli_renderers.render_job_cancelled)
+
+
+async def _run_run_job(args: argparse.Namespace) -> None:
+    kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
+    mode = PreservationMode(args.preservation_mode) if args.preservation_mode else None
+    request = RunJobRequest(name=args.name, kwargs=kwargs, preservation_mode=mode)
+    view = await _run_internal_api(internal_api.run_job(request))
+    _render(args, view, cli_renderers.render_job_created)
 
 
 def main():
@@ -271,6 +340,7 @@ def main():
         help="Get job details by ID or name",
     )
     job_get_parser.add_argument("ref", type=str, help="Job ID or name")
+    _add_json_flag(job_get_parser)
 
     # job stats <ref>
     job_stats_parser = job_subparsers.add_parser(
@@ -278,6 +348,7 @@ def main():
         help="Show job execution stats",
     )
     job_stats_parser.add_argument("ref", type=str, help="Job ID or name")
+    _add_json_flag(job_stats_parser)
 
     # job cancel <ref>
     job_cancel_parser = job_subparsers.add_parser(
@@ -285,6 +356,7 @@ def main():
         help="Cancel a job and its non-terminal tasks",
     )
     job_cancel_parser.add_argument("ref", type=str, help="Job ID or name")
+    _add_json_flag(job_cancel_parser)
 
     # job list
     job_list_parser = job_subparsers.add_parser(
@@ -314,6 +386,7 @@ def main():
         default=0,
         help="Skip N results (default: 0)",
     )
+    _add_json_flag(job_list_parser)
 
     # job enable <name>
     job_enable_parser = job_subparsers.add_parser(
@@ -358,6 +431,7 @@ def main():
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
     )
+    _add_json_flag(run_job_parser)
 
     # Add registered-job subcommand
     registered_job_parser = subparsers.add_parser(
@@ -481,28 +555,17 @@ def main():
             worker_parser.print_help()
 
     elif args.command == "job":
-        from aaiclick.orchestration.cli import cancel_job_cmd, show_job, show_job_stats
-
         if args.job_command == "get":
-            asyncio.run(show_job(args.ref))
+            asyncio.run(_run_job_get(args))
 
         elif args.job_command == "stats":
-            asyncio.run(show_job_stats(args.ref))
+            asyncio.run(_run_job_stats(args))
 
         elif args.job_command == "cancel":
-            asyncio.run(cancel_job_cmd(args.ref))
+            asyncio.run(_run_job_cancel(args))
 
         elif args.job_command == "list":
-            from aaiclick.orchestration.cli import show_jobs
-
-            asyncio.run(
-                show_jobs(
-                    status=args.status,
-                    name_like=args.like,
-                    limit=args.limit,
-                    offset=args.offset,
-                )
-            )
+            asyncio.run(_run_job_list(args))
 
         elif args.job_command == "enable":
             from aaiclick.orchestration.cli import enable_job_cmd
@@ -531,15 +594,7 @@ def main():
         )
 
     elif args.command == "run-job":
-        from aaiclick.orchestration.cli import run_job_cmd
-
-        asyncio.run(
-            run_job_cmd(
-                args.name,
-                kwargs_json=args.kwargs,
-                preservation_mode=args.preservation_mode,
-            )
-        )
+        asyncio.run(_run_run_job(args))
 
     elif args.command == "registered-job":
         from aaiclick.orchestration.cli import show_registered_jobs
