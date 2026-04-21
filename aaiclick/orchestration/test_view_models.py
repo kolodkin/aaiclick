@@ -13,7 +13,6 @@ from .models import (
 from .view_models import (
     JobDetail,
     JobStatsView,
-    JobView,
     TaskStatsView,
     TaskView,
     _ms_between,
