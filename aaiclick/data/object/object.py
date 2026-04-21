@@ -16,7 +16,7 @@ from typing import Any
 from typing_extensions import Self
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from ..data_context import (
     create_object_from_value,

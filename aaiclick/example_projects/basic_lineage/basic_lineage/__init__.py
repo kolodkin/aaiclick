@@ -25,7 +25,7 @@ from aaiclick.orchestration import (
     tasks_list,
 )
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from .report import print_report
 

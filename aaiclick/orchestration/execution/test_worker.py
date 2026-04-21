@@ -8,7 +8,7 @@ from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
 
-from ...snowflake_id import get_snowflake_id
+from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
 from ..orch_context import commit_tasks, get_sql_session

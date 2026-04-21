@@ -21,7 +21,7 @@ from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, init_oplog_tables
 
-from ..snowflake_id import get_snowflake_id
+from ..snowflake import get_snowflake_id
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload

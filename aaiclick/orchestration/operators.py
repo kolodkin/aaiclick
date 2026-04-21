@@ -39,7 +39,7 @@ from aaiclick.data.data_context import (
 )
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task
 from .models import Group, Task
