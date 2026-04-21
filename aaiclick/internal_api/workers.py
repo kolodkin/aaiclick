@@ -10,6 +10,8 @@ from sqlmodel import col, func, select
 
 from aaiclick.orchestration.execution.worker import (
     get_worker,
+)
+from aaiclick.orchestration.execution.worker import (
     request_worker_stop as _request_worker_stop_impl,
 )
 from aaiclick.orchestration.models import Worker

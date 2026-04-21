@@ -142,8 +142,7 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
     print("-" * 80)
     for w in page.items:
         print(
-            f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} "
-            f"{w.tasks_completed:<10} {w.tasks_failed:<8}"
+            f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
         )
     total = page.total if page.total is not None else len(page.items)
     print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
