@@ -131,5 +131,3 @@ async def start_background(poll_interval: float = 10.0) -> None:
     await shutdown.wait()
     print("Shutting down background cleanup worker...")
     await cleanup.stop()
-
-

@@ -31,7 +31,7 @@ from aaiclick.orchestration.view_models import (
     RegisteredJobView,
     registered_job_to_view,
 )
-from aaiclick.view_models import Page, RegisterJobRequest, RegisteredJobFilter
+from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from .errors import Conflict, NotFound
 

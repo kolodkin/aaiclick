@@ -7,7 +7,7 @@ import pytest
 from aaiclick.orchestration.models import PreservationMode
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
-from aaiclick.view_models import Page, RegisterJobRequest, RegisteredJobFilter
+from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from . import errors, registered_jobs
 
