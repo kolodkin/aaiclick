@@ -32,6 +32,11 @@ def _fmt_ms(ms: int | None) -> str:
     return f"{int(minutes)}m {rem:.1f}s"
 
 
+def _fmt_optional(value: object) -> str:
+    """Render ``None`` as a dash; everything else via ``str()``."""
+    return "-" if value is None else str(value)
+
+
 def render_jobs_page(page: Page[JobView], offset: int) -> None:
     """Print a paged list of jobs as an aligned text table."""
     if not page.items:
@@ -53,10 +58,10 @@ def render_job_detail(detail: JobDetail) -> None:
     print(f"Name:         {detail.name}")
     print(f"Status:       {detail.status.value}")
     print(f"Run type:     {detail.run_type.value}")
-    print(f"Registered:   {detail.registered_job_id or '-'}")
+    print(f"Registered:   {_fmt_optional(detail.registered_job_id)}")
     print(f"Created at:   {detail.created_at}")
-    print(f"Started at:   {detail.started_at or '-'}")
-    print(f"Completed at: {detail.completed_at or '-'}")
+    print(f"Started at:   {_fmt_optional(detail.started_at)}")
+    print(f"Completed at: {_fmt_optional(detail.completed_at)}")
     if detail.error:
         print(f"Error:        {detail.error}")
 
@@ -109,7 +114,7 @@ def render_registered_jobs_page(page: Page[RegisteredJobView]) -> None:
     print("-" * 89)
     for j in page.items:
         next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
-        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {j.schedule or '-':<15} {next_run:<20}")
+        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {_fmt_optional(j.schedule):<15} {next_run:<20}")
 
 
 def render_registered_job(view: RegisteredJobView) -> None:
@@ -143,10 +148,10 @@ def render_task_detail(detail: TaskDetail) -> None:
     print(f"Attempt:      {detail.attempt}")
     print(f"Max retries:  {detail.max_retries}")
     print(f"Created at:   {detail.created_at}")
-    print(f"Started at:   {detail.started_at or '-'}")
-    print(f"Completed at: {detail.completed_at or '-'}")
-    print(f"Worker:       {detail.worker_id or '-'}")
-    print(f"Log path:     {detail.log_path or '-'}")
+    print(f"Started at:   {_fmt_optional(detail.started_at)}")
+    print(f"Completed at: {_fmt_optional(detail.completed_at)}")
+    print(f"Worker:       {_fmt_optional(detail.worker_id)}")
+    print(f"Log path:     {_fmt_optional(detail.log_path)}")
     if detail.kwargs:
         print(f"Kwargs:       {detail.kwargs}")
     if detail.result is not None:
