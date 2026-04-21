@@ -136,8 +136,8 @@ aaiclick/
 |----------------|----------------------------------------------------------------------------------|
 | `ColumnView`   | `name`, `type`, `nullable`, `array_depth`, `low_cardinality`                     |
 | `SchemaView`   | `columns: list[ColumnView]`, `order_by`, `engine`                                |
-| `ObjectView`   | `name`, `table`, `persistent`, `row_count`, `size_bytes`, `created_at`           |
-| `ObjectDetail` | everything in `ObjectView` + `schema: SchemaView`, `lineage_summary`             |
+| `ObjectView`   | `name`, `table`, `scope`, `persistent`, `row_count`, `size_bytes`, `created_at`  |
+| `ObjectDetail` | everything in `ObjectView` + `table_schema: SchemaView`, `lineage_summary`       |
 
 ## Enums
 
