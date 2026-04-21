@@ -19,4 +19,5 @@ from .registered_jobs import (
     list_registered_jobs,
     register_job,
 )
+from .tasks import get_task
 from .workers import list_workers, stop_worker

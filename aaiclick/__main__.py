@@ -17,6 +17,7 @@ Usage:
     python -m aaiclick job list                 # List jobs
     python -m aaiclick job enable <name>        # Enable a registered job
     python -m aaiclick job disable <name>       # Disable a registered job
+    python -m aaiclick task get <id>            # Get task details by ID
     python -m aaiclick register-job <entrypoint> # Register a job
     python -m aaiclick run-job <name>           # Run a job immediately
     python -m aaiclick registered-job list      # List registered jobs
@@ -270,6 +271,11 @@ async def _run_job_disable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_registered_job_disabled)
 
 
+async def _run_task_get(args: argparse.Namespace) -> None:
+    detail = await _run_internal_api(internal_api.get_task(args.task_id))
+    _render(args, detail, cli_renderers.render_task_detail)
+
+
 async def _run_worker_list(args: argparse.Namespace) -> None:
     filter = WorkerFilter(
         status=WorkerStatus(args.status) if args.status else None,
@@ -489,6 +495,24 @@ def main():
     job_disable_parser.add_argument("name", type=str, help="Registered job name")
     _add_json_flag(job_disable_parser)
 
+    # Add task subcommand
+    task_parser = subparsers.add_parser(
+        "task",
+        help="Task management commands",
+    )
+    task_subparsers = task_parser.add_subparsers(
+        dest="task_command",
+        help="Task commands",
+    )
+
+    # task get <id>
+    task_get_parser = task_subparsers.add_parser(
+        "get",
+        help="Get task details by ID",
+    )
+    task_get_parser.add_argument("task_id", type=int, help="Task ID")
+    _add_json_flag(task_get_parser)
+
     # Add register-job subcommand
     register_job_parser = subparsers.add_parser(
         "register-job",
@@ -696,6 +720,13 @@ def main():
 
         else:
             job_parser.print_help()
+
+    elif args.command == "task":
+        if args.task_command == "get":
+            asyncio.run(_run_task_get(args))
+
+        else:
+            task_parser.print_help()
 
     elif args.command == "register-job":
         asyncio.run(_run_register_job(args))

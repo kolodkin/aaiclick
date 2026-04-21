@@ -16,7 +16,7 @@ shippable, each leaves the tree green.
 | Phase 2 | `--json` flag on the `job` + `run-job` verbs         | ✅      | `aaiclick/__main__.py` + `cli_renderers.py` |
 | Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | ✅      | `aaiclick/internal_api/registered_jobs.py`  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | ✅      | `aaiclick/internal_api/workers.py`          |
-| Phase 2 | `aaiclick/internal_api/tasks.py`                     | Pending | Brand-new `task get`                        |
+| Phase 2 | `aaiclick/internal_api/tasks.py`                     | ✅      | `aaiclick/internal_api/tasks.py`            |
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | Pending | Migrate from `data/object/cli.py`           |
 | Phase 2 | `aaiclick/internal_api/setup.py`                     | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `--json` flag on remaining CLI verbs                 | Pending | Registered-job, data, task                  |
@@ -68,10 +68,12 @@ Catalogue" — do not restate them here.
     `aaiclick/internal_api/test_registered_jobs.py`).
   - `test_worker_to_view_round_trip` — removed (exercised by
     `aaiclick/internal_api/test_workers.py`).
-  - Still pending: `test_job_to_view_round_trip`,
-    `test_task_to_detail_includes_detail_fields`, and the equivalents in
-    `aaiclick/data/test_view_models.py` — drop each alongside its
-    internal_api migration PR.
+  - `test_job_to_view_round_trip` — removed (exercised by
+    `aaiclick/internal_api/test_jobs.py`).
+  - `test_task_to_detail_includes_detail_fields` — removed (exercised by
+    `aaiclick/internal_api/test_tasks.py`).
+  - Still pending: the equivalents in `aaiclick/data/test_view_models.py` —
+    drop each alongside its internal_api migration PR.
 
 ---
 

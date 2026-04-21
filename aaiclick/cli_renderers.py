@@ -13,6 +13,7 @@ from aaiclick.orchestration.view_models import (
     JobStatsView,
     JobView,
     RegisteredJobView,
+    TaskDetail,
     WorkerView,
 )
 from aaiclick.view_models import Page
@@ -130,6 +131,28 @@ def render_registered_job_enabled(view: RegisteredJobView) -> None:
 def render_registered_job_disabled(view: RegisteredJobView) -> None:
     """Single-line confirmation that ``internal_api.disable_job`` succeeded."""
     print(f"Job '{view.name}' disabled (id={view.id})")
+
+
+def render_task_detail(detail: TaskDetail) -> None:
+    """Print full task details — ID, job, entrypoint, status, timings, worker."""
+    print(f"ID:           {detail.id}")
+    print(f"Job:          {detail.job_id}")
+    print(f"Name:         {detail.name}")
+    print(f"Entrypoint:   {detail.entrypoint}")
+    print(f"Status:       {detail.status.value}")
+    print(f"Attempt:      {detail.attempt}")
+    print(f"Max retries:  {detail.max_retries}")
+    print(f"Created at:   {detail.created_at}")
+    print(f"Started at:   {detail.started_at or '-'}")
+    print(f"Completed at: {detail.completed_at or '-'}")
+    print(f"Worker:       {detail.worker_id or '-'}")
+    print(f"Log path:     {detail.log_path or '-'}")
+    if detail.kwargs:
+        print(f"Kwargs:       {detail.kwargs}")
+    if detail.result is not None:
+        print(f"Result:       {detail.result}")
+    if detail.error:
+        print(f"Error:        {detail.error}")
 
 
 def render_workers_page(page: Page[WorkerView], offset: int) -> None:
