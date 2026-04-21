@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.conftest import make_oplog_node
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import (
     OplogGraph,
@@ -16,6 +15,7 @@ from aaiclick.oplog.lineage import (
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.test_utils import make_oplog_node
 
 
 async def _run_pipeline():

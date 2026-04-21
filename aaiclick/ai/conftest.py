@@ -13,6 +13,11 @@ import os
 
 import pytest
 
+from aaiclick.test_utils import (  # noqa: F401 — re-exported pytest fixtures
+    orch_ctx,
+    orch_module_ctx,
+)
+
 
 def pytest_collection_modifyitems(config, items):
     """Auto-skip live_llm tests unless AAICLICK_AI_LIVE_TESTS=1.

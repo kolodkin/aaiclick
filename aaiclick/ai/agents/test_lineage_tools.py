@@ -17,8 +17,8 @@ from aaiclick.ai.agents.lineage_tools import (
     TableSchema,
     ToolError,
 )
-from aaiclick.conftest import make_oplog_node
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph
+from aaiclick.test_utils import make_oplog_node
 
 INTERMEDIATE_TABLE = "t_11111111111111111111"
 TARGET_TABLE = "t_22222222222222222222"
