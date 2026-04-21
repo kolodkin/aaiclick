@@ -8,9 +8,9 @@ shippable, each leaves the tree green.
 
 | Phase   | Component                                            | Status  | Implementation / Notes                      |
 |---------|------------------------------------------------------|---------|---------------------------------------------|
-| Phase 1 | Shared `aaiclick/view_models.py`                     | Pending |                                             |
-| Phase 1 | `aaiclick/orchestration/view_models.py` + adapters   | Pending |                                             |
-| Phase 1 | `aaiclick/data/view_models.py` + adapters            | Pending |                                             |
+| Phase 1 | Shared `aaiclick/view_models.py`                     | ✅      | `aaiclick/view_models.py`                   |
+| Phase 1 | `aaiclick/orchestration/view_models.py` + adapters   | ✅      | `aaiclick/orchestration/view_models.py`     |
+| Phase 1 | `aaiclick/data/view_models.py` + adapters            | ✅      | `aaiclick/data/view_models.py`              |
 | Phase 2 | `aaiclick/internal_api/jobs.py`                      | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | Pending | Migrate from `__main__.py`                  |
