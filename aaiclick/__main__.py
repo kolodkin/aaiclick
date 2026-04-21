@@ -41,13 +41,14 @@ from aaiclick.data.object.cli import (
     show_object_cmd,
 )
 from aaiclick.internal_api.errors import InternalApiError
-from aaiclick.orchestration.models import JobStatus, PreservationMode
+from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
     JobListFilter,
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
+    WorkerFilter,
 )
 
 _JSON_HELP = "Emit JSON instead of a table"
@@ -269,6 +270,26 @@ async def _run_job_disable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_registered_job_disabled)
 
 
+async def _run_worker_list(args: argparse.Namespace) -> None:
+    filter = WorkerFilter(
+        status=WorkerStatus(args.status) if args.status else None,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(internal_api.list_workers(filter))
+    _render(args, page, lambda p: cli_renderers.render_workers_page(p, offset=args.offset))
+
+
+async def _run_worker_stop(args: argparse.Namespace) -> None:
+    try:
+        worker_id = int(args.worker_id)
+    except ValueError:
+        print(f"Invalid worker ID: {args.worker_id}", file=sys.stderr)
+        sys.exit(1)
+    view = await _run_internal_api(internal_api.stop_worker(worker_id))
+    _render(args, view, cli_renderers.render_worker_stopped)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -331,6 +352,7 @@ def main():
         "worker_id",
         help="Worker ID to stop",
     )
+    _add_json_flag(local_stop_parser)
 
     # Add worker subcommand (distributed mode)
     worker_parser = subparsers.add_parser(
@@ -355,10 +377,29 @@ def main():
     )
 
     # worker list
-    worker_subparsers.add_parser(
+    worker_list_parser = worker_subparsers.add_parser(
         "list",
         help="List workers",
     )
+    worker_list_parser.add_argument(
+        "--status",
+        choices=["ACTIVE", "IDLE", "STOPPING", "STOPPED"],
+        default=None,
+        help="Filter by status",
+    )
+    worker_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum results (default: 50)",
+    )
+    worker_list_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip N results (default: 0)",
+    )
+    _add_json_flag(worker_list_parser)
 
     # worker stop
     worker_stop_parser = worker_subparsers.add_parser(
@@ -369,6 +410,7 @@ def main():
         "worker_id",
         help="Worker ID to stop",
     )
+    _add_json_flag(worker_stop_parser)
 
     # Add job subcommand
     job_parser = subparsers.add_parser(
@@ -610,28 +652,28 @@ def main():
         run_migrations(args.args if hasattr(args, "args") else [])
 
     elif args.command == "local":
-        from aaiclick.orchestration.cli import start_local, stop_worker_cmd
-
         if args.local_command == "start":
+            from aaiclick.orchestration.cli import start_local
+
             asyncio.run(start_local(max_tasks=args.max_tasks))
 
         elif args.local_command == "stop":
-            asyncio.run(stop_worker_cmd(args.worker_id))
+            asyncio.run(_run_worker_stop(args))
 
         else:
             local_parser.print_help()
 
     elif args.command == "worker":
-        from aaiclick.orchestration.cli import show_workers, start_worker, stop_worker_cmd
-
         if args.worker_command == "start":
+            from aaiclick.orchestration.cli import start_worker
+
             asyncio.run(start_worker(max_tasks=args.max_tasks))
 
         elif args.worker_command == "list":
-            asyncio.run(show_workers())
+            asyncio.run(_run_worker_list(args))
 
         elif args.worker_command == "stop":
-            asyncio.run(stop_worker_cmd(args.worker_id))
+            asyncio.run(_run_worker_stop(args))
 
         else:
             worker_parser.print_help()
