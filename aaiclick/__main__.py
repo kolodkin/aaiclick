@@ -29,15 +29,21 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 
+from aaiclick import cli_renderers, internal_api
 from aaiclick.data.object.cli import (
     delete_object_cmd,
     delete_objects_cmd,
     list_objects_cmd,
     show_object_cmd,
 )
+from aaiclick.internal_api.errors import Conflict, NotFound
+from aaiclick.orchestration.models import JobStatus, PreservationMode
+from aaiclick.orchestration.orch_context import get_sql_session, orch_context
+from aaiclick.view_models import JobListFilter, RunJobRequest
 
 
 def _setup_ollama_model(model: str) -> None:
@@ -152,6 +158,85 @@ def setup_done() -> bool:
     from aaiclick.backend import get_root as _get_root
 
     return (_get_root() / "setup_done").exists()
+
+
+def _print_json(model) -> None:
+    """Dump a pydantic view model as JSON on stdout."""
+    print(model.model_dump_json())
+
+
+async def _run_job_list(args: argparse.Namespace) -> None:
+    filter = JobListFilter(
+        status=JobStatus(args.status) if args.status else None,
+        name=args.like,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    async with orch_context(with_ch=False):
+        async with get_sql_session() as session:
+            page = await internal_api.list_jobs(session, filter)
+    if args.json:
+        _print_json(page)
+    else:
+        cli_renderers.render_jobs_page(page, offset=args.offset)
+
+
+async def _run_job_get(args: argparse.Namespace) -> None:
+    async with orch_context(with_ch=False):
+        async with get_sql_session() as session:
+            try:
+                detail = await internal_api.get_job(session, args.ref)
+            except NotFound as exc:
+                print(exc, file=sys.stderr)
+                sys.exit(1)
+    if args.json:
+        _print_json(detail)
+    else:
+        cli_renderers.render_job_detail(detail)
+
+
+async def _run_job_stats(args: argparse.Namespace) -> None:
+    async with orch_context(with_ch=False):
+        async with get_sql_session() as session:
+            try:
+                stats = await internal_api.job_stats(session, args.ref)
+            except NotFound as exc:
+                print(exc, file=sys.stderr)
+                sys.exit(1)
+    if args.json:
+        _print_json(stats)
+    else:
+        cli_renderers.render_job_stats(stats)
+
+
+async def _run_job_cancel(args: argparse.Namespace) -> None:
+    async with orch_context(with_ch=False):
+        async with get_sql_session() as session:
+            try:
+                view = await internal_api.cancel_job(session, args.ref)
+            except NotFound as exc:
+                print(exc, file=sys.stderr)
+                sys.exit(1)
+            except Conflict as exc:
+                print(exc, file=sys.stderr)
+                sys.exit(1)
+    if args.json:
+        _print_json(view)
+    else:
+        cli_renderers.render_job_cancelled(view)
+
+
+async def _run_run_job(args: argparse.Namespace) -> None:
+    kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
+    mode = PreservationMode(args.preservation_mode.upper()) if args.preservation_mode else None
+    request = RunJobRequest(name=args.name, kwargs=kwargs, preservation_mode=mode)
+    async with orch_context(with_ch=False):
+        async with get_sql_session() as session:
+            view = await internal_api.run_job(session, request)
+    if args.json:
+        _print_json(view)
+    else:
+        cli_renderers.render_job_created(view)
 
 
 def main():
@@ -271,6 +356,7 @@ def main():
         help="Get job details by ID or name",
     )
     job_get_parser.add_argument("ref", type=str, help="Job ID or name")
+    job_get_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # job stats <ref>
     job_stats_parser = job_subparsers.add_parser(
@@ -278,6 +364,7 @@ def main():
         help="Show job execution stats",
     )
     job_stats_parser.add_argument("ref", type=str, help="Job ID or name")
+    job_stats_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # job cancel <ref>
     job_cancel_parser = job_subparsers.add_parser(
@@ -285,6 +372,7 @@ def main():
         help="Cancel a job and its non-terminal tasks",
     )
     job_cancel_parser.add_argument("ref", type=str, help="Job ID or name")
+    job_cancel_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # job list
     job_list_parser = job_subparsers.add_parser(
@@ -314,6 +402,7 @@ def main():
         default=0,
         help="Skip N results (default: 0)",
     )
+    job_list_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # job enable <name>
     job_enable_parser = job_subparsers.add_parser(
@@ -358,6 +447,7 @@ def main():
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
     )
+    run_job_parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # Add registered-job subcommand
     registered_job_parser = subparsers.add_parser(
@@ -481,28 +571,17 @@ def main():
             worker_parser.print_help()
 
     elif args.command == "job":
-        from aaiclick.orchestration.cli import cancel_job_cmd, show_job, show_job_stats
-
         if args.job_command == "get":
-            asyncio.run(show_job(args.ref))
+            asyncio.run(_run_job_get(args))
 
         elif args.job_command == "stats":
-            asyncio.run(show_job_stats(args.ref))
+            asyncio.run(_run_job_stats(args))
 
         elif args.job_command == "cancel":
-            asyncio.run(cancel_job_cmd(args.ref))
+            asyncio.run(_run_job_cancel(args))
 
         elif args.job_command == "list":
-            from aaiclick.orchestration.cli import show_jobs
-
-            asyncio.run(
-                show_jobs(
-                    status=args.status,
-                    name_like=args.like,
-                    limit=args.limit,
-                    offset=args.offset,
-                )
-            )
+            asyncio.run(_run_job_list(args))
 
         elif args.job_command == "enable":
             from aaiclick.orchestration.cli import enable_job_cmd
@@ -531,15 +610,7 @@ def main():
         )
 
     elif args.command == "run-job":
-        from aaiclick.orchestration.cli import run_job_cmd
-
-        asyncio.run(
-            run_job_cmd(
-                args.name,
-                kwargs_json=args.kwargs,
-                preservation_mode=args.preservation_mode,
-            )
-        )
+        asyncio.run(_run_run_job(args))
 
     elif args.command == "registered-job":
         from aaiclick.orchestration.cli import show_registered_jobs

@@ -2,6 +2,11 @@
 
 Encapsulates the async startup logic used by __main__.py so that
 the CLI entry point stays thin.
+
+Job-surface helpers (``show_job``, ``show_jobs``, ``show_job_stats``,
+``cancel_job_cmd``, ``run_job_cmd``) were migrated to
+``aaiclick.internal_api.jobs`` during Phase 2 of the API-server rollout.
+The remaining helpers here will move as their groups are migrated.
 """
 
 from __future__ import annotations
@@ -13,16 +18,14 @@ from typing import Any
 from aaiclick.backend import is_local
 
 from .background import BackgroundWorker
-from .execution import cancel_job, list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
-from .jobs import compute_job_stats, count_jobs, get_tasks_for_job, list_jobs, print_job_stats, resolve_job
-from .models import JobStatus, PreservationMode
+from .execution import list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
+from .models import PreservationMode
 from .orch_context import orch_context
 from .registered_jobs import (
     disable_job,
     enable_job,
     list_registered_jobs,
     register_job,
-    run_job,
 )
 
 
@@ -56,56 +59,6 @@ async def stop_worker_cmd(worker_id_str: str) -> None:
             print(f"Stop requested for worker {worker_id}")
         else:
             print(f"Worker {worker_id} not found or already stopped")
-
-
-async def show_job(job_ref: str) -> None:
-    """Show details for a single job."""
-    async with orch_context(with_ch=False):
-        job = await resolve_job(job_ref)
-        if job is None:
-            print(f"Job not found: {job_ref}")
-            return
-
-        print(f"ID:           {job.id}")
-        print(f"Name:         {job.name}")
-        print(f"Status:       {job.status.value}")
-        print(f"Run type:     {job.run_type.value}")
-        print(f"Registered:   {job.registered_job_id or '-'}")
-        print(f"Created at:   {job.created_at}")
-        print(f"Started at:   {job.started_at or '-'}")
-        print(f"Completed at: {job.completed_at or '-'}")
-        if job.error:
-            print(f"Error:        {job.error}")
-
-
-async def show_jobs(
-    *,
-    status: str | None = None,
-    name_like: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> None:
-    """List jobs with optional filtering and pagination."""
-    job_status = JobStatus(status) if status else None
-
-    async with orch_context(with_ch=False):
-        total = await count_jobs(status=job_status, name_like=name_like)
-        jobs = await list_jobs(
-            status=job_status,
-            name_like=name_like,
-            limit=limit,
-            offset=offset,
-        )
-        if not jobs:
-            print("No jobs found")
-            return
-
-        print(f"{'ID':<20} {'Name':<25} {'Status':<12} {'Type':<10} {'Created':<20}")
-        print("-" * 87)
-        for j in jobs:
-            created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"{j.id:<20} {j.name:<25} {j.status.value:<12} {j.run_type.value:<10} {created:<20}")
-        print(f"\nShowing {offset + 1}-{offset + len(jobs)} of {total}")
 
 
 async def start_worker(max_tasks: int | None = None) -> None:
@@ -162,33 +115,6 @@ async def start_local(max_tasks: int | None = None) -> None:
             await worker_main_loop(max_tasks=max_tasks)
     finally:
         await background.stop()
-
-
-async def show_job_stats(job_ref: str) -> None:
-    """Show execution stats for a job."""
-    async with orch_context(with_ch=False):
-        job = await resolve_job(job_ref)
-        if job is None:
-            print(f"Job not found: {job_ref}")
-            return
-
-        tasks = await get_tasks_for_job(job.id)
-        stats = compute_job_stats(job, tasks)
-        print_job_stats(stats)
-
-
-async def cancel_job_cmd(job_ref: str) -> None:
-    """Cancel a job and all its non-terminal tasks."""
-    async with orch_context(with_ch=False):
-        job = await resolve_job(job_ref)
-        if job is None:
-            print(f"Job not found: {job_ref}")
-            return
-        success = await cancel_job(job.id)
-        if success:
-            print(f"Job {job.id} cancelled")
-        else:
-            print(f"Job {job.id} already in terminal state")
 
 
 async def start_background(poll_interval: float = 10.0) -> None:
@@ -254,41 +180,6 @@ async def register_job_cmd(
         print(f"  Preservation:     {job.preservation_mode.value}")
     if job.next_run_at:
         print(f"  Next run at:      {job.next_run_at}")
-
-
-async def run_job_cmd(
-    name_or_entrypoint: str,
-    *,
-    kwargs_json: str | None = None,
-    preservation_mode: str | None = None,
-) -> None:
-    """Run a job immediately."""
-    import json
-
-    kwargs: dict[str, Any] | None = None
-    if kwargs_json:
-        kwargs = json.loads(kwargs_json)
-
-    mode: PreservationMode | None = None
-    if preservation_mode is not None:
-        mode = PreservationMode(preservation_mode.upper())
-
-    # If it looks like a dotted path, use as entrypoint; otherwise treat as name
-    if "." in name_or_entrypoint:
-        entrypoint = name_or_entrypoint
-        name = name_or_entrypoint.rsplit(".", 1)[-1]
-    else:
-        name = name_or_entrypoint
-        entrypoint = name_or_entrypoint
-
-    async with orch_context(with_ch=False):
-        job = await run_job(
-            name=name,
-            entrypoint=entrypoint,
-            kwargs=kwargs,
-            preservation_mode=mode,
-        )
-    print(f"Job '{job.name}' created (id={job.id}, run_type={job.run_type.value})")
 
 
 async def enable_job_cmd(name: str) -> None:
