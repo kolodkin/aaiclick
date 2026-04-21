@@ -15,7 +15,7 @@ from aaiclick.oplog.lineage import (
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
-from aaiclick.test_utils import make_oplog_node
+from aaiclick.testing import make_oplog_node
 
 
 async def _run_pipeline():

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_tools import GraphNode
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.test_utils import make_oplog_node
+from aaiclick.testing import make_oplog_node
 
 TARGET = "t_22222222222222222222"
 INPUT = "p_sales"

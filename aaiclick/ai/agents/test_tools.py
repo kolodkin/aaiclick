@@ -11,7 +11,7 @@ from aaiclick.ai.agents.tools import (
     get_column_stats,
     get_schemas_for_nodes,
 )
-from aaiclick.test_utils import make_oplog_node
+from aaiclick.testing import make_oplog_node
 
 
 def _mock_query_result(rows, column_names=None):

@@ -1,7 +1,7 @@
 """Pytest fixtures for aaiclick.orchestration tests.
 
 Session-scoped worker-isolation and chdb pin fixtures register globally
-via the ``aaiclick.test_utils`` plugin (see ``aaiclick/conftest.py``).
+via the ``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``).
 This conftest imports the per-test orch-context fixtures and defines
 orchestration-local helpers: the log-dir redirect and the polling-speed
 monkeypatches.
@@ -9,7 +9,7 @@ monkeypatches.
 
 import pytest
 
-from aaiclick.test_utils import (  # noqa: F401 — re-exported pytest fixtures
+from aaiclick.testing import (  # noqa: F401 — re-exported pytest fixtures
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,

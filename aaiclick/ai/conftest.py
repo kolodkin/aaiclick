@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from aaiclick.test_utils import (  # noqa: F401 — re-exported pytest fixtures
+from aaiclick.testing import (  # noqa: F401 — re-exported pytest fixtures
     orch_ctx,
     orch_module_ctx,
 )
