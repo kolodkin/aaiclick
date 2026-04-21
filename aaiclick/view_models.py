@@ -70,7 +70,7 @@ class RegisterJobRequest(BaseModel):
     preservation_mode: PreservationMode | None = None
 
     @model_validator(mode="after")
-    def _default_name_from_entrypoint(self) -> "RegisterJobRequest":
+    def _default_name_from_entrypoint(self) -> RegisterJobRequest:
         if not self.name:
             self.name = self.entrypoint.rsplit(".", 1)[-1]
         return self
