@@ -1,9 +1,10 @@
 """Pytest fixtures for aaiclick.data tests.
 
-Session-scoped worker-isolation and chdb pin fixtures register globally
-via the ``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``).
-This conftest adds the data-specific ``ctx`` fixture that enters
-``data_context()`` per function — data tests don't use ``orch_context``.
+Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``,
+``pin_chdb_session``, ``orch_ctx`` family) register globally via the
+``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``). This
+conftest only adds the data-specific ``ctx`` fixture — data tests use
+``data_context()`` directly, not ``orch_context``.
 """
 
 import pytest
