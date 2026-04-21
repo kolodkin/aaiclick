@@ -132,9 +132,9 @@ CLI handler maps these to exit code + human message. FastAPI maps them to
    configured FastAPI. Registers routers, exception handlers, CORS, and
    lifecycle hooks for context setup/teardown.
 
-3. **Dependency providers** — `aaiclick/server/deps.py::get_orch_ctx` /
-   `get_data_ctx` construct the right context once per request from env-var
-   config.
+3. **Dependency providers** — `aaiclick/server/deps.py::session_dep` /
+   `ch_client_dep` yield an `AsyncSession` / `ChClient` per request,
+   constructed from env-var config (`AAICLICK_SQL_URL`, `AAICLICK_CH_URL`).
 
 4. **Error mapping** — `aaiclick/server/errors.py` registers handlers that
    turn `internal_api.errors.*` into `Problem` + HTTP status

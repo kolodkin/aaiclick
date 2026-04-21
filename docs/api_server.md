@@ -107,16 +107,17 @@ aaiclick/
 
 ## Shared (`aaiclick/view_models.py`)
 
-| Model                | Purpose                                                      |
-|----------------------|--------------------------------------------------------------|
-| `Page[T]`            | Generic paged list: `items`, `total`, `next_cursor`          |
-| `Problem`            | Error shape: `title`, `status`, `detail`, `code`             |
-| `RefId`              | `int \| str` — numeric id or human-readable name             |
-| `RunJobRequest`      | `name`, `kwargs`, `preservation_mode`                        |
-| `RegisterJobRequest` | `entrypoint`, `schedule`, `defaults`                         |
-| `JobListFilter`      | `status`, `name`, `since`, `limit`, `cursor`                 |
-| `WorkerFilter`       | `status`, `limit`                                            |
-| `ObjectFilter`       | `prefix`, `limit`, `cursor`                                  |
+| Model                  | Purpose                                                      |
+|------------------------|--------------------------------------------------------------|
+| `Page[T]`              | Generic paged list: `items`, `total`, `next_cursor`          |
+| `Problem`              | Error shape: `title`, `status`, `detail`, `code`             |
+| `RefId`                | `int \| str` — numeric id or human-readable name             |
+| `RunJobRequest`        | `name`, `kwargs`, `preservation_mode`                        |
+| `RegisterJobRequest`   | `entrypoint`, `schedule`, `defaults`                         |
+| `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
+| `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
+| `WorkerFilter`         | `status`, `limit`                                            |
+| `ObjectFilter`         | `prefix`, `scope`, `limit`, `cursor`                         |
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
 
@@ -218,7 +219,7 @@ Rules:
 
 ```python
 async def cmd_job_list(args):
-    page = await internal_api.list_jobs(ctx, _filter_from_args(args))
+    page = await internal_api.list_jobs(session, _filter_from_args(args))
     if args.json:
         print(page.model_dump_json())
     else:
