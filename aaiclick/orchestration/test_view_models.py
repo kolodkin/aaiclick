@@ -143,14 +143,6 @@ def test_task_to_detail_includes_detail_fields():
     assert detail.result == {"value": 7}
 
 
-def test_task_to_detail_empty_kwargs_default():
-    # Task.kwargs can be None in the DB — adapter must coerce to {}
-    task = _make_task()
-    task.kwargs = None
-    detail = task_to_detail(task)
-    assert detail.kwargs == {}
-
-
 def test_job_to_detail_embeds_task_views_and_duration():
     job = _make_job(
         started_at=datetime(2025, 1, 1, 12, 0, 1),

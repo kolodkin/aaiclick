@@ -174,7 +174,7 @@ def task_to_detail(task: Task) -> TaskDetail:
         created_at=task.created_at,
         started_at=task.started_at,
         completed_at=task.completed_at,
-        kwargs=task.kwargs or {},
+        kwargs=task.kwargs,
         result=task.result,
         log_path=task.log_path,
         worker_id=task.worker_id,
