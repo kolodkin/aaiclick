@@ -450,7 +450,7 @@ def main():
     )
     job_list_parser.add_argument(
         "--status",
-        choices=["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+        choices=[s.value for s in JobStatus],
         default=None,
         help="Filter by status",
     )
@@ -500,7 +500,7 @@ def main():
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
     register_job_parser.add_argument(
         "--preservation-mode",
-        choices=["NONE", "FULL"],
+        choices=[m.value for m in PreservationMode],
         default=None,
         help="Default preservation mode for every run of this job (runs can override)",
     )
@@ -515,7 +515,7 @@ def main():
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
     run_job_parser.add_argument(
         "--preservation-mode",
-        choices=["NONE", "FULL"],
+        choices=[m.value for m in PreservationMode],
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
     )

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from sqlmodel import col, func, select
 
-from aaiclick.orchestration.execution.worker import get_worker
-from aaiclick.orchestration.execution.worker import request_worker_stop as _request_worker_stop_impl
+from aaiclick.orchestration.execution.worker import (
+    get_worker,
+    request_worker_stop as _request_worker_stop_impl,
+)
 from aaiclick.orchestration.models import Worker
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import WorkerView, worker_to_view
