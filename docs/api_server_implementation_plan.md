@@ -8,9 +8,9 @@ shippable, each leaves the tree green.
 
 | Phase   | Component                                            | Status  | Implementation / Notes                      |
 |---------|------------------------------------------------------|---------|---------------------------------------------|
-| Phase 1 | Shared `aaiclick/view_models.py`                     | Pending |                                             |
-| Phase 1 | `aaiclick/orchestration/view_models.py` + adapters   | Pending |                                             |
-| Phase 1 | `aaiclick/data/view_models.py` + adapters            | Pending |                                             |
+| Phase 1 | Shared `aaiclick/view_models.py`                     | ✅      | `aaiclick/view_models.py`                   |
+| Phase 1 | `aaiclick/orchestration/view_models.py` + adapters   | ✅      | `aaiclick/orchestration/view_models.py`     |
+| Phase 1 | `aaiclick/data/view_models.py` + adapters            | ✅      | `aaiclick/data/view_models.py`              |
 | Phase 2 | `aaiclick/internal_api/jobs.py`                      | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | Pending | Migrate from `__main__.py`                  |
@@ -55,6 +55,17 @@ Catalogue" — do not restate them here.
 - New modules exist, are imported by tests, and round-trip cleanly.
 - No changes to CLI output, no new behaviour elsewhere.
 - CI green.
+
+## Phase 1 follow-up (tracked for Phase 2)
+
+- Delete the trivial passthrough "round-trip dump" tests
+  (`test_job_to_view_round_trip`, `test_worker_to_view_round_trip`,
+  `test_registered_job_to_view_round_trip`,
+  `test_task_to_detail_includes_detail_fields`,
+  and the equivalents in `aaiclick/data/test_view_models.py`). They exist
+  to satisfy the Phase 1 "assert the dumped shape" deliverable but are
+  "assert Python assignment works" per `CLAUDE.md` — drop them once the
+  Phase 2 `internal_api` tests exercise the adapters end-to-end.
 
 ---
 
