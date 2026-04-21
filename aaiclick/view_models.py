@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .orchestration.models import JobStatus, PreservationMode, WorkerStatus
 
@@ -55,14 +55,25 @@ class RunJobRequest(BaseModel):
 
 
 class RegisterJobRequest(BaseModel):
-    """Inputs for ``internal_api.register_job``."""
+    """Inputs for ``internal_api.register_job``.
 
-    name: str
+    ``name`` defaults to the last dotted segment of ``entrypoint`` (pass ``""``
+    or omit to opt in), so every surface — CLI, REST, MCP — gets the same
+    shorthand without redoing the derivation at the call site.
+    """
+
+    name: str = ""
     entrypoint: str
     schedule: str | None = None
     default_kwargs: dict[str, Any] | None = None
     enabled: bool = True
     preservation_mode: PreservationMode | None = None
+
+    @model_validator(mode="after")
+    def _default_name_from_entrypoint(self) -> "RegisterJobRequest":
+        if not self.name:
+            self.name = self.entrypoint.rsplit(".", 1)[-1]
+        return self
 
 
 class JobListFilter(BaseModel):

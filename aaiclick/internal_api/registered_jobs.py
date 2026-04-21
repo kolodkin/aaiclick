@@ -1,12 +1,7 @@
 """Internal API for registered-job commands.
 
-Every function runs inside an active ``orch_context()`` and reads the SQL
-resource via the contextvar getter (``get_sql_session``). Returns pydantic
-view models from ``aaiclick.orchestration.view_models``.
-
-The heavy CRUD lives in ``aaiclick.orchestration.registered_jobs``; this
-module is a thin pagination + error-translation layer that returns views
-instead of SQLModel rows.
+Each function runs inside an active ``orch_context()`` and reads the SQL
+session via the contextvar getter. Returns pydantic view models.
 """
 
 from __future__ import annotations
@@ -16,13 +11,14 @@ from sqlmodel import col, func, select
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import (
+    RegisteredJobAlreadyExists,
+    RegisteredJobNotFound,
+)
+from aaiclick.orchestration.registered_jobs import (
     disable_job as _disable_job_impl,
 )
 from aaiclick.orchestration.registered_jobs import (
     enable_job as _enable_job_impl,
-)
-from aaiclick.orchestration.registered_jobs import (
-    get_registered_job,
 )
 from aaiclick.orchestration.registered_jobs import (
     register_job as _register_job_impl,
@@ -67,10 +63,7 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     """Register a new job in the catalog.
 
-    Raises ``Conflict`` if a registration with the same name already exists —
-    the CLI's ``register-job`` verb surfaces this so a user who wants an
-    update-in-place uses a separate verb (future) instead of silently
-    clobbering the existing entry.
+    Raises ``Conflict`` if a registration with the same name already exists.
     """
     try:
         registered = await _register_job_impl(
@@ -81,10 +74,8 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             enabled=request.enabled,
             preservation_mode=request.preservation_mode,
         )
-    except ValueError as exc:
-        if "already exists" in str(exc):
-            raise Conflict(str(exc)) from exc
-        raise
+    except RegisteredJobAlreadyExists as exc:
+        raise Conflict(str(exc)) from exc
     return registered_job_to_view(registered)
 
 
@@ -94,16 +85,10 @@ async def enable_job(name: str) -> RegisteredJobView:
     Raises ``NotFound`` if no registration matches ``name``.
     """
     try:
-        await _enable_job_impl(name)
-    except ValueError as exc:
-        if "not found" in str(exc):
-            raise NotFound(str(exc)) from exc
-        raise
-
-    refreshed = await get_registered_job(name)
-    if refreshed is None:
-        raise RuntimeError(f"Registered job '{name}' disappeared after enable")
-    return registered_job_to_view(refreshed)
+        registered = await _enable_job_impl(name)
+    except RegisteredJobNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    return registered_job_to_view(registered)
 
 
 async def disable_job(name: str) -> RegisteredJobView:
@@ -112,13 +97,7 @@ async def disable_job(name: str) -> RegisteredJobView:
     Raises ``NotFound`` if no registration matches ``name``.
     """
     try:
-        await _disable_job_impl(name)
-    except ValueError as exc:
-        if "not found" in str(exc):
-            raise NotFound(str(exc)) from exc
-        raise
-
-    refreshed = await get_registered_job(name)
-    if refreshed is None:
-        raise RuntimeError(f"Registered job '{name}' disappeared after disable")
-    return registered_job_to_view(refreshed)
+        registered = await _disable_job_impl(name)
+    except RegisteredJobNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    return registered_job_to_view(registered)

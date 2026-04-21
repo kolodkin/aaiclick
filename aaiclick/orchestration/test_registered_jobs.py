@@ -137,12 +137,10 @@ async def test_enable_job(orch_ctx):
         schedule="0 6 * * *",
         enabled=False,
     )
-    job_id = await enable_job("to_enable")
-    assert job_id == created.id
-    job = await get_registered_job("to_enable")
-    assert job is not None
-    assert job.enabled is True
-    assert job.next_run_at is not None
+    returned = await enable_job("to_enable")
+    assert returned.id == created.id
+    assert returned.enabled is True
+    assert returned.next_run_at is not None
 
 
 async def test_enable_job_not_found(orch_ctx):
@@ -156,12 +154,10 @@ async def test_disable_job(orch_ctx):
         entrypoint="myapp.to_disable",
         schedule="0 6 * * *",
     )
-    job_id = await disable_job("to_disable")
-    assert job_id == created.id
-    job = await get_registered_job("to_disable")
-    assert job is not None
-    assert job.enabled is False
-    assert job.next_run_at is None
+    returned = await disable_job("to_disable")
+    assert returned.id == created.id
+    assert returned.enabled is False
+    assert returned.next_run_at is None
 
 
 async def test_disable_job_not_found(orch_ctx):

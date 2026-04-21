@@ -220,24 +220,29 @@ async def _run_job_cancel(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_job_cancelled)
 
 
+def _parse_preservation_mode(value: str | None) -> PreservationMode | None:
+    return PreservationMode(value) if value else None
+
+
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
-    mode = PreservationMode(args.preservation_mode) if args.preservation_mode else None
-    request = RunJobRequest(name=args.name, kwargs=kwargs, preservation_mode=mode)
+    request = RunJobRequest(
+        name=args.name,
+        kwargs=kwargs,
+        preservation_mode=_parse_preservation_mode(args.preservation_mode),
+    )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
 
 
 async def _run_register_job(args: argparse.Namespace) -> None:
-    name = args.name or args.entrypoint.rsplit(".", 1)[-1]
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
-    mode = PreservationMode(args.preservation_mode.upper()) if args.preservation_mode else None
     request = RegisterJobRequest(
-        name=name,
+        name=args.name or "",
         entrypoint=args.entrypoint,
         schedule=args.schedule,
         default_kwargs=default_kwargs,
-        preservation_mode=mode,
+        preservation_mode=_parse_preservation_mode(args.preservation_mode),
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)

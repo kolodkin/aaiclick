@@ -14,6 +14,14 @@ from .models import Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 
+class RegisteredJobAlreadyExists(ValueError):
+    """Raised when registering a name that already exists."""
+
+
+class RegisteredJobNotFound(ValueError):
+    """Raised when enabling/disabling a non-existent registration."""
+
+
 def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     """Compute the next fire time for a cron expression.
 
@@ -57,7 +65,7 @@ async def register_job(
         Created RegisteredJob
 
     Raises:
-        ValueError: If a job with this name already exists.
+        RegisteredJobAlreadyExists: If a job with this name already exists.
     """
     now = datetime.utcnow()
     registered_job = RegisteredJob(
@@ -76,7 +84,7 @@ async def register_job(
     async with get_sql_session() as session:
         existing = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         if existing.scalar_one_or_none() is not None:
-            raise ValueError(f"Registered job '{name}' already exists")
+            raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
 
         session.add(registered_job)
         await session.commit()
@@ -162,17 +170,17 @@ async def upsert_registered_job(
         return registered_job
 
 
-async def enable_job(name: str) -> int:
+async def enable_job(name: str) -> RegisteredJob:
     """Enable a registered job and recompute next_run_at.
 
     Args:
         name: Job name
 
     Returns:
-        ID of the enabled registered job
+        The enabled RegisteredJob
 
     Raises:
-        ValueError: If no job with this name exists
+        RegisteredJobNotFound: If no job with this name exists
     """
     now = datetime.utcnow()
 
@@ -180,40 +188,42 @@ async def enable_job(name: str) -> int:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         job = result.scalar_one_or_none()
         if job is None:
-            raise ValueError(f"Registered job '{name}' not found")
+            raise RegisteredJobNotFound(f"Registered job '{name}' not found")
 
         job.enabled = True
         job.updated_at = now
         job.next_run_at = _next_run_at(job.schedule, True, now)
         session.add(job)
         await session.commit()
-        return job.id
+        await session.refresh(job)
+        return job
 
 
-async def disable_job(name: str) -> int:
+async def disable_job(name: str) -> RegisteredJob:
     """Disable a registered job and clear next_run_at.
 
     Args:
         name: Job name
 
     Returns:
-        ID of the disabled registered job
+        The disabled RegisteredJob
 
     Raises:
-        ValueError: If no job with this name exists
+        RegisteredJobNotFound: If no job with this name exists
     """
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
         job = result.scalar_one_or_none()
         if job is None:
-            raise ValueError(f"Registered job '{name}' not found")
+            raise RegisteredJobNotFound(f"Registered job '{name}' not found")
 
         job.enabled = False
         job.next_run_at = None
         job.updated_at = datetime.utcnow()
         session.add(job)
         await session.commit()
-        return job.id
+        await session.refresh(job)
+        return job
 
 
 async def list_registered_jobs(
