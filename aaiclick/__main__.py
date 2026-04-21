@@ -42,7 +42,7 @@ from aaiclick.data.object.cli import (
 )
 from aaiclick.internal_api.errors import Conflict, NotFound
 from aaiclick.orchestration.models import JobStatus, PreservationMode
-from aaiclick.orchestration.orch_context import get_sql_session, orch_context
+from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import JobListFilter, RunJobRequest
 
 
@@ -173,8 +173,7 @@ async def _run_job_list(args: argparse.Namespace) -> None:
         offset=args.offset,
     )
     async with orch_context(with_ch=False):
-        async with get_sql_session() as session:
-            page = await internal_api.list_jobs(session, filter)
+        page = await internal_api.list_jobs(filter)
     if args.json:
         _print_json(page)
     else:
@@ -182,13 +181,12 @@ async def _run_job_list(args: argparse.Namespace) -> None:
 
 
 async def _run_job_get(args: argparse.Namespace) -> None:
-    async with orch_context(with_ch=False):
-        async with get_sql_session() as session:
-            try:
-                detail = await internal_api.get_job(session, args.ref)
-            except NotFound as exc:
-                print(exc, file=sys.stderr)
-                sys.exit(1)
+    try:
+        async with orch_context(with_ch=False):
+            detail = await internal_api.get_job(args.ref)
+    except NotFound as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
     if args.json:
         _print_json(detail)
     else:
@@ -196,13 +194,12 @@ async def _run_job_get(args: argparse.Namespace) -> None:
 
 
 async def _run_job_stats(args: argparse.Namespace) -> None:
-    async with orch_context(with_ch=False):
-        async with get_sql_session() as session:
-            try:
-                stats = await internal_api.job_stats(session, args.ref)
-            except NotFound as exc:
-                print(exc, file=sys.stderr)
-                sys.exit(1)
+    try:
+        async with orch_context(with_ch=False):
+            stats = await internal_api.job_stats(args.ref)
+    except NotFound as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
     if args.json:
         _print_json(stats)
     else:
@@ -210,16 +207,12 @@ async def _run_job_stats(args: argparse.Namespace) -> None:
 
 
 async def _run_job_cancel(args: argparse.Namespace) -> None:
-    async with orch_context(with_ch=False):
-        async with get_sql_session() as session:
-            try:
-                view = await internal_api.cancel_job(session, args.ref)
-            except NotFound as exc:
-                print(exc, file=sys.stderr)
-                sys.exit(1)
-            except Conflict as exc:
-                print(exc, file=sys.stderr)
-                sys.exit(1)
+    try:
+        async with orch_context(with_ch=False):
+            view = await internal_api.cancel_job(args.ref)
+    except (NotFound, Conflict) as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
     if args.json:
         _print_json(view)
     else:
@@ -231,8 +224,7 @@ async def _run_run_job(args: argparse.Namespace) -> None:
     mode = PreservationMode(args.preservation_mode.upper()) if args.preservation_mode else None
     request = RunJobRequest(name=args.name, kwargs=kwargs, preservation_mode=mode)
     async with orch_context(with_ch=False):
-        async with get_sql_session() as session:
-            view = await internal_api.run_job(session, request)
+        view = await internal_api.run_job(request)
     if args.json:
         _print_json(view)
     else:
