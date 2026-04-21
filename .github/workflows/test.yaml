@@ -63,13 +63,13 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data local
-            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/"
           - group: Orch local
-            test-paths: "aaiclick/orchestration/"
+            test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
     steps:
       - name: Checkout code
@@ -108,13 +108,13 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data dist
-            test-paths: "aaiclick/data/ aaiclick/test_snowflake.py"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/"
           - group: Orch dist
-            test-paths: "aaiclick/orchestration/"
+            test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
     services:
       clickhouse:
@@ -200,7 +200,7 @@ jobs:
     timeout-minutes: 60
     name: ${{ matrix.group }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - group: Data examples

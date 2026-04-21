@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from .env import get_default_preservation_mode
 from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus

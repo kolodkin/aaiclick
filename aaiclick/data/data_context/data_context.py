@@ -38,6 +38,7 @@ from ..models import (
     ValueType,
     build_order_by_clause,
 )
+from ..scope import NamedScope, make_persistent_table_name
 from ..sql_utils import quote_identifier
 from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle
@@ -213,10 +214,42 @@ def _validate_persistent_name(name: str) -> None:
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
 
 
+def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | None:
+    """Resolve the effective scope for a named object.
+
+    Rules:
+    - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
+    - ``name`` set, ``scope=None``: default to ``"job"`` when an orch job_id is
+      available, otherwise ``"global"``.
+    - ``name`` set, ``scope`` explicit: use it as-is.
+    """
+    if name is None:
+        if scope is not None:
+            raise ValueError("scope can only be set together with name")
+        return None
+    if scope is not None:
+        return scope
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None and lifecycle.current_job_id() is not None:
+        return "job"
+    return "global"
+
+
+def _build_persistent_table(name: str, scope: NamedScope) -> str:
+    """Validate ``name`` and build the full CH table name for a scoped object."""
+    _validate_persistent_name(name)
+    job_id = None
+    if scope == "job":
+        lifecycle = get_data_lifecycle()
+        job_id = lifecycle.current_job_id() if lifecycle is not None else None
+    return make_persistent_table_name(scope, name, job_id=job_id)
+
+
 async def create_object(
     schema: Schema,
     engine: EngineType | None = None,
     name: str | None = None,
+    scope: NamedScope | None = None,
 ) -> Object:
     """Create a new Object with a ClickHouse table using the specified schema.
 
@@ -226,19 +259,24 @@ async def create_object(
                 ``name`` (persistent) → this param → ``schema.engine`` → context default.
                 Ignored when ``name`` is set — persistent tables always use MergeTree.
         name: Optional persistent name. When provided, creates a persistent
-              table with prefix ``p_`` that survives context exit. Uses
-              ``CREATE TABLE IF NOT EXISTS`` so subsequent calls with the same
-              name append data. Always uses MergeTree regardless of ``engine``
-              or ``schema.engine``.
+              table that survives context exit. Uses ``CREATE TABLE IF NOT EXISTS``
+              so subsequent calls with the same name append data. Always uses
+              MergeTree regardless of ``engine`` or ``schema.engine``.
+        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
+              (forever, user-managed). ``"job"`` → ``j_<job_id>_<name>`` (until
+              job TTL). Defaults to ``"job"`` inside an orch job and ``"global"``
+              in pure ``data_context()``.
 
     Returns:
         Object: New Object instance with created table
     """
     from ..object import Object
 
-    if name is not None:
-        _validate_persistent_name(name)
-        obj = Object(table=f"p_{name}", schema=schema)
+    effective_scope = _resolve_scope(name, scope)
+    if effective_scope is not None:
+        assert name is not None
+        table_name = _build_persistent_table(name, effective_scope)
+        obj = Object(table=table_name, schema=schema)
     else:
         obj = Object(schema=schema)
 
@@ -469,6 +507,7 @@ async def _create_nested_object(
     val: dict,
     ch: ChClient,
     name: str | None,
+    scope: NamedScope | None = None,
 ) -> Object:
     """Create an Object from a single dict with nested list-of-dicts values.
 
@@ -485,7 +524,7 @@ async def _create_nested_object(
     columns.update(nested_cols)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
-    obj = await create_object(schema, name=name)
+    obj = await create_object(schema, name=name, scope=scope)
 
     keys = list(flat.keys())
     async with _maybe_insert_lock(obj.table, name):
@@ -504,6 +543,7 @@ async def _create_nested_records_object(
     val: list,
     ch: ChClient,
     name: str | None,
+    scope: NamedScope | None = None,
 ) -> Object:
     """Create an Object from a list of dicts with nested list-of-dicts values.
 
@@ -532,7 +572,7 @@ async def _create_nested_records_object(
     columns.update(nested_cols)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
-    obj = await create_object(schema, name=name)
+    obj = await create_object(schema, name=name, scope=scope)
 
     all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
@@ -554,6 +594,7 @@ async def create_object_from_value(
     name: str | None = None,
     order_by: list[str] | None = None,
     fields: dict[str, FieldSpec] | None = None,
+    scope: NamedScope | None = None,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -576,6 +617,11 @@ async def create_object_from_value(
                 low_cardinality, and type override.
                 Example: ``fields={"name": FieldSpec(low_cardinality=True),
                 "score": FieldSpec(nullable=True)}``
+        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
+               (forever, user-managed — only ``delete_persistent_object()`` drops
+               it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
+               job's TTL expires). Default: ``"job"`` inside an orch job,
+               ``"global"`` outside.
 
     Returns:
         Object: New Object instance with data
@@ -590,7 +636,7 @@ async def create_object_from_value(
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):
-            result = await _create_nested_object(val, ch, name)
+            result = await _create_nested_object(val, ch, name, scope=scope)
             oplog_record(result.table, "create_from_value")
             return result
 
@@ -617,7 +663,7 @@ async def create_object_from_value(
 
             columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
-            obj = await create_object(schema, name=name)
+            obj = await create_object(schema, name=name, scope=scope)
 
             if array_len and array_len > 0:
                 keys = list(val.keys())
@@ -640,7 +686,7 @@ async def create_object_from_value(
             schema = Schema(
                 fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause
             )
-            obj = await create_object(schema, name=name)
+            obj = await create_object(schema, name=name, scope=scope)
 
             keys = list(val.keys())
             async with _maybe_insert_lock(obj.table, name):
@@ -690,7 +736,7 @@ async def create_object_from_value(
 
             columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
-            obj = await create_object(schema, name=name)
+            obj = await create_object(schema, name=name, scope=scope)
 
             col_data: list[list[Any]] = [[record[key] for record in records] for key in keys]
             async with _maybe_insert_lock(obj.table, name):
@@ -713,7 +759,7 @@ async def create_object_from_value(
                 columns=columns,
                 order_by=order_by_clause,
             )
-            obj = await create_object(schema, name=name)
+            obj = await create_object(schema, name=name, scope=scope)
 
             if scalars:
                 async with _maybe_insert_lock(obj.table, name):
@@ -736,7 +782,7 @@ async def create_object_from_value(
             columns=columns,
             order_by=order_by_clause,
         )
-        obj = await create_object(schema, name=name)
+        obj = await create_object(schema, name=name, scope=scope)
 
         async with _maybe_insert_lock(obj.table, name):
             await ch.insert(
@@ -751,11 +797,15 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str) -> Object:
+async def open_object(name: str, scope: NamedScope = "global") -> Object:
     """Open an existing persistent Object by name.
 
     Args:
-        name: Persistent name (without ``p_`` prefix).
+        name: Persistent name (without prefix).
+        scope: Persistence tier the object was created with — ``"global"`` →
+               looks up ``p_<name>``; ``"job"`` → looks up
+               ``j_<job_id>_<name>`` using the active orch job. Defaults to
+               ``"global"`` since that was the historical behavior.
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -767,9 +817,8 @@ async def open_object(name: str) -> Object:
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    _validate_persistent_name(name)
+    table_name = _build_persistent_table(name, scope)
     ch = get_ch_client()
-    table_name = f"p_{name}"
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
@@ -784,17 +833,18 @@ async def open_object(name: str) -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str) -> None:
+async def delete_persistent_object(name: str, scope: NamedScope = "global") -> None:
     """Drop a persistent table by name.
 
     Args:
-        name: Persistent name (without ``p_`` prefix).
+        name: Persistent name (without prefix).
+        scope: Tier the object was created with — ``"global"`` drops
+               ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
 
     Raises:
         ValueError: If name is invalid.
     """
-    _validate_persistent_name(name)
-    table_name = f"p_{name}"
+    table_name = _build_persistent_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
 
 

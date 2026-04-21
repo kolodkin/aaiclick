@@ -40,6 +40,31 @@ async def test_oplog_writes_on_operation(orch_ctx):
     assert reg[3] == 420
 
 
+async def test_job_scoped_named_object(orch_ctx):
+    """Inside an orch task_scope a named object defaults to ``j_<job_id>_<name>``."""
+    async with task_scope(task_id=7, job_id=1234, run_id=700):
+        obj = await create_object_from_value([1, 2, 3], name="catalog_intermediate")
+        assert obj.table == "j_1234_catalog_intermediate"
+        assert obj.scope == "job"
+        assert obj.persistent is True
+
+
+async def test_global_scope_overrides_job_default(orch_ctx):
+    """scope='global' in orch preserves the ``p_<name>`` behavior."""
+    async with task_scope(task_id=8, job_id=1234, run_id=800):
+        obj = await create_object_from_value(
+            [1, 2, 3],
+            name="cross_job_catalog",
+            scope="global",
+        )
+        try:
+            assert obj.table == "p_cross_job_catalog"
+            assert obj.scope == "global"
+        finally:
+            ch = await create_ch_client()
+            await ch.command("DROP TABLE IF EXISTS p_cross_job_catalog")
+
+
 async def test_concat_records_kwargs(orch_ctx):
     """Concat records source tables as kwargs (source_0, source_1)."""
     async with task_scope(task_id=1, job_id=1, run_id=100):

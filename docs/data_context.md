@@ -65,6 +65,46 @@ Objects become **stale** when the context exits — all async methods check via 
     Using a stale Object raises `RuntimeError`. Persistent objects
     (created with `name=`) survive — reopen via `open_object()`.
 
+## Scopes: temp, job, global
+
+Every Object belongs to one of three scopes, identified by the table-name prefix:
+
+| Scope      | Prefix               | Lifetime                                          | Created by                                               |
+|------------|----------------------|---------------------------------------------------|----------------------------------------------------------|
+| `temp`     | `t_<id>`             | Dropped at `data_context()` / `task_scope` exit   | Unnamed objects                                          |
+| `job`      | `j_<job_id>_<name>`  | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x")` inside orch    |
+| `global`   | `p_<name>`           | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`|
+
+**Defaults when `name` is set**:
+
+- Inside `orch_context()` / `task_scope()` → `scope="job"` (per-run isolation).
+- In standalone `data_context()` (no `job_id` available) → `scope="global"`.
+
+Pass `scope="global"` inside orch to create a user-managed catalog that survives across jobs. Pass `scope="job"` explicitly when you want to be unambiguous.
+
+```python
+# Pure data_context — default is "global" since there is no job_id.
+async with data_context():
+    catalog = await create_object_from_value([1, 2, 3], name="my_catalog")
+    assert catalog.table == "p_my_catalog"
+    assert catalog.scope == "global"
+
+# Inside an orch task_scope — default is "job".
+async with task_scope(task_id=1, job_id=42, run_id=100):
+    interim = await create_object_from_value([1, 2, 3], name="stage1")
+    assert interim.table == "j_42_stage1"
+    assert interim.scope == "job"
+
+    shared = await create_object_from_value(
+        [9, 9, 9],
+        name="cross_job_catalog",
+        scope="global",
+    )
+    assert shared.table == "p_cross_job_catalog"
+```
+
+`p_*` tables are **exempt** from job-TTL cleanup — the background worker never drops them, even for expired jobs. `j_<id>_*` tables are dropped only when the job itself expires (`AAICLICK_JOB_TTL_DAYS`), not by per-task refcount cleanup.
+
 ## Table Schema and Structure
 
 Each Object gets a ClickHouse table `t{snowflake_id}` with an `aai_id` column for ordering (ClickHouse doesn't guarantee insertion order).

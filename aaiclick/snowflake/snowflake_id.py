@@ -1,5 +1,5 @@
 """
-aaiclick.snowflake_id - Snowflake ID generation backed by ClickHouse.
+aaiclick.snowflake.snowflake_id - Snowflake ID generation backed by ClickHouse.
 
 Uses ClickHouse's generateSnowflakeID() as the single source of truth for
 globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
@@ -27,7 +27,7 @@ Snowflake ID format (64 bits):
 from collections import deque
 from pathlib import Path
 
-from .backend import get_ch_url, is_chdb, parse_ch_url
+from ..backend import get_ch_url, is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines

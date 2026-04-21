@@ -2,7 +2,7 @@
 Tests for Snowflake ID generation (backed by ClickHouse).
 """
 
-from aaiclick.snowflake_id import (
+from aaiclick.snowflake import (
     MAX_SEQUENCE,
     SnowflakeGenerator,
     decode_snowflake_id,

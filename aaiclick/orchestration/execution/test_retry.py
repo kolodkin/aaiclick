@@ -8,7 +8,7 @@ from sqlmodel import select
 from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import Job, JobStatus, Task, TaskStatus
+from ..models import Task, TaskStatus
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop
@@ -104,6 +104,9 @@ async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:
 
     Each cycle: check status → run worker (executes one task) → run background cleanup.
     Raises AssertionError if max_cycles is exhausted without reaching a terminal state.
+
+    Shared with ``test_retry_mp`` — the mp-worker tests must live in a
+    dedicated module so ``orch_ctx_no_ch`` can be module-scoped.
     """
     for _ in range(max_cycles):
         async with get_sql_session() as session:
@@ -120,103 +123,3 @@ async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:
         await run_pending_cleanup()
 
     raise AssertionError(f"Task did not reach terminal state after {max_cycles} cycles")
-
-
-async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
-    """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
-    await _cancel_all_pending_tasks()
-
-    job = await create_job(
-        "test_retry_worker",
-        create_task(
-            "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-            max_retries=2,
-        ),
-    )
-
-    await _run_until_terminal(job.id)
-
-    # After exhausting all retries: task FAILED, attempt=2
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        t = result.scalar_one()
-        assert t.status == TaskStatus.FAILED
-        assert t.attempt == 2  # 0 + 2 retries
-        assert t.max_retries == 2
-        assert t.error is not None
-
-    # Job should be FAILED
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job.id))
-        j = result.scalar_one()
-        assert j.status == JobStatus.FAILED
-
-
-async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
-    """Task with max_retries=0 fails immediately after background cleanup."""
-    await _cancel_all_pending_tasks()
-
-    job = await create_job(
-        "test_no_retry",
-        create_task(
-            "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-            max_retries=0,
-        ),
-    )
-
-    await mp_worker_main_loop(
-        max_tasks=1,
-        install_signal_handlers=False,
-        max_empty_polls=1,
-    )
-
-    # Task should be in PENDING_CLEANUP after worker
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING_CLEANUP
-
-    # Background cleanup transitions to FAILED
-    await run_pending_cleanup()
-
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        t = result.scalar_one()
-        assert t.status == TaskStatus.FAILED
-        assert t.attempt == 0  # Never retried
-        assert t.error is not None
-
-    # Job should be FAILED
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job.id))
-        j = result.scalar_one()
-        assert j.status == JobStatus.FAILED
-
-
-async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, fast_poll):
-    """Flaky task fails twice, succeeds on the third attempt via retry."""
-    await _cancel_all_pending_tasks()
-
-    counter_file = str(tmp_path / "counter.txt")
-
-    t = create_task(
-        "aaiclick.orchestration.fixtures.sample_tasks.flaky_task",
-        {"counter_file": counter_file},
-        max_retries=2,
-    )
-    job = await create_job("test_retry_succeeds", t)
-
-    await _run_until_terminal(job.id)
-
-    # Task should be COMPLETED after 3 attempts
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        t = result.scalar_one()
-        assert t.status == TaskStatus.COMPLETED
-        assert t.attempt == 2  # Succeeded on attempt 2 (third try)
-
-    # Job should be COMPLETED
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job.id))
-        j = result.scalar_one()
-        assert j.status == JobStatus.COMPLETED

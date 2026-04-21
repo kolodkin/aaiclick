@@ -1,6 +1,10 @@
 """
 Pytest configuration for aaiclick.ai tests.
 
+Shared fixtures register globally via the ``aaiclick.testing`` plugin
+(see ``aaiclick/conftest.py``). This conftest only attaches the
+``live_llm`` marker behavior.
+
 Live LLM tests are skipped by default. To run them:
 
     AAICLICK_AI_LIVE_TESTS=1 pytest aaiclick/ai/ -m live_llm -v
