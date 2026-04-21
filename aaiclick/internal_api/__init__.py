@@ -1,9 +1,12 @@
 """Shared business logic for aaiclick's CLI, REST, and MCP surfaces.
 
-Every command is implemented exactly once here, takes explicit dependency
-parameters (``AsyncSession`` for SQL, ``ChClient`` for ClickHouse), and returns
-a pydantic view model. The three surfaces (``__main__`` / ``server/routers`` /
-``server/mcp``) are thin renderers over this module.
+Every command is implemented exactly once here. Functions run inside an
+active ``orch_context()`` (orchestration) or ``data_context()`` (data) and
+read SQL/CH resources through the contextvar getters — same pattern as the
+rest of the codebase. Inputs are primitives or ``*Request`` / ``*Filter``
+view models; outputs are pydantic view models. The three surfaces
+(``__main__`` / ``server/routers`` / ``server/mcp``) are thin renderers
+over this module.
 
 See ``docs/api_server.md`` for the full contract.
 """

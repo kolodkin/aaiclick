@@ -50,6 +50,7 @@ def render_job_detail(detail: JobDetail) -> None:
     print(f"Name:         {detail.name}")
     print(f"Status:       {detail.status.value}")
     print(f"Run type:     {detail.run_type.value}")
+    print(f"Registered:   {detail.registered_job_id or '-'}")
     print(f"Created at:   {detail.created_at}")
     print(f"Started at:   {detail.started_at or '-'}")
     print(f"Completed at: {detail.completed_at or '-'}")

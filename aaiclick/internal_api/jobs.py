@@ -44,17 +44,19 @@ async def _resolve_job(ref: RefId) -> Job | None:
             if found is not None:
                 return found
 
-        result = await session.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))
-        return result.scalar_one_or_none()
+        name_result = await session.execute(
+            select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1)
+        )
+        return name_result.scalar_one_or_none()
 
 
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 
     ``filter.name`` is matched with SQL ``LIKE`` (caller supplies wildcards).
-    ``filter.since`` filters on ``created_at >= since``. ``filter.cursor``
-    is ignored in Phase 2 (no pagination yet) — the field is reserved for the
-    REST/MCP surface.
+    ``filter.since`` filters on ``created_at >= since``. Pagination uses
+    ``filter.limit`` / ``filter.offset``; ``filter.cursor`` is reserved for a
+    future cursor-based REST/MCP surface and is currently ignored.
     """
     filter = filter or JobListFilter()
 
@@ -108,18 +110,16 @@ async def cancel_job(ref: RefId) -> JobView:
     Raises ``NotFound`` if the job does not exist, or ``Conflict`` if the job
     is already in a terminal state. Delegates the atomic cancellation to
     ``aaiclick.orchestration.execution.claiming.cancel_job`` so backend-
-    specific row locking stays in one place.
+    specific row locking stays in one place — the terminal-state check there
+    is authoritative, we only resolve the ref first so the error distinguishes
+    "not found" from "already terminal".
     """
     job = await _resolve_job(ref)
     if job is None:
         raise NotFound(f"Job not found: {ref}")
 
-    if job.status in _TERMINAL_JOB_STATUSES:
+    if not await _cancel_job_impl(job.id):
         raise Conflict(f"Job {job.id} already in terminal state: {job.status.value}")
-
-    success = await _cancel_job_impl(job.id)
-    if not success:
-        raise Conflict(f"Job {job.id} already in terminal state")
 
     refreshed = await _resolve_job(job.id)
     assert refreshed is not None

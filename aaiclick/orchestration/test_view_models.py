@@ -39,6 +39,7 @@ def _make_job(
     job_id: int = 1,
     name: str = "test_job",
     status: JobStatus = JobStatus.COMPLETED,
+    registered_job_id: int | None = None,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime | None = datetime(2025, 1, 1, 12, 0, 1),
     completed_at: datetime | None = datetime(2025, 1, 1, 12, 0, 10),
@@ -50,6 +51,7 @@ def _make_job(
         status=status,
         run_type=RunType.MANUAL,
         preservation_mode=PreservationMode.NONE,
+        registered_job_id=registered_job_id,
         created_at=created_at,
         started_at=started_at,
         completed_at=completed_at,
@@ -101,11 +103,18 @@ def test_job_to_view_round_trip():
         "status": JobStatus.COMPLETED,
         "run_type": RunType.MANUAL,
         "preservation_mode": PreservationMode.NONE,
+        "registered_job_id": None,
         "created_at": datetime(2025, 1, 1, 12, 0, 0),
         "started_at": datetime(2025, 1, 1, 12, 0, 1),
         "completed_at": datetime(2025, 1, 1, 12, 0, 10),
         "error": None,
     }
+
+
+def test_job_to_view_propagates_registered_job_id():
+    job = _make_job(registered_job_id=42)
+    view = job_to_view(job)
+    assert view.registered_job_id == 42
 
 
 def test_job_to_view_json_serializes_enums():
