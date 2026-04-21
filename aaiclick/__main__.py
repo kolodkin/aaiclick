@@ -281,12 +281,7 @@ async def _run_worker_list(args: argparse.Namespace) -> None:
 
 
 async def _run_worker_stop(args: argparse.Namespace) -> None:
-    try:
-        worker_id = int(args.worker_id)
-    except ValueError:
-        print(f"Invalid worker ID: {args.worker_id}", file=sys.stderr)
-        sys.exit(1)
-    view = await _run_internal_api(internal_api.stop_worker(worker_id))
+    view = await _run_internal_api(internal_api.stop_worker(args.worker_id))
     _render(args, view, cli_renderers.render_worker_stopped)
 
 
@@ -350,6 +345,7 @@ def main():
     )
     local_stop_parser.add_argument(
         "worker_id",
+        type=int,
         help="Worker ID to stop",
     )
     _add_json_flag(local_stop_parser)
@@ -383,7 +379,7 @@ def main():
     )
     worker_list_parser.add_argument(
         "--status",
-        choices=["ACTIVE", "IDLE", "STOPPING", "STOPPED"],
+        choices=[s.value for s in WorkerStatus],
         default=None,
         help="Filter by status",
     )
@@ -408,6 +404,7 @@ def main():
     )
     worker_stop_parser.add_argument(
         "worker_id",
+        type=int,
         help="Worker ID to stop",
     )
     _add_json_flag(worker_stop_parser)

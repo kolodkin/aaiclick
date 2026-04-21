@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlmodel import col, func, select
 
+from aaiclick.orchestration.execution.worker import get_worker
 from aaiclick.orchestration.execution.worker import request_worker_stop as _request_worker_stop_impl
 from aaiclick.orchestration.models import Worker
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -15,14 +16,6 @@ from aaiclick.orchestration.view_models import WorkerView, worker_to_view
 from aaiclick.view_models import Page, WorkerFilter
 
 from .errors import Conflict, NotFound
-
-
-async def _resolve_worker(worker_id: int) -> Worker | None:
-    """Look up a worker by numeric ID."""
-    async with get_sql_session() as session:
-        return (
-            await session.execute(select(Worker).where(Worker.id == worker_id))
-        ).scalar_one_or_none()
 
 
 async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
@@ -58,14 +51,14 @@ async def stop_worker(worker_id: int) -> WorkerView:
     ``aaiclick.orchestration.execution.worker.request_worker_stop`` and is
     authoritative about the final state.
     """
-    worker = await _resolve_worker(worker_id)
+    worker = await get_worker(worker_id)
     if worker is None:
         raise NotFound(f"Worker not found: {worker_id}")
 
     if not await _request_worker_stop_impl(worker_id):
         raise Conflict(f"Worker {worker_id} already in terminal state: {worker.status.value}")
 
-    refreshed = await _resolve_worker(worker_id)
+    refreshed = await get_worker(worker_id)
     if refreshed is None:
         raise RuntimeError(f"Worker {worker_id} disappeared after stop")
     return worker_to_view(refreshed)
