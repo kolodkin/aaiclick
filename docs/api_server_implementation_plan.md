@@ -14,7 +14,7 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/errors.py`                    | ✅      | `aaiclick/internal_api/errors.py`           |
 | Phase 2 | `aaiclick/internal_api/jobs.py`                      | ✅      | `aaiclick/internal_api/jobs.py`             |
 | Phase 2 | `--json` flag on the `job` + `run-job` verbs         | ✅      | `aaiclick/__main__.py` + `cli_renderers.py` |
-| Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | Pending | Migrate from `__main__.py`                  |
+| Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | ✅      | `aaiclick/internal_api/registered_jobs.py`  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/tasks.py`                     | Pending | Brand-new `task get`                        |
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | Pending | Migrate from `data/object/cli.py`           |
@@ -60,14 +60,17 @@ Catalogue" — do not restate them here.
 
 ## Phase 1 follow-up (tracked for Phase 2)
 
-- Delete the trivial passthrough "round-trip dump" tests
-  (`test_job_to_view_round_trip`, `test_worker_to_view_round_trip`,
-  `test_registered_job_to_view_round_trip`,
-  `test_task_to_detail_includes_detail_fields`,
-  and the equivalents in `aaiclick/data/test_view_models.py`). They exist
-  to satisfy the Phase 1 "assert the dumped shape" deliverable but are
-  "assert Python assignment works" per `CLAUDE.md` — drop them once the
-  Phase 2 `internal_api` tests exercise the adapters end-to-end.
+- Delete the trivial passthrough "round-trip dump" tests once the Phase 2
+  `internal_api` tests exercise each adapter end-to-end. They exist to
+  satisfy the Phase 1 "assert the dumped shape" deliverable but are
+  "assert Python assignment works" per `CLAUDE.md`.
+  - `test_registered_job_to_view_round_trip` — removed (exercised by
+    `aaiclick/internal_api/test_registered_jobs.py`).
+  - Still pending: `test_job_to_view_round_trip`,
+    `test_worker_to_view_round_trip`,
+    `test_task_to_detail_includes_detail_fields`, and the equivalents in
+    `aaiclick/data/test_view_models.py` — drop each alongside its
+    internal_api migration PR.
 
 ---
 

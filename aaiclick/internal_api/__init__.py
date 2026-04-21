@@ -13,3 +13,9 @@ See ``docs/api_server.md`` for the full contract.
 
 from .errors import Conflict, InternalApiError, Invalid, NotFound
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
+from .registered_jobs import (
+    disable_job,
+    enable_job,
+    list_registered_jobs,
+    register_job,
+)

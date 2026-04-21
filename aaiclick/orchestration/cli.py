@@ -1,27 +1,20 @@
 """CLI helper functions for orchestration commands.
 
 Encapsulates the async startup logic used by ``__main__.py`` so the CLI
-entry point stays thin. Job commands live in ``aaiclick.internal_api.jobs``.
+entry point stays thin. Job + registered-job commands live in
+``aaiclick.internal_api``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import signal
-from typing import Any
 
 from aaiclick.backend import is_local
 
 from .background import BackgroundWorker
 from .execution import list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
-from .models import PreservationMode
 from .orch_context import orch_context
-from .registered_jobs import (
-    disable_job,
-    enable_job,
-    list_registered_jobs,
-    register_job,
-)
 
 
 async def show_workers() -> None:
@@ -140,68 +133,3 @@ async def start_background(poll_interval: float = 10.0) -> None:
     await cleanup.stop()
 
 
-async def register_job_cmd(
-    entrypoint: str,
-    *,
-    name: str | None = None,
-    schedule: str | None = None,
-    kwargs_json: str | None = None,
-    preservation_mode: str | None = None,
-) -> None:
-    """Register a job in the catalog."""
-    import json
-
-    resolved_name = name or entrypoint.rsplit(".", 1)[-1]
-    default_kwargs: dict[str, Any] | None = None
-    if kwargs_json:
-        default_kwargs = json.loads(kwargs_json)
-
-    mode: PreservationMode | None = None
-    if preservation_mode is not None:
-        mode = PreservationMode(preservation_mode.upper())
-
-    async with orch_context(with_ch=False):
-        job = await register_job(
-            name=resolved_name,
-            entrypoint=entrypoint,
-            schedule=schedule,
-            default_kwargs=default_kwargs,
-            preservation_mode=mode,
-        )
-    print(f"Registered job '{job.name}' (id={job.id})")
-    if job.schedule:
-        print(f"  Schedule:         {job.schedule}")
-    if job.preservation_mode:
-        print(f"  Preservation:     {job.preservation_mode.value}")
-    if job.next_run_at:
-        print(f"  Next run at:      {job.next_run_at}")
-
-
-async def enable_job_cmd(name: str) -> None:
-    """Enable a registered job."""
-    async with orch_context(with_ch=False):
-        job_id = await enable_job(name)
-    print(f"Job '{name}' enabled (id={job_id})")
-
-
-async def disable_job_cmd(name: str) -> None:
-    """Disable a registered job."""
-    async with orch_context(with_ch=False):
-        job_id = await disable_job(name)
-    print(f"Job '{name}' disabled (id={job_id})")
-
-
-async def show_registered_jobs() -> None:
-    """List registered jobs."""
-    async with orch_context(with_ch=False):
-        jobs = await list_registered_jobs()
-
-    if not jobs:
-        print("No registered jobs found")
-        return
-
-    print(f"{'ID':<20} {'Name':<25} {'Enabled':<9} {'Schedule':<15} {'Next Run':<20}")
-    print("-" * 89)
-    for j in jobs:
-        next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
-        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {j.schedule or '-':<15} {next_run:<20}")

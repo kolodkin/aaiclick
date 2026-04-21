@@ -82,6 +82,7 @@ class RegisteredJobFilter(BaseModel):
     enabled: bool | None = None
     name: str | None = None
     limit: int = 50
+    offset: int = 0
     cursor: str | None = None
 
 

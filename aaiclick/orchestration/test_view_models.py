@@ -6,7 +6,6 @@ from .models import (
     Job,
     JobStatus,
     PreservationMode,
-    RegisteredJob,
     RunType,
     Task,
     TaskStatus,
@@ -17,7 +16,6 @@ from .view_models import (
     JobDetail,
     JobStatsView,
     JobView,
-    RegisteredJobView,
     TaskDetail,
     TaskStatsView,
     TaskView,
@@ -26,7 +24,6 @@ from .view_models import (
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
-    registered_job_to_view,
     task_to_detail,
     task_to_stats_view,
     task_to_view,
@@ -197,26 +194,6 @@ def test_worker_to_view_round_trip():
         "tasks_completed": 7,
         "tasks_failed": 1,
     }
-
-
-def test_registered_job_to_view_round_trip():
-    rj = RegisteredJob(
-        id=999,
-        name="etl",
-        entrypoint="pkg.mod:etl",
-        enabled=True,
-        schedule="0 8 * * *",
-        default_kwargs={"batch": 100},
-        preservation_mode=PreservationMode.FULL,
-        next_run_at=datetime(2025, 1, 2, 8, 0, 0),
-        created_at=datetime(2025, 1, 1, 0, 0, 0),
-        updated_at=datetime(2025, 1, 1, 0, 0, 0),
-    )
-    view = registered_job_to_view(rj)
-    assert isinstance(view, RegisteredJobView)
-    assert view.schedule == "0 8 * * *"
-    assert view.default_kwargs == {"batch": 100}
-    assert view.preservation_mode == PreservationMode.FULL
 
 
 def test_compute_job_stats_view_basic():
