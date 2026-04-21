@@ -56,6 +56,34 @@ async def drop_all_ch_tables() -> None:
 
 
 @asynccontextmanager
+async def module_orch_scope(ctx: AbstractAsyncContextManager[None]) -> AsyncIterator[None]:
+    """Enter an orch context once for the lifetime of a module-scoped fixture.
+
+    Used in pair with ``per_test_reset()``: the orch context (and its chdb
+    session) is set up once per test module, and individual tests wipe
+    state via ``per_test_reset()``. This lets the chdb Session live
+    across many tests inside a module — avoiding the per-test Session
+    teardown that triggers a chdb ThreadPool race (see
+    ``docs/technical_debt.md``).
+    """
+    async with ctx:
+        yield
+
+
+async def per_test_reset(*, reset_ch: bool = True, reset_sql: bool = True) -> None:
+    """Wipe CH and/or SQL state between tests sharing a module orch scope.
+
+    Must be called while the enclosing orch context is active. When
+    ``reset_ch`` is true, requires ``with_ch=True`` in the enclosing
+    ``orch_context``.
+    """
+    if reset_ch:
+        await drop_all_ch_tables()
+    if reset_sql:
+        await reset_sql_tables()
+
+
+@asynccontextmanager
 async def reset_test_state(
     ctx: AbstractAsyncContextManager[None],
     *,
@@ -64,14 +92,10 @@ async def reset_test_state(
 ) -> AsyncIterator[None]:
     """Enter ``ctx``, reset the requested backend state, then yield.
 
-    Single per-test reset primitive shared by every conftest (data,
-    orchestration, oplog, ai, ...). ``ctx`` is whatever async context the
-    test needs open to have a live CH/SQL client — typically
-    ``data_context()`` or ``orch_context()``.
+    Function-scoped alternative to ``module_orch_scope`` + ``per_test_reset``
+    — kept for tests/fixtures that genuinely need their own orch context
+    per function.
     """
     async with ctx:
-        if reset_ch:
-            await drop_all_ch_tables()
-        if reset_sql:
-            await reset_sql_tables()
+        await per_test_reset(reset_ch=reset_ch, reset_sql=reset_sql)
         yield

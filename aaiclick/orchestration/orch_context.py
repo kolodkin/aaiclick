@@ -357,8 +357,18 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     registry_token = _task_registry_var.set({})
 
     ch_token = None
+    owns_ch_client = False
     if with_ch:
-        ch_client = await create_ch_client()
+        # Reuse an outer context's ch_client so nested ``orch_context()`` calls
+        # (e.g. ``ajob_test``) don't tear down the shared chdb Session — chdb's
+        # Session cannot be safely closed and reopened in-process (see
+        # ``docs/technical_debt.md``).
+        existing = _ch_client_var.get()
+        if existing is not None:
+            ch_client = existing
+        else:
+            ch_client = await create_ch_client()
+            owns_ch_client = True
         ch_token = _ch_client_var.set(ch_client)
 
     try:
@@ -369,7 +379,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         _engine_var.reset(eng_token)
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
-            if is_chdb():
+            if owns_ch_client and is_chdb():
                 close_session(get_chdb_data_path())
         _task_registry_var.reset(registry_token)
         await engine.dispose()

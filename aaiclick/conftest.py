@@ -2,12 +2,13 @@
 Pytest configuration for aaiclick tests.
 
 Session-scoped autouse fixtures set up per-xdist-worker CH and SQL
-databases. Per-test reset (drop CH tables, truncate SQL) happens inside
-each ``orch_ctx`` / ``ctx`` fixture via ``reset_test_state`` from
-``aaiclick.test_utils``.
+databases. Per-module ``orch_context`` fixtures keep chdb alive across
+every test in the module (avoiding the per-test chdb Session teardown
+that triggers a native ThreadPool race). Per-test state reset happens
+inside each ``orch_ctx`` / ``orch_ctx_no_ch`` fixture via
+``per_test_reset`` from ``aaiclick.test_utils``.
 """
 
-import asyncio
 import importlib
 import os
 import shutil
@@ -19,54 +20,37 @@ from sqlalchemy import create_engine
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import chdb_client as _chdb_client
-from aaiclick.data.data_context.chdb_client import close_session as _real_close_session
-from aaiclick.data.data_context.chdb_client import get_chdb_data_path as _real_chdb_path
 from aaiclick.oplog.lineage import OplogNode
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.test_utils import reset_test_state
+from aaiclick.test_utils import module_orch_scope, per_test_reset
 
-# ``aaiclick.orchestration`` re-exports the ``orch_context`` function from the
-# same-named submodule, which shadows the submodule attribute on the package.
-# Fetch the submodule by fully-qualified name so we can patch its bindings.
+# ``aaiclick.orchestration`` re-exports ``orch_context`` as a function, which
+# shadows the submodule attribute on the package. Resolve the submodule by
+# fully-qualified name so ``_pin_chdb_session`` can patch its ``close_session``.
 _orch_context_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for async tests."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
 def _pin_chdb_session():
     """Keep the chdb Session alive for the entire pytest run.
 
-    chdb's embedded ClickHouse carries one Poco Application singleton + one
-    native ThreadPool per process. Tearing that down and rebuilding it
-    repeatedly (which ``orch_context()`` does on every exit via
-    ``close_session()``) races lingering ThreadPool workers against
-    reinitialization and trips a glibc ``pthread_mutex_lock`` assertion
-    inside ``_chdb.abi3.so``. The crash is intermittent (~25–40% of full
-    test-suite runs) and fully inside chdb's native code — see
-    ``docs/technical_debt.md`` and chdb-io/chdb#229.
-
-    Test-only mitigation: no-op ``close_session`` for the life of the
-    pytest session. The chdb Session becomes a true per-process
-    singleton, which is what chdb actually supports.
+    Module-scoped orch fixtures already reduce chdb Session teardown
+    calls from per-test (~500) to per-module (~20), but even those
+    remaining cycles intermittently race chdb's native ThreadPool on
+    teardown (glibc ``pthread_mutex_lock`` assertion inside
+    ``_chdb.abi3.so``, see ``docs/technical_debt.md``). No-op
+    ``close_session`` for the lifetime of the pytest run so the chdb
+    Session is a true per-process singleton — what chdb actually
+    supports.
     """
     if not is_chdb():
         yield
         return
     noop = lambda _path: None  # noqa: E731 — intentional trivial no-op stub
-    # ``orch_context`` imported ``close_session`` by name, so patch the
-    # binding in both the source module and the importer. pyright balks at
-    # assigning to ``ModuleType`` attributes — intentional monkey-patch.
     original_src = _chdb_client.close_session
     original_orch = _orch_context_module.close_session
     _chdb_client.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
@@ -248,32 +232,66 @@ def make_oplog_node(
     )
 
 
-@pytest.fixture
-async def orch_ctx():
-    """Function-scoped orch context with per-test CH + SQL reset.
+@pytest.fixture(scope="module")
+async def _orch_module_ctx():
+    """Module-scoped ``orch_context()`` with chdb — entered once per module.
 
-    Single definition — visible to every test via pytest's conftest
-    hierarchy, so oplog and orchestration tests share one fixture.
+    Keeps the chdb Session alive across every test in the module so the
+    per-test Session teardown (which races chdb's native ThreadPool, see
+    ``docs/technical_debt.md``) fires at most once per module, not once
+    per test.
     """
-    async with reset_test_state(orch_context(), reset_sql=True):
+    async with module_orch_scope(orch_context()):
         yield
 
 
+@pytest.fixture(scope="module")
+async def _orch_module_ctx_no_ch():
+    """Module-scoped ``orch_context(with_ch=False)`` — entered once per module.
+
+    Used by test modules whose tests spawn multiprocessing workers: the
+    parent never opens chdb, so the child can acquire the chdb file lock.
+    Must live in a dedicated module (no ``orch_ctx`` alongside) so the
+    module-scoped chdb session doesn't collide.
+
+    Under chdb, redirects ``AAICLICK_CH_URL`` to a per-module tempdir so
+    mp-worker children open a fresh chdb file that no other module's
+    session holds a lock on.
+    """
+    prior_url = None
+    tmp_dir = None
+    if is_chdb():
+        tmp_dir = tempfile.mkdtemp(prefix="aaiclick_chdb_mp_")
+        prior_url = os.environ.get("AAICLICK_CH_URL")
+        os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
+    try:
+        async with module_orch_scope(orch_context(with_ch=False)):
+            yield
+    finally:
+        if is_chdb():
+            if prior_url is None:
+                os.environ.pop("AAICLICK_CH_URL", None)
+            else:
+                os.environ["AAICLICK_CH_URL"] = prior_url
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @pytest.fixture
-async def orch_ctx_no_ch():
-    """Function-scoped orch context without CH (``with_ch=False``).
+async def orch_ctx(_orch_module_ctx):
+    """Per-test state reset on top of the module-scoped chdb orch context."""
+    await per_test_reset(reset_ch=True, reset_sql=True)
+    yield
+
+
+@pytest.fixture
+async def orch_ctx_no_ch(_orch_module_ctx_no_ch):
+    """Per-test state reset on top of the module-scoped no-ch orch context.
 
     For tests where the child process owns chdb (e.g. multiprocessing
-    worker); the parent releases its lock before spawning the child
-    (see ``mp_worker._run_task_in_child``).
-
-    ``_pin_chdb_session`` no-ops ``close_session`` for the pytest run to
-    dodge a chdb teardown race, but mp-worker tests rely on the parent's
-    chdb file lock being released so the child can open it. Release the
-    pinned session here using the real ``close_session`` before entering
-    the no-ch orch context.
+    worker). Must be used only in modules that never also use
+    ``orch_ctx`` — mixing the two within one module would require two
+    conflicting module-scoped orch contexts.
     """
-    if is_chdb():
-        _real_close_session(_real_chdb_path())
-    async with reset_test_state(orch_context(with_ch=False), reset_ch=False, reset_sql=True):
-        yield
+    await per_test_reset(reset_ch=False, reset_sql=True)
+    yield

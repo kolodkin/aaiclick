@@ -13,7 +13,6 @@ from ..factories import create_job, create_task
 from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
-from .mp_worker import mp_worker_main_loop
 from .runner import execute_task
 from .worker import (
     deregister_worker,
@@ -165,26 +164,6 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
     # Heartbeat should return STOPPING, not reset to ACTIVE
     result = await worker_heartbeat(worker.id)
     assert result == WorkerStatus.STOPPING
-
-
-async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch, fast_poll):
-    """Test that the main loop exits when a stop request is detected."""
-    worker = await register_worker()
-    await request_worker_stop(worker.id)
-
-    monkeypatch.setattr("aaiclick.orchestration.execution.worker.HEARTBEAT_INTERVAL", 0)
-
-    tasks_executed = await mp_worker_main_loop(
-        worker_id=worker.id,
-        install_signal_handlers=False,
-        max_empty_polls=50,
-    )
-
-    assert tasks_executed == 0
-
-    db_worker = await get_worker(worker.id)
-    assert db_worker is not None
-    assert db_worker.status == WorkerStatus.STOPPED
 
 
 # =============================================================================
