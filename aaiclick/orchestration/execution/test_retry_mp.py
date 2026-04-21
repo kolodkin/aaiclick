@@ -8,13 +8,12 @@ each spawned child). Shares ``_cancel_all_pending_tasks`` and
 
 from sqlmodel import select
 
+from ..background.test_pending_cleanup import run_pending_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
 from ..models import Job, JobStatus, Task, TaskStatus
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
 from .test_retry import _cancel_all_pending_tasks, _run_until_terminal
-
-from ..background.test_pending_cleanup import run_pending_cleanup  # noqa: E402  (test-sibling import)
 
 
 async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
