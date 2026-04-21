@@ -74,6 +74,14 @@ class LifecycleHandler(ABC):
     def oplog_record_table(self, table_name: str) -> None:
         """Record a table registry entry. No-op in local mode."""
 
+    def current_job_id(self) -> int | None:
+        """Return the job ID owning this handler, or ``None`` outside orch.
+
+        Used by ``create_object_from_value(scope="job")`` to build the
+        ``j_<job_id>_<name>`` table name.
+        """
+        return None
+
     async def __aenter__(self):
         await self.start()
         return self

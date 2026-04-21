@@ -40,7 +40,7 @@ from aaiclick.data.object.refs import (
     native_value_ref,
     upstream_ref,
 )
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output

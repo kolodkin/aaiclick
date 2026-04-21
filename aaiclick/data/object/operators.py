@@ -61,7 +61,7 @@ from __future__ import annotations
 from typing import cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from ..data_context import create_object
 from ..models import (

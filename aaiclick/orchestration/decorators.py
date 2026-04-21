@@ -37,7 +37,7 @@ from typing import Any, overload
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
-from ..snowflake_id import get_snowflake_id
+from ..snowflake import get_snowflake_id
 from .factories import _callable_to_string, resolve_job_config
 from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context

@@ -8,7 +8,7 @@ from typing import Any
 from croniter import croniter
 from sqlmodel import select
 
-from ..snowflake_id import get_snowflake_id
+from ..snowflake import get_snowflake_id
 from .factories import create_job, create_task
 from .models import Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session

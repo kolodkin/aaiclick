@@ -11,7 +11,7 @@ from datetime import datetime
 
 from sqlmodel import col, select
 
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from ..background.handler import try_complete_job
 from ..models import Task, TaskStatus, Worker, WorkerStatus

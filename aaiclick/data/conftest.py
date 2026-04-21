@@ -1,9 +1,16 @@
-"""Pytest fixtures for aaiclick.data tests."""
+"""Pytest fixtures for aaiclick.data tests.
+
+Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``,
+``pin_chdb_session``, ``orch_ctx`` family) register globally via the
+``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``). This
+conftest only adds the data-specific ``ctx`` fixture — data tests use
+``data_context()`` directly, not ``orch_context``.
+"""
 
 import pytest
 
 from aaiclick.data.data_context import data_context
-from aaiclick.test_utils import reset_test_state
+from aaiclick.testing import reset_test_state
 
 
 @pytest.fixture

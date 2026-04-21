@@ -2,7 +2,7 @@
 
 from sqlmodel import select
 
-from ..snowflake_id import get_snowflake_id
+from ..snowflake import get_snowflake_id
 from .factories import create_job, create_task
 from .jobs import get_task
 from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group

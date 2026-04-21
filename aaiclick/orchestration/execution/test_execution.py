@@ -379,7 +379,7 @@ def test_task_result_data_only():
 
 def test_task_result_both(orch_ctx):
     """TaskResult with both data and tasks."""
-    from aaiclick.snowflake_id import get_snowflake_id
+    from aaiclick.snowflake import get_snowflake_id
 
     t = create_task("mod.func")
     g = Group(id=get_snowflake_id(), name="g1")
@@ -391,7 +391,7 @@ def test_task_result_both(orch_ctx):
 
 def test_task_result_preserves_explicit_dependency(orch_ctx):
     """Explicit >> dependency on tasks inside TaskResult is preserved."""
-    from aaiclick.snowflake_id import get_snowflake_id
+    from aaiclick.snowflake import get_snowflake_id
 
     t1 = create_task("mod.step1")
     t2 = create_task("mod.step2")

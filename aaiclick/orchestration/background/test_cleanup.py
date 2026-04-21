@@ -166,3 +166,47 @@ async def test_cleanup_none_mode_drops(bg_db):
 
     remaining = await _get_context_tables(bg_db)
     assert "t_none" not in remaining
+
+
+async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
+    """``p_*`` and ``j_<id>_*`` tables are exempt from refcount-based cleanup."""
+    await insert_context_ref(bg_db, "p_user_catalog", 100)
+    await insert_context_ref(bg_db, "j_42_intermediate", 101)
+    await insert_context_ref(bg_db, "t_scratch", 102)
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+
+    await worker._cleanup_unreferenced_tables()
+
+    remaining = await _get_context_tables(bg_db)
+    assert "p_user_catalog" in remaining, "Persistent global table was dropped"
+    assert "j_42_intermediate" in remaining, "Job-scoped table was dropped before TTL"
+    assert "t_scratch" not in remaining, "Temp table was not cleaned up"
+
+
+async def test_delete_job_data_exempts_persistent_tables(bg_db):
+    """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
+    job_id = 555
+    await _insert_job(bg_db, job_id, "NONE")
+    await insert_table_registry(bg_db, "p_user_catalog", job_id=job_id)
+    await insert_table_registry(bg_db, "j_555_intermediate", job_id=job_id)
+    await insert_table_registry(bg_db, "t_scratch", job_id=job_id)
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+
+    await worker._delete_job_data(job_id)
+
+    dropped = {
+        call.args[0].split("IF EXISTS ", 1)[1]
+        for call in worker._ch_client.command.call_args_list
+        if "DROP TABLE" in call.args[0]
+    }
+    assert "p_user_catalog" not in dropped, "User-managed p_* table was dropped on job TTL"
+    assert "j_555_intermediate" in dropped
+    assert "t_scratch" in dropped

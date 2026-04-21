@@ -161,3 +161,44 @@ async def test_delete_persistent_objects_requires_time_filter():
     async with data_context():
         with pytest.raises(ValueError, match="At least one of"):
             await delete_persistent_objects()
+
+
+async def test_scope_global_explicit_creates_p_prefix():
+    """scope='global' forces the ``p_`` prefix even outside orch."""
+    async with data_context():
+        obj = await create_object_from_value(
+            [1, 2, 3],
+            name="test_scope_global_explicit",
+            scope="global",
+        )
+        try:
+            assert obj.table == "p_test_scope_global_explicit"
+            assert obj.scope == "global"
+            assert obj.persistent is True
+        finally:
+            await delete_persistent_object("test_scope_global_explicit")
+
+
+async def test_scope_job_outside_orch_raises():
+    """scope='job' without an orch job_id raises a helpful error."""
+    async with data_context():
+        with pytest.raises(ValueError, match="scope='job' requires a job_id"):
+            await create_object_from_value(
+                [1, 2, 3],
+                name="needs_orch",
+                scope="job",
+            )
+
+
+async def test_scope_without_name_raises():
+    """Passing scope without name is an API misuse."""
+    async with data_context():
+        with pytest.raises(ValueError, match="scope can only be set together with name"):
+            await create_object_from_value([1, 2, 3], scope="global")
+
+
+async def test_object_scope_property_for_temp():
+    async with data_context():
+        obj = await create_object_from_value([1, 2, 3])
+        assert obj.scope == "temp"
+        assert obj.persistent is False

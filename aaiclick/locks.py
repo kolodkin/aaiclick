@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 
 from .backend import is_distributed
-from .snowflake_id import get_snowflake_id
+from .snowflake import get_snowflake_id
 
 # Sentinel context_id for "lock-only" registrations of persistent tables
 # (p_*) that bypass the regular incref/decref lifecycle. Real context IDs

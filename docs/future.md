@@ -21,41 +21,16 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Two-Tier Persistent Tables: `p_*` (user-managed) + `j_<job_id>_*` (job-scoped)
+## Make `close_session()` Opt-In Instead of Unconditional on `orch_context` Exit
 
-Today only one "persistent" tier exists — `p_<name>` created via `create_object_from_value(val, name=...)`. It serves two conflicting goals:
+`orch_context.py` unconditionally calls `close_session(get_chdb_data_path())` in its `finally` block when running on chdb. The reason is real — a subprocess worker about to be spawned needs the chdb file lock — but in-process-only callers pay the cost for nothing, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)). Tests work around it today via the `_pin_chdb_session` fixture; production code shouldn't need a test fixture to stay stable.
 
-1. **User-managed durable data** ("survives everything, only the user deletes it")
-2. **Pinned intermediate outputs** ("survives one job's cleanup so downstream tasks can reference it by name")
+**Proposal**: gate the close behind an explicit signal that the caller is about to hand the chdb file off to another process. Shapes to consider:
+- A `release_chdb_session: bool = False` kwarg on `orch_context()` that the worker-spawning path sets to `True`.
+- A context manager `with releasing_chdb_session():` around the code that spawns workers.
+- An env var (`AAICLICK_CHDB_RELEASE_ON_EXIT=1`) for test-runner-style callers.
 
-The two goals are both needed but have opposite cleanup rules, and the current code half-supports both:
-
-- `_cleanup_unreferenced_tables()` correctly skips `p_*` (they don't get refcount-dropped), so goal 1 looks honored mid-job.
-- But `_delete_job_data()` at `background_worker.py:323` drops **every** table registered to an expired job via `table_registry`, which today includes `p_*` — so `AAICLICK_JOB_TTL_DAYS` silently nukes user-managed persistent tables. Pre-existing bug.
-- And two parallel jobs using `name="kev_catalog"` both write to `p_kev_catalog` (append-on-existing), which is surprising at best.
-
-**Proposed split**:
-
-| Tier         | Prefix             | Lifetime                                           | API                                                             |
-|--------------|--------------------|----------------------------------------------------|-----------------------------------------------------------------|
-| User tables  | `p_<name>`         | Forever; only the user deletes via `data delete`  | `create_object_from_value(val, name="foo")` (unchanged)         |
-| Job-scoped   | `j_<job_id>_<name>` | Until the owning job TTL-expires                  | `create_object_from_value(val, name="foo", scope="job")` or new helper |
-
-**Invariant changes**:
-
-- `p_*` is **exempt** from `_delete_job_data()` / `_cleanup_expired_jobs()` — add a `NOT LIKE 'p\_%'` guard in the `table_registry` drop list (or stop registering `p_*` in `table_registry` in the first place and rely on a separate `persistent_tables` catalog).
-- `j_<job_id>_<name>` is **always** cleaned up at job TTL via a pure prefix match (`SHOW TABLES LIKE 'j_<id>_%'`) — no `table_registry` lookup needed.
-- Two parallel jobs never collide on `j_<id>_<name>` because `job_id` is globally unique.
-
-**Work**:
-- `aaiclick/data/data_context/data_context.py` — add `scope` kwarg to `create_object_from_value()`; route `scope="job"` through a job-id-aware name builder (pulls from orch context).
-- `aaiclick/data/object/object.py` — `persistent` property recognizes both `p_*` and `j_*`; add an `is_user_persistent` / `is_job_scoped` split if callers need to distinguish.
-- `aaiclick/orchestration/background/background_worker.py` — `_delete_job_data()` excludes `p_*` from the drop list; `_cleanup_expired_jobs()` adds a `SHOW TABLES LIKE 'j_<id>_%'` pass.
-- `aaiclick/oplog/cleanup.py` — same prefix check update.
-- Examples that use `name=` for intermediate outputs (basic-lineage, cyber-threat-feeds, imdb, nyc-taxi) migrate to `scope="job"` where appropriate; genuinely user-facing catalog tables stay as `p_*`.
-- Docs across `data_context.md`, `object.md`, `orchestration.md`.
-
-Wide blast radius — ship in its own PR.
+**Work**: `aaiclick/orchestration/orch_context.py` — remove the unconditional `close_session()` from the `finally` branch; add the opt-in signal above; update any worker-spawning path (`aaiclick/orchestration/execution/mp_worker.py`, etc.) to invoke it. Remove the `_pin_chdb_session` fixture once this lands.
 
 ## Retry `create_object_from_url` on Transient Upstream Failures
 

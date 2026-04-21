@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from ..scope import is_persistent_table
 from .ch_client import ChClient
 
 
@@ -112,7 +113,7 @@ class AsyncTableWorker:
                 if msg.table_name in self._refcounts:
                     self._refcounts[msg.table_name] -= 1
                     if self._refcounts[msg.table_name] <= 0:
-                        if not msg.table_name.startswith("p_"):
+                        if not is_persistent_table(msg.table_name):
                             await self._drop_table(msg.table_name)
                         del self._refcounts[msg.table_name]
 
@@ -124,8 +125,12 @@ class AsyncTableWorker:
             pass  # Best effort - table may already be gone
 
     async def _cleanup_all(self) -> None:
-        """Drop all remaining tables on shutdown. Skips persistent (p_) tables."""
+        """Drop remaining non-persistent tables on shutdown.
+
+        Skips ``p_*`` (user-managed) and ``j_<id>_*`` (job-scoped) tables,
+        which outlive the local process.
+        """
         for table_name in list(self._refcounts.keys()):
-            if not table_name.startswith("p_"):
+            if not is_persistent_table(table_name):
                 await self._drop_table(table_name)
         self._refcounts.clear()

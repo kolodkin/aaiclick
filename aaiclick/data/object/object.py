@@ -16,7 +16,7 @@ from typing import Any
 from typing_extensions import Self
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
-from aaiclick.snowflake_id import get_snowflake_id
+from aaiclick.snowflake import get_snowflake_id
 
 from ..data_context import (
     create_object_from_value,
@@ -56,6 +56,7 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
+from ..scope import ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
@@ -120,9 +121,23 @@ class Object:
         self._registered = False
 
     @property
+    def scope(self) -> ObjectScope:
+        """Scope implied by the table-name prefix.
+
+        - ``"temp"``   — ``t_<id>`` tables dropped at context/task exit
+        - ``"job"``    — ``j_<job_id>_<name>`` tables dropped at job TTL
+        - ``"global"`` — ``p_<name>`` tables persist until the user deletes them
+        """
+        return scope_of(self.table)
+
+    @property
     def persistent(self) -> bool:
-        """Check if this is a persistent (named) object that survives context exit."""
-        return self.table.startswith("p_")
+        """True when the underlying table survives context/task exit.
+
+        Covers both job-scoped (``j_<job_id>_<name>``) and user-managed global
+        (``p_<name>``) tables — equivalent to ``obj.scope != "temp"``.
+        """
+        return is_persistent_table(self.table)
 
     def _register(self) -> None:
         """Register this object with the active context for lifecycle tracking."""
@@ -142,7 +157,7 @@ class Object:
             return
         if not self._registered:
             return
-        if self.table.startswith("p_"):
+        if self.persistent:
             return
         decref(self.table)
 

@@ -191,7 +191,7 @@ Alembic migration `add_advisory_id_to_table_context_refs` (head:
 1. Add `advisory_id BIGINT NULL` to `table_context_refs` via
    `op.batch_alter_table` for SQLite compatibility.
 2. Backfill: one `get_snowflake_id()` per distinct `table_name`, applied to
-   all rows sharing that name. The migration calls into `aaiclick.snowflake_id`
+   all rows sharing that name. The migration calls into `aaiclick.snowflake`
    so legacy tables and new tables share the same minting path.
 3. `ALTER COLUMN advisory_id SET NOT NULL` once every row has a value.
 

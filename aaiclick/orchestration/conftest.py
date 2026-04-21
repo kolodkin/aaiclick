@@ -1,10 +1,10 @@
-"""
-Orchestration-specific pytest fixtures.
+"""Pytest fixtures for aaiclick.orchestration tests.
 
-Worker isolation (CH/SQL per-worker DB) and ``orch_ctx`` itself live in
-the root ``aaiclick/conftest.py`` so every test package shares one
-definition. This file only holds fixtures specific to orchestration:
-the log-dir redirect and the polling-speed monkeypatches.
+Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``,
+``pin_chdb_session``, ``orch_ctx`` family) register globally via the
+``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``). This
+conftest holds orchestration-local helpers: the log-dir redirect and
+the polling-speed monkeypatches.
 """
 
 import pytest

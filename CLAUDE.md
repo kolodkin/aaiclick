@@ -55,6 +55,8 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
+**Architecture**: `docs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
+
 # Testing Guidelines
 
 - **Test file location**: Place test files alongside the modules they test
