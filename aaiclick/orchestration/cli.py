@@ -1,8 +1,10 @@
 """CLI helper functions for orchestration commands.
 
 Encapsulates the async startup logic used by ``__main__.py`` so the CLI
-entry point stays thin. Job + registered-job commands live in
-``aaiclick.internal_api``.
+entry point stays thin. Worker list / stop, job, and registered-job
+commands live in ``aaiclick.internal_api``. This module holds the
+long-running process loops (``worker start``, ``local start``,
+``background start``) that do not fit the request/response pattern.
 """
 
 from __future__ import annotations
@@ -13,40 +15,8 @@ import signal
 from aaiclick.backend import is_local
 
 from .background import BackgroundWorker
-from .execution import list_workers, mp_worker_main_loop, request_worker_stop, worker_main_loop
+from .execution import mp_worker_main_loop, worker_main_loop
 from .orch_context import orch_context
-
-
-async def show_workers() -> None:
-    """List all registered workers."""
-    async with orch_context(with_ch=False):
-        workers = await list_workers()
-        if not workers:
-            print("No workers found")
-            return
-
-        print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
-        print("-" * 80)
-        for w in workers:
-            print(
-                f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
-            )
-
-
-async def stop_worker_cmd(worker_id_str: str) -> None:
-    """Request a worker to stop gracefully after its current task."""
-    try:
-        worker_id = int(worker_id_str)
-    except ValueError:
-        print(f"Invalid worker ID: {worker_id_str}")
-        return
-
-    async with orch_context(with_ch=False):
-        success = await request_worker_stop(worker_id)
-        if success:
-            print(f"Stop requested for worker {worker_id}")
-        else:
-            print(f"Worker {worker_id} not found or already stopped")
 
 
 async def start_worker(max_tasks: int | None = None) -> None:

@@ -9,8 +9,6 @@ from .models import (
     RunType,
     Task,
     TaskStatus,
-    Worker,
-    WorkerStatus,
 )
 from .view_models import (
     JobDetail,
@@ -19,7 +17,6 @@ from .view_models import (
     TaskDetail,
     TaskStatsView,
     TaskView,
-    WorkerView,
     _ms_between,
     compute_job_stats_view,
     job_to_detail,
@@ -27,7 +24,6 @@ from .view_models import (
     task_to_detail,
     task_to_stats_view,
     task_to_view,
-    worker_to_view,
 )
 
 
@@ -169,31 +165,6 @@ def test_job_to_detail_duration_none_when_not_completed():
     job = _make_job(started_at=None, completed_at=None, status=JobStatus.PENDING)
     detail = job_to_detail(job, [])
     assert detail.duration_ms is None
-
-
-def test_worker_to_view_round_trip():
-    worker = Worker(
-        id=555,
-        hostname="worker-1",
-        pid=1234,
-        status=WorkerStatus.ACTIVE,
-        started_at=datetime(2025, 1, 1, 10, 0, 0),
-        last_heartbeat=datetime(2025, 1, 1, 10, 5, 0),
-        tasks_completed=7,
-        tasks_failed=1,
-    )
-    view = worker_to_view(worker)
-    assert isinstance(view, WorkerView)
-    assert view.model_dump() == {
-        "id": 555,
-        "hostname": "worker-1",
-        "pid": 1234,
-        "status": WorkerStatus.ACTIVE,
-        "started_at": datetime(2025, 1, 1, 10, 0, 0),
-        "last_heartbeat": datetime(2025, 1, 1, 10, 5, 0),
-        "tasks_completed": 7,
-        "tasks_failed": 1,
-    }
 
 
 def test_compute_job_stats_view_basic():

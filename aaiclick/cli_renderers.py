@@ -13,6 +13,7 @@ from aaiclick.orchestration.view_models import (
     JobStatsView,
     JobView,
     RegisteredJobView,
+    WorkerView,
 )
 from aaiclick.view_models import Page
 
@@ -129,3 +130,24 @@ def render_registered_job_enabled(view: RegisteredJobView) -> None:
 def render_registered_job_disabled(view: RegisteredJobView) -> None:
     """Single-line confirmation that ``internal_api.disable_job`` succeeded."""
     print(f"Job '{view.name}' disabled (id={view.id})")
+
+
+def render_workers_page(page: Page[WorkerView], offset: int) -> None:
+    """Print a paged list of workers as an aligned text table."""
+    if not page.items:
+        print("No workers found")
+        return
+
+    print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
+    print("-" * 80)
+    for w in page.items:
+        print(
+            f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
+        )
+    total = page.total if page.total is not None else len(page.items)
+    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
+
+
+def render_worker_stopped(view: WorkerView) -> None:
+    """Single-line confirmation that ``internal_api.stop_worker`` succeeded."""
+    print(f"Stop requested for worker {view.id}")

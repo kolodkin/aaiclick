@@ -102,6 +102,8 @@ class WorkerFilter(BaseModel):
 
     status: WorkerStatus | None = None
     limit: int = 50
+    offset: int = 0
+    cursor: str | None = None
 
 
 class ObjectFilter(BaseModel):
