@@ -67,7 +67,7 @@ jobs:
       matrix:
         include:
           - group: Data local
-            test-paths: "aaiclick/data/"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/"
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
@@ -112,7 +112,7 @@ jobs:
       matrix:
         include:
           - group: Data dist
-            test-paths: "aaiclick/data/"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/"
           - group: Orch dist
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
 
