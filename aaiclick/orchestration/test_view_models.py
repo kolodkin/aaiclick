@@ -23,7 +23,6 @@ from .view_models import (
     TaskView,
     WorkerView,
     _ms_between,
-    _short_entrypoint,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
@@ -155,7 +154,7 @@ def test_task_to_detail_empty_kwargs_default():
 def test_job_to_detail_embeds_task_views_and_duration():
     job = _make_job(
         started_at=datetime(2025, 1, 1, 12, 0, 1),
-        completed_at=datetime(2025, 1, 1, 12, 0, 10, 500_000),  # +9.5s
+        completed_at=datetime(2025, 1, 1, 12, 0, 10, 500_000),
     )
     tasks = [
         _make_task(task_id=100, entrypoint="pkg:a"),
@@ -231,9 +230,7 @@ def test_compute_job_stats_view_basic():
     assert stats.job_status == JobStatus.COMPLETED
     assert stats.total_tasks == 2
     assert stats.status_counts == {"COMPLETED": 2}
-    # created → completed spans 10 seconds
     assert stats.wall_time_ms == 10_000
-    # started → completed spans 9 seconds
     assert stats.exec_time_ms == 9_000
     assert [t.entrypoint for t in stats.tasks] == ["extract", "transform"]
 
@@ -272,12 +269,6 @@ def test_task_to_stats_view_queue_and_exec_ms():
     assert isinstance(sv, TaskStatsView)
     assert sv.queue_time_ms == 3_000
     assert sv.exec_time_ms == 5_000
-
-
-def test_short_entrypoint():
-    assert _short_entrypoint("pkg.mod:my_func") == "my_func"
-    assert _short_entrypoint("pkg.mod.my_func") == "my_func"
-    assert _short_entrypoint("my_func") == "my_func"
 
 
 def test_ms_between_handles_nones():

@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field
 
 from .orchestration.models import JobStatus, PreservationMode, WorkerStatus
 
+# Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
+# module from pulling the heavy aaiclick.data package into CLI/REST startup.
+# Keep the two in lock-step.
 ObjectScope = Literal["temp", "job", "global"]
 
 T = TypeVar("T")

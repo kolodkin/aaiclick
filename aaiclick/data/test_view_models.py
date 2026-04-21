@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from .models import ColumnInfo, Schema
+from .models import ENGINE_MERGE_TREE, FIELDTYPE_SCALAR, ColumnInfo, Schema
 from .object.object import Object
 from .view_models import (
     ColumnView,
@@ -19,15 +19,15 @@ from .view_models import (
 
 def _schema(table: str) -> Schema:
     return Schema(
-        fieldtype="s",
-        col_fieldtype="s",
+        fieldtype=FIELDTYPE_SCALAR,
+        col_fieldtype=FIELDTYPE_SCALAR,
         columns={
             "aai_id": ColumnInfo(type="Int64"),
             "name": ColumnInfo(type="String", nullable=True, low_cardinality=True),
             "tags": ColumnInfo(type="String", array=1),
         },
         table=table,
-        engine="MergeTree",
+        engine=ENGINE_MERGE_TREE,
         order_by="(aai_id)",
     )
 
@@ -59,7 +59,7 @@ def test_schema_to_view_preserves_columns_and_metadata():
     assert names == ["aai_id", "name", "tags"]
     tags_col = next(c for c in view.columns if c.name == "tags")
     assert tags_col.array_depth == 1
-    assert view.engine == "MergeTree"
+    assert view.engine == ENGINE_MERGE_TREE
     assert view.order_by == "(aai_id)"
 
 
@@ -130,6 +130,5 @@ def test_object_to_detail_embeds_schema():
     assert detail.size_bytes == 2048
     assert detail.created_at == created
     assert detail.lineage_summary == "derived from `raw_events`"
-    # ObjectDetail is-a ObjectView
-    assert detail.table_schema.engine == "MergeTree"
+    assert detail.table_schema.engine == ENGINE_MERGE_TREE
     assert [c.name for c in detail.table_schema.columns] == ["aai_id", "name", "tags"]

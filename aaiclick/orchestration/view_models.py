@@ -7,11 +7,13 @@ the DB schema, keeping imports one-directional (SQLModel → pydantic).
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .jobs.stats import _short_entrypoint
 from .models import (
     Job,
     JobStatus,
@@ -133,14 +135,6 @@ def _ms_between(start: datetime | None, end: datetime | None) -> int | None:
     return int((end - start).total_seconds() * 1000)
 
 
-def _short_entrypoint(entrypoint: str) -> str:
-    if ":" in entrypoint:
-        return entrypoint.rsplit(":", 1)[-1]
-    if "." in entrypoint:
-        return entrypoint.rsplit(".", 1)[-1]
-    return entrypoint
-
-
 def job_to_view(job: Job) -> JobView:
     return JobView(
         id=job.id,
@@ -246,15 +240,12 @@ def task_to_stats_view(task: Task) -> TaskStatsView:
 
 def compute_job_stats_view(job: Job, tasks: list[Task]) -> JobStatsView:
     """Compute the execution-stats view model for a job and its tasks."""
-    status_counts: dict[str, int] = {}
-    for t in tasks:
-        status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
     return JobStatsView(
         job_id=job.id,
         job_name=job.name,
         job_status=job.status,
         total_tasks=len(tasks),
-        status_counts=status_counts,
+        status_counts=dict(Counter(t.status.value for t in tasks)),
         wall_time_ms=_ms_between(job.created_at, job.completed_at),
         exec_time_ms=_ms_between(job.started_at, job.completed_at),
         tasks=[task_to_stats_view(t) for t in tasks],

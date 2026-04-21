@@ -1,8 +1,10 @@
 """Data domain view models plus ``Object`` → view adapters.
 
-View models are plain pydantic — they do not import ``Object`` or the
-ClickHouse client. The adapters know about ``Object`` and are the only
-bridge, keeping imports one-directional.
+The view models themselves (``ColumnView``, ``SchemaView``, ``ObjectView``,
+``ObjectDetail``) are plain pydantic and know nothing about the ClickHouse
+client. The ``*_to_view`` adapters bridge the ``Object`` / ``Schema`` world
+to the view world, and are the only code in this module that depends on the
+data runtime.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from .models import ColumnInfo, EngineType, Schema
 from .object.object import Object
-from .scope import JOB_SCOPED_RE, ObjectScope, scope_of
+from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope, scope_of
 
 
 class ColumnView(BaseModel):
@@ -60,8 +62,8 @@ def _object_name_from_table(table: str) -> str:
     - ``j_<job_id>_<name>`` → ``<name>`` (job-scoped persistent)
     - ``t_<snowflake>`` → the table name itself (unnamed temp)
     """
-    if table.startswith("p_"):
-        return table[2:]
+    if table.startswith(GLOBAL_PREFIX):
+        return table[len(GLOBAL_PREFIX):]
     if JOB_SCOPED_RE.match(table):
         return table.split("_", 2)[2]
     return table
