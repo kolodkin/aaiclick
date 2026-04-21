@@ -12,6 +12,7 @@ from aaiclick.orchestration.view_models import (
     JobDetail,
     JobStatsView,
     JobView,
+    RegisteredJobView,
 )
 from aaiclick.view_models import Page
 
@@ -94,3 +95,37 @@ def render_job_cancelled(view: JobView) -> None:
 def render_job_created(view: JobView) -> None:
     """Single-line confirmation that ``internal_api.run_job`` created a job."""
     print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type.value})")
+
+
+def render_registered_jobs_page(page: Page[RegisteredJobView]) -> None:
+    """Print a paged list of registered jobs as an aligned text table."""
+    if not page.items:
+        print("No registered jobs found")
+        return
+
+    print(f"{'ID':<20} {'Name':<25} {'Enabled':<9} {'Schedule':<15} {'Next Run':<20}")
+    print("-" * 89)
+    for j in page.items:
+        next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
+        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {j.schedule or '-':<15} {next_run:<20}")
+
+
+def render_registered_job(view: RegisteredJobView) -> None:
+    """Print registered-job details — mirrors the old ``register-job`` output."""
+    print(f"Registered job '{view.name}' (id={view.id})")
+    if view.schedule:
+        print(f"  Schedule:         {view.schedule}")
+    if view.preservation_mode:
+        print(f"  Preservation:     {view.preservation_mode.value}")
+    if view.next_run_at:
+        print(f"  Next run at:      {view.next_run_at}")
+
+
+def render_registered_job_enabled(view: RegisteredJobView) -> None:
+    """Single-line confirmation that ``internal_api.enable_job`` succeeded."""
+    print(f"Job '{view.name}' enabled (id={view.id})")
+
+
+def render_registered_job_disabled(view: RegisteredJobView) -> None:
+    """Single-line confirmation that ``internal_api.disable_job`` succeeded."""
+    print(f"Job '{view.name}' disabled (id={view.id})")

@@ -43,7 +43,12 @@ from aaiclick.data.object.cli import (
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.models import JobStatus, PreservationMode
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.view_models import JobListFilter, RunJobRequest
+from aaiclick.view_models import (
+    JobListFilter,
+    RegisteredJobFilter,
+    RegisterJobRequest,
+    RunJobRequest,
+)
 
 _JSON_HELP = "Emit JSON instead of a table"
 
@@ -215,12 +220,53 @@ async def _run_job_cancel(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_job_cancelled)
 
 
+def _parse_preservation_mode(value: str | None) -> PreservationMode | None:
+    return PreservationMode(value) if value else None
+
+
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
-    mode = PreservationMode(args.preservation_mode) if args.preservation_mode else None
-    request = RunJobRequest(name=args.name, kwargs=kwargs, preservation_mode=mode)
+    request = RunJobRequest(
+        name=args.name,
+        kwargs=kwargs,
+        preservation_mode=_parse_preservation_mode(args.preservation_mode),
+    )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
+
+
+async def _run_register_job(args: argparse.Namespace) -> None:
+    default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
+    request = RegisterJobRequest(
+        name=args.name or "",
+        entrypoint=args.entrypoint,
+        schedule=args.schedule,
+        default_kwargs=default_kwargs,
+        preservation_mode=_parse_preservation_mode(args.preservation_mode),
+    )
+    view = await _run_internal_api(internal_api.register_job(request))
+    _render(args, view, cli_renderers.render_registered_job)
+
+
+async def _run_registered_job_list(args: argparse.Namespace) -> None:
+    filter = RegisteredJobFilter(
+        enabled=args.enabled,
+        name=args.like,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(internal_api.list_registered_jobs(filter))
+    _render(args, page, cli_renderers.render_registered_jobs_page)
+
+
+async def _run_job_enable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(internal_api.enable_job(args.name))
+    _render(args, view, cli_renderers.render_registered_job_enabled)
+
+
+async def _run_job_disable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(internal_api.disable_job(args.name))
+    _render(args, view, cli_renderers.render_registered_job_disabled)
 
 
 def main():
@@ -394,6 +440,7 @@ def main():
         help="Enable a registered job",
     )
     job_enable_parser.add_argument("name", type=str, help="Registered job name")
+    _add_json_flag(job_enable_parser)
 
     # job disable <name>
     job_disable_parser = job_subparsers.add_parser(
@@ -401,6 +448,7 @@ def main():
         help="Disable a registered job",
     )
     job_disable_parser.add_argument("name", type=str, help="Registered job name")
+    _add_json_flag(job_disable_parser)
 
     # Add register-job subcommand
     register_job_parser = subparsers.add_parser(
@@ -417,6 +465,7 @@ def main():
         default=None,
         help="Default preservation mode for every run of this job (runs can override)",
     )
+    _add_json_flag(register_job_parser)
 
     # Add run-job subcommand
     run_job_parser = subparsers.add_parser(
@@ -444,10 +493,43 @@ def main():
     )
 
     # registered-job list
-    registered_job_subparsers.add_parser(
+    registered_job_list_parser = registered_job_subparsers.add_parser(
         "list",
         help="List registered jobs",
     )
+    registered_job_list_parser.add_argument(
+        "--enabled",
+        dest="enabled",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Only list enabled registrations",
+    )
+    registered_job_list_parser.add_argument(
+        "--disabled",
+        dest="enabled",
+        action="store_const",
+        const=False,
+        help="Only list disabled registrations",
+    )
+    registered_job_list_parser.add_argument(
+        "--like",
+        default=None,
+        help="Filter by name pattern (SQL LIKE, e.g. '%%etl%%')",
+    )
+    registered_job_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum results (default: 50)",
+    )
+    registered_job_list_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip N results (default: 0)",
+    )
+    _add_json_flag(registered_job_list_parser)
 
     # Add data subcommand
     data_parser = subparsers.add_parser(
@@ -568,39 +650,23 @@ def main():
             asyncio.run(_run_job_list(args))
 
         elif args.job_command == "enable":
-            from aaiclick.orchestration.cli import enable_job_cmd
-
-            asyncio.run(enable_job_cmd(args.name))
+            asyncio.run(_run_job_enable(args))
 
         elif args.job_command == "disable":
-            from aaiclick.orchestration.cli import disable_job_cmd
-
-            asyncio.run(disable_job_cmd(args.name))
+            asyncio.run(_run_job_disable(args))
 
         else:
             job_parser.print_help()
 
     elif args.command == "register-job":
-        from aaiclick.orchestration.cli import register_job_cmd
-
-        asyncio.run(
-            register_job_cmd(
-                args.entrypoint,
-                name=args.name,
-                schedule=args.schedule,
-                kwargs_json=args.kwargs,
-                preservation_mode=args.preservation_mode,
-            )
-        )
+        asyncio.run(_run_register_job(args))
 
     elif args.command == "run-job":
         asyncio.run(_run_run_job(args))
 
     elif args.command == "registered-job":
-        from aaiclick.orchestration.cli import show_registered_jobs
-
         if args.registered_job_command == "list":
-            asyncio.run(show_registered_jobs())
+            asyncio.run(_run_registered_job_list(args))
 
         else:
             registered_job_parser.print_help()

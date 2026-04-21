@@ -14,7 +14,7 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/errors.py`                    | ✅      | `aaiclick/internal_api/errors.py`           |
 | Phase 2 | `aaiclick/internal_api/jobs.py`                      | ✅      | `aaiclick/internal_api/jobs.py`             |
 | Phase 2 | `--json` flag on the `job` + `run-job` verbs         | ✅      | `aaiclick/__main__.py` + `cli_renderers.py` |
-| Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | Pending | Migrate from `__main__.py`                  |
+| Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | ✅      | `aaiclick/internal_api/registered_jobs.py`  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | Pending | Migrate from `__main__.py`                  |
 | Phase 2 | `aaiclick/internal_api/tasks.py`                     | Pending | Brand-new `task get`                        |
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | Pending | Migrate from `data/object/cli.py`           |
@@ -60,14 +60,17 @@ Catalogue" — do not restate them here.
 
 ## Phase 1 follow-up (tracked for Phase 2)
 
-- Delete the trivial passthrough "round-trip dump" tests
-  (`test_job_to_view_round_trip`, `test_worker_to_view_round_trip`,
-  `test_registered_job_to_view_round_trip`,
-  `test_task_to_detail_includes_detail_fields`,
-  and the equivalents in `aaiclick/data/test_view_models.py`). They exist
-  to satisfy the Phase 1 "assert the dumped shape" deliverable but are
-  "assert Python assignment works" per `CLAUDE.md` — drop them once the
-  Phase 2 `internal_api` tests exercise the adapters end-to-end.
+- Delete the trivial passthrough "round-trip dump" tests once the Phase 2
+  `internal_api` tests exercise each adapter end-to-end. They exist to
+  satisfy the Phase 1 "assert the dumped shape" deliverable but are
+  "assert Python assignment works" per `CLAUDE.md`.
+  - `test_registered_job_to_view_round_trip` — removed (exercised by
+    `aaiclick/internal_api/test_registered_jobs.py`).
+  - Still pending: `test_job_to_view_round_trip`,
+    `test_worker_to_view_round_trip`,
+    `test_task_to_detail_includes_detail_fields`, and the equivalents in
+    `aaiclick/data/test_view_models.py` — drop each alongside its
+    internal_api migration PR.
 
 ---
 
@@ -128,6 +131,31 @@ CLI handler maps these to exit code + human message. FastAPI maps them to
 - Every CLI verb has a `--json` option.
 - Every `internal_api` function is tested at the module level (no
   test-via-CLI).
+
+## Phase 2 follow-up (cross-group cleanups)
+
+Small refinements surfaced during migration PRs. Each is a separate PR, sized
+to land alongside or just after the group that motivates it.
+
+- **Paginator footer parity** — `cli_renderers.render_registered_jobs_page`
+  lacks the `"Showing N-M of total"` footer that `render_jobs_page` emits.
+  Thread `offset` through the CLI handler and add the footer. Apply the same
+  check to every group that introduces a list view (workers, objects, tasks).
+
+- **Apply typed-exception pattern across `internal_api/*`** — the
+  registered-jobs migration moved error translation to typed subclasses of
+  `ValueError` in the producer (`RegisteredJobAlreadyExists`,
+  `RegisteredJobNotFound`). `internal_api/jobs.py` still pre-resolves via
+  `_resolve_job` to avoid string matching. Unify on the typed-exception
+  approach in `orchestration/execution/claiming.py` (`cancel_job`) and in
+  any new producer that can fail with "not found" / "conflict" semantics.
+
+- **Shared pagination helper** — when the third `list_*` call site lands
+  (e.g. `list_workers`), extract a helper that takes a base `select`, a
+  sequence of `WHERE` predicates, an ORDER BY column, and
+  `limit`/`offset` — and returns `(total, rows)`. Premature with only two
+  sites (per `CLAUDE.md`'s "three similar lines is better than a premature
+  abstraction"); revisit at three.
 
 ---
 
