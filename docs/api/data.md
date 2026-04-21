@@ -36,6 +36,6 @@
 
 # Snowflake IDs
 
-::: aaiclick.snowflake_id.get_snowflake_id
+::: aaiclick.snowflake.get_snowflake_id
 
-::: aaiclick.snowflake_id.get_snowflake_ids
+::: aaiclick.snowflake.get_snowflake_ids
