@@ -1,19 +1,20 @@
 """Internal API for job commands.
 
-Migrated from ``aaiclick/orchestration/cli.py`` helpers (``show_job``,
-``show_jobs``, ``show_job_stats``, ``cancel_job_cmd``, ``run_job_cmd``). Every
-function runs inside an active ``orch_context()`` and reads SQL/CH resources
-via the contextvar getters (``get_sql_session``, ``get_ch_client``) — same
-contract as the rest of the codebase. Returns pydantic view models from
-``aaiclick.orchestration.view_models``.
+Every function runs inside an active ``orch_context()`` and reads SQL/CH
+resources via the contextvar getters (``get_sql_session``, ``get_ch_client``).
+Returns pydantic view models from ``aaiclick.orchestration.view_models``.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, func, select
 
 from aaiclick.orchestration.execution.claiming import cancel_job as _cancel_job_impl
-from aaiclick.orchestration.models import Job, JobStatus, Task
+from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import (
@@ -28,26 +29,31 @@ from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, NotFound
 
-_TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+
+@asynccontextmanager
+async def _sql_session(session: AsyncSession | None) -> AsyncIterator[AsyncSession]:
+    """Yield ``session`` if non-None, otherwise open one via ``get_sql_session``."""
+    if session is not None:
+        yield session
+        return
+    async with get_sql_session() as owned:
+        yield owned
 
 
-async def _resolve_job(ref: RefId) -> Job | None:
+async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job | None:
     """Look up a job by numeric ID or the most recent job with a matching name."""
-    async with get_sql_session() as session:
+    async with _sql_session(session) as s:
         if isinstance(ref, int):
-            result = await session.execute(select(Job).where(Job.id == ref))
-            return result.scalar_one_or_none()
+            return (await s.execute(select(Job).where(Job.id == ref))).scalar_one_or_none()
 
         if ref.isdigit():
-            result = await session.execute(select(Job).where(Job.id == int(ref)))
-            found = result.scalar_one_or_none()
+            found = (await s.execute(select(Job).where(Job.id == int(ref)))).scalar_one_or_none()
             if found is not None:
                 return found
 
-        name_result = await session.execute(
-            select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1)
-        )
-        return name_result.scalar_one_or_none()
+        return (
+            await s.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))
+        ).scalar_one_or_none()
 
 
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
@@ -82,37 +88,40 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
 
 async def get_job(ref: RefId) -> JobDetail:
     """Return full job detail including all tasks, ordered by creation time."""
-    job = await _resolve_job(ref)
-    if job is None:
-        raise NotFound(f"Job not found: {ref}")
-
     async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at)))
-        tasks = list(result.scalars().all())
-    return job_to_detail(job, tasks)
+        job = await _resolve_job(ref, session)
+        if job is None:
+            raise NotFound(f"Job not found: {ref}")
+        tasks = (
+            (await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at))))
+            .scalars()
+            .all()
+        )
+    return job_to_detail(job, list(tasks))
 
 
 async def job_stats(ref: RefId) -> JobStatsView:
     """Return execution statistics for a job and its tasks."""
-    job = await _resolve_job(ref)
-    if job is None:
-        raise NotFound(f"Job not found: {ref}")
-
     async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at)))
-        tasks = list(result.scalars().all())
-    return compute_job_stats_view(job, tasks)
+        job = await _resolve_job(ref, session)
+        if job is None:
+            raise NotFound(f"Job not found: {ref}")
+        tasks = (
+            (await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at))))
+            .scalars()
+            .all()
+        )
+    return compute_job_stats_view(job, list(tasks))
 
 
 async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks.
 
     Raises ``NotFound`` if the job does not exist, or ``Conflict`` if the job
-    is already in a terminal state. Delegates the atomic cancellation to
-    ``aaiclick.orchestration.execution.claiming.cancel_job`` so backend-
-    specific row locking stays in one place — the terminal-state check there
-    is authoritative, we only resolve the ref first so the error distinguishes
-    "not found" from "already terminal".
+    is already in a terminal state. The ref is resolved first so the error
+    distinguishes "not found" from "already terminal"; the atomic cancellation
+    lives in ``aaiclick.orchestration.execution.claiming.cancel_job`` and is
+    authoritative about terminal state.
     """
     job = await _resolve_job(ref)
     if job is None:
@@ -122,7 +131,8 @@ async def cancel_job(ref: RefId) -> JobView:
         raise Conflict(f"Job {job.id} already in terminal state: {job.status.value}")
 
     refreshed = await _resolve_job(job.id)
-    assert refreshed is not None
+    if refreshed is None:
+        raise RuntimeError(f"Job {job.id} disappeared after cancel")
     return job_to_view(refreshed)
 
 

@@ -1,9 +1,4 @@
-"""Tests for ``aaiclick.internal_api.jobs``.
-
-Exercise the internal API end-to-end against the orch context — the CLI,
-REST, and MCP surfaces all converge on these functions, so a regression
-here breaks every renderer.
-"""
+"""Tests for ``aaiclick.internal_api.jobs``."""
 
 from __future__ import annotations
 
@@ -64,7 +59,6 @@ async def test_get_job_by_int_id(orch_ctx):
     assert isinstance(detail, JobDetail)
     assert detail.id == created.id
     assert detail.name == "by_int"
-    # ``create_job`` also creates an entry Task — it should show up in the detail.
     assert len(detail.tasks) == 1
 
 

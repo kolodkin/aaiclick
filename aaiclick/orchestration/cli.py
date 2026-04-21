@@ -1,12 +1,7 @@
 """CLI helper functions for orchestration commands.
 
-Encapsulates the async startup logic used by __main__.py so that
-the CLI entry point stays thin.
-
-Job-surface helpers (``show_job``, ``show_jobs``, ``show_job_stats``,
-``cancel_job_cmd``, ``run_job_cmd``) were migrated to
-``aaiclick.internal_api.jobs`` during Phase 2 of the API-server rollout.
-The remaining helpers here will move as their groups are migrated.
+Encapsulates the async startup logic used by ``__main__.py`` so the CLI
+entry point stays thin. Job commands live in ``aaiclick.internal_api.jobs``.
 """
 
 from __future__ import annotations

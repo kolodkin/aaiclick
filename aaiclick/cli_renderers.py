@@ -59,12 +59,7 @@ def render_job_detail(detail: JobDetail) -> None:
 
 
 def render_job_stats(stats: JobStatsView) -> None:
-    """Print formatted job stats as a markdown table to stdout.
-
-    Replaces ``aaiclick.orchestration.jobs.stats.print_job_stats`` — the
-    only behavioural change is durations come from ``*_ms`` integer fields
-    rather than ``timedelta`` values.
-    """
+    """Print formatted job stats as a markdown table to stdout."""
     print(f"\n## Job: {stats.job_name} (ID: {stats.job_id})")
     print()
     breakdown = [f"{status}: {count}" for status, count in sorted(stats.status_counts.items())]
