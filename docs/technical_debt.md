@@ -1,18 +1,6 @@
 Technical Debt
 ---
 
-# chdb Session Not Safe to Close + Reopen In-Process
-
-- **`_pin_chdb_session` fixture** (`aaiclick/conftest.py`), **module-scoped orch fixtures** (`aaiclick/conftest.py`), **nested orch_context reuse** (`aaiclick/orchestration/orch_context.py`)
-  - **Issue**: chdb embeds the entire ClickHouse server (Poco `Application` singleton, logger, settings manager, a native `ThreadPool`) as per-process state. Calling `chdb.session.Session.cleanup()` and then instantiating another `Session(path)` in the same process races lingering ThreadPool workers against reinitialization. Intermittently trips a glibc assertion `___pthread_mutex_lock: Assertion 'mutex->__data.__owner == 0' failed` inside `_chdb.abi3.so`, abort()ing the process. gdb confirms the fault is entirely in chdb ThreadPool threads, zero aaiclick frames on the crashing stack.
-  - **Root cause**: chdb's documented constraint — one active session per process. `aaiclick/orchestration/orch_context.py` unconditionally called `close_session()` on every context exit; under pytest, ~500+ orch_context cycles amplified the teardown race to a ~25–40 % crash rate on full suites.
-  - **Workaround** (three layers, each independently reduces blast radius):
-    1. `orch_context()` now reuses an outer context's ``ch_client`` when nested. Nested invocations (``ajob_test``, etc.) no longer create their own chdb session and no longer call ``close_session`` at exit — only the outermost context owns teardown.
-    2. The `orch_ctx` / `orch_ctx_no_ch` fixtures split into module-scoped orch entry + function-scoped state reset (``aaiclick/test_utils.py``: ``module_orch_scope``, ``per_test_reset``). chdb Session teardown drops from per-test (~500 cycles) to per-module (~20 cycles).
-    3. `_pin_chdb_session` (session-scoped, autouse) no-ops ``close_session`` for the lifetime of the pytest run. Module boundaries never call the real close; chdb's `Session` lives once per process (what chdb supports).
-  - **Side note**: the mp-worker module (`test_retry_mp.py`, `test_worker_mp.py`, `test_mp_worker.py`) uses `orch_ctx_no_ch` and is split into a dedicated module so its module-scoped `orch_context(with_ch=False)` doesn't collide with other modules' chdb sessions. Its fixture also swaps `AAICLICK_CH_URL` to a per-module tempdir so the spawned child process opens a fresh chdb file.
-  - **Debt**: Remove the pin fixture once chdb ships a `Session` implementation that tolerates repeated teardown+reopen in-process. No upstream fix across chdb 4.0 → 4.1.6 (see [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229), [#197](https://github.com/chdb-io/chdb/issues/197)). A complementary production-side improvement — making `close_session()` opt-in (only when about to spawn a chdb-owning subprocess) instead of unconditional on every `orch_context` exit — is tracked separately in `docs/future.md`.
-
 # chdb `url()` Table Function
 
 - **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/data_context/chdb_client.py`)
