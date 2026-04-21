@@ -16,7 +16,6 @@ Subpackage conftests only hold subpackage-local fixtures.
 |--------------------------------------------------|--------------------------------------------------|
 | `aaiclick/data/conftest.py`                      | `ctx` (function-scoped `data_context`)           |
 | `aaiclick/orchestration/conftest.py`             | `_tmp_log_dir` autouse, `fast_poll`              |
-| `aaiclick/oplog/conftest.py`                     | empty                                            |
 | `aaiclick/ai/conftest.py`                        | `live_llm` skip + warning-filter marker logic    |
 | `aaiclick/orchestration/background/conftest.py`  | `bg_db` (background-worker SQLite engine)        |
 
