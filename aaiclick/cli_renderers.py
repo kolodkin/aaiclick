@@ -235,6 +235,14 @@ def render_objects_purged(result: PurgeObjectsResult) -> None:
         print(f"  {name}")
 
 
+_SETUP_STEP_LABELS = {
+    "chdb": "chdb",
+    "clickhouse": "ClickHouse",
+    "sqlite": "SQLite DB",
+    "postgres": "PostgreSQL",
+}
+
+
 def render_setup_result(result: SetupResult) -> None:
     """Print ``internal_api.setup`` output — resolved config + per-step outcomes."""
     print(f"Root:    {result.root}")
@@ -242,11 +250,7 @@ def render_setup_result(result: SetupResult) -> None:
     print(f"SQL URL: {result.sql_url}")
     print(f"Mode:    {result.mode}")
     for step in result.steps:
-        if step.name == "ollama":
-            continue
-        label = {"chdb": "chdb", "clickhouse": "ClickHouse", "sqlite": "SQLite DB", "postgres": "PostgreSQL"}.get(
-            step.name, step.name
-        )
+        label = _SETUP_STEP_LABELS.get(step.name, step.name)
         marker = "OK" if step.status == "ok" else step.status.upper()
         detail = f" ({step.detail})" if step.detail else ""
         print(f"  {label}: {marker}{detail}")
@@ -277,12 +281,7 @@ def render_ollama_bootstrap(result: OllamaBootstrapResult) -> None:
 
 
 def render_migration_result(result: MigrationResult) -> None:
-    """Confirm which alembic subcommand ran.
-
-    Alembic itself emits the substantive output (revision list, current head,
-    etc.); this renderer only confirms success for the action that does not
-    log a result on its own.
-    """
+    """Confirm upgrade/downgrade success — alembic logs the rest on its own."""
     if result.action == MigrationAction.UPGRADE:
         print(f"Database upgraded to {result.revision}")
     elif result.action == MigrationAction.DOWNGRADE:

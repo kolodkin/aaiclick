@@ -107,7 +107,6 @@ def setup(*, ai: bool = False) -> SetupResult:
     if ai:
         model = os.environ.get("AAICLICK_AI_MODEL", DEFAULT_OLLAMA_MODEL)
         ollama = bootstrap_ollama(model)
-        steps.append(SetupStep(name="ollama", status=_ollama_step_status(ollama), detail=ollama.detail or ollama.model))
 
     Path(root).mkdir(parents=True, exist_ok=True)
     (root / "setup_done").write_text("")
@@ -120,15 +119,6 @@ def setup(*, ai: bool = False) -> SetupResult:
         steps=steps,
         ollama=ollama,
     )
-
-
-def _ollama_step_status(result: OllamaBootstrapResult) -> str:
-    """Translate an ``OllamaBootstrapStatus`` to a ``SetupStep`` status."""
-    if result.status in (OllamaBootstrapStatus.ALREADY_PRESENT, OllamaBootstrapStatus.PULLED):
-        return "ok"
-    if result.status == OllamaBootstrapStatus.NOT_OLLAMA:
-        return "skipped"
-    return "failed"
 
 
 def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBootstrapResult:

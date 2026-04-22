@@ -35,6 +35,7 @@ from datetime import datetime
 
 from aaiclick import cli_renderers, internal_api
 from aaiclick.data.data_context import data_context
+from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
@@ -84,6 +85,15 @@ async def _run_data_api(coro):
     try:
         async with data_context():
             return await coro
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+def _run_sync_api(call):
+    """Invoke a sync ``internal_api`` callable, mapping API errors to exit 1."""
+    try:
+        return call()
     except InternalApiError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -251,11 +261,7 @@ Environment Variables:
 
 
 def _run_setup_cli(args: argparse.Namespace) -> None:
-    try:
-        result = internal_api.setup.setup(ai=args.ai)
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai))
     _render(args, result, cli_renderers.render_setup_result)
 
 
@@ -274,12 +280,7 @@ def _run_migrate_cli(args: argparse.Namespace) -> None:
         sys.exit(1)
     revision = rest[0] if rest else None
 
-    try:
-        result = internal_api.setup.migrate(action, revision)
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
-
+    result = _run_sync_api(lambda: setup_api.migrate(action, revision))
     _render(args, result, cli_renderers.render_migration_result)
 
 

@@ -76,7 +76,7 @@ def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
     assert (tmp_path / "setup_done").exists()
 
 
-def test_setup_with_ai_non_ollama_records_skipped_step(tmp_path, monkeypatch):
+def test_setup_with_ai_non_ollama_populates_ollama_field(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
     monkeypatch.delenv("AAICLICK_SQL_URL", raising=False)
     monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
@@ -87,8 +87,7 @@ def test_setup_with_ai_non_ollama_records_skipped_step(tmp_path, monkeypatch):
 
     assert result.ollama is not None
     assert result.ollama.status == OllamaBootstrapStatus.NOT_OLLAMA
-    ollama_step = next(s for s in result.steps if s.name == "ollama")
-    assert ollama_step.status == "skipped"
+    assert not any(s.name == "ollama" for s in result.steps)
 
 
 def test_is_setup_done_false_without_marker(tmp_path, monkeypatch):
