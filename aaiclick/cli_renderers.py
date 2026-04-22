@@ -17,7 +17,7 @@ from aaiclick.orchestration.view_models import (
     TaskDetail,
     WorkerView,
 )
-from aaiclick.view_models import Page, PurgeObjectsResult
+from aaiclick.view_models import ObjectDeleted, Page, PurgeObjectsResult
 
 
 def _fmt_ms(ms: int | None) -> str:
@@ -211,9 +211,9 @@ def render_object_detail(detail: ObjectDetail) -> None:
         print(f"  {col.name}: {col.type}")
 
 
-def render_object_deleted(name: str) -> None:
+def render_object_deleted(view: ObjectDeleted) -> None:
     """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
-    print(f"Deleted persistent object '{name}'")
+    print(f"Deleted persistent object '{view.name}'")
 
 
 def render_objects_purged(result: PurgeObjectsResult) -> None:

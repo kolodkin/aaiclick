@@ -308,11 +308,8 @@ async def _run_data_get(args: argparse.Namespace) -> None:
 
 
 async def _run_data_delete(args: argparse.Namespace) -> None:
-    await _run_data_api(internal_api.delete_object(args.name))
-    if args.json:
-        print(json.dumps({"deleted": args.name}))
-    else:
-        cli_renderers.render_object_deleted(args.name)
+    view = await _run_data_api(internal_api.delete_object(args.name))
+    _render(args, view, cli_renderers.render_object_deleted)
 
 
 async def _run_data_purge(args: argparse.Namespace) -> None:

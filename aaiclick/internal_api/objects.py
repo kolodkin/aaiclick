@@ -11,7 +11,7 @@ to a follow-up once an active orch job is plumbed through.
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import Any
 
 from aaiclick.data.data_context import (
     delete_persistent_object,
@@ -20,12 +20,14 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
     open_object,
 )
+from aaiclick.data.scope import make_persistent_table_name
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
     object_to_detail,
 )
 from aaiclick.view_models import (
+    ObjectDeleted,
     ObjectFilter,
     Page,
     PurgeObjectsRequest,
@@ -34,13 +36,14 @@ from aaiclick.view_models import (
 
 from .errors import Invalid, NotFound
 
-_GLOBAL_PREFIX = "p_"
 
+async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
+    """Look up per-table stats (row count, size, creation time) in one query.
 
-async def _fetch_table_metadata(
-    tables: list[str],
-) -> dict[str, tuple[int | None, int | None, datetime | None]]:
-    """Look up ``(row_count, size_bytes, created_at)`` per table in one query."""
+    Returned dict is keyed by table name; each value is a kwargs dict ready to
+    spread into ``ObjectView`` / ``object_to_detail`` (``row_count``,
+    ``size_bytes``, ``created_at``).
+    """
     if not tables:
         return {}
     names_lit = ", ".join(f"'{t}'" for t in tables)
@@ -50,7 +53,10 @@ async def _fetch_table_metadata(
         "FROM system.tables "
         f"WHERE database = currentDatabase() AND name IN ({names_lit})"
     )
-    return {row[0]: (row[1], row[2], row[3]) for row in result.result_rows}
+    return {
+        row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]}
+        for row in result.result_rows
+    }
 
 
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
@@ -70,23 +76,19 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 
     total = len(names)
     paged = names[: filter.limit]
-    tables = [f"{_GLOBAL_PREFIX}{n}" for n in paged]
+    tables = [make_persistent_table_name("global", n) for n in paged]
     metadata = await _fetch_table_metadata(tables)
 
-    items: list[ObjectView] = []
-    for name, table in zip(paged, tables, strict=True):
-        rows, size, created = metadata.get(table, (None, None, None))
-        items.append(
-            ObjectView(
-                name=name,
-                table=table,
-                scope="global",
-                persistent=True,
-                row_count=rows,
-                size_bytes=size,
-                created_at=created,
-            )
+    items = [
+        ObjectView(
+            name=name,
+            table=table,
+            scope="global",
+            persistent=True,
+            **metadata.get(table, {}),
         )
+        for name, table in zip(paged, tables, strict=True)
+    ]
     return Page[ObjectView](items=items, total=total)
 
 
@@ -101,22 +103,17 @@ async def get_object(name: str) -> ObjectDetail:
         raise NotFound(f"Object not found: {name}") from exc
 
     metadata = await _fetch_table_metadata([obj.table])
-    rows, size, created = metadata.get(obj.table, (None, None, None))
-    return object_to_detail(
-        obj,
-        row_count=rows,
-        size_bytes=size,
-        created_at=created,
-    )
+    return object_to_detail(obj, **metadata.get(obj.table, {}))
 
 
-async def delete_object(name: str) -> None:
+async def delete_object(name: str) -> ObjectDeleted:
     """Drop a global-scope persistent object by name.
 
     Idempotent — dropping a non-existent object is not an error, matching
     ClickHouse's ``DROP TABLE IF EXISTS`` semantics used underneath.
     """
     await delete_persistent_object(name)
+    return ObjectDeleted(name=name)
 
 
 async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:

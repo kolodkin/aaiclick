@@ -130,3 +130,9 @@ class PurgeObjectsResult(BaseModel):
     """Response from ``internal_api.purge_objects`` — names of dropped tables."""
 
     deleted: list[str]
+
+
+class ObjectDeleted(BaseModel):
+    """Response from ``internal_api.delete_object`` — name of the dropped table."""
+
+    name: str
