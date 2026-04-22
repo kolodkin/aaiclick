@@ -140,6 +140,38 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
+## Switch DB Enums from `StrEnum` to `Literal` + `sa_column`
+
+Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). The codebase's default preference is Literal for simplicity; StrEnum lives on solely for DB coupling.
+
+**Proposal**: make Literal the single source of truth; declare the DB mapping explicitly via `sa_column` with `SaEnum(*get_args(MyLiteral))`.
+
+```python
+from typing import Literal, get_args
+from sqlalchemy import Column
+from sqlalchemy import Enum as SaEnum
+
+JobStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+
+class Job(SQLModel, table=True):
+    status: JobStatus = Field(
+        sa_column=Column(SaEnum(*get_args(JobStatus), name="job_status"), nullable=False),
+    )
+```
+
+**Tradeoffs to resolve first**:
+
+- Alembic autogenerate is less reliable with Literal + explicit `sa_column` than with a real `Enum` class — value-set changes may need hand-written migrations.
+- Postgres native `ENUM` needs `ALTER TYPE ADD VALUE` (non-transactional) to add values. Consider switching those columns to `Column(String, CheckConstraint(...))` for easier migrations — at the cost of losing the native ENUM type on the DB side.
+- Every `JobStatus.PENDING` reference across the codebase, tests, and examples flips to `"PENDING"`. Bulk rename with care; pydantic / type-check will catch most mistakes.
+
+**Work**:
+
+- `aaiclick/orchestration/models.py` — replace the five StrEnums with Literal aliases and add `sa_column=Column(SaEnum(...))` to each Field.
+- Update every `Status.VALUE` reference in `aaiclick/`, tests, and examples to string literals.
+- Audit alembic migrations for new diffs; hand-write migrations for any that autogenerate misses.
+- Update `CLAUDE.md` coding guidelines to document the Literal-first rule and the explicit `sa_column` pattern for DB columns.
+
 ---
 
 # Deferred

@@ -1,7 +1,7 @@
 API Server: Implementation Plan
 ---
 
-Companion to `docs/api_server.md`. Five phases, each independently
+Companion to `docs/api_server.md`. Four phases, each independently
 shippable, each leaves the tree green.
 
 # Status
@@ -18,12 +18,11 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | ✅      | `aaiclick/internal_api/workers.py`          |
 | Phase 2 | `aaiclick/internal_api/tasks.py`                     | ✅      | `aaiclick/internal_api/tasks.py`            |
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | ✅      | `aaiclick/internal_api/objects.py`          |
-| Phase 2 | `aaiclick/internal_api/setup.py`                     | Pending | Migrate from `__main__.py`                  |
-| Phase 2 | `--json` flag on remaining CLI verbs                 | ✅      | Data `list`/`get`/`delete`/`purge` now support `--json` |
+| Phase 2 | `aaiclick/internal_api/setup.py`                     | ✅      | `aaiclick/internal_api/setup.py`            |
+| Phase 2 | `--json` flag on remaining CLI verbs                 | ✅      | Data `list`/`get`/`delete`/`purge`, plus `setup`/`migrate` now support `--json` |
 | Phase 3 | `aaiclick[server]` optional extra                    | Pending | `pyproject.toml`                            |
 | Phase 3 | `aaiclick/server/app.py` + routers                   | Pending |                                             |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |
-| Phase 5 | OpenAPI → UI SDK generator                           | Pending | Consumed by `docs/ui.md` frontend           |
 
 ---
 
@@ -226,28 +225,9 @@ to land alongside or just after the group that motivates it.
 
 ---
 
-# Phase 5 — UI SDK Generation
-
-**Objective**: the orchestration UI (`docs/ui.md`) no longer maintains
-its own DTOs.
-
-## Tasks
-
-1. Publish `openapi.json` from the FastAPI app.
-2. Generate a typed client for the Preact UI directly from the spec
-   (e.g. `openapi-typescript`).
-3. UI imports the generated types; removes any hand-written DTOs.
-
-## Exit Criteria
-
-- UI SDK regenerates from `/openapi.json` in CI.
-- No hand-written response types in the frontend.
-
----
-
 # Rollout Notes
 
-- Each phase is independent. Phases 3 / 4 / 5 depend only on Phase 2 being
+- Each phase is independent. Phases 3 / 4 depend only on Phase 2 being
   complete for the groups they touch — so a subset of routes can ship
   before every CLI group is migrated.
 - No feature flags. Each phase replaces the previous surface outright for

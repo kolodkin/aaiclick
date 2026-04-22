@@ -29,7 +29,7 @@ A shared I/O layer lets us:
   view model.
 - Render it three ways (CLI text, CLI `--json`, HTTP JSON, MCP tool result)
   without duplicating logic.
-- Generate an OpenAPI spec and UI SDK directly from pydantic models.
+- Generate an OpenAPI spec directly from pydantic models.
 - Keep database models (`SQLModel`) and wire models (`pydantic`) independent
   so DB schema changes don't ripple into REST clients.
 
@@ -245,8 +245,7 @@ on request start and exits on response — the contextvar getters inside
 
 - **Error mapping**: one exception handler turns `internal_api.errors.NotFound`
   into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`.
-- **OpenAPI**: derived automatically from view models. Drives the future UI
-  SDK generator.
+- **OpenAPI**: derived automatically from view models.
 - **Logs**: out of scope. Task log files are served statically or streamed
   verbatim; no log envelope view model.
 

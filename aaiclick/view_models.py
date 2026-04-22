@@ -12,6 +12,7 @@ surfaces share one vocabulary.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
@@ -136,3 +137,66 @@ class ObjectDeleted(BaseModel):
     """Response from ``internal_api.delete_object`` — name of the dropped table."""
 
     name: str
+
+
+SetupStepStatus = Literal["ok", "skipped", "failed"]
+
+
+class SetupStep(BaseModel):
+    """One check/action performed during ``internal_api.setup``."""
+
+    name: str
+    status: SetupStepStatus
+    detail: str | None = None
+
+
+class OllamaBootstrapStatus(str, Enum):
+    """Outcome of ``internal_api.bootstrap_ollama``."""
+
+    ALREADY_PRESENT = "already_present"
+    PULLED = "pulled"
+    SERVER_UNREACHABLE = "server_unreachable"
+    NOT_OLLAMA = "not_ollama"
+    FAILED = "failed"
+
+
+class OllamaBootstrapResult(BaseModel):
+    """Response from ``internal_api.bootstrap_ollama``."""
+
+    model: str
+    server_url: str
+    status: OllamaBootstrapStatus
+    detail: str | None = None
+
+
+class SetupResult(BaseModel):
+    """Response from ``internal_api.setup`` — per-step outcomes + resolved config."""
+
+    root: str
+    ch_url: str
+    sql_url: str
+    mode: Literal["local", "distributed"]
+    steps: list[SetupStep]
+    ollama: OllamaBootstrapResult | None = None
+
+
+class MigrationAction(str, Enum):
+    """Alembic subcommand executed by ``internal_api.migrate``."""
+
+    UPGRADE = "upgrade"
+    DOWNGRADE = "downgrade"
+    CURRENT = "current"
+    HISTORY = "history"
+    HEADS = "heads"
+    SHOW = "show"
+
+
+class MigrationResult(BaseModel):
+    """Response from ``internal_api.migrate`` — describes what was run.
+
+    Alembic commands emit their own output to stdout; this model captures the
+    request shape so callers can format / serialise the invocation itself.
+    """
+
+    action: MigrationAction
+    revision: str | None = None
