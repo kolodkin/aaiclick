@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+from starlette.routing import Route
+
 from .app import API_PREFIX, app
 
 
+def _route_paths() -> list[str]:
+    return [r.path for r in app.routes if isinstance(r, Route)]
+
+
 def test_all_resource_routes_are_prefixed():
-    resource_paths = [
-        r.path
-        for r in app.routes
-        if hasattr(r, "path") and r.path not in {"/health", "/docs/oauth2-redirect"}
-    ]
-    for path in resource_paths:
+    excluded = {"/health", "/docs/oauth2-redirect"}
+    for path in _route_paths():
+        if path in excluded:
+            continue
         assert path.startswith(API_PREFIX), f"route {path!r} is not under {API_PREFIX}"
 
 
 def test_expected_routes_are_registered():
-    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    paths = set(_route_paths())
     for expected in [
         f"{API_PREFIX}/jobs",
         f"{API_PREFIX}/jobs/{{ref}}",
