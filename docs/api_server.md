@@ -89,7 +89,7 @@ aaiclick/
                                      (zero business logic)
   server/                          ← FastAPI + FastMCP (optional extra)
     __init__.py
-    app.py                         FastAPI app factory; mounts routers + MCP
+    app.py                         FastAPI app instance; mounts routers + MCP
     deps.py                        AsyncSession / ChClient dependency providers
     errors.py                      internal_api.errors.* → HTTP Problem mapper
     routers/

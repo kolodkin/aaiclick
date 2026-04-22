@@ -301,16 +301,8 @@ Each router PR:
 
 ### PR 6 — Run via uvicorn directly — no wrapper module
 
-No `__main__.py`. The app is a module-level instance, so uvicorn runs it
-the standard way:
-
-```bash
-uvicorn aaiclick.server.app:app
-```
-
-Host / port / reload / workers / TLS flow through uvicorn's own flags
-and env vars (`UVICORN_HOST`, `UVICORN_PORT`, …). No parallel
-`AAICLICK_SERVER_*` namespace.
+No `__main__.py`; no factory. See `docs/api_server.md` — Running the
+server — for the canonical invocation.
 
 ## Test Strategy
 
@@ -346,8 +338,8 @@ and env vars (`UVICORN_HOST`, `UVICORN_PORT`, …). No parallel
 ## Tasks
 
 1. **MCP server** — `aaiclick/server/mcp.py` instantiates a FastMCP server
-   and mounts it on the FastAPI app (or hosts standalone via the same
-   app factory).
+   and mounts it on the FastAPI `app` (or hosts standalone by importing
+   the same module-level `app`).
 2. **Tools** — one `@mcp.tool()` per `internal_api` function. The function
    signature is the tool schema — no hand-written JSON Schema.
 3. **Tests** — call each tool via FastMCP's in-process client; assert the
