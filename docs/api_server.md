@@ -103,6 +103,14 @@ aaiclick/
     __main__.py                    `python -m aaiclick.server` → uvicorn
 ```
 
+All HTTP routes are mounted under a single versioned prefix —
+**`/api/v0`** — declared once in `server/app.py` as `API_PREFIX` and passed to
+`include_router(..., prefix=API_PREFIX)`. Individual router files declare
+paths *relative* to the prefix (`/jobs`, `/workers`, ...) so the version lives
+in exactly one place. The `v0` segment is deliberate: the schema is still
+experimental and may break; the number advances to `v1` once the contract
+stabilises.
+
 # View Model Catalogue
 
 ## Shared (`aaiclick/view_models.py`)
@@ -185,7 +193,10 @@ Rules:
 
 ## CLI verb → internal_api → REST → MCP
 
-| CLI today                  | Internal API                       | REST                               | MCP tool                  |
+All REST paths share a common `/api/v0` prefix — see
+[REST Surface](#rest-surface) for the rationale.
+
+| CLI today                  | Internal API                       | REST (under `/api/v0`)             | MCP tool                  |
 |----------------------------|------------------------------------|------------------------------------|---------------------------|
 | `job list`                 | `list_jobs(filter)`                | `GET /jobs`                        | `list_jobs`               |
 | `job get <ref>`            | `get_job(ref)`                     | `GET /jobs/{ref}`                  | `get_job`                 |
@@ -229,23 +240,52 @@ async def cmd_job_list(args):
 
 # REST Surface
 
-`aaiclick/server/app.py` exposes a FastAPI app. Each router is a thin wrapper
-that runs inside an `orch_context()` (or `data_context()` for data routes)
-scoped to the request:
+`aaiclick/server/app.py` exposes a FastAPI app. All resource routes mount under
+a single versioned prefix — declared once and reused by every router:
 
 ```python
-@router.get("/jobs", response_model=Page[JobView])
+# aaiclick/server/app.py
+API_PREFIX = "/api/v0"                 # pre-1.0 — the contract may still churn
+
+app = FastAPI(title="aaiclick")
+app.include_router(jobs.router,             prefix=API_PREFIX)
+app.include_router(registered_jobs.router,  prefix=API_PREFIX)
+app.include_router(tasks.router,            prefix=API_PREFIX)
+app.include_router(workers.router,          prefix=API_PREFIX)
+app.include_router(objects.router,          prefix=API_PREFIX)
+```
+
+Individual routers declare paths **relative** to the prefix — `/jobs`,
+`/registered-jobs`, etc. — so the version lives in exactly one place and can be
+bumped to `/api/v1` with a single-line edit.
+
+Each router is a thin wrapper that runs inside an `orch_context()` (or
+`data_context()` for data routes) scoped to the request:
+
+```python
+# aaiclick/server/routers/jobs.py
+router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+@router.get("", response_model=Page[JobView])
 async def list_jobs(filter: JobListFilter = Depends(), _=Depends(orch_scope)):
     return await internal_api.list_jobs(filter)
 ```
+
+The resulting route is `GET /api/v0/jobs`.
 
 `orch_scope` is a FastAPI dependency that enters `orch_context(with_ch=False)`
 on request start and exits on response — the contextvar getters inside
 `internal_api` see the session/client for the duration of the call.
 
+**Why `/api/v0`?** The shape of the view models, error envelope, and URL layout
+are still evolving alongside Phase 3. The `v0` segment signals "experimental,
+subject to breaking change" to downstream UIs / SDK generators; we graduate to
+`/api/v1` once the schema has settled and external callers exist.
+
 - **Error mapping**: one exception handler turns `internal_api.errors.NotFound`
   into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`.
-- **OpenAPI**: derived automatically from view models.
+- **OpenAPI**: derived automatically from view models; served at
+  `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
 - **Logs**: out of scope. Task log files are served statically or streamed
   verbatim; no log envelope view model.
 
