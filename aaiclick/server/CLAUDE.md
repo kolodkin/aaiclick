@@ -36,6 +36,21 @@ When writing tests, build URLs with the constant: `f"{API_PREFIX}/jobs"`,
 not `"/api/v0/jobs"`. If the prefix ever graduates to `/api/v1`, the
 constant update propagates automatically.
 
+# `Problem` codes — use `ProblemCode` enum
+
+Error responses carry a `ProblemCode` enum value (`NOT_FOUND`, `CONFLICT`,
+`INVALID`) — never a raw string. Both `server/errors.py` and tests import
+it from `aaiclick.view_models`. Adding a new error class is a one-line
+edit to `_PROBLEM_MAP` in `errors.py`.
+
+# Scope dependencies on routers
+
+Single-scope routers declare the scope once at the `APIRouter(...)`
+level via `dependencies=[Depends(orch_scope)]`; individual endpoints
+drop the `_scope` parameter. Only `jobs.py` keeps per-endpoint
+dependencies because it mixes `orch_scope` (reads) and
+`orch_scope_with_ch` (`run_job`).
+
 # Test scope
 
 Router tests assert HTTP plumbing only — status codes, route registration,

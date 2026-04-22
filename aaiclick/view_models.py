@@ -38,13 +38,21 @@ class Page(BaseModel, Generic[T]):
     next_cursor: str | None = None
 
 
+class ProblemCode(str, Enum):
+    """Stable machine-readable code attached to every ``Problem`` response."""
+
+    NOT_FOUND = "not_found"
+    CONFLICT = "conflict"
+    INVALID = "invalid"
+
+
 class Problem(BaseModel):
     """RFC 7807-style error payload used by the REST surface."""
 
     title: str
     status: int
     detail: str | None = None
-    code: str | None = None
+    code: ProblemCode | None = None
 
 
 class RunJobRequest(BaseModel):

@@ -1,12 +1,6 @@
-"""Smoke tests for the FastAPI app factory — prefix wiring, health, OpenAPI."""
-
 from __future__ import annotations
 
 from .app import API_PREFIX, create_app
-
-
-def test_api_prefix_is_v0():
-    assert API_PREFIX == "/api/v0"
 
 
 def test_all_resource_routes_are_prefixed():
@@ -52,8 +46,7 @@ async def test_health(app_client):
 async def test_openapi_schema_served_under_prefix(app_client):
     response = await app_client.get(f"{API_PREFIX}/openapi.json")
     assert response.status_code == 200
-    schema = response.json()
-    schemas = schema["components"]["schemas"]
+    schemas = response.json()["components"]["schemas"]
     for model_name in [
         "JobView",
         "JobDetail",

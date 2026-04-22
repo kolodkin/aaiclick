@@ -1,37 +1,35 @@
-"""Map ``internal_api.errors.*`` to RFC 7807 ``Problem`` + HTTP status.
-
-Unhandled ``InternalApiError`` subclasses fall through to FastAPI's default
-500 handler — we do not install a blanket catch-all, so bugs surface instead
-of being silently wrapped.
-"""
+"""Map ``internal_api.errors.*`` to RFC 7807 ``Problem`` + HTTP status."""
 
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from aaiclick.internal_api.errors import Conflict, Invalid, NotFound
-from aaiclick.view_models import Problem
+from aaiclick.internal_api.errors import Conflict, InternalApiError, Invalid, NotFound
+from aaiclick.view_models import Problem, ProblemCode
 
-
-def _problem_response(title: str, status: int, detail: str, code: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content=Problem(title=title, status=status, detail=detail, code=code).model_dump(),
-    )
+_PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
+    NotFound: ("Not Found", 404, ProblemCode.NOT_FOUND),
+    Conflict: ("Conflict", 409, ProblemCode.CONFLICT),
+    Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
+}
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Install the three ``internal_api`` → HTTP Problem handlers on ``app``."""
+    for exc_type, (title, status, code) in _PROBLEM_MAP.items():
+        _register(app, exc_type, title, status, code)
 
-    @app.exception_handler(NotFound)
-    async def _handle_not_found(request: Request, exc: NotFound) -> JSONResponse:
-        return _problem_response("Not Found", 404, str(exc), "not_found")
 
-    @app.exception_handler(Conflict)
-    async def _handle_conflict(request: Request, exc: Conflict) -> JSONResponse:
-        return _problem_response("Conflict", 409, str(exc), "conflict")
-
-    @app.exception_handler(Invalid)
-    async def _handle_invalid(request: Request, exc: Invalid) -> JSONResponse:
-        return _problem_response("Invalid Request", 422, str(exc), "invalid")
+def _register(
+    app: FastAPI,
+    exc_type: type[InternalApiError],
+    title: str,
+    status: int,
+    code: ProblemCode,
+) -> None:
+    @app.exception_handler(exc_type)
+    async def _handler(request: Request, exc: InternalApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status,
+            content=Problem(title=title, status=status, detail=str(exc), code=code).model_dump(mode="json"),
+        )

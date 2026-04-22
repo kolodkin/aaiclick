@@ -1,11 +1,9 @@
-"""Integration tests for ``aaiclick.server.routers.workers``."""
-
 from __future__ import annotations
 
 from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.models import WorkerStatus
 from aaiclick.orchestration.view_models import WorkerView
-from aaiclick.view_models import Page, Problem
+from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -36,7 +34,7 @@ async def test_stop_worker_not_found_returns_404(orch_ctx, app_client):
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
-    assert problem.code == "not_found"
+    assert problem.code is ProblemCode.NOT_FOUND
 
 
 async def test_stop_already_stopping_returns_409(orch_ctx, app_client):
@@ -47,4 +45,4 @@ async def test_stop_already_stopping_returns_409(orch_ctx, app_client):
 
     assert response.status_code == 409
     problem = Problem.model_validate(response.json())
-    assert problem.code == "conflict"
+    assert problem.code is ProblemCode.CONFLICT

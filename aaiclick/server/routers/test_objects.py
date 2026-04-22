@@ -1,15 +1,8 @@
-"""Integration tests for ``aaiclick.server.routers.objects``.
-
-Object routes enter ``orch_context(with_ch=True)`` per request. The tests
-use the existing ``orch_ctx`` fixture which provides the outer context and
-ch client — the per-request nested orch_context reuses the outer client.
-"""
-
 from __future__ import annotations
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
-from aaiclick.view_models import Page, Problem
+from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -39,7 +32,7 @@ async def test_get_object_not_found_returns_404(orch_ctx, app_client):
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
-    assert problem.code == "not_found"
+    assert problem.code is ProblemCode.NOT_FOUND
 
 
 async def test_delete_object(orch_ctx, app_client):
@@ -56,7 +49,7 @@ async def test_list_objects_rejects_non_global_scope_returns_422(orch_ctx, app_c
 
     assert response.status_code == 422
     problem = Problem.model_validate(response.json())
-    assert problem.code == "invalid"
+    assert problem.code is ProblemCode.INVALID
 
 
 async def test_purge_without_filters_returns_422(orch_ctx, app_client):
@@ -64,4 +57,4 @@ async def test_purge_without_filters_returns_422(orch_ctx, app_client):
 
     assert response.status_code == 422
     problem = Problem.model_validate(response.json())
-    assert problem.code == "invalid"
+    assert problem.code is ProblemCode.INVALID

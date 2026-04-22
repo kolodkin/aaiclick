@@ -1,17 +1,9 @@
-"""Integration tests for ``aaiclick.server.routers.jobs``.
-
-Tests only assert HTTP plumbing — status codes, route registration, error
-envelope shape, and that response bodies deserialise into the declared
-``response_model``. Business logic is already covered by
-``aaiclick/internal_api/test_jobs.py``.
-"""
-
 from __future__ import annotations
 
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
-from aaiclick.view_models import Page, Problem
+from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -58,7 +50,7 @@ async def test_get_job_not_found_returns_404(orch_ctx, app_client):
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
-    assert problem.code == "not_found"
+    assert problem.code is ProblemCode.NOT_FOUND
     assert problem.status == 404
 
 
@@ -90,7 +82,7 @@ async def test_cancel_already_cancelled_returns_409(orch_ctx, app_client):
 
     assert response.status_code == 409
     problem = Problem.model_validate(response.json())
-    assert problem.code == "conflict"
+    assert problem.code is ProblemCode.CONFLICT
 
 
 async def test_run_job(orch_ctx, app_client):

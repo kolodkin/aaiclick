@@ -1,11 +1,9 @@
-"""Integration tests for ``aaiclick.server.routers.tasks``."""
-
 from __future__ import annotations
 
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.view_models import TaskDetail
-from aaiclick.view_models import Problem
+from aaiclick.view_models import Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -29,4 +27,4 @@ async def test_get_task_not_found_returns_404(orch_ctx, app_client):
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
-    assert problem.code == "not_found"
+    assert problem.code is ProblemCode.NOT_FOUND

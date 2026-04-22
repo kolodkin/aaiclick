@@ -1,11 +1,3 @@
-"""REST router for persistent-object commands — paths relative to ``/api/v0``.
-
-Object routes need a ClickHouse client, so they enter
-``orch_context(with_ch=True)``. The internal_api functions read the ch client
-through the shared contextvar, so no per-request setup beyond the scope
-dependency is required.
-"""
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -22,36 +14,24 @@ from aaiclick.view_models import (
 
 from ..deps import orch_scope_with_ch
 
-router = APIRouter(prefix="/objects", tags=["objects"])
+router = APIRouter(prefix="/objects", tags=["objects"], dependencies=[Depends(orch_scope_with_ch)])
 
 
 @router.get("", response_model=Page[ObjectView])
-async def list_objects(
-    filter: ObjectFilter = Depends(),
-    _scope: None = Depends(orch_scope_with_ch),
-) -> Page[ObjectView]:
+async def list_objects(filter: ObjectFilter = Depends()) -> Page[ObjectView]:
     return await objects_api.list_objects(filter)
 
 
 @router.post(":purge", response_model=PurgeObjectsResult)
-async def purge_objects(
-    request: PurgeObjectsRequest,
-    _scope: None = Depends(orch_scope_with_ch),
-) -> PurgeObjectsResult:
+async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     return await objects_api.purge_objects(request)
 
 
 @router.get("/{name}", response_model=ObjectDetail)
-async def get_object(
-    name: str,
-    _scope: None = Depends(orch_scope_with_ch),
-) -> ObjectDetail:
+async def get_object(name: str) -> ObjectDetail:
     return await objects_api.get_object(name)
 
 
 @router.delete("/{name}", response_model=ObjectDeleted)
-async def delete_object(
-    name: str,
-    _scope: None = Depends(orch_scope_with_ch),
-) -> ObjectDeleted:
+async def delete_object(name: str) -> ObjectDeleted:
     return await objects_api.delete_object(name)
