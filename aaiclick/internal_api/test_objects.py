@@ -42,6 +42,16 @@ async def test_list_objects_returns_page():
     assert all(o.scope == "global" and o.persistent for o in page.items)
 
 
+async def test_list_objects_populates_row_count_and_size():
+    await create_object_from_value([1, 2, 3, 4], name="metrics_target")
+
+    page = await objects.list_objects()
+
+    [view] = [o for o in page.items if o.name == "metrics_target"]
+    assert view.row_count == 4
+    assert view.size_bytes is not None and view.size_bytes > 0
+
+
 async def test_list_objects_prefix_filter():
     await create_object_from_value([1], name="alpha_one")
     await create_object_from_value([2], name="alpha_two")
