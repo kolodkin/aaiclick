@@ -165,7 +165,12 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         )
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
-            raise
+            return OllamaBootstrapResult(
+                model=model,
+                server_url=base_url,
+                status=OllamaBootstrapStatus.FAILED,
+                detail=f"model lookup failed: {exc}",
+            )
 
     pull_req = urllib.request.Request(  # noqa: S310
         f"{base_url}/api/pull",

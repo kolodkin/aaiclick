@@ -111,7 +111,7 @@ def test_bootstrap_ollama_server_unreachable():
 
 
 def test_bootstrap_ollama_already_present(monkeypatch):
-    monkeypatch.setattr(setup.urllib.request, "urlopen", lambda *a, **k: None)
+    monkeypatch.setattr(setup.urllib.request, "urlopen", lambda *a, **k: _StubResponse(b""))
 
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
@@ -130,6 +130,21 @@ def test_bootstrap_ollama_pulled(monkeypatch):
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
     assert result.status == OllamaBootstrapStatus.PULLED
+
+
+def test_bootstrap_ollama_show_5xx_returns_failed(monkeypatch):
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if url.endswith("/api/show"):
+            raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, None)
+        return _StubResponse(b"")
+
+    monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
+
+    result = setup.bootstrap_ollama("ollama/llama3.1:8b")
+
+    assert result.status == OllamaBootstrapStatus.FAILED
+    assert "model lookup failed" in (result.detail or "")
 
 
 def test_bootstrap_ollama_pull_unexpected_response(monkeypatch):
