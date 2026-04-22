@@ -8,14 +8,16 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
+from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
     JobDetail,
     JobStatsView,
     JobView,
     RegisteredJobView,
+    TaskDetail,
     WorkerView,
 )
-from aaiclick.view_models import Page
+from aaiclick.view_models import ObjectDeleted, Page, PurgeObjectsResult
 
 
 def _fmt_ms(ms: int | None) -> str:
@@ -29,6 +31,11 @@ def _fmt_ms(ms: int | None) -> str:
         return f"{seconds:.1f}s"
     minutes, rem = divmod(seconds, 60)
     return f"{int(minutes)}m {rem:.1f}s"
+
+
+def _fmt_optional(value: object) -> str:
+    """Render ``None`` as a dash; everything else via ``str()``."""
+    return "-" if value is None else str(value)
 
 
 def render_jobs_page(page: Page[JobView], offset: int) -> None:
@@ -52,10 +59,10 @@ def render_job_detail(detail: JobDetail) -> None:
     print(f"Name:         {detail.name}")
     print(f"Status:       {detail.status.value}")
     print(f"Run type:     {detail.run_type.value}")
-    print(f"Registered:   {detail.registered_job_id or '-'}")
+    print(f"Registered:   {_fmt_optional(detail.registered_job_id)}")
     print(f"Created at:   {detail.created_at}")
-    print(f"Started at:   {detail.started_at or '-'}")
-    print(f"Completed at: {detail.completed_at or '-'}")
+    print(f"Started at:   {_fmt_optional(detail.started_at)}")
+    print(f"Completed at: {_fmt_optional(detail.completed_at)}")
     if detail.error:
         print(f"Error:        {detail.error}")
 
@@ -108,7 +115,7 @@ def render_registered_jobs_page(page: Page[RegisteredJobView]) -> None:
     print("-" * 89)
     for j in page.items:
         next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
-        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {j.schedule or '-':<15} {next_run:<20}")
+        print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {_fmt_optional(j.schedule):<15} {next_run:<20}")
 
 
 def render_registered_job(view: RegisteredJobView) -> None:
@@ -132,6 +139,28 @@ def render_registered_job_disabled(view: RegisteredJobView) -> None:
     print(f"Job '{view.name}' disabled (id={view.id})")
 
 
+def render_task_detail(detail: TaskDetail) -> None:
+    """Print full task details — ID, job, entrypoint, status, timings, worker."""
+    print(f"ID:           {detail.id}")
+    print(f"Job:          {detail.job_id}")
+    print(f"Name:         {detail.name}")
+    print(f"Entrypoint:   {detail.entrypoint}")
+    print(f"Status:       {detail.status.value}")
+    print(f"Attempt:      {detail.attempt}")
+    print(f"Max retries:  {detail.max_retries}")
+    print(f"Created at:   {detail.created_at}")
+    print(f"Started at:   {_fmt_optional(detail.started_at)}")
+    print(f"Completed at: {_fmt_optional(detail.completed_at)}")
+    print(f"Worker:       {_fmt_optional(detail.worker_id)}")
+    print(f"Log path:     {_fmt_optional(detail.log_path)}")
+    if detail.kwargs:
+        print(f"Kwargs:       {detail.kwargs}")
+    if detail.result is not None:
+        print(f"Result:       {detail.result}")
+    if detail.error:
+        print(f"Error:        {detail.error}")
+
+
 def render_workers_page(page: Page[WorkerView], offset: int) -> None:
     """Print a paged list of workers as an aligned text table."""
     if not page.items:
@@ -151,3 +180,47 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
 def render_worker_stopped(view: WorkerView) -> None:
     """Single-line confirmation that ``internal_api.stop_worker`` succeeded."""
     print(f"Stop requested for worker {view.id}")
+
+
+def render_objects_page(page: Page[ObjectView]) -> None:
+    """Print a paged list of persistent objects as an aligned text table."""
+    if not page.items:
+        print("No persistent objects found")
+        return
+
+    print(f"{'Name':<40} {'Scope':<8} {'Rows':<12} {'Bytes':<12}")
+    print("-" * 72)
+    for o in page.items:
+        print(f"{o.name:<40} {o.scope:<8} {_fmt_optional(o.row_count):<12} {_fmt_optional(o.size_bytes):<12}")
+    total = page.total if page.total is not None else len(page.items)
+    print(f"\nTotal: {total}")
+
+
+def render_object_detail(detail: ObjectDetail) -> None:
+    """Print full object details — table, scope, schema columns."""
+    print(f"Name:      {detail.name}")
+    print(f"Table:     {detail.table}")
+    print(f"Scope:     {detail.scope}")
+    print(f"Rows:      {_fmt_optional(detail.row_count)}")
+    print(f"Bytes:     {_fmt_optional(detail.size_bytes)}")
+    print(f"Created:   {_fmt_optional(detail.created_at)}")
+    print("Columns:")
+    for col in detail.table_schema.columns:
+        if col.name == "aai_id":
+            continue
+        print(f"  {col.name}: {col.type}")
+
+
+def render_object_deleted(view: ObjectDeleted) -> None:
+    """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
+    print(f"Deleted persistent object '{view.name}'")
+
+
+def render_objects_purged(result: PurgeObjectsResult) -> None:
+    """Print the list of tables dropped by ``internal_api.purge_objects``."""
+    if not result.deleted:
+        print("No persistent objects matched the filter")
+        return
+    print(f"Deleted {len(result.deleted)} persistent object(s):")
+    for name in result.deleted:
+        print(f"  {name}")

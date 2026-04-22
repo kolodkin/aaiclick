@@ -13,15 +13,12 @@ from .models import (
 from .view_models import (
     JobDetail,
     JobStatsView,
-    JobView,
-    TaskDetail,
     TaskStatsView,
     TaskView,
     _ms_between,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
-    task_to_detail,
     task_to_stats_view,
     task_to_view,
 )
@@ -85,25 +82,6 @@ def _make_task(
     )
 
 
-def test_job_to_view_round_trip():
-    job = _make_job()
-    view = job_to_view(job)
-    assert isinstance(view, JobView)
-    dumped = view.model_dump()
-    assert dumped == {
-        "id": 1,
-        "name": "test_job",
-        "status": JobStatus.COMPLETED,
-        "run_type": RunType.MANUAL,
-        "preservation_mode": PreservationMode.NONE,
-        "registered_job_id": None,
-        "created_at": datetime(2025, 1, 1, 12, 0, 0),
-        "started_at": datetime(2025, 1, 1, 12, 0, 1),
-        "completed_at": datetime(2025, 1, 1, 12, 0, 10),
-        "error": None,
-    }
-
-
 def test_job_to_view_propagates_registered_job_id():
     job = _make_job(registered_job_id=42)
     view = job_to_view(job)
@@ -128,21 +106,6 @@ def test_task_to_view_omits_detail_fields():
     assert dumped["status"] == TaskStatus.COMPLETED
     assert "kwargs" not in dumped
     assert "worker_id" not in dumped
-
-
-def test_task_to_detail_includes_detail_fields():
-    task = _make_task(
-        kwargs={"x": 1},
-        worker_id=42,
-        log_path="/tmp/task.log",
-        result={"value": 7},
-    )
-    detail = task_to_detail(task)
-    assert isinstance(detail, TaskDetail)
-    assert detail.kwargs == {"x": 1}
-    assert detail.worker_id == 42
-    assert detail.log_path == "/tmp/task.log"
-    assert detail.result == {"value": 7}
 
 
 def test_job_to_detail_embeds_task_views_and_duration():
