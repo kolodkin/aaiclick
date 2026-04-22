@@ -8,6 +8,7 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
+from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
     JobDetail,
     JobStatsView,
@@ -16,7 +17,7 @@ from aaiclick.orchestration.view_models import (
     TaskDetail,
     WorkerView,
 )
-from aaiclick.view_models import Page
+from aaiclick.view_models import Page, PurgeObjectsResult
 
 
 def _fmt_ms(ms: int | None) -> str:
@@ -179,3 +180,47 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
 def render_worker_stopped(view: WorkerView) -> None:
     """Single-line confirmation that ``internal_api.stop_worker`` succeeded."""
     print(f"Stop requested for worker {view.id}")
+
+
+def render_objects_page(page: Page[ObjectView]) -> None:
+    """Print a paged list of persistent objects as an aligned text table."""
+    if not page.items:
+        print("No persistent objects found")
+        return
+
+    print(f"{'Name':<40} {'Scope':<8} {'Rows':<12} {'Bytes':<12}")
+    print("-" * 72)
+    for o in page.items:
+        print(f"{o.name:<40} {o.scope:<8} {_fmt_optional(o.row_count):<12} {_fmt_optional(o.size_bytes):<12}")
+    total = page.total if page.total is not None else len(page.items)
+    print(f"\nTotal: {total}")
+
+
+def render_object_detail(detail: ObjectDetail) -> None:
+    """Print full object details — table, scope, schema columns."""
+    print(f"Name:      {detail.name}")
+    print(f"Table:     {detail.table}")
+    print(f"Scope:     {detail.scope}")
+    print(f"Rows:      {_fmt_optional(detail.row_count)}")
+    print(f"Bytes:     {_fmt_optional(detail.size_bytes)}")
+    print(f"Created:   {_fmt_optional(detail.created_at)}")
+    print("Columns:")
+    for col in detail.table_schema.columns:
+        if col.name == "aai_id":
+            continue
+        print(f"  {col.name}: {col.type}")
+
+
+def render_object_deleted(name: str) -> None:
+    """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
+    print(f"Deleted persistent object '{name}'")
+
+
+def render_objects_purged(result: PurgeObjectsResult) -> None:
+    """Print the list of tables dropped by ``internal_api.purge_objects``."""
+    if not result.deleted:
+        print("No persistent objects matched the filter")
+        return
+    print(f"Deleted {len(result.deleted)} persistent object(s):")
+    for name in result.deleted:
+        print(f"  {name}")

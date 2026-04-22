@@ -24,6 +24,7 @@ Usage:
     python -m aaiclick data list                # List persistent objects
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
+    python -m aaiclick data purge --after ISO   # Delete persistent objects by time
 """
 
 import argparse
@@ -33,19 +34,17 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime
 
 from aaiclick import cli_renderers, internal_api
-from aaiclick.data.object.cli import (
-    delete_object_cmd,
-    delete_objects_cmd,
-    list_objects_cmd,
-    show_object_cmd,
-)
+from aaiclick.data.data_context import data_context
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
     JobListFilter,
+    ObjectFilter,
+    PurgeObjectsRequest,
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
@@ -196,6 +195,16 @@ async def _run_internal_api(coro):
         sys.exit(1)
 
 
+async def _run_data_api(coro):
+    """Run ``coro`` inside ``data_context()``, mapping API errors to exit 1."""
+    try:
+        async with data_context():
+            return await coro
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
 async def _run_job_list(args: argparse.Namespace) -> None:
     filter = JobListFilter(
         status=JobStatus(args.status) if args.status else None,
@@ -274,6 +283,45 @@ async def _run_job_disable(args: argparse.Namespace) -> None:
 async def _run_task_get(args: argparse.Namespace) -> None:
     detail = await _run_internal_api(internal_api.get_task(args.task_id))
     _render(args, detail, cli_renderers.render_task_detail)
+
+
+def _parse_datetime(value: str) -> datetime:
+    """Parse an ISO 8601 datetime supplied at the CLI boundary."""
+    value = value.rstrip("Z")
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Invalid datetime format: {value!r}. Use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS")
+
+
+async def _run_data_list(args: argparse.Namespace) -> None:
+    filter = ObjectFilter(prefix=args.prefix, limit=args.limit)
+    page = await _run_data_api(internal_api.list_objects(filter))
+    _render(args, page, cli_renderers.render_objects_page)
+
+
+async def _run_data_get(args: argparse.Namespace) -> None:
+    detail = await _run_data_api(internal_api.get_object(args.name))
+    _render(args, detail, cli_renderers.render_object_detail)
+
+
+async def _run_data_delete(args: argparse.Namespace) -> None:
+    await _run_data_api(internal_api.delete_object(args.name))
+    if args.json:
+        print(json.dumps({"deleted": args.name}))
+    else:
+        cli_renderers.render_object_deleted(args.name)
+
+
+async def _run_data_purge(args: argparse.Namespace) -> None:
+    request = PurgeObjectsRequest(
+        after=_parse_datetime(args.after) if args.after else None,
+        before=_parse_datetime(args.before) if args.before else None,
+    )
+    result = await _run_data_api(internal_api.purge_objects(request))
+    _render(args, result, cli_renderers.render_objects_purged)
 
 
 async def _run_worker_list(args: argparse.Namespace) -> None:
@@ -605,10 +653,22 @@ def main():
     )
 
     # data list
-    data_subparsers.add_parser(
+    data_list_parser = data_subparsers.add_parser(
         "list",
         help="List persistent objects",
     )
+    data_list_parser.add_argument(
+        "--prefix",
+        default=None,
+        help="Filter by name prefix",
+    )
+    data_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum results (default: 50)",
+    )
+    _add_json_flag(data_list_parser)
 
     # data get <name>
     data_get_parser = data_subparsers.add_parser(
@@ -616,6 +676,7 @@ def main():
         help="Show persistent object details",
     )
     data_get_parser.add_argument("name", type=str, help="Persistent object name")
+    _add_json_flag(data_get_parser)
 
     # data delete <name>
     data_delete_parser = data_subparsers.add_parser(
@@ -623,6 +684,7 @@ def main():
         help="Delete a single persistent object",
     )
     data_delete_parser.add_argument("name", type=str, help="Persistent object name")
+    _add_json_flag(data_delete_parser)
 
     # data purge [--after] [--before]
     data_purge_parser = data_subparsers.add_parser(
@@ -639,6 +701,7 @@ def main():
         default=None,
         help="Delete tables created before this time (ISO 8601)",
     )
+    _add_json_flag(data_purge_parser)
 
     # Add background subcommand
     background_parser = subparsers.add_parser(
@@ -743,21 +806,16 @@ def main():
 
     elif args.command == "data":
         if args.data_command == "list":
-            asyncio.run(list_objects_cmd())
+            asyncio.run(_run_data_list(args))
 
         elif args.data_command == "get":
-            asyncio.run(show_object_cmd(args.name))
+            asyncio.run(_run_data_get(args))
 
         elif args.data_command == "delete":
-            asyncio.run(delete_object_cmd(args.name))
+            asyncio.run(_run_data_delete(args))
 
         elif args.data_command == "purge":
-            asyncio.run(
-                delete_objects_cmd(
-                    after=args.after,
-                    before=args.before,
-                )
-            )
+            asyncio.run(_run_data_purge(args))
 
         else:
             data_parser.print_help()

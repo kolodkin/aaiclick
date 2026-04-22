@@ -17,9 +17,9 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/registered_jobs.py`           | ✅      | `aaiclick/internal_api/registered_jobs.py`  |
 | Phase 2 | `aaiclick/internal_api/workers.py`                   | ✅      | `aaiclick/internal_api/workers.py`          |
 | Phase 2 | `aaiclick/internal_api/tasks.py`                     | ✅      | `aaiclick/internal_api/tasks.py`            |
-| Phase 2 | `aaiclick/internal_api/objects.py`                   | Pending | Migrate from `data/object/cli.py`           |
+| Phase 2 | `aaiclick/internal_api/objects.py`                   | ✅      | `aaiclick/internal_api/objects.py`          |
 | Phase 2 | `aaiclick/internal_api/setup.py`                     | Pending | Migrate from `__main__.py`                  |
-| Phase 2 | `--json` flag on remaining CLI verbs                 | Pending | Registered-job, data, task                  |
+| Phase 2 | `--json` flag on remaining CLI verbs                 | ✅      | Data `list`/`get`/`delete`/`purge` now support `--json` |
 | Phase 3 | `aaiclick[server]` optional extra                    | Pending | `pyproject.toml`                            |
 | Phase 3 | `aaiclick/server/app.py` + routers                   | Pending |                                             |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |

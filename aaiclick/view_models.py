@@ -113,3 +113,20 @@ class ObjectFilter(BaseModel):
     scope: ObjectScope | None = None
     limit: int = 50
     cursor: str | None = None
+
+
+class PurgeObjectsRequest(BaseModel):
+    """Inputs for ``internal_api.purge_objects``.
+
+    At least one of ``after`` / ``before`` must be set — the internal_api
+    refuses to purge everything unfiltered.
+    """
+
+    after: datetime | None = None
+    before: datetime | None = None
+
+
+class PurgeObjectsResult(BaseModel):
+    """Response from ``internal_api.purge_objects`` — names of dropped tables."""
+
+    deleted: list[str]
