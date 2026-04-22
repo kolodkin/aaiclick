@@ -17,7 +17,16 @@ from aaiclick.orchestration.view_models import (
     TaskDetail,
     WorkerView,
 )
-from aaiclick.view_models import ObjectDeleted, Page, PurgeObjectsResult
+from aaiclick.view_models import (
+    MigrationAction,
+    MigrationResult,
+    ObjectDeleted,
+    OllamaBootstrapResult,
+    OllamaBootstrapStatus,
+    Page,
+    PurgeObjectsResult,
+    SetupResult,
+)
 
 
 def _fmt_ms(ms: int | None) -> str:
@@ -224,3 +233,57 @@ def render_objects_purged(result: PurgeObjectsResult) -> None:
     print(f"Deleted {len(result.deleted)} persistent object(s):")
     for name in result.deleted:
         print(f"  {name}")
+
+
+def render_setup_result(result: SetupResult) -> None:
+    """Print ``internal_api.setup`` output — resolved config + per-step outcomes."""
+    print(f"Root:    {result.root}")
+    print(f"CH URL:  {result.ch_url}")
+    print(f"SQL URL: {result.sql_url}")
+    print(f"Mode:    {result.mode}")
+    for step in result.steps:
+        if step.name == "ollama":
+            continue
+        label = {"chdb": "chdb", "clickhouse": "ClickHouse", "sqlite": "SQLite DB", "postgres": "PostgreSQL"}.get(
+            step.name, step.name
+        )
+        marker = "OK" if step.status == "ok" else step.status.upper()
+        detail = f" ({step.detail})" if step.detail else ""
+        print(f"  {label}: {marker}{detail}")
+    if result.ollama is not None:
+        print()
+        render_ollama_bootstrap(result.ollama)
+    print("Setup complete.")
+
+
+def render_ollama_bootstrap(result: OllamaBootstrapResult) -> None:
+    """Print ``internal_api.bootstrap_ollama`` output — server + model status."""
+    print(f"AI model: {result.model}")
+    if result.status == OllamaBootstrapStatus.NOT_OLLAMA:
+        print(f"  {result.detail or 'not an Ollama model'}")
+        return
+    if result.status == OllamaBootstrapStatus.SERVER_UNREACHABLE:
+        print("  ollama server: NOT RUNNING")
+        print("  Start with:    ollama serve &")
+        print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
+        return
+    print("  ollama server: running")
+    if result.status == OllamaBootstrapStatus.ALREADY_PRESENT:
+        print(f"  {result.detail}")
+    elif result.status == OllamaBootstrapStatus.PULLED:
+        print(f"  {result.detail}")
+    elif result.status == OllamaBootstrapStatus.FAILED:
+        print(f"  {result.detail}")
+
+
+def render_migration_result(result: MigrationResult) -> None:
+    """Confirm which alembic subcommand ran.
+
+    Alembic itself emits the substantive output (revision list, current head,
+    etc.); this renderer only confirms success for the action that does not
+    log a result on its own.
+    """
+    if result.action == MigrationAction.UPGRADE:
+        print(f"Database upgraded to {result.revision}")
+    elif result.action == MigrationAction.DOWNGRADE:
+        print(f"Database downgraded to {result.revision}")

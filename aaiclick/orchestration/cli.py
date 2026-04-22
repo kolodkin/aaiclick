@@ -13,6 +13,8 @@ import asyncio
 import signal
 
 from aaiclick.backend import is_local
+from aaiclick.cli_renderers import render_setup_result
+from aaiclick.internal_api.setup import is_setup_done, setup
 
 from .background import BackgroundWorker
 from .execution import mp_worker_main_loop, worker_main_loop
@@ -57,13 +59,9 @@ async def start_local(max_tasks: int | None = None) -> None:
     Args:
         max_tasks: Maximum tasks to execute (None for unlimited).
     """
-    from aaiclick.__main__ import setup_done
-
-    if not setup_done():
-        from aaiclick.__main__ import _run_setup
-
+    if not is_setup_done():
         print("Setup not yet run — running setup automatically...\n")
-        _run_setup()
+        render_setup_result(setup())
         print()
 
     background = BackgroundWorker()

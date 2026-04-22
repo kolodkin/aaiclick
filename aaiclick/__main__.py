@@ -30,10 +30,7 @@ Usage:
 import argparse
 import asyncio
 import json
-import os
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime
 
 from aaiclick import cli_renderers, internal_api
@@ -43,6 +40,7 @@ from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerSta
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
     JobListFilter,
+    MigrationAction,
     ObjectFilter,
     PurgeObjectsRequest,
     RegisteredJobFilter,
@@ -56,120 +54,6 @@ _JSON_HELP = "Emit JSON instead of a table"
 
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help=_JSON_HELP)
-
-
-def _setup_ollama_model(model: str) -> None:
-    """Pull an Ollama model via the Ollama HTTP API."""
-    # model is like "ollama/llama3.2:3b" — strip the provider prefix
-    model_name = model.removeprefix("ollama/")
-    base_url = "http://localhost:11434"
-
-    print(f"\nAI model: {model}")
-
-    # Check if Ollama server is reachable
-    try:
-        urllib.request.urlopen(base_url, timeout=2)  # noqa: S310
-        print("  ollama server: running")
-    except (urllib.error.URLError, OSError):
-        print("  ollama server: NOT RUNNING")
-        print("  Start with:    ollama serve &")
-        print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
-        return
-
-    # Check if model is already present via HTTP API
-    req = urllib.request.Request(  # noqa: S310
-        f"{base_url}/api/show",
-        data=json.dumps({"model": model_name}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        urllib.request.urlopen(req, timeout=5)  # noqa: S310
-        print(f"  model '{model_name}': already downloaded")
-        return
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
-
-    # Pull via HTTP API (stream=false waits for completion)
-    print(f"  Pulling '{model_name}' (this may take a few minutes)...")
-    pull_req = urllib.request.Request(  # noqa: S310
-        f"{base_url}/api/pull",
-        data=json.dumps({"model": model_name, "stream": False}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(pull_req, timeout=600) as resp:  # noqa: S310
-            result = json.loads(resp.read())
-        if result.get("status") == "success":
-            print(f"  model '{model_name}': OK")
-        else:
-            print(f"  model '{model_name}': unexpected response: {result}")
-    except (urllib.error.URLError, OSError) as e:
-        print(f"  model '{model_name}': pull failed: {e}")
-
-
-def _run_setup(ai: bool = False):
-    """Initialize local dev environment."""
-    from pathlib import Path
-
-    from aaiclick.backend import get_ch_url, get_root, get_sql_url, is_chdb, is_local, is_sqlite
-
-    print(f"Root:    {get_root()}")
-    print(f"CH URL:  {get_ch_url()}")
-    print(f"SQL URL: {get_sql_url()}")
-    print(f"Mode:    {'local' if is_local() else 'distributed'}")
-
-    if is_chdb():
-        from chdb.session import Session
-
-        from aaiclick.data.data_context.chdb_client import get_chdb_data_path
-
-        chdb_path = get_chdb_data_path()
-        Path(chdb_path).mkdir(parents=True, exist_ok=True)
-        sess = Session(chdb_path)
-        sess.query("SELECT 1")
-        sess.cleanup()
-        print(f"  chdb: OK ({chdb_path})")
-    else:
-        print("  ClickHouse: remote server — requires pip install aaiclick[distributed]")
-
-    if is_sqlite():
-        from sqlalchemy import create_engine
-
-        from aaiclick.orchestration.env import get_db_url
-        from aaiclick.orchestration.models import SQLModel
-
-        db_url = get_db_url()
-        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-        engine = create_engine(sync_url)
-        SQLModel.metadata.create_all(engine)
-        engine.dispose()
-        print(f"  SQLite DB: OK ({db_url})")
-    else:
-        print("  PostgreSQL: requires pip install aaiclick[distributed]")
-        print("  Run migrations: python -m aaiclick migrate upgrade head")
-
-    if ai:
-        model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
-        if model.startswith("ollama/"):
-            _setup_ollama_model(model)
-        else:
-            print(f"\nAI model: {model} (not an Ollama model — nothing to pull)")
-
-    # Write setup_done flag
-    root = get_root()
-    Path(root).mkdir(parents=True, exist_ok=True)
-    (root / "setup_done").write_text("")
-    print("Setup complete.")
-
-
-def setup_done() -> bool:
-    """Return True if setup has already been run."""
-    from aaiclick.backend import get_root as _get_root
-
-    return (_get_root() / "setup_done").exists()
 
 
 def _print_json(model) -> None:
@@ -336,6 +220,69 @@ async def _run_worker_stop(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_worker_stopped)
 
 
+_MIGRATE_HELP = """\
+Database Migration Commands
+==================================================
+
+Usage: python -m aaiclick migrate [command] [options]
+
+Commands:
+  upgrade [revision]   Upgrade to a later version (default: head)
+  downgrade [revision] Revert to a previous version
+  current              Display current revision
+  history              List migration history
+  heads                Show current available heads
+  show [revision]      Show details about a revision
+
+Examples:
+  python -m aaiclick migrate                 # Upgrade to latest
+  python -m aaiclick migrate upgrade head    # Upgrade to latest
+  python -m aaiclick migrate downgrade -1    # Downgrade one revision
+  python -m aaiclick migrate current         # Show current revision
+  python -m aaiclick migrate history         # Show migration history
+
+Environment Variables:
+  POSTGRES_HOST       PostgreSQL host (default: localhost)
+  POSTGRES_PORT       PostgreSQL port (default: 5432)
+  POSTGRES_USER       PostgreSQL user (default: aaiclick)
+  POSTGRES_PASSWORD   PostgreSQL password (default: secret)
+  POSTGRES_DB         PostgreSQL database (default: aaiclick)\
+"""
+
+
+def _run_setup_cli(args: argparse.Namespace) -> None:
+    try:
+        result = internal_api.setup.setup(ai=args.ai)
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    _render(args, result, cli_renderers.render_setup_result)
+
+
+def _run_migrate_cli(args: argparse.Namespace) -> None:
+    raw_args = list(args.args) if hasattr(args, "args") else []
+    if not raw_args or raw_args[0] in ("-h", "--help"):
+        print(_MIGRATE_HELP)
+        return
+
+    action_name, *rest = raw_args
+    try:
+        action = MigrationAction(action_name)
+    except ValueError:
+        print(f"Unknown command: {action_name}", file=sys.stderr)
+        print("Run 'python -m aaiclick migrate --help' for usage", file=sys.stderr)
+        sys.exit(1)
+    revision = rest[0] if rest else None
+
+    try:
+        result = internal_api.setup.migrate(action, revision)
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    _render(args, result, cli_renderers.render_migration_result)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -355,6 +302,7 @@ def main():
         default=False,
         help="Also pull the configured Ollama model (reads AAICLICK_AI_MODEL)",
     )
+    _add_json_flag(setup_parser)
 
     # Add migrate subcommand
     migrate_parser = subparsers.add_parser(
@@ -366,6 +314,7 @@ def main():
         nargs="*",
         help="Additional arguments for migration command",
     )
+    _add_json_flag(migrate_parser)
 
     # Add local subcommand (single-process: worker + background)
     local_parser = subparsers.add_parser(
@@ -725,12 +674,10 @@ def main():
     args = parser.parse_args()
 
     if args.command == "setup":
-        _run_setup(ai=args.ai)
+        _run_setup_cli(args)
 
     elif args.command == "migrate":
-        from aaiclick.orchestration.migrate import run_migrations
-
-        run_migrations(args.args if hasattr(args, "args") else [])
+        _run_migrate_cli(args)
 
     elif args.command == "local":
         if args.local_command == "start":
