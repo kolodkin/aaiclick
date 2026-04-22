@@ -7,25 +7,25 @@ from .routers import jobs, objects, registered_jobs, tasks, workers
 
 API_PREFIX = "/api/v0"
 
+app = FastAPI(
+    title="aaiclick",
+    docs_url=f"{API_PREFIX}/docs",
+    redoc_url=f"{API_PREFIX}/redoc",
+    openapi_url=f"{API_PREFIX}/openapi.json",
+)
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title="aaiclick",
-        docs_url=f"{API_PREFIX}/docs",
-        redoc_url=f"{API_PREFIX}/redoc",
-        openapi_url=f"{API_PREFIX}/openapi.json",
-    )
+register_exception_handlers(app)
 
-    register_exception_handlers(app)
+for router in (
+    jobs.router,
+    registered_jobs.router,
+    tasks.router,
+    workers.router,
+    objects.router,
+):
+    app.include_router(router, prefix=API_PREFIX)
 
-    app.include_router(jobs.router, prefix=API_PREFIX)
-    app.include_router(registered_jobs.router, prefix=API_PREFIX)
-    app.include_router(tasks.router, prefix=API_PREFIX)
-    app.include_router(workers.router, prefix=API_PREFIX)
-    app.include_router(objects.router, prefix=API_PREFIX)
 
-    @app.get("/health", include_in_schema=False)
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    return app
+@app.get("/health", include_in_schema=False)
+async def health() -> dict[str, str]:
+    return {"status": "ok"}

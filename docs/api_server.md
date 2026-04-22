@@ -100,7 +100,6 @@ aaiclick/
       workers.py                   /workers, /workers/{id}/stop
       objects.py                   /objects, /objects/{name}
     mcp.py                         FastMCP server; tools wrap internal_api.*
-    __main__.py                    `python -m aaiclick.server` → uvicorn
 ```
 
 All HTTP routes are mounted under a single versioned prefix —
@@ -304,17 +303,33 @@ async def run_job(req: RunJobRequest) -> JobView:
 FastMCP generates tool schemas from the pydantic models — identical inputs
 and outputs to the REST surface.
 
+# Running the server
+
+The app is exposed as a module-level `app = FastAPI(...)` in
+`aaiclick/server/app.py` — no factory, no wrapper module. Run with
+uvicorn directly:
+
+```bash
+pip install 'aaiclick[server]'
+uvicorn aaiclick.server.app:app
+# dev:
+uvicorn aaiclick.server.app:app --reload
+```
+
+Host, port, workers, reload, TLS, etc. are uvicorn's standard flags and
+env vars (`UVICORN_HOST`, `UVICORN_PORT`, …); aaiclick does not invent a
+parallel `AAICLICK_SERVER_*` namespace.
+
 # Configuration
 
-The server reuses the CLI's existing env vars and adds two new ones for its
-own bind address:
+The server reuses the CLI's existing env vars:
 
 | Variable               | Purpose                                    | Status                 |
 |------------------------|--------------------------------------------|------------------------|
 | `AAICLICK_CH_URL`      | ClickHouse connection URL                  | Existing (see `backend.py`) |
 | `AAICLICK_SQL_URL`     | Orchestration SQL backend URL              | Existing (see `backend.py`) |
-| `AAICLICK_SERVER_HOST` | Bind host for `python -m aaiclick.server`  | New (Phase 3)          |
-| `AAICLICK_SERVER_PORT` | Bind port for `python -m aaiclick.server`  | New (Phase 3)          |
+| `UVICORN_HOST`         | Bind host (uvicorn native)                 | Standard uvicorn       |
+| `UVICORN_PORT`         | Bind port (uvicorn native)                 | Standard uvicorn       |
 
 Auth is out of scope for v1 — the server is localhost-only. Token / OAuth
 is added when the orchestration UI needs remote access.

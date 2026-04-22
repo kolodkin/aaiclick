@@ -29,7 +29,7 @@ shippable, each leaves the tree green.
 | Phase 3 | `aaiclick/server/routers/tasks.py`                   | ✅      | `aaiclick/server/routers/tasks.py`          |
 | Phase 3 | `aaiclick/server/routers/workers.py`                 | ✅      | `aaiclick/server/routers/workers.py`        |
 | Phase 3 | `aaiclick/server/routers/objects.py`                 | ✅      | `aaiclick/server/routers/objects.py`        |
-| Phase 3 | `python -m aaiclick.server` entrypoint (uvicorn)     | ✅      | `aaiclick/server/__main__.py`               |
+| Phase 3 | `uvicorn aaiclick.server.app:app` invocation         | ✅      | Module-level `app` in `aaiclick/server/app.py` — no wrapper entrypoint |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |
 
 ---
@@ -209,22 +209,25 @@ Each sub-task below is one PR. They can mostly run in parallel after
 - No new runtime imports of `fastapi` anywhere outside `aaiclick/server/`
   so the core CLI install stays slim.
 
-### PR 2 — App factory + `/api/v0` prefix wiring
+### PR 2 — Module-level app + `/api/v0` prefix wiring
 
 `aaiclick/server/app.py`:
 
 - Module-level constant `API_PREFIX = "/api/v0"`.
-- `create_app() -> FastAPI` returns a configured app:
+- Module-level `app = FastAPI(...)` — **no factory**. Configuration
+  does not depend on runtime arguments, and a module-level instance
+  pairs naturally with `uvicorn aaiclick.server.app:app` (no `--factory`
+  flag) and with a future process-wide `lifespan` that owns the
+  engine / ch_client.
   - `docs_url=f"{API_PREFIX}/docs"`,
     `redoc_url=f"{API_PREFIX}/redoc"`,
-    `openapi_url=f"{API_PREFIX}/openapi.json"` — the OpenAPI surface
-    lives under the versioned prefix too, so `v0` / `v1` specs can
-    co-exist if we ever need to dual-publish.
-  - Registers routers via
-    `app.include_router(<group>.router, prefix=API_PREFIX)`.
-  - Registers exception handlers from PR 4.
-  - Adds a liveness endpoint: `GET /healthz` (unversioned — for k8s /
-    uptime probes; not part of the API contract).
+    `openapi_url=f"{API_PREFIX}/openapi.json"` — OpenAPI lives under
+    the versioned prefix too, so `v0` / `v1` specs can co-exist if we
+    ever need to dual-publish.
+  - Routers mount via `app.include_router(<group>.router, prefix=API_PREFIX)`.
+  - Exception handlers from PR 4 register against the module-level `app`.
+  - Liveness endpoint: `GET /health` (unversioned — for k8s / uptime
+    probes; not part of the API contract).
 - No CORS in v0 — the orchestration UI is same-origin. Add when a cross-
   origin consumer appears.
 
@@ -296,15 +299,18 @@ Each router PR:
   through the view model (`JobView.model_validate(resp.json())`).
 - Covers happy path + each `internal_api` error path (404 / 409 / 422).
 
-### PR 6 — `python -m aaiclick.server` entrypoint
+### PR 6 — Run via uvicorn directly — no wrapper module
 
-`aaiclick/server/__main__.py`:
+No `__main__.py`. The app is a module-level instance, so uvicorn runs it
+the standard way:
 
-- Reads `AAICLICK_SERVER_HOST` (default `127.0.0.1`) and
-  `AAICLICK_SERVER_PORT` (default `8000`).
-- Calls `uvicorn.run("aaiclick.server.app:create_app", factory=True, ...)`.
-- On import failure (missing `fastapi`), emit a clear message pointing
-  at `pip install aaiclick[server]` and exit non-zero.
+```bash
+uvicorn aaiclick.server.app:app
+```
+
+Host / port / reload / workers / TLS flow through uvicorn's own flags
+and env vars (`UVICORN_HOST`, `UVICORN_PORT`, …). No parallel
+`AAICLICK_SERVER_*` namespace.
 
 ## Test Strategy
 
@@ -323,7 +329,7 @@ Each router PR:
 
 ## Exit Criteria
 
-- `python -m aaiclick.server` boots and serves every route in the
+- `uvicorn aaiclick.server.app:app` boots and serves every route in the
   REST column of the CLI-verb table under `/api/v0`.
 - `GET /api/v0/openapi.json` lists every view model and every route.
 - Every `internal_api` error path has a router test asserting the

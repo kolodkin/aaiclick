@@ -1,6 +1,23 @@
 Server-package guidelines
 ---
 
+# Running the server
+
+The app is exposed as a module-level `app = FastAPI(...)` in
+`aaiclick/server/app.py`. Run with uvicorn directly — no wrapper,
+no factory:
+
+```bash
+pip install 'aaiclick[server]'
+uvicorn aaiclick.server.app:app
+# dev:
+uvicorn aaiclick.server.app:app --reload
+```
+
+Host, port, workers, reload, log level, TLS, etc. are uvicorn's
+standard flags / env vars (`UVICORN_HOST`, `UVICORN_PORT`, ...);
+the server does not invent a parallel `AAICLICK_SERVER_*` namespace.
+
 # FastAPI tests — use `httpx.AsyncClient` + `ASGITransport`
 
 All router / app tests are `async def` (they depend on the async
@@ -8,9 +25,9 @@ All router / app tests are `async def` (they depend on the async
 
 ```python
 import httpx
-from aaiclick.server.app import create_app
+from aaiclick.server.app import app
 
-transport = httpx.ASGITransport(app=create_app())
+transport = httpx.ASGITransport(app=app)
 async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
     response = await client.get("/api/v0/jobs")
 ```

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from .app import API_PREFIX, create_app
+from .app import API_PREFIX, app
 
 
 def test_all_resource_routes_are_prefixed():
-    app = create_app()
     resource_paths = [
         r.path
         for r in app.routes
@@ -15,7 +14,6 @@ def test_all_resource_routes_are_prefixed():
 
 
 def test_expected_routes_are_registered():
-    app = create_app()
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for expected in [
         f"{API_PREFIX}/jobs",
