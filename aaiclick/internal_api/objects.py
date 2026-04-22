@@ -53,10 +53,7 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
         "FROM system.tables "
         f"WHERE database = currentDatabase() AND name IN ({names_lit})"
     )
-    return {
-        row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]}
-        for row in result.result_rows
-    }
+    return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
 
 
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
