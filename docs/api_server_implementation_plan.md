@@ -20,16 +20,16 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | ✅      | `aaiclick/internal_api/objects.py`          |
 | Phase 2 | `aaiclick/internal_api/setup.py`                     | ✅      | `aaiclick/internal_api/setup.py`            |
 | Phase 2 | `--json` flag on remaining CLI verbs                 | ✅      | Data `list`/`get`/`delete`/`purge`, plus `setup`/`migrate` now support `--json` |
-| Phase 3 | `aaiclick[server]` optional extra                    | Pending | `pyproject.toml`                            |
-| Phase 3 | `aaiclick/server/app.py` + `/api/v0` prefix wiring   | Pending |                                             |
-| Phase 3 | `aaiclick/server/deps.py` (orch/data scope deps)     | Pending |                                             |
-| Phase 3 | `aaiclick/server/errors.py` (internal_api → Problem) | Pending |                                             |
-| Phase 3 | `aaiclick/server/routers/jobs.py`                    | Pending |                                             |
-| Phase 3 | `aaiclick/server/routers/registered_jobs.py`         | Pending |                                             |
-| Phase 3 | `aaiclick/server/routers/tasks.py`                   | Pending |                                             |
-| Phase 3 | `aaiclick/server/routers/workers.py`                 | Pending |                                             |
-| Phase 3 | `aaiclick/server/routers/objects.py`                 | Pending |                                             |
-| Phase 3 | `python -m aaiclick.server` entrypoint (uvicorn)     | Pending |                                             |
+| Phase 3 | `aaiclick[server]` optional extra                    | ✅      | `pyproject.toml`                            |
+| Phase 3 | `aaiclick/server/app.py` + `/api/v0` prefix wiring   | ✅      | `aaiclick/server/app.py`                    |
+| Phase 3 | `aaiclick/server/deps.py` (orch scope deps)          | ✅      | `aaiclick/server/deps.py`                   |
+| Phase 3 | `aaiclick/server/errors.py` (internal_api → Problem) | ✅      | `aaiclick/server/errors.py`                 |
+| Phase 3 | `aaiclick/server/routers/jobs.py`                    | ✅      | `aaiclick/server/routers/jobs.py`           |
+| Phase 3 | `aaiclick/server/routers/registered_jobs.py`         | ✅      | `aaiclick/server/routers/registered_jobs.py`|
+| Phase 3 | `aaiclick/server/routers/tasks.py`                   | ✅      | `aaiclick/server/routers/tasks.py`          |
+| Phase 3 | `aaiclick/server/routers/workers.py`                 | ✅      | `aaiclick/server/routers/workers.py`        |
+| Phase 3 | `aaiclick/server/routers/objects.py`                 | ✅      | `aaiclick/server/routers/objects.py`        |
+| Phase 3 | `python -m aaiclick.server` entrypoint (uvicorn)     | ✅      | `aaiclick/server/__main__.py`               |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |
 
 ---
