@@ -5,7 +5,7 @@ aaiclick.ai.agents.debug_agent - Tier 1 lineage debugger.
 the target table. The agent reads rendered SQL templates, queries live tables
 via ``LineageToolbox``, and produces an explanation citing concrete evidence.
 
-See ``docs/lineage.md`` and ``docs/lineage_implementation_plan.md`` (Phase 1).
+See ``docs/lineage.md``.
 """
 
 from __future__ import annotations

@@ -5,8 +5,7 @@ All tools operate on a single ``OplogGraph`` — the backward lineage of the
 target table being debugged. Scope enforcement prevents accidental
 cross-job queries; ``query_table`` is read-only and row-limited.
 
-See ``docs/lineage.md`` for the design and ``docs/lineage_implementation_plan.md``
-for the rollout plan (Phase 1).
+See ``docs/lineage.md`` for the design.
 """
 
 from __future__ import annotations
