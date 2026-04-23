@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -14,10 +16,20 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
 }
 
+_STATUS_TO_TITLE: dict[int, str] = {status: title for title, status, _ in _PROBLEM_MAP.values()}
+
 
 def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, (title, status, code) in _PROBLEM_MAP.items():
         _register(app, exc_type, title, status, code)
+
+
+def problem_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
+    """Return an OpenAPI ``responses=`` mapping describing the ``Problem`` envelope
+    for each HTTP code a route can emit. Codes must be ones declared in
+    ``_PROBLEM_MAP`` — single source of truth with the runtime handlers.
+    """
+    return {code: {"model": Problem, "description": _STATUS_TO_TITLE[code]} for code in codes}
 
 
 def _register(

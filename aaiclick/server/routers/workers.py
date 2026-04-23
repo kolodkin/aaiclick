@@ -7,6 +7,7 @@ from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, WorkerFilter
 
 from ..deps import orch_scope
+from ..errors import problem_responses
 
 router = APIRouter(prefix="/workers", tags=["workers"], dependencies=[Depends(orch_scope)])
 
@@ -16,6 +17,6 @@ async def list_workers(filter: WorkerFilter = Depends()) -> Page[WorkerView]:
     return await workers_api.list_workers(filter)
 
 
-@router.post("/{worker_id}/stop", response_model=WorkerView)
+@router.post("/{worker_id}/stop", response_model=WorkerView, responses=problem_responses(404, 409))
 async def stop_worker(worker_id: int) -> WorkerView:
     return await workers_api.stop_worker(worker_id)

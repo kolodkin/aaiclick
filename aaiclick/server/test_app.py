@@ -54,5 +54,34 @@ async def test_openapi_schema_served_under_prefix(app_client):
         "RegisteredJobView",
         "ObjectView",
         "ObjectDetail",
+        "Problem",
     ]:
         assert model_name in schemas, f"{model_name} not in OpenAPI components.schemas"
+
+
+async def test_openapi_error_responses_declared(app_client):
+    """Each error-raising route advertises its Problem responses in the OpenAPI spec."""
+    schema = (await app_client.get(f"{API_PREFIX}/openapi.json")).json()
+    paths = schema["paths"]
+
+    expected: dict[tuple[str, str], set[str]] = {
+        ("/api/v0/jobs/{ref}", "get"): {"404"},
+        ("/api/v0/jobs/{ref}/stats", "get"): {"404"},
+        ("/api/v0/jobs/{ref}/cancel", "post"): {"404", "409"},
+        ("/api/v0/registered-jobs", "post"): {"409"},
+        ("/api/v0/registered-jobs/{name}/enable", "post"): {"404"},
+        ("/api/v0/registered-jobs/{name}/disable", "post"): {"404"},
+        ("/api/v0/tasks/{task_id}", "get"): {"404"},
+        ("/api/v0/workers/{worker_id}/stop", "post"): {"404", "409"},
+        ("/api/v0/objects", "get"): {"422"},
+        ("/api/v0/objects:purge", "post"): {"422"},
+        ("/api/v0/objects/{name}", "get"): {"404"},
+    }
+
+    for (path, method), codes in expected.items():
+        responses = paths[path][method]["responses"]
+        for code in codes:
+            assert code in responses, f"{method.upper()} {path} missing {code} response in OpenAPI"
+            content = responses[code].get("content", {}).get("application/json", {})
+            ref = content.get("schema", {}).get("$ref", "")
+            assert ref.endswith("/Problem"), f"{method.upper()} {path} {code} response is not Problem (got {ref!r})"

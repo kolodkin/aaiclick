@@ -7,6 +7,7 @@ from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from ..deps import orch_scope, orch_scope_with_ch
+from ..errors import problem_responses
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -21,16 +22,31 @@ async def run_job(request: RunJobRequest) -> JobView:
     return await jobs_api.run_job(request)
 
 
-@router.get("/{ref}", response_model=JobDetail, dependencies=[Depends(orch_scope)])
+@router.get(
+    "/{ref}",
+    response_model=JobDetail,
+    responses=problem_responses(404),
+    dependencies=[Depends(orch_scope)],
+)
 async def get_job(ref: RefId) -> JobDetail:
     return await jobs_api.get_job(ref)
 
 
-@router.get("/{ref}/stats", response_model=JobStatsView, dependencies=[Depends(orch_scope)])
+@router.get(
+    "/{ref}/stats",
+    response_model=JobStatsView,
+    responses=problem_responses(404),
+    dependencies=[Depends(orch_scope)],
+)
 async def job_stats(ref: RefId) -> JobStatsView:
     return await jobs_api.job_stats(ref)
 
 
-@router.post("/{ref}/cancel", response_model=JobView, dependencies=[Depends(orch_scope)])
+@router.post(
+    "/{ref}/cancel",
+    response_model=JobView,
+    responses=problem_responses(404, 409),
+    dependencies=[Depends(orch_scope)],
+)
 async def cancel_job(ref: RefId) -> JobView:
     return await jobs_api.cancel_job(ref)

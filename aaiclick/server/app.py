@@ -9,6 +9,8 @@ API_PREFIX = "/api/v0"
 
 app = FastAPI(
     title="aaiclick",
+    description="REST surface over aaiclick's internal_api. Localhost-only, unauthenticated (v0).",
+    version="0",
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",
     openapi_url=f"{API_PREFIX}/openapi.json",
