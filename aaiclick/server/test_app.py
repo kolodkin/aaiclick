@@ -5,20 +5,16 @@ from starlette.routing import Route
 from .app import API_PREFIX, app
 
 
-def _route_paths() -> list[str]:
-    return [r.path for r in app.routes if isinstance(r, Route)]
-
-
 def test_all_resource_routes_are_prefixed():
     excluded = {"/health", "/docs/oauth2-redirect"}
-    for path in _route_paths():
-        if path in excluded:
+    for r in app.routes:
+        if not isinstance(r, Route) or r.path in excluded:
             continue
-        assert path.startswith(API_PREFIX), f"route {path!r} is not under {API_PREFIX}"
+        assert r.path.startswith(API_PREFIX), f"route {r.path!r} is not under {API_PREFIX}"
 
 
 def test_expected_routes_are_registered():
-    paths = set(_route_paths())
+    paths = {r.path for r in app.routes if isinstance(r, Route)}
     for expected in [
         f"{API_PREFIX}/jobs",
         f"{API_PREFIX}/jobs/{{ref}}",
