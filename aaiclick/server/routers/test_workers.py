@@ -9,7 +9,7 @@ from ..app import API_PREFIX
 
 
 async def test_list_workers(orch_ctx, app_client):
-    await register_worker(hostname="http_worker", pid=4001)
+    await register_worker(hostname="http_worker")
 
     response = await app_client.get(f"{API_PREFIX}/workers")
 
@@ -20,7 +20,7 @@ async def test_list_workers(orch_ctx, app_client):
 
 
 async def test_stop_worker(orch_ctx, app_client):
-    worker = await register_worker(hostname="http_stop", pid=4002)
+    worker = await register_worker(hostname="http_stop")
 
     response = await app_client.post(f"{API_PREFIX}/workers/{worker.id}/stop")
 
@@ -38,7 +38,7 @@ async def test_stop_worker_not_found_returns_404(orch_ctx, app_client):
 
 
 async def test_stop_already_stopping_returns_409(orch_ctx, app_client):
-    worker = await register_worker(hostname="http_double_stop", pid=4003)
+    worker = await register_worker(hostname="http_double_stop")
     await app_client.post(f"{API_PREFIX}/workers/{worker.id}/stop")
 
     response = await app_client.post(f"{API_PREFIX}/workers/{worker.id}/stop")

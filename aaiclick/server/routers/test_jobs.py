@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
-_SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+_SAMPLE_TASK_ENTRYPOINT = f"{simple_task.__module__}.{simple_task.__name__}"
 
 
 async def test_list_jobs_returns_page(orch_ctx, app_client):
-    await create_job("http_list_a", _SAMPLE_TASK)
+    await create_job("http_list_a", simple_task)
 
     response = await app_client.get(f"{API_PREFIX}/jobs")
 
@@ -22,7 +23,7 @@ async def test_list_jobs_returns_page(orch_ctx, app_client):
 
 
 async def test_list_jobs_filter_by_status(orch_ctx, app_client):
-    await create_job("http_status_job", _SAMPLE_TASK)
+    await create_job("http_status_job", simple_task)
 
     response = await app_client.get(
         f"{API_PREFIX}/jobs",
@@ -35,7 +36,7 @@ async def test_list_jobs_filter_by_status(orch_ctx, app_client):
 
 
 async def test_get_job_by_int_id(orch_ctx, app_client):
-    created = await create_job("http_get", _SAMPLE_TASK)
+    created = await create_job("http_get", simple_task)
 
     response = await app_client.get(f"{API_PREFIX}/jobs/{created.id}")
 
@@ -55,7 +56,7 @@ async def test_get_job_not_found_returns_404(orch_ctx, app_client):
 
 
 async def test_job_stats(orch_ctx, app_client):
-    created = await create_job("http_stats", _SAMPLE_TASK)
+    created = await create_job("http_stats", simple_task)
 
     response = await app_client.get(f"{API_PREFIX}/jobs/{created.id}/stats")
 
@@ -65,7 +66,7 @@ async def test_job_stats(orch_ctx, app_client):
 
 
 async def test_cancel_job(orch_ctx, app_client):
-    created = await create_job("http_cancel", _SAMPLE_TASK)
+    created = await create_job("http_cancel", simple_task)
 
     response = await app_client.post(f"{API_PREFIX}/jobs/{created.id}/cancel")
 
@@ -75,7 +76,7 @@ async def test_cancel_job(orch_ctx, app_client):
 
 
 async def test_cancel_already_cancelled_returns_409(orch_ctx, app_client):
-    created = await create_job("http_double_cancel", _SAMPLE_TASK)
+    created = await create_job("http_double_cancel", simple_task)
     await app_client.post(f"{API_PREFIX}/jobs/{created.id}/cancel")
 
     response = await app_client.post(f"{API_PREFIX}/jobs/{created.id}/cancel")
@@ -88,9 +89,9 @@ async def test_cancel_already_cancelled_returns_409(orch_ctx, app_client):
 async def test_run_job(orch_ctx, app_client):
     response = await app_client.post(
         f"{API_PREFIX}/jobs:run",
-        json={"name": _SAMPLE_TASK},
+        json={"name": _SAMPLE_TASK_ENTRYPOINT},
     )
 
     assert response.status_code == 201
     view = JobView.model_validate(response.json())
-    assert view.name == "simple_task"
+    assert view.name == simple_task.__name__
