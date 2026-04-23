@@ -18,7 +18,7 @@ In scope:
 - Drop ClickHouse `COMMENT` clauses from `CREATE TABLE` DDL.
 - Add a `schema_json` column to the SQL `table_registry`, holding the full schema as a Pydantic-serialized JSON document.
 - Make schema reconstruction read from the registry JSON instead of `system.columns` + COMMENT YAML.
-- Tighten the operator contract: binary elementwise ops between two array Objects from different sources, and `.data()` on an array Object, both require an explicit `View(order_by=...)`. Detection happens at call time.
+- Tighten the operator contract: binary elementwise ops between two array Objects from different sources require an explicit `View(order_by=...)` on both sides, detected at call time. `.data()` gains keyword-only `order_by`, `offset`, and `limit` parameters (with `limit=1000` as a safety default) so callers can read rows from any Object without building a `View`.
 
 Out of scope (explicitly):
 
@@ -106,7 +106,7 @@ The registry is authoritative for schema reads. There is no second `ALTER`-time 
 | Operation                                          | Requires explicit `order_by`?        |
 |----------------------------------------------------|--------------------------------------|
 | `a + b` (two array Objects, different sources)     | Yes — both sides as `View(order_by)` |
-| `array_obj.data()`                                 | Yes — passed to `data()` or from View|
+| `array_obj.data()`                                 | No — defaults to `None`; safety cap is `limit=1000` |
 | `a + a` (same Object, or same-table fast path)     | No                                   |
 | `array_obj + scalar_obj` (broadcast)               | No                                   |
 | Aggregations producing arrays                      | No                                   |
@@ -131,8 +131,8 @@ The existing `orient` positional parameter is preserved for compatibility with e
 Resolution rules:
 
 - If `self` is a `View`, the kwargs on `data()` override the `View`'s own `_order_by` / `_offset` / `_limit` when provided; otherwise the `View`'s values are used.
-- If the Object's `fieldtype == "a"` and the resolved `order_by` is `None`, `data()` raises at call time.
-- `limit=1000` is the default safety cap. Callers wanting all rows pass `limit=None` explicitly.
+- `order_by=None` is permitted on any Object (including arrays); the result is whatever order ClickHouse returns. Determinism is opt-in via an explicit `order_by`.
+- `limit=1000` is the default safety cap that makes calling `data()` without `order_by` safe. Callers wanting all rows pass `limit=None` explicitly.
 - Scalars and dicts ignore `order_by`, `offset`, `limit` (single-row results); passing them is allowed but has no effect.
 
 Errors:
@@ -146,12 +146,7 @@ TypeError(
 )
 ```
 
-```python
-TypeError(
-    "data() on an array Object needs an explicit row order. "
-    "Pass order_by=... to data(), or call it on a View that has one."
-)
-```
+`data()` does not raise on missing `order_by`; the `limit=1000` cap is the safety mechanism.
 
 SQL changes in `aaiclick/data/object/operators.py`:
 
@@ -191,7 +186,7 @@ Touched call sites:
 
 Documentation updates:
 
-- `docs/object.md` — remove the order-preservation-via-`aai_id` section; document the explicit `View(order_by=...)` contract for cross-table operators and `.data()`.
+- `docs/object.md` — remove the order-preservation-via-`aai_id` section; document the explicit `View(order_by=...)` contract for cross-table operators and the new `data(order_by=, offset=, limit=)` kwargs (including the `limit=1000` safety default).
 - `docs/data_context.md` — update the schema-storage description to reference `table_registry.schema_json`.
 - `docs/glossary.md` — remove the `aai_id` entry.
 - `docs/lineage_implementation_plan.md`, `docs/insert_advisory_lock.md` — remove `aai_id` references.
@@ -207,7 +202,7 @@ New / updated test files:
 - `aaiclick/data/object/test_schema.py` — schema reconstruction reads from the registry, not `system.columns`; missing registry row raises a clear error.
 - `aaiclick/data/test_data_context.py` — `create_object` emits DDL without `aai_id`/COMMENTs; the registry row is inserted with correct `schema_json`; `aai_id` is no longer reserved.
 - `aaiclick/data/object/test_arithmetic.py` (and the other operator test files) — extend with the contract: cross-table `a + b` without Views raises `TypeError` at call time; with Views, `a.view(order_by=...) + b.view(order_by=...)` produces correctly aligned results; same-table fast path still works without Views; scalar broadcast still works without Views; aggregations still work.
-- The test file covering `.data()` on Objects — `array_obj.data()` raises; `array_obj.data(order_by="...")` succeeds; `array_obj.view(order_by=...).data()` succeeds; the `limit=1000` default caps result row count; `array_obj.data(order_by=..., limit=None)` returns all rows; `View` values for `order_by`/`offset`/`limit` are overridden when kwargs are passed to `data()`; scalar and dict `.data()` work without any kwargs.
+- The test file covering `.data()` on Objects — `array_obj.data()` succeeds and returns at most 1000 rows in arbitrary order (no ordering required); `array_obj.data(order_by="...")` returns rows in the specified order; `array_obj.view(order_by=...).data()` succeeds; `array_obj.data(limit=None)` returns all rows; `View` values for `order_by`/`offset`/`limit` are overridden when kwargs are passed to `data()`; scalar and dict `.data()` work without any kwargs.
 - `aaiclick/orchestration/migrations/versions/<new>_add_schema_json_to_table_registry.py` — Alembic migration adds the `schema_json` column.
 
 SQL patterns are validated with the `chdb-eval` skill: no `ORDER BY aai_id` anywhere; `row_number() OVER (ORDER BY <user_order>)` in cross-table operator SQL; `ORDER BY tuple()` in `CREATE TABLE` for tables without a user-supplied order key.
