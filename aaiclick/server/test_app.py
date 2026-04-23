@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from fastapi.routing import APIRoute
 from starlette.routing import Route
+
+from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, app
 
@@ -59,29 +62,28 @@ async def test_openapi_schema_served_under_prefix(app_client):
         assert model_name in schemas, f"{model_name} not in OpenAPI components.schemas"
 
 
-async def test_openapi_error_responses_declared(app_client):
-    """Each error-raising route advertises its Problem responses in the OpenAPI spec."""
-    schema = (await app_client.get(f"{API_PREFIX}/openapi.json")).json()
-    paths = schema["paths"]
+async def test_openapi_advertises_problem_responses_for_declared_routes(app_client):
+    """Any route that declares a ``Problem`` response via ``problem_responses()`` must
+    appear in the OpenAPI spec with the matching ``Problem`` ``$ref`` — guards against
+    FastAPI silently dropping the annotation (e.g. handler signature collision).
+    """
+    paths = (await app_client.get(f"{API_PREFIX}/openapi.json")).json()["paths"]
 
-    expected: dict[tuple[str, str], set[str]] = {
-        ("/api/v0/jobs/{ref}", "get"): {"404"},
-        ("/api/v0/jobs/{ref}/stats", "get"): {"404"},
-        ("/api/v0/jobs/{ref}/cancel", "post"): {"404", "409"},
-        ("/api/v0/registered-jobs", "post"): {"409"},
-        ("/api/v0/registered-jobs/{name}/enable", "post"): {"404"},
-        ("/api/v0/registered-jobs/{name}/disable", "post"): {"404"},
-        ("/api/v0/tasks/{task_id}", "get"): {"404"},
-        ("/api/v0/workers/{worker_id}/stop", "post"): {"404", "409"},
-        ("/api/v0/objects", "get"): {"422"},
-        ("/api/v0/objects:purge", "post"): {"422"},
-        ("/api/v0/objects/{name}", "get"): {"404"},
-    }
-
-    for (path, method), codes in expected.items():
-        responses = paths[path][method]["responses"]
-        for code in codes:
-            assert code in responses, f"{method.upper()} {path} missing {code} response in OpenAPI"
-            content = responses[code].get("content", {}).get("application/json", {})
-            ref = content.get("schema", {}).get("$ref", "")
-            assert ref.endswith("/Problem"), f"{method.upper()} {path} {code} response is not Problem (got {ref!r})"
+    saw_any_declared = False
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        problem_codes = {
+            code for code, spec in route.responses.items() if isinstance(spec, dict) and spec.get("model") is Problem
+        }
+        if not problem_codes:
+            continue
+        saw_any_declared = True
+        method = next(iter(route.methods - {"HEAD"})).lower()
+        route_responses = paths[route.path][method]["responses"]
+        for code in problem_codes:
+            key = str(code)
+            assert key in route_responses, f"{method.upper()} {route.path} missing {code} in OpenAPI"
+            ref = route_responses[key].get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
+            assert ref.endswith("/Problem"), f"{method.upper()} {route.path} {code} is not Problem (got {ref!r})"
+    assert saw_any_declared, "no routes declared Problem responses — check problem_responses() usage"

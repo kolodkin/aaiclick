@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
-
-_SAMPLE_TASK_ENTRYPOINT = f"{simple_task.__module__}.{simple_task.__name__}"
 
 
 async def test_list_jobs_returns_page(orch_ctx, app_client):
@@ -89,7 +87,7 @@ async def test_cancel_already_cancelled_returns_409(orch_ctx, app_client):
 async def test_run_job(orch_ctx, app_client):
     response = await app_client.post(
         f"{API_PREFIX}/jobs:run",
-        json={"name": _SAMPLE_TASK_ENTRYPOINT},
+        json={"name": _callable_to_string(simple_task)},
     )
 
     assert response.status_code == 201

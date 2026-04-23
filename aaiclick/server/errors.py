@@ -16,8 +16,6 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
 }
 
-_STATUS_TO_TITLE: dict[int, str] = {status: title for title, status, _ in _PROBLEM_MAP.values()}
-
 
 def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, (title, status, code) in _PROBLEM_MAP.items():
@@ -25,11 +23,13 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 def problem_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
-    """Return an OpenAPI ``responses=`` mapping describing the ``Problem`` envelope
-    for each HTTP code a route can emit. Codes must be ones declared in
-    ``_PROBLEM_MAP`` — single source of truth with the runtime handlers.
+    """OpenAPI ``responses=`` mapping for the ``Problem`` codes a route can emit.
+
+    Codes must appear in ``_PROBLEM_MAP`` — single source of truth with the
+    runtime exception handlers.
     """
-    return {code: {"model": Problem, "description": _STATUS_TO_TITLE[code]} for code in codes}
+    titles = {status: title for title, status, _ in _PROBLEM_MAP.values()}
+    return {code: {"model": Problem, "description": titles[code]} for code in codes}
 
 
 def _register(
