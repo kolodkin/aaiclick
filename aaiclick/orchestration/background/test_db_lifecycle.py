@@ -22,9 +22,7 @@ async def test_table_registry_accepts_schema_doc(bg_db):
         await session.commit()
 
     async with AsyncSession(bg_db) as session:
-        result = await session.execute(
-            select(TableRegistry).where(TableRegistry.table_name == "t_test_1")
-        )
+        result = await session.execute(select(TableRegistry).where(TableRegistry.table_name == "t_test_1"))
         assert result.scalar_one().schema_doc == '{"columns":[],"fieldtype":"s"}'
 
 
@@ -34,7 +32,5 @@ async def test_table_registry_schema_doc_is_optional(bg_db):
         await session.commit()
 
     async with AsyncSession(bg_db) as session:
-        result = await session.execute(
-            select(TableRegistry).where(TableRegistry.table_name == "t_test_2")
-        )
+        result = await session.execute(select(TableRegistry).where(TableRegistry.table_name == "t_test_2"))
         assert result.scalar_one().schema_doc is None
