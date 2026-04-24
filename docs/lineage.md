@@ -11,8 +11,6 @@ Lineage is a two-tier agent loop over the pipeline's own tables. The
 agent queries what exists, forms a hypothesis, and escalates to a full
 replay only when static state is insufficient.
 
-**Implementation plan**: `docs/lineage_implementation_plan.md`
-
 ---
 
 # Two-Tier Model

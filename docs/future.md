@@ -140,9 +140,11 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Switch DB Enums from `StrEnum` to `Literal` + `sa_column`
+## Switch `StrEnum` Usages to `Literal`
 
-Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). The codebase's default preference is Literal for simplicity; StrEnum lives on solely for DB coupling.
+**Codebase-wide rule** (also in `CLAUDE.md` → Coding Guidelines): `typing.Literal` is preferred over `StrEnum` / `(str, Enum)` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
+
+Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). `aaiclick/view_models.py` also still carries `OllamaBootstrapStatus` and `MigrationAction` as `(str, Enum)` subclasses; these do not need DB mapping and can flip to `Literal` directly.
 
 **Proposal**: make Literal the single source of truth; declare the DB mapping explicitly via `sa_column` with `SaEnum(*get_args(MyLiteral))`.
 
@@ -168,9 +170,10 @@ class Job(SQLModel, table=True):
 **Work**:
 
 - `aaiclick/orchestration/models.py` — replace the five StrEnums with Literal aliases and add `sa_column=Column(SaEnum(...))` to each Field.
+- `aaiclick/view_models.py` — flip `OllamaBootstrapStatus` and `MigrationAction` to `Literal` aliases (no `sa_column` needed; these are pure-view models).
 - Update every `Status.VALUE` reference in `aaiclick/`, tests, and examples to string literals.
 - Audit alembic migrations for new diffs; hand-write migrations for any that autogenerate misses.
-- Update `CLAUDE.md` coding guidelines to document the Literal-first rule and the explicit `sa_column` pattern for DB columns.
+- `CLAUDE.md` Literal-first rule is already in place; revisit once migration lands to remove the "scheduled for migration" callout.
 
 ---
 
