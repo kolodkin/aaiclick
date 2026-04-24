@@ -18,6 +18,7 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    # Takes `app` as a parameter — `app.py` imports this module, so `from .app import app` would cycle.
     for exc_type, (title, status, code) in _PROBLEM_MAP.items():
         _register(app, exc_type, title, status, code)
 
