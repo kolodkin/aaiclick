@@ -48,10 +48,10 @@ jobs:
           path: dist/
 
       - name: Export pinned dependencies (local backend)
-        run: uv export --frozen --extra test --extra ai --extra server --no-emit-project -o requirements-local.txt
+        run: uv export --frozen --extra test --no-emit-project -o requirements-local.txt
 
       - name: Export pinned dependencies (distributed backend)
-        run: uv export --frozen --extra test --extra distributed --extra ai --extra server --no-emit-project -o requirements-dist.txt
+        run: uv export --frozen --extra test --extra distributed --no-emit-project -o requirements-dist.txt
 
       - name: Upload requirements artifacts
         uses: actions/upload-artifact@v6
@@ -64,25 +64,15 @@ jobs:
   test-package-local:
     needs: build
     runs-on: ubuntu-latest
-
-    env:
-      AAICLICK_AI_MODEL: ollama/llama3.2:1b
-      AAICLICK_AI_LIVE_TESTS: "1"
-
-    services:
-      ollama:
-        image: ollama/ollama:latest
-        env:
-          OLLAMA_HOST: 0.0.0.0
-        ports:
-          - 11434:11434
-        volumes:
-          - /home/runner/.ollama:/root/.ollama
-        options: >-
-          --health-cmd "bash -c 'echo > /dev/tcp/localhost/11434'"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
+    name: test-package-local (${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: data
+            pyargs: aaiclick.data aaiclick.snowflake
+          - group: orch
+            pyargs: aaiclick.orchestration aaiclick.oplog
 
     steps:
       - name: Install uv
@@ -105,23 +95,17 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[ai,server]"
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick
 
-      - name: Cache Ollama model
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-llama3.2-1b
-
-      - name: Setup local backend and pull model
-        run: uv run --no-project python -m aaiclick setup --ai
+      - name: Setup local backend
+        run: uv run --no-project python -m aaiclick setup
 
       - name: Run tests against installed package (local backend)
         working-directory: /tmp
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: >-
-          uv run --no-project pytest --pyargs aaiclick.data aaiclick.snowflake aaiclick.orchestration aaiclick.oplog -n auto -v
+          uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
@@ -140,10 +124,6 @@ jobs:
             pyargs: aaiclick.data aaiclick.snowflake
           - group: orch
             pyargs: aaiclick.orchestration aaiclick.oplog
-
-    env:
-      AAICLICK_AI_MODEL: ollama/llama3.2:1b
-      AAICLICK_AI_LIVE_TESTS: "1"
 
     services:
       clickhouse:
@@ -176,20 +156,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      ollama:
-        image: ollama/ollama:latest
-        env:
-          OLLAMA_HOST: 0.0.0.0
-        ports:
-          - 11434:11434
-        volumes:
-          - /home/runner/.ollama:/root/.ollama
-        options: >-
-          --health-cmd "bash -c 'echo > /dev/tcp/localhost/11434'"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
     steps:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -211,21 +177,12 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed,ai,server]"
+          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
 
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: uv run --no-project python -m aaiclick migrate upgrade head
-
-      - name: Cache Ollama model
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-llama3.2-1b
-
-      - name: Pull Ollama model
-        run: uv run --no-project python -m aaiclick setup --ai
 
       - name: Run tests against installed package (distributed backend)
         env:
