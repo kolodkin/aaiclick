@@ -27,3 +27,10 @@ Technical Debt
   - **Issue**: LiteLLM 1.82.4 leaves `async_success_handler` coroutines unawaited on the Ollama code path despite the upstream fix in v1.76.1 (PR #14050). This produces `RuntimeWarning` and `PytestUnraisableExceptionWarning` that fail tests under `filterwarnings = ["error"]`.
   - **Workaround**: `pytest_collection_modifyitems()` attaches per-test `filterwarnings` marks to `live_llm`-marked tests, suppressing only those two warnings. Scoped to live LLM tests so it doesn't mask warnings elsewhere.
   - **Debt**: Remove the suppressions once LiteLLM fixes the Ollama-specific code path. Track at [BerriAI/litellm](https://github.com/BerriAI/litellm).
+
+# Python 3.10: Generic `NamedTuple` Unsupported
+
+- **`PageRows`** (`aaiclick/internal_api/pagination.py`)
+  - **Issue**: Python 3.10 rejects `class PageRows(NamedTuple, Generic[T])` with `TypeError: Multiple inheritance with NamedTuple is not supported`. Subscripting a frozen-dataclass generic at runtime (`PageRows[int](...)`) also fails on 3.10 because `__orig_class__` assignment hits the frozen guard. Python 3.11 fixes both.
+  - **Workaround**: `PageRows` is declared as `@dataclass(frozen=True, slots=True)` + `Generic[T]`, and constructed without a runtime subscript (`PageRows(total=..., rows=...)`). The return annotation on `paginate()` keeps the generic info for type checking.
+  - **Debt**: Switch back to `class PageRows(NamedTuple, Generic[T])` — lighter runtime, iterable/unpackable — once `requires-python` bumps to `>=3.11`. Python 3.10 reaches EOL October 2026.
