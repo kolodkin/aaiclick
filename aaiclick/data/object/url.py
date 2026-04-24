@@ -8,7 +8,6 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
-from dataclasses import replace as dataclass_replace
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -218,19 +217,15 @@ async def _create_from_tabular(
         ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
 
     if len(columns) == 1:
-        value_col = dataclass_replace(ch_types[columns[0]], fieldtype=FIELDTYPE_ARRAY)
         schema = Schema(
             fieldtype=FIELDTYPE_ARRAY,
-            columns={"value": value_col},
+            columns={"value": ch_types[columns[0]].with_fieldtype(FIELDTYPE_ARRAY)},
         )
         select_cols = f"{quoted_columns[0]} AS value"
     else:
-        schema_columns: dict[str, ColumnInfo] = {}
-        for col_name in columns:
-            schema_columns[col_name] = dataclass_replace(ch_types[col_name], fieldtype=FIELDTYPE_ARRAY)
         schema = Schema(
             fieldtype=FIELDTYPE_DICT,
-            columns=schema_columns,
+            columns={name: ch_types[name].with_fieldtype(FIELDTYPE_ARRAY) for name in columns},
         )
         select_cols = columns_str
 
@@ -267,9 +262,7 @@ async def _create_from_json(
     settings = ch_settings or {}
     safe_url = escape_sql_string(url)
 
-    schema_columns: dict[str, ColumnInfo] = {}
-    for col_name, col_info in json_columns.items():
-        schema_columns[col_name] = dataclass_replace(col_info, fieldtype=FIELDTYPE_ARRAY)
+    schema_columns = {name: ci.with_fieldtype(FIELDTYPE_ARRAY) for name, ci in json_columns.items()}
 
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=schema_columns)
     obj = await create_object(schema)
@@ -281,8 +274,7 @@ async def _create_from_json(
         safe_url,
     )
 
-    insert_col_names = [k for k in schema_columns if k != "aai_id"]
-    insert_cols_str = ", ".join(quote_identifier(c) for c in insert_col_names)
+    insert_cols_str = ", ".join(quote_identifier(c) for c in schema_columns)
 
     where_clause = f" WHERE {where}" if where else ""
     limit_clause = f" LIMIT {limit}" if limit is not None else ""

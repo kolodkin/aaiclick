@@ -243,8 +243,8 @@ async def _insert_source(
     Args:
         target_table: Destination table name.
         info: Source query info.
-        target_types: Mapping of data column name to target ColumnInfo
-            (excludes ``aai_id``).  Column names are derived from the keys.
+        target_types: Mapping of data column name to target ColumnInfo.
+            Column names are derived from the keys.
         alias_index: Index used to alias subquery sources.
         ch_client: ClickHouse client instance.
     """
@@ -266,8 +266,6 @@ async def concat_objects_db(
 ):
     """
     Concatenate multiple sources into a new Object, one INSERT per source.
-
-    Generates fresh Snowflake IDs for all rows (excludes source aai_id).
     Order follows argument order: each INSERT gets monotonically increasing IDs.
 
     Args:

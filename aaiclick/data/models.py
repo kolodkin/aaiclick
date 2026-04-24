@@ -4,7 +4,7 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
 
@@ -70,6 +70,10 @@ class ColumnInfo:
     low_cardinality: bool = False
     description: str = ""
     fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
+
+    def with_fieldtype(self, fieldtype: ColumnFieldtype) -> "ColumnInfo":
+        """Return a copy with ``fieldtype`` replaced."""
+        return replace(self, fieldtype=fieldtype)
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.

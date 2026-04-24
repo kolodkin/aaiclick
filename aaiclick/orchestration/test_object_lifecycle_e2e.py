@@ -16,6 +16,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
+from aaiclick.testing import with_value_order
 from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -41,7 +42,8 @@ async def add_ten(data: Object) -> Object:
 
 @task
 async def add_objects(a: Object, b: Object) -> Object:
-    return await (a.view(order_by="value") + b.view(order_by="value"))
+    # Cross-table array+array requires explicit order on both sides (Phase 4 contract).
+    return await (with_value_order(a) + with_value_order(b))
 
 
 @task

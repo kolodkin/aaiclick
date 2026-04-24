@@ -5,10 +5,7 @@ This module tests the schema property that returns schema information
 including table name, fieldtype, and column details.
 """
 
-import json
-
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete
 
 from aaiclick import (
@@ -24,6 +21,7 @@ from aaiclick.data.models import ViewSchema
 from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.testing import seed_registry_row
 
 # =============================================================================
 # Basic Schema Tests
@@ -234,33 +232,9 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
 
 
 async def test_get_table_schema_reads_from_registry(orch_ctx):
-    """_get_table_schema hydrates from table_registry.schema_doc when populated.
-
-    Inserts the registry row directly rather than relying on ``create_object``'s
-    async write (which Phase 3 will make synchronous). The goal of this test is
-    the read path, not the write-side plumbing.
-    """
+    """_get_table_schema hydrates from table_registry.schema_doc when populated."""
     table = "t_phase2_read_test"
-    schema_doc = json.dumps(
-        {
-            "columns": [
-                {
-                    "name": "value",
-                    "type": "Int64",
-                    "nullable": False,
-                    "array_depth": 0,
-                    "low_cardinality": False,
-                    "fieldtype": FIELDTYPE_ARRAY,
-                }
-            ],
-            "order_by": None,
-            "engine": "MergeTree",
-            "fieldtype": FIELDTYPE_ARRAY,
-        }
-    )
-    async with get_sql_session() as sess:
-        sess.add(TableRegistry(table_name=table, schema_doc=schema_doc))
-        await sess.commit()
+    await seed_registry_row(table, fieldtype=FIELDTYPE_ARRAY)
 
     try:
         ch_client = get_ch_client()

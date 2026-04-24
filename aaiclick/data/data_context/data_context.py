@@ -659,7 +659,7 @@ async def create_object_from_value(
                     raise ValueError(
                         f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
                     )
-                columns[key] = replace(col_def, fieldtype=FIELDTYPE_ARRAY)
+                columns[key] = col_def.with_fieldtype(FIELDTYPE_ARRAY)
 
             columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -730,9 +730,9 @@ async def create_object_from_value(
                             if isinstance(candidate, list) and candidate:
                                 sample = candidate
                                 break
-                    columns[key] = replace(_infer_array_clickhouse_type(sample), fieldtype=FIELDTYPE_ARRAY)
+                    columns[key] = _infer_array_clickhouse_type(sample).with_fieldtype(FIELDTYPE_ARRAY)
                 else:
-                    columns[key] = replace(_infer_clickhouse_type(sample), fieldtype=FIELDTYPE_ARRAY)
+                    columns[key] = _infer_clickhouse_type(sample).with_fieldtype(FIELDTYPE_ARRAY)
 
             columns = _apply_field_specs(columns, fields)
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -751,7 +751,7 @@ async def create_object_from_value(
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
             col_def = _infer_clickhouse_type(scalars)
-            columns = {"value": replace(col_def, fieldtype=FIELDTYPE_ARRAY)}
+            columns = {"value": col_def.with_fieldtype(FIELDTYPE_ARRAY)}
             columns = _apply_field_specs(columns, fields)
             col_def = columns["value"]
             schema = Schema(

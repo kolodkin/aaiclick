@@ -459,9 +459,10 @@ class Object:
         """
         self.checkstale()
 
-        # Source fieldtype + columns from the registry (schema_doc), not
-        # system.columns — per Phase 2 the registry is authoritative.
-        fieldtype, columns = await ingest._get_table_schema(self.table, self.ch_client)
+        # Object caches its schema on construction (from create_object or from
+        # the registry during deserialize) — no need to round-trip SQL here.
+        fieldtype = self._schema.fieldtype
+        columns = self._schema.columns
         column_names = list(columns)
 
         if fieldtype == FIELDTYPE_DICT:
@@ -543,10 +544,10 @@ class Object:
         scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
         — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
-        View constraints (``where``, ``limit``, ``order_by``) are honored and
-        Backends stream directly:
-        chdb writes via ``INSERT INTO FUNCTION file()`` from the embedded
-        engine; remote ClickHouse streams the formatted bytes over HTTP.
+        View constraints (``where``, ``limit``, ``order_by``) are honored.
+        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
+        file()`` from the embedded engine; remote ClickHouse streams the
+        formatted bytes over HTTP.
 
         Returns the absolute path written.
         """
@@ -968,7 +969,7 @@ class Object:
 
         Args:
             url: HTTP(S) URL to load data from (e.g., Parquet file on S3)
-            columns: Column names to select. If None, uses this object's columns
+            columns: Column names to select. If None, uses this object's columns.
                 Column names must match the URL source.
             format: ClickHouse format name. Default "Parquet".
                 Supported: Parquet, CSV, CSVWithNames, TSV, JSON, JSONEachRow, etc.
