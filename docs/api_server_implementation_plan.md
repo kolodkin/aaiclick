@@ -79,8 +79,12 @@ Catalogue" — do not restate them here.
     `aaiclick/internal_api/test_jobs.py`).
   - `test_task_to_detail_includes_detail_fields` — removed (exercised by
     `aaiclick/internal_api/test_tasks.py`).
-  - Still pending: the equivalents in `aaiclick/data/test_view_models.py` —
-    drop each alongside its internal_api migration PR.
+  - `test_column_info_to_view_*`, `test_schema_to_view_preserves_columns_and_metadata`,
+    `test_object_to_view_*`, `test_object_to_detail_embeds_schema` — removed
+    (adapters exercised by `aaiclick/internal_api/test_objects.py`;
+    `scope_of` exercised by `aaiclick/data/test_scope.py`). The three
+    `_object_name_from_table` parsing tests stay — that helper lives in
+    `view_models.py` and has real branching logic.
 
 ---
 
@@ -147,25 +151,28 @@ CLI handler maps these to exit code + human message. FastAPI maps them to
 Small refinements surfaced during migration PRs. Each is a separate PR, sized
 to land alongside or just after the group that motivates it.
 
-- **Paginator footer parity** — `cli_renderers.render_registered_jobs_page`
-  lacks the `"Showing N-M of total"` footer that `render_jobs_page` emits.
-  Thread `offset` through the CLI handler and add the footer. Apply the same
-  check to every group that introduces a list view (workers, objects, tasks).
+- **Paginator footer parity** — `render_registered_jobs_page` now takes
+  `offset` and emits `"Showing N-M of total"`, matching `render_jobs_page`
+  / `render_workers_page`. `render_objects_page` keeps `"Total: N"` for
+  now — `ObjectFilter` is cursor-only and has no `offset` field. Tasks
+  has no list view today.
 
-- **Apply typed-exception pattern across `internal_api/*`** — the
-  registered-jobs migration moved error translation to typed subclasses of
-  `ValueError` in the producer (`RegisteredJobAlreadyExists`,
-  `RegisteredJobNotFound`). `internal_api/jobs.py` still pre-resolves via
-  `_resolve_job` to avoid string matching. Unify on the typed-exception
-  approach in `orchestration/execution/claiming.py` (`cancel_job`) and in
-  any new producer that can fail with "not found" / "conflict" semantics.
+- **Apply typed-exception pattern across `internal_api/*`** — done.
+  `orchestration/execution/claiming.py::cancel_job` now raises
+  `JobNotFound` / `JobAlreadyTerminal` (subclasses of `ValueError`) and
+  returns the cancelled `Job` instead of a bool. `internal_api/jobs.py`
+  catches the typed exceptions and translates to `NotFound` / `Conflict`,
+  dropping the post-cancel `_resolve_job` refresh. The same typed-exception
+  pattern applies to any new producer that can fail with "not found" /
+  "conflict" semantics.
 
-- **Shared pagination helper** — when the third `list_*` call site lands
-  (e.g. `list_workers`), extract a helper that takes a base `select`, a
-  sequence of `WHERE` predicates, an ORDER BY column, and
-  `limit`/`offset` — and returns `(total, rows)`. Premature with only two
-  sites (per `CLAUDE.md`'s "three similar lines is better than a premature
-  abstraction"); revisit at three.
+- **Shared pagination helper** — done.
+  `aaiclick/internal_api/pagination.py::paginate(model, *, where,
+  order_by, limit, offset) -> (total, rows)` runs the shared
+  `COUNT(*)` + paginated `SELECT` dance in one session.
+  `list_jobs`, `list_registered_jobs`, and `list_workers` now assemble
+  predicates and delegate. `list_objects` is intentionally not covered:
+  it lists ClickHouse tables (not a SQL model) and is cursor-only.
 
 ---
 

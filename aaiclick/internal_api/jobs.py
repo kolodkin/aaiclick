@@ -11,9 +11,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, func, select
+from sqlmodel import col, select
 
-from aaiclick.orchestration.execution.claiming import cancel_job as _cancel_job_impl
+from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
@@ -28,6 +28,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 @asynccontextmanager
@@ -66,24 +67,22 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """
     filter = filter or JobListFilter()
 
-    count_query = select(func.count()).select_from(Job)
-    list_query = select(Job)
+    predicates = []
     if filter.status is not None:
-        count_query = count_query.where(Job.status == filter.status)
-        list_query = list_query.where(Job.status == filter.status)
+        predicates.append(Job.status == filter.status)
     if filter.name is not None:
-        count_query = count_query.where(col(Job.name).like(filter.name))
-        list_query = list_query.where(col(Job.name).like(filter.name))
+        predicates.append(col(Job.name).like(filter.name))
     if filter.since is not None:
-        count_query = count_query.where(Job.created_at >= filter.since)
-        list_query = list_query.where(Job.created_at >= filter.since)
+        predicates.append(Job.created_at >= filter.since)
 
-    list_query = list_query.order_by(col(Job.created_at).desc()).limit(filter.limit).offset(filter.offset)
-    async with get_sql_session() as session:
-        total = (await session.execute(count_query)).scalar_one()
-        rows = (await session.execute(list_query)).scalars().all()
-
-    return Page[JobView](items=[job_to_view(j) for j in rows], total=total)
+    page = await paginate(
+        Job,
+        where=predicates,
+        order_by=col(Job.created_at).desc(),
+        limit=filter.limit,
+        offset=filter.offset,
+    )
+    return Page[JobView](items=[job_to_view(j) for j in page.rows], total=page.total)
 
 
 async def get_job(ref: RefId) -> JobDetail:
@@ -118,22 +117,26 @@ async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks.
 
     Raises ``NotFound`` if the job does not exist, or ``Conflict`` if the job
-    is already in a terminal state. The ref is resolved first so the error
-    distinguishes "not found" from "already terminal"; the atomic cancellation
-    lives in ``aaiclick.orchestration.execution.claiming.cancel_job`` and is
-    authoritative about terminal state.
+    is already in a terminal state. String refs are resolved to a job id first
+    (the orchestration impl takes ``int`` only); int refs go straight to the
+    impl, which is authoritative about both not-found and terminal-state via
+    typed exceptions.
     """
-    job = await _resolve_job(ref)
-    if job is None:
-        raise NotFound(f"Job not found: {ref}")
+    if isinstance(ref, int):
+        job_id = ref
+    else:
+        job = await _resolve_job(ref)
+        if job is None:
+            raise NotFound(f"Job not found: {ref}")
+        job_id = job.id
 
-    if not await _cancel_job_impl(job.id):
-        raise Conflict(f"Job {job.id} already in terminal state: {job.status.value}")
-
-    refreshed = await _resolve_job(job.id)
-    if refreshed is None:
-        raise RuntimeError(f"Job {job.id} disappeared after cancel")
-    return job_to_view(refreshed)
+    try:
+        cancelled = await claiming.cancel_job(job_id)
+    except claiming.JobNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    except claiming.JobAlreadyTerminal as exc:
+        raise Conflict(str(exc)) from exc
+    return job_to_view(cancelled)
 
 
 async def run_job(request: RunJobRequest) -> JobView:

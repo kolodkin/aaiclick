@@ -1,12 +1,21 @@
 """Tests for cancel_job() API."""
 
+import pytest
 from sqlmodel import select
 
 from ..factories import create_job, create_task
 from ..jobs import get_task
 from ..models import Job, JobStatus, Task, TaskStatus
 from ..orch_context import commit_tasks, get_sql_session
-from .claiming import cancel_job, check_task_cancelled, claim_next_task, update_job_status, update_task_status
+from .claiming import (
+    JobAlreadyTerminal,
+    JobNotFound,
+    cancel_job,
+    check_task_cancelled,
+    claim_next_task,
+    update_job_status,
+    update_task_status,
+)
 from .worker import register_worker
 
 
@@ -15,8 +24,8 @@ async def test_cancel_pending_job(orch_ctx):
     job = await create_job("cancel_pending", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     assert job.status == JobStatus.PENDING
 
-    result = await cancel_job(job.id)
-    assert result is True
+    cancelled = await cancel_job(job.id)
+    assert cancelled.status == JobStatus.CANCELLED
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
@@ -43,8 +52,8 @@ async def test_cancel_running_job(orch_ctx):
     claimed = await claim_next_task(worker.id)
     assert claimed is not None
 
-    result = await cancel_job(job.id)
-    assert result is True
+    cancelled = await cancel_job(job.id)
+    assert cancelled.status == JobStatus.CANCELLED
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
@@ -55,47 +64,47 @@ async def test_cancel_running_job(orch_ctx):
             assert t.status == TaskStatus.CANCELLED
 
 
-async def test_cancel_completed_job_returns_false(orch_ctx):
+async def test_cancel_completed_job_raises_already_terminal(orch_ctx):
     """Test that a COMPLETED job cannot be cancelled."""
     job = await create_job("cancel_completed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     await update_job_status(job.id, JobStatus.COMPLETED)
 
-    result = await cancel_job(job.id)
-    assert result is False
+    with pytest.raises(JobAlreadyTerminal, match="COMPLETED"):
+        await cancel_job(job.id)
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
         assert db_job.status == JobStatus.COMPLETED
 
 
-async def test_cancel_failed_job_returns_false(orch_ctx):
+async def test_cancel_failed_job_raises_already_terminal(orch_ctx):
     """Test that a FAILED job cannot be cancelled."""
     job = await create_job("cancel_failed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     await update_job_status(job.id, JobStatus.FAILED, error="some error")
 
-    result = await cancel_job(job.id)
-    assert result is False
+    with pytest.raises(JobAlreadyTerminal, match="FAILED"):
+        await cancel_job(job.id)
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
         assert db_job.status == JobStatus.FAILED
 
 
-async def test_cancel_already_cancelled_returns_false(orch_ctx):
-    """Test that cancelling an already-cancelled job returns False."""
+async def test_cancel_already_cancelled_raises_already_terminal(orch_ctx):
+    """Test that cancelling an already-cancelled job raises."""
     job = await create_job("cancel_twice", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-    result1 = await cancel_job(job.id)
-    assert result1 is True
+    first = await cancel_job(job.id)
+    assert first.status == JobStatus.CANCELLED
 
-    result2 = await cancel_job(job.id)
-    assert result2 is False
+    with pytest.raises(JobAlreadyTerminal, match="CANCELLED"):
+        await cancel_job(job.id)
 
 
-async def test_cancel_nonexistent_job_returns_false(orch_ctx):
-    """Test that cancelling a non-existent job returns False."""
-    result = await cancel_job(999999999)
-    assert result is False
+async def test_cancel_nonexistent_job_raises_not_found(orch_ctx):
+    """Test that cancelling a non-existent job raises JobNotFound."""
+    with pytest.raises(JobNotFound, match="999999999"):
+        await cancel_job(999999999)
 
 
 async def test_claim_skips_cancelled_job_tasks(orch_ctx):
