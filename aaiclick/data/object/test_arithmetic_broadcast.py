@@ -269,3 +269,48 @@ async def test_scalar_div_is_noncommutative(ctx):
         assert abs(val - [0.2, 0.4, 0.5][i]) < THRESHOLD
     for i, val in enumerate(reverse_data):
         assert abs(val - [5.0, 2.5, 2.0][i]) < THRESHOLD
+
+
+# =============================================================================
+# Cross-table operator contract: both sides must be View(order_by=...)
+# =============================================================================
+
+
+async def test_cross_table_add_without_views_raises(ctx):
+    """Binary elementwise op on array Objects from different sources raises."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
+    with pytest.raises(TypeError, match="explicit row order"):
+        await (a + b)
+
+
+async def test_cross_table_add_with_one_view_raises(ctx):
+    """Left-only (or right-only) View(order_by=...) is not enough."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
+    a_view = a.view(order_by="value")
+    with pytest.raises(TypeError, match="explicit row order"):
+        await (a_view + b)
+
+
+async def test_cross_table_add_with_two_views_succeeds(ctx):
+    """Both sides as View(order_by=...) satisfies the contract."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
+    assert sorted(await result.view(order_by="value").data()) == [11, 22, 33]
+
+
+async def test_same_table_add_no_views_still_works(ctx):
+    """Same-table fast path skips the contract check."""
+    a = await create_object_from_value([1, 2, 3])
+    result = await (a + a)
+    assert sorted(await result.view(order_by="value").data()) == [2, 4, 6]
+
+
+async def test_scalar_broadcast_no_views_still_works(ctx):
+    """Scalar broadcast skips the contract check."""
+    a = await create_object_from_value([1, 2, 3])
+    s = await create_object_from_value(10)
+    result = await (a + s)
+    assert sorted(await result.view(order_by="value").data()) == [11, 12, 13]

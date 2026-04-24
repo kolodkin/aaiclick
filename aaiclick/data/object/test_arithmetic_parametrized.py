@@ -8,6 +8,7 @@ using pytest parametrization for comprehensive coverage.
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.data.models import FIELDTYPE_ARRAY
 
 THRESHOLD = 1e-5
 
@@ -17,23 +18,32 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
+def _with_order(obj):
+    """Wrap a cross-table array Object with .view(order_by='value') so the
+    Phase-4 cross-table operator contract is satisfied."""
+    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
+        return obj.view(order_by="value")
+    return obj
+
+
 async def apply_operator(obj_a, obj_b, operator: str):
     """Apply a binary operator to two objects using match/case."""
+    a, b = _with_order(obj_a), _with_order(obj_b)
     match operator:
         case "+":
-            return await (obj_a + obj_b)
+            return await (a + b)
         case "-":
-            return await (obj_a - obj_b)
+            return await (a - b)
         case "*":
-            return await (obj_a * obj_b)
+            return await (a * b)
         case "/":
-            return await (obj_a / obj_b)
+            return await (a / b)
         case "//":
-            return await (obj_a // obj_b)
+            return await (a // b)
         case "%":
-            return await (obj_a % obj_b)
+            return await (a % b)
         case "**":
-            return await (obj_a**obj_b)
+            return await (a**b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 

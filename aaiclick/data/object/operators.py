@@ -140,7 +140,7 @@ async def _validate_array_lengths(source_a, source_b, ch_client):
         raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
 
-async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client):
+async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client, *, order_a: str, order_b: str):
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
     Creates a temporary Memory table containing both operand values joined by
@@ -154,6 +154,8 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
         source_b: SQL source for right operand
         type_b: ClickHouse value type of right operand
         ch_client: ClickHouse async client
+        order_a: ORDER BY expression for left source — from ``View._order_by``.
+        order_b: ORDER BY expression for right source.
 
     Returns:
         Name of the temp table.  Caller is responsible for DROP.
@@ -180,13 +182,13 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
         SELECT a.value AS a_value, b.value AS b_value,
                a.present AS a_present, b.present AS b_present
         FROM (
-            SELECT CAST(row_number() OVER () AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_a})) AS value,
                    CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
-            SELECT CAST(row_number() OVER () AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER (ORDER BY {order_b}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_b})) AS value,
                    CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_b}
@@ -271,12 +273,18 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
             either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
             if either_is_view:
+                assert info_a.order_by and info_b.order_by, (
+                    "cross-table elementwise op reached operator SQL without order_by "
+                    "on both sides — the contract check in _apply_operator should have rejected it"
+                )
                 temp_table = await _materialize_array_join(
                     info_a.source,
                     info_a.value_type,
                     info_b.source,
                     info_b.value_type,
                     ch_client,
+                    order_a=info_a.order_by,
+                    order_b=info_b.order_by,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
@@ -288,11 +296,17 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+                # The cross-table contract (Object._apply_operator) guarantees
+                # both sides carry an explicit order_by when we reach here.
+                assert info_a.order_by and info_b.order_by, (
+                    "cross-table elementwise op reached operator SQL without order_by "
+                    "on both sides — the contract check in _apply_operator should have rejected it"
+                )
                 await ch_client.command(f"""
                     INSERT INTO {result.table} (value)
                     SELECT {expression} AS value
-                    FROM (SELECT row_number() OVER () AS rn, value FROM {info_a.source}) AS a
-                    INNER JOIN (SELECT row_number() OVER () AS rn, value FROM {info_b.source}) AS b
+                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value FROM {info_a.source}) AS a
+                    INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value FROM {info_b.source}) AS b
                     ON a.rn = b.rn
                 """)
 
@@ -1130,6 +1144,14 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     result = await create_object(schema)
 
     if a_is_array and b_is_array:
+        # Cross-table contract enforced by Object.coalesce — both operands must
+        # be Views with explicit order_by. Same-base-table coalesce is legal
+        # without views (matching source rows 1:1).
+        same_table = info_a.base_table == info_b.base_table
+        assert same_table or (info_a.order_by and info_b.order_by), (
+            "cross-table coalesce reached operator SQL without order_by — the "
+            "contract check in Object.coalesce should have rejected it"
+        )
         either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
         if either_is_view:
@@ -1139,6 +1161,8 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
                 info_b.source,
                 info_b.value_type,
                 ch_client,
+                order_a=info_a.order_by or "tuple()",
+                order_b=info_b.order_by or "tuple()",
             )
             try:
                 await ch_client.command(f"""
@@ -1149,11 +1173,13 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
                 await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
         else:
             await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            order_a = info_a.order_by or "tuple()"
+            order_b = info_b.order_by or "tuple()"
             await ch_client.command(f"""
                 INSERT INTO {result.table} (value)
                 SELECT coalesce(a.value, b.value) AS value
-                FROM (SELECT row_number() OVER () AS rn, value FROM {info_a.source}) AS a
-                INNER JOIN (SELECT row_number() OVER () AS rn, value FROM {info_b.source}) AS b
+                FROM (SELECT row_number() OVER (ORDER BY {order_a}) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY {order_b}) AS rn, value FROM {info_b.source}) AS b
                 ON a.rn = b.rn
             """)
 

@@ -217,6 +217,7 @@ class QueryInfo:
     value_type: str
     nullable: bool = False
     constraint_sql: str = ""
+    order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
 
 
 @dataclass

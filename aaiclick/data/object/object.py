@@ -77,6 +77,35 @@ class DataResult:
     columns: dict[str, ColumnMeta]
 
 
+def _require_explicit_order_for_cross_table(left: "Object", right: "Object") -> None:
+    """Enforce the cross-table operator contract.
+
+    Binary elementwise ops between two array Objects from different tables
+    need an explicit row order on both sides — otherwise the JOIN
+    ``row_number() OVER ()`` pairs rows arbitrarily. Same-table ops and
+    scalar broadcast skip the check (they have a natural alignment).
+    """
+    if left._schema.fieldtype != FIELDTYPE_ARRAY or right._schema.fieldtype != FIELDTYPE_ARRAY:
+        return
+    # View inherits .table from its source Object, so the underlying CH table
+    # name is the same attribute on both classes — no isinstance dance needed.
+    if left.table == right.table:
+        return
+    if (
+        isinstance(left, View)
+        and isinstance(right, View)
+        and left._order_by is not None
+        and right._order_by is not None
+    ):
+        return
+    raise TypeError(
+        "Binary elementwise ops on array Objects from different sources "
+        "require an explicit row order. Wrap both sides with "
+        ".view(order_by=...) before combining.\n"
+        f"  Got: {left!r} + {right!r}"
+    )
+
+
 class Object:
     """
     Represents a data object stored in a ClickHouse table.
@@ -347,6 +376,7 @@ class Object:
             value_type=col_def.type,
             nullable=col_def.nullable,
             constraint_sql=constraint_sql,
+            order_by=self.order_by,
         )
 
     def _build_constraint_sql(self) -> str:
@@ -577,6 +607,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(self, other)
         info_a = self._get_query_info()
         info_b = other._get_query_info()
         return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
@@ -597,6 +628,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(other, self)
         info_a = other._get_query_info()
         info_b = self._get_query_info()
         return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
@@ -1512,6 +1544,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(self, other)
         info_a = self._get_query_info()
         info_b = other._get_query_info()
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
