@@ -29,48 +29,52 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Create or append to `aaiclick/data/object/test_data.py`:
+**Use the real fixture `ctx` and the real module-level helper `create_object_from_value`** — `data_ctx` and `DataContext.create(...)` do not exist in this codebase.
+
+Create `aaiclick/data/object/test_data.py`:
 
 ```python
 import pytest
 
+from aaiclick import create_object_from_value
 
-async def test_data_limit_default_caps_at_1000(data_ctx):
-    obj = await data_ctx.create("a", list(range(2500)))
+
+async def test_data_limit_default_caps_at_1000(ctx):
+    obj = await create_object_from_value(list(range(2500)))
     rows = await obj.data()
     assert len(rows) == 1000
 
 
-async def test_data_limit_none_returns_all(data_ctx):
-    obj = await data_ctx.create("a", list(range(2500)))
+async def test_data_limit_none_returns_all(ctx):
+    obj = await create_object_from_value(list(range(2500)))
     rows = await obj.data(limit=None)
     assert len(rows) == 2500
 
 
-async def test_data_order_by_returns_deterministic_rows(data_ctx):
-    obj = await data_ctx.create("a", [3, 1, 2])
+async def test_data_order_by_returns_deterministic_rows(ctx):
+    obj = await create_object_from_value([3, 1, 2])
     assert await obj.data(order_by="value") == [1, 2, 3]
 
 
-async def test_data_offset_and_limit(data_ctx):
-    obj = await data_ctx.create("a", [1, 2, 3, 4, 5])
+async def test_data_offset_and_limit(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
     assert await obj.data(order_by="value", offset=1, limit=2) == [2, 3]
 
 
-async def test_data_without_order_by_does_not_raise(data_ctx):
+async def test_data_without_order_by_does_not_raise(ctx):
     # The spec: .data() does NOT raise on missing order_by.
-    obj = await data_ctx.create("a", [1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3])
     rows = await obj.data()
     assert sorted(rows) == [1, 2, 3]
 
 
-async def test_scalar_data_ignores_kwargs(data_ctx):
-    s = await data_ctx.create("s", 42)
+async def test_scalar_data_ignores_kwargs(ctx):
+    s = await create_object_from_value(42)
     assert await s.data(order_by="value", offset=5, limit=3) == 42
 
 
-async def test_view_kwargs_override_view_attrs(data_ctx):
-    obj = await data_ctx.create("a", [1, 2, 3, 4, 5])
+async def test_view_kwargs_override_view_attrs(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
     v = obj.view(order_by="value", limit=2)
     # No override: uses the view's limit=2.
     assert await v.data() == [1, 2]
@@ -78,8 +82,8 @@ async def test_view_kwargs_override_view_attrs(data_ctx):
     assert await v.data(limit=3) == [1, 2, 3]
 
 
-async def test_view_attrs_used_when_kwargs_absent(data_ctx):
-    obj = await data_ctx.create("a", [3, 1, 2])
+async def test_view_attrs_used_when_kwargs_absent(ctx):
+    obj = await create_object_from_value([3, 1, 2])
     v = obj.view(order_by="value")
     assert await v.data() == [1, 2, 3]
 ```
@@ -214,6 +218,19 @@ Expected: all eight tests PASS.
 
 Run: `pytest aaiclick/data/object/ -v`
 Expected: all tests pass. Any existing test that called `.data()` without `order_by` and expected deterministic ordering will flake — fix it to pass `order_by="value"` (or similar), per the new contract.
+
+- [ ] **Step 7: Simplify the Phase-4 arithmetic tests that used the two-step idiom**
+
+The Phase-4 tests in `aaiclick/data/object/test_arithmetic_broadcast.py` used `await result.view(order_by="value").data()` because `.data(order_by=...)` did not yet exist. Now it does — convert each to the single-step form:
+
+```python
+# Before (Phase 4):
+assert sorted(await result.view(order_by="value").data()) == [11, 22, 33]
+# After (Phase 5):
+assert await result.data(order_by="value") == [11, 22, 33]
+```
+
+This is a mechanical pass — both forms produce identical SQL, but the single-step form matches the docs the refactor will publish in Phase 6.
 
 - [ ] **Step 7: Commit**
 

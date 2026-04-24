@@ -136,46 +136,54 @@ EOF
 
 **Background:** `TableRegistry` is a SQLModel table. We're adding one nullable `Text` column. Nullable is the right choice for the migration step because rows created by older code paths between deploy and Phase-3 cutover won't have it. Phase 3 makes writes always populate it; Phase 2 reads it and raises a clear error if it's missing.
 
+**Important — the writes are raw SQL, not ORM**. `TableRegistry` rows are not currently inserted via the ORM; they are written by a raw SQL INSERT in `DBLifecycleHandler._write_table_registry_row` (`aaiclick/orchestration/orch_context.py` ~lines 213-240) and a second raw INSERT in `aaiclick/orchestration/oplog_backfill.py:74`. The ORM-level column addition in this task is necessary but **not sufficient** — Phase 3 Task 3.2 updates those raw INSERTs. Also: the test helper `aaiclick/orchestration/background/conftest.py::insert_table_registry` writes raw SQL; it stays happy with the new nullable column today, but Phase 3 will extend it so background tests can assert on `schema_json`.
+
 - [ ] **Step 1: Write the failing test**
 
-Create (or append to) `aaiclick/orchestration/test_db_lifecycle.py`:
+**No `sql_session` fixture exists in this project** — every orchestration test opens a session via `AsyncSession(engine)` directly, typically against the `bg_db` fixture in `aaiclick/orchestration/background/conftest.py`. Mirror that pattern here. Create `aaiclick/orchestration/test_db_lifecycle.py`:
 
 ```python
+from __future__ import annotations
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 
 
-async def test_table_registry_accepts_schema_json(sql_session):
-    row = TableRegistry(
-        table_name="t_test_1",
-        job_id=None,
-        task_id=None,
-        run_id=None,
-        schema_json='{"columns":[],"fieldtype":"s"}',
-    )
-    sql_session.add(row)
-    await sql_session.commit()
+async def test_table_registry_accepts_schema_json(bg_db):
+    async with AsyncSession(bg_db) as session:
+        session.add(
+            TableRegistry(
+                table_name="t_test_1",
+                job_id=None,
+                task_id=None,
+                run_id=None,
+                schema_json='{"columns":[],"fieldtype":"s"}',
+            )
+        )
+        await session.commit()
 
-    result = await sql_session.execute(
-        select(TableRegistry).where(TableRegistry.table_name == "t_test_1")
-    )
-    fetched = result.scalar_one()
-    assert fetched.schema_json == '{"columns":[],"fieldtype":"s"}'
+    async with AsyncSession(bg_db) as session:
+        result = await session.execute(
+            select(TableRegistry).where(TableRegistry.table_name == "t_test_1")
+        )
+        assert result.scalar_one().schema_json == '{"columns":[],"fieldtype":"s"}'
 
 
-async def test_table_registry_schema_json_is_optional(sql_session):
-    row = TableRegistry(table_name="t_test_2")
-    sql_session.add(row)
-    await sql_session.commit()
+async def test_table_registry_schema_json_is_optional(bg_db):
+    async with AsyncSession(bg_db) as session:
+        session.add(TableRegistry(table_name="t_test_2"))
+        await session.commit()
 
-    result = await sql_session.execute(
-        select(TableRegistry).where(TableRegistry.table_name == "t_test_2")
-    )
-    assert result.scalar_one().schema_json is None
+    async with AsyncSession(bg_db) as session:
+        result = await session.execute(
+            select(TableRegistry).where(TableRegistry.table_name == "t_test_2")
+        )
+        assert result.scalar_one().schema_json is None
 ```
 
-Use the project's existing `sql_session` fixture (check `aaiclick/conftest.py` — it provides a test SQL session against chdb+SQLite by default).
+The `bg_db` fixture is defined in `aaiclick/orchestration/background/conftest.py`. Placing the new test file at `aaiclick/orchestration/test_db_lifecycle.py` means you need to import it — either move the fixture to a more broadly-scoped conftest (preferred), or write a thin local fixture that mirrors `bg_db`. Simpler: place the new test file at `aaiclick/orchestration/background/test_db_lifecycle.py` so `bg_db` resolves automatically.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -231,7 +239,7 @@ git commit -m "feature: add nullable schema_json column to TableRegistry"
 **Files:**
 - Create: `aaiclick/orchestration/migrations/versions/<auto_generated>_add_schema_json_to_table_registry.py`
 
-**Background:** Migrations go through Alembic's `revision` command. The latest existing revision is `f3a8b1c42d5e`; the new one chains off it. `schema_json` is added as nullable so the migration is additive and safe to run against a live DB.
+**Background:** Migrations go through Alembic's `revision` command. The latest existing revision is `c8f4a2b91e57` (`move_table_registry_to_sql`); the new one chains off it. (Earlier drafts of this plan said `f3a8b1c42d5e` — that revision already has a child, `b7d3e2f19a4c`, so chaining off it forks the tree. Don't.) Verify the current head with `alembic -c aaiclick/orchestration/migrations/alembic.ini heads` before you run the `revision` command. `schema_json` is added as nullable so the migration is additive and safe to run against a live DB.
 
 - [ ] **Step 1: Generate the migration skeleton**
 
@@ -251,7 +259,7 @@ Open the newly created file. Replace the `upgrade`/`downgrade` bodies:
 """add schema_json to table_registry
 
 Revision ID: <generated>
-Revises: f3a8b1c42d5e
+Revises: c8f4a2b91e57
 Create Date: 2026-04-24 ...
 
 """
@@ -262,7 +270,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "<generated>"
-down_revision: str | Sequence[str] | None = "f3a8b1c42d5e"
+down_revision: str | Sequence[str] | None = "c8f4a2b91e57"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -278,7 +286,7 @@ def downgrade() -> None:
     op.drop_column("table_registry", "schema_json")
 ```
 
-Leave the `revision` string as Alembic generated it; only confirm `down_revision = "f3a8b1c42d5e"`.
+Leave the `revision` string as Alembic generated it; only confirm `down_revision = "c8f4a2b91e57"` (the current head as of this plan being written; run `alembic heads` if unsure).
 
 - [ ] **Step 3: Apply the migration locally and check status**
 

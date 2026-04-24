@@ -80,7 +80,7 @@ class SchemaView(BaseModel):
     fieldtype: Literal["s", "a", "d"]  # NEW: object-level fieldtype
 ```
 
-`SchemaView` is already the API-response shape; after this change it doubles as the persistence shape stored in `schema_json`. No new model types are introduced.
+`SchemaView` is already the API-response shape (consumed by `aaiclick/internal_api/objects.py` via the existing `schema_to_view` / `column_info_to_view` adapters in `aaiclick/data/view_models.py`); after this change it doubles as the persistence shape stored in `schema_json`. Those two adapters are extended in place to thread `fieldtype` through — **do not create a second module with the same function names**; the persistence and API-response shapes share one set of converters.
 
 The dataclass named `ColumnMeta` in `aaiclick/data/models.py` — whose only purpose today is YAML serialization into ClickHouse column comments — is deleted along with the YAML-comment code path.
 
@@ -92,6 +92,16 @@ create_object(name, schema, rows):
     2. table_registry.insert(table=..., schema_json=...)
     3. ch_client.insert(table, rows)              # data
 ```
+
+Step 2 plumbing (as it exists today, all must be updated to carry `schema_json`):
+
+- `aaiclick/data/data_context/data_context.py::create_object` calls `oplog_record_table(obj.table)` once the CREATE TABLE succeeds. All other CREATE-TABLE producers (`aaiclick/data/object/operators.py`, `aaiclick/data/object/ingest.py::copy_db` / `insert_objects_db` / `concat_objects_db`, `aaiclick/data/object/join.py`, `aaiclick/data/object/url.py`) reach ClickHouse by calling `create_object(schema)` — so the single registry write in `create_object` is the only site that needs the `schema_json` argument.
+- `aaiclick/oplog/oplog_api.py::oplog_record_table(table_name)` forwards to `lifecycle.oplog_record_table(...)`.
+- `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table` enqueues a `DBLifecycleMessage(OPLOG_TABLE, oplog_table=OplogTablePayload(...))` (see `aaiclick/orchestration/lifecycle/db_lifecycle.py::OplogTablePayload`). A no-op `LocalLifecycleHandler.oplog_record_table` in `aaiclick/data/data_context/lifecycle.py` also exists — its signature must stay compatible.
+- `OplogTablePayload` gains a `schema_json: str | None = None` field.
+- The raw SQL INSERT in `DBLifecycleHandler._write_table_registry_row` (`aaiclick/orchestration/orch_context.py`, ~lines 213-240) extends the column list and parameter dict to include `schema_json`.
+- `aaiclick/orchestration/oplog_backfill.py:74` contains a second raw `INSERT INTO table_registry (...)` — it also extends.
+- `aaiclick/orchestration/background/conftest.py::insert_table_registry` (test helper used by `test_cleanup.py`) should also be extended so background tests can seed rows with a representative `schema_json`.
 
 Failure modes:
 
@@ -157,7 +167,7 @@ SQL changes in `aaiclick/data/object/operators.py`:
 
 # Schema Reconstruction & Data Flow
 
-Today (`aaiclick/data/object/schema.py`, `_get_table_schema`):
+Today (`aaiclick/data/object/ingest.py::_get_table_schema` — note the function lives in `ingest.py`, **not** `schema.py`):
 
 1. `SELECT name, type, comment FROM system.columns WHERE table = ?` (ClickHouse).
 2. Parse each comment YAML into a `ColumnMeta.fieldtype`.
@@ -166,9 +176,9 @@ Today (`aaiclick/data/object/schema.py`, `_get_table_schema`):
 
 After:
 
-1. `SELECT schema_json FROM table_registry WHERE table_name = ?` (PostgreSQL/SQLite).
-2. `SchemaView.model_validate(schema_json)`.
-3. Hydrate the in-memory `Schema` dataclass from `SchemaView`. The dataclass keeps its current shape so the rest of the runtime is undisturbed.
+1. `SELECT schema_json FROM table_registry WHERE table_name = ?` via the existing `aaiclick.orchestration.sql_context.get_sql_session` helper (PostgreSQL/SQLite).
+2. `SchemaView.model_validate_json(schema_json)`.
+3. Hydrate the in-memory `Schema` dataclass from `SchemaView` via the converter that lives alongside `schema_to_view` in `aaiclick/data/view_models.py`. The dataclass keeps its current shape so the rest of the runtime is undisturbed.
 
 A missing registry row raises a clear error: the table either was not created by aaiclick or was created by a previous (pre-refactor) version. There is no fallback to `system.columns`.
 
@@ -189,8 +199,10 @@ Documentation updates:
 - `docs/object.md` — remove the order-preservation-via-`aai_id` section; document the explicit `View(order_by=...)` contract for cross-table operators and the new `data(order_by=, offset=, limit=)` kwargs (including the `limit=1000` safety default).
 - `docs/data_context.md` — update the schema-storage description to reference `table_registry.schema_json`.
 - `docs/glossary.md` — remove the `aai_id` entry.
-- `docs/lineage_implementation_plan.md`, `docs/insert_advisory_lock.md` — remove `aai_id` references.
+- `docs/insert_advisory_lock.md` — remove `aai_id` references.
+- `docs/lineage.md` — update any mention of fresh-`aai_id` warnings emitted by the lineage agent (the `AAI_ID_WARNING` prompt constant is removed alongside the column).
 - `docs/future.md` — strike any items made obsolete.
+- Out-of-`docs/data/` code with live `aai_id` references that must also be purged: `aaiclick/locks.py` (doc comment), `aaiclick/oplog/lineage.py:157` (runtime warning string), `aaiclick/ai/agents/prompts.py::AAI_ID_WARNING` + its inclusion in prompt templates, `aaiclick/orchestration/operators.py` (`order_by="aai_id"` in partition `ViewRef` at ~lines 124 and 242), and tests under `aaiclick/ai/agents/`, `aaiclick/internal_api/`, `aaiclick/orchestration/execution/`.
 
 # Testing
 
@@ -198,12 +210,18 @@ Per `CLAUDE.md` testing rules: tests live alongside the modules they test, are f
 
 New / updated test files:
 
-- `aaiclick/data/test_models.py` — `SchemaView` round-trips (model → JSON → model) including the new `fieldtype` fields; `build_order_by_clause` no longer appends `aai_id`; empty input yields `tuple()`.
-- `aaiclick/data/object/test_schema.py` — schema reconstruction reads from the registry, not `system.columns`; missing registry row raises a clear error.
-- `aaiclick/data/test_data_context.py` — `create_object` emits DDL without `aai_id`/COMMENTs; the registry row is inserted with correct `schema_json`; `aai_id` is no longer reserved.
-- `aaiclick/data/object/test_arithmetic.py` (and the other operator test files) — extend with the contract: cross-table `a + b` without Views raises `TypeError` at call time; with Views, `a.view(order_by=...) + b.view(order_by=...)` produces correctly aligned results; same-table fast path still works without Views; scalar broadcast still works without Views; aggregations still work.
-- The test file covering `.data()` on Objects — `array_obj.data()` succeeds and returns at most 1000 rows in arbitrary order (no ordering required); `array_obj.data(order_by="...")` returns rows in the specified order; `array_obj.view(order_by=...).data()` succeeds; `array_obj.data(limit=None)` returns all rows; `View` values for `order_by`/`offset`/`limit` are overridden when kwargs are passed to `data()`; scalar and dict `.data()` work without any kwargs.
-- `aaiclick/orchestration/migrations/versions/<new>_add_schema_json_to_table_registry.py` — Alembic migration adds the `schema_json` column.
+- `aaiclick/data/test_view_models.py` (exists) — extend with `SchemaView` round-trips including the new `fieldtype` fields; `ValidationError` on out-of-alphabet values.
+- `aaiclick/data/object/test_order_by.py` (exists, has four tests asserting the old `aai_id`-appending behaviour) — rewrite those four tests in place so `build_order_by_clause` no longer appends `aai_id` and empty input yields `tuple()`. No new `aaiclick/data/test_models.py` is created; the module-level test file for `aaiclick/data/models.py` does not currently exist and the refactor has no need to create one.
+- `aaiclick/data/object/test_schema.py` (exists) — schema reconstruction reads from the registry, not `system.columns`; missing registry row raises a clear error; existing tests that assert `aai_id` appears in schema columns must be rewritten to assert its absence.
+- `aaiclick/data/data_context/test_data_context.py` (new, alongside `data_context.py`) — `create_object` emits DDL without `aai_id`/COMMENTs; the registry row is inserted with correct `schema_json`; `aai_id` is no longer reserved.
+- `aaiclick/data/object/test_arithmetic_broadcast.py`, `test_arithmetic_parametrized.py`, `test_arithmetic_large.py`, `test_arithmetic_validation.py` (all exist; no `test_arithmetic.py` file exists) — extend with the contract: cross-table `a + b` without Views raises `TypeError` at call time; with Views, `a.view(order_by=...) + b.view(order_by=...)` produces correctly aligned results; same-table fast path still works without Views; scalar broadcast still works without Views; aggregations still work.
+- A test file covering `.data()` on Objects (create `aaiclick/data/object/test_data.py` — no such file exists today) — `array_obj.data()` succeeds and returns at most 1000 rows in arbitrary order (no ordering required); `array_obj.data(order_by="...")` returns rows in the specified order; `array_obj.view(order_by=...).data()` succeeds; `array_obj.data(limit=None)` returns all rows; `View` values for `order_by`/`offset`/`limit` are overridden when kwargs are passed to `data()`; scalar and dict `.data()` work without any kwargs.
+- `aaiclick/orchestration/migrations/versions/<new>_add_schema_json_to_table_registry.py` — Alembic migration adds the `schema_json` column. `down_revision = "c8f4a2b91e57"` (current head — `move_table_registry_to_sql`; **not** `f3a8b1c42d5e`, which already has a child `b7d3e2f19a4c`).
+
+Updated in place — tests that construct `Schema(..., col_fieldtype=...)` or `ColumnInfo(ch_base_type=...)` today:
+
+- `aaiclick/data/object/test_datetime.py:156,205` and `aaiclick/data/object/test_nullable.py:116` pass `col_fieldtype=FIELDTYPE_*` to `Schema(...)`; Phase 3 drops the field and these tests must be updated in the same commit or the suite goes red.
+- **Note on constructor kwargs**: `ColumnInfo` fields are `type`, `nullable`, `array`, `low_cardinality` (see `aaiclick/data/models.py::ColumnInfo`). The refactor adds a fifth field `fieldtype: Literal["s", "a"] = "s"`. All new test code must use these exact field names — not `ch_base_type` / `array_depth`.
 
 SQL patterns are validated with the `chdb-eval` skill: no `ORDER BY aai_id` anywhere; `row_number() OVER (ORDER BY <user_order>)` in cross-table operator SQL; `ORDER BY tuple()` in `CREATE TABLE` for tables without a user-supplied order key.
 

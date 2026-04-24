@@ -12,19 +12,24 @@
 
 ## File Structure
 
-| File                                                      | Role                                                                                               |
-|-----------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| `aaiclick/data/object/operators.py`                       | Modify — cross-table array⊗array, scalar broadcast, aggregation SQL.                              |
-| `aaiclick/data/object/test_arithmetic_broadcast.py`       | Modify — contract assertion: cross-table without Views raises.                                     |
-| `aaiclick/data/object/test_arithmetic_parametrized.py`    | Modify — happy-path: Views with `order_by` produce aligned results.                                |
-| `aaiclick/data/object/test_arithmetic_large.py`           | Modify — keep same-table fast path intact.                                                         |
-| `aaiclick/data/object/test_aggregation.py` (exists/find)  | Modify — aggregation no longer emits `aai_id`.                                                     |
+| File                                                        | Role                                                                                                  |
+|-------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `aaiclick/data/object/operators.py`                         | Modify — cross-table array⊗array, scalar broadcast, aggregation SQL.                                  |
+| `aaiclick/data/object/data_extraction.py`                   | Modify — replace `default_order_by="aai_id"` at lines 94, 110, 132 with `default_order_by=None`; drop `aai_id` filtering at line 137. |
+| `aaiclick/orchestration/operators.py`                       | Modify — `order_by="aai_id"` kwargs at lines 124 and 242 become the caller-supplied order (or `None`). |
+| `aaiclick/data/object/test_arithmetic_broadcast.py`         | Modify — contract assertion: cross-table without Views raises.                                        |
+| `aaiclick/data/object/test_arithmetic_parametrized.py`      | Modify — happy-path: Views with `order_by` produce aligned results.                                   |
+| `aaiclick/data/object/test_arithmetic_large.py`             | Modify — keep same-table fast path intact.                                                            |
+| `aaiclick/data/object/test_arithmetic_validation.py`        | Modify — the existing validation tests may assert on SQL that contains `aai_id`; refresh accordingly. |
+| `aaiclick/data/object/test_aggregation_table.py` (exists)   | Modify — aggregation no longer emits `aai_id`.                                                        |
 
-Look up exact existing test files with:
+Verify the exact test-file list first (earlier drafts of this plan referenced a `test_arithmetic.py` that does not exist):
 
 ```bash
-ls aaiclick/data/object/test_arithmetic*.py aaiclick/data/object/test_agg*.py
+ls aaiclick/data/object/test_arithmetic*.py aaiclick/data/object/test_aggregation*.py
 ```
+
+Expected: `test_arithmetic_broadcast.py`, `test_arithmetic_large.py`, `test_arithmetic_parametrized.py`, `test_arithmetic_validation.py`, `test_aggregation_table.py`. No bare `test_arithmetic.py`, no bare `test_aggregation.py`.
 
 ---
 
@@ -38,52 +43,52 @@ ls aaiclick/data/object/test_arithmetic*.py aaiclick/data/object/test_agg*.py
 
 - [ ] **Step 1: Write the failing tests**
 
-Append/modify in `aaiclick/data/object/test_arithmetic_broadcast.py` (or create `test_cross_table_contract.py` if a cleaner home is wanted):
+**These tests use the project's real `ctx` fixture and the module-level `create_object_from_value` helper — `data_ctx` / `DataContext` do not exist.** The `.data(order_by=...)` kwargs land in Phase 5; until then, use the existing `.view(order_by=...).data()` idiom so Phase 4 stays self-contained.
+
+Append to `aaiclick/data/object/test_arithmetic_broadcast.py`:
 
 ```python
 import pytest
 
+from aaiclick import create_object_from_value
 
-async def test_cross_table_add_without_views_raises(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3])
-    b = await data_ctx.create("b", [10, 20, 30])
+
+async def test_cross_table_add_without_views_raises(ctx):
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
     with pytest.raises(TypeError, match="explicit row order"):
         _ = a + b
 
 
-async def test_cross_table_add_with_one_view_raises(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3])
-    b = await data_ctx.create("b", [10, 20, 30])
+async def test_cross_table_add_with_one_view_raises(ctx):
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
     a_view = a.view(order_by="value")
     with pytest.raises(TypeError, match="explicit row order"):
         _ = a_view + b
 
 
-async def test_cross_table_add_with_two_views_succeeds(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3])
-    b = await data_ctx.create("b", [10, 20, 30])
+async def test_cross_table_add_with_two_views_succeeds(ctx):
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
     result = a.view(order_by="value") + b.view(order_by="value")
-    assert await result.data(order_by="value") == [11, 22, 33]
+    assert await result.view(order_by="value").data() == [11, 22, 33]
 
 
-async def test_same_table_add_no_views_still_works(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3])
+async def test_same_table_add_no_views_still_works(ctx):
+    a = await create_object_from_value([1, 2, 3])
     result = a + a
-    assert sorted(await result.data(order_by="value", limit=None)) == [2, 4, 6]
+    assert sorted(await result.view(order_by="value").data()) == [2, 4, 6]
 
 
-async def test_scalar_broadcast_no_views_still_works(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3])
-    s = await data_ctx.create("s", 10)
+async def test_scalar_broadcast_no_views_still_works(ctx):
+    a = await create_object_from_value([1, 2, 3])
+    s = await create_object_from_value(10)
     result = a + s
-    assert sorted(await result.data(order_by="value", limit=None)) == [11, 12, 13]
+    assert sorted(await result.view(order_by="value").data()) == [11, 12, 13]
 ```
 
-The last two tests use `.data(order_by=...)` — these kwargs arrive in Phase 5, so for now expect them to fail on kwarg signature; swap to `await result.view(order_by="value").data()` (the existing API) to keep Phase 4 self-contained. Example:
-
-```python
-assert sorted(await result.view(order_by="value").data()) == [11, 12, 13]
-```
+Phase 5 will revisit these tests to switch the final assertions from `.view(order_by="value").data()` to `.data(order_by="value")` once that kwarg signature lands.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -224,7 +229,7 @@ git commit -m "cleanup: drop aai_id preservation from scalar-broadcast operator 
 
 **Files:**
 - Modify: `aaiclick/data/object/operators.py` — aggregation helper (currently lines ~451-462).
-- Modify: `aaiclick/data/object/test_aggregation.py` (or equivalent; run `ls aaiclick/data/object/test_agg*` to confirm the name).
+- Modify: `aaiclick/data/object/test_aggregation_table.py` (exists — no bare `test_aggregation.py` exists).
 
 **Background:** Aggregations today produce a one-row result table where an `aai_id` column gets a fresh Snowflake ID via `DEFAULT generateSnowflakeID()`. Post-refactor the result table has no `aai_id` column at all — the column list is `(value)` only.
 
@@ -256,13 +261,17 @@ No change needed to the SQL itself. The comment mentioning `aai_id DEFAULT gener
 
 - [ ] **Step 3: Update tests**
 
-Delete any `assert "aai_id" in result_columns` lines. Add one negative assertion:
+Delete any `assert "aai_id" in result_columns` lines. Add one negative assertion using the real fixture and helpers:
 
 ```python
-async def test_aggregation_result_has_no_aai_id(data_ctx):
-    a = await data_ctx.create("a", [1, 2, 3, 4])
-    total = await a.sum("total")
-    result = await data_ctx.ch_client.query(
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import get_ch_client
+
+
+async def test_aggregation_result_has_no_aai_id(ctx):
+    a = await create_object_from_value([1, 2, 3, 4])
+    total = await a.sum()
+    result = await get_ch_client().query(
         f"SELECT name FROM system.columns WHERE table = '{total.table}'"
     )
     names = [r[0] for r in result.result_rows]
@@ -277,20 +286,97 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add aaiclick/data/object/operators.py aaiclick/data/object/test_aggregation.py
+git add aaiclick/data/object/operators.py aaiclick/data/object/test_aggregation_table.py
 git commit -m "cleanup: drop generateSnowflakeID() from aggregation SQL"
 ```
 
 ---
 
-### Task 4.4: Final grep sweep — no `aai_id` in operators.py
+### Task 4.4: `data_extraction.py` — stop defaulting to `ORDER BY aai_id`
+
+**Files:**
+- Modify: `aaiclick/data/object/data_extraction.py` — `extract_scalar_data` (line 94), `extract_array_data` (line 110), `extract_dict_data` (line 132), and the `aai_id` output-filter at line 137.
+
+**Background:** Today these extraction helpers call `obj._build_select(columns="value", default_order_by="aai_id")`. After Phase 3 the column is gone, so the default would blow up at query time. Phase 5 will let callers specify `order_by`; for this phase, the default becomes `None` (no ORDER BY), which matches the spec's "determinism is opt-in" contract. Scalar extraction is always a single-row query — dropping the ORDER BY has no effect.
+
+- [ ] **Step 1: Replace the defaults**
+
+In `aaiclick/data/object/data_extraction.py`:
+
+```python
+# Line 94 (scalar):
+query = obj._build_select(columns="value", default_order_by=None)
+
+# Line 110 (array):
+query = obj._build_select(columns="value", default_order_by=None)
+
+# Line 132 (dict):
+query = obj._build_select(columns="*", default_order_by=None)
+```
+
+Delete the `aai_id` output-filter at line 137 (`output_columns = [name for name in column_names if name != "aai_id"]`) — now that DDL does not produce an `aai_id` column, the filter is a no-op.
+
+Check whether `_build_select` on `Object` / `View` still honours `default_order_by=None` cleanly. If it hard-codes appending `aai_id`, update that too (grep `_build_select`).
+
+- [ ] **Step 2: Run the data-extraction tests**
+
+Run: `pytest aaiclick/data/object/ -v -k "schema or extract or group_by"`
+Expected: PASS. Tests that previously depended on stable row order without passing `order_by` now return rows in arbitrary order — update them to wrap in `sorted(...)` or pass `view(order_by=...)`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add aaiclick/data/object/data_extraction.py
+git commit -m "cleanup: drop default_order_by='aai_id' from data extraction helpers"
+```
+
+---
+
+### Task 4.5: `orchestration/operators.py` — stop passing `order_by="aai_id"` in `ViewRef`
+
+**Files:**
+- Modify: `aaiclick/orchestration/operators.py` — `order_by="aai_id"` kwargs at lines 124 and 242.
+
+**Background:** The orchestration-layer operators build `ViewRef`s that partition a shared table across workers; today the partition ordering is `aai_id`. After Phase 3 the column is gone, so these two sites break at runtime.
+
+- [ ] **Step 1: Inspect both call sites**
+
+```bash
+grep -n 'order_by="aai_id"' aaiclick/orchestration/operators.py
+```
+
+Expected: two hits, at lines 124 and 242. Read 20 lines of context around each — the surrounding code should know a better `order_by` candidate (a user-supplied sort key, a timestamp column, or the partition column itself).
+
+- [ ] **Step 2: Replace**
+
+If the caller already has an ordering column available, pass it. Otherwise, pass `order_by=None` and add a brief comment noting that the partition is order-indifferent at this layer. Both call sites are in the same orchestration operator path, so a single `order_by` argument threaded from the operator's caller is usually the right fix.
+
+- [ ] **Step 3: Update the execution tests**
+
+`aaiclick/orchestration/execution/test_execution.py:180,191` serializes a `View` with `order_by="aai_id ASC"` — update to match the new default.
+
+- [ ] **Step 4: Run the orchestration tests**
+
+Run: `pytest aaiclick/orchestration/ -v -k "operator or execution"`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aaiclick/orchestration/operators.py aaiclick/orchestration/execution/test_execution.py
+git commit -m "cleanup: drop order_by='aai_id' from orchestration operator ViewRefs"
+```
+
+---
+
+### Task 4.6: Final grep sweep — no `aai_id` in production code under `aaiclick/data/` or `aaiclick/orchestration/`
 
 - [ ] **Step 1: Search production code**
 
 Run:
 
 ```bash
-rg "aai_id" aaiclick/data/ --type py
+rg "aai_id" aaiclick/data/ aaiclick/orchestration/ --type py
 ```
 
 Expected hits (these are fine):
@@ -301,8 +387,11 @@ Expected hits (these are fine):
 
 Unacceptable hits:
 
-- Any string literal in `.py` under `aaiclick/data/` that puts `aai_id` into SQL.
+- Any string literal in `.py` that puts `aai_id` into SQL.
 - Any `"aai_id"` referenced in a column-lookup dict.
+- `order_by="aai_id"` anywhere.
+
+Remaining hits outside these two directories (`aaiclick/locks.py`, `aaiclick/oplog/lineage.py`, `aaiclick/ai/agents/prompts.py`, AI-agent tests, `internal_api/test_objects.py:91`) are handled in Phase 6.
 
 - [ ] **Step 2: Remove every stray reference**
 
@@ -310,14 +399,14 @@ For each stray production hit, delete it. If a test references `aai_id` as a pla
 
 - [ ] **Step 3: Run the full data + operator suite**
 
-Run: `pytest aaiclick/data/ -v`
+Run: `pytest aaiclick/data/ aaiclick/orchestration/ -v`
 Expected: all tests pass.
 
 - [ ] **Step 4: Commit if any changes were made**
 
 ```bash
-git add -A aaiclick/data/
-git commit -m "cleanup: remove remaining aai_id references from operator code"
+git add -A aaiclick/data/ aaiclick/orchestration/
+git commit -m "cleanup: remove remaining aai_id references from data + orchestration"
 ```
 
 ---
@@ -329,6 +418,7 @@ At this point:
 - Cross-table `a + b` between array Objects raises `TypeError` unless both operands are `View(order_by=...)`.
 - Same-table fast path and scalar broadcast still work with plain Objects.
 - Aggregation result tables contain only the columns their schema specifies — no `aai_id`.
-- No production code in `aaiclick/data/` references `aai_id` in SQL.
+- No production code in `aaiclick/data/` or `aaiclick/orchestration/` references `aai_id` in SQL or as an `order_by` argument.
+- `data_extraction.py` defaults `order_by=None` — callers opt into determinism.
 
-The `.data()` API still uses the pre-refactor signature — Phase 5 adds the new kwargs.
+The `.data()` API still uses the pre-refactor signature — Phase 5 adds the new kwargs. The remaining `aai_id` references in `aaiclick/locks.py`, `aaiclick/oplog/lineage.py`, `aaiclick/ai/agents/prompts.py`, and the AI-agent / internal-api test files are cleared in Phase 6.

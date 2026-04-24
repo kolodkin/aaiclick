@@ -14,14 +14,24 @@ After Phase 3, the data-module tests that started failing in Phase 2 should all 
 
 ## File Structure
 
-| File                                                         | Role                                                                            |
-|--------------------------------------------------------------|---------------------------------------------------------------------------------|
-| `aaiclick/data/models.py`                                    | Modify — `build_order_by_clause` (drop `aai_id`); remove `col_fieldtype` fields. |
-| `aaiclick/data/data_context/data_context.py`                 | Modify — `create_object` omits `aai_id`/COMMENTs and writes the registry row.   |
-| `aaiclick/data/object/operators.py`                          | Modify — copy path writes registry rows; drop `col_fieldtype` threading.        |
-| `aaiclick/data/object/ingest.py`                             | Modify — `insert_objects_db` / `concat_objects_db` write registry rows.         |
-| `aaiclick/data/test_models.py`                               | Modify — `build_order_by_clause` tests.                                         |
-| `aaiclick/data/test_data_context.py` (exists)                | Modify — DDL-level assertions.                                                  |
+| File                                                                  | Role                                                                            |
+|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `aaiclick/data/models.py`                                             | Modify — `build_order_by_clause` (drop `aai_id`); remove `col_fieldtype` fields. |
+| `aaiclick/data/data_context/data_context.py`                          | Modify — `create_object` omits `aai_id`/COMMENTs and writes the registry row.   |
+| `aaiclick/data/object/operators.py`                                   | Modify — copy path inherits registry write via `create_object`; drop `col_fieldtype` threading. |
+| `aaiclick/data/object/ingest.py`                                      | Modify — `copy_db`, `copy_db_selected_fields`, `insert_objects_db`, `concat_objects_db` inherit registry write via `create_object`; prune `aai_id` SELECT/exclude branches. |
+| `aaiclick/data/object/test_order_by.py` (exists)                      | Modify — the four existing `test_build_order_by_clause_*` tests hard-code the old behaviour. Rewrite them (don't create a new file). |
+| `aaiclick/data/object/test_schema.py` (exists)                        | Modify — assertions that `aai_id` appears in schema columns flip to assertions of its absence. |
+| `aaiclick/data/data_context/test_data_context.py` (**new** — create alongside `data_context.py`) | Create — DDL-level assertions: no `aai_id`, no COMMENTs, `schema_json` populated, `aai_id` no longer reserved. |
+| `aaiclick/data/object/test_datetime.py`, `test_nullable.py` (exist)   | Modify — drop `col_fieldtype=...` from `Schema(...)` constructor calls (`test_datetime.py:156,205`, `test_nullable.py:116`). |
+| `aaiclick/orchestration/lifecycle/db_lifecycle.py`                    | Modify — add `schema_json: str | None = None` field to `OplogTablePayload`.      |
+| `aaiclick/orchestration/orch_context.py`                              | Modify — `DBLifecycleHandler.oplog_record_table` accepts and forwards `schema_json`; `_write_table_registry_row` INSERT extends column list and parameter dict. |
+| `aaiclick/oplog/oplog_api.py`                                         | Modify — `oplog_record_table(table_name, schema_json=None)` signature; forward to handler. |
+| `aaiclick/data/data_context/lifecycle.py`                             | Modify — no-op `LocalLifecycleHandler.oplog_record_table` takes the new kwarg (signature must match). |
+| `aaiclick/orchestration/oplog_backfill.py`                            | Modify — the raw `INSERT INTO table_registry (...)` at line ~74 extends to include `schema_json`. |
+| `aaiclick/orchestration/background/conftest.py`                       | Modify — `insert_table_registry` test helper accepts and passes `schema_json`. |
+
+**There is no `aaiclick/data/test_data_context.py` today.** The new file goes next to `data_context.py` (per the project's co-location rule) at `aaiclick/data/data_context/test_data_context.py`. An earlier draft of this plan said the file already existed — it does not.
 
 ---
 
@@ -29,33 +39,43 @@ After Phase 3, the data-module tests that started failing in Phase 2 should all 
 
 **Files:**
 - Modify: `aaiclick/data/models.py` — `build_order_by_clause` (currently lines 277-291).
-- Modify: `aaiclick/data/test_models.py`.
+- Modify: `aaiclick/data/object/test_order_by.py` (**exists**) — rewrite the four existing `test_build_order_by_clause_*` tests at lines 13-30 that hard-code the old `aai_id`-appending behaviour. Also update `test_object_init_order_by_sets_schema` at lines 33-40 which asserts `schema.order_by == "(date, aai_id)"`.
 
-- [ ] **Step 1: Write the failing tests**
+**Important:** an earlier draft of this plan wrote new tests to `aaiclick/data/test_models.py` — that file does not exist. Rewriting the existing tests in `test_order_by.py` is the correct move; creating a new top-level test file would leave the stale tests failing.
 
-Append to `aaiclick/data/test_models.py`:
+- [ ] **Step 1: Rewrite the existing tests**
+
+In `aaiclick/data/object/test_order_by.py`, replace the four existing tests (lines 13-30) and update the Object-init test at lines 33-40:
 
 ```python
-from aaiclick.data.models import build_order_by_clause
-
-
 def test_build_order_by_clause_empty_returns_tuple():
+    """build_order_by_clause with no columns yields tuple() — no implicit key."""
     assert build_order_by_clause([]) == "tuple()"
 
 
-def test_build_order_by_clause_preserves_user_columns():
-    assert build_order_by_clause(["date", "id"]) == "(date, id)"
+def test_build_order_by_clause_single_column():
+    """build_order_by_clause preserves a single user column verbatim."""
+    assert build_order_by_clause(["date"]) == "(date)"
+
+
+def test_build_order_by_clause_multiple_columns():
+    """build_order_by_clause preserves multiple user columns verbatim."""
+    assert build_order_by_clause(["date", "category"]) == "(date, category)"
 
 
 def test_build_order_by_clause_does_not_append_aai_id():
-    result = build_order_by_clause(["date"])
-    assert "aai_id" not in result
-    assert result == "(date)"
+    """build_order_by_clause never injects aai_id — the column does not exist."""
+    assert "aai_id" not in build_order_by_clause(["date"])
+    assert "aai_id" not in build_order_by_clause([])
 ```
+
+Then update `test_object_init_order_by_sets_schema` — the fixture `schema` was built with `{"aai_id": ColumnInfo("UInt64"), "date": ColumnInfo("String")}`. Drop the `aai_id` entry (the column no longer exists) and change the assertion to `assert obj._schema.order_by == "(date)"`.
+
+Delete `test_build_order_by_clause_dedup_aai_id` and `test_build_order_by_clause_only_aai_id` — the scenarios they cover are now impossible.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pytest aaiclick/data/test_models.py -v -k build_order_by`
+Run: `pytest aaiclick/data/object/test_order_by.py -v -k build_order_by`
 Expected: FAIL — current implementation appends `aai_id`.
 
 - [ ] **Step 3: Replace the function body**
@@ -76,13 +96,13 @@ def build_order_by_clause(columns: list[str]) -> str:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `pytest aaiclick/data/test_models.py -v -k build_order_by`
-Expected: PASS.
+Run: `pytest aaiclick/data/object/test_order_by.py -v`
+Expected: PASS — all (remaining) tests in the file pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add aaiclick/data/models.py aaiclick/data/test_models.py
+git add aaiclick/data/models.py aaiclick/data/object/test_order_by.py
 git commit -m "refactor: build_order_by_clause no longer appends aai_id"
 ```
 
@@ -91,28 +111,44 @@ git commit -m "refactor: build_order_by_clause no longer appends aai_id"
 ### Task 3.2: `create_object` emits clean DDL + writes registry row
 
 **Files:**
-- Modify: `aaiclick/data/data_context/data_context.py` — `create_object` (currently lines 248-339).
-- Modify: `aaiclick/data/test_data_context.py` — DDL-level assertions.
+- Modify: `aaiclick/data/data_context/data_context.py` — `create_object` (currently starts line 249).
+- Create: `aaiclick/data/data_context/test_data_context.py` — DDL-level assertions.
 
-**Background:** Today `create_object` iterates `schema.columns`, appends an `aai_id` column, writes `COMMENT '{fieldtype: ...}'` on each column, and calls `oplog_record_table(obj.table)` (which writes a bare registry row). We need it to: (1) emit only user columns, no COMMENTs; (2) call `schema_to_view(schema)` and write the JSON alongside the registry row — in the same transaction that calls `oplog_record_table`.
+**Background:** Today `create_object` iterates `schema.columns`, appends an `aai_id` column, writes `COMMENT '{fieldtype: ...}'` on each column, and calls `oplog_record_table(obj.table)` (which enqueues a `DBLifecycleMessage` that eventually writes a bare registry row via raw SQL). We need it to: (1) emit only user columns, no COMMENTs; (2) call `schema_to_view(schema)` and thread the JSON through the whole plumbing chain so the INSERT SQL populates `schema_json`.
 
-Grep for `oplog_record_table` to see whether it's the right layer to extend, or whether the insert into `table_registry` happens in a helper that already exists. Likely the write lives in `aaiclick/orchestration/lifecycle/db_lifecycle.py` — extend that helper to accept `schema_json`, then update every call site.
+**The registry write plumbing is raw SQL, not ORM.** Before Task 3.2 can end green, these sites all need updating in lock-step:
+
+| Site                                                                | Change                                                                                 |
+|---------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `aaiclick/orchestration/lifecycle/db_lifecycle.py::OplogTablePayload` | Add `schema_json: str | None = None` dataclass field.                                  |
+| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table` | Accept `schema_json: str | None = None`, include it in the `OplogTablePayload(...)` construction. |
+| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler._write_table_registry_row` | Extend the raw INSERT's column list and parameter dict with `schema_json`.             |
+| `aaiclick/oplog/oplog_api.py::oplog_record_table`                   | Accept `schema_json: str | None = None`; forward to the handler.                        |
+| `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table` (abstract base + `LocalLifecycleHandler` no-op override) | Signature must match — accept `schema_json`.                                           |
+| `aaiclick/orchestration/oplog_backfill.py` (raw INSERT at line 74)  | Extend columns + bound params.                                                         |
+| `aaiclick/orchestration/background/conftest.py::insert_table_registry` (test helper) | Accept `schema_json=None` kwarg for background-cleanup tests.                          |
+
+All other `create_object()` callers (`aaiclick/data/object/operators.py`, `aaiclick/data/object/ingest.py::copy_db`, `join.py`, `url.py`) flow through `create_object(schema)` — once Task 3.2 changes `create_object` to compute `schema_to_view(schema).model_dump_json()` and pass it into `oplog_record_table(...)`, every caller inherits the registry write. **No separate task is needed to wire them.**
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `aaiclick/data/test_data_context.py`:
+Create `aaiclick/data/data_context/test_data_context.py` (no such file exists today; it sits alongside `data_context.py` per the project's co-location rule). Use the real fixture `ctx` and the real module-level helpers — there is no `DataContext` class or `data_ctx.create()` / `data_ctx.sql_session()` method:
 
 ```python
 import json
 
-from aaiclick import DataContext
-from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 from sqlmodel import select
 
+from aaiclick import create_object_from_value
+from aaiclick.data.data_context import get_ch_client
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.sql_context import get_sql_session
 
-async def test_create_object_emits_no_aai_id_column(data_ctx: DataContext):
-    obj = await data_ctx.create("v", [1.0, 2.0, 3.0])
-    result = await data_ctx.ch_client.query(
+
+async def test_create_object_emits_no_aai_id_column(ctx):
+    obj = await create_object_from_value([1.0, 2.0, 3.0])
+    ch_client = get_ch_client()
+    result = await ch_client.query(
         f"SELECT name FROM system.columns WHERE table = '{obj.table}' ORDER BY position"
     )
     names = [r[0] for r in result.result_rows]
@@ -120,18 +156,19 @@ async def test_create_object_emits_no_aai_id_column(data_ctx: DataContext):
     assert names == ["value"]
 
 
-async def test_create_object_emits_no_comment_clauses(data_ctx: DataContext):
-    obj = await data_ctx.create("v", [1, 2, 3])
-    result = await data_ctx.ch_client.query(
+async def test_create_object_emits_no_comment_clauses(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    ch_client = get_ch_client()
+    result = await ch_client.query(
         f"SELECT name, comment FROM system.columns WHERE table = '{obj.table}'"
     )
     for name, comment in result.result_rows:
         assert comment == "", f"column {name} has unexpected comment {comment!r}"
 
 
-async def test_create_object_writes_schema_json(data_ctx: DataContext):
-    obj = await data_ctx.create("v", [1, 2, 3])
-    async with data_ctx.sql_session() as sess:
+async def test_create_object_writes_schema_json(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    async with get_sql_session() as sess:
         result = await sess.execute(
             select(TableRegistry.schema_json).where(TableRegistry.table_name == obj.table)
         )
@@ -143,10 +180,11 @@ async def test_create_object_writes_schema_json(data_ctx: DataContext):
     assert parsed["columns"][0]["fieldtype"] == "a"
 
 
-async def test_create_object_allows_user_column_named_aai_id(data_ctx: DataContext):
-    # aai_id is no longer reserved.
-    obj = await data_ctx.create_dict("d", {"aai_id": [1, 2], "label": ["a", "b"]})
-    result = await data_ctx.ch_client.query(
+async def test_create_object_allows_user_column_named_aai_id(ctx):
+    # aai_id is no longer reserved — users can define a column with that name.
+    obj = await create_object_from_value({"aai_id": [1, 2], "label": ["a", "b"]})
+    ch_client = get_ch_client()
+    result = await ch_client.query(
         f"SELECT name FROM system.columns WHERE table = '{obj.table}'"
     )
     names = {r[0] for r in result.result_rows}
@@ -154,14 +192,38 @@ async def test_create_object_allows_user_column_named_aai_id(data_ctx: DataConte
     assert "label" in names
 ```
 
-If the project exposes a different `create_dict`/dict-creation API, adapt the last test to whichever call creates a dict-shaped Object.
+`create_object_from_value` dispatches on the input value type: list → array Object, scalar → scalar Object, dict → dict Object. There is no separate `create_dict` helper.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pytest aaiclick/data/test_data_context.py -v -k "aai_id or schema_json or comment_clauses"`
-Expected: FAIL — tables still carry `aai_id`, COMMENTs are still emitted, `schema_json` is null.
+Run: `pytest aaiclick/data/data_context/test_data_context.py -v`
+Expected: FAIL — tables still carry `aai_id`, COMMENTs are still emitted, `schema_json` is null, and `create_object_from_value({"aai_id": ..., "label": ...})` raises `ValueError` for the reserved-name collision.
 
-- [ ] **Step 3: Update `create_object`**
+- [ ] **Step 3: Thread `schema_json` through the plumbing**
+
+Before touching `create_object` itself, update every site in the lock-step table above. Order matters: the signature extensions must land together so the handler call compiles.
+
+1. `aaiclick/orchestration/lifecycle/db_lifecycle.py` — add `schema_json: str | None = None` to `OplogTablePayload`.
+2. `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table(self, table_name, schema_json=None)` — include in the `OplogTablePayload(...)` construction.
+3. `aaiclick/orchestration/orch_context.py::DBLifecycleHandler._write_table_registry_row` — extend the raw INSERT's column list and `:parameter` bind dict:
+   ```python
+   await session.execute(
+       text(
+           "INSERT INTO table_registry "
+           "(table_name, job_id, task_id, run_id, created_at, schema_json) "
+           "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_json) "
+           "ON CONFLICT (table_name) DO NOTHING"
+       ),
+       {"table_name": p.table_name, "job_id": p.job_id, "task_id": p.task_id,
+        "run_id": p.run_id, "created_at": now, "schema_json": p.schema_json},
+   )
+   ```
+4. `aaiclick/oplog/oplog_api.py::oplog_record_table(table_name, schema_json=None)` — forward the kwarg to `lc.oplog_record_table(...)`.
+5. `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table(self, table_name, schema_json=None)` — keep the abstract signature in sync (same for the `LocalLifecycleHandler` no-op subclass).
+6. `aaiclick/orchestration/oplog_backfill.py:74` — extend its raw INSERT the same way.
+7. `aaiclick/orchestration/background/conftest.py::insert_table_registry` — add `schema_json=None` kwarg and bind it.
+
+- [ ] **Step 4: Update `create_object`**
 
 In `aaiclick/data/data_context/data_context.py`, replace the current DDL-building block (around lines 283-301) with column-definition code that does not add `aai_id` or COMMENTs:
 
@@ -175,34 +237,42 @@ column_defs = [
 
 Delete the nearby validation that raised on `col_name == "aai_id" and col_def.nullable` — the name is no longer reserved. Delete the `ColumnMeta(...).to_yaml()` / `COMMENT '...'` block.
 
-Then, where the function currently calls `oplog_record_table(obj.table)`, extend the persistence so the registry row carries `schema_json`:
+Then, at the `oplog_record_table(obj.table)` call (around line 338), extend the write:
 
 ```python
-from aaiclick.data.schema_converters import schema_to_view
+from aaiclick.data.view_models import schema_to_view
 
 # ... inside create_object, after the CREATE TABLE command succeeds:
-schema_view = schema_to_view(schema)
-oplog_record_table(obj.table, schema_json=schema_view.model_dump_json())
+oplog_record_table(
+    obj.table,
+    schema_json=schema_to_view(schema).model_dump_json(),
+)
 ```
 
-Update `oplog_record_table` (or whatever helper writes to `table_registry`) to accept `schema_json: str | None = None` and pass it through to the SQL insert. Find the function with `rg "def oplog_record_table" aaiclick/`.
+The import lives in the existing `aaiclick.data.view_models` module — **not** in a new `schema_converters.py`. See Phase 2 Task 2.2 for why.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pytest aaiclick/data/test_data_context.py -v -k "aai_id or schema_json or comment_clauses"`
-Expected: PASS.
+Run: `pytest aaiclick/data/data_context/test_data_context.py -v`
+Expected: all four tests PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add aaiclick/data/data_context/data_context.py aaiclick/data/test_data_context.py
-# plus whichever helper module you modified (db_lifecycle.py / oplog helper):
-git add aaiclick/orchestration/lifecycle/db_lifecycle.py
+git add aaiclick/data/data_context/data_context.py aaiclick/data/data_context/test_data_context.py \
+        aaiclick/orchestration/lifecycle/db_lifecycle.py \
+        aaiclick/orchestration/orch_context.py \
+        aaiclick/oplog/oplog_api.py \
+        aaiclick/data/data_context/lifecycle.py \
+        aaiclick/orchestration/oplog_backfill.py \
+        aaiclick/orchestration/background/conftest.py
 git commit -m "$(cat <<'EOF'
 refactor: create_object emits clean DDL + persists SchemaView
 
 - drop aai_id column and ClickHouse COMMENT clauses from CREATE TABLE
-- write SchemaView as JSON into table_registry.schema_json
+- thread schema_json through OplogTablePayload, the lifecycle handler,
+  oplog_record_table, and the raw INSERT in _write_table_registry_row;
+  extend oplog_backfill's raw INSERT identically
 - aai_id is no longer a reserved column name
 EOF
 )"
@@ -210,50 +280,40 @@ EOF
 
 ---
 
-### Task 3.3: Copy / insert / concat paths write the registry row
+### Task 3.3: Remove `col_fieldtype`; prune `aai_id` plumbing in copy / insert / concat
 
 **Files:**
-- Modify: `aaiclick/data/object/operators.py` — copy-path SQL (search for `CopyInfo`).
-- Modify: `aaiclick/data/object/ingest.py` — `insert_objects_db`, `concat_objects_db` (search for `IngestQueryInfo`).
 - Modify: `aaiclick/data/models.py` — remove `col_fieldtype` from `Schema` and `CopyInfo`.
-- Modify: tests alongside each module.
+- Modify: `aaiclick/data/object/ingest.py` — prune every `aai_id`-exclusion / `aai_id`-carrier branch in `copy_db`, `copy_db_selected_fields`, `insert_objects_db`, `concat_objects_db` (lines 96, 103-116, 172-174, 193-199, 231, 236, 239, 248, 268, 291, 315, 319, 338, 395, 401).
+- Modify: `aaiclick/data/object/operators.py` — any `"aai_id": ColumnInfo(...)` entries in destination-schema dicts.
+- Modify: `aaiclick/data/object/test_datetime.py` (lines 156, 205), `aaiclick/data/object/test_nullable.py` (line 116) — these today pass `col_fieldtype=FIELDTYPE_*` to `Schema(...)`; Phase 3 drops the field, so these must be updated in the same commit or the suite goes red with `TypeError: Schema.__init__() got an unexpected keyword argument 'col_fieldtype'`.
 
-**Background:** Every code path that issues `CREATE TABLE` for an aaiclick-managed table must follow up by writing a registry row including `schema_json`. The spec lists three: `create_object` (done in 3.2), copy-based derivations (`CopyInfo`), and ingest-based derivations (`IngestQueryInfo`).
+**Background:** Every `CREATE TABLE` for an aaiclick-managed table goes through `create_object(schema)` (verified by `rg "await create_object" aaiclick/data/`). Task 3.2 made that one site write `schema_json`. `operators.py`, `ingest.py::copy_db` / `copy_db_selected_fields` / `concat_objects_db` / `insert_objects_db`, `url.py::create_object_from_url`, and `join.py` all route through `create_object(schema)`, so they **inherit the registry write automatically** — no per-site plumbing is needed here. An earlier draft of this plan said otherwise; it was wrong.
 
-- [ ] **Step 1: Inventory the write call sites**
+The non-trivial work in this task is:
 
-Run:
+1. Deleting `col_fieldtype` from `Schema` and `CopyInfo` (no longer needed — `ColumnInfo.fieldtype` carries the same information per-column).
+2. Pruning the large set of `aai_id`-exclusion branches that currently litter `ingest.py` copy/insert/concat helpers.
 
-```bash
-rg "CREATE TABLE" aaiclick/data/ --type py -n
-```
+- [ ] **Step 1: Write failing tests asserting schema_json exists for copy and concat**
 
-Every hit that creates an aaiclick-managed table needs a paired registry write. Make a list — typical call sites:
-
-- `aaiclick/data/data_context/data_context.py::create_object` (already done).
-- `aaiclick/data/object/operators.py` — copy helpers that build a result table from a source.
-- `aaiclick/data/object/ingest.py` — `insert_objects_db`, `concat_objects_db`, and any helper they share for the destination table.
-
-Add temp tables (`Engine = Memory` scratch tables inside operator SQL) only to the allow-list in the cleanup sweep if they already are today — they are not registered in `table_registry`, so do NOT start registering them now.
-
-- [ ] **Step 2: Write failing tests for each path**
-
-Append to `aaiclick/data/object/test_schema.py`:
+Append to `aaiclick/data/object/test_schema.py` using the real fixture and API:
 
 ```python
 import json
 
-from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 from sqlmodel import select
 
+from aaiclick import create_object_from_value
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.sql_context import get_sql_session
 
-async def test_copy_derivation_writes_schema_json(data_ctx):
-    src = await data_ctx.create("src", [1, 2, 3])
-    # pick an operation that currently uses the Copy path — e.g. a View materialisation
-    # or an operator that returns a Copy. Adapt to whatever the codebase uses.
-    copy = await src.copy("copy_dst")
 
-    async with data_ctx.sql_session() as sess:
+async def test_copy_derivation_writes_schema_json(ctx):
+    src = await create_object_from_value([1, 2, 3])
+    copy = await src.copy()
+
+    async with get_sql_session() as sess:
         row = (await sess.execute(
             select(TableRegistry.schema_json).where(TableRegistry.table_name == copy.table)
         )).scalar_one()
@@ -263,12 +323,12 @@ async def test_copy_derivation_writes_schema_json(data_ctx):
     assert [c["name"] for c in parsed["columns"]] == ["value"]
 
 
-async def test_concat_writes_schema_json(data_ctx):
-    a = await data_ctx.create("a", [1, 2])
-    b = await data_ctx.create("b", [3, 4])
-    c = await data_ctx.concat("c", [a, b])
+async def test_concat_writes_schema_json(ctx):
+    a = await create_object_from_value([1, 2])
+    b = await create_object_from_value([3, 4])
+    c = await a.concat(b)
 
-    async with data_ctx.sql_session() as sess:
+    async with get_sql_session() as sess:
         row = (await sess.execute(
             select(TableRegistry.schema_json).where(TableRegistry.table_name == c.table)
         )).scalar_one()
@@ -278,68 +338,63 @@ async def test_concat_writes_schema_json(data_ctx):
     assert parsed["fieldtype"] == "a"
 ```
 
-Adjust fixture names and method names to the real API.
+`Object.concat` (see `aaiclick/data/object/object.py:761`) is a method on `Object`, not on `data_context()`.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pytest aaiclick/data/object/test_schema.py -v -k "copy or concat"`
-Expected: FAIL — these paths do not yet populate `schema_json`.
+Expected: FAIL — the `aai_id`-exclusion branches still exist in `ingest.py` and break Phase-2's `_get_table_schema` lookup (or the COMMENT-based read still runs). Once Task 3.3 prunes them, the registry write done by `create_object` in Task 3.2 suffices.
 
-- [ ] **Step 4: Wire each call site**
+- [ ] **Step 3: Prune `aai_id` plumbing in `ingest.py`**
 
-For each CREATE-TABLE site in `operators.py` / `ingest.py`:
+Delete every branch that special-cases `aai_id`:
 
-- Build a `Schema` dataclass for the destination (the existing code already knows `columns`, `fieldtype`, `order_by`, `engine` from `CopyInfo` / `IngestQueryInfo`).
-- Call `schema_to_view(schema).model_dump_json()` and pass it to the same registry-write helper you extended in Task 3.2.
+- Line 96 `aai_id_fieldtype = None`
+- Lines 103-118 — YAML-parsing fallback that reads the old `aai_id` COMMENT. (Already dead after Phase 2's `_get_table_schema` rewrite; confirm and delete.)
+- Lines 172-174, 193-199 — "exclude `aai_id` from copy data columns" logic.
+- Line 231 — `{"aai_id": ColumnInfo("UInt64"), "value": ...}` — drop the `aai_id` entry.
+- Lines 236, 248 — `SELECT aai_id, value FROM ...` → drop `aai_id` from the select list.
+- Line 239 — `columns = {"aai_id": ColumnInfo("UInt64")}` — drop.
+- Lines 268, 291, 315, 319, 338, 395, 401 — `c != "aai_id"` filters (the column is no longer in `source_columns`, so the filter is a no-op — delete the condition).
 
-Example pattern (pseudocode — adapt to each call site):
+**Note:** `ingest.py:236` and `:248` used to rely on the source carrying an `aai_id` the copy could preserve. Without `aai_id`, the copy has no implicit row-order guarantee; that is the intended behaviour per the spec. Callers that need determinism pass `order_by=...`.
 
-```python
-from aaiclick.data.schema_converters import schema_to_view
+- [ ] **Step 4: Remove `col_fieldtype` from `Schema` and `CopyInfo`**
 
-dst_schema = Schema(
-    fieldtype=info.fieldtype,
-    columns=info.columns,
-    table=dst_table,
-    order_by=info.order_by,
-    engine=effective_engine,
-)
-await ch_client.command(f"CREATE TABLE {dst_table} ({...}) {engine_clause}")
-oplog_record_table(dst_table, schema_json=schema_to_view(dst_schema).model_dump_json())
-```
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `pytest aaiclick/data/object/test_schema.py -v`
-Expected: PASS.
-
-- [ ] **Step 6: Remove `col_fieldtype`**
-
-Per the spec: "The `col_fieldtype` field on `CopyInfo` is removed" and "`col_fieldtype` field is redundant and removed" from `Schema`.
-
-Delete those fields from the dataclasses. Grep for remaining references:
+In `aaiclick/data/models.py`, delete the `col_fieldtype` field from `Schema` (line 249) and from `CopyInfo` (line 272 ballpark). Grep for remaining references:
 
 ```bash
 rg "col_fieldtype" aaiclick/ --type py
 ```
 
-Fix each call site — information that used to live in `col_fieldtype` is now carried per-column on `ColumnInfo.fieldtype` (added in Task 2.1). When you need the old "uniform per-column fieldtype", either look it up on a specific `ColumnInfo` or derive from `schema.fieldtype`.
+Fix each — `aaiclick/data/object/test_datetime.py:156,205` and `aaiclick/data/object/test_nullable.py:116` construct `Schema(..., col_fieldtype=FIELDTYPE_*)`. Drop the kwarg. If the test genuinely needed the value (it won't — per-column fieldtype lives on `ColumnInfo.fieldtype` now), set the value on each `ColumnInfo` instead.
+
+- [ ] **Step 5: Prune `operators.py` destination-schema dicts**
+
+In `aaiclick/data/object/operators.py`, search for `"aai_id": ColumnInfo` — every hit is a destination-schema construction that must drop the entry. (Details continue in Phase 4.)
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `pytest aaiclick/data/object/test_schema.py -v`
+Expected: PASS for the new `test_copy_derivation_writes_schema_json` / `test_concat_writes_schema_json` tests.
 
 - [ ] **Step 7: Run the full data suite**
 
 Run: `pytest aaiclick/data/ -v`
-Expected: the failure set from end of Phase 2 is now back to zero (or matches the pre-Phase-2 baseline). No `aai_id` related assertions should fail. Any remaining failures are genuine regressions — fix them before committing.
+Expected: the failure set from end of Phase 2 is now back near zero. Some operator tests (`test_arithmetic*.py`) will still fail because their SQL still references `aai_id` — that's Phase 4. Any other failure is a regression; fix before committing.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add aaiclick/data/models.py aaiclick/data/object/operators.py aaiclick/data/object/ingest.py aaiclick/data/object/test_schema.py
+git add aaiclick/data/models.py aaiclick/data/object/operators.py aaiclick/data/object/ingest.py \
+        aaiclick/data/object/test_schema.py aaiclick/data/object/test_datetime.py aaiclick/data/object/test_nullable.py
 git commit -m "$(cat <<'EOF'
-refactor: persist SchemaView for copy and ingest derivations
+refactor: drop col_fieldtype; prune aai_id plumbing from ingest
 
-Every aaiclick-managed CREATE TABLE now writes a table_registry row
-with schema_json. col_fieldtype is removed from Schema and CopyInfo;
-per-column fieldtype lives on ColumnInfo.fieldtype instead.
+- remove col_fieldtype from Schema and CopyInfo (per-column fieldtype
+  now lives on ColumnInfo.fieldtype)
+- prune aai_id-exclusion branches from copy / insert / concat helpers
+- existing test_datetime / test_nullable schemas drop col_fieldtype kwarg
 EOF
 )"
 ```
