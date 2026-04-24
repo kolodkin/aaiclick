@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Replace the `system.columns` + YAML-comment schema reconstruction with a read of `table_registry.schema_json` → `SchemaView.model_validate_json()` → in-memory `Schema` dataclass. Extend the `Schema` dataclass with a per-column `fieldtype` field so the hydrated object retains the same information the YAML comments used to provide.
+**Goal:** Replace the `system.columns` + YAML-comment schema reconstruction with a read of `table_registry.schema_doc` → `SchemaView.model_validate_json()` → in-memory `Schema` dataclass. Extend the `Schema` dataclass with a per-column `fieldtype` field so the hydrated object retains the same information the YAML comments used to provide.
 
-**Depends on:** Phase 1 (needs `ColumnView.fieldtype`, `SchemaView.fieldtype`, `TableRegistry.schema_json`).
+**Depends on:** Phase 1 (needs `ColumnView.fieldtype`, `SchemaView.fieldtype`, `TableRegistry.schema_doc`).
 
 **Unlocks:** Phase 3 (once read path is registry-based, the write path can stop emitting COMMENTs).
 
@@ -267,7 +267,7 @@ git commit -m "feature: extend schema_to_view with fieldtype; add view_to_schema
 - Modify: `aaiclick/data/object/ingest.py` — `_get_table_schema` function (currently lines 76-119).
 - Modify/create: `aaiclick/data/object/test_schema.py` — read-path tests.
 
-**Background:** Today `_get_table_schema(table, ch_client)` runs a `SELECT name, type, comment FROM system.columns`. We replace it with a SQL lookup of the registry row; if the row is missing or its `schema_json` is null we raise a clear error. There is no fallback.
+**Background:** Today `_get_table_schema(table, ch_client)` runs a `SELECT name, type, comment FROM system.columns`. We replace it with a SQL lookup of the registry row; if the row is missing or its `schema_doc` is null we raise a clear error. There is no fallback.
 
 The SQL session helper is at `aaiclick.orchestration.sql_context.get_sql_session` (also re-exported from `aaiclick.orchestration.orch_context` — see `aaiclick/testing.py:32`). It's an async context manager yielding an `AsyncSession`. Import and use it directly — **no** `data_ctx.sql_session()` method exists on the `data_context()` object.
 
@@ -300,7 +300,7 @@ async def test_get_table_schema_reads_from_registry(ctx):
             update(TableRegistry)
             .where(TableRegistry.table_name == obj.table)
             .values(
-                schema_json=json.dumps({
+                schema_doc=json.dumps({
                     "columns": [{
                         "name": "value", "type": "Int64", "nullable": False,
                         "array_depth": 0, "low_cardinality": False, "fieldtype": "a",
@@ -354,21 +354,21 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     """
     Load a table's schema from the registry.
 
-    Raises LookupError if the table has no registry row or a null schema_json —
+    Raises LookupError if the table has no registry row or a null schema_doc —
     this indicates the table was not created by aaiclick or predates the
-    schema_json migration.
+    schema_doc migration.
     """
     async with get_sql_session() as sess:
         result = await sess.execute(
-            select(TableRegistry.schema_json).where(TableRegistry.table_name == table)
+            select(TableRegistry.schema_doc).where(TableRegistry.table_name == table)
         )
         row = result.one_or_none()
 
     if row is None or row[0] is None:
         raise LookupError(
             f"Table {table!r} is not registered in table_registry (or has no "
-            "schema_json). It was either not created by aaiclick, or was created "
-            "by a version that predates the schema_json registry."
+            "schema_doc). It was either not created by aaiclick, or was created "
+            "by a version that predates the schema_doc registry."
         )
 
     view = SchemaView.model_validate_json(row[0])
@@ -383,19 +383,19 @@ Also delete the now-dead YAML-parsing code paths at the top of the function (the
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pytest aaiclick/data/object/test_schema.py -v -k "registry or orphan"`
-Expected: both new tests PASS. Other tests in this file will fail — expected, because nothing else writes `schema_json` yet.
+Expected: both new tests PASS. Other tests in this file will fail — expected, because nothing else writes `schema_doc` yet.
 
 - [ ] **Step 5: Run the full data test suite**
 
 Run: `pytest aaiclick/data/ -v`
-Expected: widespread failures, because nothing writes `schema_json` yet. Note which tests fail — they are all expected to start passing again once Phase 3 wires the write path. **Do not** modify or skip them. Record the failing-test count so you can verify the number matches after Phase 3.
+Expected: widespread failures, because nothing writes `schema_doc` yet. Note which tests fail — they are all expected to start passing again once Phase 3 wires the write path. **Do not** modify or skip them. Record the failing-test count so you can verify the number matches after Phase 3.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add aaiclick/data/object/ingest.py aaiclick/data/object/test_schema.py
 git commit -m "$(cat <<'EOF'
-refactor: read schema from table_registry.schema_json
+refactor: read schema from table_registry.schema_doc
 
 _get_table_schema now loads SchemaView from the registry and
 hydrates a Schema dataclass via view_to_schema, dropping the
@@ -415,5 +415,5 @@ At this point:
 
 - `ColumnInfo.fieldtype` carries per-column fieldtype in memory.
 - `schema_converters.py` translates between `Schema` (dataclass) and `SchemaView` (Pydantic).
-- `_get_table_schema` reads `table_registry.schema_json` only. There is no fallback to `system.columns`.
+- `_get_table_schema` reads `table_registry.schema_doc` only. There is no fallback to `system.columns`.
 - Most data tests FAIL — expected, because Phase 3 hasn't wired up writes yet. Do not fix or skip them; proceed to Phase 3.

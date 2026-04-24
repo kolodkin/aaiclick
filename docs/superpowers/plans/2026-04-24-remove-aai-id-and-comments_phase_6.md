@@ -22,7 +22,7 @@
 | `aaiclick/ai/agents/prompts.py`                           | Modify — delete `AAI_ID_WARNING` (lines 5-9) and its inclusion (line 53). |
 | `aaiclick/ai/agents/test_lineage_agent.py:115`, `aaiclick/ai/agents/test_tools.py:26,35,60`, `aaiclick/internal_api/test_objects.py:91`, `aaiclick/orchestration/execution/test_execution.py:180,191` | Modify — each references `aai_id` as a schema column or an `order_by` string; update. |
 | `docs/object.md`                                          | Modify — remove aai_id order-preservation section; document new API.  |
-| `docs/data_context.md`                                    | Modify — describe schema storage via `table_registry.schema_json`.    |
+| `docs/data_context.md`                                    | Modify — describe schema storage via `table_registry.schema_doc`.    |
 | `docs/glossary.md`                                        | Modify — remove the `aai_id` entry.                                   |
 | `docs/insert_advisory_lock.md`                            | Modify — drop `aai_id` references.                                    |
 | `docs/lineage.md`                                         | Modify — drop the `AAI_ID_WARNING` reference (if present).            |
@@ -277,7 +277,7 @@ git commit -m "docs: rewrite object.md order-preservation + data() sections"
 
 - [ ] **Step 1: `docs/data_context.md`**
 
-- Lines 110, 116-119, 172-173 currently describe `aai_id`. Replace the schema-storage description so it references `table_registry.schema_json` instead of "per-column YAML COMMENT".
+- Lines 110, 116-119, 172-173 currently describe `aai_id`. Replace the schema-storage description so it references `table_registry.schema_doc` instead of "per-column YAML COMMENT".
 - Remove any example SQL that defines an `aai_id UInt64` column.
 - Remove the "`aai_id` cannot be overridden in `fields`" warning.
 
@@ -285,7 +285,7 @@ Add one concise block (no admonition unless it solves a real pitfall):
 
 ```markdown
 Each aaiclick-managed table has one row in the SQL `table_registry`. The
-`schema_json` column on that row stores the serialised `SchemaView` — column
+`schema_doc` column on that row stores the serialised `SchemaView` — column
 types, fieldtypes, `order_by`, and engine — read back via
 `_get_table_schema` when an Object is attached to an existing table.
 ```
@@ -418,7 +418,7 @@ git commit -m "cleanup: final polish after chdb-eval and CI feedback"
 Final state:
 
 - Tables carry only user columns; no `aai_id`, no ClickHouse COMMENTs.
-- `table_registry.schema_json` is the single source of truth for schema metadata.
+- `table_registry.schema_doc` is the single source of truth for schema metadata.
 - Cross-table array ops require `View(order_by=...)`; same-table, scalar broadcast, aggregations unchanged.
 - `.data()` is safe to call without any kwargs (capped at 1000 rows, arbitrary order); callers opt into determinism with `order_by`.
 - `ColumnMeta` and the YAML-comment code path are gone.

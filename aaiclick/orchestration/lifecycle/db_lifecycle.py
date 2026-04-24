@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar
 
-from sqlalchemy import BigInteger, Column, DateTime, String
+from sqlalchemy import BigInteger, Column, DateTime, String, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -134,4 +134,8 @@ class TableRegistry(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime, nullable=False, index=True),
+    )
+    schema_doc: str | None = Field(
+        default=None,
+        sa_column=Column("schema_doc", Text, nullable=True),
     )

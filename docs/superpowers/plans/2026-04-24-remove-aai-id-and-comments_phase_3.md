@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Stop emitting the hidden `aai_id` column and ClickHouse column `COMMENT`s on every table aaiclick creates. On every write path (create, copy, insert, concat) build a `SchemaView` and persist it to `table_registry.schema_json`. Fix `build_order_by_clause` to stop force-appending `aai_id`. Drop the now-redundant `col_fieldtype` field from `Schema` / `CopyInfo`.
+**Goal:** Stop emitting the hidden `aai_id` column and ClickHouse column `COMMENT`s on every table aaiclick creates. On every write path (create, copy, insert, concat) build a `SchemaView` and persist it to `table_registry.schema_doc`. Fix `build_order_by_clause` to stop force-appending `aai_id`. Drop the now-redundant `col_fieldtype` field from `Schema` / `CopyInfo`.
 
 **Depends on:** Phase 2 (needs `schema_to_view`, registry read path).
 
 **Unlocks:** Phase 4 (once tables have no `aai_id`, operator SQL can stop referencing it).
 
-After Phase 3, the data-module tests that started failing in Phase 2 should all pass again — because create/copy/ingest now populate `schema_json`, which Phase 2's `_get_table_schema` reads.
+After Phase 3, the data-module tests that started failing in Phase 2 should all pass again — because create/copy/ingest now populate `schema_doc`, which Phase 2's `_get_table_schema` reads.
 
 ---
 
@@ -22,14 +22,14 @@ After Phase 3, the data-module tests that started failing in Phase 2 should all 
 | `aaiclick/data/object/ingest.py`                                      | Modify — `copy_db`, `copy_db_selected_fields`, `insert_objects_db`, `concat_objects_db` inherit registry write via `create_object`; prune `aai_id` SELECT/exclude branches. |
 | `aaiclick/data/object/test_order_by.py` (exists)                      | Modify — the four existing `test_build_order_by_clause_*` tests hard-code the old behaviour. Rewrite them (don't create a new file). |
 | `aaiclick/data/object/test_schema.py` (exists)                        | Modify — assertions that `aai_id` appears in schema columns flip to assertions of its absence. |
-| `aaiclick/data/data_context/test_data_context.py` (**new** — create alongside `data_context.py`) | Create — DDL-level assertions: no `aai_id`, no COMMENTs, `schema_json` populated, `aai_id` no longer reserved. |
+| `aaiclick/data/data_context/test_data_context.py` (**new** — create alongside `data_context.py`) | Create — DDL-level assertions: no `aai_id`, no COMMENTs, `schema_doc` populated, `aai_id` no longer reserved. |
 | `aaiclick/data/object/test_datetime.py`, `test_nullable.py` (exist)   | Modify — drop `col_fieldtype=...` from `Schema(...)` constructor calls (`test_datetime.py:156,205`, `test_nullable.py:116`). |
-| `aaiclick/orchestration/lifecycle/db_lifecycle.py`                    | Modify — add `schema_json: str | None = None` field to `OplogTablePayload`.      |
-| `aaiclick/orchestration/orch_context.py`                              | Modify — `DBLifecycleHandler.oplog_record_table` accepts and forwards `schema_json`; `_write_table_registry_row` INSERT extends column list and parameter dict. |
-| `aaiclick/oplog/oplog_api.py`                                         | Modify — `oplog_record_table(table_name, schema_json=None)` signature; forward to handler. |
+| `aaiclick/orchestration/lifecycle/db_lifecycle.py`                    | Modify — add `schema_doc: str | None = None` field to `OplogTablePayload`.      |
+| `aaiclick/orchestration/orch_context.py`                              | Modify — `DBLifecycleHandler.oplog_record_table` accepts and forwards `schema_doc`; `_write_table_registry_row` INSERT extends column list and parameter dict. |
+| `aaiclick/oplog/oplog_api.py`                                         | Modify — `oplog_record_table(table_name, schema_doc=None)` signature; forward to handler. |
 | `aaiclick/data/data_context/lifecycle.py`                             | Modify — no-op `LocalLifecycleHandler.oplog_record_table` takes the new kwarg (signature must match). |
-| `aaiclick/orchestration/oplog_backfill.py`                            | Modify — the raw `INSERT INTO table_registry (...)` at line ~74 extends to include `schema_json`. |
-| `aaiclick/orchestration/background/conftest.py`                       | Modify — `insert_table_registry` test helper accepts and passes `schema_json`. |
+| `aaiclick/orchestration/oplog_backfill.py`                            | Modify — the raw `INSERT INTO table_registry (...)` at line ~74 extends to include `schema_doc`. |
+| `aaiclick/orchestration/background/conftest.py`                       | Modify — `insert_table_registry` test helper accepts and passes `schema_doc`. |
 
 **There is no `aaiclick/data/test_data_context.py` today.** The new file goes next to `data_context.py` (per the project's co-location rule) at `aaiclick/data/data_context/test_data_context.py`. An earlier draft of this plan said the file already existed — it does not.
 
@@ -114,19 +114,19 @@ git commit -m "refactor: build_order_by_clause no longer appends aai_id"
 - Modify: `aaiclick/data/data_context/data_context.py` — `create_object` (currently starts line 249).
 - Create: `aaiclick/data/data_context/test_data_context.py` — DDL-level assertions.
 
-**Background:** Today `create_object` iterates `schema.columns`, appends an `aai_id` column, writes `COMMENT '{fieldtype: ...}'` on each column, and calls `oplog_record_table(obj.table)` (which enqueues a `DBLifecycleMessage` that eventually writes a bare registry row via raw SQL). We need it to: (1) emit only user columns, no COMMENTs; (2) call `schema_to_view(schema)` and thread the JSON through the whole plumbing chain so the INSERT SQL populates `schema_json`.
+**Background:** Today `create_object` iterates `schema.columns`, appends an `aai_id` column, writes `COMMENT '{fieldtype: ...}'` on each column, and calls `oplog_record_table(obj.table)` (which enqueues a `DBLifecycleMessage` that eventually writes a bare registry row via raw SQL). We need it to: (1) emit only user columns, no COMMENTs; (2) call `schema_to_view(schema)` and thread the JSON through the whole plumbing chain so the INSERT SQL populates `schema_doc`.
 
 **The registry write plumbing is raw SQL, not ORM.** Before Task 3.2 can end green, these sites all need updating in lock-step:
 
 | Site                                                                | Change                                                                                 |
 |---------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| `aaiclick/orchestration/lifecycle/db_lifecycle.py::OplogTablePayload` | Add `schema_json: str | None = None` dataclass field.                                  |
-| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table` | Accept `schema_json: str | None = None`, include it in the `OplogTablePayload(...)` construction. |
-| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler._write_table_registry_row` | Extend the raw INSERT's column list and parameter dict with `schema_json`.             |
-| `aaiclick/oplog/oplog_api.py::oplog_record_table`                   | Accept `schema_json: str | None = None`; forward to the handler.                        |
-| `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table` (abstract base + `LocalLifecycleHandler` no-op override) | Signature must match — accept `schema_json`.                                           |
+| `aaiclick/orchestration/lifecycle/db_lifecycle.py::OplogTablePayload` | Add `schema_doc: str | None = None` dataclass field.                                  |
+| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table` | Accept `schema_doc: str | None = None`, include it in the `OplogTablePayload(...)` construction. |
+| `aaiclick/orchestration/orch_context.py::DBLifecycleHandler._write_table_registry_row` | Extend the raw INSERT's column list and parameter dict with `schema_doc`.             |
+| `aaiclick/oplog/oplog_api.py::oplog_record_table`                   | Accept `schema_doc: str | None = None`; forward to the handler.                        |
+| `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table` (abstract base + `LocalLifecycleHandler` no-op override) | Signature must match — accept `schema_doc`.                                           |
 | `aaiclick/orchestration/oplog_backfill.py` (raw INSERT at line 74)  | Extend columns + bound params.                                                         |
-| `aaiclick/orchestration/background/conftest.py::insert_table_registry` (test helper) | Accept `schema_json=None` kwarg for background-cleanup tests.                          |
+| `aaiclick/orchestration/background/conftest.py::insert_table_registry` (test helper) | Accept `schema_doc=None` kwarg for background-cleanup tests.                          |
 
 All other `create_object()` callers (`aaiclick/data/object/operators.py`, `aaiclick/data/object/ingest.py::copy_db`, `join.py`, `url.py`) flow through `create_object(schema)` — once Task 3.2 changes `create_object` to compute `schema_to_view(schema).model_dump_json()` and pass it into `oplog_record_table(...)`, every caller inherits the registry write. **No separate task is needed to wire them.**
 
@@ -166,11 +166,11 @@ async def test_create_object_emits_no_comment_clauses(ctx):
         assert comment == "", f"column {name} has unexpected comment {comment!r}"
 
 
-async def test_create_object_writes_schema_json(ctx):
+async def test_create_object_writes_schema_doc(ctx):
     obj = await create_object_from_value([1, 2, 3])
     async with get_sql_session() as sess:
         result = await sess.execute(
-            select(TableRegistry.schema_json).where(TableRegistry.table_name == obj.table)
+            select(TableRegistry.schema_doc).where(TableRegistry.table_name == obj.table)
         )
         raw = result.scalar_one()
     assert raw is not None
@@ -197,31 +197,31 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pytest aaiclick/data/data_context/test_data_context.py -v`
-Expected: FAIL — tables still carry `aai_id`, COMMENTs are still emitted, `schema_json` is null, and `create_object_from_value({"aai_id": ..., "label": ...})` raises `ValueError` for the reserved-name collision.
+Expected: FAIL — tables still carry `aai_id`, COMMENTs are still emitted, `schema_doc` is null, and `create_object_from_value({"aai_id": ..., "label": ...})` raises `ValueError` for the reserved-name collision.
 
-- [ ] **Step 3: Thread `schema_json` through the plumbing**
+- [ ] **Step 3: Thread `schema_doc` through the plumbing**
 
 Before touching `create_object` itself, update every site in the lock-step table above. Order matters: the signature extensions must land together so the handler call compiles.
 
-1. `aaiclick/orchestration/lifecycle/db_lifecycle.py` — add `schema_json: str | None = None` to `OplogTablePayload`.
-2. `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table(self, table_name, schema_json=None)` — include in the `OplogTablePayload(...)` construction.
+1. `aaiclick/orchestration/lifecycle/db_lifecycle.py` — add `schema_doc: str | None = None` to `OplogTablePayload`.
+2. `aaiclick/orchestration/orch_context.py::DBLifecycleHandler.oplog_record_table(self, table_name, schema_doc=None)` — include in the `OplogTablePayload(...)` construction.
 3. `aaiclick/orchestration/orch_context.py::DBLifecycleHandler._write_table_registry_row` — extend the raw INSERT's column list and `:parameter` bind dict:
    ```python
    await session.execute(
        text(
            "INSERT INTO table_registry "
-           "(table_name, job_id, task_id, run_id, created_at, schema_json) "
-           "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_json) "
+           "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
+           "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
            "ON CONFLICT (table_name) DO NOTHING"
        ),
        {"table_name": p.table_name, "job_id": p.job_id, "task_id": p.task_id,
-        "run_id": p.run_id, "created_at": now, "schema_json": p.schema_json},
+        "run_id": p.run_id, "created_at": now, "schema_doc": p.schema_doc},
    )
    ```
-4. `aaiclick/oplog/oplog_api.py::oplog_record_table(table_name, schema_json=None)` — forward the kwarg to `lc.oplog_record_table(...)`.
-5. `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table(self, table_name, schema_json=None)` — keep the abstract signature in sync (same for the `LocalLifecycleHandler` no-op subclass).
+4. `aaiclick/oplog/oplog_api.py::oplog_record_table(table_name, schema_doc=None)` — forward the kwarg to `lc.oplog_record_table(...)`.
+5. `aaiclick/data/data_context/lifecycle.py::LifecycleHandler.oplog_record_table(self, table_name, schema_doc=None)` — keep the abstract signature in sync (same for the `LocalLifecycleHandler` no-op subclass).
 6. `aaiclick/orchestration/oplog_backfill.py:74` — extend its raw INSERT the same way.
-7. `aaiclick/orchestration/background/conftest.py::insert_table_registry` — add `schema_json=None` kwarg and bind it.
+7. `aaiclick/orchestration/background/conftest.py::insert_table_registry` — add `schema_doc=None` kwarg and bind it.
 
 - [ ] **Step 4: Update `create_object`**
 
@@ -245,7 +245,7 @@ from aaiclick.data.view_models import schema_to_view
 # ... inside create_object, after the CREATE TABLE command succeeds:
 oplog_record_table(
     obj.table,
-    schema_json=schema_to_view(schema).model_dump_json(),
+    schema_doc=schema_to_view(schema).model_dump_json(),
 )
 ```
 
@@ -270,7 +270,7 @@ git commit -m "$(cat <<'EOF'
 refactor: create_object emits clean DDL + persists SchemaView
 
 - drop aai_id column and ClickHouse COMMENT clauses from CREATE TABLE
-- thread schema_json through OplogTablePayload, the lifecycle handler,
+- thread schema_doc through OplogTablePayload, the lifecycle handler,
   oplog_record_table, and the raw INSERT in _write_table_registry_row;
   extend oplog_backfill's raw INSERT identically
 - aai_id is no longer a reserved column name
@@ -288,14 +288,14 @@ EOF
 - Modify: `aaiclick/data/object/operators.py` — any `"aai_id": ColumnInfo(...)` entries in destination-schema dicts.
 - Modify: `aaiclick/data/object/test_datetime.py` (lines 156, 205), `aaiclick/data/object/test_nullable.py` (line 116) — these today pass `col_fieldtype=FIELDTYPE_*` to `Schema(...)`; Phase 3 drops the field, so these must be updated in the same commit or the suite goes red with `TypeError: Schema.__init__() got an unexpected keyword argument 'col_fieldtype'`.
 
-**Background:** Every `CREATE TABLE` for an aaiclick-managed table goes through `create_object(schema)` (verified by `rg "await create_object" aaiclick/data/`). Task 3.2 made that one site write `schema_json`. `operators.py`, `ingest.py::copy_db` / `copy_db_selected_fields` / `concat_objects_db` / `insert_objects_db`, `url.py::create_object_from_url`, and `join.py` all route through `create_object(schema)`, so they **inherit the registry write automatically** — no per-site plumbing is needed here. An earlier draft of this plan said otherwise; it was wrong.
+**Background:** Every `CREATE TABLE` for an aaiclick-managed table goes through `create_object(schema)` (verified by `rg "await create_object" aaiclick/data/`). Task 3.2 made that one site write `schema_doc`. `operators.py`, `ingest.py::copy_db` / `copy_db_selected_fields` / `concat_objects_db` / `insert_objects_db`, `url.py::create_object_from_url`, and `join.py` all route through `create_object(schema)`, so they **inherit the registry write automatically** — no per-site plumbing is needed here. An earlier draft of this plan said otherwise; it was wrong.
 
 The non-trivial work in this task is:
 
 1. Deleting `col_fieldtype` from `Schema` and `CopyInfo` (no longer needed — `ColumnInfo.fieldtype` carries the same information per-column).
 2. Pruning the large set of `aai_id`-exclusion branches that currently litter `ingest.py` copy/insert/concat helpers.
 
-- [ ] **Step 1: Write failing tests asserting schema_json exists for copy and concat**
+- [ ] **Step 1: Write failing tests asserting schema_doc exists for copy and concat**
 
 Append to `aaiclick/data/object/test_schema.py` using the real fixture and API:
 
@@ -309,13 +309,13 @@ from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 from aaiclick.orchestration.sql_context import get_sql_session
 
 
-async def test_copy_derivation_writes_schema_json(ctx):
+async def test_copy_derivation_writes_schema_doc(ctx):
     src = await create_object_from_value([1, 2, 3])
     copy = await src.copy()
 
     async with get_sql_session() as sess:
         row = (await sess.execute(
-            select(TableRegistry.schema_json).where(TableRegistry.table_name == copy.table)
+            select(TableRegistry.schema_doc).where(TableRegistry.table_name == copy.table)
         )).scalar_one()
 
     parsed = json.loads(row)
@@ -323,14 +323,14 @@ async def test_copy_derivation_writes_schema_json(ctx):
     assert [c["name"] for c in parsed["columns"]] == ["value"]
 
 
-async def test_concat_writes_schema_json(ctx):
+async def test_concat_writes_schema_doc(ctx):
     a = await create_object_from_value([1, 2])
     b = await create_object_from_value([3, 4])
     c = await a.concat(b)
 
     async with get_sql_session() as sess:
         row = (await sess.execute(
-            select(TableRegistry.schema_json).where(TableRegistry.table_name == c.table)
+            select(TableRegistry.schema_doc).where(TableRegistry.table_name == c.table)
         )).scalar_one()
 
     assert row is not None
@@ -376,7 +376,7 @@ In `aaiclick/data/object/operators.py`, search for `"aai_id": ColumnInfo` — ev
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `pytest aaiclick/data/object/test_schema.py -v`
-Expected: PASS for the new `test_copy_derivation_writes_schema_json` / `test_concat_writes_schema_json` tests.
+Expected: PASS for the new `test_copy_derivation_writes_schema_doc` / `test_concat_writes_schema_doc` tests.
 
 - [ ] **Step 7: Run the full data suite**
 
@@ -406,7 +406,7 @@ EOF
 At this point:
 
 - New tables contain only user columns — no `aai_id`, no ClickHouse COMMENTs.
-- `table_registry.schema_json` is populated for every aaiclick-managed table.
+- `table_registry.schema_doc` is populated for every aaiclick-managed table.
 - `_get_table_schema` (from Phase 2) round-trips successfully against those rows.
 - `build_order_by_clause` returns `tuple()` for empty input and preserves user columns otherwise.
 - `col_fieldtype` is gone from `Schema` and `CopyInfo`; per-column fieldtype lives on `ColumnInfo.fieldtype`.
