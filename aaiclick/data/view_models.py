@@ -78,6 +78,7 @@ def column_info_to_view(name: str, info: ColumnInfo) -> ColumnView:
         nullable=info.nullable,
         array_depth=int(info.array),
         low_cardinality=info.low_cardinality,
+        fieldtype=info.fieldtype,
     )
 
 
@@ -86,6 +87,32 @@ def schema_to_view(schema: Schema) -> SchemaView:
         columns=[column_info_to_view(name, info) for name, info in schema.columns.items()],
         order_by=schema.order_by,
         engine=schema.engine,
+        fieldtype=schema.fieldtype,
+    )
+
+
+def view_to_schema(view: SchemaView, *, table: str) -> Schema:
+    """Hydrate a Schema dataclass from a persisted SchemaView.
+
+    The inverse of :func:`schema_to_view`. Used by ``_get_table_schema``
+    to reconstruct the runtime Schema from ``table_registry.schema_doc``.
+    """
+    columns = {
+        cv.name: ColumnInfo(
+            type=cv.type,
+            nullable=cv.nullable,
+            array=cv.array_depth,
+            low_cardinality=cv.low_cardinality,
+            fieldtype=cv.fieldtype,
+        )
+        for cv in view.columns
+    }
+    return Schema(
+        fieldtype=view.fieldtype,
+        columns=columns,
+        table=table,
+        order_by=view.order_by,
+        engine=view.engine,
     )
 
 
