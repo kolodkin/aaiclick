@@ -131,6 +131,15 @@ jobs:
   test-package:
     needs: build
     runs-on: ubuntu-latest
+    name: test-package (${{ matrix.group }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: data
+            pyargs: aaiclick.data aaiclick.snowflake
+          - group: orch
+            pyargs: aaiclick.orchestration aaiclick.oplog
 
     env:
       AAICLICK_AI_MODEL: ollama/llama3.2:1b
@@ -236,7 +245,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          uv run --no-project pytest --pyargs aaiclick.data aaiclick.snowflake aaiclick.orchestration aaiclick.oplog -n auto -v
+          uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
