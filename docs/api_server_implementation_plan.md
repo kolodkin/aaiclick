@@ -40,8 +40,7 @@ shippable, each leaves the tree green.
 | Phase 5 | `AAICLICK_API_TOKEN` env var wiring + startup log    | ⚠️      | `aaiclick/server/app.py`                    |
 | Phase 5 | `StartWorkerRequest` shared view model               | ⚠️      | `aaiclick/view_models.py`                   |
 | Phase 5 | `internal_api.workers.start_worker(request)`         | ⚠️      | `aaiclick/internal_api/workers.py`          |
-| Phase 5 | Worker `correlation_id` column + registration stamp  | ⚠️      | `aaiclick/orchestration/models.py` + Alembic migration |
-| Phase 5 | `POST /api/v0/workers` router wiring                 | ⚠️      | `aaiclick/server/routers/workers.py`        |
+| Phase 5 | `POST /api/v0/workers` router wiring (202 Accepted)  | ⚠️      | `aaiclick/server/routers/workers.py`        |
 | Phase 5 | `start_worker` MCP tool                              | ⚠️      | `aaiclick/server/mcp.py`                    |
 
 ---
@@ -421,8 +420,8 @@ PRs are sequential.
 1. **PR A1 — `Unauthorized` / `Forbidden` errors** — add the subclasses
    to `aaiclick/internal_api/errors.py` and extend `ProblemCode` in
    `aaiclick/view_models.py` with `UNAUTHORIZED`, `FORBIDDEN`,
-   `WORKER_SPAWN_FAILED`, `WORKER_SPAWN_TIMEOUT`. Update `_PROBLEM_MAP`
-   in `aaiclick/server/errors.py`.
+   `WORKER_SPAWN_FAILED`. Update `_PROBLEM_MAP` in
+   `aaiclick/server/errors.py`.
 
 2. **PR A2 — `aaiclick/server/auth.py`** — introduce the
    `require_bearer` FastAPI dependency:
@@ -460,40 +459,32 @@ PRs are sequential.
 
 ### Track B — `start_worker`
 
-1. **PR B1 — `Worker.correlation_id` column + Alembic migration** —
-   add nullable `correlation_id: str | None` to
-   `aaiclick/orchestration/models.py::Worker` (indexed, 36-char UUID).
-   Generate migration via `alembic revision --autogenerate`. Worker
-   startup reads `AAICLICK_WORKER_CORRELATION_ID` from the environment
-   and stamps it on the row inserted by its registration code path
-   (search for where `Worker(...)` rows are inserted today; no other
-   changes). CLI-spawned workers leave the column NULL — only
-   HTTP-spawned workers set it.
-
-2. **PR B2 — `StartWorkerRequest` + `internal_api.workers.start_worker`** —
+1. **PR B1 — `StartWorkerRequest` + `internal_api.workers.start_worker`** —
    add `StartWorkerRequest(max_tasks: int | None = None)` to
    `aaiclick/view_models.py`. Implement
-   `internal_api.workers.start_worker(request) -> WorkerView`:
+   `internal_api.workers.start_worker(request) -> None`:
    - Raise `Invalid` if `is_local()`.
-   - Generate a UUID correlation id.
    - Spawn `python -m aaiclick worker start [--max-tasks N]` via
-     `asyncio.create_subprocess_exec` with `start_new_session=True` and
-     `env={**os.environ, "AAICLICK_WORKER_CORRELATION_ID": cid}`.
-   - Poll `SELECT * FROM worker WHERE correlation_id = :cid` every
-     100ms up to `WORKER_SPAWN_TIMEOUT_S = 10.0`.
-   - On timeout or subprocess early-exit, `proc.kill()` and raise
-     `Conflict` with the matching `ProblemCode`.
-   - Return `worker_to_view(row)` on success.
-   - Unit tests use a fake subprocess that writes a `Worker` row with
-     the expected correlation id then exits — no real `mp_worker_main_loop`.
+     `asyncio.create_subprocess_exec` with `start_new_session=True`
+     (POSIX only).
+   - Catch `FileNotFoundError` / `PermissionError` from exec and raise
+     `Conflict(code=WORKER_SPAWN_FAILED)`. Return `None` otherwise — no
+     polling, no correlation id, no DB reads.
+   - Unit tests monkey-patch `asyncio.create_subprocess_exec` with a
+     fake that records the argv and env, then verify `is_local()`
+     short-circuits and the exec path builds the expected command line.
 
-3. **PR B3 — Router + MCP tool** — add `POST /workers` to
-   `aaiclick/server/routers/workers.py` (relative path; auth
-   inherited). Add `start_worker` tool to `aaiclick/server/mcp.py`
-   under the standard `async with orch_context(with_ch=False)` wrapper.
-   Router test asserts: 200 + `WorkerView` on happy path, 422 in local
-   mode, 503 with `code="worker_spawn_timeout"` on timeout. MCP tool
-   test asserts the same view via in-process `Client(mcp)`.
+2. **PR B2 — Router + MCP tool** — add `POST /workers` to
+   `aaiclick/server/routers/workers.py` returning
+   `Response(status_code=202, headers={"Location": "/api/v0/workers"})`
+   (relative path; auth inherited). Add `start_worker` tool to
+   `aaiclick/server/mcp.py` under the standard
+   `async with orch_context(with_ch=False)` wrapper; the tool returns
+   `None` on success. Router test asserts: 202 on happy path (with
+   `Location` header), 422 in local mode, 503 with
+   `code="worker_spawn_failed"` when exec raises. MCP tool test
+   asserts the call completes without raising via in-process
+   `Client(mcp)`.
 
 ## Exit Criteria
 
@@ -502,10 +493,11 @@ PRs are sequential.
   `WWW-Authenticate: Bearer`. `/health` remains open.
 - `AAICLICK_API_TOKEN` unset → server behaviour is identical to
   today's open server, with a single `WARNING` log line at startup.
-- `POST /api/v0/workers` spawns a worker in distributed mode, returns
-  its `WorkerView` within 10 seconds, and the spawned process survives
-  server shutdown (verified by asserting `proc.pid` is still alive
-  after the handler returns). Raises `422 Invalid` in local mode.
+- `POST /api/v0/workers` in distributed mode returns `202 Accepted`
+  with a `Location: /api/v0/workers` header; the spawned process
+  survives the HTTP handler (verified by asserting `proc.pid` is still
+  alive after the response). Raises `422 Invalid` in local mode and
+  `503 worker_spawn_failed` when exec raises.
 - `docs/api_server.md` `CLI verb → internal_api → REST → MCP` table
   reflects `start_worker` as implemented (drop any "⚠️ deferred"
   marker once this phase lands).

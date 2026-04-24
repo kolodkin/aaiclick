@@ -297,8 +297,9 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 The CLI's `worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
-endpoint therefore spawns a **detached subprocess** and returns once the
-spawned worker has registered itself in SQL:
+endpoint spawns a **detached subprocess** and returns `202 Accepted`
+once the fork/exec has succeeded. The caller polls `GET /api/v0/workers`
+if it wants to see the new row:
 
 ```
 POST /api/v0/workers
@@ -312,37 +313,36 @@ handler flow:
 
 1. `internal_api.workers.start_worker(request)` refuses in local mode
    (`is_local() → raise Invalid`) — same constraint as the CLI.
-2. Generate a one-shot correlation id. Pass it to the subprocess via
-   `AAICLICK_WORKER_CORRELATION_ID=<uuid>`; the worker's registration
-   path stamps it onto the `Worker` row at startup.
-3. Spawn `python -m aaiclick worker start [--max-tasks N]` with
+2. Spawn `python -m aaiclick worker start [--max-tasks N]` with
    `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
    child survives the HTTP request. POSIX-only, matching the project's
    Linux / macOS scope; Windows is not a supported deployment target.
-4. Poll `SELECT * FROM worker WHERE correlation_id = :id` with a
-   bounded timeout (default 10s) until a row appears.
-5. Return `WorkerView` for the registered row.
+3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
+   to `Conflict(code=WORKER_SPAWN_FAILED)` → `503`. Otherwise return
+   `None`.
+4. Router returns `202 Accepted` with header
+   `Location: /api/v0/workers` and an empty body.
+
+The caller polls `GET /api/v0/workers` to observe the new worker row;
+whether the child has finished registering (or has already crashed) is
+an orchestration-layer concern, not an HTTP concern. This keeps the
+endpoint idempotent in intent ("ensure one more worker is running"),
+avoids a new DB column, and sidesteps the race where two concurrent
+spawns would both claim "the next id."
 
 Failure modes:
 
-| Scenario                                 | HTTP | `Problem.code`         |
-|------------------------------------------|------|------------------------|
-| Local mode (chdb + SQLite)               | 422  | `invalid`              |
-| Subprocess exits before registering      | 503  | `worker_spawn_failed`  |
-| Registration timeout (no row within 10s) | 503  | `worker_spawn_timeout` |
-| Insufficient scope (post-scope rollout)  | 403  | `forbidden`            |
+| Scenario                                | HTTP | `Problem.code`        |
+|-----------------------------------------|------|-----------------------|
+| Local mode (chdb + SQLite)              | 422  | `invalid`             |
+| Subprocess exec raises (missing binary) | 503  | `worker_spawn_failed` |
+| Insufficient scope (post-scope rollout) | 403  | `forbidden`           |
 
-Once registered, the worker is autonomous. The server does **not** track
-child PIDs — shutdown uses the existing cooperative
-`stop_worker` path, which writes a stop signal to SQL and relies on the
-worker's own polling loop to exit. Orphan reaping remains the
-orchestration layer's responsibility, identical to CLI-spawned workers.
-
-The correlation id is what ties an HTTP request to "its" worker row.
-The simpler alternative — snapshot `max(worker.id)` before spawn, wait
-for a higher id — races under concurrent spawns: two simultaneous
-`POST /workers` calls both claim the first new row. A unique id per
-request sidesteps coordination entirely.
+The server does **not** track child PIDs — shutdown uses the existing
+cooperative `stop_worker` path, which writes a stop signal to SQL and
+relies on the worker's own polling loop to exit. Orphan reaping remains
+the orchestration layer's responsibility, identical to CLI-spawned
+workers.
 
 !!! warning "`start_worker` requires distributed backends"
     The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
@@ -352,12 +352,12 @@ request sidesteps coordination entirely.
 
 ## New / changed view models
 
-| Model                 | Where                          | Purpose                                          |
-|-----------------------|--------------------------------|--------------------------------------------------|
-| `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                         |
-| `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                   |
-| `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0         |
-| `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED`, `WORKER_SPAWN_TIMEOUT` |
+| Model                 | Where                          | Purpose                                                       |
+|-----------------------|--------------------------------|---------------------------------------------------------------|
+| `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
+| `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
+| `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
+| `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
 
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
 raises it until scopes land.
