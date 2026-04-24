@@ -9,7 +9,8 @@ call site only has to assemble the predicates and ORDER BY.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Generic, NamedTuple, TypeVar
+from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import func, select
@@ -19,7 +20,8 @@ from aaiclick.orchestration.orch_context import get_sql_session
 T = TypeVar("T")
 
 
-class PageRows(NamedTuple, Generic[T]):
+@dataclass(frozen=True, slots=True)
+class PageRows(Generic[T]):
     """Pair returned by :func:`paginate` — explicit so callers don't unpack positionally."""
 
     total: int
