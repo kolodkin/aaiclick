@@ -55,14 +55,14 @@ The `branch=<name>` argument is **not** a workflow input — it controls which b
 ## Step 4 — Run the Script
 
 ```bash
-.claude/skills/action-run/run.sh <workflow-file> [key=value|flag ...]
+./run.sh <workflow-file> [key=value|flag ...]
 ```
 
 Examples:
 ```bash
-.claude/skills/action-run/run.sh publish.yaml tag=v0.0.8 pre-release
-.claude/skills/action-run/run.sh generate-migration.yaml message="add users table"
-.claude/skills/action-run/run.sh test.yaml
+./run.sh publish.yaml tag=v0.0.8 pre-release
+./run.sh generate-migration.yaml message="add users table"
+./run.sh test.yaml
 ```
 
 The script will:

@@ -20,8 +20,16 @@ shippable, each leaves the tree green.
 | Phase 2 | `aaiclick/internal_api/objects.py`                   | ✅      | `aaiclick/internal_api/objects.py`          |
 | Phase 2 | `aaiclick/internal_api/setup.py`                     | ✅      | `aaiclick/internal_api/setup.py`            |
 | Phase 2 | `--json` flag on remaining CLI verbs                 | ✅      | Data `list`/`get`/`delete`/`purge`, plus `setup`/`migrate` now support `--json` |
-| Phase 3 | `aaiclick[server]` optional extra                    | Pending | `pyproject.toml`                            |
-| Phase 3 | `aaiclick/server/app.py` + routers                   | Pending |                                             |
+| Phase 3 | `aaiclick[server]` optional extra                    | ✅      | `pyproject.toml`                            |
+| Phase 3 | `aaiclick/server/app.py` + `/api/v0` prefix wiring   | ✅      | `aaiclick/server/app.py`                    |
+| Phase 3 | `aaiclick/server/deps.py` (orch scope deps)          | ✅      | `aaiclick/server/deps.py`                   |
+| Phase 3 | `aaiclick/server/errors.py` (internal_api → Problem) | ✅      | `aaiclick/server/errors.py`                 |
+| Phase 3 | `aaiclick/server/routers/jobs.py`                    | ✅      | `aaiclick/server/routers/jobs.py`           |
+| Phase 3 | `aaiclick/server/routers/registered_jobs.py`         | ✅      | `aaiclick/server/routers/registered_jobs.py`|
+| Phase 3 | `aaiclick/server/routers/tasks.py`                   | ✅      | `aaiclick/server/routers/tasks.py`          |
+| Phase 3 | `aaiclick/server/routers/workers.py`                 | ✅      | `aaiclick/server/routers/workers.py`        |
+| Phase 3 | `aaiclick/server/routers/objects.py`                 | ✅      | `aaiclick/server/routers/objects.py`        |
+| Phase 3 | `uvicorn aaiclick.server.app:app` invocation         | ✅      | Module-level `app` in `aaiclick/server/app.py` — no wrapper entrypoint |
 | Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |
 
 ---
@@ -163,43 +171,163 @@ to land alongside or just after the group that motivates it.
 
 # Phase 3 — `aaiclick/server/` FastAPI
 
-**Objective**: HTTP surface over `internal_api`.
+**Objective**: HTTP surface over `internal_api`. Every CLI verb reachable
+over HTTP under the **`/api/v0`** prefix with no new business logic and no
+drift from the view models.
+
+## Versioning decision — `/api/v0`
+
+The REST surface mounts at **`/api/v0`**, not `/api/v1`. Rationale:
+
+- The view-model schemas, error envelope, and URL shapes are still
+  being tuned alongside Phase 3. `v0` signals "experimental, may break"
+  to UI/SDK consumers.
+- Bump to `/api/v1` once a downstream (the orchestration UI, external
+  MCP client, or published SDK) commits to the contract.
+
+The prefix is declared **once** in `aaiclick/server/app.py` as
+`API_PREFIX = "/api/v0"` and threaded through every
+`app.include_router(..., prefix=API_PREFIX)` call. Routers themselves
+declare paths *relative* to the prefix (`/jobs`, `/workers`, ...) — the
+version segment never appears in individual router files. This isolates
+the "graduate to v1" change to a single line.
+
+## Ordering
+
+Each sub-task below is one PR. They can mostly run in parallel after
+**PR 1–3** land (the scaffolding). Router PRs (5a–5e) are independent.
 
 ## Tasks
 
-1. **Optional dependency extra** — add `aaiclick[server]` in
-   `pyproject.toml` pulling in `fastapi`, `uvicorn`, `fastmcp`. Core CLI
-   install stays slim.
+### PR 1 — `aaiclick[server]` optional extra
 
-2. **App factory** — `aaiclick/server/app.py::create_app()` returns a
-   configured FastAPI. Registers routers, exception handlers, CORS, and
-   lifecycle hooks for context setup/teardown.
+- Add `[project.optional-dependencies] server` to `pyproject.toml` with
+  `fastapi>=0.115`, `uvicorn[standard]>=0.30`, `httpx>=0.27` (needed by
+  tests). `fastmcp` arrives in Phase 4, not here — keep the Phase 3 PR
+  focused on HTTP.
+- Extend `all = ["aaiclick[distributed,ai,server]"]`.
+- No new runtime imports of `fastapi` anywhere outside `aaiclick/server/`
+  so the core CLI install stays slim.
 
-3. **Dependency providers** — `aaiclick/server/deps.py::session_dep` /
-   `ch_client_dep` yield an `AsyncSession` / `ChClient` per request,
-   constructed from env-var config (`AAICLICK_SQL_URL`, `AAICLICK_CH_URL`).
+### PR 2 — Module-level app + `/api/v0` prefix wiring
 
-4. **Error mapping** — `aaiclick/server/errors.py` registers handlers that
-   turn `internal_api.errors.*` into `Problem` + HTTP status
-   (404 / 409 / 422).
+`aaiclick/server/app.py`:
 
-5. **Routers** — one file per command group under
-   `aaiclick/server/routers/`. Each endpoint is three lines: parse, call
-   `internal_api.*`, return. `response_model=` set from view models.
+- Module-level constant `API_PREFIX = "/api/v0"`.
+- Module-level `app = FastAPI(...)` — **no factory**. Configuration
+  does not depend on runtime arguments, and a module-level instance
+  pairs naturally with `uvicorn aaiclick.server.app:app` (no `--factory`
+  flag) and with a future process-wide `lifespan` that owns the
+  engine / ch_client.
+  - `docs_url=f"{API_PREFIX}/docs"`,
+    `redoc_url=f"{API_PREFIX}/redoc"`,
+    `openapi_url=f"{API_PREFIX}/openapi.json"` — OpenAPI lives under
+    the versioned prefix too, so `v0` / `v1` specs can co-exist if we
+    ever need to dual-publish.
+  - Routers mount via `app.include_router(<group>.router, prefix=API_PREFIX)`.
+  - Exception handlers from PR 4 register against the module-level `app`.
+  - Liveness endpoint: `GET /health` (unversioned — for k8s / uptime
+    probes; not part of the API contract).
+- No CORS in v0 — the orchestration UI is same-origin. Add when a cross-
+  origin consumer appears.
 
-6. **Entrypoint** — `python -m aaiclick.server` launches uvicorn with
-   host/port from env vars.
+### PR 3 — Scope dependencies
 
-7. **Tests** — one integration test file per router, using
-   `httpx.AsyncClient` against the in-process app. No live uvicorn. Assert
-   status codes + response shapes against the view models.
+`aaiclick/server/deps.py`:
+
+- `orch_scope` — an `async` FastAPI dependency that wraps each request
+  in `orch_context(with_ch=False)`. Read-only SQL routes (`jobs`,
+  `registered_jobs`, `tasks`, `workers`) use this.
+- `orch_scope_with_ch` — same, but `with_ch=True`. Required only by the
+  `run-job` endpoint (task execution touches ClickHouse).
+- `data_scope` — wraps requests in `data_context()` for `objects`
+  routes.
+- No per-request session/client factories: the `internal_api` functions
+  already read resources through contextvar getters, so the dep only
+  manages context entry/exit.
+
+### PR 4 — Error mapping
+
+`aaiclick/server/errors.py`:
+
+- `problem_from(exc, status)` — build `Problem` from an
+  `InternalApiError`, populating `title`, `status`, `detail`, and a
+  short `code` (`"not_found"`, `"conflict"`, `"invalid"`).
+- `register_exception_handlers(app)` — registers three handlers:
+  - `NotFound` → 404
+  - `Conflict` → 409
+  - `Invalid` → 422
+- Unhandled `InternalApiError` falls through to FastAPI's default 500 —
+  we do **not** add a blanket handler, so bugs surface.
+
+### PR 5a–5e — One router per command group
+
+File: `aaiclick/server/routers/<group>.py`. Each file defines
+`router = APIRouter(prefix="/<group>", tags=["<group>"])`. Paths are
+relative — the `/api/v0` prefix comes from `include_router`. Each
+endpoint body is parse → call `internal_api.*` → return.
+
+- **5a `jobs.py`** — wraps `list_jobs`, `get_job`, `job_stats`,
+  `cancel_job`, `run_job`. Uses `orch_scope` for reads, `orch_scope_with_ch`
+  for `run_job`.
+- **5b `registered_jobs.py`** — wraps `list_registered_jobs`,
+  `register_job`, `enable_job`, `disable_job`.
+- **5c `tasks.py`** — wraps `get_task` (read-only today; extend when
+  the task-level verbs grow).
+- **5d `workers.py`** — wraps `list_workers`, `stop_worker`. `start_worker`
+  is deliberately omitted in v0 — spawning a worker from an HTTP request
+  needs auth + lifecycle we have not designed yet. Tracked in
+  `docs/future.md`.
+- **5e `objects.py`** — wraps `list_objects`, `get_object`,
+  `delete_object`, `purge_objects`. Uses `data_scope`.
+
+Path conventions (match the REST column in `api_server.md`):
+
+- Collection: `GET /<group>`, `POST /<group>` (where applicable).
+- Item: `GET /<group>/{ref}`, `DELETE /<group>/{ref}`.
+- Sub-resource: `GET /<group>/{ref}/stats`,
+  `POST /<group>/{ref}/cancel`.
+- Verb-actions that do not fit REST nouns use the `:verb` suffix:
+  `POST /jobs:run`, `POST /objects:purge`.
+
+Each router PR:
+
+- Adds an integration test file (`aaiclick/server/routers/test_<group>.py`)
+  using `httpx.AsyncClient` + `ASGITransport` against the in-process app
+  — no live uvicorn.
+- Asserts status codes **and** that the response body round-trips
+  through the view model (`JobView.model_validate(resp.json())`).
+- Covers happy path + each `internal_api` error path (404 / 409 / 422).
+
+### PR 6 — Run via uvicorn directly — no wrapper module
+
+No `__main__.py`; no factory. See `docs/api_server.md` — Running the
+server — for the canonical invocation.
+
+## Test Strategy
+
+- **In-process only**: `httpx.AsyncClient(transport=ASGITransport(app))`.
+  No uvicorn in the test suite — keeps CI hermetic.
+- **Shared fixture**: one `conftest.py` fixture builds the app once per
+  test module and wires it to the chdb + SQLite default backend (same
+  fixtures the `internal_api` tests already use).
+- **No CLI re-tests**: the `internal_api` tests already cover business
+  logic. Router tests assert only HTTP plumbing — status codes, route
+  registration under `/api/v0`, error envelope shape, and that the JSON
+  deserialises into the declared `response_model`.
+- **OpenAPI smoke test**: one test fetches `/api/v0/openapi.json` and
+  asserts every view model from `api_server.md` appears under
+  `components.schemas`.
 
 ## Exit Criteria
 
-- `python -m aaiclick.server` boots and serves every endpoint in the
-  CLI verb table.
-- `/openapi.json` renders cleanly and reflects every view model.
-- Integration tests cover each router.
+- `uvicorn aaiclick.server.app:app` boots and serves every route in the
+  REST column of the CLI-verb table under `/api/v0`.
+- `GET /api/v0/openapi.json` lists every view model and every route.
+- Every `internal_api` error path has a router test asserting the
+  correct HTTP status + `Problem` body.
+- `pip install aaiclick` without the `[server]` extra still imports
+  cleanly (no `fastapi` at module load time in the core package).
 
 ---
 
@@ -210,8 +338,8 @@ to land alongside or just after the group that motivates it.
 ## Tasks
 
 1. **MCP server** — `aaiclick/server/mcp.py` instantiates a FastMCP server
-   and mounts it on the FastAPI app (or hosts standalone via the same
-   app factory).
+   and mounts it on the FastAPI `app` (or hosts standalone by importing
+   the same module-level `app`).
 2. **Tools** — one `@mcp.tool()` per `internal_api` function. The function
    signature is the tool schema — no hand-written JSON Schema.
 3. **Tests** — call each tool via FastMCP's in-process client; assert the
