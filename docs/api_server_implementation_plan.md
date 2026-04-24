@@ -422,15 +422,12 @@ PRs are sequential.
    to `aaiclick/internal_api/errors.py` and extend `ProblemCode` in
    `aaiclick/view_models.py` with `UNAUTHORIZED`, `FORBIDDEN`,
    `WORKER_SPAWN_FAILED`, `WORKER_SPAWN_TIMEOUT`. Update `_PROBLEM_MAP`
-   in `aaiclick/server/errors.py`. One-line additions, but this PR lands
-   first so subsequent PRs can raise the exceptions without breaking
-   the error contract.
+   in `aaiclick/server/errors.py`.
 
 2. **PR A2 — `aaiclick/server/auth.py`** — introduce the
    `require_bearer` FastAPI dependency:
-   - Reads `AAICLICK_API_TOKEN` via a module-level helper
-     (`_get_token()` — reads env var each call so tests can mutate with
-     `monkeypatch`).
+   - Reads `AAICLICK_API_TOKEN` via a module-level helper that calls
+     `os.environ.get` each request (monkeypatchable from tests).
    - Uses `hmac.compare_digest`.
    - Sets `WWW-Authenticate: Bearer` on 401 responses via a custom
      exception handler registered alongside the existing `Problem`
@@ -445,9 +442,11 @@ PRs are sequential.
    mounted FastMCP sub-app (`Depends()` does not cross mount
    boundaries). Startup log: `WARNING` when the env var is unset.
    - `/health` stays outside `/api/v0` — no change.
-   - `/api/v0/openapi.json`, `/api/v0/docs`, `/api/v0/redoc` inherit the
-     router dependency automatically (they live under `API_PREFIX`).
-     Verify they 401 when the token is set.
+   - `/api/v0/openapi.json`, `/api/v0/docs`, `/api/v0/redoc` remain
+     open. FastAPI serves them at the app level, so a router-level
+     `dependencies=` does **not** cover them. Gating the schema would
+     need a middleware or `openapi_url=None` + a hand-written authed
+     route — deferred to the DB-backed-tokens phase.
 
 4. **PR A4 — Integration tests** — one sweep across the existing
    router test files (`aaiclick/server/routers/test_*.py`) asserting:

@@ -112,6 +112,10 @@ stabilises.
 
 # View Model Catalogue
 
+Phase 5 adds `StartWorkerRequest` and expands `ProblemCode` — see
+[Spawning workers](#spawning-workers--post-apiv0workers) and
+[Authentication](#authentication) for the additions.
+
 ## Shared (`aaiclick/view_models.py`)
 
 | Model                  | Purpose                                                      |
@@ -313,19 +317,20 @@ handler flow:
    path stamps it onto the `Worker` row at startup.
 3. Spawn `python -m aaiclick worker start [--max-tasks N]` with
    `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
-   child survives the HTTP request.
+   child survives the HTTP request. POSIX-only, matching the project's
+   Linux / macOS scope; Windows is not a supported deployment target.
 4. Poll `SELECT * FROM worker WHERE correlation_id = :id` with a
    bounded timeout (default 10s) until a row appears.
 5. Return `WorkerView` for the registered row.
 
 Failure modes:
 
-| Scenario                                  | HTTP | `Problem.code`          |
-|-------------------------------------------|------|-------------------------|
-| Local mode (chdb + SQLite)                | 422  | `invalid`               |
-| Subprocess exits before registering       | 503  | `worker_spawn_failed`   |
-| Registration timeout (no row within 10s)  | 503  | `worker_spawn_timeout`  |
-| Insufficient scope (post-scope rollout)   | 403  | `forbidden`             |
+| Scenario                                 | HTTP | `Problem.code`         |
+|------------------------------------------|------|------------------------|
+| Local mode (chdb + SQLite)               | 422  | `invalid`              |
+| Subprocess exits before registering      | 503  | `worker_spawn_failed`  |
+| Registration timeout (no row within 10s) | 503  | `worker_spawn_timeout` |
+| Insufficient scope (post-scope rollout)  | 403  | `forbidden`            |
 
 Once registered, the worker is autonomous. The server does **not** track
 child PIDs — shutdown uses the existing cooperative
@@ -333,11 +338,11 @@ child PIDs — shutdown uses the existing cooperative
 worker's own polling loop to exit. Orphan reaping remains the
 orchestration layer's responsibility, identical to CLI-spawned workers.
 
-??? info "Why a correlation id instead of snapshotting `max(worker.id)`"
-    Two concurrent `POST /workers` requests that snapshot `max(id)` race
-    on the same "next id"; both would claim the first worker that
-    registers. Correlation ids are unique per request and survive
-    concurrent spawns without coordination.
+The correlation id is what ties an HTTP request to "its" worker row.
+The simpler alternative — snapshot `max(worker.id)` before spawn, wait
+for a higher id — races under concurrent spawns: two simultaneous
+`POST /workers` calls both claim the first new row. A unique id per
+request sidesteps coordination entirely.
 
 !!! warning "`start_worker` requires distributed backends"
     The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
@@ -434,8 +439,9 @@ internal-API concern.
 
 ## Static token (v0)
 
-- **Token source**: the `AAICLICK_API_TOKEN` env var, read **once** at
-  server startup. No DB-backed token store, no rotation, no scopes.
+- **Token source**: the `AAICLICK_API_TOKEN` env var, read per-request
+  via a module-level helper so tests can flip it with `monkeypatch`.
+  No DB-backed token store, no rotation, no scopes.
 - **Enforcement**: if the env var is set, every request to `/api/v0/*`
   and `/mcp/*` must carry `Authorization: Bearer <token>`. Mismatches
   return `401 Problem` (`code="unauthorized"`). Missing headers return
@@ -484,12 +490,16 @@ mount boundary.
 
 ## What stays open
 
-| Path                    | Auth required? | Why                                                 |
-|-------------------------|----------------|-----------------------------------------------------|
-| `GET /health`           | No             | Liveness / uptime probes must never 401             |
-| `GET /api/v0/openapi.json` | Yes (if token set) | Schema fingerprinting is an info-leak on unauth'd probes |
-| `GET /api/v0/docs`      | Yes (if token set) | Same                                                |
-| `GET /api/v0/redoc`     | Yes (if token set) | Same                                                |
+| Path                       | Auth required? | Why                                                                  |
+|----------------------------|----------------|----------------------------------------------------------------------|
+| `GET /health`              | No             | Liveness / uptime probes must never 401                              |
+| `GET /api/v0/openapi.json` | No             | FastAPI serves it at the app level; router-dependency does not cover it, and an info-leak isn't a v0 concern |
+| `GET /api/v0/docs`         | No             | Same                                                                 |
+| `GET /api/v0/redoc`        | No             | Same                                                                 |
+
+Gating the schema / docs behind auth would need a middleware (like the
+`/mcp` one below) or `openapi_url=None` + a hand-written authed route —
+both are deferred to the DB-backed-tokens phase alongside scopes.
 
 ## Error envelope
 
