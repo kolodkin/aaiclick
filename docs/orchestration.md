@@ -299,6 +299,31 @@ Five operations per poll:
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
+## View Lifecycle
+
+Views share the underlying ClickHouse table with their source Object. This interacts with `table_run_refs` in a non-obvious way.
+
+**`table_run_refs` is a set, not a counter.** The composite PK `(table_name, run_id)` means at most one row exists per table per run — `INSERT … ON CONFLICT DO NOTHING`. A second `incref` for the same table in the same run is a no-op; the matching `decref` still deletes the one row.
+
+**Views do not own lifecycle refs.** `_owns_lifecycle_ref = False` on every View. Only the source Object that originally called `_register()` (and actually inserted a row into `table_run_refs`) issues the corresponding `decref`. This prevents a View's `__del__` from deleting the source's run_ref while the source Object is still alive.
+
+**Within-task View lifetime** is managed by Python reference counting: `View.__init__` stores `_source_obj = source`, keeping the source Object alive as long as the View is alive. When the View is GC'd the Python ref is released — if the source has no other refs, it is also GC'd and its `decref` fires normally.
+
+**Cross-task View lifetime** uses the PIN mechanism — the same as for Objects:
+
+```
+Task A returns View(table=T)
+  ├── pin fans out → pin_ref(T, B.task_id)
+  └── task_scope exit → decref(T) [run_refs → 0, pin protects]
+
+Task B deserializes View
+  ├── fresh source = Object(table=T); source._register() → INCREF(T)
+  ├── view = View(source=source)   [_source_obj keeps source alive]
+  └── unpin(T)                     [FIFO: after INCREF commits]
+```
+
+The deserialized source Object holds its own `_owns_lifecycle_ref = True` and issues a normal `decref` at `task_scope` exit.
+
 ## Write-Ahead Incref
 
 `create_object()` calls `incref` before `CREATE TABLE` — crash between the two is harmless (`DROP TABLE IF EXISTS`).

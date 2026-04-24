@@ -119,6 +119,7 @@ class Object:
         self._stale = False
         self._schema = dataclass_replace(schema, **replace_kw)
         self._registered = False
+        self._owns_lifecycle_ref = False
 
     @property
     def scope(self) -> ObjectScope:
@@ -144,6 +145,7 @@ class Object:
         self._registered = True
         if not self.persistent:
             incref(self.table)
+            self._owns_lifecycle_ref = True
 
     def __del__(self):
         """Decrement refcount on deletion.
@@ -158,6 +160,8 @@ class Object:
         if not self._registered:
             return
         if self.persistent:
+            return
+        if not self._owns_lifecycle_ref:
             return
         decref(self.table)
 
@@ -2344,9 +2348,13 @@ class View(Object):
             left_explode if exploded_columns is not None else (source._left_explode if is_view else False)
         )
 
-        # Register with context for lifecycle tracking and stale marking
+        # Register with context for lifecycle tracking and stale marking.
+        # Views do NOT call incref/decref: the source Object owns the lifecycle
+        # ref. Storing _source_obj keeps source alive via Python ref-counting
+        # so decref is deferred until the source Object itself is GC'd.
         if source._registered:
-            self._register()
+            self._registered = True
+            self._source_obj = source
             register_object(self)
 
     @property
