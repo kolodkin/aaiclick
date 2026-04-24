@@ -6,7 +6,10 @@ tests in ``aaiclick/data/test_scope.py``. Only ``_object_name_from_table``
 needs dedicated tests for its parsing branches.
 """
 
-from .view_models import _object_name_from_table
+import pytest
+from pydantic import ValidationError
+
+from .view_models import ColumnView, SchemaView, _object_name_from_table
 
 
 def test_object_name_from_table_global():
@@ -20,3 +23,31 @@ def test_object_name_from_table_job_scoped():
 
 def test_object_name_from_table_temp_falls_back_to_table():
     assert _object_name_from_table("t_9999999999") == "t_9999999999"
+
+
+def test_schema_view_round_trip_with_fieldtype():
+    sv = SchemaView(
+        columns=[
+            ColumnView(name="title", type="String", fieldtype="s"),
+            ColumnView(name="votes", type="Int64", fieldtype="a"),
+        ],
+        order_by="(title)",
+        engine="MergeTree",
+        fieldtype="d",
+    )
+    dumped = sv.model_dump_json()
+    restored = SchemaView.model_validate_json(dumped)
+    assert restored == sv
+    assert restored.fieldtype == "d"
+    assert restored.columns[0].fieldtype == "s"
+    assert restored.columns[1].fieldtype == "a"
+
+
+def test_column_view_fieldtype_rejects_invalid():
+    with pytest.raises(ValidationError):
+        ColumnView(name="x", type="Int64", fieldtype="d")  # "d" not allowed on a column
+
+
+def test_schema_view_fieldtype_rejects_invalid():
+    with pytest.raises(ValidationError):
+        SchemaView(fieldtype="x")

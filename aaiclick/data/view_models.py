@@ -10,6 +10,7 @@ data runtime.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,7 @@ class ColumnView(BaseModel):
     nullable: bool = False
     array_depth: int = 0
     low_cardinality: bool = False
+    fieldtype: Literal["s", "a"] = "s"
 
 
 class SchemaView(BaseModel):
@@ -34,6 +36,7 @@ class SchemaView(BaseModel):
     columns: list[ColumnView] = Field(default_factory=list)
     order_by: str | None = None
     engine: EngineType | None = None
+    fieldtype: Literal["s", "a", "d"] = "s"
 
 
 class ObjectView(BaseModel):
