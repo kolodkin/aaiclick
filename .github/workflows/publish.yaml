@@ -107,6 +107,8 @@ jobs:
         run: >-
           uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
+          -o asyncio_default_fixture_loop_scope=module
+          -o asyncio_default_test_loop_scope=module
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
@@ -204,6 +206,8 @@ jobs:
         run: >-
           uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
+          -o asyncio_default_fixture_loop_scope=module
+          -o asyncio_default_test_loop_scope=module
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
