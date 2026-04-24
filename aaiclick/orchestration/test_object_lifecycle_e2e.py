@@ -50,6 +50,27 @@ async def read_sum(data: Object) -> dict:
     return {"total": await result.data()}
 
 
+@task
+async def paginate_and_concat() -> Object:
+    """Simulate load_shodan_kev_cves: create Views mid-loop, then concat.
+
+    Regression test for the View lifecycle bug where page["field"].count()
+    would decref the underlying table, allowing it to be prematurely dropped
+    before the next concat iteration could reference it.
+    """
+    page_size = 3
+    result = None
+    for batch in [[1, 2, 3], [4, 5, 6], [7, 8]]:
+        page = await create_object_from_value(batch)
+        # This view creation+count was the bug trigger: View called incref (no-op
+        # due to ON CONFLICT DO NOTHING), then decref on GC, leaving 0 run_refs.
+        count = await (await page["value"].count()).data()
+        result = page if result is None else await result.concat(page)
+        if count < page_size:
+            break
+    return result
+
+
 # --- Job pipelines (module-level for entrypoint resolution) ---
 
 
@@ -82,6 +103,12 @@ def diamond_pipeline():
     right = add_ten(data=data)
     merged = add_objects(a=left, b=right)
     return read_sum(data=merged)
+
+
+@job("lifecycle_view_concat")
+def view_concat_pipeline():
+    data = paginate_and_concat()
+    return read_sum(data=data)
 
 
 # --- Audit trail ---
@@ -246,3 +273,18 @@ async def test_diamond(orch_ctx):
     # add_ten→add_objects: 1 pin
     # add_objects→read_sum: 1 pin
     assert len(pins) >= 5
+
+
+async def test_view_concat_lifecycle(orch_ctx):
+    """View created mid-loop does not prematurely decref the underlying table.
+
+    Regression: page["value"].count() used to create a View that decreffed
+    page.table on GC, leaving 0 run_refs and making the table eligible for
+    background cleanup before the next concat iteration could use it.
+
+    INCREF/DECREF balance is verified inside _run_and_verify (before cleanup).
+    The returned events also include cleanup-phase DELETEs from _delete_table_refs,
+    so we only assert that the job completed and tables were cleaned up — both
+    are checked by _run_and_verify itself.
+    """
+    await _run_and_verify(view_concat_pipeline)
