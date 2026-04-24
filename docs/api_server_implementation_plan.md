@@ -151,10 +151,11 @@ CLI handler maps these to exit code + human message. FastAPI maps them to
 Small refinements surfaced during migration PRs. Each is a separate PR, sized
 to land alongside or just after the group that motivates it.
 
-- **Paginator footer parity** — `cli_renderers.render_registered_jobs_page`
-  lacks the `"Showing N-M of total"` footer that `render_jobs_page` emits.
-  Thread `offset` through the CLI handler and add the footer. Apply the same
-  check to every group that introduces a list view (workers, objects, tasks).
+- **Paginator footer parity** — `render_registered_jobs_page` now takes
+  `offset` and emits `"Showing N-M of total"`, matching `render_jobs_page`
+  / `render_workers_page`. `render_objects_page` keeps `"Total: N"` for
+  now — `ObjectFilter` is cursor-only and has no `offset` field. Tasks
+  has no list view today.
 
 - **Apply typed-exception pattern across `internal_api/*`** — the
   registered-jobs migration moved error translation to typed subclasses of

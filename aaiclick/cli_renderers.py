@@ -114,7 +114,7 @@ def render_job_created(view: JobView) -> None:
     print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type.value})")
 
 
-def render_registered_jobs_page(page: Page[RegisteredJobView]) -> None:
+def render_registered_jobs_page(page: Page[RegisteredJobView], offset: int) -> None:
     """Print a paged list of registered jobs as an aligned text table."""
     if not page.items:
         print("No registered jobs found")
@@ -125,6 +125,8 @@ def render_registered_jobs_page(page: Page[RegisteredJobView]) -> None:
     for j in page.items:
         next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
         print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {_fmt_optional(j.schedule):<15} {next_run:<20}")
+    total = page.total if page.total is not None else len(page.items)
+    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
 
 
 def render_registered_job(view: RegisteredJobView) -> None:

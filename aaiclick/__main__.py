@@ -161,7 +161,7 @@ async def _run_registered_job_list(args: argparse.Namespace) -> None:
         offset=args.offset,
     )
     page = await _run_internal_api(internal_api.list_registered_jobs(filter))
-    _render(args, page, cli_renderers.render_registered_jobs_page)
+    _render(args, page, lambda p: cli_renderers.render_registered_jobs_page(p, offset=args.offset))
 
 
 async def _run_job_enable(args: argparse.Namespace) -> None:
