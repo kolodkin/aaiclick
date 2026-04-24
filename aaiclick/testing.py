@@ -371,9 +371,21 @@ async def orch_module_ctx_no_ch():
 
 @pytest.fixture
 async def orch_ctx(orch_module_ctx):
-    """Per-test state reset on top of the module-scoped chdb orch context."""
+    """Per-test state reset + synthetic task_scope on top of the module-scoped
+    chdb orch context.
+
+    The task_scope activates OrchLifecycleHandler so create_object can write
+    to table_registry.schema_doc — required by Phase 2's registry-backed
+    _get_table_schema read path. Tests that need a real task/job/run_id
+    should use the job-factory fixtures instead.
+    """
+    from aaiclick.orchestration.orch_context import task_scope
+    from aaiclick.snowflake import get_snowflake_id
+
     await per_test_reset(reset_ch=True, reset_sql=True)
-    yield
+    synthetic_id = get_snowflake_id()
+    async with task_scope(task_id=synthetic_id, job_id=synthetic_id, run_id=synthetic_id):
+        yield
 
 
 @pytest.fixture

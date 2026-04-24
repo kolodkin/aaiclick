@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlmodel import col
 
+from aaiclick import create_object_from_value
 from aaiclick.data.object import Object, View
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
@@ -158,8 +159,52 @@ async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
         await deserialize_task_params(kwargs)
 
 
+async def _seed_registry_row(table: str, fieldtype: str = "a") -> None:
+    """Insert a minimal schema_doc row for a fake table name.
+
+    Lets deserialize tests point at arbitrary table names without going
+    through create_object.
+    """
+    import json
+
+    from sqlmodel import select
+
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+
+    async with get_sql_session() as sess:
+        existing = (
+            await sess.execute(select(TableRegistry).where(TableRegistry.table_name == table))
+        ).scalar_one_or_none()
+        if existing:
+            return
+        sess.add(
+            TableRegistry(
+                table_name=table,
+                schema_doc=json.dumps(
+                    {
+                        "columns": [
+                            {
+                                "name": "value",
+                                "type": "Int64",
+                                "nullable": False,
+                                "array_depth": 0,
+                                "low_cardinality": False,
+                                "fieldtype": fieldtype,
+                            }
+                        ],
+                        "order_by": None,
+                        "engine": "MergeTree",
+                        "fieldtype": fieldtype,
+                    }
+                ),
+            )
+        )
+        await sess.commit()
+
+
 async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
+    await _seed_registry_row("t123")
     kwargs = {"data": {"object_type": "object", "table": "t123"}}
 
     result = await deserialize_task_params(kwargs)
@@ -170,6 +215,7 @@ async def test_deserialize_task_params_object(orch_ctx):
 
 async def test_deserialize_task_params_view(orch_ctx):
     """Test deserializing a View parameter with constraints."""
+    await _seed_registry_row("t456")
     kwargs = {
         "data": {
             "object_type": "view",
@@ -177,7 +223,7 @@ async def test_deserialize_task_params_view(orch_ctx):
             "where": "value > 10",
             "limit": 100,
             "offset": 50,
-            "order_by": "aai_id ASC",
+            "order_by": "value ASC",
         }
     }
 
@@ -188,7 +234,7 @@ async def test_deserialize_task_params_view(orch_ctx):
     assert result["data"]._build_where() == "(value > 10)"
     assert result["data"].limit == 100
     assert result["data"].offset == 50
-    assert result["data"].order_by == "aai_id ASC"
+    assert result["data"].order_by == "value ASC"
 
 
 async def test_serialize_task_result_none(orch_ctx):

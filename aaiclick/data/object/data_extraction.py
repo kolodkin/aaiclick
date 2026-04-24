@@ -83,7 +83,7 @@ def _unflatten_record(flat_record: dict) -> dict:
 
 async def extract_scalar_data(obj: Object) -> Any:
     """
-    Extract data from a scalar table (single row with aai_id and value).
+    Extract data from a scalar table (single 'value' row).
 
     Args:
         obj: Object instance with scalar data
@@ -99,13 +99,14 @@ async def extract_scalar_data(obj: Object) -> Any:
 
 async def extract_array_data(obj: Object) -> list[Any]:
     """
-    Extract data from an array table (multiple rows with aai_id and value).
+    Extract data from an array table (multiple 'value' rows).
 
     Args:
         obj: Object instance with array data
 
     Returns:
-        List of values ordered by aai_id
+        List of values in ClickHouse's natural source order (callers that
+        need determinism apply ``.view(order_by=...)``).
     """
     query = obj._build_select(columns="value", default_order_by=None)
     data_result = await obj.ch_client.query(query)

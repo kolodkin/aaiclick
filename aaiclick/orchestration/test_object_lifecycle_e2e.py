@@ -41,7 +41,7 @@ async def add_ten(data: Object) -> Object:
 
 @task
 async def add_objects(a: Object, b: Object) -> Object:
-    return await (a + b)
+    return await (a.view(order_by="value") + b.view(order_by="value"))
 
 
 @task
