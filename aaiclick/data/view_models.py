@@ -14,7 +14,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from .models import FIELDTYPE_SCALAR, ColumnFieldtype, ColumnInfo, EngineType, Fieldtype, Schema
-from .object.object import Object
 from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope, scope_of
 
 

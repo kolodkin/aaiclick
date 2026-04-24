@@ -28,6 +28,7 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
+from ..view_models import SchemaView, view_to_schema
 
 
 def promote_nullable(col: ColumnInfo) -> ColumnInfo:
@@ -75,48 +76,46 @@ def _are_types_castable(target_type: str, source_type: str) -> bool:
 
 async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnInfo]]:
     """
-    Get fieldtype and columns from a table.
+    Get fieldtype and columns from a table's registry row.
+
+    Reads from ``table_registry.schema_doc`` and rehydrates via
+    :func:`aaiclick.data.view_models.view_to_schema`. Raises ``LookupError``
+    if the table has no registry row or a null ``schema_doc`` — the table
+    was either not created by aaiclick, or predates the schema_doc migration.
 
     Args:
         table: Table name
-        ch_client: ClickHouse client instance
+        ch_client: ClickHouse client instance — retained for call-site
+            compatibility; schema is now sourced from SQL, not ClickHouse.
 
     Returns:
         Tuple of (fieldtype, columns dict mapping names to ColumnInfo)
     """
-    columns_query = f"""
-    SELECT name, type, comment
-    FROM system.columns
-    WHERE table = '{table}'
-    ORDER BY position
-    """
-    columns_result = await ch_client.query(columns_query)
+    del ch_client  # sourced from SQL registry now
+    # Lazy imports break an orchestration→data→orchestration cycle: aaiclick.data.object
+    # loads before aaiclick.orchestration is ready, and orchestration's __init__ eagerly
+    # loads execution.runner which needs aaiclick.data.object.Object back. Deferred to
+    # call time — both packages are fully loaded by the first schema read.
+    from sqlmodel import select
 
-    columns = {}
-    aai_id_fieldtype = None
-    col_fieldtype = FIELDTYPE_SCALAR
-    for name, col_type, comment in columns_result.result_rows:
-        columns[name] = parse_ch_type(col_type)
-        if not comment:
-            continue
-        meta = ColumnMeta.from_yaml(comment)
-        if name == "aai_id":
-            # New tables store the object-level fieldtype on aai_id.
-            aai_id_fieldtype = meta.fieldtype if meta.fieldtype else None
-        elif meta.fieldtype and col_fieldtype == FIELDTYPE_SCALAR:
-            col_fieldtype = meta.fieldtype
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
 
-    # Prefer the explicit object-level fieldtype stored on aai_id (new tables).
-    # For old tables aai_id carries FIELDTYPE_SCALAR (its former placeholder), so
-    # fall back to structural inference: tables with columns beyond aai_id/value
-    # are DICT; otherwise use col_fieldtype (ARRAY or SCALAR from column comments).
-    if aai_id_fieldtype and aai_id_fieldtype != FIELDTYPE_SCALAR:
-        fieldtype = aai_id_fieldtype
-    else:
-        is_dict = bool(set(columns.keys()) - {"aai_id", "value"})
-        fieldtype = FIELDTYPE_DICT if is_dict else col_fieldtype
+    async with get_sql_session() as sess:
+        result = await sess.execute(
+            select(TableRegistry.schema_doc).where(TableRegistry.table_name == table)
+        )
+        row = result.one_or_none()
 
-    return fieldtype, columns
+    if row is None or row[0] is None:
+        raise LookupError(
+            f"Table {table!r} is not registered in table_registry (or has no "
+            "schema_doc). It was either not created by aaiclick, or was created "
+            "by a version that predates the schema_doc registry."
+        )
+
+    schema = view_to_schema(SchemaView.model_validate_json(row[0]), table=table)
+    return schema.fieldtype, schema.columns
 
 
 async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:

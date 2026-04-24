@@ -5,7 +5,11 @@ This module tests the schema property that returns schema information
 including table name, fieldtype, and column details.
 """
 
+import json
+
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import delete
 
 from aaiclick import (
     FIELDTYPE_ARRAY,
@@ -15,7 +19,11 @@ from aaiclick import (
     Schema,
     create_object_from_value,
 )
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import ViewSchema
+from aaiclick.data.object.ingest import _get_table_schema
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.sql_context import get_sql_session
 
 # =============================================================================
 # Basic Schema Tests
@@ -229,3 +237,60 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
 
     assert schema.fieldtype == expected_fieldtype
     assert schema.columns["value"].type == expected_type
+
+
+# =============================================================================
+# Registry-backed schema reads (Phase 2 Task 2.3)
+# =============================================================================
+
+
+async def test_get_table_schema_reads_from_registry(orch_ctx):
+    """_get_table_schema hydrates from table_registry.schema_doc when populated.
+
+    Inserts the registry row directly rather than relying on ``create_object``'s
+    async write (which Phase 3 will make synchronous). The goal of this test is
+    the read path, not the write-side plumbing.
+    """
+    table = "t_phase2_read_test"
+    schema_doc = json.dumps(
+        {
+            "columns": [
+                {
+                    "name": "value",
+                    "type": "Int64",
+                    "nullable": False,
+                    "array_depth": 0,
+                    "low_cardinality": False,
+                    "fieldtype": FIELDTYPE_ARRAY,
+                }
+            ],
+            "order_by": None,
+            "engine": "MergeTree",
+            "fieldtype": FIELDTYPE_ARRAY,
+        }
+    )
+    async with get_sql_session() as sess:
+        sess.add(TableRegistry(table_name=table, schema_doc=schema_doc))
+        await sess.commit()
+
+    try:
+        ch_client = get_ch_client()
+        fieldtype, columns = await _get_table_schema(table, ch_client)
+        assert fieldtype == FIELDTYPE_ARRAY
+        assert set(columns) == {"value"}
+        assert columns["value"].fieldtype == FIELDTYPE_ARRAY
+    finally:
+        async with get_sql_session() as sess:
+            await sess.execute(delete(TableRegistry).where(TableRegistry.table_name == table))
+            await sess.commit()
+
+
+async def test_get_table_schema_missing_registry_row_raises(orch_ctx):
+    """_get_table_schema raises LookupError when the table has no registry row."""
+    ch_client = get_ch_client()
+    await ch_client.command("CREATE TABLE t_orphan_test (v Int64) ENGINE = Memory")
+    try:
+        with pytest.raises(LookupError, match="not registered"):
+            await _get_table_schema("t_orphan_test", ch_client)
+    finally:
+        await ch_client.command("DROP TABLE IF EXISTS t_orphan_test")
