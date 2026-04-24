@@ -68,8 +68,16 @@ jobs:
         include:
           - group: Data local
             test-paths: "aaiclick/data/ aaiclick/snowflake/"
+            extras: ""
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
+            extras: ""
+          - group: Server local
+            test-paths: "aaiclick/server/"
+            extras: "--extra server"
+          - group: AI local
+            test-paths: "aaiclick/ai/"
+            extras: "--extra ai"
 
     steps:
       - name: Checkout code
@@ -83,7 +91,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra test --python 3.10
+          uv sync --frozen --extra test ${{ matrix.extras }} --python 3.10
 
       - name: Setup local backend
         run: |
