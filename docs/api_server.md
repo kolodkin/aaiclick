@@ -290,18 +290,42 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 # MCP Surface
 
-`aaiclick/server/mcp.py` mounts a FastMCP server on the same app. Each tool
-is a direct wrapper that opens the surrounding context:
+`aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick")`
+instance. Each tool is a direct wrapper that opens the surrounding context:
 
 ```python
-@mcp.tool()
-async def run_job(req: RunJobRequest) -> JobView:
-    async with orch_context(with_ch=False):
-        return await internal_api.run_job(req)
+@mcp.tool
+async def run_job(request: RunJobRequest) -> JobView:
+    async with orch_context(with_ch=True):
+        return await internal_api.run_job(request)
 ```
 
-FastMCP generates tool schemas from the pydantic models — identical inputs
+The server mounts it on the main FastAPI app under `/mcp`:
+
+```python
+# aaiclick/server/app.py
+_mcp_app = mcp.http_app(path="/")
+app = FastAPI(..., lifespan=_mcp_app.lifespan)
+app.mount("/mcp", _mcp_app)
+```
+
+FastMCP generates tool schemas from the pydantic types — identical inputs
 and outputs to the REST surface.
+
+**Testing**: use FastMCP's in-process client against the same module-level
+`mcp` instance — no HTTP round-trip, no uvicorn:
+
+```python
+from fastmcp import Client
+from aaiclick.server.mcp import mcp
+
+async with Client(mcp) as client:
+    result = await client.call_tool("list_jobs", {})
+    page = Page[JobView].model_validate(result.structured_content)
+```
+
+Internal-API errors (`NotFound` / `Conflict` / `Invalid`) surface as
+`fastmcp.exceptions.ToolError` on the client.
 
 # Running the server
 
