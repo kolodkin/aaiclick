@@ -79,8 +79,12 @@ Catalogue" — do not restate them here.
     `aaiclick/internal_api/test_jobs.py`).
   - `test_task_to_detail_includes_detail_fields` — removed (exercised by
     `aaiclick/internal_api/test_tasks.py`).
-  - Still pending: the equivalents in `aaiclick/data/test_view_models.py` —
-    drop each alongside its internal_api migration PR.
+  - `test_column_info_to_view_*`, `test_schema_to_view_preserves_columns_and_metadata`,
+    `test_object_to_view_*`, `test_object_to_detail_embeds_schema` — removed
+    (adapters exercised by `aaiclick/internal_api/test_objects.py`;
+    `scope_of` exercised by `aaiclick/data/test_scope.py`). The three
+    `_object_name_from_table` parsing tests stay — that helper lives in
+    `view_models.py` and has real branching logic.
 
 ---
 
