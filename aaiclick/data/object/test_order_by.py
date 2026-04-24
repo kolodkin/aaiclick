@@ -7,7 +7,7 @@ import pytest
 from aaiclick import create_object_from_value
 from aaiclick.data import ENGINE_MERGE_TREE, ColumnInfo, Object, Schema
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.models import build_order_by_clause
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, build_order_by_clause
 
 
 def test_build_order_by_clause_single_column():
@@ -95,3 +95,13 @@ async def test_no_order_by_stays_memory(ctx):
 
     result = await ch.query(f"SELECT engine FROM system.tables WHERE name = '{obj.table}'")
     assert result.result_rows[0][0] == "Memory"
+
+
+def test_column_info_carries_fieldtype():
+    ci = ColumnInfo(type="Int64", nullable=False, array=0, fieldtype=FIELDTYPE_ARRAY)
+    assert ci.fieldtype == FIELDTYPE_ARRAY
+
+
+def test_column_info_fieldtype_defaults_to_scalar():
+    ci = ColumnInfo(type="String")
+    assert ci.fieldtype == FIELDTYPE_SCALAR

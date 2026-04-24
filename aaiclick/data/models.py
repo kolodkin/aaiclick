@@ -41,6 +41,13 @@ FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
+# Fieldtype constants
+FIELDTYPE_SCALAR = "s"
+FIELDTYPE_ARRAY = "a"
+FIELDTYPE_DICT = "d"
+ColumnFieldtype = Literal["s", "a"]
+Fieldtype = Literal["s", "a", "d"]
+
 
 @dataclass(frozen=True)
 class ColumnInfo:
@@ -52,6 +59,9 @@ class ColumnInfo:
         array: Nesting depth of Array wrapping. ``False``/``0`` means plain column,
                ``True``/``1`` means ``Array(T)``, ``2`` means ``Array(Array(T))``, etc.
         low_cardinality: Whether to use LowCardinality encoding
+        fieldtype: Per-column fieldtype — scalar or array. Replaces the YAML-comment
+                   fieldtype stored in ClickHouse today; populated from the registry's
+                   schema_doc once Phase 3 writes it.
     """
 
     type: str
@@ -59,6 +69,7 @@ class ColumnInfo:
     array: int = False
     low_cardinality: bool = False
     description: str = ""
+    fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
@@ -139,13 +150,6 @@ def parse_ch_type(type_str: str) -> "ColumnInfo":
 
     return ColumnInfo(type=type_str, nullable=nullable, array=array, low_cardinality=low_cardinality)
 
-
-# Fieldtype constants
-FIELDTYPE_SCALAR = "s"
-FIELDTYPE_ARRAY = "a"
-FIELDTYPE_DICT = "d"
-ColumnFieldtype = Literal["s", "a"]
-Fieldtype = Literal["s", "a", "d"]
 
 # ClickHouse engine constants
 ENGINE_MERGE_TREE = "MergeTree"
