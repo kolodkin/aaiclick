@@ -113,7 +113,6 @@ async def test_create_nullable_scalar(ctx):
     """Create a scalar nullable column with NULL value."""
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
         columns={
             "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("String", nullable=True),

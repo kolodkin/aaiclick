@@ -180,13 +180,13 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
         SELECT a.value AS a_value, b.value AS b_value,
                a.present AS a_present, b.present AS b_present
         FROM (
-            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER () AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_a})) AS value,
                    CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
-            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER () AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_b})) AS value,
                    CAST(1 AS Nullable(UInt8)) AS present
             FROM {source_b}
@@ -236,16 +236,13 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
 
     # Create result object with schema
     result = await create_object(schema)
 
     # Insert data based on fieldtype combinations
-    # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
-    # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
         # Same-table optimization: when both operands are field selections from
         # the same table with identical constraints, emit a single SELECT instead
@@ -294,8 +291,8 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                 await ch_client.command(f"""
                     INSERT INTO {result.table} (value)
                     SELECT {expression} AS value
-                    FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
-                    INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                    FROM (SELECT row_number() OVER () AS rn, value FROM {info_a.source}) AS a
+                    INNER JOIN (SELECT row_number() OVER () AS rn, value FROM {info_b.source}) AS b
                     ON a.rn = b.rn
                 """)
 
@@ -303,17 +300,10 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
-    # Cross-join works for all cases; only the aai_id source differs.
-    # Scalar-scalar omits aai_id (DEFAULT generateSnowflakeID() fills it).
-    if a_is_array:
-        insert_target = result.table
-        select_cols = f"a.aai_id, {expression} AS value"
-    elif b_is_array:
-        insert_target = result.table
-        select_cols = f"b.aai_id, {expression} AS value"
-    else:
-        insert_target = f"{result.table} (value)"
-        select_cols = f"{expression} AS value"
+    # Cross-join works for all cases. Row order follows ClickHouse's natural
+    # source order; callers wanting determinism apply .view(order_by=...).
+    insert_target = f"{result.table} (value)"
+    select_cols = f"{expression} AS value"
 
     await ch_client.command(f"""
         INSERT INTO {insert_target}
@@ -441,14 +431,12 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
     result = await create_object(schema)
 
-    # Insert aggregated data (aai_id uses DEFAULT generateSnowflakeID())
     # count() uses count() without column, others use func(value)
     if agg_func == "count":
         agg_expr = f"{sql_func}()"
@@ -592,15 +580,14 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     if isinstance(condition, str):
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            col_fieldtype=FIELDTYPE_SCALAR,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+            columns={"value": ColumnInfo("UInt64")},
         )
         result = await create_object(schema)
         query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
         await ch_client.command(query)
         return result
 
-    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns = {}
     select_exprs = []
     for name, cond in condition.items():
         columns[name] = ColumnInfo("UInt64")
@@ -609,7 +596,6 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns=columns,
-        col_fieldtype=FIELDTYPE_SCALAR,
     )
     result = await create_object(schema)
     insert_cols = ", ".join(condition.keys())
@@ -642,14 +628,12 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
     result = await create_object(schema)
 
-    # Insert quantile result (aai_id uses DEFAULT generateSnowflakeID())
     insert_query = f"""
     INSERT INTO {result.table} (value)
     SELECT quantile({q})(value) AS value
@@ -683,13 +667,12 @@ async def unique_group(info: QueryInfo, ch_client):
     source_col_def = ColumnInfo(info.value_type, nullable=info.nullable)
 
     # Build schema for result table (array type - multiple unique values)
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def})
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": source_col_def})
 
     # Create result object with schema
     result = await create_object(schema)
 
     # Insert unique values using GROUP BY (not DISTINCT) entirely in ClickHouse
-    # aai_id uses DEFAULT generateSnowflakeID()
     insert_query = f"""
     INSERT INTO {result.table} (value)
     SELECT value FROM {info.source} GROUP BY value
@@ -720,8 +703,7 @@ async def nunique_agg(info: QueryInfo, ch_client):
     """
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+        columns={"value": ColumnInfo("UInt64")},
     )
     result = await create_object(schema)
     await ch_client.command(f"""
@@ -778,7 +760,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
@@ -792,7 +774,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         SELECT arrayJoin(
             arrayMap(
                 x -> {scalar_expr},
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id))
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source}))
             )
         ) AS value
         """
@@ -803,8 +785,8 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         SELECT arrayJoin(
             arrayMap(
                 (x, y) -> {expression},
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id)),
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source} ORDER BY aai_id))
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source})),
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source}))
             )
         ) AS value
         """
@@ -863,7 +845,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     # Build aggregation expressions and result schema
     agg_exprs = []
-    result_columns = {"aai_id": ColumnInfo("UInt64")}
+    result_columns = {}
 
     for key in info.group_keys:
         result_columns[key] = ColumnInfo(info.columns[key])
@@ -885,9 +867,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
 
     agg_str = ", ".join(agg_exprs)
 
-    # Build non-aai_id column names for INSERT
-    insert_cols = [k for k in result_columns if k != "aai_id"]
-    insert_cols_str = ", ".join(insert_cols)
+    insert_cols_str = ", ".join(result_columns)
 
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
@@ -913,7 +893,6 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    # Insert directly from query (aai_id uses DEFAULT generateSnowflakeID())
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
     await ch_client.command(insert_query)
 
@@ -979,15 +958,14 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     result = await create_object(schema)
 
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT a.aai_id, {expression} AS value
+        SELECT {expression} AS value
         FROM {info.source} AS a
     """)
     return result
@@ -1030,14 +1008,13 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
     fieldtype = info.fieldtype
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     subquery = f"SELECT value FROM {other_info.source}"
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT a.aai_id, toUInt8(a.value IN ({subquery})) AS value
+        SELECT toUInt8(a.value IN ({subquery})) AS value
         FROM {info.source} AS a
     """)
     oplog_record_sample(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
@@ -1084,14 +1061,13 @@ async def unary_transform(info: QueryInfo, transform: str, ch_client):
 
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(result_type)},
+        columns={"value": ColumnInfo(result_type)},
     )
     result = await create_object(schema)
 
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT aai_id, {ch_func}(value) AS value FROM {info.source}
+        SELECT {ch_func}(value) AS value FROM {info.source}
     """)
     return result
 
@@ -1104,13 +1080,12 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, isNull(value) AS value FROM {info.source}
+    SELECT isNull(value) AS value FROM {info.source}
     """
     await ch_client.command(insert_query)
     return result
@@ -1120,13 +1095,12 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, isNotNull(value) AS value FROM {info.source}
+    SELECT isNotNull(value) AS value FROM {info.source}
     """
     await ch_client.command(insert_query)
     return result
@@ -1148,8 +1122,7 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
@@ -1176,8 +1149,8 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
             await ch_client.command(f"""
                 INSERT INTO {result.table} (value)
                 SELECT coalesce(a.value, b.value) AS value
-                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
-                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                FROM (SELECT row_number() OVER () AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER () AS rn, value FROM {info_b.source}) AS b
                 ON a.rn = b.rn
             """)
 
@@ -1186,10 +1159,10 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     if a_is_array:
         insert_target = result.table
-        select_cols = "a.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "coalesce(a.value, b.value) AS value"
     elif b_is_array:
         insert_target = result.table
-        select_cols = "b.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "coalesce(a.value, b.value) AS value"
     else:
         insert_target = f"{result.table} (value)"
         select_cols = "coalesce(a.value, b.value) AS value"

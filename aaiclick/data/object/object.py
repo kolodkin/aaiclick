@@ -112,7 +112,7 @@ class Object:
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
-            schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
         replace_kw: dict = {"table": table_name}
         if order_by is not None:
             replace_kw["order_by"] = build_order_by_clause(order_by)
@@ -401,7 +401,6 @@ class Object:
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
             columns=self._schema.columns,
-            col_fieldtype=self._schema.col_fieldtype,
         )
 
     async def result(self):
@@ -2689,7 +2688,6 @@ class View(Object):
             columns=columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
-            col_fieldtype=self._schema.col_fieldtype,
             order_by=self.order_by,
         )
 

@@ -242,9 +242,6 @@ class CopyInfo:
         columns: Column name to ClickHouse type mapping (from cached schema)
         selected_fields: Fields to select from dict (None for base copy)
         is_single_field: True if single field selection
-        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT.
-                       Propagated from source schema so copied tables have
-                       correct column comments for data() to work correctly.
     """
 
     source_query: str
@@ -252,7 +249,6 @@ class CopyInfo:
     columns: dict[str, "ColumnInfo"]
     selected_fields: list[str] | None = None
     is_single_field: bool = False
-    col_fieldtype: str | None = None
     order_by: str | None = None
 
 
@@ -264,10 +260,10 @@ class Schema:
 
     Attributes:
         fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column names to ColumnInfo
+        columns: Dict mapping column names to ColumnInfo. Each ColumnInfo carries
+                 its own per-column fieldtype, replacing the legacy
+                 ``col_fieldtype`` / YAML-COMMENT mechanism.
         table: ClickHouse table name (empty for blueprints, set for realized objects)
-        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT. Defaults to fieldtype.
-                       For dict schemas, distinguishes array data ('a') from scalar data ('s').
         engine: ClickHouse table engine. If None, uses context's engine setting.
         order_by: ORDER BY key for MergeTree-family engines. If None, defaults to tuple().
     """
@@ -275,7 +271,6 @@ class Schema:
     fieldtype: str
     columns: dict[str, "ColumnInfo"]
     table: str | None = None
-    col_fieldtype: str | None = None
     engine: Optional["EngineType"] = None
     order_by: str | None = None
 

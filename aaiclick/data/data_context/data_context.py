@@ -514,7 +514,7 @@ async def _create_nested_object(
     columns = {}
     columns.update(nested_cols)
 
-    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name, scope=scope)
 
     keys = list(flat.keys())
@@ -675,7 +675,7 @@ async def create_object_from_value(
 
             columns = _apply_field_specs(columns, fields)
             schema = Schema(
-                fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause
+                fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause
             )
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -769,7 +769,6 @@ async def create_object_from_value(
         col_def = columns["value"]
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            col_fieldtype=FIELDTYPE_SCALAR,
             columns=columns,
             order_by=order_by_clause,
         )

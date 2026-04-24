@@ -153,7 +153,6 @@ async def test_dict_with_array_datetime_column(ctx):
             "timestamps": ColumnInfo("DateTime64(3, 'UTC')", array=True),
             "label": ColumnInfo("String", low_cardinality=True),
         },
-        col_fieldtype=FIELDTYPE_ARRAY,
     )
     obj = await create_object(schema)
     ch = get_ch_client()
@@ -202,7 +201,6 @@ async def test_explicit_datetime_dict_schema(ctx):
             "event_time": ColumnInfo("DateTime64(3, 'UTC')"),
             "count": ColumnInfo("Int64"),
         },
-        col_fieldtype=FIELDTYPE_ARRAY,
     )
     obj = await create_object(schema)
     ch = get_ch_client()

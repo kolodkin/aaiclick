@@ -168,11 +168,6 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     Creates a new Object with the schema from `copy_info`, then inserts all
     rows from the source query directly inside ClickHouse — no Python round-trip.
 
-    When `copy_info.order_by` is set, the INSERT excludes `aai_id` so new
-    Snowflake IDs are generated in sorted insertion order.  This makes
-    ``data()`` (which reads by ``aai_id``) return rows in the requested order
-    without needing a View wrapper.
-
     Args:
         copy_info: CopyInfo with source query, column definitions, and fieldtype.
         ch_client: Active ClickHouse client instance.
@@ -180,23 +175,11 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     Returns:
         Object: New Object containing the copied data.
     """
-    schema = Schema(
-        fieldtype=copy_info.fieldtype,
-        columns=copy_info.columns,
-        col_fieldtype=copy_info.col_fieldtype,
-    )
+    schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
     result = await create_object(schema)
 
     alias = " AS s" if copy_info.source_query.startswith("(") else ""
-
-    # Always exclude aai_id — copies get fresh Snowflake IDs.
-    # Preserving source aai_ids would cause duplicates when two copies
-    # are inserted into the same table, breaking ORDER BY aai_id.
-    # For sorted copies, ORDER BY determines insertion order; fresh
-    # generateSnowflakeID() values are monotonic within the INSERT,
-    # so data() (ORDER BY aai_id) returns rows in sorted order.
-    data_cols = [c for c in copy_info.columns if c != "aai_id"]
-    cols_str = ", ".join(data_cols)
+    cols_str = ", ".join(copy_info.columns)
     order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
     insert_query = (
         f"INSERT INTO {result.table} ({cols_str}) SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}"
@@ -226,25 +209,20 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
 
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
-        new_schema = Schema(
-            fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": copy_info.columns[field]}
-        )
+        new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": copy_info.columns[field]})
         result = await create_object(new_schema)
         insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, value FROM {copy_info.source_query}{alias}
+        INSERT INTO {result.table} (value)
+        SELECT {quote_identifier(field)} FROM {copy_info.source_query}{alias}
         """
     else:
-        columns = {"aai_id": ColumnInfo("UInt64")}
-        for field in copy_info.selected_fields:
-            columns[field] = copy_info.columns[field]
-
-        new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+        columns = {field: copy_info.columns[field] for field in copy_info.selected_fields}
+        new_schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
         result = await create_object(new_schema)
         fields_str = ", ".join(quote_identifier(f) for f in copy_info.selected_fields)
         insert_query = f"""
-        INSERT INTO {result.table}
-        SELECT aai_id, {fields_str} FROM {copy_info.source_query}{alias}
+        INSERT INTO {result.table} ({fields_str})
+        SELECT {fields_str} FROM {copy_info.source_query}{alias}
         """
 
     await ch_client.command(insert_query)
@@ -311,11 +289,11 @@ async def concat_objects_db(
     # Validate all sources have compatible schemas and promote nullable
     first_columns = first_info.columns
     result_columns = dict(first_columns)
-    data_col_names = sorted(k for k in first_columns if k != "aai_id")
+    data_col_names = sorted(first_columns)
 
     for i, info in enumerate(query_infos[1:], start=1):
         other_columns = info.columns
-        other_data_cols = sorted(k for k in other_columns if k != "aai_id")
+        other_data_cols = sorted(other_columns)
 
         if other_data_cols != data_col_names:
             raise ValueError(f"concat source {i} has columns {other_data_cols}, expected {data_col_names}")
@@ -334,8 +312,7 @@ async def concat_objects_db(
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
     result = await create_object(schema)
 
-    data_columns = {k: v for k, v in result_columns.items() if k != "aai_id"}
-    col_names = sorted(data_columns)
+    col_names = sorted(result_columns)
     insert_cols = ", ".join(col_names)
 
     # Build a single INSERT with UNION ALL so all rows share one
@@ -343,7 +320,7 @@ async def concat_objects_db(
     # ORDER BY _src_ord ensures source-argument order is preserved.
     selects = []
     for i, info in enumerate(query_infos):
-        cast_exprs = ", ".join(f"CAST({col} AS {data_columns[col].ch_type()}) AS {col}" for col in col_names)
+        cast_exprs = ", ".join(f"CAST({col} AS {result_columns[col].ch_type()}) AS {col}" for col in col_names)
         alias = f" AS s{i}" if info.source.startswith("(") else ""
         selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
 
@@ -391,14 +368,13 @@ async def insert_objects_db(
         raise ValueError("insert requires target table to have array fieldtype")
 
     target_columns = target_info.columns
-    target_data_cols = {k for k in target_columns if k != "aai_id"}
 
     advisory_id = await load_advisory_id(target_info.base_table)
     async with table_insert_lock(advisory_id):
         for i, info in enumerate(source_infos):
             source_columns = info.columns
-            all_source_cols = sorted(k for k in source_columns if k != "aai_id")
-            col_names = [c for c in all_source_cols if c in target_data_cols]
+            all_source_cols = sorted(source_columns)
+            col_names = [c for c in all_source_cols if c in target_columns]
 
             for col_name in col_names:
                 target_def = target_columns[col_name]

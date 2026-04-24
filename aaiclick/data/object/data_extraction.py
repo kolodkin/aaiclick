@@ -91,7 +91,7 @@ async def extract_scalar_data(obj: Object) -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    query = obj._build_select(columns="value", default_order_by="aai_id")
+    query = obj._build_select(columns="value", default_order_by=None)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return _convert_value(rows[0][0]) if rows else None
@@ -107,7 +107,7 @@ async def extract_array_data(obj: Object) -> list[Any]:
     Returns:
         List of values ordered by aai_id
     """
-    query = obj._build_select(columns="value", default_order_by="aai_id")
+    query = obj._build_select(columns="value", default_order_by=None)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return [_convert_value(row[0]) for row in rows]
@@ -129,12 +129,11 @@ async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    query = obj._build_select(columns="*", default_order_by="aai_id")
+    query = obj._build_select(columns="*", default_order_by=None)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
 
-    # Filter out aai_id from output
-    output_columns = [name for name in column_names if name != "aai_id"]
+    output_columns = list(column_names)
     col_indices = {name: column_names.index(name) for name in output_columns}
 
     nested = _has_nested_columns(output_columns)
