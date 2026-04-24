@@ -217,12 +217,13 @@ async def test_statistics_after_operation(ctx, array_a, array_b, operator):
     """Test statistics on result of arithmetic operations. Returns Objects, use .data() to extract values."""
     obj_a = await create_object_from_value(array_a)
     obj_b = await create_object_from_value(array_b)
+    va, vb = obj_a.view(order_by="value"), obj_b.view(order_by="value")
 
-    # Apply operation
+    # Apply operation (view wrapping satisfies the cross-table contract)
     if operator == "+":
-        result = await (obj_a + obj_b)
+        result = await (va + vb)
     elif operator == "-":
-        result = await (obj_a - obj_b)
+        result = await (va - vb)
     else:
         raise ValueError(f"Unsupported operator: {operator}")
 
