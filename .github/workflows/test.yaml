@@ -72,6 +72,9 @@ jobs:
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
+          - group: Internal API local
+            test-paths: "aaiclick/internal_api/"
+            extras: ""
           - group: Server local
             test-paths: "aaiclick/server/"
             extras: "--extra server"
@@ -121,8 +124,16 @@ jobs:
         include:
           - group: Data dist
             test-paths: "aaiclick/data/ aaiclick/snowflake/"
+            extras: ""
           - group: Orch dist
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
+            extras: ""
+          - group: Internal API dist
+            test-paths: "aaiclick/internal_api/"
+            extras: ""
+          - group: Server dist
+            test-paths: "aaiclick/server/"
+            extras: "--extra server"
 
     services:
       clickhouse:
@@ -167,7 +178,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra distributed --extra test --python 3.10
+          uv sync --frozen --extra distributed --extra test ${{ matrix.extras }} --python 3.10
 
       - name: Run database migrations
         env:
