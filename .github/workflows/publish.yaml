@@ -105,7 +105,7 @@ jobs:
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: >-
-          uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
+          uv run --no-project pytest -p aaiclick.testing --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
@@ -202,7 +202,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
         run: >-
-          uv run --no-project pytest --pyargs ${{ matrix.pyargs }} -n auto -v
+          uv run --no-project pytest -p aaiclick.testing --pyargs ${{ matrix.pyargs }} -n auto -v
           -o asyncio_mode=auto
           -o "filterwarnings=error"
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
