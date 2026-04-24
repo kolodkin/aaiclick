@@ -68,6 +68,7 @@ async def paginate_and_concat() -> Object:
         result = page if result is None else await result.concat(page)
         if count < page_size:
             break
+    assert result is not None
     return result
 
 
