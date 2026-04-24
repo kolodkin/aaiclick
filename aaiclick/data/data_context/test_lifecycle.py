@@ -36,7 +36,7 @@ def test_local_lifecycle_delegates_decref():
     handler._worker.decref.assert_called_once_with("table_456")
 
 
-async def test_local_lifecycle_start_delegates():
+async def test_local_lifecycle_start_delegates(ctx):
     """LocalLifecycleHandler.start delegates to AsyncTableWorker.start."""
     handler = LocalLifecycleHandler(MagicMock())
     mock_worker = AsyncMock()
@@ -47,7 +47,7 @@ async def test_local_lifecycle_start_delegates():
     mock_worker.start.assert_called_once()
 
 
-async def test_local_lifecycle_stop_delegates():
+async def test_local_lifecycle_stop_delegates(ctx):
     """LocalLifecycleHandler.stop delegates to AsyncTableWorker.stop."""
     handler = LocalLifecycleHandler(MagicMock())
     mock_worker = AsyncMock()
@@ -58,11 +58,10 @@ async def test_local_lifecycle_stop_delegates():
     mock_worker.stop.assert_called_once()
 
 
-async def test_data_context_always_creates_local_lifecycle():
+async def test_data_context_always_creates_local_lifecycle(ctx):
     """data_context always creates and owns a LocalLifecycleHandler."""
-    async with data_context():
-        assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
+    assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
 
-        obj = await create_object_from_value([1, 2, 3])
-        data = await obj.data()
-        assert data == [1, 2, 3]
+    obj = await create_object_from_value([1, 2, 3])
+    data = await obj.data()
+    assert data == [1, 2, 3]
