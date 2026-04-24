@@ -6,10 +6,9 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
-from sqlmodel import col, func, select
+from sqlmodel import col
 
 from aaiclick.orchestration.models import RegisteredJob
-from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import (
     RegisteredJobAlreadyExists,
     RegisteredJobNotFound,
@@ -30,6 +29,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Page[RegisteredJobView]:
@@ -43,20 +43,19 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
     """
     filter = filter or RegisteredJobFilter()
 
-    count_query = select(func.count()).select_from(RegisteredJob)
-    list_query = select(RegisteredJob)
+    predicates = []
     if filter.enabled is not None:
-        count_query = count_query.where(RegisteredJob.enabled == filter.enabled)
-        list_query = list_query.where(RegisteredJob.enabled == filter.enabled)
+        predicates.append(RegisteredJob.enabled == filter.enabled)
     if filter.name is not None:
-        count_query = count_query.where(col(RegisteredJob.name).like(filter.name))
-        list_query = list_query.where(col(RegisteredJob.name).like(filter.name))
+        predicates.append(col(RegisteredJob.name).like(filter.name))
 
-    list_query = list_query.order_by(col(RegisteredJob.name)).limit(filter.limit).offset(filter.offset)
-    async with get_sql_session() as session:
-        total = (await session.execute(count_query)).scalar_one()
-        rows = (await session.execute(list_query)).scalars().all()
-
+    total, rows = await paginate(
+        RegisteredJob,
+        where=predicates,
+        order_by=col(RegisteredJob.name),
+        limit=filter.limit,
+        offset=filter.offset,
+    )
     return Page[RegisteredJobView](items=[registered_job_to_view(rj) for rj in rows], total=total)
 
 

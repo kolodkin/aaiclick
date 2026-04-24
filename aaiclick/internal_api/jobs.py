@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, func, select
+from sqlmodel import col, select
 
 from aaiclick.orchestration.execution.claiming import (
     JobAlreadyTerminal,
@@ -32,6 +32,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 @asynccontextmanager
@@ -70,23 +71,21 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """
     filter = filter or JobListFilter()
 
-    count_query = select(func.count()).select_from(Job)
-    list_query = select(Job)
+    predicates = []
     if filter.status is not None:
-        count_query = count_query.where(Job.status == filter.status)
-        list_query = list_query.where(Job.status == filter.status)
+        predicates.append(Job.status == filter.status)
     if filter.name is not None:
-        count_query = count_query.where(col(Job.name).like(filter.name))
-        list_query = list_query.where(col(Job.name).like(filter.name))
+        predicates.append(col(Job.name).like(filter.name))
     if filter.since is not None:
-        count_query = count_query.where(Job.created_at >= filter.since)
-        list_query = list_query.where(Job.created_at >= filter.since)
+        predicates.append(Job.created_at >= filter.since)
 
-    list_query = list_query.order_by(col(Job.created_at).desc()).limit(filter.limit).offset(filter.offset)
-    async with get_sql_session() as session:
-        total = (await session.execute(count_query)).scalar_one()
-        rows = (await session.execute(list_query)).scalars().all()
-
+    total, rows = await paginate(
+        Job,
+        where=predicates,
+        order_by=col(Job.created_at).desc(),
+        limit=filter.limit,
+        offset=filter.offset,
+    )
     return Page[JobView](items=[job_to_view(j) for j in rows], total=total)
 
 

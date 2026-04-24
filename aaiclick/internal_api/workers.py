@@ -6,7 +6,7 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
-from sqlmodel import col, func, select
+from sqlmodel import col
 
 from aaiclick.orchestration.execution.worker import (
     get_worker,
@@ -15,11 +15,11 @@ from aaiclick.orchestration.execution.worker import (
     request_worker_stop as _request_worker_stop_impl,
 )
 from aaiclick.orchestration.models import Worker
-from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import WorkerView, worker_to_view
 from aaiclick.view_models import Page, WorkerFilter
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
@@ -31,17 +31,17 @@ async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
     """
     filter = filter or WorkerFilter()
 
-    count_query = select(func.count()).select_from(Worker)
-    list_query = select(Worker)
+    predicates = []
     if filter.status is not None:
-        count_query = count_query.where(Worker.status == filter.status)
-        list_query = list_query.where(Worker.status == filter.status)
+        predicates.append(Worker.status == filter.status)
 
-    list_query = list_query.order_by(col(Worker.started_at).desc()).limit(filter.limit).offset(filter.offset)
-    async with get_sql_session() as session:
-        total = (await session.execute(count_query)).scalar_one()
-        rows = (await session.execute(list_query)).scalars().all()
-
+    total, rows = await paginate(
+        Worker,
+        where=predicates,
+        order_by=col(Worker.started_at).desc(),
+        limit=filter.limit,
+        offset=filter.offset,
+    )
     return Page[WorkerView](items=[worker_to_view(w) for w in rows], total=total)
 
 

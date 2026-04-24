@@ -166,12 +166,13 @@ to land alongside or just after the group that motivates it.
   pattern applies to any new producer that can fail with "not found" /
   "conflict" semantics.
 
-- **Shared pagination helper** — when the third `list_*` call site lands
-  (e.g. `list_workers`), extract a helper that takes a base `select`, a
-  sequence of `WHERE` predicates, an ORDER BY column, and
-  `limit`/`offset` — and returns `(total, rows)`. Premature with only two
-  sites (per `CLAUDE.md`'s "three similar lines is better than a premature
-  abstraction"); revisit at three.
+- **Shared pagination helper** — done.
+  `aaiclick/internal_api/pagination.py::paginate(model, *, where,
+  order_by, limit, offset) -> (total, rows)` runs the shared
+  `COUNT(*)` + paginated `SELECT` dance in one session.
+  `list_jobs`, `list_registered_jobs`, and `list_workers` now assemble
+  predicates and delegate. `list_objects` is intentionally not covered:
+  it lists ClickHouse tables (not a SQL model) and is cursor-only.
 
 ---
 
