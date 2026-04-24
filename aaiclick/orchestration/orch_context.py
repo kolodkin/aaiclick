@@ -434,7 +434,7 @@ async def task_scope(
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
-                if obj._registered and not obj.persistent:
+                if obj._registered and obj._owns_lifecycle_ref and not obj.persistent:
                     decref(obj.table)
                 obj._registered = False
         objects.clear()

@@ -181,7 +181,8 @@ async def data_context(
             if obj is not None:
                 obj._stale = True
                 if obj._registered and not obj.persistent:
-                    decref(obj.table)
+                    if obj._owns_lifecycle_ref:
+                        decref(obj.table)
                     obj._registered = False
         objects.clear()
 
