@@ -10,41 +10,42 @@ from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, build_order_by_clause
 
 
+def test_build_order_by_clause_empty_returns_tuple():
+    """Empty input yields tuple() — no implicit key."""
+    assert build_order_by_clause([]) == "tuple()"
+
+
 def test_build_order_by_clause_single_column():
-    """build_order_by_clause with a single column appends aai_id."""
-    assert build_order_by_clause(["date"]) == "(date, aai_id)"
+    """build_order_by_clause preserves a single user column verbatim."""
+    assert build_order_by_clause(["date"]) == "(date)"
 
 
 def test_build_order_by_clause_multiple_columns():
-    """build_order_by_clause with multiple columns appends aai_id."""
-    assert build_order_by_clause(["date", "category"]) == "(date, category, aai_id)"
+    """build_order_by_clause preserves multiple user columns verbatim."""
+    assert build_order_by_clause(["date", "category"]) == "(date, category)"
 
 
-def test_build_order_by_clause_dedup_aai_id():
-    """build_order_by_clause deduplicates aai_id if already present."""
-    assert build_order_by_clause(["date", "aai_id"]) == "(date, aai_id)"
-
-
-def test_build_order_by_clause_only_aai_id():
-    """build_order_by_clause with only aai_id returns just (aai_id)."""
-    assert build_order_by_clause(["aai_id"]) == "(aai_id)"
+def test_build_order_by_clause_does_not_append_aai_id():
+    """build_order_by_clause never injects aai_id — the column does not exist."""
+    assert "aai_id" not in build_order_by_clause(["date"])
+    assert "aai_id" not in build_order_by_clause([])
 
 
 def test_object_init_order_by_sets_schema():
     """Object.__init__ with order_by sets schema.order_by."""
     schema = Schema(
         fieldtype="d",
-        columns={"aai_id": ColumnInfo("UInt64"), "date": ColumnInfo("String")},
+        columns={"date": ColumnInfo("String"), "category": ColumnInfo("String")},
     )
     obj = Object(schema=schema, order_by=["date"])
-    assert obj._schema.order_by == "(date, aai_id)"
+    assert obj._schema.order_by == "(date)"
 
 
 def test_object_init_no_order_by():
     """Object.__init__ without order_by leaves schema.order_by as None."""
     schema = Schema(
         fieldtype="d",
-        columns={"aai_id": ColumnInfo("UInt64"), "date": ColumnInfo("String")},
+        columns={"date": ColumnInfo("String"), "category": ColumnInfo("String")},
     )
     obj = Object(schema=schema)
     assert obj._schema.order_by is None
@@ -70,7 +71,7 @@ async def test_order_by_mergetree():
 
         result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{obj.table}'")
         assert result.result_rows[0][0] == "MergeTree"
-        assert result.result_rows[0][1] == "date, aai_id"
+        assert result.result_rows[0][1] == "date"
 
 
 async def test_order_by_multi_column_mergetree():
@@ -83,7 +84,7 @@ async def test_order_by_multi_column_mergetree():
         )
 
         result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
-        assert result.result_rows[0][0] == "category, date, aai_id"
+        assert result.result_rows[0][0] == "category, date"
 
 
 async def test_no_order_by_stays_memory(ctx):

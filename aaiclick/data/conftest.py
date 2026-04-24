@@ -10,6 +10,8 @@ wrapper that gives data tests SQL-session access (required by
 
 import pytest
 
+from aaiclick.data.data_context.data_context import _engine_var
+from aaiclick.data.models import ENGINE_MEMORY
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.testing import reset_test_state
 
@@ -19,9 +21,15 @@ async def ctx():
     """Function-scoped orch context with per-test CH reset.
 
     Wraps ``orch_context()`` — a superset of ``data_context()`` that also
-    configures the SQL engine ``_get_table_schema`` reads from. Refcount-driven
+    configures the SQL engine ``_get_table_schema`` reads from. The orch
+    context defaults the table engine to MergeTree; data tests expect the
+    historical Memory default, so we override it here. Refcount-driven
     cleanup still runs on Object garbage collection; the explicit DROP sweep
     catches any leaked tables so state never crosses test boundaries.
     """
     async with reset_test_state(orch_context()):
-        yield
+        engine_token = _engine_var.set(ENGINE_MEMORY)
+        try:
+            yield
+        finally:
+            _engine_var.reset(engine_token)
