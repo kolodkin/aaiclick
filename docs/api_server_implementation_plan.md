@@ -30,7 +30,10 @@ shippable, each leaves the tree green.
 | Phase 3 | `aaiclick/server/routers/workers.py`                 | ✅      | `aaiclick/server/routers/workers.py`        |
 | Phase 3 | `aaiclick/server/routers/objects.py`                 | ✅      | `aaiclick/server/routers/objects.py`        |
 | Phase 3 | `uvicorn aaiclick.server.app:app` invocation         | ✅      | Module-level `app` in `aaiclick/server/app.py` — no wrapper entrypoint |
-| Phase 4 | `aaiclick/server/mcp.py`                             | Pending |                                             |
+| Phase 4 | `aaiclick[server]` extra includes `fastmcp`          | ✅      | `pyproject.toml`                            |
+| Phase 4 | `aaiclick/server/mcp.py`                             | ✅      | `aaiclick/server/mcp.py`                    |
+| Phase 4 | FastMCP mounted on FastAPI at `/mcp`                 | ✅      | `aaiclick/server/app.py` — `_mcp_app = mcp.http_app(path="/")` + `app.mount("/mcp", _mcp_app)` with forwarded `lifespan` |
+| Phase 4 | In-process `Client(mcp)` tool tests                  | ✅      | `aaiclick/server/test_mcp.py`               |
 
 ---
 
@@ -347,7 +350,7 @@ server — for the canonical invocation.
 1. **MCP server** — `aaiclick/server/mcp.py` instantiates a FastMCP server
    and mounts it on the FastAPI `app` (or hosts standalone by importing
    the same module-level `app`).
-2. **Tools** — one `@mcp.tool()` per `internal_api` function. The function
+2. **Tools** — one `@mcp.tool` per `internal_api` function. The function
    signature is the tool schema — no hand-written JSON Schema.
 3. **Tests** — call each tool via FastMCP's in-process client; assert the
    response equals the equivalent REST response from Phase 3.
@@ -357,6 +360,30 @@ server — for the canonical invocation.
 - Every CLI verb is callable as an MCP tool.
 - Tool schemas match the REST OpenAPI — both derived from the same view
   models.
+
+## Implementation notes
+
+- `fastmcp>=2.12` added under the `[server]` extra. `aaiclick` without
+  `[server]` still imports cleanly — `fastmcp` is only pulled in by
+  `aaiclick.server.mcp`, which is imported at FastAPI app-assembly time
+  in `aaiclick/server/app.py` and nowhere else.
+- Mount pattern follows the FastMCP → FastAPI integration guide:
+  `_mcp_app = mcp.http_app(path="/")` then
+  `app = FastAPI(..., lifespan=_mcp_app.lifespan)` and
+  `app.mount("/mcp", _mcp_app)`. The MCP streamable-HTTP transport
+  requires its lifespan to run, so forwarding it onto the FastAPI app is
+  mandatory — HTTP-only tests that skip the ASGI lifespan still work
+  because they never hit `/mcp/*`.
+- Each tool opens the same context its REST counterpart opens per
+  request (`orch_context(with_ch=False)` for SQL reads, `with_ch=True`
+  for object / `run_job` routes). `setup` / `migrate` /
+  `bootstrap_ollama` run without an orchestration context — matching
+  the CLI.
+- Tests use `fastmcp.Client(mcp)` in-process (no HTTP transport, no
+  uvicorn) and assert results via the declared view models —
+  `Page[JobView].model_validate(result.structured_content)` etc.
+  `internal_api.errors.NotFound` surfaces as `fastmcp.exceptions.ToolError`
+  on the client.
 
 ---
 
