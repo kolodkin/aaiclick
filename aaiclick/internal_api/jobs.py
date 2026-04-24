@@ -13,7 +13,11 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, func, select
 
-from aaiclick.orchestration.execution.claiming import cancel_job as _cancel_job_impl
+from aaiclick.orchestration.execution.claiming import (
+    JobAlreadyTerminal,
+    JobNotFound as _JobNotFound,
+    cancel_job as _cancel_job_impl,
+)
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
@@ -118,22 +122,22 @@ async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks.
 
     Raises ``NotFound`` if the job does not exist, or ``Conflict`` if the job
-    is already in a terminal state. The ref is resolved first so the error
-    distinguishes "not found" from "already terminal"; the atomic cancellation
+    is already in a terminal state. ``ref`` is resolved to a job id first
+    (the orchestration impl takes ``int`` only); the atomic cancellation
     lives in ``aaiclick.orchestration.execution.claiming.cancel_job`` and is
-    authoritative about terminal state.
+    authoritative about terminal state via typed exceptions.
     """
     job = await _resolve_job(ref)
     if job is None:
         raise NotFound(f"Job not found: {ref}")
 
-    if not await _cancel_job_impl(job.id):
-        raise Conflict(f"Job {job.id} already in terminal state: {job.status.value}")
-
-    refreshed = await _resolve_job(job.id)
-    if refreshed is None:
-        raise RuntimeError(f"Job {job.id} disappeared after cancel")
-    return job_to_view(refreshed)
+    try:
+        cancelled = await _cancel_job_impl(job.id)
+    except _JobNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    except JobAlreadyTerminal as exc:
+        raise Conflict(str(exc)) from exc
+    return job_to_view(cancelled)
 
 
 async def run_job(request: RunJobRequest) -> JobView:

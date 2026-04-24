@@ -157,13 +157,14 @@ to land alongside or just after the group that motivates it.
   now — `ObjectFilter` is cursor-only and has no `offset` field. Tasks
   has no list view today.
 
-- **Apply typed-exception pattern across `internal_api/*`** — the
-  registered-jobs migration moved error translation to typed subclasses of
-  `ValueError` in the producer (`RegisteredJobAlreadyExists`,
-  `RegisteredJobNotFound`). `internal_api/jobs.py` still pre-resolves via
-  `_resolve_job` to avoid string matching. Unify on the typed-exception
-  approach in `orchestration/execution/claiming.py` (`cancel_job`) and in
-  any new producer that can fail with "not found" / "conflict" semantics.
+- **Apply typed-exception pattern across `internal_api/*`** — done.
+  `orchestration/execution/claiming.py::cancel_job` now raises
+  `JobNotFound` / `JobAlreadyTerminal` (subclasses of `ValueError`) and
+  returns the cancelled `Job` instead of a bool. `internal_api/jobs.py`
+  catches the typed exceptions and translates to `NotFound` / `Conflict`,
+  dropping the post-cancel `_resolve_job` refresh. The same typed-exception
+  pattern applies to any new producer that can fail with "not found" /
+  "conflict" semantics.
 
 - **Shared pagination helper** — when the third `list_*` call site lands
   (e.g. `list_workers`), extract a helper that takes a base `select`, a

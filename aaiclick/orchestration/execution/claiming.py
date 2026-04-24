@@ -12,6 +12,14 @@ from ..orch_context import get_db_handler, get_sql_session
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
+class JobNotFound(ValueError):
+    """Raised when no job with the given id exists."""
+
+
+class JobAlreadyTerminal(ValueError):
+    """Raised when attempting to cancel a job that is already in a terminal state."""
+
+
 async def claim_next_task(worker_id: int) -> Task | None:
     """
     Atomically claim the next available task for a worker.
@@ -126,7 +134,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: str | None = 
         return True
 
 
-async def cancel_job(job_id: int) -> bool:
+async def cancel_job(job_id: int) -> Job:
     """
     Cancel a job and all its non-terminal tasks.
 
@@ -134,15 +142,18 @@ async def cancel_job(job_id: int) -> bool:
     PENDING, CLAIMED, and RUNNING tasks to CANCELLED. Tasks already
     COMPLETED or FAILED are left unchanged.
 
-    Only PENDING and RUNNING jobs can be cancelled. Returns False for
-    jobs in terminal states (COMPLETED, FAILED, CANCELLED) or if the
-    job does not exist.
+    Only PENDING and RUNNING jobs can be cancelled.
 
     Args:
         job_id: Job ID to cancel
 
     Returns:
-        bool: True if job was cancelled, False if not found or already terminal
+        Job: The cancelled Job row, refreshed from the session.
+
+    Raises:
+        JobNotFound: If no job with ``job_id`` exists.
+        JobAlreadyTerminal: If the job is already in a terminal state
+            (COMPLETED, FAILED, CANCELLED).
     """
     handler = get_db_handler()
     async with get_sql_session() as session:
@@ -150,10 +161,10 @@ async def cancel_job(job_id: int) -> bool:
         query_result = await session.execute(query)
         job = query_result.scalar_one_or_none()
         if job is None:
-            return False
+            raise JobNotFound(f"Job {job_id} not found")
 
         if job.status in _TERMINAL_JOB_STATUSES:
-            return False
+            raise JobAlreadyTerminal(f"Job {job_id} already in terminal state: {job.status.value}")
 
         now = datetime.utcnow()
         job.status = JobStatus.CANCELLED
@@ -179,7 +190,8 @@ async def cancel_job(job_id: int) -> bool:
         )
 
         await session.commit()
-        return True
+        await session.refresh(job)
+        return job
 
 
 async def check_task_cancelled(task_id: int) -> bool:
