@@ -281,25 +281,13 @@ async def create_object(
     else:
         obj = Object(schema=schema)
 
-    # Build column definitions for CREATE TABLE
-    column_defs = []
-    for col_name, col_def in schema.columns.items():
-        if col_name == "aai_id" and col_def.nullable:
-            raise ValueError("aai_id column cannot be nullable")
-
-        ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
-        if col_name == "aai_id":
-            ddl += " DEFAULT generateSnowflakeID()"
-            # Store the object-level fieldtype on aai_id so _get_table_schema
-            # can reconstruct it exactly without inferring from column structure.
-            comment_fieldtype = schema.fieldtype
-        else:
-            comment_fieldtype = schema.col_fieldtype or FIELDTYPE_ARRAY
-
-        comment = ColumnMeta(fieldtype=comment_fieldtype).to_yaml()
-        if comment:
-            ddl += f" COMMENT '{comment}'"
-        column_defs.append(ddl)
+    # Build column definitions for CREATE TABLE — user columns only, no implicit
+    # aai_id and no COMMENT clauses. Fieldtype metadata lives in
+    # table_registry.schema_doc (populated below via schema_to_view).
+    column_defs = [
+        f"{quote_identifier(col_name)} {col_def.ch_type()}"
+        for col_name, col_def in schema.columns.items()
+    ]
 
     # Persistent tables always use MergeTree regardless of engine param or schema.engine.
     if obj.persistent:
@@ -333,9 +321,13 @@ async def create_object(
 
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)
-    # are scoped to their job and cleaned up when the job expires.
+    # are scoped to their job and cleaned up when the job expires. The
+    # schema_doc carries the serialised SchemaView that _get_table_schema
+    # reads back — replaces the per-column ClickHouse COMMENT YAML.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
-    oplog_record_table(obj.table)
+    from ..view_models import schema_to_view
+
+    oplog_record_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
 
     return obj
 
@@ -480,13 +472,11 @@ def _apply_field_specs(
     """Apply field specs to inferred columns, validating field names."""
     if not fields:
         return columns
-    if "aai_id" in fields:
-        raise ValueError("Cannot override aai_id column with FieldSpec")
     unknown = set(fields) - set(columns)
     if unknown:
         raise ValueError(
             f"fields references unknown columns: {sorted(unknown)}. "
-            f"Available columns: {sorted(c for c in columns if c != 'aai_id')}"
+            f"Available columns: {sorted(columns)}"
         )
     return {name: _apply_field_spec(col, fields[name]) if name in fields else col for name, col in columns.items()}
 
@@ -521,7 +511,7 @@ async def _create_nested_object(
     flat = _flatten_nested_record(val)
     nested_cols = _flatten_nested_schema(val)
 
-    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns = {}
     columns.update(nested_cols)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
@@ -569,7 +559,7 @@ async def _create_nested_records_object(
                 sample[key] = [found]
 
     nested_cols = _flatten_nested_schema(sample)
-    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns = {}
     columns.update(nested_cols)
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
@@ -644,7 +634,7 @@ async def create_object_from_value(
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             array_len = None
 
             for key, value in val.items():
@@ -679,7 +669,7 @@ async def create_object_from_value(
                     )
 
         else:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             for key, value in val.items():
                 columns[key] = _infer_clickhouse_type(value)
 
@@ -719,7 +709,7 @@ async def create_object_from_value(
                         f"record {i} has {sorted(record.keys())}"
                     )
 
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             keys = list(records[0].keys())
             for key in keys:
                 sample: Any = records[0][key]
@@ -752,7 +742,7 @@ async def create_object_from_value(
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
             col_def = _infer_clickhouse_type(scalars)
-            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+            columns = {"value": col_def}
             columns = _apply_field_specs(columns, fields)
             col_def = columns["value"]
             schema = Schema(
@@ -774,7 +764,7 @@ async def create_object_from_value(
 
     else:
         col_def = _infer_clickhouse_type(val)
-        columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        columns = {"value": col_def}
         columns = _apply_field_specs(columns, fields)
         col_def = columns["value"]
         schema = Schema(
@@ -825,10 +815,8 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
     if not result:
         raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
 
-    col_fieldtype, columns = await _get_table_schema(table_name, ch)
-    is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
-    fieldtype = FIELDTYPE_DICT if is_dict_type else col_fieldtype
-    schema = Schema(fieldtype=fieldtype, columns=columns, col_fieldtype=col_fieldtype)
+    fieldtype, columns = await _get_table_schema(table_name, ch)
+    schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = Object(table=table_name, schema=schema)
     register_object(obj)
     return obj

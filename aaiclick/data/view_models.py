@@ -13,7 +13,16 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from .models import FIELDTYPE_SCALAR, ColumnFieldtype, ColumnInfo, EngineType, Fieldtype, Schema
+from .models import (
+    FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
+    FIELDTYPE_SCALAR,
+    ColumnFieldtype,
+    ColumnInfo,
+    EngineType,
+    Fieldtype,
+    Schema,
+)
 from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope, scope_of
 
 
@@ -70,20 +79,38 @@ def _object_name_from_table(table: str) -> str:
     return table
 
 
-def column_info_to_view(name: str, info: ColumnInfo) -> ColumnView:
+def column_info_to_view(
+    name: str, info: ColumnInfo, *, schema_fieldtype: Fieldtype | None = None
+) -> ColumnView:
+    """Adapt a ``ColumnInfo`` to its ``ColumnView``.
+
+    When ``info.fieldtype`` is the SCALAR default (older call sites that don't
+    set it explicitly), fall back to a fieldtype derived from the enclosing
+    schema: DICT object → SCALAR col, ARRAY object → ARRAY col, SCALAR → SCALAR.
+    """
+    fieldtype: ColumnFieldtype
+    if info.fieldtype != FIELDTYPE_SCALAR:
+        fieldtype = info.fieldtype
+    elif schema_fieldtype == FIELDTYPE_ARRAY:
+        fieldtype = FIELDTYPE_ARRAY
+    else:
+        fieldtype = FIELDTYPE_SCALAR
     return ColumnView(
         name=name,
         type=info.type,
         nullable=info.nullable,
         array_depth=int(info.array),
         low_cardinality=info.low_cardinality,
-        fieldtype=info.fieldtype,
+        fieldtype=fieldtype,
     )
 
 
 def schema_to_view(schema: Schema) -> SchemaView:
     return SchemaView(
-        columns=[column_info_to_view(name, info) for name, info in schema.columns.items()],
+        columns=[
+            column_info_to_view(name, info, schema_fieldtype=schema.fieldtype)
+            for name, info in schema.columns.items()
+        ],
         order_by=schema.order_by,
         engine=schema.engine,
         fieldtype=schema.fieldtype,

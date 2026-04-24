@@ -71,7 +71,7 @@ class LifecycleHandler(ABC):
     ) -> None:
         """Record an oplog entry with lineage sampling. No-op in local mode."""
 
-    def oplog_record_table(self, table_name: str) -> None:
+    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
         """Record a table registry entry. No-op in local mode."""
 
     def current_job_id(self) -> int | None:

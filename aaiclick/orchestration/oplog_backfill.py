@@ -72,8 +72,8 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
             await session.execute(
                 text(
                     "INSERT INTO table_registry "
-                    "(table_name, job_id, task_id, run_id, created_at) "
-                    "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at) "
+                    "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
+                    "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
                     "ON CONFLICT (table_name) DO NOTHING"
                 ),
                 [
@@ -83,6 +83,9 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
                         "task_id": row[2],
                         "run_id": row[3],
                         "created_at": row[4],
+                        # Legacy CH source had no schema_doc; backfilled rows surface a
+                        # LookupError on read until they're re-created.
+                        "schema_doc": None,
                     }
                     for row in ch_rows.result_rows
                 ],

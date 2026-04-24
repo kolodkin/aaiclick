@@ -26,6 +26,7 @@ class DBLifecycleOp(Enum):
     UNPIN = auto()
     OPLOG_RECORD = auto()
     OPLOG_TABLE = auto()
+    FLUSH = auto()
     SHUTDOWN = auto()
 
 
@@ -50,6 +51,7 @@ class OplogTablePayload:
     task_id: int | None = None
     job_id: int | None = None
     run_id: int | None = None
+    schema_doc: str | None = None
 
 
 @dataclass
@@ -61,6 +63,7 @@ class DBLifecycleMessage:
     pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
+    flush_event: "object | None" = None  # asyncio.Event signalled after FLUSH reaches here
 
 
 class TableContextRef(SQLModel, table=True):

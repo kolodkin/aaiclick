@@ -99,6 +99,17 @@ class OrchLifecycleHandler(LifecycleHandler):
         if self._task:
             await self._task
 
+    async def flush(self) -> None:
+        """Block until every message already enqueued has been processed.
+
+        Used by tests and by any caller that needs to read back state the
+        handler writes (e.g. ``table_registry.schema_doc`` after a
+        ``create_object`` call).
+        """
+        event = asyncio.Event()
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.FLUSH, flush_event=event))
+        await event.wait()
+
     def incref(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
 
@@ -173,11 +184,17 @@ class OrchLifecycleHandler(LifecycleHandler):
     ) -> None:
         self.oplog_record(result_table, operation, kwargs, sql)
 
-    def oplog_record_table(self, table_name: str) -> None:
+    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
         self._enqueue(
             DBLifecycleMessage(
                 DBLifecycleOp.OPLOG_TABLE,
-                oplog_table=OplogTablePayload(table_name, self._task_id, self._job_id, self._run_id),
+                oplog_table=OplogTablePayload(
+                    table_name,
+                    self._task_id,
+                    self._job_id,
+                    self._run_id,
+                    schema_doc=schema_doc,
+                ),
             )
         )
 
@@ -222,8 +239,8 @@ class OrchLifecycleHandler(LifecycleHandler):
                 await session.execute(
                     text(
                         "INSERT INTO table_registry "
-                        "(table_name, job_id, task_id, run_id, created_at) "
-                        "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at) "
+                        "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
+                        "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
                         "ON CONFLICT (table_name) DO NOTHING"
                     ),
                     {
@@ -232,6 +249,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                         "task_id": p.task_id,
                         "run_id": p.run_id,
                         "created_at": now,
+                        "schema_doc": p.schema_doc,
                     },
                 )
                 await session.commit()
@@ -317,6 +335,11 @@ class OrchLifecycleHandler(LifecycleHandler):
             elif msg.op == DBLifecycleOp.OPLOG_TABLE:
                 assert msg.oplog_table is not None
                 await self._write_table_registry_row(msg.oplog_table)
+
+            # -- Flush barrier (signalled once all prior messages have been processed) --
+            elif msg.op == DBLifecycleOp.FLUSH:
+                assert msg.flush_event is not None
+                msg.flush_event.set()
 
 
 @asynccontextmanager
