@@ -178,6 +178,35 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
 
+- **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it (e.g. SQLModel column mapping — and even then, track the migration in `docs/future.md`).
+  - Define a `Literal` type alias for the validated value set.
+  - Export module-level constants for the individual values so callers don't repeat string literals at call sites.
+  - Example:
+    ```python
+    from typing import Literal
+
+    APPLES = "apples"
+    BANANAS = "bananas"
+    FruitType = Literal["apples", "bananas"]
+    FRUIT_TYPES: list[FruitType] = [APPLES, BANANAS]
+
+    def eat_fruit(fruit: FruitType) -> None:
+        ...
+
+    # GOOD — type-checked string literal
+    eat_fruit(APPLES)
+    eat_fruit("bananas")
+
+    # BAD — StrEnum adds runtime class, IntEnum-style indirection, and
+    # imports for what is fundamentally just a string
+    class FruitType(StrEnum):
+        APPLES = "apples"
+        BANANAS = "bananas"
+
+    eat_fruit(FruitType.APPLES)
+    ```
+  - Existing `StrEnum`s in `aaiclick/orchestration/models.py` (`JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode`) and `aaiclick/view_models.py` (`OllamaBootstrapStatus`, `MigrationAction`) are scheduled for migration — see `docs/future.md` → "Switch DB Enums from `StrEnum` to `Literal` + `sa_column`".
+
 - **Prefer NamedTuples over plain tuples in APIs**: When a function accepts or returns tuples with fixed fields, define a `NamedTuple` instead
   - Use named attributes (`.op`, `.alias`) in internal code — not positional unpacking
   - Convert plain tuples to NamedTuples at API boundaries via `Cls._make(t)` to validate input format
