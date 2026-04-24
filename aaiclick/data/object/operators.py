@@ -843,27 +843,30 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     entries = _normalize_aggregations(aggregations)
     keys_str = ", ".join(info.group_keys)
 
-    # Build aggregation expressions and result schema
+    # Build aggregation expressions and result schema. Every result column
+    # carries multiple rows (one per group), so fieldtype=ARRAY.
     agg_exprs = []
     result_columns = {}
 
     for key in info.group_keys:
-        result_columns[key] = ColumnInfo(info.columns[key])
+        result_columns[key] = ColumnInfo(info.columns[key], fieldtype=FIELDTYPE_ARRAY)
 
     for source_col, agg in entries:
         sql_func = AGGREGATION_FUNCTIONS[agg.op]
         if agg.op == "count":
             agg_exprs.append(f"{sql_func}() AS {agg.alias}")
-            result_columns[agg.alias] = ColumnInfo("UInt64")
+            result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
-            result_columns[agg.alias] = ColumnInfo(base_type, array=True)
+            result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
-            result_columns[agg.alias] = ColumnInfo(_determine_agg_result_type(agg.op, source_type))
+            result_columns[agg.alias] = ColumnInfo(
+                _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
+            )
 
     agg_str = ", ".join(agg_exprs)
 
@@ -890,7 +893,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     else:
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
 
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     result = await create_object(schema)
 
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
