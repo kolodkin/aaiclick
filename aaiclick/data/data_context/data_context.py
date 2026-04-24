@@ -610,8 +610,8 @@ async def create_object_from_value(
               table that survives context exit. If the table already exists,
               data is appended.
         order_by: Optional list of column names for the table ORDER BY clause.
-                  ``aai_id`` is always appended as the last ORDER BY column.
-                  Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
+                  Empty input yields ``tuple()`` (ClickHouse no-sort form).
+                  Example: ``order_by=['date']`` → ``ORDER BY (date)``
         fields: Optional per-column overrides for inferred types. Maps column
                 names to ``FieldSpec`` instances that control nullable,
                 low_cardinality, and type override.

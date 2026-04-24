@@ -34,8 +34,9 @@ async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
     a = await create_object_from_value(val_a)
     b = await create_object_from_value(val_b)
 
-    result = await (a + b) if operator == "+" else await (a - b)
-    data = await result.data()
+    va, vb = a.view(order_by="value"), b.view(order_by="value")
+    result = await (va + vb) if operator == "+" else await (va - vb)
+    data = sorted(await result.view(order_by="value").data())
 
     assert abs(data - expected) < THRESHOLD
 
@@ -67,11 +68,11 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
     a = await create_object_from_value(arr_a)
     b = await create_object_from_value(arr_b)
 
-    result = await (a + b) if operator == "+" else await (a - b)
-    data = await result.data()
-
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    va, vb = a.view(order_by="value"), b.view(order_by="value")
+    result = await (va + vb) if operator == "+" else await (va - vb)
+    data = sorted(await result.view(order_by="value").data())
+    for i, val in enumerate(sorted(data)):
+        assert abs(val - sorted(expected)[i]) < THRESHOLD
 
 
 # =============================================================================
@@ -99,9 +100,12 @@ async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
     b = await create_object_from_value(arr_b)
     c = await create_object_from_value(arr_c)
 
-    temp = await (a + b) if op1 == "+" else await (a - b)
-    result = await (temp + c) if op2 == "+" else await (temp - c)
-    data = await result.data()
+    va, vb, vc = a.view(order_by="value"), b.view(order_by="value"), c.view(order_by="value")
+    temp = await (va + vb) if op1 == "+" else await (va - vb)
+    # result is same-table (temp) + cross-table (c), so wrap temp too
+    tv = temp.view(order_by="value")
+    result = await (tv + vc) if op2 == "+" else await (tv - vc)
+    data = sorted(await result.view(order_by="value").data())
 
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
@@ -117,7 +121,7 @@ async def test_mixed_statistics_after_operation(ctx):
     a = await create_object_from_value([10, 20, 30, 40])
     b = await create_object_from_value([0.5, 1.5, 2.5, 3.5])
 
-    result = await (a + b)
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
 
     expected_values = np.array([10.5, 21.5, 32.5, 43.5])
 
@@ -133,7 +137,7 @@ async def test_mixed_min_max_after_subtraction(ctx):
     a = await create_object_from_value([100, 200, 300])
     b = await create_object_from_value([0.1, 0.2, 0.3])
 
-    result = await (a - b)
+    result = await (a.view(order_by="value") - b.view(order_by="value"))
 
     assert abs(await (await result.min()).data() - 99.9) < THRESHOLD
     assert abs(await (await result.max()).data() - 299.7) < THRESHOLD
@@ -145,7 +149,7 @@ async def test_mixed_sum_mean_precision(ctx):
     a = await create_object_from_value([1, 2, 3, 4, 5])
     b = await create_object_from_value([0.1, 0.2, 0.3, 0.4, 0.5])
 
-    result = await (a + b)
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
 
     expected_values = np.array([1.1, 2.2, 3.3, 4.4, 5.5])
     expected_sum = np.sum(expected_values)
@@ -165,7 +169,7 @@ async def test_mixed_single_element_arrays(ctx):
     a = await create_object_from_value([42])
     b = await create_object_from_value([0.5])
 
-    result = await (a + b)
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
     data = await result.data()
 
     assert abs(data[0] - 42.5) < THRESHOLD
@@ -176,7 +180,7 @@ async def test_mixed_very_small_float_with_large_int(ctx):
     a = await create_object_from_value([1000000])
     b = await create_object_from_value([1e-10])
 
-    result = await (a + b)
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
     data = await result.data()
 
     # Result should be very close to 1000000 due to float precision
@@ -189,7 +193,7 @@ async def test_mixed_boundary_values(ctx):
     a = await create_object_from_value([-1, 0, 1])
     b = await create_object_from_value([0.5, 0.5, 0.5])
 
-    result = await (a + b)
+    result = await (a.view(order_by="value") + b.view(order_by="value"))
     data = await result.data()
 
     expected = [-0.5, 0.5, 1.5]
@@ -206,14 +210,14 @@ async def test_mixed_symmetry(ctx):
     # int + float
     a1 = await create_object_from_value(int_array)
     b1 = await create_object_from_value(float_array)
-    result1 = await (a1 + b1)
-    data1 = await result1.data()
+    result1 = await (a1.view(order_by="value") + b1.view(order_by="value"))
+    data1 = await result1.view(order_by="value").data()
 
     # float + int
     a2 = await create_object_from_value(float_array)
     b2 = await create_object_from_value(int_array)
-    result2 = await (a2 + b2)
-    data2 = await result2.data()
+    result2 = await (a2.view(order_by="value") + b2.view(order_by="value"))
+    data2 = await result2.view(order_by="value").data()
 
     # Results should be identical
     for i in range(len(data1)):

@@ -136,8 +136,8 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
             order_by: Optional list of column names for the table ORDER BY clause.
-                      ``aai_id`` is always appended as the last ORDER BY column.
-                      Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
+                      Empty input yields ``tuple()`` (ClickHouse no-sort form).
+                      Example: ``order_by=['date']`` → ``ORDER BY (date)``
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
@@ -477,8 +477,7 @@ class Object:
         """Return the object's data formatted as a markdown table.
 
         Fetches data via ``.data()`` and renders it as a plain-text markdown
-        table with auto-sized column widths.  The internal ``aai_id`` column
-        is omitted.
+        table with auto-sized column widths.
 
         Args:
             truncate: Optional mapping of column name to maximum character
@@ -496,7 +495,7 @@ class Object:
         if not isinstance(raw, dict):
             raw = {"value": raw if isinstance(raw, list) else [raw]}
 
-        columns = [c for c in raw if c != "aai_id"]
+        columns = list(raw)
         if not columns:
             return ""
         n_rows = len(raw[columns[0]]) if isinstance(raw[columns[0]], list) else 1
@@ -548,7 +547,7 @@ class Object:
         — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored and
-        the internal ``aai_id`` column is omitted. Backends stream directly:
+        Backends stream directly:
         chdb writes via ``INSERT INTO FUNCTION file()`` from the embedded
         engine; remote ClickHouse streams the formatted bytes over HTTP.
 
@@ -556,7 +555,7 @@ class Object:
         """
         self.checkstale()
         fmt = format_for_extension(path)
-        select_sql = self._build_select(columns="* EXCEPT aai_id")
+        select_sql = self._build_select(columns="*")
         return await export_query_to_file(select_sql, path, fmt)
 
     async def _get_fieldtype(self) -> str | None:
@@ -806,7 +805,6 @@ class Object:
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
             ...     fieldtype=FIELDTYPE_ARRAY,
-            ...     columns={"aai_id": ColumnInfo("UInt64"),
             ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
@@ -974,7 +972,7 @@ class Object:
         Args:
             url: HTTP(S) URL to load data from (e.g., Parquet file on S3)
             columns: Column names to select. If None, uses this object's columns
-                (excluding aai_id). Column names must match the URL source.
+                Column names must match the URL source.
             format: ClickHouse format name. Default "Parquet".
                 Supported: Parquet, CSV, CSVWithNames, TSV, JSON, JSONEachRow, etc.
             where: Optional SQL WHERE clause for filtering rows at load time
@@ -1004,9 +1002,8 @@ class Object:
         _validate_url(url)
         _validate_url_format(format)
 
-        # If columns not specified, use this object's columns (excluding aai_id)
         if columns is None:
-            columns = [c for c in self.schema.columns.keys() if c != "aai_id"]
+            columns = list(self.schema.columns)
 
         _validate_url_columns(columns)
 
@@ -1027,9 +1024,7 @@ class Object:
         else:
             select_cols = columns_str
 
-        # Build INSERT query (aai_id uses DEFAULT generateSnowflakeID())
-        insert_col_names = [k for k in self.schema.columns if k != "aai_id"]
-        insert_cols_str = ", ".join(insert_col_names)
+        insert_cols_str = ", ".join(self.schema.columns)
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
@@ -1670,14 +1665,12 @@ class Object:
         for old_name in columns:
             if old_name not in existing:
                 raise ValueError(f"Column '{old_name}' does not exist in schema")
-            if old_name == "aai_id":
-                raise ValueError("Cannot rename 'aai_id' column")
         # Check for duplicate new names
         new_names = list(columns.values())
         if len(new_names) != len(set(new_names)):
             raise ValueError("Duplicate new column names in rename mapping")
         # Check collision: new names must not collide with non-renamed columns
-        kept = existing - renamed_away - {"aai_id"}
+        kept = existing - renamed_away
         for new_name in new_names:
             if new_name in kept:
                 raise ValueError(f"Renamed column '{new_name}' collides with existing column")
@@ -1971,7 +1964,7 @@ class Object:
             GroupByQuery: Intermediate object for applying aggregations
 
         Raises:
-            ValueError: If no keys provided, key doesn't exist, or key is 'aai_id'
+            ValueError: If no keys provided, or key doesn't exist
 
         Examples:
             >>> obj = await create_object_from_value({
@@ -2049,27 +2042,22 @@ class GroupByQuery:
             keys: List of column names to group by
 
         Raises:
-            ValueError: If no keys, key is 'aai_id', key doesn't exist in schema
+            ValueError: If no keys, or key doesn't exist in schema
         """
         if not keys:
             raise ValueError("group_by requires at least one key")
-
-        if "aai_id" in keys:
-            raise ValueError("Cannot group by 'aai_id'")
 
         schema = source._schema
         if schema is None:
             raise ValueError("Source object has no cached schema")
 
-        # Determine available columns based on source type
         if isinstance(source, View) and source.is_single_field:
-            # Single-field View projects to {aai_id, value}
+            # Single-field View projects to {value}
             available = {"value"}
         elif isinstance(source, View) and source.selected_fields:
-            # Multi-field View projects to selected fields only
             available = set(source.selected_fields)
         else:
-            available = set(schema.columns.keys()) - {"aai_id"}
+            available = set(schema.columns)
         # Include computed columns
         if source.computed_columns:
             available |= set(source.computed_columns.keys())
@@ -2172,14 +2160,13 @@ class GroupByQuery:
         # Determine source query and columns based on source type
         if isinstance(source, View):
             if source.is_single_field and source.selected_fields:
-                # Single-field View: columns are {aai_id, value}
+                # Single-field View projects to {value}
                 field = source.selected_fields[0]
                 col_def = schema.columns.get(field, ColumnInfo("Float64"))
-                columns = {"aai_id": "UInt64", "value": col_def.type}
+                columns = {"value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source.selected_fields:
-                # Multi-field View: only selected columns available
-                columns = {"aai_id": "UInt64"}
+                columns = {}
                 for field in source.selected_fields:
                     col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
@@ -2423,8 +2410,6 @@ class View(Object):
         - Renamed columns (old_name -> new_name)
         - Computed columns (added as new columns)
 
-        Always includes aai_id.
-
         Cached because View instances are immutable — all fields are set at
         init and never mutated in place.
         """
@@ -2434,9 +2419,9 @@ class View(Object):
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
             col_def = orig.get(field, ColumnInfo("Float64"))
-            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+            columns = {"value": col_def}
         elif self._selected_fields:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             for f in self._selected_fields:
                 columns[f] = orig[f]
         else:
@@ -2662,8 +2647,7 @@ class View(Object):
         """Get copy info for database-level copy operations.
 
         ORDER BY is stripped from the source query and passed separately
-        via CopyInfo.order_by — copy_db() uses it to sort during INSERT
-        while excluding aai_id so new IDs are generated in sorted order.
+        via CopyInfo.order_by — copy_db() uses it to sort during INSERT.
         """
         has_non_order_constraints = bool(
             self.where_clauses
@@ -2714,21 +2698,17 @@ class View(Object):
 
         if self.selected_fields:
             if self.is_single_field:
-                # Single field: return as array
                 return await data_extraction.extract_array_data(self)
-            else:
-                # Multiple fields: return as dict with only selected fields
-                columns: dict[str, ColumnMeta] = {}
-                for field in self.selected_fields:
-                    columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-
-                column_names = ["aai_id"] + list(self.selected_fields)
-                return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+            columns: dict[str, ColumnInfo] = {
+                field: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
+            }
+            column_names = list(self.selected_fields)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
-            columns: dict[str, ColumnMeta] = {
-                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY) for name in eff if name != "aai_id"
+            columns: dict[str, ColumnInfo] = {
+                name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff
             }
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)

@@ -8,23 +8,33 @@ Scalar-broadcast comparisons are covered in test_scalar_broadcast.py.
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.data.models import FIELDTYPE_ARRAY
+
+
+def _with_order(obj):
+    """Wrap a cross-table array Object with .view(order_by='value') for the
+    Phase-4 cross-table operator contract."""
+    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
+        return obj.view(order_by="value")
+    return obj
 
 
 async def apply_comparison(obj_a, obj_b, operator: str):
     """Apply a comparison operator to two Objects."""
+    a, b = _with_order(obj_a), _with_order(obj_b)
     match operator:
         case "==":
-            return await (obj_a == obj_b)
+            return await (a == b)
         case "!=":
-            return await (obj_a != obj_b)
+            return await (a != b)
         case "<":
-            return await (obj_a < obj_b)
+            return await (a < b)
         case "<=":
-            return await (obj_a <= obj_b)
+            return await (a <= b)
         case ">":
-            return await (obj_a > obj_b)
+            return await (a > b)
         case ">=":
-            return await (obj_a >= obj_b)
+            return await (a >= b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -94,7 +104,7 @@ async def test_comparison_then_sum(ctx):
     """Comparison result (UInt8) can be summed to count matches."""
     obj_a = await create_object_from_value([1, 2, 3, 4, 5])
     obj_b = await create_object_from_value([1, 0, 3, 0, 5])
-    matches = await (obj_a == obj_b)
+    matches = await (obj_a.view(order_by="value") == obj_b.view(order_by="value"))
     count = await (await matches.sum()).data()
     assert count == 3
 
@@ -103,7 +113,7 @@ async def test_comparison_then_unique(ctx):
     """Comparison result values are 0 and 1 only."""
     obj_a = await create_object_from_value([1, 2, 3, 4])
     obj_b = await create_object_from_value([1, 1, 1, 1])
-    result = await (obj_a == obj_b)
+    result = await (obj_a.view(order_by="value") == obj_b.view(order_by="value"))
     unique_vals = sorted(await (await result.unique()).data())
     assert unique_vals == [0, 1]
 
