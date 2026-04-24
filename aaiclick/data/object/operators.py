@@ -270,13 +270,14 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                 SELECT {expr} AS value FROM {source_sql}
             """)
         else:
+            # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
+            assert info_a.order_by and info_b.order_by, (
+                "cross-table elementwise op reached operator SQL without order_by "
+                "on both sides — the contract check in _apply_operator should have rejected it"
+            )
             either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
             if either_is_view:
-                assert info_a.order_by and info_b.order_by, (
-                    "cross-table elementwise op reached operator SQL without order_by "
-                    "on both sides — the contract check in _apply_operator should have rejected it"
-                )
                 temp_table = await _materialize_array_join(
                     info_a.source,
                     info_a.value_type,
@@ -296,12 +297,6 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
-                # The cross-table contract (Object._apply_operator) guarantees
-                # both sides carry an explicit order_by when we reach here.
-                assert info_a.order_by and info_b.order_by, (
-                    "cross-table elementwise op reached operator SQL without order_by "
-                    "on both sides — the contract check in _apply_operator should have rejected it"
-                )
                 await ch_client.command(f"""
                     INSERT INTO {result.table} (value)
                     SELECT {expression} AS value

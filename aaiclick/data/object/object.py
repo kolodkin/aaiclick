@@ -77,32 +77,29 @@ class DataResult:
     columns: dict[str, ColumnMeta]
 
 
-def _require_explicit_order_for_cross_table(left: "Object", right: "Object") -> None:
+def _require_explicit_order_for_cross_table(a: "Object", b: "Object") -> None:
     """Enforce the cross-table operator contract.
 
     Binary elementwise ops between two array Objects from different tables
     need an explicit row order on both sides — otherwise the JOIN
     ``row_number() OVER ()`` pairs rows arbitrarily. Same-table ops and
     scalar broadcast skip the check (they have a natural alignment).
+
+    Uses the public ``.order_by`` property (``None`` on base Object, the
+    stored ``_order_by`` on View) so the helper stays symmetric and
+    doesn't reach into private attributes.
     """
-    if left._schema.fieldtype != FIELDTYPE_ARRAY or right._schema.fieldtype != FIELDTYPE_ARRAY:
+    if a._schema.fieldtype != FIELDTYPE_ARRAY or b._schema.fieldtype != FIELDTYPE_ARRAY:
         return
-    # View inherits .table from its source Object, so the underlying CH table
-    # name is the same attribute on both classes — no isinstance dance needed.
-    if left.table == right.table:
+    if a.table == b.table:
         return
-    if (
-        isinstance(left, View)
-        and isinstance(right, View)
-        and left._order_by is not None
-        and right._order_by is not None
-    ):
+    if a.order_by is not None and b.order_by is not None:
         return
     raise TypeError(
         "Binary elementwise ops on array Objects from different sources "
         "require an explicit row order. Wrap both sides with "
         ".view(order_by=...) before combining.\n"
-        f"  Got: {left!r} + {right!r}"
+        f"  Got: {a!r} + {b!r}"
     )
 
 

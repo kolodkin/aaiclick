@@ -9,18 +9,12 @@ Scalar broadcast is covered in test_scalar_broadcast.py.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import FIELDTYPE_ARRAY
-
-
-def _with_order(obj):
-    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
-        return obj.view(order_by="value")
-    return obj
+from aaiclick.testing import with_value_order
 
 
 async def apply_bitwise(obj_a, obj_b, operator: str):
     """Apply a bitwise operator to two Objects."""
-    a, b = _with_order(obj_a), _with_order(obj_b)
+    a, b = with_value_order(obj_a), with_value_order(obj_b)
     match operator:
         case "&":
             return await (a & b)

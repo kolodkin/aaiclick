@@ -122,6 +122,21 @@ async def reset_test_state(
         yield
 
 
+def with_value_order(obj):
+    """Wrap a cross-table array Object with ``.view(order_by="value")``.
+
+    Used by operator tests to satisfy the Phase 4 cross-table contract
+    (``Object._apply_operator`` rejects array+array ops between different
+    tables without explicit ``order_by`` on both sides). Scalars pass
+    through unchanged.
+    """
+    from aaiclick.data.models import FIELDTYPE_ARRAY
+
+    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
+        return obj.view(order_by="value")
+    return obj
+
+
 def make_oplog_node(
     table: str,
     operation: str,

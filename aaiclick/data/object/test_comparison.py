@@ -8,20 +8,12 @@ Scalar-broadcast comparisons are covered in test_scalar_broadcast.py.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import FIELDTYPE_ARRAY
-
-
-def _with_order(obj):
-    """Wrap a cross-table array Object with .view(order_by='value') for the
-    Phase-4 cross-table operator contract."""
-    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
-        return obj.view(order_by="value")
-    return obj
+from aaiclick.testing import with_value_order
 
 
 async def apply_comparison(obj_a, obj_b, operator: str):
     """Apply a comparison operator to two Objects."""
-    a, b = _with_order(obj_a), _with_order(obj_b)
+    a, b = with_value_order(obj_a), with_value_order(obj_b)
     match operator:
         case "==":
             return await (a == b)
