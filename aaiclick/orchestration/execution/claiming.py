@@ -8,7 +8,6 @@ from sqlmodel import select
 from ..models import Job, JobStatus, Task, TaskStatus
 from ..orch_context import get_db_handler, get_sql_session
 
-# Terminal job statuses that cannot be cancelled
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
@@ -190,7 +189,6 @@ async def cancel_job(job_id: int) -> Job:
         )
 
         await session.commit()
-        await session.refresh(job)
         return job
 
 

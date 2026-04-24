@@ -49,14 +49,17 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
     if filter.name is not None:
         predicates.append(col(RegisteredJob.name).like(filter.name))
 
-    total, rows = await paginate(
+    page = await paginate(
         RegisteredJob,
         where=predicates,
-        order_by=col(RegisteredJob.name),
+        order_by=col(RegisteredJob.name).asc(),
         limit=filter.limit,
         offset=filter.offset,
     )
-    return Page[RegisteredJobView](items=[registered_job_to_view(rj) for rj in rows], total=total)
+    return Page[RegisteredJobView](
+        items=[registered_job_to_view(rj) for rj in page.rows],
+        total=page.total,
+    )
 
 
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:

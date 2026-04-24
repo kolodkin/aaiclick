@@ -13,11 +13,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.orchestration.execution.claiming import (
-    JobAlreadyTerminal,
-    JobNotFound as _JobNotFound,
-    cancel_job as _cancel_job_impl,
-)
+from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
@@ -79,14 +75,14 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     if filter.since is not None:
         predicates.append(Job.created_at >= filter.since)
 
-    total, rows = await paginate(
+    page = await paginate(
         Job,
         where=predicates,
         order_by=col(Job.created_at).desc(),
         limit=filter.limit,
         offset=filter.offset,
     )
-    return Page[JobView](items=[job_to_view(j) for j in rows], total=total)
+    return Page[JobView](items=[job_to_view(j) for j in page.rows], total=page.total)
 
 
 async def get_job(ref: RefId) -> JobDetail:
@@ -121,20 +117,24 @@ async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks.
 
     Raises ``NotFound`` if the job does not exist, or ``Conflict`` if the job
-    is already in a terminal state. ``ref`` is resolved to a job id first
-    (the orchestration impl takes ``int`` only); the atomic cancellation
-    lives in ``aaiclick.orchestration.execution.claiming.cancel_job`` and is
-    authoritative about terminal state via typed exceptions.
+    is already in a terminal state. String refs are resolved to a job id first
+    (the orchestration impl takes ``int`` only); int refs go straight to the
+    impl, which is authoritative about both not-found and terminal-state via
+    typed exceptions.
     """
-    job = await _resolve_job(ref)
-    if job is None:
-        raise NotFound(f"Job not found: {ref}")
+    if isinstance(ref, int):
+        job_id = ref
+    else:
+        job = await _resolve_job(ref)
+        if job is None:
+            raise NotFound(f"Job not found: {ref}")
+        job_id = job.id
 
     try:
-        cancelled = await _cancel_job_impl(job.id)
-    except _JobNotFound as exc:
+        cancelled = await claiming.cancel_job(job_id)
+    except claiming.JobNotFound as exc:
         raise NotFound(str(exc)) from exc
-    except JobAlreadyTerminal as exc:
+    except claiming.JobAlreadyTerminal as exc:
         raise Conflict(str(exc)) from exc
     return job_to_view(cancelled)
 

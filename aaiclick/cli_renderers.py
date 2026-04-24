@@ -47,6 +47,12 @@ def _fmt_optional(value: object) -> str:
     return "-" if value is None else str(value)
 
 
+def _print_page_footer(page: Page, offset: int) -> None:
+    """Print the shared ``Showing N-M of total`` footer for paged list views."""
+    total = page.total if page.total is not None else len(page.items)
+    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
+
+
 def render_jobs_page(page: Page[JobView], offset: int) -> None:
     """Print a paged list of jobs as an aligned text table."""
     if not page.items:
@@ -58,8 +64,7 @@ def render_jobs_page(page: Page[JobView], offset: int) -> None:
     for j in page.items:
         created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
         print(f"{j.id:<20} {j.name:<25} {j.status.value:<12} {j.run_type.value:<10} {created:<20}")
-    total = page.total if page.total is not None else len(page.items)
-    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
+    _print_page_footer(page, offset)
 
 
 def render_job_detail(detail: JobDetail) -> None:
@@ -125,8 +130,7 @@ def render_registered_jobs_page(page: Page[RegisteredJobView], offset: int) -> N
     for j in page.items:
         next_run = j.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if j.next_run_at else "-"
         print(f"{j.id:<20} {j.name:<25} {str(j.enabled):<9} {_fmt_optional(j.schedule):<15} {next_run:<20}")
-    total = page.total if page.total is not None else len(page.items)
-    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
+    _print_page_footer(page, offset)
 
 
 def render_registered_job(view: RegisteredJobView) -> None:
@@ -184,8 +188,7 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
         print(
             f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
         )
-    total = page.total if page.total is not None else len(page.items)
-    print(f"\nShowing {offset + 1}-{offset + len(page.items)} of {total}")
+    _print_page_footer(page, offset)
 
 
 def render_worker_stopped(view: WorkerView) -> None:

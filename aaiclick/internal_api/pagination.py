@@ -9,7 +9,7 @@ call site only has to assemble the predicates and ORDER BY.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import func, select
@@ -19,6 +19,13 @@ from aaiclick.orchestration.orch_context import get_sql_session
 T = TypeVar("T")
 
 
+class PageRows(NamedTuple, Generic[T]):
+    """Pair returned by :func:`paginate` — explicit so callers don't unpack positionally."""
+
+    total: int
+    rows: list[T]
+
+
 async def paginate(
     model: type[T],
     *,
@@ -26,12 +33,11 @@ async def paginate(
     order_by: ColumnElement,
     limit: int,
     offset: int,
-) -> tuple[int, list[T]]:
+) -> PageRows[T]:
     """Run ``COUNT(*)`` + paginated ``SELECT`` for ``model`` in one session.
 
-    Returns ``(total, rows)`` — ``total`` is the unfiltered count after
-    applying ``where``; ``rows`` is the page slice ordered by
-    ``order_by`` and bounded by ``limit`` / ``offset``.
+    ``order_by`` must carry an explicit direction (``col(...).asc()`` or
+    ``.desc()``) — pass `ColumnElement` shapes only.
     """
     count_query = select(func.count()).select_from(model)
     list_query = select(model)
@@ -44,4 +50,4 @@ async def paginate(
         total = (await session.execute(count_query)).scalar_one()
         rows = (await session.execute(list_query)).scalars().all()
 
-    return total, list(rows)
+    return PageRows(total=total, rows=list(rows))

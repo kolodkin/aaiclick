@@ -35,14 +35,14 @@ async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
     if filter.status is not None:
         predicates.append(Worker.status == filter.status)
 
-    total, rows = await paginate(
+    page = await paginate(
         Worker,
         where=predicates,
         order_by=col(Worker.started_at).desc(),
         limit=filter.limit,
         offset=filter.offset,
     )
-    return Page[WorkerView](items=[worker_to_view(w) for w in rows], total=total)
+    return Page[WorkerView](items=[worker_to_view(w) for w in page.rows], total=page.total)
 
 
 async def stop_worker(worker_id: int) -> WorkerView:
