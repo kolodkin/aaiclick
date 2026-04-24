@@ -132,7 +132,7 @@ async def test_get_table_schema_dict_columns_preserved(ctx):
     assert fieldtype == FIELDTYPE_DICT
     assert "a" in columns
     assert "b" in columns
-    assert "aai_id" in columns
+    assert "aai_id" not in columns
 
 
 # =============================================================================

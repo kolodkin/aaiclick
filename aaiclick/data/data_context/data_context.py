@@ -329,6 +329,15 @@ async def create_object(
 
     oplog_record_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
 
+    # Flush the lifecycle queue so the registry row is committed before the
+    # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
+    # The queue is async and order-sensitive for incref/decref, but registry
+    # writes are standalone and idempotent; a synchronous flush here is
+    # cheaper than forcing every read path to flush.
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        await lifecycle.flush()
+
     return obj
 
 

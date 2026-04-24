@@ -104,7 +104,7 @@ def test_schema_using_form_dedupes_key():
 
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_DICT
-    assert list(schema.columns) == ["aai_id", "k", "a", "b"]
+    assert list(schema.columns) == ["k", "a", "b"]
     assert lproj == [("k", "k"), ("a", "a")]
     assert rproj == [("b", "b")]
 
@@ -117,7 +117,7 @@ def test_schema_on_form_keeps_both_keys():
         left, right, JoinKeys(left=["id"], right=["tconst"]), how="inner", suffixes=None
     )
 
-    assert list(schema.columns) == ["aai_id", "id", "tconst", "name", "total"]
+    assert list(schema.columns) == ["id", "tconst", "name", "total"]
     assert lproj == [("id", "id"), ("name", "name")]
     assert rproj == [("tconst", "tconst"), ("total", "total")]
 

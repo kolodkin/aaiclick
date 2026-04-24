@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnMeta
+from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnInfo
 
 if TYPE_CHECKING:
     from .object import Object
@@ -113,9 +113,9 @@ async def extract_array_data(obj: Object) -> list[Any]:
     return [_convert_value(row[0]) for row in rows]
 
 
-async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[str, ColumnMeta], orient: str):
+async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[str, ColumnInfo], orient: str):
     """
-    Extract data from a dict table (multiple columns with aai_id).
+    Extract data from a dict table.
 
     Handles nested structures by detecting dot-star notation in column names
     and unflattening them back to nested dicts.
@@ -123,7 +123,7 @@ async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[
     Args:
         obj: Object instance with dict data
         column_names: List of column names in order
-        columns: Dict mapping column names to metadata
+        columns: Dict mapping column names to ColumnInfo (with fieldtype)
         orient: Output format (ORIENT_DICT or ORIENT_RECORDS)
 
     Returns:
@@ -138,9 +138,9 @@ async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[
 
     nested = _has_nested_columns(output_columns)
 
-    # Check if this is dict of arrays by looking at fieldtype
+    # Dict-of-arrays when the first column carries fieldtype=ARRAY.
     first_col = output_columns[0] if output_columns else None
-    is_dict_of_arrays = bool(first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY)
+    is_dict_of_arrays = bool(first_col and columns.get(first_col) and columns[first_col].fieldtype == FIELDTYPE_ARRAY)
 
     if nested:
         return _extract_nested_dict_data(rows, output_columns, col_indices, is_dict_of_arrays, orient)

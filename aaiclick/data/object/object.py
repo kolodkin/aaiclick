@@ -432,37 +432,16 @@ class Object:
         """
         self.checkstale()
 
-        # Query column names and comments
-        columns_query = f"""
-        SELECT name, comment
-        FROM system.columns
-        WHERE table = '{self.table}'
-        ORDER BY position
-        """
-        columns_result = await self.ch_client.query(columns_query)
+        # Source fieldtype + columns from the registry (schema_doc), not
+        # system.columns — per Phase 2 the registry is authoritative.
+        fieldtype, columns = await ingest._get_table_schema(self.table, self.ch_client)
+        column_names = list(columns)
 
-        # Parse YAML from comments and get column names
-        columns: dict[str, ColumnMeta] = {}
-        column_names: list[str] = []
-        for name, comment in columns_result.result_rows:
-            columns[name] = ColumnMeta.from_yaml(comment)
-            column_names.append(name)
-
-        # Determine data type based on columns
-        is_simple_structure = set(column_names) <= {"aai_id", "value"}
-
-        if not is_simple_structure:
-            # Dict type (scalar or arrays)
+        if fieldtype == FIELDTYPE_DICT:
             return await data_extraction.extract_dict_data(self, column_names, columns, orient)
-
-        # Simple structure: aai_id and value columns
-        value_meta = columns.get("value")
-        if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
-            # Scalar: return single value
+        if fieldtype == FIELDTYPE_SCALAR:
             return await data_extraction.extract_scalar_data(self)
-        else:
-            # Array: return list of values
-            return await data_extraction.extract_array_data(self)
+        return await data_extraction.extract_array_data(self)
 
     async def markdown(self, truncate: dict[str, int] | None = None) -> str:
         """Return the object's data formatted as a markdown table.
@@ -2577,14 +2556,10 @@ class View(Object):
             if self.is_single_field:
                 # Single field: rename as 'value' for array compatibility
                 field = quote_identifier(self.selected_fields[0])
-                if columns == "value":
-                    select_cols = f"{field} AS value"
-                else:
-                    select_cols = f"aai_id, {field} AS value"
+                select_cols = f"{field} AS value"
             else:
-                # Multiple fields: select all specified fields
                 fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
-                select_cols = f"aai_id, {fields_str}"
+                select_cols = fields_str
         elif self._renamed_columns and columns == "*":
             # Expand * into explicit columns with renames applied
             renames = self._renamed_columns

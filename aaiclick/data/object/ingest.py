@@ -211,9 +211,11 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
         field = copy_info.selected_fields[0]
         new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": copy_info.columns[field]})
         result = await create_object(new_schema)
+        # The source_query already aliases the selected field as ``value``
+        # (see Object._build_select's single-field branch).
         insert_query = f"""
         INSERT INTO {result.table} (value)
-        SELECT {quote_identifier(field)} FROM {copy_info.source_query}{alias}
+        SELECT value FROM {copy_info.source_query}{alias}
         """
     else:
         columns = {field: copy_info.columns[field] for field in copy_info.selected_fields}

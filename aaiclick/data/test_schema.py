@@ -38,9 +38,7 @@ async def test_schema_array(ctx):
 
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_ARRAY
-    assert "aai_id" in schema.columns
-    assert "value" in schema.columns
-    assert schema.columns["aai_id"].type == "UInt64"
+    assert list(schema.columns) == ["value"]
     assert schema.columns["value"].type == "Int64"
 
 
@@ -61,7 +59,7 @@ async def test_schema_dict(ctx):
     schema = obj.schema
 
     assert schema.fieldtype == FIELDTYPE_DICT
-    assert "aai_id" in schema.columns
+    assert "aai_id" not in schema.columns
     assert "param1" in schema.columns
     assert "param2" in schema.columns
     assert schema.columns["param1"].type == "Int64"
@@ -93,15 +91,6 @@ async def test_column_info_structure(ctx):
 
     assert isinstance(value_col, ColumnInfo)
     assert value_col.type == "Float64"
-
-
-async def test_column_info_aai_id(ctx):
-    """Test aai_id column type."""
-    obj = await create_object_from_value([1, 2, 3])
-
-    aai_id_col = obj.schema.columns["aai_id"]
-
-    assert aai_id_col.type == "UInt64"
 
 
 # =============================================================================

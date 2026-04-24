@@ -208,7 +208,7 @@ def build_join_schema(
     using_form = keys.left == keys.right
     promote_left, promote_right = _nullable_sides(how)
 
-    result_columns: dict[str, ColumnInfo] = {"aai_id": ColumnInfo("UInt64")}
+    result_columns: dict[str, ColumnInfo] = {}
     left_projection: list[tuple[str, str]] = []
     right_projection: list[tuple[str, str]] = []
 
@@ -238,8 +238,8 @@ def build_join_schema(
             result_columns[rk] = col
             right_projection.append((rk, rk))
 
-    left_nonkey = [c for c in left_cols if c != "aai_id" and c not in keys.left]
-    right_nonkey = [c for c in right_cols if c != "aai_id" and c not in keys.right]
+    left_nonkey = [c for c in left_cols if c not in keys.left]
+    right_nonkey = [c for c in right_cols if c not in keys.right]
 
     collisions = (
         (set(left_nonkey) & set(right_nonkey))

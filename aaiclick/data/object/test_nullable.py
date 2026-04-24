@@ -177,7 +177,7 @@ async def test_schema_shows_nullable(ctx):
     schema = obj.schema
     assert schema.columns["value"].nullable is True
     assert schema.columns["value"].type == "Int64"
-    assert schema.columns["aai_id"].nullable is False
+    assert "aai_id" not in schema.columns
 
 
 # --- Operator NULL propagation ---
