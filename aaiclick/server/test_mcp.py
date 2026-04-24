@@ -55,11 +55,10 @@ async def mcp_client() -> AsyncIterator[Client]:
         yield client
 
 
-async def test_expected_tools_are_registered(mcp_client):
+async def test_registered_tools_match_expected(mcp_client):
     tools = await mcp_client.list_tools()
     names = {t.name for t in tools}
-    missing = EXPECTED_TOOLS - names
-    assert not missing, f"missing MCP tools: {missing}"
+    assert names == EXPECTED_TOOLS
 
 
 async def test_list_jobs_returns_page_view(orch_ctx, mcp_client):
