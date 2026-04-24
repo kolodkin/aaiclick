@@ -144,6 +144,8 @@ def parse_ch_type(type_str: str) -> "ColumnInfo":
 FIELDTYPE_SCALAR = "s"
 FIELDTYPE_ARRAY = "a"
 FIELDTYPE_DICT = "d"
+ColumnFieldtype = Literal["s", "a"]
+Fieldtype = Literal["s", "a", "d"]
 
 # ClickHouse engine constants
 ENGINE_MERGE_TREE = "MergeTree"

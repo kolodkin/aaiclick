@@ -137,5 +137,5 @@ class TableRegistry(SQLModel, table=True):
     )
     schema_doc: str | None = Field(
         default=None,
-        sa_column=Column("schema_doc", Text, nullable=True),
+        sa_column=Column(Text, nullable=True),
     )
