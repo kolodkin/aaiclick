@@ -484,10 +484,7 @@ def _apply_field_specs(
         return columns
     unknown = set(fields) - set(columns)
     if unknown:
-        raise ValueError(
-            f"fields references unknown columns: {sorted(unknown)}. "
-            f"Available columns: {sorted(columns)}"
-        )
+        raise ValueError(f"fields references unknown columns: {sorted(unknown)}. Available columns: {sorted(columns)}")
     return {name: _apply_field_spec(col, fields[name]) if name in fields else col for name, col in columns.items()}
 
 
@@ -665,9 +662,7 @@ async def create_object_from_value(
             return columns
         col_name = _DEFAULT_AAI_ID_COLUMN if with_aai_id is True else with_aai_id
         if col_name in columns:
-            raise ValueError(
-                f"with_aai_id={with_aai_id!r} conflicts with user column '{col_name}'"
-            )
+            raise ValueError(f"with_aai_id={with_aai_id!r} conflicts with user column '{col_name}'")
         return {**columns, col_name: _AAI_ID_INFO}
 
     if isinstance(val, dict):
@@ -719,9 +714,7 @@ async def create_object_from_value(
                 columns[key] = _infer_clickhouse_type(value)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
-            schema = Schema(
-                fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause
-            )
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
             keys = list(val.keys())
