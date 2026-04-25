@@ -175,7 +175,7 @@ EOF
 - [ ] **Step 1: Generate the empty migration file**
 
 ```bash
-cd /home/user/aaiclick/aaiclick/orchestration && alembic revision -m "simplify lifecycle: preserve column, drop run_refs and context_refs, add task_name_locks"
+cd /home/user/aaiclick && alembic -c aaiclick/orchestration/alembic.ini revision -m "simplify lifecycle: preserve column, drop run_refs and context_refs, add task_name_locks"
 ```
 
 Capture the generated filename — call it `MIG_FILE` for the rest of this task. The full path will be `aaiclick/orchestration/migrations/versions/<rev>_simplify_lifecycle.py`.
@@ -183,7 +183,7 @@ Capture the generated filename — call it `MIG_FILE` for the rest of this task.
 - [ ] **Step 2: Confirm `down_revision` matches current head**
 
 ```bash
-cd /home/user/aaiclick/aaiclick/orchestration && alembic heads
+cd /home/user/aaiclick && alembic -c aaiclick/orchestration/alembic.ini heads
 ```
 
 The generated file's `down_revision` must equal the head returned. If multiple heads exist, stop and ask — do not invent a merge.

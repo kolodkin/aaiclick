@@ -112,22 +112,28 @@ async def _cleanup_at_job_completion(self, *, job_id: int) -> None:
         ).all()
         table_names = [row.table_name for row in registry_rows]
 
-        for name in table_names:
-            try:
-                await self._ch.command(f"DROP TABLE IF EXISTS {name}")
-            except Exception as exc:
-                self._logger.warning("DROP failed for %s: %s", name, exc)
+        if table_names:
+            results = await asyncio.gather(
+                *(
+                    self._ch.command(f"DROP TABLE IF EXISTS {name}")
+                    for name in table_names
+                ),
+                return_exceptions=True,
+            )
+            for name, result in zip(table_names, results):
+                if isinstance(result, Exception):
+                    self._logger.warning("DROP failed for %s: %s", name, result)
 
-        # Clear SQL bookkeeping for this job.
         for row in registry_rows:
             await session.delete(row)
-        pin_rows = (
-            await session.exec(
-                select(TablePinRef).where(TablePinRef.table_name.in_(table_names))
-            )
-        ).all() if table_names else []
-        for row in pin_rows:
-            await session.delete(row)
+        if table_names:
+            pin_rows = (
+                await session.exec(
+                    select(TablePinRef).where(TablePinRef.table_name.in_(table_names))
+                )
+            ).all()
+            for row in pin_rows:
+                await session.delete(row)
         lock_rows = (
             await session.exec(
                 select(TaskNameLock).where(TaskNameLock.job_id == job_id)
@@ -137,6 +143,8 @@ async def _cleanup_at_job_completion(self, *, job_id: int) -> None:
             await session.delete(row)
         await session.commit()
 ```
+
+`import asyncio` at the top of the module if it isn't already there.
 
 `self._db.session()`, `self._ch`, `self._logger` should match whatever the existing `BackgroundWorker.__init__` sets up — read the current `__init__` and adapt.
 
@@ -288,38 +296,52 @@ async def _cleanup_failed_task_tables(self) -> None:
     survive until job completion.
     """
     async with self._db.session() as session:
-        failed_tasks = (
+        failed_task_ids = (
             await session.exec(
-                select(Task).where(Task.status == TaskStatus.PENDING_CLEANUP)
+                select(Task.id).where(Task.status == TaskStatus.PENDING_CLEANUP)
             )
         ).all()
-        if not failed_tasks:
+        if not failed_task_ids:
             return
 
-        for task in failed_tasks:
-            registry_rows = (
+        registry_rows = (
+            await session.exec(
+                select(TableRegistry).where(
+                    TableRegistry.task_id.in_(failed_task_ids),
+                    TableRegistry.preserved == False,  # noqa: E712
+                )
+            )
+        ).all()
+        if not registry_rows:
+            return
+
+        candidate_names = [row.table_name for row in registry_rows]
+        pinned_names = set(
+            (
                 await session.exec(
-                    select(TableRegistry).where(
-                        TableRegistry.task_id == task.id,
-                        TableRegistry.preserved == False,  # noqa: E712
+                    select(TablePinRef.table_name).where(
+                        TablePinRef.table_name.in_(candidate_names)
                     )
                 )
             ).all()
-            for row in registry_rows:
-                # Skip if pinned.
-                pinned = (
-                    await session.exec(
-                        select(TablePinRef).where(TablePinRef.table_name == row.table_name)
-                    )
-                ).first()
-                if pinned is not None:
-                    continue
-                try:
-                    await self._ch.command(f"DROP TABLE IF EXISTS {row.table_name}")
-                except Exception as exc:
-                    self._logger.warning("Failed-task DROP of %s failed: %s", row.table_name, exc)
-                else:
-                    await session.delete(row)
+        )
+
+        droppable = [row for row in registry_rows if row.table_name not in pinned_names]
+        if not droppable:
+            return
+
+        results = await asyncio.gather(
+            *(
+                self._ch.command(f"DROP TABLE IF EXISTS {row.table_name}")
+                for row in droppable
+            ),
+            return_exceptions=True,
+        )
+        for row, result in zip(droppable, results):
+            if isinstance(result, Exception):
+                self._logger.warning("Failed-task DROP of %s failed: %s", row.table_name, result)
+            else:
+                await session.delete(row)
         await session.commit()
 ```
 
@@ -446,21 +468,34 @@ async def _cleanup_orphan_scratch_tables(self) -> None:
                 )
             ).all()
         )
+        candidates = [row for row in rows if row.task_id not in live_ids]
+        if not candidates:
+            return
 
-        for row in rows:
-            if row.task_id in live_ids:
-                continue
-            pinned = (
+        candidate_names = [row.table_name for row in candidates]
+        pinned_names = set(
+            (
                 await session.exec(
-                    select(TablePinRef).where(TablePinRef.table_name == row.table_name)
+                    select(TablePinRef.table_name).where(
+                        TablePinRef.table_name.in_(candidate_names)
+                    )
                 )
-            ).first()
-            if pinned is not None:
-                continue
-            try:
-                await self._ch.command(f"DROP TABLE IF EXISTS {row.table_name}")
-            except Exception as exc:
-                self._logger.warning("Orphan scratch DROP failed: %s", exc)
+            ).all()
+        )
+        droppable = [row for row in candidates if row.table_name not in pinned_names]
+        if not droppable:
+            return
+
+        results = await asyncio.gather(
+            *(
+                self._ch.command(f"DROP TABLE IF EXISTS {row.table_name}")
+                for row in droppable
+            ),
+            return_exceptions=True,
+        )
+        for row, result in zip(droppable, results):
+            if isinstance(result, Exception):
+                self._logger.warning("Orphan scratch DROP failed for %s: %s", row.table_name, result)
             else:
                 await session.delete(row)
         await session.commit()

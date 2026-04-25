@@ -104,8 +104,6 @@ def resolve_preserve(explicit: Preserve | object = _UNSET, registered: Preserve 
     return list(chosen)  # defensive copy
 ```
 
-Update the test signature to use the same sentinel — `resolve_preserve(explicit=None, registered=...)` should treat `None` as fall-through, matching test 1. The implementation above does this.
-
 - [ ] **Step 4: Run tests to confirm pass**
 
 ```bash

@@ -339,17 +339,21 @@ async def task_scope(
 
         try:
             tracked = list(handler.iter_tracked_tables())
-            for tt in tracked:
-                if tt.pinned or tt.preserved:
-                    continue
-                if not success and not tt.name.startswith("t_"):
-                    # Failure path: leave j_<id>_* for backworker.
-                    continue
-                try:
-                    await ch_client.command(f"DROP TABLE IF EXISTS {tt.name}")
-                except Exception:
-                    # Swallow — the BackgroundWorker will sweep on failure.
-                    pass
+            to_drop = [
+                tt.name
+                for tt in tracked
+                if not tt.pinned
+                and not tt.preserved
+                and (success or tt.name.startswith("t_"))
+            ]
+            if to_drop:
+                results = await asyncio.gather(
+                    *(ch_client.command(f"DROP TABLE IF EXISTS {n}") for n in to_drop),
+                    return_exceptions=True,
+                )
+                for name, result in zip(to_drop, results):
+                    if isinstance(result, Exception):
+                        logger.warning("task_scope DROP of %s failed: %s", name, result)
         finally:
             await handler.stop()
             _lifecycle_var.reset(lc_token)
@@ -361,7 +365,7 @@ async def task_scope(
                 await session.commit()
 ```
 
-`sql_session` is the existing async-session helper used elsewhere in `orch_context.py` — search for it (`grep -n "sql_session\|get_sql_session" aaiclick/orchestration/orch_context.py`) and use whatever pattern is already established.
+`sql_session` is the existing async-session helper used elsewhere in `orch_context.py` — search for it (`grep -n "sql_session\|get_sql_session" aaiclick/orchestration/orch_context.py`) and use whatever pattern is already established. Ensure `asyncio` and a module-level `logger` are imported; both are likely already there.
 
 - [ ] **Step 4: Run tests**
 
@@ -585,14 +589,19 @@ EOF
 ## Task 5: Object output → `mark_pinned` integration
 
 **Files:**
-- Modify: the Object serializer that sets pin_refs (search):
-  ```bash
-  grep -rn "TablePinRef\|table_pin_refs" /home/user/aaiclick/aaiclick/orchestration/ /home/user/aaiclick/aaiclick/data/
-  ```
+- Modify: the Object serializer that sets pin_refs.
 
-- [ ] **Step 1: Write the test**
+- [ ] **Step 1: Find the pin-writer**
 
-Append to `aaiclick/orchestration/test_object_lifecycle_e2e.py` (already exists):
+```bash
+grep -rn "TablePinRef(" /home/user/aaiclick/aaiclick/orchestration/ /home/user/aaiclick/aaiclick/data/ | grep -v test_
+```
+
+Identify the function that writes a `TablePinRef` row. Capture the module path + function name — they're what the test in Step 2 imports.
+
+- [ ] **Step 2: Write the test**
+
+Append to `aaiclick/orchestration/test_object_lifecycle_e2e.py` (already exists). Replace `<MODULE>` and `<PIN_FN>` with the values from Step 1:
 
 ```python
 async def test_object_output_table_marked_pinned_in_handler(ch_client, orch_session, simple_job):
@@ -606,21 +615,18 @@ async def test_object_output_table_marked_pinned_in_handler(ch_client, orch_sess
         handler.track_table("t_obj")
 
         # Simulate the serializer call that pins the table for a consumer.
-        from aaiclick.orchestration.<...> import pin_table_for_consumer
-        await pin_table_for_consumer(
+        from <MODULE> import <PIN_FN>
+        await <PIN_FN>(
             session=orch_session,
             table="t_obj",
             consumer_task_id=2,
         )
 
-        # The serializer should have called mark_pinned on the local handler.
         tracked = list(handler.iter_tracked_tables())
         assert any(t.name == "t_obj" and t.pinned for t in tracked)
 ```
 
-Adjust the import to whatever the existing pin function is named (`pin`, `pin_table`, etc.).
-
-- [ ] **Step 2: Run to confirm failure**
+- [ ] **Step 3: Run to confirm failure**
 
 ```bash
 cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2e.py -x --no-cov -q -k "marked_pinned"
@@ -628,18 +634,19 @@ cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2
 
 Expected: failure — pin function doesn't call `mark_pinned`.
 
-- [ ] **Step 3: Modify the pin function**
+- [ ] **Step 4: Modify the pin function**
 
-In the function that writes a `TablePinRef` row:
+In the function identified in Step 1, after the `TablePinRef` row is written:
 
 ```python
-# After writing the pin_ref row:
+from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+
 handler = get_data_lifecycle()
 if handler is not None:
     handler.mark_pinned(table)
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 5: Run tests**
 
 ```bash
 cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2e.py -x --no-cov -q
@@ -647,7 +654,7 @@ cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2
 
 Expected: green.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add aaiclick/orchestration/test_object_lifecycle_e2e.py <pin-function file>
