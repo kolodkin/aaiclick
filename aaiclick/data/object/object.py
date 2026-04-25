@@ -416,7 +416,7 @@ class Object:
             nullable=col_def.nullable,
             constraint_sql=constraint_sql,
             order_by=self.order_by,
-            has_aai_id=AAI_ID_COLUMN in self._schema.columns,
+            aai_id_info=self._schema.columns.get(AAI_ID_COLUMN),
         )
 
     def _build_constraint_sql(self) -> str:

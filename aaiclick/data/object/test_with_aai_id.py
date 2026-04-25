@@ -180,8 +180,8 @@ async def test_aai_id_does_not_force_subquery_on_aggregation(ctx):
     info = obj._get_query_info()
     # Source must be the raw table name, not a wrapped subquery.
     assert info.source == obj.table
-    # But operators still see aai_id ordering via order_by + has_aai_id.
+    # But operators still see aai_id ordering via order_by + aai_id_info.
     assert info.order_by == "aai_id"
-    assert info.has_aai_id is True
+    assert info.aai_id_info is not None
     # Aggregation still computes the correct value.
     assert await (await obj.sum()).data() == 60

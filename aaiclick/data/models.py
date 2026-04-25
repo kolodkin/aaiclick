@@ -238,7 +238,7 @@ class QueryInfo:
     nullable: bool = False
     constraint_sql: str = ""
     order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
-    has_aai_id: bool = False  # Source table carries 'aai_id' — operators propagate LHS values to result
+    aai_id_info: Optional["ColumnInfo"] = None  # Source's aai_id ColumnInfo when present — operators propagate it
 
 
 @dataclass

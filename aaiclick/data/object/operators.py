@@ -67,7 +67,6 @@ from aaiclick.snowflake import get_snowflake_id
 from ..data_context import create_object
 from ..models import (
     AAI_ID_COLUMN,
-    AAI_ID_INFO,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
@@ -281,10 +280,12 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # after the operator runs.
     result_nullable = info_a.nullable or info_b.nullable
     result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
-    proj = _aai_id_proj(info_a.has_aai_id)
-    if info_a.has_aai_id:
-        # Drop the DEFAULT — values are copied from the LHS via INSERT, not generated.
-        result_columns[AAI_ID_COLUMN] = replace(AAI_ID_INFO, default=None)
+    propagate = info_a.aai_id_info is not None
+    proj = _aai_id_proj(propagate)
+    if propagate:
+        # Mirror the LHS column shape, but drop DEFAULT — values are copied
+        # from the LHS via INSERT, not generated per-row by ClickHouse.
+        result_columns[AAI_ID_COLUMN] = replace(info_a.aai_id_info, default=None)
     schema = Schema(fieldtype=fieldtype, columns=result_columns)
     result = await create_object(schema)
 
@@ -330,7 +331,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     ch_client,
                     order_a=info_a.order_by,
                     order_b=info_b.order_by,
-                    propagate_a_aai_id=info_a.has_aai_id,
+                    propagate_a_aai_id=propagate,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
