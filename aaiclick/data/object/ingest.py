@@ -21,7 +21,6 @@ from ..models import (
     INT_TYPES,
     NUMERIC_TYPES,
     ColumnInfo,
-    ColumnMeta,
     CopyInfo,
     IngestQueryInfo,
     Schema,
@@ -141,25 +140,11 @@ async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:
 
 async def _get_fieldtype(table: str, ch_client) -> str:
     """
-    Get the fieldtype of the value column from a table.
-
-    Args:
-        table: Table name
-        ch_client: ClickHouse client instance
-
-    Returns:
-        Fieldtype string (FIELDTYPE_SCALAR or FIELDTYPE_ARRAY)
+    Get the fieldtype of the value column from a table's registry row.
     """
-    columns_query = f"""
-    SELECT comment FROM system.columns
-    WHERE table = '{table}' AND name = 'value'
-    """
-    result = await ch_client.query(columns_query)
-    if result.result_rows:
-        meta = ColumnMeta.from_yaml(result.result_rows[0][0])
-        if meta.fieldtype:
-            return meta.fieldtype
-    return FIELDTYPE_SCALAR
+    fieldtype, columns = await _get_table_schema(table, ch_client)
+    value_col = columns.get("value")
+    return value_col.fieldtype if value_col is not None else fieldtype
 
 
 async def copy_db(copy_info: CopyInfo, ch_client):

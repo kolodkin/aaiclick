@@ -28,7 +28,6 @@ from ..models import (
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     ColumnInfo,
-    ColumnMeta,
     EngineType,
     FieldSpec,
     Schema,
@@ -281,9 +280,8 @@ async def create_object(
     else:
         obj = Object(schema=schema)
 
-    # Build column definitions for CREATE TABLE — user columns only, no implicit
-    # aai_id and no COMMENT clauses. Fieldtype metadata lives in
-    # table_registry.schema_doc (populated below via schema_to_view).
+    # Fieldtype metadata for these columns lives in table_registry.schema_doc
+    # (written by oplog_record_table below) rather than ClickHouse COMMENTs.
     column_defs = [
         f"{quote_identifier(col_name)} {col_def.ch_type()}"
         for col_name, col_def in schema.columns.items()

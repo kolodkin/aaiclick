@@ -74,8 +74,6 @@ class OplogGraph:
     nodes: list[OplogNode] = field(default_factory=list)
     edges: list[OplogEdge] = field(default_factory=list)
 
-    _ID_BREAKING_OPS = frozenset({"insert", "concat"})
-
     @property
     def tables(self) -> set[str]:
         """Return every table that appears in the graph as a node or a kwarg source."""
@@ -152,10 +150,6 @@ class OplogGraph:
                 lines.append(f"- {k}: `{v}`")
             if node.sql_template:
                 lines.append(f"- SQL: `{node.sql_template}`")
-            if node.operation in self._ID_BREAKING_OPS:
-                lines.append(
-                    f"- ⚠ `{node.operation}` generates fresh aai_id values — source and target aai_ids do NOT match."
-                )
 
         if self.edges:
             lines.append(f"\n## Data Flow ({len(self.edges)} edges)")

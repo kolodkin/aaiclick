@@ -112,7 +112,7 @@ async def test_explain_lineage_context_includes_schemas():
 
     mock_provider = MagicMock()
     mock_provider.query = mock_query
-    schema_text = "# Table Schemas\n\n`result`:\n  aai_id: UInt64\n  val: Float64"
+    schema_text = "# Table Schemas\n\n`result`:\n  id: UInt64\n  val: Float64"
 
     with (
         patch("aaiclick.ai.agents.lineage_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),

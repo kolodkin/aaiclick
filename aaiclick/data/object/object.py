@@ -43,7 +43,6 @@ from ..models import (
     ORIENT_DICT,
     AggSpec,
     ColumnInfo,
-    ColumnMeta,
     Computed,
     CopyInfo,
     GroupByInfo,
@@ -74,11 +73,11 @@ class DataResult:
 
     Attributes:
         rows: List of tuples containing row data
-        columns: Dict mapping column name to ColumnMeta with datatype/fieldtype info
+        columns: Dict mapping column name to ColumnInfo with datatype/fieldtype info
     """
 
     rows: list[tuple[Any, ...]]
-    columns: dict[str, ColumnMeta]
+    columns: dict[str, ColumnInfo]
 
 
 def _require_explicit_order_for_cross_table(a: "Object", b: "Object") -> None:
@@ -613,17 +612,10 @@ class Object:
         return await export_query_to_file(select_sql, path, fmt)
 
     async def _get_fieldtype(self) -> str | None:
-        """Get the fieldtype of the value column."""
+        """Get the fieldtype of the value column from the cached schema."""
         self.checkstale()
-        columns_query = f"""
-        SELECT comment FROM system.columns
-        WHERE table = '{self.table}' AND name = 'value'
-        """
-        result = await self.ch_client.query(columns_query)
-        if result.result_rows:
-            meta = ColumnMeta.from_yaml(result.result_rows[0][0])
-            return meta.fieldtype
-        return None
+        col = self._schema.columns.get("value")
+        return col.fieldtype if col is not None else None
 
     @staticmethod
     async def _ensure_object(value: Object | ValueScalarType) -> Object:

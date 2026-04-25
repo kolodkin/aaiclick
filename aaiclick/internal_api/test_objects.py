@@ -8,7 +8,6 @@ import pytest
 
 from aaiclick.data.data_context import (
     create_object_from_value,
-    data_context,
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
@@ -18,19 +17,24 @@ from . import errors, objects
 
 
 @pytest.fixture(autouse=True)
-async def _object_data_ctx() -> AsyncIterator[None]:
-    """Open a data_context and drop any leftover persistent objects around each test."""
-    async with data_context():
-        for name in await list_persistent_objects():
-            await objects.delete_object(name)
-        yield
-        for name in await list_persistent_objects():
-            await objects.delete_object(name)
+async def _object_data_ctx(orch_ctx) -> AsyncIterator[None]:
+    """Drop any leftover persistent objects around each test.
+
+    Reuses the shared ``orch_ctx`` fixture (orch_context + synthetic
+    task_scope) so ``create_object`` writes ``table_registry.schema_doc``
+    via the OrchLifecycleHandler — Phase 2's registry-backed read path
+    requires it.
+    """
+    for name in await list_persistent_objects():
+        await objects.delete_object(name)
+    yield
+    for name in await list_persistent_objects():
+        await objects.delete_object(name)
 
 
 async def test_list_objects_returns_page():
-    await create_object_from_value([1, 2, 3], name="list_a")
-    await create_object_from_value([4, 5], name="list_b")
+    await create_object_from_value([1, 2, 3], name="list_a", scope="global")
+    await create_object_from_value([4, 5], name="list_b", scope="global")
 
     page = await objects.list_objects()
 
@@ -43,7 +47,7 @@ async def test_list_objects_returns_page():
 
 
 async def test_list_objects_populates_row_count_and_size():
-    await create_object_from_value([1, 2, 3, 4], name="metrics_target")
+    await create_object_from_value([1, 2, 3, 4], name="metrics_target", scope="global")
 
     page = await objects.list_objects()
 
@@ -53,9 +57,9 @@ async def test_list_objects_populates_row_count_and_size():
 
 
 async def test_list_objects_prefix_filter():
-    await create_object_from_value([1], name="alpha_one")
-    await create_object_from_value([2], name="alpha_two")
-    await create_object_from_value([3], name="beta_one")
+    await create_object_from_value([1], name="alpha_one", scope="global")
+    await create_object_from_value([2], name="alpha_two", scope="global")
+    await create_object_from_value([3], name="beta_one", scope="global")
 
     page = await objects.list_objects(ObjectFilter(prefix="alpha_"))
 
@@ -65,7 +69,7 @@ async def test_list_objects_prefix_filter():
 
 async def test_list_objects_limit_paginates_but_keeps_total():
     for i in range(5):
-        await create_object_from_value([i], name=f"page_{i}")
+        await create_object_from_value([i], name=f"page_{i}", scope="global")
 
     page = await objects.list_objects(ObjectFilter(limit=2))
 
@@ -79,7 +83,7 @@ async def test_list_objects_rejects_non_global_scope():
 
 
 async def test_get_object_returns_detail_with_schema():
-    await create_object_from_value([10, 20], name="detail_target")
+    await create_object_from_value([10, 20], name="detail_target", scope="global")
 
     detail = await objects.get_object("detail_target")
 
@@ -88,7 +92,8 @@ async def test_get_object_returns_detail_with_schema():
     assert detail.table == "p_detail_target"
     assert detail.scope == "global"
     col_names = [c.name for c in detail.table_schema.columns]
-    assert "aai_id" in col_names
+    assert "value" in col_names
+    assert "aai_id" not in col_names
 
 
 async def test_get_object_not_found_raises():
@@ -97,7 +102,7 @@ async def test_get_object_not_found_raises():
 
 
 async def test_delete_object_drops_table():
-    await create_object_from_value([1], name="to_delete")
+    await create_object_from_value([1], name="to_delete", scope="global")
 
     view = await objects.delete_object("to_delete")
 

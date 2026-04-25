@@ -1,14 +1,10 @@
 """
 aaiclick.locks - Cross-process insert serialization for shared CH tables.
 
-Concurrent workers inserting into the same shared ClickHouse table all rely
-on ``DEFAULT generateSnowflakeID()`` to assign per-row IDs. ClickHouse keeps
-those IDs unique but does NOT keep one INSERT's range contiguous when
-multiple INSERTs run concurrently — rows interleave, so the ``aai_id``
-column no longer marks an insert-batch boundary.
-
 This module exposes ``table_insert_lock(advisory_id)``, a per-table session-
-level PostgreSQL advisory lock taken around the CH INSERT. In local mode
+level PostgreSQL advisory lock taken around the CH INSERT. Concurrent
+workers inserting into the same shared ClickHouse table need this to keep
+each INSERT's rows from interleaving with another worker's. In local mode
 (chdb + SQLite) it is a no-op — chdb's single-process constraint already
 prevents the race.
 
