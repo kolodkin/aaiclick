@@ -69,6 +69,7 @@ class ColumnInfo:
     low_cardinality: bool = False
     description: str = ""
     fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
+    default: str | None = None  # ClickHouse DEFAULT expression, e.g. "now64(3)"
 
     def with_fieldtype(self, fieldtype: ColumnFieldtype) -> "ColumnInfo":
         """Return a copy with ``fieldtype`` replaced."""

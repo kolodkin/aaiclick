@@ -35,6 +35,7 @@ class ColumnView(BaseModel):
     array_depth: int = 0
     low_cardinality: bool = False
     fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
+    default: str | None = None  # ClickHouse DEFAULT expression
 
 
 class SchemaView(BaseModel):
@@ -102,6 +103,7 @@ def column_info_to_view(
         array_depth=int(info.array),
         low_cardinality=info.low_cardinality,
         fieldtype=fieldtype,
+        default=info.default,
     )
 
 
@@ -130,6 +132,7 @@ def view_to_schema(view: SchemaView, *, table: str) -> Schema:
             array=cv.array_depth,
             low_cardinality=cv.low_cardinality,
             fieldtype=cv.fieldtype,
+            default=cv.default,
         )
         for cv in view.columns
     }

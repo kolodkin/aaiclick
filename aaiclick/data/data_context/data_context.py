@@ -282,10 +282,13 @@ async def create_object(
 
     # Fieldtype metadata for these columns lives in table_registry.schema_doc
     # (written by oplog_record_table below) rather than ClickHouse COMMENTs.
-    column_defs = [
-        f"{quote_identifier(col_name)} {col_def.ch_type()}"
-        for col_name, col_def in schema.columns.items()
-    ]
+    def _column_ddl(col_name: str, col_def: ColumnInfo) -> str:
+        ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
+        if col_def.default:
+            ddl += f" DEFAULT {col_def.default}"
+        return ddl
+
+    column_defs = [_column_ddl(name, info) for name, info in schema.columns.items()]
 
     # Persistent tables always use MergeTree regardless of engine param or schema.engine.
     if obj.persistent:
@@ -587,12 +590,22 @@ async def _create_nested_records_object(
     return obj
 
 
+_SNOWFLAKE_ID_COLUMN = "snowflake_id"
+_SNOWFLAKE_ID_INFO = ColumnInfo(
+    type="UInt64",
+    fieldtype=FIELDTYPE_ARRAY,
+    default="generateSnowflakeID()",
+)
+
+
 async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
     order_by: list[str] | None = None,
     fields: dict[str, FieldSpec] | None = None,
     scope: NamedScope | None = None,
+    *,
+    with_snowflake_id: bool = False,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -620,6 +633,18 @@ async def create_object_from_value(
                it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
                job's TTL expires). Default: ``"job"`` inside an orch job,
                ``"global"`` outside.
+        with_snowflake_id: When True, add a ``snowflake_id UInt64`` column
+              with ``DEFAULT generateSnowflakeID()``. Each row gets a unique,
+              monotonically-increasing 64-bit ID assigned per-row by ClickHouse
+              at insert time; reads can use ``view(order_by="snowflake_id")``
+              (or ``data(order_by="snowflake_id")``) to recover insertion
+              order — handy for cross-table arithmetic that needs pair-stable
+              row ordering.
+
+              Caveat: operator results (``a + b``) do **not** propagate the
+              ``snowflake_id`` column. The JOIN does pair rows by ``snowflake_id``
+              when both inputs supply it, but the result table is a plain
+              ``value``-only Object — read it as an unordered multiset.
 
     Returns:
         Object: New Object instance with data
@@ -631,6 +656,15 @@ async def create_object_from_value(
 
     ch = get_ch_client()
     order_by_clause = build_order_by_clause(order_by) if order_by is not None else None
+
+    def _maybe_add_snowflake_id(columns: dict[str, ColumnInfo]) -> dict[str, ColumnInfo]:
+        if not with_snowflake_id:
+            return columns
+        if _SNOWFLAKE_ID_COLUMN in columns:
+            raise ValueError(
+                f"with_snowflake_id=True conflicts with user column '{_SNOWFLAKE_ID_COLUMN}'"
+            )
+        return {**columns, _SNOWFLAKE_ID_COLUMN: _SNOWFLAKE_ID_INFO}
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):
@@ -659,7 +693,7 @@ async def create_object_from_value(
                     )
                 columns[key] = col_def.with_fieldtype(FIELDTYPE_ARRAY)
 
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_snowflake_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -680,7 +714,7 @@ async def create_object_from_value(
             for key, value in val.items():
                 columns[key] = _infer_clickhouse_type(value)
 
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_snowflake_id(_apply_field_specs(columns, fields))
             schema = Schema(
                 fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause
             )
@@ -732,7 +766,7 @@ async def create_object_from_value(
                 else:
                     columns[key] = _infer_clickhouse_type(sample).with_fieldtype(FIELDTYPE_ARRAY)
 
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_snowflake_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -750,7 +784,7 @@ async def create_object_from_value(
             scalars = cast(ValueListType, val)
             col_def = _infer_clickhouse_type(scalars)
             columns = {"value": col_def.with_fieldtype(FIELDTYPE_ARRAY)}
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_snowflake_id(_apply_field_specs(columns, fields))
             col_def = columns["value"]
             schema = Schema(
                 fieldtype=FIELDTYPE_ARRAY,
