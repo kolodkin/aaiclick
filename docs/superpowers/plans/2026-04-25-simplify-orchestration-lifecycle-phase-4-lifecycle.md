@@ -1,0 +1,700 @@
+Phase 4 — Lifecycle Refactor (the core of the change)
+---
+
+> Parent plan: `2026-04-25-simplify-orchestration-lifecycle.md` · Spec: `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md`
+
+**Goal:** Replace the body of `task_scope()` with a `LocalLifecycleHandler`-based implementation that:
+
+1. Tracks every CH table the task touches with its `(preserved, pinned)` flags.
+2. On successful exit, inline-DROPs unpinned + unpreserved tables.
+3. On failure exit, drops only unpinned `t_*` tables; leaves all `j_<id>_*` for the BackgroundWorker.
+4. Acquires `task_name_locks` for non-preserved named tables on creation.
+5. Releases the locks (success or failure) before returning.
+
+The old `OrchLifecycleHandler` stays in the codebase through this phase so existing behavior keeps working until the cutover at the end of Phase 4 Task 5. After this phase the new implementation is the active one; Phase 6 deletes the dead `OrchLifecycleHandler` class.
+
+---
+
+## Task 1: Extend `LocalLifecycleHandler` with table-flag tracking
+
+**Files:**
+- Modify: `aaiclick/data/data_context/lifecycle.py`
+- Modify: `aaiclick/data/data_context/test_lifecycle.py` (or create if absent)
+
+- [ ] **Step 1: Write failing tests**
+
+Create or append to `aaiclick/data/data_context/test_lifecycle.py`:
+
+```python
+"""Tests for LocalLifecycleHandler table-flag tracking.
+
+The orchestration task_scope() relies on iter_tracked_tables() to decide
+which tables to inline-drop on exit and which to leave for the
+BackgroundWorker.
+"""
+
+import pytest
+
+from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler
+from aaiclick.data.data_context.ch_client import ChClient
+
+
+async def test_track_table_records_default_flags(ch_client_local: ChClient):
+    handler = LocalLifecycleHandler(ch_client_local)
+    async with handler:
+        handler.track_table("t_123")
+        tracked = list(handler.iter_tracked_tables())
+        assert len(tracked) == 1
+        assert tracked[0].name == "t_123"
+        assert tracked[0].preserved is False
+        assert tracked[0].pinned is False
+
+
+async def test_track_table_with_preserved_flag(ch_client_local):
+    handler = LocalLifecycleHandler(ch_client_local)
+    async with handler:
+        handler.track_table("j_42_training_set", preserved=True)
+        tracked = list(handler.iter_tracked_tables())
+        assert tracked[0].preserved is True
+
+
+async def test_mark_pinned_after_track(ch_client_local):
+    handler = LocalLifecycleHandler(ch_client_local)
+    async with handler:
+        handler.track_table("t_999")
+        handler.mark_pinned("t_999")
+        tracked = list(handler.iter_tracked_tables())
+        assert tracked[0].pinned is True
+
+
+async def test_mark_pinned_unknown_table_is_silent(ch_client_local):
+    """Pin can be set by the serializer for tables not registered in this
+    handler — be tolerant."""
+    handler = LocalLifecycleHandler(ch_client_local)
+    async with handler:
+        handler.mark_pinned("t_unknown")
+        # No exception, nothing tracked.
+        assert list(handler.iter_tracked_tables()) == []
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/data/data_context/test_lifecycle.py -x --no-cov -q
+```
+
+Expected: AttributeError on `track_table`.
+
+- [ ] **Step 3: Extend `LocalLifecycleHandler`**
+
+In `aaiclick/data/data_context/lifecycle.py`, add a `NamedTuple` and the methods:
+
+```python
+from typing import NamedTuple
+
+
+class TrackedTable(NamedTuple):
+    name: str
+    preserved: bool
+    pinned: bool
+
+
+# Add to LifecycleHandler base class as a no-op default:
+
+class LifecycleHandler(ABC):
+    # ... existing methods ...
+
+    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+        """Record that this handler's lifetime owns ``table_name``. Default no-op."""
+
+    def mark_pinned(self, table_name: str) -> None:
+        """Flag a tracked table as pinned (consumer-bound). Default no-op."""
+
+    def iter_tracked_tables(self):  # -> Iterable[TrackedTable]
+        """Yield ``(name, preserved, pinned)`` for each tracked table. Default empty."""
+        return iter(())
+```
+
+In `LocalLifecycleHandler`, replace the existing class body's tail with:
+
+```python
+class LocalLifecycleHandler(LifecycleHandler):
+    def __init__(self, ch_client: ChClient):
+        self._worker = AsyncTableWorker(ch_client)
+        self._tracked: dict[str, TrackedTable] = {}
+
+    # ... existing start/stop/incref/decref/flush/claim ...
+
+    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+        existing = self._tracked.get(table_name)
+        if existing is None:
+            self._tracked[table_name] = TrackedTable(table_name, preserved, False)
+        elif preserved and not existing.preserved:
+            self._tracked[table_name] = existing._replace(preserved=True)
+
+    def mark_pinned(self, table_name: str) -> None:
+        existing = self._tracked.get(table_name)
+        if existing is None:
+            return
+        if not existing.pinned:
+            self._tracked[table_name] = existing._replace(pinned=True)
+
+    def iter_tracked_tables(self):
+        return iter(list(self._tracked.values()))
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/data/data_context/test_lifecycle.py -x --no-cov -q
+```
+
+Expected: 4 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aaiclick/data/data_context/lifecycle.py aaiclick/data/data_context/test_lifecycle.py
+git commit -m "$(cat <<'EOF'
+feature: LocalLifecycleHandler tracks (preserved, pinned) per table
+
+Adds track_table / mark_pinned / iter_tracked_tables on the base
+LifecycleHandler (no-ops) and LocalLifecycleHandler (real). The
+orchestration task_scope() reads these flags on exit to decide
+inline-drop vs leave-for-backworker.
+EOF
+)"
+```
+
+---
+
+## Task 2: New `task_scope()` — success path with inline DROP
+
+**Files:**
+- Modify: `aaiclick/orchestration/orch_context.py` — replace `task_scope()` body.
+- Create: `aaiclick/orchestration/test_task_scope_lifecycle.py`
+
+> **Caution:** This is the largest single change. The current `task_scope()` uses `OrchLifecycleHandler`, which talks to `table_run_refs` (deleted by the Phase 1 migration). On a fresh DB the old code will already be broken — the migration is applied. So we must replace the body in this task, not later.
+
+- [ ] **Step 1: Write the failing success-path test**
+
+Create `aaiclick/orchestration/test_task_scope_lifecycle.py`:
+
+```python
+"""Tests for task_scope success path.
+
+After a task body finishes without raising, task_scope.__aexit__:
+- DROPs every tracked t_* table (unless pinned).
+- DROPs every tracked j_<id>_<name> table that is NOT preserved.
+- LEAVES preserved tables — BackgroundWorker drops them at job completion.
+- LEAVES pinned tables — BackgroundWorker drops them when pin_refs == 0.
+- Releases task_name_locks for this task.
+"""
+
+import pytest
+
+from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration.lifecycle.db_lifecycle import TaskNameLock
+from sqlmodel import select
+
+
+async def test_task_scope_drops_anonymous_tables_inline(ch_client, orch_session, simple_job):
+    # Arrange: enter task_scope, create a t_* table, exit cleanly.
+    async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+        await ch_client.command("CREATE TABLE t_777 (x Int64) ENGINE = Memory")
+        # Manually track since ctx.table() integration comes in Task 4.
+        from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+        get_data_lifecycle().track_table("t_777")
+
+    # Assert: table is gone.
+    rows = await ch_client.query("EXISTS TABLE t_777")
+    assert rows.first_row[0] == 0
+
+
+async def test_task_scope_keeps_preserved_table(ch_client, orch_session, preserved_job):
+    """Preserved names are NOT inline-dropped."""
+    async with task_scope(task_id=1, job_id=preserved_job.id, run_id=1):
+        table = f"j_{preserved_job.id}_training_set"
+        await ch_client.command(f"CREATE TABLE {table} (x Int64) ENGINE = Memory")
+        from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+        get_data_lifecycle().track_table(table, preserved=True)
+
+    # Assert: still there. BackgroundWorker drops it later.
+    rows = await ch_client.query(f"EXISTS TABLE j_{preserved_job.id}_training_set")
+    assert rows.first_row[0] == 1
+
+
+async def test_task_scope_keeps_pinned_table(ch_client, orch_session, simple_job):
+    """Pinned tables are NOT inline-dropped (consumer task still needs them)."""
+    async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+        await ch_client.command("CREATE TABLE t_555 (x Int64) ENGINE = Memory")
+        from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+        handler = get_data_lifecycle()
+        handler.track_table("t_555")
+        handler.mark_pinned("t_555")
+
+    rows = await ch_client.query("EXISTS TABLE t_555")
+    assert rows.first_row[0] == 1
+
+
+async def test_task_scope_drops_non_preserved_named_table(ch_client, orch_session, simple_job):
+    """A j_<id>_<name> table whose name is NOT in preserve is inline-dropped."""
+    table = f"j_{simple_job.id}_scratch"
+    async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+        await ch_client.command(f"CREATE TABLE {table} (x Int64) ENGINE = Memory")
+        from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+        get_data_lifecycle().track_table(table, preserved=False)
+
+    rows = await ch_client.query(f"EXISTS TABLE {table}")
+    assert rows.first_row[0] == 0
+
+
+async def test_task_scope_releases_name_locks_on_success(orch_session, simple_job):
+    """Locks held during task body are released on clean exit."""
+    from aaiclick.orchestration.lifecycle.db_lifecycle import acquire_task_name_lock
+
+    async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+        await acquire_task_name_lock(orch_session, job_id=simple_job.id, name="foo", task_id=1)
+
+    rows = (await orch_session.exec(select(TaskNameLock))).all()
+    assert rows == []
+```
+
+The fixtures `simple_job`, `preserved_job`, `ch_client`, `orch_session` need to exist in `aaiclick/orchestration/conftest.py`. If they don't, add minimal versions before the test runs:
+
+```python
+@pytest.fixture
+async def simple_job(orch_session):
+    from aaiclick.orchestration.factories import create_job
+    return await create_job(registered_name=None, preserve=None, parameters={})
+
+@pytest.fixture
+async def preserved_job(orch_session):
+    from aaiclick.orchestration.factories import create_job
+    return await create_job(registered_name=None, preserve=["training_set"], parameters={})
+```
+
+If `create_job` requires `registered_name` to be a real RegisteredJob, adapt the fixture to register an unnamed one first.
+
+- [ ] **Step 2: Run to confirm failure**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_task_scope_lifecycle.py -x --no-cov -q
+```
+
+Expected: failures — either the new behavior is missing or the old `OrchLifecycleHandler` errors against the migrated schema.
+
+- [ ] **Step 3: Rewrite `task_scope()`**
+
+Read the current `task_scope()` in `aaiclick/orchestration/orch_context.py` (around line 389). Replace the entire body:
+
+```python
+@asynccontextmanager
+async def task_scope(
+    task_id: int,
+    job_id: int,
+    run_id: int,
+) -> AsyncIterator[None]:
+    """Per-task lifecycle scope nested inside ``orch_context``.
+
+    Uses :class:`LocalLifecycleHandler` for table tracking; on exit:
+
+    - **Success:** DROP every tracked table where ``preserved=False`` and
+      ``pinned=False``. Preserved + pinned survive for the BackgroundWorker.
+    - **Failure:** DROP only tracked ``t_*`` tables that are not pinned.
+      Every ``j_<id>_*`` is left for the BackgroundWorker to handle at
+      job completion.
+
+    Releases all ``task_name_locks`` held by ``task_id`` regardless of outcome.
+    """
+    from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler, _lifecycle_var
+    from aaiclick.orchestration.lifecycle.db_lifecycle import (
+        release_task_name_locks_for_task,
+    )
+
+    ch_client = get_ch_client()
+    handler = LocalLifecycleHandler(ch_client)
+
+    objects: dict[int, weakref.ref] = {}
+    await init_oplog_tables(ch_client)
+    await migrate_table_registry_to_sql(ch_client)
+
+    await handler.start()
+    lc_token = _lifecycle_var.set(handler)
+    obj_token = _objects_var.set(objects)
+    registry_token = _task_registry_var.set({})
+
+    success = False
+    try:
+        yield
+        success = True
+    finally:
+        _task_registry_var.reset(registry_token)
+
+        # Stale-mark all weakref-tracked Objects.
+        for obj_ref in objects.values():
+            obj = obj_ref()
+            if obj is not None:
+                obj._stale = True
+
+        try:
+            tracked = list(handler.iter_tracked_tables())
+            to_drop = [
+                tt.name
+                for tt in tracked
+                if not tt.pinned
+                and not tt.preserved
+                and (success or tt.name.startswith("t_"))
+            ]
+            if to_drop:
+                results = await asyncio.gather(
+                    *(ch_client.command(f"DROP TABLE IF EXISTS {n}") for n in to_drop),
+                    return_exceptions=True,
+                )
+                for name, result in zip(to_drop, results):
+                    if isinstance(result, Exception):
+                        logger.warning("task_scope DROP of %s failed: %s", name, result)
+        finally:
+            await handler.stop()
+            _lifecycle_var.reset(lc_token)
+            _objects_var.reset(obj_token)
+
+            # Release name locks regardless of outcome.
+            async with sql_session() as session:
+                await release_task_name_locks_for_task(session, task_id=task_id)
+                await session.commit()
+```
+
+`sql_session` is the existing async-session helper used elsewhere in `orch_context.py` — search for it (`grep -n "sql_session\|get_sql_session" aaiclick/orchestration/orch_context.py`) and use whatever pattern is already established. Ensure `asyncio` and a module-level `logger` are imported; both are likely already there.
+
+- [ ] **Step 4: Run tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_task_scope_lifecycle.py -x --no-cov -q
+```
+
+Expected: 5 passed. If existing tests now fail because they relied on `OrchLifecycleHandler` semantics, mark those for triage in Task 5 — they'll be cleaned up there.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aaiclick/orchestration/orch_context.py aaiclick/orchestration/test_task_scope_lifecycle.py aaiclick/orchestration/conftest.py
+git commit -m "$(cat <<'EOF'
+feature: task_scope success-path inline DROP via LocalLifecycleHandler
+
+Replaces OrchLifecycleHandler with LocalLifecycleHandler for per-task
+lifecycle. Success path drops unpinned + unpreserved tables inline.
+Failure path drops only unpinned t_*. Name locks released on exit
+regardless of outcome.
+EOF
+)"
+```
+
+---
+
+## Task 3: Failure-path test
+
+**Files:**
+- Create: `aaiclick/orchestration/test_task_scope_failure.py`
+
+- [ ] **Step 1: Write tests**
+
+Create the file:
+
+```python
+"""Tests for task_scope failure path.
+
+When the task body raises:
+- Tracked t_* tables (unpinned) are dropped inline — they're orphan scratch.
+- Tracked j_<id>_* tables are LEFT for the BackgroundWorker to clean at
+  job completion.
+- Pinned t_* tables are LEFT (consumers may still need them).
+- task_name_locks are released so a retry can re-take the names.
+"""
+
+import pytest
+from sqlmodel import select
+
+from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration.lifecycle.db_lifecycle import (
+    TaskNameLock,
+    acquire_task_name_lock,
+)
+
+
+async def test_failure_drops_anonymous_table(ch_client, orch_session, simple_job):
+    with pytest.raises(RuntimeError):
+        async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+            await ch_client.command("CREATE TABLE t_888 (x Int64) ENGINE = Memory")
+            from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+            get_data_lifecycle().track_table("t_888")
+            raise RuntimeError("boom")
+
+    rows = await ch_client.query("EXISTS TABLE t_888")
+    assert rows.first_row[0] == 0
+
+
+async def test_failure_keeps_named_job_table(ch_client, orch_session, simple_job):
+    table = f"j_{simple_job.id}_partial"
+    with pytest.raises(RuntimeError):
+        async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+            await ch_client.command(f"CREATE TABLE {table} (x Int64) ENGINE = Memory")
+            from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+            get_data_lifecycle().track_table(table, preserved=False)
+            raise RuntimeError("boom")
+
+    rows = await ch_client.query(f"EXISTS TABLE {table}")
+    assert rows.first_row[0] == 1
+
+
+async def test_failure_keeps_pinned_anonymous(ch_client, orch_session, simple_job):
+    with pytest.raises(RuntimeError):
+        async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+            await ch_client.command("CREATE TABLE t_999 (x Int64) ENGINE = Memory")
+            from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+            handler = get_data_lifecycle()
+            handler.track_table("t_999")
+            handler.mark_pinned("t_999")
+            raise RuntimeError("boom")
+
+    rows = await ch_client.query("EXISTS TABLE t_999")
+    assert rows.first_row[0] == 1
+
+
+async def test_failure_releases_name_locks(orch_session, simple_job):
+    with pytest.raises(RuntimeError):
+        async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+            await acquire_task_name_lock(
+                orch_session, job_id=simple_job.id, name="foo", task_id=1
+            )
+            raise RuntimeError("boom")
+
+    rows = (await orch_session.exec(select(TaskNameLock))).all()
+    assert rows == []
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_task_scope_failure.py -x --no-cov -q
+```
+
+Expected: 4 passed (the implementation in Task 2 already handles failure correctly).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add aaiclick/orchestration/test_task_scope_failure.py
+git commit -m "feature: tests for task_scope failure path"
+```
+
+---
+
+## Task 4: Hook `ctx.table(name)` into name lock + preserved-name registration
+
+**Files:**
+- Modify: the table-creation entry point used by tasks. Find it:
+  ```bash
+  grep -rn "def table\b\|create_object_from_value\|make_persistent_table_name" /home/user/aaiclick/aaiclick/data/ /home/user/aaiclick/aaiclick/orchestration/ | head
+  ```
+- Create: `aaiclick/orchestration/test_task_named_table_collision.py`
+
+- [ ] **Step 1: Trace the table-creation path**
+
+Read the file containing `def table` on `ctx`. Identify:
+- Where the user-facing name (e.g. `"training_set"`) is converted to a physical name.
+- Where the CH `CREATE TABLE` is issued.
+- Whether the function is called from inside `task_scope` (it should be — find via callers).
+
+- [ ] **Step 2: Write the collision test**
+
+Create `aaiclick/orchestration/test_task_named_table_collision.py`:
+
+```python
+"""Test that two concurrent tasks taking the same non-preserved name collide."""
+
+import asyncio
+import pytest
+
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableNameCollision
+from aaiclick.orchestration.orch_context import task_scope
+
+
+async def test_concurrent_non_preserved_name_raises(ch_client, orch_session, simple_job):
+    """Task B tries to create the same name while Task A still holds it."""
+
+    async def task_a():
+        async with task_scope(task_id=10, job_id=simple_job.id, run_id=1):
+            ctx = ...  # actual ctx — adapt to whatever data_context exposes inside task_scope
+            await ctx.table("scratch")  # acquires lock for name 'scratch'
+            await asyncio.sleep(0.5)
+
+    async def task_b():
+        await asyncio.sleep(0.1)
+        async with task_scope(task_id=20, job_id=simple_job.id, run_id=1):
+            ctx = ...
+            with pytest.raises(TableNameCollision):
+                await ctx.table("scratch")
+
+    await asyncio.gather(task_a(), task_b())
+
+
+async def test_preserved_name_no_collision(ch_client, orch_session, preserved_job):
+    """Preserved names skip the lock — concurrent CREATE IF NOT EXISTS is fine."""
+
+    async def make():
+        async with task_scope(task_id=task_id, job_id=preserved_job.id, run_id=1):
+            ctx = ...
+            await ctx.table("training_set")
+
+    # Run two concurrently — neither should error.
+    await asyncio.gather(make(), make())
+```
+
+The `ctx = ...` placeholder is intentional — fill it in with the actual context-getter once you've traced the table-creation path. Stop and ask if `ctx` is reachable only via `data_context()` (in which case the test needs nesting).
+
+- [ ] **Step 3: Modify the table-creation function**
+
+In whatever module owns `ctx.table(name)`:
+
+1. Branch on whether the name is in the current job's `preserve` list (or if `preserve == "*"`):
+   - **Preserved:** issue `CREATE TABLE IF NOT EXISTS j_<job_id>_<name> ...`, call `handler.track_table(physical_name, preserved=True)`. No lock.
+   - **Non-preserved:** call `acquire_task_name_lock(session, job_id, name, task_id)`. If it raises `TableNameCollision`, propagate. Otherwise issue `CREATE TABLE j_<job_id>_<name> ...` (regular create — should fail if it exists, since lock guarantees we're the only owner). Call `handler.track_table(physical_name, preserved=False)`.
+2. The `task_id` and `job_id` come from `task_scope()` ContextVars — search for an existing `_task_id_var` / `_job_id_var` in `orch_context.py` (or expose them if they don't exist).
+
+- [ ] **Step 4: Run tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_task_named_table_collision.py -x --no-cov -q
+```
+
+Expected: 2 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aaiclick/orchestration/test_task_named_table_collision.py <table-ctor file>
+git commit -m "$(cat <<'EOF'
+feature: ctx.table(name) acquires name lock for non-preserved names
+
+Preserved names use CREATE IF NOT EXISTS without a lock (idempotent).
+Non-preserved names take the (job_id, name) row in task_name_locks;
+collision raises TableNameCollision.
+EOF
+)"
+```
+
+---
+
+## Task 5: Object output → `mark_pinned` integration
+
+**Files:**
+- Modify: the Object serializer that sets pin_refs.
+
+- [ ] **Step 1: Find the pin-writer**
+
+```bash
+grep -rn "TablePinRef(" /home/user/aaiclick/aaiclick/orchestration/ /home/user/aaiclick/aaiclick/data/ | grep -v test_
+```
+
+Identify the function that writes a `TablePinRef` row. Capture the module path + function name — they're what the test in Step 2 imports.
+
+- [ ] **Step 2: Write the test**
+
+Append to `aaiclick/orchestration/test_object_lifecycle_e2e.py` (already exists). Replace `<MODULE>` and `<PIN_FN>` with the values from Step 1:
+
+```python
+async def test_object_output_table_marked_pinned_in_handler(ch_client, orch_session, simple_job):
+    """When a task returns an Object, the underlying table must be marked
+    pinned in the local handler so task_scope.__aexit__ leaves it alone."""
+
+    async with task_scope(task_id=1, job_id=simple_job.id, run_id=1):
+        await ch_client.command("CREATE TABLE t_obj (x Int64) ENGINE = Memory")
+        from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+        handler = get_data_lifecycle()
+        handler.track_table("t_obj")
+
+        # Simulate the serializer call that pins the table for a consumer.
+        from <MODULE> import <PIN_FN>
+        await <PIN_FN>(
+            session=orch_session,
+            table="t_obj",
+            consumer_task_id=2,
+        )
+
+        tracked = list(handler.iter_tracked_tables())
+        assert any(t.name == "t_obj" and t.pinned for t in tracked)
+```
+
+- [ ] **Step 3: Run to confirm failure**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2e.py -x --no-cov -q -k "marked_pinned"
+```
+
+Expected: failure — pin function doesn't call `mark_pinned`.
+
+- [ ] **Step 4: Modify the pin function**
+
+In the function identified in Step 1, after the `TablePinRef` row is written:
+
+```python
+from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+
+handler = get_data_lifecycle()
+if handler is not None:
+    handler.mark_pinned(table)
+```
+
+- [ ] **Step 5: Run tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/test_object_lifecycle_e2e.py -x --no-cov -q
+```
+
+Expected: green.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add aaiclick/orchestration/test_object_lifecycle_e2e.py <pin-function file>
+git commit -m "feature: pin function marks table pinned in local lifecycle handler"
+```
+
+---
+
+## Task 6: Phase 4 sanity check
+
+- [ ] **Step 1: Run full orchestration tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/ -x --no-cov -q
+```
+
+Expected: PASS. Some old tests may have been broken by the rewrite — diagnose and fix in this step (or convert them to obsolete tests to be deleted in Phase 6).
+
+- [ ] **Step 2: Run the data tests too**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/data/ -x --no-cov -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 3: Push**
+
+```bash
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+```
+
+---
+
+# Done When
+
+- `task_scope()` uses `LocalLifecycleHandler`. `OrchLifecycleHandler` is unused but not yet deleted.
+- Success-path test green.
+- Failure-path test green.
+- Concurrent name-collision test green.
+- Preserved-name idempotent-create test green.
+- Object pin marks the table on the local handler.
+- Test suite is green.
