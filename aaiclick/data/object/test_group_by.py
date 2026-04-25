@@ -319,16 +319,6 @@ async def test_group_by_no_keys_raises(ctx):
         obj.group_by()
 
 
-async def test_group_by_aai_id_raises(ctx):
-    """ValueError for grouping by aai_id."""
-    obj = await create_object_from_value(
-        {
-            "category": ["A", "B"],
-            "amount": [10, 20],
-        }
-    )
-    with pytest.raises(ValueError, match="aai_id"):
-        obj.group_by("aai_id")
 
 
 # =============================================================================

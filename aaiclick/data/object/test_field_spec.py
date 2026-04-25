@@ -122,15 +122,6 @@ async def test_field_spec_unknown_column_raises(ctx):
         )
 
 
-async def test_field_spec_aai_id_raises(ctx):
-    """FieldSpec targeting aai_id raises ValueError."""
-    with pytest.raises(ValueError, match="aai_id"):
-        await create_object_from_value(
-            {"a": [1, 2]},
-            fields={"aai_id": FieldSpec(nullable=True)},
-        )
-
-
 # --- Multiple fields ---
 
 

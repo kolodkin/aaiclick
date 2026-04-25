@@ -94,7 +94,6 @@ async def test_create_nullable_column(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -114,7 +113,6 @@ async def test_create_nullable_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("String", nullable=True),
         },
     )
@@ -127,25 +125,11 @@ async def test_create_nullable_scalar(ctx):
     assert data is None
 
 
-async def test_aai_id_nullable_raises(ctx):
-    """aai_id column must never be nullable."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "aai_id": ColumnInfo("UInt64", nullable=True),
-            "value": ColumnInfo("Int64"),
-        },
-    )
-    with pytest.raises(ValueError, match="aai_id column cannot be nullable"):
-        await create_object(schema)
-
-
 async def test_nullable_dict_columns(ctx):
     """Create dict object with mixed nullable and non-nullable columns."""
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "name": ColumnInfo("String"),
             "score": ColumnInfo("Float64", nullable=True),
         },
@@ -168,7 +152,6 @@ async def test_schema_shows_nullable(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -188,7 +171,6 @@ async def test_nullable_add_propagates_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -208,7 +190,6 @@ async def test_nullable_comparison_returns_nullable(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -231,7 +212,6 @@ async def test_nullable_sum_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -248,7 +228,6 @@ async def test_nullable_count_counts_all_rows(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -266,7 +245,6 @@ async def test_nullable_mean_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -286,7 +264,6 @@ async def test_is_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -303,7 +280,6 @@ async def test_is_not_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -320,7 +296,6 @@ async def test_coalesce_with_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -338,7 +313,6 @@ async def test_coalesce_with_object(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )
@@ -361,7 +335,6 @@ async def test_concat_nullable_with_nonnullable(ctx):
     schema_nullable = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )

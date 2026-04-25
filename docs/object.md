@@ -322,19 +322,35 @@ types from a sample of zero rows.
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Fresh Snowflake IDs are generated; source `aai_id` values are not preserved. Order follows argument order.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
 
-## Order Preservation
+## Row Order
 
-Order is preserved via **Snowflake IDs** — each row gets a globally unique, timestamp-encoded `aai_id`. All operations (`copy()`, `insert()`, `concat()`) generate fresh IDs. Order follows argument order: self first, then args left-to-right. `data()` retrieves rows via `ORDER BY aai_id`.
+Array Objects have no implicit row order. Reads return rows in ClickHouse's natural source order — stable within a process but not portable across runs. For deterministic order, name the column you want to sort on:
 
 ```python
-obj_a = await create_object_from_value([1, 2, 3])
-obj_b = await create_object_from_value([4, 5, 6])
+obj = await create_object_from_value([3, 1, 2])
 
-result = await obj_a.concat(obj_b)  # Result: [1, 2, 3, 4, 5, 6]
-result = await obj_b.concat(obj_a)  # Result: [4, 5, 6, 1, 2, 3]
+await obj.data()                      # → [3, 1, 2] or [1, 2, 3] etc. (undefined)
+await obj.data(order_by="value")      # → [1, 2, 3]
+await obj.view(order_by="value").data()  # equivalent
 ```
+
+Binary elementwise ops between two array Objects from **different tables** require `order_by` on both sides — the join uses it as the row-pairing key:
+
+```python
+a = await create_object_from_value([1, 2, 3])
+b = await create_object_from_value([10, 20, 30])
+
+# a + b   ← TypeError: cross-table op without explicit row order
+result = await (a.view(order_by="value") + b.view(order_by="value"))
+print(await result.data(order_by="value"))  # → [11, 22, 33]
+```
+
+Same-table ops (`a + a`), scalar broadcast (`a + 10`), and aggregations don't need the contract — they have a natural alignment.
+
+!!! warning "Cross-table array ops need `order_by`"
+    `a + b` between two array Objects from different tables raises `TypeError` unless both sides are wrapped with `.view(order_by=...)`. Row order is opt-in, not implicit.
 
 # Join
 
@@ -385,9 +401,8 @@ Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materiali
 - **Key dedup**: under `on=` the key appears once under its original name; under `left_on`/`right_on` both key columns survive. `FULL` joins with `on=` coalesce the merged key across sides.
 - **Collisions**: non-key columns that appear on both sides raise `ValueError` unless `suffixes=True` (shorthand for `("_l", "_r")`) or a custom `suffixes=("_x", "_y")` tuple is passed. Both sides get a suffix — empty suffixes are rejected.
 - **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
-- **`aai_id`**: the result gets fresh `generateSnowflakeID()` values; source `aai_id` columns are never projected, even under `suffixes`.
 - **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
-- **Order**: join output has no intrinsic order. `data()` returns rows via `ORDER BY aai_id` (stable-but-arbitrary). Use `.view(order_by=...)` if deterministic order is required.
+- **Order**: join output has no intrinsic order. Pass `data(order_by=...)` (or `.view(order_by=...)`) if deterministic order is required.
 
 ### Examples
 
@@ -445,15 +460,14 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 
 ## markdown()
 
-Returns data as a plain-text markdown table (`aai_id` omitted, auto-sized columns). Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
+Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
 
 ## export()
 
 Export data to a local file. The format is picked from the file extension
 and the data streams directly from ClickHouse — no Python round-trip, so
 multi-million-row exports stay memory-bounded. View constraints (`where`,
-`limit`, `order_by`) are honored and the internal `aai_id` column is
-omitted. Returns the absolute path written.
+`limit`, `order_by`) are honored. Returns the absolute path written.
 
 ```python
 await obj.export("/tmp/data.csv")
@@ -621,7 +635,7 @@ kev_view = kev.rename({
 await consolidated.insert(kev_view)
 ```
 
-Chainable with `with_columns()`, `where()`, and other View operations. `aai_id` cannot be renamed. New names must not collide with non-renamed columns.
+Chainable with `with_columns()`, `where()`, and other View operations. New names must not collide with non-renamed columns.
 
 **Tests**: `aaiclick/data/object/test_rename.py`
 

@@ -1,8 +1,7 @@
 """
-Tests for ordering behavior with fresh Snowflake IDs in insert/concat.
+Tests for argument-order behaviour in insert/concat.
 
-With the fix to generate fresh IDs (not preserve source aai_id), order
-follows argument order: self first, then args left-to-right.
+Order follows argument order: self first, then args left-to-right.
 """
 
 from aaiclick import create_object_from_value

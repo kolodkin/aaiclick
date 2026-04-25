@@ -65,7 +65,6 @@ async def example():
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "cve_id": ColumnInfo("String"),
             "in_catalog": ColumnInfo("UInt8"),
             "in_scores": ColumnInfo("UInt8"),

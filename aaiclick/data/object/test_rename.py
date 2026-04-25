@@ -14,7 +14,6 @@ async def test_rename_basic(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "old_name": ColumnInfo("String"),
             "keep_me": ColumnInfo("Int32"),
         },
@@ -38,7 +37,6 @@ async def test_rename_insert_into_target(ctx):
     src_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "src_col": ColumnInfo("String"),
             "shared": ColumnInfo("Int32"),
         },
@@ -50,7 +48,6 @@ async def test_rename_insert_into_target(ctx):
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "dst_col": ColumnInfo("String"),
             "shared": ColumnInfo("Int32"),
         },
@@ -70,7 +67,6 @@ async def test_rename_with_computed_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "old_col": ColumnInfo("Int32"),
         },
     )
@@ -93,7 +89,6 @@ async def test_rename_collision_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "col_a": ColumnInfo("String"),
             "col_b": ColumnInfo("String"),
         },
@@ -115,7 +110,6 @@ async def test_rename_aai_id_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "col": ColumnInfo("String"),
         },
     )
@@ -129,7 +123,6 @@ async def test_insert_skips_extra_source_columns(ctx):
     src_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "shared": ColumnInfo("Int32"),
             "extra_col": ColumnInfo("String"),
         },
@@ -141,7 +134,6 @@ async def test_insert_skips_extra_source_columns(ctx):
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "shared": ColumnInfo("Int32"),
         },
     )
@@ -164,7 +156,6 @@ async def test_rename_duplicate_new_names_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "col_a": ColumnInfo("String"),
             "col_b": ColumnInfo("String"),
         },

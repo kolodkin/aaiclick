@@ -4,7 +4,6 @@ Order By example for aaiclick.
 This example demonstrates how to use the ``order_by`` parameter when creating
 Objects so the underlying ClickHouse table is physically sorted.
 
-``aai_id`` is always appended as the last ORDER BY column.
 Requires a MergeTree-family engine (Memory ignores ORDER BY).
 """
 
@@ -34,7 +33,7 @@ async def example():
 
     result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{sales.table}'")
     engine, sorting_key = result.result_rows[0]
-    print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: date, aai_id
+    print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: date
 
     # Example 2: Multiple column order_by
     print("\n" + "=" * 50)
@@ -52,7 +51,7 @@ async def example():
     print(f"Data: {await events.data(orient=ORIENT_RECORDS)}")
 
     result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{events.table}'")
-    print(f"ORDER BY: {result.result_rows[0][0]}")  # → ORDER BY: category, date, aai_id
+    print(f"ORDER BY: {result.result_rows[0][0]}")  # → ORDER BY: category, date
 
     # Example 3: No order_by (default behaviour)
     print("\n" + "=" * 50)

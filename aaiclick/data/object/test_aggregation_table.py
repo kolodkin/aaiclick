@@ -33,7 +33,6 @@ async def test_aggregation_table_two_sources(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "key": ColumnInfo("String"),
             "in_a": ColumnInfo("UInt8"),
             "in_b": ColumnInfo("UInt8"),
@@ -119,7 +118,6 @@ async def test_aggregation_table_three_sources(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "id": ColumnInfo("String"),
             "val1": ColumnInfo("Int64", nullable=True),
             "val2": ColumnInfo("Int64", nullable=True),
@@ -164,7 +162,6 @@ async def test_aggregation_table_duplicate_key_same_source(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "key": ColumnInfo("String"),
             "value": ColumnInfo("Int64", nullable=True),
         },

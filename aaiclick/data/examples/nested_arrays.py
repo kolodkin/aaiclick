@@ -31,8 +31,7 @@ async def example():
     print("\nInput: {a: 2, b: [{c: [1,2,3], d: 5}, {c: [4,5,6], d: 10}]}")
     print(f"\nSchema columns: {list(obj.schema.columns.keys())}")
     for name, col in obj.schema.columns.items():
-        if name != "aai_id":
-            print(f"  {name}: {col.ch_type()}")
+        print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
     print("\nReconstructed output:")
@@ -75,8 +74,7 @@ async def example():
 
     print("\nInput: {name: 'test', items: [{x: 1, y: 2}, {x: 3, y: 4}]}")
     for name, col in obj.schema.columns.items():
-        if name != "aai_id":
-            print(f"  {name}: {col.ch_type()}")
+        print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
     print(f"\nResult: {data}")
@@ -98,8 +96,7 @@ async def example():
 
     print("\nInput: {id: 1, groups: [{tags: ['a','b'], score: 10}, {tags: ['c'], score: 20}]}")
     for name, col in obj.schema.columns.items():
-        if name != "aai_id":
-            print(f"  {name}: {col.ch_type()}")
+        print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
     print(f"\nResult: {data}")
@@ -121,8 +118,7 @@ async def example():
 
     print("\nSchema columns:")
     for name, col in obj.schema.columns.items():
-        if name != "aai_id":
-            print(f"  {name}: {col.ch_type()}")
+        print(f"  {name}: {col.ch_type()}")
 
     data = await obj.data()
     print("\nResult:")

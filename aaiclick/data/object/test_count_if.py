@@ -66,7 +66,6 @@ async def test_count_if_dict_on_dict_object(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "name": ColumnInfo("String"),
             "score": ColumnInfo("Float64"),
         },

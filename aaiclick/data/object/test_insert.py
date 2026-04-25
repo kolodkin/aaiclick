@@ -413,7 +413,6 @@ async def test_insert_view_with_computed_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "name": ColumnInfo("String"),
             "active": ColumnInfo("UInt8"),
         },
@@ -439,7 +438,6 @@ async def test_insert_subset_columns_nullable_fill(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "id": ColumnInfo("String"),
             "val1": ColumnInfo("Int64", nullable=True),
             "val2": ColumnInfo("String", nullable=True),
@@ -465,7 +463,6 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "id": ColumnInfo("String"),
             "count": ColumnInfo("Int64"),
         },
@@ -490,7 +487,6 @@ async def test_insert_skips_extra_source_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "id": ColumnInfo("String"),
         },
     )

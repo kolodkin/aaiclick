@@ -149,7 +149,6 @@ async def test_dict_with_array_datetime_column(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "timestamps": ColumnInfo("DateTime64(3, 'UTC')", array=True),
             "label": ColumnInfo("String", low_cardinality=True),
         },
@@ -179,7 +178,6 @@ async def test_explicit_datetime_schema(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("DateTime64(3, 'UTC')"),
         },
     )
@@ -197,7 +195,6 @@ async def test_explicit_datetime_dict_schema(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "event_time": ColumnInfo("DateTime64(3, 'UTC')"),
             "count": ColumnInfo("Int64"),
         },
