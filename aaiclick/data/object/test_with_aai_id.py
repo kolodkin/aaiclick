@@ -156,3 +156,14 @@ async def test_chained_operators_preserve_aai_id(ctx):
     result = await (await (a + b) + c)
     assert "aai_id" in result.schema.columns
     assert await result.data() == [6, 27, 33]
+
+
+async def test_same_table_field_op_propagates_aai_id(ctx):
+    """Same-table field-vs-field operator (fast path) propagates aai_id."""
+    obj = await create_object_from_value(
+        {"x": [1, 2, 3], "y": [10, 20, 30]},
+        with_aai_id=True,
+    )
+    result = await (obj["x"] + obj["y"])
+    assert "aai_id" in result.schema.columns
+    assert await result.data() == [11, 22, 33]
