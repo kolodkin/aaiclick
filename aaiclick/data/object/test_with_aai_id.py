@@ -10,9 +10,11 @@ insert gets a distinct, monotonically-increasing 64-bit ID.
 
 Operator propagation
 --------------------
-When the LEFT operand of a binary operator carries ``aai_id``, the result
-table propagates the LEFT side's ``aai_id`` values, so
-``(a + b).view(order_by="aai_id")`` recovers the original row order.
+Binary operators propagate ``aai_id`` from whichever array operand carries
+it (LHS wins when both do). Scalar broadcast still propagates from the
+array side regardless of LHS/RHS position. The result table's ``aai_id``
+auto-orders subsequent reads, so ``await (a + b).data()`` returns rows in
+the propagated side's original order.
 """
 
 import pytest
@@ -129,20 +131,45 @@ async def test_operator_result_recovers_pair_order_via_aai_id(ctx):
     assert await result.data() == [5, 25, 30]
 
 
-async def test_operator_no_propagation_when_lhs_lacks_aai_id(ctx):
-    """RHS-only aai_id does NOT propagate — only LHS triggers propagation."""
+async def test_operator_propagates_rhs_aai_id_when_lhs_lacks_it(ctx):
+    """RHS-only aai_id still propagates — the rule is "from whichever array
+    operand has it; LHS wins when both do"."""
     a = await create_object_from_value([10, 20, 30])  # no aai_id
     b = await create_object_from_value([-5, 5, 0], with_aai_id=True)
 
     # a has no aai_id — must wrap in view(order_by=...) to satisfy cross-table contract
     result = await (a.view(order_by="value") + b)
-    assert "aai_id" not in result.schema.columns
+    assert "aai_id" in result.schema.columns
+    # Result aai_id is RHS's (b's), since a doesn't have one.
+    b_ids = sorted(row[0] for row in (await get_ch_client().query(f"SELECT aai_id FROM {b.table}")).result_rows)
+    result_ids = sorted(
+        row[0] for row in (await get_ch_client().query(f"SELECT aai_id FROM {result.table}")).result_rows
+    )
+    assert result_ids == b_ids
 
 
 async def test_scalar_broadcast_propagates_aai_id(ctx):
     """array-with-aai_id * scalar propagates aai_id to result."""
     a = await create_object_from_value([10, 20, 30], with_aai_id=True)
     result = await (a * 2)
+    assert "aai_id" in result.schema.columns
+    assert await result.data() == [20, 40, 60]
+
+
+async def test_reverse_scalar_broadcast_propagates_aai_id(ctx):
+    """scalar * array-with-aai_id (Python scalar LHS) propagates from RHS."""
+    a = await create_object_from_value([10, 20, 30], with_aai_id=True)
+    result = await (2 * a)
+    assert "aai_id" in result.schema.columns
+    # Result preserves a's row order via the propagated aai_id.
+    assert await result.data() == [20, 40, 60]
+
+
+async def test_reverse_scalar_object_broadcast_propagates_aai_id(ctx):
+    """scalar_object * array-with-aai_id propagates from the array (RHS) side."""
+    s = await create_object_from_value(2)
+    a = await create_object_from_value([10, 20, 30], with_aai_id=True)
+    result = await (s * a)
     assert "aai_id" in result.schema.columns
     assert await result.data() == [20, 40, 60]
 

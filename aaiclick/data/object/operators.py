@@ -151,7 +151,7 @@ async def _materialize_array_join(
     *,
     order_a: str,
     order_b: str,
-    propagate_a_aai_id: bool = False,
+    propagate_aai_id_from: str | None = None,
 ):
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
@@ -168,8 +168,9 @@ async def _materialize_array_join(
         ch_client: ClickHouse async client
         order_a: ORDER BY expression for left source — from ``View._order_by``.
         order_b: ORDER BY expression for right source.
-        propagate_a_aai_id: When True, also carry the LEFT side's ``aai_id``
-            column into the temp table as ``a_aai_id Nullable(UInt64)``.
+        propagate_aai_id_from: ``"a"`` or ``"b"`` to copy that side's
+            ``aai_id`` column into the temp table as ``aai_id Nullable(UInt64)``;
+            ``None`` (default) skips propagation.
 
     Returns:
         Name of the temp table.  Caller is responsible for DROP.
@@ -179,7 +180,18 @@ async def _materialize_array_join(
     """
     temp_table = f"tmp_{get_snowflake_id()}"
 
-    aai_id_col_def = ", a_aai_id Nullable(UInt64)" if propagate_a_aai_id else ""
+    if propagate_aai_id_from is None:
+        aai_id_col_def = ""
+        outer_select = ""
+        inner_a = ""
+        inner_b = ""
+    else:
+        aai_id_col_def = f", {AAI_ID_COLUMN} Nullable(UInt64)"
+        outer_select = f", {propagate_aai_id_from}.{AAI_ID_COLUMN} AS {AAI_ID_COLUMN}"
+        side_inner = f", CAST({AAI_ID_COLUMN} AS Nullable(UInt64)) AS {AAI_ID_COLUMN}"
+        inner_a = side_inner if propagate_aai_id_from == "a" else ""
+        inner_b = side_inner if propagate_aai_id_from == "b" else ""
+
     await ch_client.command(f"""
         CREATE TABLE {temp_table} (
             a_value Nullable({type_a}),
@@ -192,22 +204,20 @@ async def _materialize_array_join(
     # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
     # Add explicit presence markers (also Nullable) to distinguish join-NULLs
     # from data-NULLs in nullable source columns.
-    a_aai_id_select = f", a.{AAI_ID_COLUMN} AS a_aai_id" if propagate_a_aai_id else ""
-    a_aai_id_inner = f", CAST({AAI_ID_COLUMN} AS Nullable(UInt64)) AS {AAI_ID_COLUMN}" if propagate_a_aai_id else ""
     await ch_client.command(f"""
         INSERT INTO {temp_table}
         SELECT a.value AS a_value, b.value AS b_value,
-               a.present AS a_present, b.present AS b_present{a_aai_id_select}
+               a.present AS a_present, b.present AS b_present{outer_select}
         FROM (
             SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_a})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present{a_aai_id_inner}
+                   CAST(1 AS Nullable(UInt8)) AS present{inner_a}
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
             SELECT CAST(row_number() OVER (ORDER BY {order_b}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_b})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present
+                   CAST(1 AS Nullable(UInt8)) AS present{inner_b}
             FROM {source_b}
         ) AS b
         ON a.rn = b.rn
@@ -226,26 +236,26 @@ async def _materialize_array_join(
 
 
 class _AaiIdProj(NamedTuple):
-    """SQL fragments emitted when ``aai_id`` propagates from LHS to result.
+    """SQL fragments emitted when ``aai_id`` propagates to the result.
 
-    All fields are empty strings when ``propagate=False`` so call sites can
-    interpolate them unconditionally without inline ternaries.
+    All fields are empty strings when no propagation occurs so call sites can
+    interpolate them unconditionally without inline ternaries. ``alias``
+    selects the side ``aliased`` references — "a" for LHS-driven paths,
+    "b" for scalar broadcast with array RHS or array×array RHS-only aai_id.
     """
 
     insert_cols: str  # "(value, aai_id)" or "(value)"
-    inner: str  # ", aai_id" — bare column reference inside an inner subquery
-    aliased: str  # ", a.aai_id AS aai_id" — table-qualified projection in outer SELECT
-    from_temp: str  # ", a_aai_id AS aai_id" — projection from materialized temp table
+    inner: str  # ", aai_id" — bare column reference (unaliased subquery / temp table)
+    aliased: str  # ", <alias>.aai_id AS aai_id" — table-qualified projection
 
 
-def _aai_id_proj(propagate: bool) -> _AaiIdProj:
+def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     if not propagate:
-        return _AaiIdProj("(value)", "", "", "")
+        return _AaiIdProj("(value)", "", "")
     return _AaiIdProj(
         f"(value, {AAI_ID_COLUMN})",
         f", {AAI_ID_COLUMN}",
-        f", a.{AAI_ID_COLUMN} AS {AAI_ID_COLUMN}",
-        f", a_aai_id AS {AAI_ID_COLUMN}",
+        f", {alias}.{AAI_ID_COLUMN} AS {AAI_ID_COLUMN}",
     )
 
 
@@ -275,17 +285,25 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     type_b = info_b.value_type
     value_type = _promote_arithmetic_type(operator, type_a, type_b)
 
-    # When the LEFT operand carries ``aai_id``, propagate it onto the result
-    # so callers can recover row order via ``view(order_by=AAI_ID_COLUMN)``
-    # after the operator runs.
+    # Propagate ``aai_id`` from whichever operand is the array (preferring LHS
+    # when both arrays carry it). For scalar broadcast, the row-aligned aai_id
+    # comes from the array side regardless of LHS/RHS position.
     result_nullable = info_a.nullable or info_b.nullable
     result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
-    propagate = info_a.aai_id_info is not None
-    proj = _aai_id_proj(propagate)
-    if propagate:
-        # Mirror the LHS column shape, but drop DEFAULT — values are copied
-        # from the LHS via INSERT, not generated per-row by ClickHouse.
-        result_columns[AAI_ID_COLUMN] = replace(info_a.aai_id_info, default=None)
+    if a_is_array and info_a.aai_id_info is not None:
+        aai_id_source = info_a.aai_id_info
+        aai_id_alias = "a"
+    elif b_is_array and info_b.aai_id_info is not None:
+        aai_id_source = info_b.aai_id_info
+        aai_id_alias = "b"
+    else:
+        aai_id_source = None
+        aai_id_alias = "a"  # unused when aai_id_source is None
+    proj = _aai_id_proj(aai_id_source is not None, alias=aai_id_alias)
+    if aai_id_source is not None:
+        # Mirror the source column shape, but drop DEFAULT — values are copied
+        # via INSERT, not generated per-row by ClickHouse.
+        result_columns[AAI_ID_COLUMN] = replace(aai_id_source, default=None)
     schema = Schema(fieldtype=fieldtype, columns=result_columns)
     result = await create_object(schema)
 
@@ -331,23 +349,25 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     ch_client,
                     order_a=info_a.order_by,
                     order_b=info_b.order_by,
-                    propagate_a_aai_id=propagate,
+                    propagate_aai_id_from=aai_id_alias if aai_id_source is not None else None,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
                     await ch_client.command(f"""
                         INSERT INTO {result.table} {proj.insert_cols}
-                        SELECT {temp_expr} AS value{proj.from_temp} FROM {temp_table}
+                        SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}
                     """)
                 finally:
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+                inner_a = proj.inner if aai_id_alias == "a" else ""
+                inner_b = proj.inner if aai_id_alias == "b" else ""
                 await ch_client.command(f"""
                     INSERT INTO {result.table} {proj.insert_cols}
                     SELECT {expression} AS value{proj.aliased}
-                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{proj.inner} FROM {info_a.source}) AS a
-                    INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value FROM {info_b.source}) AS b
+                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a
+                    INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b
                     ON a.rn = b.rn
                 """)
 
