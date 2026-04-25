@@ -50,6 +50,36 @@ async def test_with_aai_id_recovers_insertion_order(ctx):
     assert await obj.view(order_by="aai_id").data() == [3, 1, 2]
 
 
+async def test_aai_id_auto_defaults_order_by(ctx):
+    """When the schema has aai_id and no explicit order_by, it becomes the default."""
+    obj = await create_object_from_value([3, 1, 2], with_aai_id=True)
+    # Object.order_by auto-resolves to "aai_id"
+    assert obj.order_by == "aai_id"
+    # data() now returns insertion order without an explicit view() wrapper
+    assert await obj.data() == [3, 1, 2]
+
+
+async def test_aai_id_auto_default_skipped_when_column_absent(ctx):
+    """Without the aai_id column, order_by stays None (no implicit ordering)."""
+    obj = await create_object_from_value([3, 1, 2])
+    assert obj.order_by is None
+
+
+async def test_aai_id_auto_default_overridden_by_explicit_view_order(ctx):
+    """Explicit view(order_by=...) wins over the aai_id fallback."""
+    obj = await create_object_from_value([3, 1, 2], with_aai_id=True)
+    assert await obj.view(order_by="value").data() == [1, 2, 3]
+
+
+async def test_cross_table_op_works_without_explicit_order_when_aai_id_present(ctx):
+    """With aai_id on both sides, the cross-table contract is satisfied implicitly."""
+    a = await create_object_from_value([10, 20, 30], with_aai_id=True)
+    b = await create_object_from_value([-5, 5, 0], with_aai_id=True)
+    result = await (a + b)  # no .view(order_by=...) wrappers needed
+    assert "aai_id" in result.schema.columns
+    assert await result.data() == [5, 25, 30]
+
+
 async def test_with_aai_id_dict_of_arrays(ctx):
     """Dict-of-arrays gains the aai_id column; user columns insert as-is."""
     obj = await create_object_from_value(
@@ -78,7 +108,7 @@ async def test_operator_result_propagates_lhs_aai_id(ctx):
 
     a_ids = [row[0] for row in (await get_ch_client().query(f"SELECT aai_id FROM {a.table}")).result_rows]
 
-    result = await (a.view(order_by="aai_id") + b.view(order_by="aai_id"))
+    result = await (a + b)
     assert "aai_id" in result.schema.columns
 
     result_ids = [row[0] for row in (await get_ch_client().query(f"SELECT aai_id FROM {result.table}")).result_rows]
@@ -86,7 +116,7 @@ async def test_operator_result_propagates_lhs_aai_id(ctx):
 
 
 async def test_operator_result_recovers_pair_order_via_aai_id(ctx):
-    """view(order_by='aai_id') on the operator result recovers pair-stable order.
+    """The result auto-orders by aai_id when read, recovering pair-stable LHS order.
 
     Inputs are chosen so positional and value-sorted pairing differ; the
     propagated aai_id lets us re-sort the result back into LHS order.
@@ -94,9 +124,9 @@ async def test_operator_result_recovers_pair_order_via_aai_id(ctx):
     a = await create_object_from_value([10, 20, 30], with_aai_id=True)
     b = await create_object_from_value([-5, 5, 0], with_aai_id=True)
 
-    result = await (a.view(order_by="aai_id") + b.view(order_by="aai_id"))
+    result = await (a + b)
     # Positional pairing: (10-5, 20+5, 30+0) = [5, 25, 30] in LHS order
-    assert await result.view(order_by="aai_id").data() == [5, 25, 30]
+    assert await result.data() == [5, 25, 30]
 
 
 async def test_operator_no_propagation_when_lhs_lacks_aai_id(ctx):
@@ -104,7 +134,8 @@ async def test_operator_no_propagation_when_lhs_lacks_aai_id(ctx):
     a = await create_object_from_value([10, 20, 30])  # no aai_id
     b = await create_object_from_value([-5, 5, 0], with_aai_id=True)
 
-    result = await (a.view(order_by=("value",)) + b.view(order_by="aai_id"))
+    # a has no aai_id — must wrap in view(order_by=...) to satisfy cross-table contract
+    result = await (a.view(order_by="value") + b)
     assert "aai_id" not in result.schema.columns
 
 
@@ -113,7 +144,7 @@ async def test_scalar_broadcast_propagates_aai_id(ctx):
     a = await create_object_from_value([10, 20, 30], with_aai_id=True)
     result = await (a * 2)
     assert "aai_id" in result.schema.columns
-    assert await result.view(order_by="aai_id").data() == [20, 40, 60]
+    assert await result.data() == [20, 40, 60]
 
 
 async def test_chained_operators_preserve_aai_id(ctx):
@@ -122,7 +153,6 @@ async def test_chained_operators_preserve_aai_id(ctx):
     b = await create_object_from_value([-5, 5, 0], with_aai_id=True)
     c = await create_object_from_value([1, 2, 3], with_aai_id=True)
 
-    step1 = await (a.view(order_by="aai_id") + b.view(order_by="aai_id"))
-    result = await (step1.view(order_by="aai_id") + c.view(order_by="aai_id"))
+    result = await (await (a + b) + c)
     assert "aai_id" in result.schema.columns
-    assert await result.view(order_by="aai_id").data() == [6, 27, 33]
+    assert await result.data() == [6, 27, 33]

@@ -217,7 +217,16 @@ class Object:
 
     @property
     def order_by(self) -> str | None:
-        """Get ORDER BY clause (None for base Object)."""
+        """ORDER BY clause for this Object.
+
+        Falls back to ``"aai_id"`` when the schema carries that column and no
+        explicit ordering is set — so tables created with ``with_aai_id=True``
+        get deterministic insertion order on reads and pair-stable cross-table
+        arithmetic without requiring callers to wrap them in
+        ``.view(order_by="aai_id")``.
+        """
+        if "aai_id" in self._schema.columns:
+            return "aai_id"
         return None
 
     @property
@@ -2414,8 +2423,12 @@ class View(Object):
 
     @property
     def order_by(self) -> str | None:
-        """Get ORDER BY clause."""
-        return self._order_by
+        """Explicit ORDER BY for this View, with ``aai_id`` fallback."""
+        if self._order_by is not None:
+            return self._order_by
+        if "aai_id" in self._schema.columns:
+            return "aai_id"
+        return None
 
     @property
     def where_clauses(self) -> list[tuple[str, str]]:
