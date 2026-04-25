@@ -36,7 +36,7 @@ async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
 
     va, vb = a.view(order_by="value"), b.view(order_by="value")
     result = await (va + vb) if operator == "+" else await (va - vb)
-    data = sorted(await result.view(order_by="value").data())
+    data = sorted(await result.data(order_by="value"))
 
     assert abs(data - expected) < THRESHOLD
 
@@ -70,7 +70,7 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
 
     va, vb = a.view(order_by="value"), b.view(order_by="value")
     result = await (va + vb) if operator == "+" else await (va - vb)
-    data = sorted(await result.view(order_by="value").data())
+    data = sorted(await result.data(order_by="value"))
     for i, val in enumerate(sorted(data)):
         assert abs(val - sorted(expected)[i]) < THRESHOLD
 
@@ -105,7 +105,7 @@ async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
     # result is same-table (temp) + cross-table (c), so wrap temp too
     tv = temp.view(order_by="value")
     result = await (tv + vc) if op2 == "+" else await (tv - vc)
-    data = sorted(await result.view(order_by="value").data())
+    data = sorted(await result.data(order_by="value"))
 
     for i, val in enumerate(data):
         assert abs(val - expected[i]) < THRESHOLD
@@ -211,13 +211,13 @@ async def test_mixed_symmetry(ctx):
     a1 = await create_object_from_value(int_array)
     b1 = await create_object_from_value(float_array)
     result1 = await (a1.view(order_by="value") + b1.view(order_by="value"))
-    data1 = await result1.view(order_by="value").data()
+    data1 = await result1.data(order_by="value")
 
     # float + int
     a2 = await create_object_from_value(float_array)
     b2 = await create_object_from_value(int_array)
     result2 = await (a2.view(order_by="value") + b2.view(order_by="value"))
-    data2 = await result2.view(order_by="value").data()
+    data2 = await result2.data(order_by="value")
 
     # Results should be identical
     for i in range(len(data1)):

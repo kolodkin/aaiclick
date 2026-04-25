@@ -298,14 +298,14 @@ async def test_cross_table_add_with_two_views_succeeds(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     result = await (a.view(order_by="value") + b.view(order_by="value"))
-    assert sorted(await result.view(order_by="value").data()) == [11, 22, 33]
+    assert sorted(await result.data(order_by="value")) == [11, 22, 33]
 
 
 async def test_same_table_add_no_views_still_works(ctx):
     """Same-table fast path skips the contract check."""
     a = await create_object_from_value([1, 2, 3])
     result = await (a + a)
-    assert sorted(await result.view(order_by="value").data()) == [2, 4, 6]
+    assert sorted(await result.data(order_by="value")) == [2, 4, 6]
 
 
 async def test_scalar_broadcast_no_views_still_works(ctx):
@@ -313,4 +313,4 @@ async def test_scalar_broadcast_no_views_still_works(ctx):
     a = await create_object_from_value([1, 2, 3])
     s = await create_object_from_value(10)
     result = await (a + s)
-    assert sorted(await result.view(order_by="value").data()) == [11, 12, 13]
+    assert sorted(await result.data(order_by="value")) == [11, 12, 13]

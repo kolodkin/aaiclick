@@ -10,7 +10,7 @@ async def test_array_array_same_length(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     result = await (a.view(order_by="value") + b.view(order_by="value"))
-    assert sorted(await result.view(order_by="value").data()) == [11, 22, 33]
+    assert sorted(await result.data(order_by="value")) == [11, 22, 33]
 
 
 async def test_array_array_length_mismatch_raises(ctx):
@@ -46,7 +46,7 @@ async def test_view_same_length_works(ctx):
     view_a = a.view(where="value >= 3", order_by="value")  # [3, 4, 5]
     view_b = b.view(limit=3, order_by="value")  # [10, 20, 30]
     result = await (view_a + view_b)
-    assert sorted(await result.view(order_by="value").data()) == [13, 24, 35]
+    assert sorted(await result.data(order_by="value")) == [13, 24, 35]
 
 
 async def test_coalesce_length_mismatch_raises(ctx):
@@ -84,4 +84,4 @@ async def test_object_view_same_length_works(ctx):
     view_a = a.view(order_by="value")
     view_b = b.view(limit=3, order_by="value")  # [10, 20, 30]
     result = await (view_a + view_b)
-    assert sorted(await result.view(order_by="value").data()) == [11, 22, 33]
+    assert sorted(await result.data(order_by="value")) == [11, 22, 33]
