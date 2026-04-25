@@ -37,15 +37,22 @@ Out of scope:
 
 # Cleanup ownership
 
-Single rule: **only the owning task drops `t_*` and only on the happy path; only BackgroundWorker drops `j_<id>_*`.**
+Two orthogonal axes determine a table's lifetime:
 
-| Table type                              | On successful task exit | On task failure / worker death | At job completion          |
-|-----------------------------------------|-------------------------|--------------------------------|----------------------------|
-| `t_*` (anonymous / unnamed)             | Inline DROP by task     | BackgroundWorker sweeps        | n/a (gone earlier)         |
-| `j_<id>_<name>`, not preserved          | Inline DROP by task     | Leave for job-end cleanup      | BackgroundWorker drops     |
-| `j_<id>_<name>`, preserved              | Leave (job-end)         | Leave (job-end)                | BackgroundWorker drops     |
-| `j_<id>_<uuid>` (Object output, pinned) | Leave (pin-controlled)  | Leave (pin-controlled)         | BackgroundWorker drops     |
-| `p_*` (persistent)                      | Never                   | Never                          | Never (user-managed)       |
+- **Naming**: anonymous (`t_<snowflake>`) vs user-named (`j_<id>_<name>`) vs persistent (`p_<name>`).
+- **Cross-task carry-over**: pinned (an Object referencing this table is consumed by a downstream task) vs preserved (named is in the job's `preserve` list) vs neither.
+
+Pinning and preserving are independent. An anonymous `t_*` Object output gets pinned for its consumer; a user-named `j_<id>_<name>` is either preserved (job-wide shared table) or task-local. A `j_<id>_<name>` could in principle also be pinned if returned as an Object, though the typical pattern is anonymous outputs + named shared tables.
+
+Single rule: **the owning task drops on the happy path only when no pin/preserve flag protects the table; BackgroundWorker handles every `j_<id>_*` drop and every cross-task lifetime.**
+
+| Table type                              | On successful task exit          | On task failure / worker death | At job completion          |
+|-----------------------------------------|----------------------------------|--------------------------------|----------------------------|
+| `t_*` not pinned (pure scratch)         | Inline DROP by task              | BackgroundWorker sweeps        | n/a (gone earlier)         |
+| `t_*` pinned (Object output)            | Leave (pin-controlled)           | Leave (pin-controlled)         | BackgroundWorker drops     |
+| `j_<id>_<name>`, not preserved          | Inline DROP by task              | Leave for job-end cleanup      | BackgroundWorker drops     |
+| `j_<id>_<name>`, preserved              | Leave (job-end)                  | Leave (job-end)                | BackgroundWorker drops     |
+| `p_*` (persistent)                      | Never                            | Never                          | Never (user-managed)       |
 
 Preserved tables die at **job completion**, not at TTL. "Preserved" means "lives for the run", not "lives 90 days."
 
@@ -143,7 +150,9 @@ Task body runs:
                               acquire TaskNameLock(job_id, "foo", task_id)
                                 - if held by another live task → raise TableNameCollision
                               j_<id>_foo; incref local; preserved=FALSE
-  - return Object(table)  → producer marks TablePinRef rows for declared consumers
+  - return Object(table)  → producer's serializer marks TablePinRef rows for each declared consumer.
+                            Typically the underlying table is an anonymous `t_*` (Object outputs use auto-generated names),
+                            but pinning is name-agnostic — any table backing a returned Object can be pinned.
   ↓
 Task body completes:
   ↓
@@ -158,7 +167,7 @@ task_scope.__aexit__ (success path):
 
 task_scope.__aexit__ (failure path):
   1. Stale-mark weakref-tracked Objects
-  2. Drop ONLY t_* tables inline. Leave all j_<id>_* tables (BackgroundWorker handles).
+  2. Drop ONLY t_* tables that are NOT pinned. Leave all j_<id>_* tables and any pinned t_* (BackgroundWorker handles).
   3. Release TaskNameLock rows for this task
   4. Reset ContextVars
   Task status → PENDING_CLEANUP
@@ -177,7 +186,7 @@ Process is gone, so nothing inline. BackgroundWorker dead-worker sweep:
 
 When all tasks reach a terminal state, `BackgroundWorker.try_complete_job()`:
 
-- DROP every `j_<job_id>_*` table in `table_registry` for this job — unconditionally. Preserved, non-preserved, and pinned Object outputs all share the `j_<job_id>_` prefix and are all gone at job end.
+- DROP every CH table in `table_registry` for this `job_id` — both `j_<job_id>_*` (named, preserved or not) and `t_*` (pinned anonymous Object outputs that haven't been auto-cleaned). At job end the entire job-scoped table set is gone.
 - Delete `table_pin_refs` and `task_name_locks` rows for this job.
 - Mark job COMPLETED / FAILED.
 - Leave the job row + oplog in SQL until TTL expiry (unchanged).
@@ -205,10 +214,10 @@ Deleted:
 
 Modified / new:
 
-- `_cleanup_failed_task_tables()` — for tasks in PENDING_CLEANUP, scan `table_registry` for `j_<job_id>_*` rows created by the failed task where `preserved=FALSE` and DROP them on CH.
-- `_cleanup_orphan_scratch_tables()` — sweeps `t_*` CH tables with no live owning task.
-- `_cleanup_at_job_completion()` — on terminal transition, DROP every `j_<job_id>_*` table in `table_registry` for the job.
-- `_cleanup_pin_refs()` — unchanged.
+- `_cleanup_failed_task_tables()` — for tasks in PENDING_CLEANUP, scan `table_registry` for `j_<job_id>_*` rows created by the failed task where `preserved=FALSE` and DROP them on CH. Pinned `t_*` tables created by the failed task are left alone (consumers may still need them).
+- `_cleanup_orphan_scratch_tables()` — sweeps unpinned `t_*` CH tables with no live owning task. Pinned `t_*` are skipped (handled by `_cleanup_pin_refs`).
+- `_cleanup_at_job_completion()` — on terminal transition, DROP every CH table tied to this `job_id` in `table_registry` (both `j_<job_id>_*` and pinned `t_*`).
+- `_cleanup_pin_refs()` — unchanged: drop `t_*` tables when pin_refs == 0.
 - `_cleanup_dead_workers()` — extended to release `task_name_locks` for the dead worker's tasks.
 - `_cleanup_expired_jobs()` — unchanged (TTL safety net).
 
