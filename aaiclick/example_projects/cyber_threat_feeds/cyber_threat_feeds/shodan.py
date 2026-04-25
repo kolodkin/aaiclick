@@ -136,16 +136,13 @@ async def _epss_distribution(cves: Object) -> dict:
 async def _high_risk_cves(cves: Object) -> dict:
     """Find CVEs with both high CVSS (>=9.0) and high EPSS (>0.5).
 
-    Uses multiplication instead of bitAnd to combine boolean-like results,
-    since comparison on Nullable(Float64) produces Float64-typed Objects.
+    Uses ``count_if`` with a dict to compute both counts in a single
+    table scan, avoiding cross-table operations between derived results.
     """
-    critical_cvss = await (cves["cvss"] >= 9.0)
-    high_epss = await (cves["epss"] > 0.5)
-    # Multiply two 0/1 results: 1*1=1 (both true), otherwise 0
-    high_risk = await (critical_cvss * high_epss)
-
-    high_risk_count = await (await high_risk.sum()).data()
-    total_count = await (await cves["cve_id"].count()).data()
+    counts = await cves.count_if({"high_risk": "cvss >= 9.0 AND epss > 0.5", "total": "1"})
+    data = await counts.data()
+    high_risk_count = data["high_risk"]
+    total_count = data["total"]
 
     return {
         "high_risk_count": high_risk_count,
