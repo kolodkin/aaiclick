@@ -590,8 +590,10 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
         json_columns={"id": ColumnInfo("String")},
         limit=2,
     )
+    # Single-column json_columns yields a FIELDTYPE_ARRAY Object (column
+    # renamed to "value"), matching the single-column tabular contract.
     data_limited = await obj_limited.data()
-    assert len(data_limited["id"]) == 2
+    assert len(data_limited) == 2
 
     obj_filtered = await create_object_from_url(
         f"{json_server}/data.json",
@@ -634,5 +636,6 @@ async def test_json_load_json_as_string_format(ctx, json_server):
         json_path="items",
         json_columns={"id": ColumnInfo("String")},
     )
+    # Single-column → FIELDTYPE_ARRAY Object — data() returns a list.
     data = await obj.data()
-    assert len(data["id"]) == 3
+    assert len(data) == 3

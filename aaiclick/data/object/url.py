@@ -83,6 +83,7 @@ def _build_json_select(
     json_path: str,
     format: str,
     safe_url: str,
+    single_col_alias: str | None = None,
 ) -> tuple[str, str]:
     """Build SELECT expressions and FROM subquery for JSON extraction.
 
@@ -91,6 +92,9 @@ def _build_json_select(
         json_path: Dot-path to the JSON array (e.g., "vulnerabilities")
         format: RawBLOB or JSONAsString
         safe_url: SQL-safe URL string (single quotes escaped)
+        single_col_alias: When set (single-column ARRAY case), alias the
+            extracted value to this name so INSERT matches the schema's
+            ``"value"`` column.
 
     Returns:
         (select_exprs, from_subquery) tuple for use in INSERT...SELECT
@@ -101,7 +105,8 @@ def _build_json_select(
     select_parts = []
     for field_name, col_info in json_columns.items():
         expr = _json_extract_expr(field_name, col_info)
-        select_parts.append(f"{expr} AS {quote_identifier(field_name)}")
+        alias = single_col_alias if single_col_alias is not None else field_name
+        select_parts.append(f"{expr} AS {quote_identifier(alias)}")
 
     select_exprs = ", ".join(select_parts)
     from_subquery = (
@@ -262,9 +267,13 @@ async def _create_from_json(
     settings = ch_settings or {}
     safe_url = escape_sql_string(url)
 
-    schema_columns = {name: ci.with_fieldtype(FIELDTYPE_ARRAY) for name, ci in json_columns.items()}
-
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=schema_columns)
+    if len(json_columns) == 1:
+        only_col_info = next(iter(json_columns.values()))
+        schema_columns = {"value": only_col_info.with_fieldtype(FIELDTYPE_ARRAY)}
+        schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=schema_columns)
+    else:
+        schema_columns = {name: ci.with_fieldtype(FIELDTYPE_ARRAY) for name, ci in json_columns.items()}
+        schema = Schema(fieldtype=FIELDTYPE_DICT, columns=schema_columns)
     obj = await create_object(schema)
 
     select_exprs, from_subquery = _build_json_select(
@@ -272,6 +281,7 @@ async def _create_from_json(
         json_path,
         format,
         safe_url,
+        single_col_alias="value" if len(json_columns) == 1 else None,
     )
 
     insert_cols_str = ", ".join(quote_identifier(c) for c in schema_columns)
