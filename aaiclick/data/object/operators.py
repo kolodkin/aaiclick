@@ -140,7 +140,17 @@ async def _validate_array_lengths(source_a, source_b, ch_client):
         raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
 
-async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client, *, order_a: str, order_b: str):
+async def _materialize_array_join(
+    source_a,
+    type_a,
+    source_b,
+    type_b,
+    ch_client,
+    *,
+    order_a: str,
+    order_b: str,
+    propagate_a_aai_id: bool = False,
+):
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
     Creates a temporary Memory table containing both operand values joined by
@@ -156,6 +166,8 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client,
         ch_client: ClickHouse async client
         order_a: ORDER BY expression for left source — from ``View._order_by``.
         order_b: ORDER BY expression for right source.
+        propagate_a_aai_id: When True, also carry the LEFT side's ``aai_id``
+            column into the temp table as ``a_aai_id Nullable(UInt64)``.
 
     Returns:
         Name of the temp table.  Caller is responsible for DROP.
@@ -165,26 +177,29 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client,
     """
     temp_table = f"tmp_{get_snowflake_id()}"
 
+    aai_id_col_def = ", a_aai_id Nullable(UInt64)" if propagate_a_aai_id else ""
     await ch_client.command(f"""
         CREATE TABLE {temp_table} (
             a_value Nullable({type_a}),
             b_value Nullable({type_b}),
             a_present Nullable(UInt8),
-            b_present Nullable(UInt8)
+            b_present Nullable(UInt8){aai_id_col_def}
         ) ENGINE = Memory
     """)
 
     # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
     # Add explicit presence markers (also Nullable) to distinguish join-NULLs
     # from data-NULLs in nullable source columns.
+    a_aai_id_select = ", a.aai_id AS a_aai_id" if propagate_a_aai_id else ""
+    a_aai_id_inner = ", CAST(aai_id AS Nullable(UInt64)) AS aai_id" if propagate_a_aai_id else ""
     await ch_client.command(f"""
         INSERT INTO {temp_table}
         SELECT a.value AS a_value, b.value AS b_value,
-               a.present AS a_present, b.present AS b_present
+               a.present AS a_present, b.present AS b_present{a_aai_id_select}
         FROM (
             SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_a})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present
+                   CAST(1 AS Nullable(UInt8)) AS present{a_aai_id_inner}
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
@@ -234,15 +249,20 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     type_b = info_b.value_type
     value_type = _promote_arithmetic_type(operator, type_a, type_b)
 
-    # Build schema for result table
+    # Build schema for result table. When the LEFT operand carries an
+    # ``aai_id`` column, propagate it onto the result so callers can recover
+    # row order via ``view(order_by="aai_id")`` after the operator runs.
     result_nullable = info_a.nullable or info_b.nullable
-    schema = Schema(
-        fieldtype=fieldtype,
-        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
-    )
+    result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
+    propagate_aai_id = info_a.has_aai_id
+    if propagate_aai_id:
+        result_columns["aai_id"] = ColumnInfo(type="UInt64", fieldtype=FIELDTYPE_ARRAY)
+    schema = Schema(fieldtype=fieldtype, columns=result_columns)
 
     # Create result object with schema
     result = await create_object(schema)
+
+    insert_cols = "(value, aai_id)" if propagate_aai_id else "(value)"
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -261,13 +281,15 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
             col_b = quote_identifier(info_b.value_column)
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
             suffix = info_a.constraint_sql
+            select_extra = ", aai_id" if propagate_aai_id else ""
             if suffix:
-                source_sql = f"(SELECT {col_a}, {col_b} FROM {info_a.base_table} {suffix})"
+                cols_proj = f"{col_a}, {col_b}" + (", aai_id" if propagate_aai_id else "")
+                source_sql = f"(SELECT {cols_proj} FROM {info_a.base_table} {suffix})"
             else:
                 source_sql = info_a.base_table
             await ch_client.command(f"""
-                INSERT INTO {result.table} (value)
-                SELECT {expr} AS value FROM {source_sql}
+                INSERT INTO {result.table} {insert_cols}
+                SELECT {expr} AS value{select_extra} FROM {source_sql}
             """)
         else:
             # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
@@ -286,21 +308,25 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     ch_client,
                     order_a=info_a.order_by,
                     order_b=info_b.order_by,
+                    propagate_a_aai_id=propagate_aai_id,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+                temp_extra = ", a_aai_id AS aai_id" if propagate_aai_id else ""
                 try:
                     await ch_client.command(f"""
-                        INSERT INTO {result.table} (value)
-                        SELECT {temp_expr} AS value FROM {temp_table}
+                        INSERT INTO {result.table} {insert_cols}
+                        SELECT {temp_expr} AS value{temp_extra} FROM {temp_table}
                     """)
                 finally:
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+                a_extra_inner = ", aai_id" if propagate_aai_id else ""
+                a_extra_outer = ", a.aai_id AS aai_id" if propagate_aai_id else ""
                 await ch_client.command(f"""
-                    INSERT INTO {result.table} (value)
-                    SELECT {expression} AS value
-                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value FROM {info_a.source}) AS a
+                    INSERT INTO {result.table} {insert_cols}
+                    SELECT {expression} AS value{a_extra_outer}
+                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{a_extra_inner} FROM {info_a.source}) AS a
                     INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value FROM {info_b.source}) AS b
                     ON a.rn = b.rn
                 """)
@@ -311,12 +337,11 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     # Cross-join works for all cases. Row order follows ClickHouse's natural
     # source order; callers wanting determinism apply .view(order_by=...).
-    insert_target = f"{result.table} (value)"
-    select_cols = f"{expression} AS value"
+    a_extra = ", a.aai_id AS aai_id" if propagate_aai_id else ""
 
     await ch_client.command(f"""
-        INSERT INTO {insert_target}
-        SELECT {select_cols}
+        INSERT INTO {result.table} {insert_cols}
+        SELECT {expression} AS value{a_extra}
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
 

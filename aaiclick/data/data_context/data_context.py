@@ -587,7 +587,7 @@ async def _create_nested_records_object(
     return obj
 
 
-_DEFAULT_AAI_ID_COLUMN = "id"
+_AAI_ID_COLUMN = "aai_id"
 _AAI_ID_INFO = ColumnInfo(
     type="UInt64",
     fieldtype=FIELDTYPE_ARRAY,
@@ -602,7 +602,7 @@ async def create_object_from_value(
     fields: dict[str, FieldSpec] | None = None,
     scope: NamedScope | None = None,
     *,
-    with_aai_id: bool | str = False,
+    with_aai_id: bool = False,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -630,21 +630,17 @@ async def create_object_from_value(
                it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
                job's TTL expires). Default: ``"job"`` inside an orch job,
                ``"global"`` outside.
-        with_aai_id: Add an aaiclick-managed row-id column (``UInt64`` with
+        with_aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
               monotonically-increasing 64-bit Snowflake assigned per-row by
-              ClickHouse at insert time. Use ``view(order_by="<name>").data()``
+              ClickHouse at insert time. Use ``view(order_by="aai_id").data()``
               to recover insertion order — handy for cross-table arithmetic
               that needs pair-stable row ordering.
 
-              ``False`` (default): no column added.
-              ``True``: column named ``"id"``.
-              ``str``: column with that name (e.g. ``with_aai_id="row_id"``).
-
-              Caveat: operator results (``a + b``) do **not** propagate the
-              column. The JOIN pairs rows by it when both inputs supply it,
-              but the result table is a plain ``value``-only Object — read it
-              as an unordered multiset.
+              When the LEFT operand of a binary operator carries ``aai_id``,
+              the result table propagates the LEFT side's ``aai_id`` values,
+              so ``(a + b).view(order_by="aai_id")`` recovers the original
+              row order.
 
     Returns:
         Object: New Object instance with data
@@ -660,10 +656,9 @@ async def create_object_from_value(
     def _maybe_add_aai_id(columns: dict[str, ColumnInfo]) -> dict[str, ColumnInfo]:
         if not with_aai_id:
             return columns
-        col_name = _DEFAULT_AAI_ID_COLUMN if with_aai_id is True else with_aai_id
-        if col_name in columns:
-            raise ValueError(f"with_aai_id={with_aai_id!r} conflicts with user column '{col_name}'")
-        return {**columns, col_name: _AAI_ID_INFO}
+        if _AAI_ID_COLUMN in columns:
+            raise ValueError(f"with_aai_id=True conflicts with user column '{_AAI_ID_COLUMN}'")
+        return {**columns, _AAI_ID_COLUMN: _AAI_ID_INFO}
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):

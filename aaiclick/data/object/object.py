@@ -80,7 +80,7 @@ class DataResult:
     columns: dict[str, ColumnInfo]
 
 
-def _require_explicit_order_for_cross_table(a: "Object", b: "Object") -> None:
+def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
     """Enforce the cross-table operator contract.
 
     Binary elementwise ops between two array Objects from different tables
@@ -389,6 +389,7 @@ class Object:
             nullable=col_def.nullable,
             constraint_sql=constraint_sql,
             order_by=self.order_by,
+            has_aai_id="aai_id" in self._schema.columns,
         )
 
     def _build_constraint_sql(self) -> str:
@@ -2779,9 +2780,7 @@ class View(Object):
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
-            columns: dict[str, ColumnInfo] = {
-                name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff
-            }
+            columns: dict[str, ColumnInfo] = {name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff}
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 

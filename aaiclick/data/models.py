@@ -8,7 +8,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
 
-
 # ClickHouse column type literals
 ColumnType = Literal[
     "UInt8",
@@ -222,6 +221,7 @@ class QueryInfo:
     nullable: bool = False
     constraint_sql: str = ""
     order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
+    has_aai_id: bool = False  # Source table carries 'aai_id' — operators propagate LHS values to result
 
 
 @dataclass
@@ -331,5 +331,3 @@ class GroupByInfo:
     columns: dict[str, str]
     fieldtype: str
     having: str | None = None
-
-
