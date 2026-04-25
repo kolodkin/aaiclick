@@ -217,6 +217,14 @@ class Object:
         return None
 
     @property
+    def _explicit_order_by(self) -> str | None:
+        """User-set ORDER BY (no aai_id fallback). Used by ``has_constraints``
+        so the auto-default doesn't force a subquery wrap on reads where
+        ordering doesn't matter (e.g. aggregations).
+        """
+        return None
+
+    @property
     def order_by(self) -> str | None:
         """ORDER BY clause for this Object.
 
@@ -226,6 +234,9 @@ class Object:
         pair-stable cross-table arithmetic without requiring callers to wrap
         them in ``.view(order_by=AAI_ID_COLUMN)``.
         """
+        explicit = self._explicit_order_by
+        if explicit is not None:
+            return explicit
         if AAI_ID_COLUMN in self._schema.columns:
             return AAI_ID_COLUMN
         return None
@@ -290,12 +301,18 @@ class Object:
 
     @property
     def has_constraints(self) -> bool:
-        """Check if this object has any view constraints."""
+        """Check if this object has any view constraints.
+
+        Uses ``_explicit_order_by`` so the auto ``aai_id`` fallback in
+        ``order_by`` doesn't wrap unconstrained sources in a redundant
+        subquery — aggregations, GROUP BY, and other order-insensitive
+        consumers select directly from the table.
+        """
         return bool(
             self.where_clauses
             or self.limit is not None
             or self.offset is not None
-            or self.order_by
+            or self._explicit_order_by
             or self.selected_fields
             or self.computed_columns
             or self.renamed_columns
@@ -2423,13 +2440,8 @@ class View(Object):
         return self._offset
 
     @property
-    def order_by(self) -> str | None:
-        """Explicit ORDER BY for this View, with ``aai_id`` fallback."""
-        if self._order_by is not None:
-            return self._order_by
-        if AAI_ID_COLUMN in self._schema.columns:
-            return AAI_ID_COLUMN
-        return None
+    def _explicit_order_by(self) -> str | None:
+        return self._order_by
 
     @property
     def where_clauses(self) -> list[tuple[str, str]]:

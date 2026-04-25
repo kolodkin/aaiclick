@@ -103,6 +103,18 @@ class ColumnInfo:
         return base
 
 
+# Source-of-truth ColumnInfo for the optional aai_id row-id column.
+# ``data_context.create_object_from_value(with_aai_id=True)`` injects this
+# directly; binary operators propagate it onto result tables via
+# ``replace(AAI_ID_INFO, default=None)`` (no DEFAULT — values come from
+# INSERT, not generated per-row).
+AAI_ID_INFO = ColumnInfo(
+    type="UInt64",
+    fieldtype=FIELDTYPE_ARRAY,
+    default="generateSnowflakeID()",
+)
+
+
 class FieldSpec(NamedTuple):
     """Field specification for overriding inferred column properties.
 

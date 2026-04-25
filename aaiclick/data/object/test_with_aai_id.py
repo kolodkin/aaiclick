@@ -167,3 +167,21 @@ async def test_same_table_field_op_propagates_aai_id(ctx):
     result = await (obj["x"] + obj["y"])
     assert "aai_id" in result.schema.columns
     assert await result.data() == [11, 22, 33]
+
+
+async def test_aai_id_does_not_force_subquery_on_aggregation(ctx):
+    """The aai_id auto order_by is order-only, so unconstrained Objects with
+    aai_id must NOT have ``has_constraints=True`` — otherwise aggregation
+    SQL wraps the source in a redundant ``(SELECT * FROM table ORDER BY aai_id)``
+    subquery that ClickHouse may not always optimize away.
+    """
+    obj = await create_object_from_value([10, 20, 30], with_aai_id=True)
+    assert obj.has_constraints is False
+    info = obj._get_query_info()
+    # Source must be the raw table name, not a wrapped subquery.
+    assert info.source == obj.table
+    # But operators still see aai_id ordering via order_by + has_aai_id.
+    assert info.order_by == "aai_id"
+    assert info.has_aai_id is True
+    # Aggregation still computes the correct value.
+    assert await (await obj.sum()).data() == 60

@@ -24,6 +24,7 @@ from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
 
 from ..models import (
     AAI_ID_COLUMN,
+    AAI_ID_INFO,
     ENGINE_MEMORY,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -588,13 +589,6 @@ async def _create_nested_records_object(
     return obj
 
 
-_AAI_ID_INFO = ColumnInfo(
-    type="UInt64",
-    fieldtype=FIELDTYPE_ARRAY,
-    default="generateSnowflakeID()",
-)
-
-
 async def create_object_from_value(
     val: ValueType,
     name: str | None = None,
@@ -658,7 +652,7 @@ async def create_object_from_value(
             return columns
         if AAI_ID_COLUMN in columns:
             raise ValueError(f"with_aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
-        return {**columns, AAI_ID_COLUMN: _AAI_ID_INFO}
+        return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):

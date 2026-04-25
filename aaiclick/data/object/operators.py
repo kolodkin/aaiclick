@@ -58,6 +58,7 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import NamedTuple, cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
@@ -66,6 +67,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ..data_context import create_object
 from ..models import (
     AAI_ID_COLUMN,
+    AAI_ID_INFO,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
@@ -281,7 +283,8 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
     proj = _aai_id_proj(info_a.has_aai_id)
     if info_a.has_aai_id:
-        result_columns[AAI_ID_COLUMN] = ColumnInfo(type="UInt64", fieldtype=FIELDTYPE_ARRAY)
+        # Drop the DEFAULT — values are copied from the LHS via INSERT, not generated.
+        result_columns[AAI_ID_COLUMN] = replace(AAI_ID_INFO, default=None)
     schema = Schema(fieldtype=fieldtype, columns=result_columns)
     result = await create_object(schema)
 
