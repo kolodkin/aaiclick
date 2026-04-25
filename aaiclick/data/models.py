@@ -46,6 +46,11 @@ FIELDTYPE_DICT = "d"
 ColumnFieldtype = Literal["s", "a"]
 Fieldtype = Literal["s", "a", "d"]
 
+# Reserved column name for the optional row-id added by ``with_aai_id=True``.
+# Operators check the source schema for this name to decide whether to
+# propagate it to the result, and ``order_by`` falls back to it when present.
+AAI_ID_COLUMN = "aai_id"
+
 
 @dataclass(frozen=True)
 class ColumnInfo:

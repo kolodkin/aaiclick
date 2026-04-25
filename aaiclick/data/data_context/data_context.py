@@ -23,6 +23,7 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
 
 from ..models import (
+    AAI_ID_COLUMN,
     ENGINE_MEMORY,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -587,7 +588,6 @@ async def _create_nested_records_object(
     return obj
 
 
-_AAI_ID_COLUMN = "aai_id"
 _AAI_ID_INFO = ColumnInfo(
     type="UInt64",
     fieldtype=FIELDTYPE_ARRAY,
@@ -656,9 +656,9 @@ async def create_object_from_value(
     def _maybe_add_aai_id(columns: dict[str, ColumnInfo]) -> dict[str, ColumnInfo]:
         if not with_aai_id:
             return columns
-        if _AAI_ID_COLUMN in columns:
-            raise ValueError(f"with_aai_id=True conflicts with user column '{_AAI_ID_COLUMN}'")
-        return {**columns, _AAI_ID_COLUMN: _AAI_ID_INFO}
+        if AAI_ID_COLUMN in columns:
+            raise ValueError(f"with_aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
+        return {**columns, AAI_ID_COLUMN: _AAI_ID_INFO}
 
     if isinstance(val, dict):
         if _has_nested_dicts(val):

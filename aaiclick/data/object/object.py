@@ -28,6 +28,7 @@ from ..data_context import (
 from ..data_context.ch_client import export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
+    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
@@ -219,14 +220,14 @@ class Object:
     def order_by(self) -> str | None:
         """ORDER BY clause for this Object.
 
-        Falls back to ``"aai_id"`` when the schema carries that column and no
-        explicit ordering is set — so tables created with ``with_aai_id=True``
-        get deterministic insertion order on reads and pair-stable cross-table
-        arithmetic without requiring callers to wrap them in
-        ``.view(order_by="aai_id")``.
+        Falls back to ``AAI_ID_COLUMN`` when the schema carries that column
+        and no explicit ordering is set — so tables created with
+        ``with_aai_id=True`` get deterministic insertion order on reads and
+        pair-stable cross-table arithmetic without requiring callers to wrap
+        them in ``.view(order_by=AAI_ID_COLUMN)``.
         """
-        if "aai_id" in self._schema.columns:
-            return "aai_id"
+        if AAI_ID_COLUMN in self._schema.columns:
+            return AAI_ID_COLUMN
         return None
 
     @property
@@ -398,7 +399,7 @@ class Object:
             nullable=col_def.nullable,
             constraint_sql=constraint_sql,
             order_by=self.order_by,
-            has_aai_id="aai_id" in self._schema.columns,
+            has_aai_id=AAI_ID_COLUMN in self._schema.columns,
         )
 
     def _build_constraint_sql(self) -> str:
@@ -2426,8 +2427,8 @@ class View(Object):
         """Explicit ORDER BY for this View, with ``aai_id`` fallback."""
         if self._order_by is not None:
             return self._order_by
-        if "aai_id" in self._schema.columns:
-            return "aai_id"
+        if AAI_ID_COLUMN in self._schema.columns:
+            return AAI_ID_COLUMN
         return None
 
     @property
