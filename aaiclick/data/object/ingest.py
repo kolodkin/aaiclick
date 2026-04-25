@@ -16,7 +16,6 @@ from ..data_context import create_object
 from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
-    FIELDTYPE_SCALAR,
     FLOAT_TYPES,
     INT_TYPES,
     NUMERIC_TYPES,
@@ -101,9 +100,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     from aaiclick.orchestration.sql_context import get_sql_session
 
     async with get_sql_session() as sess:
-        result = await sess.execute(
-            select(TableRegistry.schema_doc).where(TableRegistry.table_name == table)
-        )
+        result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == table))
         row = result.one_or_none()
 
     if row is None or row[0] is None:
@@ -294,7 +291,7 @@ async def concat_objects_db(
             if source_def.nullable and not target_def.nullable:
                 result_columns[col_name] = promote_nullable(target_def)
 
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
+    schema = Schema(fieldtype=first_info.fieldtype, columns=result_columns)
     result = await create_object(schema)
 
     col_names = sorted(result_columns)

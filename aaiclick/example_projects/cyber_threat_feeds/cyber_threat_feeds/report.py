@@ -38,13 +38,6 @@ async def generate_threat_report(
         "consolidated": consolidated_stats,
     }
 
-    print(f"DBG kev: ft={kev.schema.fieldtype} cols={list(kev.schema.columns)} table={kev.table}", flush=True)
-    print(f"DBG cves: ft={cves.schema.fieldtype} cols={list(cves.schema.columns)} table={cves.table}", flush=True)
-    print(f"DBG epss: ft={epss.schema.fieldtype} cols={list(epss.schema.columns)} table={epss.table}", flush=True)
-    print(
-        f"DBG consolidated: ft={consolidated.schema.fieldtype} cols={list(consolidated.schema.columns)}",
-        flush=True,
-    )
     kev_md = await kev.view(limit=5).markdown()
     cves_md = await cves.view(limit=5).markdown(truncate={"summary": 40})
     epss_md = await epss.view(limit=5).markdown()
