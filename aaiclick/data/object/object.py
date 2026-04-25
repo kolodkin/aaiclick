@@ -62,6 +62,10 @@ from . import data_extraction, ingest, operators
 from . import join as join_module
 from .refs import ObjectRef, ViewRef
 
+# Sentinel for "caller did not pass this kwarg" — distinguishes from None
+# which means "explicitly no value" (e.g. limit=None to disable the safety cap).
+_UNSET: Any = object()
+
 
 @dataclass
 class DataResult:
@@ -316,6 +320,10 @@ class Object:
         columns: str = "*",
         default_order_by: str | None = None,
         skip_order_by: bool = False,
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
     ) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -324,22 +332,30 @@ class Object:
             columns: Column specification (default "*")
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
             skip_order_by: If True, omit ORDER BY from the query.
+            order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
+                used in place of the View's stored attributes. Lets
+                ``data(order_by=..., limit=..., offset=...)`` override the
+                View it's called on without mutating the View itself.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_limit = limit if limit is not _UNSET else self.limit
+        eff_offset = offset if offset is not _UNSET else self.offset
+
         query = f"SELECT {columns} FROM {self.table}"
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
         if not skip_order_by:
-            order_clause = self.order_by or default_order_by
+            order_clause = eff_order_by or default_order_by
             if order_clause:
                 query += f" ORDER BY {order_clause}"
-        if self.limit is not None:
-            query += f" LIMIT {self.limit}"
-        if self.offset is not None:
-            query += f" OFFSET {self.offset}"
+        if eff_limit is not None:
+            query += f" LIMIT {eff_limit}"
+        if eff_offset is not None:
+            query += f" OFFSET {eff_offset}"
         return query
 
     def _get_query_info(self) -> QueryInfo:
@@ -444,18 +460,32 @@ class Object:
         self.checkstale()
         return await self.ch_client.query(f"SELECT * FROM {self.table}")
 
-    async def data(self, orient: str = ORIENT_DICT) -> Any:
+    async def data(
+        self,
+        orient: str = ORIENT_DICT,
+        *,
+        order_by: Any = _UNSET,
+        offset: Any = _UNSET,
+        limit: Any = _UNSET,
+    ) -> Any:
         """
         Get the data from the object's table.
 
         Returns a scalar value, list, or dict depending on the object's field type.
         Scalar objects return the value directly; array objects return a list;
-        dict objects return a dict or list-of-dicts controlled by `orient`.
+        dict objects return a dict or list-of-dicts controlled by ``orient``.
 
         Args:
-            orient: Output format for dict data. Options:
-                - ORIENT_DICT ('dict'): returns dict with column names as keys (default)
-                - ORIENT_RECORDS ('records'): returns list of dicts (one per row)
+            orient: Output format for dict data — ``ORIENT_DICT`` (default) or
+                ``ORIENT_RECORDS``.
+            order_by: Optional ``ORDER BY`` clause. When omitted on a View,
+                inherits the View's stored ``order_by``. Scalar reads ignore.
+            offset: Optional row offset. Same View-inheritance rule as above.
+            limit: Row cap. Defaults to 1000 as a safety rail when called on a
+                base Object; pass ``None`` to fetch all rows. On a View, defers
+                to the View's ``limit`` when omitted (which may itself be 1000
+                or None — the View's choice wins). Scalar / single-row reads
+                ignore.
         """
         self.checkstale()
 
@@ -465,11 +495,37 @@ class Object:
         columns = self._schema.columns
         column_names = list(columns)
 
-        if fieldtype == FIELDTYPE_DICT:
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
         if fieldtype == FIELDTYPE_SCALAR:
             return await data_extraction.extract_scalar_data(self)
-        return await data_extraction.extract_array_data(self)
+
+        # Resolve override kwargs against View state (or apply 1000 safety cap
+        # for base Objects). _UNSET means "caller didn't pass"; explicit None
+        # means "no value" (e.g. limit=None to disable the cap).
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_offset = offset if offset is not _UNSET else self.offset
+        if limit is not _UNSET:
+            eff_limit = limit
+        elif self.limit is not None:
+            eff_limit = self.limit
+        else:
+            eff_limit = 1000
+
+        if fieldtype == FIELDTYPE_DICT:
+            return await data_extraction.extract_dict_data(
+                self,
+                column_names,
+                columns,
+                orient,
+                order_by=eff_order_by,
+                offset=eff_offset,
+                limit=eff_limit,
+            )
+        return await data_extraction.extract_array_data(
+            self,
+            order_by=eff_order_by,
+            offset=eff_offset,
+            limit=eff_limit,
+        )
 
     async def markdown(self, truncate: dict[str, int] | None = None) -> str:
         """Return the object's data formatted as a markdown table.
@@ -2549,6 +2605,10 @@ class View(Object):
         columns: str = "*",
         default_order_by: str | None = None,
         skip_order_by: bool = False,
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
     ) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -2564,6 +2624,8 @@ class View(Object):
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
             skip_order_by: If True, omit ORDER BY from the query. Used by copy()
                 to avoid a wasted sort when the order is preserved as a View.
+            order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
+                used in place of the View's stored attributes.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -2628,17 +2690,21 @@ class View(Object):
                 else:
                     join_parts.append(quote_identifier(col))
             query += f" {join_type} {', '.join(join_parts)}"
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_limit = limit if limit is not _UNSET else self.limit
+        eff_offset = offset if offset is not _UNSET else self.offset
+
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
         if not skip_order_by:
-            order_clause = self.order_by or default_order_by
+            order_clause = eff_order_by or default_order_by
             if order_clause:
                 query += f" ORDER BY {order_clause}"
-        if self.limit is not None:
-            query += f" LIMIT {self.limit}"
-        if self.offset is not None:
-            query += f" OFFSET {self.offset}"
+        if eff_limit is not None:
+            query += f" LIMIT {eff_limit}"
+        if eff_offset is not None:
+            query += f" OFFSET {eff_offset}"
         return query
 
     def _get_copy_info(self) -> CopyInfo:
@@ -2681,7 +2747,14 @@ class View(Object):
             order_by=self.order_by,
         )
 
-    async def data(self, orient: str = ORIENT_DICT) -> Any:
+    async def data(
+        self,
+        orient: str = ORIENT_DICT,
+        *,
+        order_by: Any = _UNSET,
+        offset: Any = _UNSET,
+        limit: Any = _UNSET,
+    ) -> Any:
         """
         Get the data from the view.
 
@@ -2691,17 +2764,26 @@ class View(Object):
 
         Args:
             orient: Output format for dict data
+            order_by/offset/limit: Per-call overrides — see ``Object.data``.
         """
         self.checkstale()
 
+        # Resolve overrides against View state. Same rule as Object.data:
+        # _UNSET means "caller didn't pass" → fall back to the View attr;
+        # explicit None means "no value" (e.g. limit=None to disable any cap).
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_offset = offset if offset is not _UNSET else self.offset
+        eff_limit = limit if limit is not _UNSET else self.limit
+        ext_kwargs = {"order_by": eff_order_by, "offset": eff_offset, "limit": eff_limit}
+
         if self.selected_fields:
             if self.is_single_field:
-                return await data_extraction.extract_array_data(self)
+                return await data_extraction.extract_array_data(self, **ext_kwargs)
             columns: dict[str, ColumnInfo] = {
                 field: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
             }
             column_names = list(self.selected_fields)
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
@@ -2709,10 +2791,10 @@ class View(Object):
                 name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff
             }
             column_names = list(eff.keys())
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
         # Delegate to parent for normal views
-        return await super().data(orient=orient)
+        return await super().data(orient=orient, order_by=order_by, offset=offset, limit=limit)
 
     @property
     def schema(self) -> ViewSchema:

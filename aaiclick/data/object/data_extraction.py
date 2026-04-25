@@ -97,24 +97,26 @@ async def extract_scalar_data(obj: Object) -> Any:
     return _convert_value(rows[0][0]) if rows else None
 
 
-async def extract_array_data(obj: Object) -> list[Any]:
+async def extract_array_data(obj: Object, **build_select_kwargs: Any) -> list[Any]:
     """
     Extract data from an array table (multiple 'value' rows).
 
-    Args:
-        obj: Object instance with array data
-
-    Returns:
-        List of values in ClickHouse's natural source order (callers that
-        need determinism apply ``.view(order_by=...)``).
+    Extra kwargs (``order_by``, ``limit``, ``offset``) are forwarded to
+    ``Object._build_select`` to override View-stored attrs per-call.
     """
-    query = obj._build_select(columns="value", default_order_by=None)
+    query = obj._build_select(columns="value", default_order_by=None, **build_select_kwargs)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return [_convert_value(row[0]) for row in rows]
 
 
-async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[str, ColumnInfo], orient: str):
+async def extract_dict_data(
+    obj: Object,
+    column_names: list[str],
+    columns: dict[str, ColumnInfo],
+    orient: str,
+    **build_select_kwargs: Any,
+):
     """
     Extract data from a dict table.
 
@@ -130,7 +132,7 @@ async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    query = obj._build_select(columns="*", default_order_by=None)
+    query = obj._build_select(columns="*", default_order_by=None, **build_select_kwargs)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
 
