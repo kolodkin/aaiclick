@@ -23,7 +23,7 @@ def _mock_query_result(rows, column_names=None):
 
 async def test_get_column_stats_returns_all_columns():
     """get_column_stats discovers columns and returns stats for each one."""
-    describe_result = _mock_query_result([("id", "UInt64"), ("val", "Float64")])
+    describe_result = _mock_query_result([("aai_id", "UInt64"), ("val", "Float64")])
     stats_result = _mock_query_result([(10, 10, 1, 100, 10, 8, 1.5, 9.9)])
 
     mock_client = MagicMock()
@@ -32,7 +32,7 @@ async def test_get_column_stats_returns_all_columns():
     with patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client):
         result = await get_column_stats("test_table")
 
-    assert "id: count=10" in result
+    assert "aai_id: count=10" in result
     assert "val: count=10" in result
     assert "min=1.5" in result
 
