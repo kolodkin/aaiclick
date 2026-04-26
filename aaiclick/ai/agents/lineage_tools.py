@@ -15,6 +15,8 @@ import logging
 import re
 from typing import Any, Literal, NamedTuple
 
+from pydantic import BaseModel, Field
+
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 from aaiclick.oplog.lineage import OplogGraph
@@ -36,29 +38,41 @@ class ToolError(NamedTuple):
     message: str
 
 
-class GraphNode(NamedTuple):
+class GraphNode(BaseModel):
+    """Single node in the lineage graph with kind + liveness."""
+
     table: str
     kind: NodeKind
     operation: str
     live: bool
-    task_id: int | None
-    job_id: int | None
+    task_id: int | None = None
+    job_id: int | None = None
 
 
-class ColumnSchema(NamedTuple):
+class ColumnSchema(BaseModel):
+    """Column inside a ``TableSchema``."""
+
     name: str
     type: str
 
 
-class TableSchema(NamedTuple):
+class TableSchema(BaseModel):
+    """Table schema returned by ``get_schema`` / ``get_table_schema``."""
+
     table: str
-    columns: list[ColumnSchema]
+    columns: list[ColumnSchema] = Field(default_factory=list)
 
 
-class QueryResult(NamedTuple):
-    columns: list[str]
-    rows: list[tuple]
-    truncated: bool
+class QueryResult(BaseModel):
+    """Result of a sandboxed read-only SELECT.
+
+    ``rows`` is ``list[list[Any]]`` rather than ``list[tuple]`` so the type
+    serializes cleanly through the MCP/REST surfaces (JSON arrays of arrays).
+    """
+
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[Any]] = Field(default_factory=list)
+    truncated: bool = False
 
 
 DEFAULT_ROW_LIMIT = 100
@@ -127,6 +141,80 @@ def _classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
     return kinds
 
 
+def normalize_sql_for_scan(sql: str) -> str:
+    """Strip comments and literals so SQL safety/scope regex passes don't trip on them.
+
+    Callers running multiple validation passes on the same SQL should compute this
+    once and thread it through ``validate_select_safety(scan=...)`` /
+    ``validate_scope(scan=...)`` / ``run_select(scan=...)``.
+    """
+    return _strip_literals(_strip_comments(sql))
+
+
+def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | None:
+    """Reject anything that isn't a single read-only ``SELECT`` (or ``WITH … SELECT``).
+
+    Stateless. Pass ``scan`` to skip the comment + literal strip when the caller
+    has already normalized the SQL.
+    """
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
+    if _SEMICOLON_RE.search(scan):
+        return ToolError("not_select", "Only a single SELECT statement is allowed.")
+    if not _STATEMENT_START_RE.match(scan):
+        return ToolError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
+    if _FORBIDDEN_KEYWORDS_RE.search(scan):
+        return ToolError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
+    return None
+
+
+def validate_scope(sql: str, scope_tables: set[str], *, scan: str | None = None) -> ToolError | None:
+    """Reject when ``sql`` references any ``t_*`` / ``p_*`` table outside ``scope_tables``."""
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
+    referenced = set(_TABLE_REF_RE.findall(scan))
+    unknown = referenced - scope_tables
+    if unknown:
+        sample = ", ".join(sorted(unknown)[:3])
+        return ToolError("out_of_scope", f"Tables not in scope: {sample}.")
+    return None
+
+
+async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT, *, scan: str | None = None) -> QueryResult:
+    """Execute a (pre-validated) ``SELECT`` with row + execution-time caps."""
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
+    row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
+    effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
+
+    ch_client = get_ch_client()
+    result = await ch_client.query(
+        effective_sql,
+        settings={
+            "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
+            "max_result_rows": ROW_LIMIT_CEILING + 1,
+        },
+    )
+
+    rows = [list(r) for r in result.result_rows]
+    truncated = len(rows) > row_limit
+    if truncated:
+        rows = rows[:row_limit]
+    return QueryResult(columns=list(result.column_names), rows=rows, truncated=truncated)
+
+
+async def describe_table(table: str) -> TableSchema:
+    """Run ``DESCRIBE TABLE`` and return a ``TableSchema``.
+
+    Raises whatever the ClickHouse client raises if the table is missing —
+    callers translate to ``NotFound`` / ``ToolError`` per their layer.
+    """
+    ch_client = get_ch_client()
+    result = await ch_client.query(f"DESCRIBE TABLE {quote_identifier(table)}")
+    columns = [ColumnSchema(name=row[0], type=row[1]) for row in result.result_rows]
+    return TableSchema(table=table, columns=columns)
+
+
 async def _liveness(tables: set[str]) -> dict[str, bool]:
     """One round-trip to ClickHouse: which of these tables currently exist?
 
@@ -162,55 +250,16 @@ class LineageToolbox:
     async def query_table(self, sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult | ToolError:
         """Execute a read-only SELECT against tables in the current graph.
 
-        - Rejects anything that isn't a ``SELECT`` / ``WITH ... SELECT``
-        - Rejects if any ``t_*`` / ``p_*`` token references a table outside
-          the graph
-        - Wraps in ``LIMIT row_limit + 1`` when no ``LIMIT`` is present so
-          truncation can be reported
-        - Pins ``max_execution_time`` and ``max_result_rows`` so an
-          accidental scan can't tie up the cluster
+        Composes the stateless ``validate_select_safety`` / ``validate_scope``
+        / ``run_select`` helpers. The out-of-scope error gets a graph-flavored
+        suffix so the LLM knows which tool to call to inspect the scope.
         """
-        stripped = _strip_comments(sql).strip()
-        scan = _strip_literals(stripped)
-        if _SEMICOLON_RE.search(scan):
-            return ToolError("not_select", "Only a single SELECT statement is allowed.")
-        if not _STATEMENT_START_RE.match(scan):
-            return ToolError(
-                "not_select",
-                "query_table accepts only SELECT (or WITH ... SELECT) statements.",
-            )
-        if _FORBIDDEN_KEYWORDS_RE.search(scan):
-            return ToolError(
-                "not_select",
-                "query_table rejects DDL/DML keywords; only SELECT is permitted.",
-            )
-
-        referenced = set(_TABLE_REF_RE.findall(scan))
-        unknown = referenced - self._tables
-        if unknown:
-            sample = ", ".join(sorted(unknown)[:3])
-            return ToolError(
-                "out_of_scope",
-                f"Tables not in the lineage graph: {sample}. Use list_graph_nodes() to see what's in scope.",
-            )
-
-        row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
-        effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
-
-        ch_client = get_ch_client()
-        result = await ch_client.query(
-            effective_sql,
-            settings={
-                "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
-                "max_result_rows": ROW_LIMIT_CEILING + 1,
-            },
-        )
-
-        rows = [tuple(r) for r in result.result_rows]
-        truncated = len(rows) > row_limit
-        if truncated:
-            rows = rows[:row_limit]
-        return QueryResult(columns=list(result.column_names), rows=rows, truncated=truncated)
+        scan = normalize_sql_for_scan(sql)
+        if err := validate_select_safety(sql, scan=scan):
+            return err
+        if err := validate_scope(sql, self._tables, scan=scan):
+            return err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
+        return await run_select(sql, row_limit, scan=scan)
 
     async def get_op_sql(self, table: str) -> str | ToolError:
         """Rendered SQL template for the operation that produced ``table``."""
@@ -251,14 +300,11 @@ class LineageToolbox:
         """Columns and types for a table in the graph."""
         if table not in self._tables:
             return ToolError("out_of_scope", f"{table} is not in the lineage graph.")
-        ch_client = get_ch_client()
         try:
-            result = await ch_client.query(f"DESCRIBE TABLE {quote_identifier(table)}")
+            return await describe_table(table)
         except Exception as exc:
             logger.exception("DESCRIBE TABLE %s failed", table)
             return ToolError("not_live", f"Could not describe {table}: {exc}")
-        columns = [ColumnSchema(name=row[0], type=row[1]) for row in result.result_rows]
-        return TableSchema(table=table, columns=columns)
 
     async def dispatch_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Invoke a tool by name and format the result as LLM-readable text.

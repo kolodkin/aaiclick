@@ -80,7 +80,7 @@ async def test_query_table_happy_path_wraps_limit():
 
     assert isinstance(result, QueryResult)
     assert result.columns == ["id", "name"]
-    assert result.rows == [(1, "a"), (2, "b")]
+    assert result.rows == [[1, "a"], [2, "b"]]
     assert not result.truncated
     called_sql = mock_client.query.call_args.args[0]
     assert "LIMIT 101" in called_sql  # default row_limit=100 → LIMIT 101

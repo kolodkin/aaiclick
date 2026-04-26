@@ -46,6 +46,7 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 - Always use HEREDOC for multi-line messages
 - Always get user approval before committing
 - Do NOT include "Generated with ..." in commit messages
+- Do NOT include `Co-Authored-By: Claude` trailers in commit messages
 
 # Test Execution Strategy
 
