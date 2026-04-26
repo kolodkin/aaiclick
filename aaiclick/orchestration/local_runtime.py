@@ -12,9 +12,8 @@ local mode. Distributed-mode callers run ``worker start`` and
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from aaiclick.backend import is_local
 from aaiclick.cli_renderers import render_setup_result
@@ -27,12 +26,7 @@ from .orch_context import orch_context
 
 @asynccontextmanager
 async def local_runtime() -> AsyncIterator[None]:
-    """Run BackgroundWorker + execution worker for the duration of the block.
-
-    Local mode only — raises ``RuntimeError`` if ``is_local()`` is False.
-    Auto-runs ``setup()`` on first use. The execution worker runs as a
-    background ``asyncio.Task`` and is cancelled on shutdown.
-    """
+    """Run BackgroundWorker + execution worker for the duration of the block."""
     if not is_local():
         raise RuntimeError(
             "local_runtime() requires local mode (chdb + sqlite). "
@@ -46,12 +40,13 @@ async def local_runtime() -> AsyncIterator[None]:
     await background.start()
     try:
         async with orch_context(with_ch=True):
+            # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
             worker_task = asyncio.create_task(worker_main_loop(install_signal_handlers=False))
             try:
                 yield
             finally:
                 worker_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError):
                     await worker_task
     finally:
         await background.stop()

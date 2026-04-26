@@ -10,15 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from .local_runtime import local_runtime
+from . import local_runtime as lr
 
 
 async def test_local_runtime_rejects_distributed_mode(monkeypatch):
     """Outside local mode the helper raises before touching any resource."""
-    monkeypatch.setattr(
-        "aaiclick.orchestration.local_runtime.is_local",
-        lambda: False,
-    )
+    monkeypatch.setattr(lr, "is_local", lambda: False)
     with pytest.raises(RuntimeError, match="requires local mode"):
-        async with local_runtime():
-            pytest.fail("local_runtime() should have raised before yielding")
+        async with lr.local_runtime():
+            pass
