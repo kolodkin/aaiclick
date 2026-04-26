@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 from aaiclick.ai.agents.lineage_tools import LINEAGE_TOOL_DEFINITIONS, LineageToolbox
 from aaiclick.ai.agents.prompts import LINEAGE_TIER1_SYSTEM_PROMPT
@@ -21,6 +21,12 @@ from aaiclick.ai.config import get_ai_provider
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
 
 logger = logging.getLogger(__name__)
+
+
+class _ToolCallSpec(NamedTuple):
+    id: str
+    name: str
+    arguments: str
 
 
 async def debug_result(
@@ -63,38 +69,43 @@ async def debug_result(
             choice = response.choices[0]
             message = choice.message
 
-            if choice.finish_reason != "tool_calls" or not message.tool_calls:
-                return OplogGraph.replace_labels(message.content or "", labels)
+            if message.tool_calls:
+                calls = [_ToolCallSpec(tc.id, tc.function.name, tc.function.arguments) for tc in message.tool_calls]
+                assistant_content = message.content
+            else:
+                # Ollama-served models (qwen2.5, llama3.1, ...) sometimes emit a tool
+                # call as a JSON blob in `content` instead of the structured
+                # `tool_calls` field. Salvage the call so the loop continues
+                # instead of returning the JSON to the user as a final answer.
+                inline = _extract_inline_tool_calls(message.content)
+                if not inline:
+                    return OplogGraph.replace_labels(message.content or "", labels)
+                calls = inline
+                assistant_content = ""
 
             messages.append(
                 {
                     "role": "assistant",
-                    "content": message.content,
+                    "content": assistant_content,
                     "tool_calls": [
                         {
-                            "id": tc.id,
+                            "id": call.id,
                             "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
+                            "function": {"name": call.name, "arguments": call.arguments},
                         }
-                        for tc in message.tool_calls
+                        for call in calls
                     ],
                 }
             )
 
             tool_results = await asyncio.gather(
-                *(
-                    toolbox.dispatch_tool(tc.function.name, _parse_arguments(tc.function.arguments))
-                    for tc in message.tool_calls
-                )
+                *(toolbox.dispatch_tool(call.name, _parse_arguments(call.arguments)) for call in calls)
             )
-            for tc, result in zip(message.tool_calls, tool_results, strict=False):
+            for call, result in zip(calls, tool_results, strict=False):
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": call.id,
                         "content": result,
                     }
                 )
@@ -121,3 +132,44 @@ def _parse_arguments(raw: str | None) -> dict[str, Any]:
         logger.warning("tool arguments not valid JSON: %r", raw)
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _extract_inline_tool_calls(content: str | None) -> list[_ToolCallSpec]:
+    """Recover tool calls that a model emitted as JSON text in `content`.
+
+    Returns ``[]`` when ``content`` is empty, isn't JSON, or doesn't match the
+    ``{"function": {"name": ..., "arguments": ...}}`` shape — the caller treats
+    that as a true final answer.
+    """
+    if not content:
+        return []
+    text = content.strip()
+    if not text or text[0] not in "{[":
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    items = parsed if isinstance(parsed, list) else [parsed]
+    calls: list[_ToolCallSpec] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            return []
+        fn = item.get("function")
+        if not isinstance(fn, dict):
+            return []
+        name = fn.get("name")
+        if not isinstance(name, str):
+            return []
+        raw_args = fn.get("arguments", {})
+        if isinstance(raw_args, dict):
+            arguments = json.dumps(raw_args)
+        elif isinstance(raw_args, str):
+            arguments = raw_args
+        else:
+            return []
+        call_id = item.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            call_id = f"inline_call_{index}"
+        calls.append(_ToolCallSpec(id=call_id, name=name, arguments=arguments))
+    return calls

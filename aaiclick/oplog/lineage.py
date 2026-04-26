@@ -117,26 +117,29 @@ class OplogGraph:
 
         return labels
 
-    _SNOWFLAKE_RE = re.compile(r"\bt_\d{16,20}\b|\b\d{16,20}\b")
-
     @staticmethod
     def replace_labels(text: str, labels: dict[str, str]) -> str:
-        """Replace raw table IDs and snowflake IDs in text with labels.
+        """Replace raw table identifiers in text with human-readable labels.
 
-        Builds a lookup from both full table IDs (t_123...) and their bare
-        numeric parts (123...), then replaces all snowflake-shaped tokens
-        in a single regex pass. Unrecognized IDs are left unchanged.
+        Handles every identifier shape that LLMs emit when describing
+        lineage: full table names (`t_<id>`, `j_<job_id>_<name>`,
+        `p_<name>`, or any custom string in `labels`) and the bare
+        snowflake form of `t_<id>` keys. Longer keys are tried first
+        so a shorter substring cannot pre-empt a longer match.
+        Unregistered tokens are left unchanged.
         """
+        if not labels:
+            return text
+
         lookup: dict[str, str] = {}
         for table_id, label in labels.items():
             lookup[table_id] = label
             if table_id.startswith("t_"):
                 lookup[table_id[2:]] = label
 
-        def _sub(m: re.Match) -> str:
-            return lookup.get(m.group(), m.group()) or m.group()
-
-        return OplogGraph._SNOWFLAKE_RE.sub(_sub, text)
+        keys = sorted(lookup, key=len, reverse=True)
+        pattern = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)")
+        return pattern.sub(lambda m: lookup[m.group()], text)
 
     def to_prompt_context(self) -> str:
         """Format the graph as human-readable text for LLM consumption."""

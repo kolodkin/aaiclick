@@ -69,6 +69,7 @@ docs = [
 ]
 dev = [
     "aaiclick[all,test]",
+    "pre-commit>=4.0",
 ]
 
 [project.urls]

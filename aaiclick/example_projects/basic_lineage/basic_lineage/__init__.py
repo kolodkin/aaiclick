@@ -25,25 +25,24 @@ from aaiclick.orchestration import (
     tasks_list,
 )
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.snowflake import get_snowflake_id
 
 from .report import print_report
 
 
 @task
-async def create_prices(suffix: str) -> Object:
+async def create_prices() -> Object:
     return await create_object_from_value(
         [10.0, 20.0, 30.0, 40.0, 50.0],
-        name=f"basic_lineage_prices_{suffix}",
+        name="basic_lineage_prices",
         aai_id=True,
     )
 
 
 @task
-async def create_quantities(suffix: str) -> Object:
+async def create_quantities() -> Object:
     return await create_object_from_value(
         [2.0, 3.0, 1.0, 5.0, 4.0],
-        name=f"basic_lineage_quantities_{suffix}",
+        name="basic_lineage_quantities",
         aai_id=True,
     )
 
@@ -60,20 +59,17 @@ async def add_bonus(revenue: Object) -> Object:
 
 
 @job("revenue_pipeline")
-def revenue_pipeline(suffix: str):
-    prices = create_prices(suffix=suffix)
-    quantities = create_quantities(suffix=suffix)
+def revenue_pipeline():
+    prices = create_prices()
+    quantities = create_quantities()
     revenue = compute_revenue(prices=prices, quantities=quantities)
     total = add_bonus(revenue=revenue)
     return tasks_list(prices, quantities, revenue, total)
 
 
 async def main():
-    suffix = str(get_snowflake_id())
-
     async with orch_context():
         pipeline = await revenue_pipeline(
-            suffix=suffix,
             preservation_mode=PreservationMode.FULL,
         )
         await ajob_test(pipeline)

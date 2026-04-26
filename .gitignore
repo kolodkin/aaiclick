@@ -212,6 +212,10 @@ __marimo__/
 # Temporary CI output files
 tmp/
 .tmp/
+*.tmp.*
+
+# Personal Python pin — let each developer choose their interpreter; CI pins 3.10 explicitly
+.python-version
 
 # GitHub CLI downloads
 gh_*.tar.gz
