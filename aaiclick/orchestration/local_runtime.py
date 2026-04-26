@@ -46,9 +46,7 @@ async def local_runtime() -> AsyncIterator[None]:
     await background.start()
     try:
         async with orch_context(with_ch=True):
-            worker_task = asyncio.create_task(
-                worker_main_loop(install_signal_handlers=False)
-            )
+            worker_task = asyncio.create_task(worker_main_loop(install_signal_handlers=False))
             try:
                 yield
             finally:
