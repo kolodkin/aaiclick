@@ -22,11 +22,14 @@ from fastmcp import FastMCP
 
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import jobs as jobs_api
+from aaiclick.internal_api import lineage as lineage_api
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import workers as workers_api
+from aaiclick.oplog.lineage import LineageDirection, OplogGraph
+from aaiclick.oplog.view_models import LineageAnswer
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     JobDetail,
@@ -190,6 +193,38 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     """Drop global-scope persistent objects filtered by creation time."""
     async with orch_context(with_ch=True):
         return await objects_api.purge_objects(request)
+
+
+# --- lineage / ai -----------------------------------------------------
+
+
+@mcp.tool
+async def oplog_subgraph(
+    target_table: str,
+    direction: LineageDirection = "backward",
+    max_depth: int = 10,
+) -> OplogGraph:
+    """Return the lineage graph for ``target_table`` (backward or forward)."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
+
+
+@mcp.tool
+async def explain_lineage(target_table: str, question: str | None = None) -> LineageAnswer:
+    """Explain how ``target_table`` was produced using a structural LLM agent."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.explain_lineage(target_table, question=question)
+
+
+@mcp.tool
+async def debug_result(
+    target_table: str,
+    question: str,
+    max_iterations: int = 10,
+) -> LineageAnswer:
+    """Run the lineage debug agent's tool loop to investigate ``target_table``."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.debug_result(target_table, question=question, max_iterations=max_iterations)
 
 
 # --- setup ------------------------------------------------------------

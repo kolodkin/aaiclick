@@ -9,6 +9,7 @@ tool results round-trip through the declared view models, and that
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp import Client
@@ -16,12 +17,15 @@ from fastmcp.exceptions import ToolError
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.oplog.lineage import OplogGraph
+from aaiclick.oplog.view_models import LineageAnswer
 from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import WorkerStatus
 from aaiclick.orchestration.view_models import JobDetail, JobView, TaskDetail, WorkerView
+from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page
 
 from .mcp import mcp
@@ -43,6 +47,9 @@ EXPECTED_TOOLS = {
     "get_object",
     "delete_object",
     "purge_objects",
+    "oplog_subgraph",
+    "explain_lineage",
+    "debug_result",
     "setup",
     "migrate",
     "bootstrap_ollama",
@@ -130,3 +137,46 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
 
     detail = ObjectDetail.model_validate(result.structured_content)
     assert detail.name == "mcp_obj_detail"
+
+
+async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
+    graph = OplogGraph(nodes=[make_oplog_node("result_table", "add")], edges=[])
+    mock_subgraph = AsyncMock(return_value=graph)
+
+    with patch("aaiclick.internal_api.lineage._oplog_subgraph", new=mock_subgraph):
+        result = await mcp_client.call_tool(
+            "oplog_subgraph",
+            {"target_table": "result_table", "direction": "backward"},
+        )
+
+    parsed = OplogGraph.model_validate(result.structured_content)
+    assert [n.table for n in parsed.nodes] == ["result_table"]
+    mock_subgraph.assert_awaited_once_with("result_table", direction="backward", max_depth=10)
+
+
+async def test_explain_lineage_returns_answer(orch_ctx, mcp_client):
+    mock_explain = AsyncMock(return_value="Pipeline does X then Y.")
+
+    with patch("aaiclick.internal_api.lineage._explain_lineage", new=mock_explain):
+        result = await mcp_client.call_tool(
+            "explain_lineage",
+            {"target_table": "result_table", "question": "How?"},
+        )
+
+    answer = LineageAnswer.model_validate(result.structured_content)
+    assert answer.text == "Pipeline does X then Y."
+    mock_explain.assert_awaited_once_with("result_table", question="How?")
+
+
+async def test_debug_result_returns_answer(orch_ctx, mcp_client):
+    mock_debug = AsyncMock(return_value="Row 3 has the highest value.")
+
+    with patch("aaiclick.internal_api.lineage._debug_result", new=mock_debug):
+        result = await mcp_client.call_tool(
+            "debug_result",
+            {"target_table": "result_table", "question": "Which row?", "max_iterations": 5},
+        )
+
+    answer = LineageAnswer.model_validate(result.structured_content)
+    assert answer.text == "Row 3 has the highest value."
+    mock_debug.assert_awaited_once_with("result_table", question="Which row?", max_iterations=5)

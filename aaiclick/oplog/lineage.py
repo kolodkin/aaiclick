@@ -7,8 +7,9 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string
@@ -44,18 +45,16 @@ def _row_to_oplog_node(row: tuple) -> OplogNode:
     )
 
 
-@dataclass
-class OplogNode:
+class OplogNode(BaseModel):
     table: str
     operation: str
     kwargs: dict[str, str]
-    sql_template: str | None
-    task_id: int | None
-    job_id: int | None
+    sql_template: str | None = None
+    task_id: int | None = None
+    job_id: int | None = None
 
 
-@dataclass
-class OplogEdge:
+class OplogEdge(BaseModel):
     source: str
     target: str
     operation: str
@@ -69,10 +68,9 @@ _OP_LABEL_NAMES: dict[str, str] = {
 }
 
 
-@dataclass
-class OplogGraph:
-    nodes: list[OplogNode] = field(default_factory=list)
-    edges: list[OplogEdge] = field(default_factory=list)
+class OplogGraph(BaseModel):
+    nodes: list[OplogNode] = Field(default_factory=list)
+    edges: list[OplogEdge] = Field(default_factory=list)
 
     @property
     def tables(self) -> set[str]:

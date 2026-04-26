@@ -186,6 +186,27 @@ class Job(SQLModel, table=True):
 - Audit alembic migrations for new diffs; hand-write migrations for any that autogenerate misses.
 - `CLAUDE.md` Literal-first rule is already in place; revisit once migration lands to remove the "scheduled for migration" callout.
 
+## Collapse Dataclass ↔ Pydantic View-Model Duplication
+
+Several pure data containers are defined twice — once as a `@dataclass` for in-process use and once as a Pydantic `BaseModel` for the API/MCP/REST surface — with hand-written adapters to convert between the two. Pydantic v2 handles methods, properties, classmethods, and `Field(default_factory=...)` natively, so the dataclass form earns its keep only when something forces it (frozen + slotted hot path, `dataclasses.asdict` consumers, etc.). For these cases, nothing forces it.
+
+**Confirmed duplications** (all keyword-constructed, no `dataclasses.asdict` / `replace` / `fields()` consumers in production):
+
+- `ColumnInfo` (`aaiclick/data/models.py:55`) ↔ `ColumnView` (`aaiclick/data/view_models.py:28`), bridged by `column_info_to_view`. Note `ColumnInfo` is `frozen=True` and has a `with_fieldtype()` helper plus a `ch_type()` formatter — both translate to Pydantic with `model_config = ConfigDict(frozen=True)` + `model_copy(update=...)`.
+- `Schema` / `ViewSchema` (`aaiclick/data/models.py:277`, `:311`) ↔ `SchemaView` (`aaiclick/data/view_models.py:40`), bridged by `schema_to_view` / `view_to_schema`.
+
+**Intentionally NOT in scope**:
+
+- `aaiclick/orchestration/models.py` SQLModel tables (`Job`, `Task`, `Worker`, `RegisteredJob`) ↔ `orchestration/view_models.py` views — that split is the deliberate persistence-vs-API boundary, not duplication.
+- `aaiclick/data/models.py` `QueryInfo` / `IngestQueryInfo` / `CopyInfo` / `GroupByInfo` — internal SQL-builder DTOs that never cross the API boundary; no Pydantic mirror exists.
+
+**Work**:
+
+- Replace `@dataclass` with `BaseModel` on `ColumnInfo`, `Schema`, `ViewSchema`. Convert `field(default_factory=...)` → `Field(default_factory=...)`; methods stay as-is; for `ColumnInfo` keep the frozen semantics via `model_config = ConfigDict(frozen=True)` and replace `dataclasses.replace` call sites with `model_copy(update=...)`.
+- Delete `ColumnView`, `SchemaView`, `column_info_to_view`, `schema_to_view`, `view_to_schema` from `aaiclick/data/view_models.py`; expose `ColumnInfo` / `Schema` directly to the API surface and update `ObjectDetail.table_schema: Schema`.
+- Sweep all `Schema(...)`, `ColumnInfo(...)`, and `replace(info, ...)` call sites; verify keyword-only construction holds.
+- Already done in scope `claude/test-lineage-mcp-dmOVz` for `OplogNode` / `OplogEdge` / `OplogGraph` (`aaiclick/oplog/lineage.py`) — no mirrors needed; the dataclasses became Pydantic models in place.
+
 ---
 
 # Deferred
