@@ -6,6 +6,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
+    get_data_lifecycle,
     list_persistent_objects,
     open_object,
 )
@@ -150,6 +151,28 @@ async def test_delete_persistent_objects_requires_time_filter(ctx):
     """Calling delete_persistent_objects without after or before raises ValueError."""
     with pytest.raises(ValueError, match="At least one of"):
         await delete_persistent_objects()
+
+
+async def test_scope_job_creates_j_prefix_with_active_job_id(ctx):
+    """``scope='job'`` with an active orch job_id yields ``j_<job_id>_<name>``.
+
+    The ``ctx`` fixture wraps ``orch_context`` + ``task_scope`` and sets
+    ``current_job_id`` to a synthetic snowflake; we read it back via
+    ``get_data_lifecycle().current_job_id()`` and assert the table name.
+    """
+    lifecycle = get_data_lifecycle()
+    assert lifecycle is not None
+    job_id = lifecycle.current_job_id()
+    assert job_id is not None
+
+    obj = await create_object_from_value(
+        [1, 2, 3],
+        name="test_scope_job_explicit",
+        scope="job",
+    )
+    assert obj.table == f"j_{job_id}_test_scope_job_explicit"
+    assert obj.scope == "job"
+    assert obj.persistent is True
 
 
 async def test_scope_global_explicit_creates_p_prefix(ctx):
