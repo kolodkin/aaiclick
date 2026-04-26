@@ -22,7 +22,7 @@ import pytest
 
 from aaiclick import create_object_from_url
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.models import FIELDTYPE_DICT, ColumnInfo
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
 
 _NUM_ROWS = 200
@@ -556,6 +556,9 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
             "tags": ColumnInfo("String", array=True),
         },
     )
+    # Multi-column json_columns produces a DICT Object — same rule as the
+    # tabular CSV path (1 col → ARRAY with "value", N cols → DICT).
+    assert obj.schema.fieldtype == FIELDTYPE_DICT
     data = await obj.data()
     assert isinstance(data, dict)
     assert len(data["id"]) == 3
@@ -566,6 +569,25 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
     assert schema.columns["score"].type == "Float64"
     assert schema.columns["tags"].array is True
     assert schema.columns["tags"].type == "String"
+
+
+async def test_json_load_single_column_renames_to_value(ctx, json_server):
+    """Single-column json_columns produces an ARRAY Object with the column
+    renamed to ``"value"`` — matches the tabular CSV path's contract so
+    ``data()`` / ``extract_array_data`` find the column by name.
+    """
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={"id": ColumnInfo("String")},
+    )
+    assert obj.schema.fieldtype == FIELDTYPE_ARRAY
+    assert list(obj.schema.columns) == ["value"]
+    # data() returns a list (array form) — not a dict.
+    data = await obj.data()
+    assert isinstance(data, list)
+    assert sorted(data) == ["A-001", "A-002", "A-003"]
 
 
 async def test_json_load_subset_with_limit_and_where(ctx, json_server):

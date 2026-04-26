@@ -304,3 +304,22 @@ async def test_concat_view_chained_where(ctx):
     data = await result.data()
 
     assert sorted(data) == [1, 10, 15, 20]
+
+
+async def test_concat_preserves_dict_fieldtype(ctx):
+    """concat of two DICT Objects stays DICT — the result table holds the
+    user-named columns and ``data()`` returns a dict-of-arrays. Regression
+    test for a bug where concat hardcoded ``fieldtype=ARRAY``, leaving the
+    result schema inconsistent (claimed ARRAY but no ``"value"`` column),
+    so any subsequent ``data()`` / ``markdown()`` failed with
+    ``Unknown identifier value``.
+    """
+    a = await create_object_from_value({"id": ["A1"], "score": [10.0]})
+    b = await create_object_from_value({"id": ["B1", "B2"], "score": [20.0, 30.0]})
+
+    result = await a.concat(b)
+    assert result.schema.fieldtype == "d"
+    data = await result.data()
+    assert isinstance(data, dict)
+    assert sorted(data["id"]) == ["A1", "B1", "B2"]
+    assert sorted(data["score"]) == [10.0, 20.0, 30.0]
