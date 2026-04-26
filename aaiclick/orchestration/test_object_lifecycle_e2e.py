@@ -16,11 +16,11 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
-from aaiclick.testing import with_value_order
 from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
+from aaiclick.testing import with_value_order
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 

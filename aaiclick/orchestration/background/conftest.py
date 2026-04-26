@@ -71,9 +71,7 @@ async def insert_run_ref(engine, table_name, run_id):
         await session.commit()
 
 
-async def insert_table_registry(
-    engine, table_name, job_id=None, task_id=None, run_id=None, schema_doc=None
-):
+async def insert_table_registry(engine, table_name, job_id=None, task_id=None, run_id=None, schema_doc=None):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(

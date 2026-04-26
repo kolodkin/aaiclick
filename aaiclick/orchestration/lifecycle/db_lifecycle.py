@@ -63,7 +63,7 @@ class DBLifecycleMessage:
     pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
-    flush_event: "object | None" = None  # asyncio.Event signalled after FLUSH reaches here
+    flush_event: object | None = None  # asyncio.Event signalled after FLUSH reaches here
 
 
 class TableContextRef(SQLModel, table=True):

@@ -7,8 +7,6 @@ Covers:
   when the caller explicitly passes them.
 """
 
-import pytest
-
 from aaiclick import create_object_from_value
 
 

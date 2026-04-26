@@ -46,7 +46,7 @@ FIELDTYPE_DICT = "d"
 ColumnFieldtype = Literal["s", "a"]
 Fieldtype = Literal["s", "a", "d"]
 
-# Reserved column name for the optional row-id added by ``with_aai_id=True``.
+# Reserved column name for the optional row-id added by ``aai_id=True``.
 # Operators check the source schema for this name to decide whether to
 # propagate it to the result, and ``order_by`` falls back to it when present.
 AAI_ID_COLUMN = "aai_id"
@@ -104,7 +104,7 @@ class ColumnInfo:
 
 
 # Source-of-truth ColumnInfo for the optional aai_id row-id column.
-# ``data_context.create_object_from_value(with_aai_id=True)`` injects this
+# ``data_context.create_object_from_value(aai_id=True)`` injects this
 # directly; binary operators propagate it onto result tables via
 # ``replace(AAI_ID_INFO, default=None)`` (no DEFAULT — values come from
 # INSERT, not generated per-row).

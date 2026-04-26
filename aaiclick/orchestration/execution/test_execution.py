@@ -28,12 +28,12 @@ from aaiclick.orchestration.execution.runner import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.testing import seed_registry_row
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
+from aaiclick.testing import seed_registry_row
 
 # Logging tests
 
@@ -548,7 +548,6 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
 
 async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
     """DICT Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick import create_object_from_value
     from aaiclick.data.models import FIELDTYPE_DICT
 
     obj = await create_object_from_value({"x": [1, 2, 3], "y": ["a", "b", "c"]})
@@ -565,7 +564,6 @@ async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
 
 async def test_object_array_fieldtype_preserved_through_roundtrip(orch_ctx):
     """ARRAY Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick import create_object_from_value
     from aaiclick.data.models import FIELDTYPE_ARRAY
 
     obj = await create_object_from_value([10, 20, 30])
@@ -585,7 +583,6 @@ async def test_dict_object_explode_works_after_roundtrip(orch_ctx):
     Regression test: before the fix, _get_table_schema returned FIELDTYPE_ARRAY
     for DICT objects, causing explode() to raise 'can only be used on dict Objects'.
     """
-    from aaiclick import create_object_from_value
 
     obj = await create_object_from_value({"genre": ["Action,Drama", "Comedy"], "title": ["A", "B"]})
 

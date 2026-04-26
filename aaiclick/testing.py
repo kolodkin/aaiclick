@@ -146,7 +146,6 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
     declares a single ``value`` column inheriting ``fieldtype``.
     """
     from aaiclick.data.view_models import ColumnView, SchemaView
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 
     schema_doc = SchemaView(
         columns=[ColumnView(name="value", type="Int64", fieldtype=fieldtype)],

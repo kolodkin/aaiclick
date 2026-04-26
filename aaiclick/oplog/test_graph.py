@@ -8,14 +8,12 @@ import pytest
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import (
-    OplogGraph,
     backward_oplog,
     forward_oplog,
     lineage_context,
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
-from aaiclick.testing import make_oplog_node
 
 
 async def _run_pipeline():
@@ -92,5 +90,3 @@ async def test_invalid_direction(orch_ctx):
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
             await oplog_subgraph("some_table", direction="sideways")  # type: ignore[arg-type]
-
-

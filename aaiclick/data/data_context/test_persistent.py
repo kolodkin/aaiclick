@@ -4,7 +4,6 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
-    data_context,
     delete_persistent_object,
     delete_persistent_objects,
     list_persistent_objects,

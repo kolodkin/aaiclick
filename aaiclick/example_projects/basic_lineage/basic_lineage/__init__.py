@@ -35,7 +35,7 @@ async def create_prices(suffix: str) -> Object:
     return await create_object_from_value(
         [10.0, 20.0, 30.0, 40.0, 50.0],
         name=f"basic_lineage_prices_{suffix}",
-        with_aai_id=True,
+        aai_id=True,
     )
 
 
@@ -44,7 +44,7 @@ async def create_quantities(suffix: str) -> Object:
     return await create_object_from_value(
         [2.0, 3.0, 1.0, 5.0, 4.0],
         name=f"basic_lineage_quantities_{suffix}",
-        with_aai_id=True,
+        aai_id=True,
     )
 
 
@@ -55,7 +55,7 @@ async def compute_revenue(prices: Object, quantities: Object) -> Object:
 
 @task
 async def add_bonus(revenue: Object) -> Object:
-    bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0], with_aai_id=True)
+    bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0], aai_id=True)
     return await (revenue + bonus)
 
 

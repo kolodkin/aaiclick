@@ -230,7 +230,7 @@ class Object:
 
         Falls back to ``AAI_ID_COLUMN`` when the schema carries that column
         and no explicit ordering is set — so tables created with
-        ``with_aai_id=True`` get deterministic insertion order on reads and
+        ``aai_id=True`` get deterministic insertion order on reads and
         pair-stable cross-table arithmetic without requiring callers to wrap
         them in ``.view(order_by=AAI_ID_COLUMN)``.
         """

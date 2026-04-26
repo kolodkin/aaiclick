@@ -596,7 +596,7 @@ async def create_object_from_value(
     fields: dict[str, FieldSpec] | None = None,
     scope: NamedScope | None = None,
     *,
-    with_aai_id: bool = False,
+    aai_id: bool = False,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -624,7 +624,7 @@ async def create_object_from_value(
                it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
                job's TTL expires). Default: ``"job"`` inside an orch job,
                ``"global"`` outside.
-        with_aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
+        aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
               monotonically-increasing 64-bit Snowflake assigned per-row by
               ClickHouse at insert time. Use ``view(order_by="aai_id").data()``
@@ -648,10 +648,10 @@ async def create_object_from_value(
     order_by_clause = build_order_by_clause(order_by) if order_by is not None else None
 
     def _maybe_add_aai_id(columns: dict[str, ColumnInfo]) -> dict[str, ColumnInfo]:
-        if not with_aai_id:
+        if not aai_id:
             return columns
         if AAI_ID_COLUMN in columns:
-            raise ValueError(f"with_aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
+            raise ValueError(f"aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
         return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
     if isinstance(val, dict):
