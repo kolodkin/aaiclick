@@ -30,13 +30,12 @@ THRESHOLD = 1e-5
     ],
 )
 async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
-    """Test mixed int/float scalar arithmetic."""
-    a = await create_object_from_value(val_a, aai_id=True)
-    b = await create_object_from_value(val_b, aai_id=True)
+    """Test mixed int/float scalar arithmetic — scalar+scalar yields scalar."""
+    a = await create_object_from_value(val_a)
+    b = await create_object_from_value(val_b)
 
-    va, vb = a.view(order_by="value"), b.view(order_by="value")
-    result = await (va + vb) if operator == "+" else await (va - vb)
-    data = sorted(await result.data(order_by="value"))
+    result = await (a + b) if operator == "+" else await (a - b)
+    data = await result.data()
 
     assert abs(data - expected) < THRESHOLD
 
@@ -64,15 +63,19 @@ async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
     ],
 )
 async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
-    """Test element-wise mixed int/float array arithmetic."""
+    """Test element-wise mixed int/float array arithmetic.
+
+    Both sources carry ``aai_id`` so the auto ``order_by="aai_id"``
+    fallback gives pair-stable insertion order — value ordering would
+    re-pair rows when one input has descending values (e.g. negatives).
+    """
     a = await create_object_from_value(arr_a, aai_id=True)
     b = await create_object_from_value(arr_b, aai_id=True)
 
-    va, vb = a.view(order_by="value"), b.view(order_by="value")
-    result = await (va + vb) if operator == "+" else await (va - vb)
-    data = sorted(await result.data(order_by="value"))
-    for i, val in enumerate(sorted(data)):
-        assert abs(val - sorted(expected)[i]) < THRESHOLD
+    result = await (a + b) if operator == "+" else await (a - b)
+    data = await result.data()
+    for i, val in enumerate(expected):
+        assert abs(data[i] - val) < THRESHOLD
 
 
 # =============================================================================
