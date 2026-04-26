@@ -6,7 +6,7 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import create_object
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, Schema
 
 
 async def test_rename_basic(ctx):
@@ -14,7 +14,6 @@ async def test_rename_basic(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "old_name": ColumnInfo("String"),
             "keep_me": ColumnInfo("Int32"),
         },
@@ -36,11 +35,10 @@ async def test_rename_insert_into_target(ctx):
     """Renamed view can be inserted into target with matching column names."""
     # Source has "src_col", target expects "dst_col"
     src_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "src_col": ColumnInfo("String"),
-            "shared": ColumnInfo("Int32"),
+            "src_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -48,11 +46,10 @@ async def test_rename_insert_into_target(ctx):
     await ch.command(f"INSERT INTO {src.table} (src_col, shared) VALUES ('alpha', 10)")
 
     tgt_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "dst_col": ColumnInfo("String"),
-            "shared": ColumnInfo("Int32"),
+            "dst_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
@@ -70,7 +67,6 @@ async def test_rename_with_computed_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "old_col": ColumnInfo("Int32"),
         },
     )
@@ -93,7 +89,6 @@ async def test_rename_collision_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "col_a": ColumnInfo("String"),
             "col_b": ColumnInfo("String"),
         },
@@ -105,33 +100,18 @@ async def test_rename_collision_raises(ctx):
 
 async def test_rename_nonexistent_raises(ctx):
     """Renaming a column that doesn't exist raises."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     with pytest.raises(ValueError, match="does not exist"):
         obj.rename({"nonexistent": "new_name"})
-
-
-async def test_rename_aai_id_raises(ctx):
-    """Cannot rename aai_id."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "col": ColumnInfo("String"),
-        },
-    )
-    obj = await create_object(schema)
-    with pytest.raises(ValueError, match="Cannot rename 'aai_id'"):
-        obj.rename({"aai_id": "id"})
 
 
 async def test_insert_skips_extra_source_columns(ctx):
     """insert() silently skips source columns not present in target."""
     src_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "shared": ColumnInfo("Int32"),
-            "extra_col": ColumnInfo("String"),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -139,10 +119,9 @@ async def test_insert_skips_extra_source_columns(ctx):
     await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
 
     tgt_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "shared": ColumnInfo("Int32"),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
@@ -154,7 +133,7 @@ async def test_insert_skips_extra_source_columns(ctx):
 
 async def test_rename_empty_raises(ctx):
     """Empty rename mapping raises."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     with pytest.raises(ValueError, match="non-empty"):
         obj.rename({})
 
@@ -164,7 +143,6 @@ async def test_rename_duplicate_new_names_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "col_a": ColumnInfo("String"),
             "col_b": ColumnInfo("String"),
         },

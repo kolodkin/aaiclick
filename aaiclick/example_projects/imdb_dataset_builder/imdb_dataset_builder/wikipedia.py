@@ -56,7 +56,6 @@ HF_WIKIPEDIA_URL_TEMPLATE = (
 
 # Agg-table column schemas — keep tight so insert() auto-NULLs missing fields.
 _STAGE_A_COLUMNS = {
-    "aai_id": ColumnInfo("UInt64"),
     "tconst": ColumnInfo("String"),
     "primaryTitle": ColumnInfo("String", nullable=True),
     "startYear": ColumnInfo("String", nullable=True),
@@ -66,7 +65,6 @@ _STAGE_A_COLUMNS = {
 }
 
 _STAGE_B_COLUMNS = {
-    "aai_id": ColumnInfo("UInt64"),
     "wp_title": ColumnInfo("String"),
     "tconst": ColumnInfo("String", nullable=True),
     "primaryTitle": ColumnInfo("String", nullable=True),

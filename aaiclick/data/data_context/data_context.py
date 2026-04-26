@@ -20,15 +20,16 @@ from typing import TYPE_CHECKING, Any, cast
 import pyarrow as pa
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
-from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
+from aaiclick.oplog.oplog_api import oplog_record
 
 from ..models import (
+    AAI_ID_COLUMN,
+    AAI_ID_INFO,
     ENGINE_MEMORY,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     ColumnInfo,
-    ColumnMeta,
     EngineType,
     FieldSpec,
     Schema,
@@ -41,7 +42,7 @@ from ..models import (
 from ..scope import NamedScope, make_persistent_table_name
 from ..sql_utils import quote_identifier
 from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
-from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle
+from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
 
 if TYPE_CHECKING:
     from ..object import Object
@@ -152,7 +153,10 @@ async def data_context(
     - EngineType and object registry (data_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
-    execution use orch_context() + task_scope() instead.
+    execution use orch_context() + task_scope() instead. Persistent named
+    objects (``scope="global"``/``"job"``, ``open_object()``) require an
+    orch_context — ``data_context()`` does not provide the SQL session
+    that ``table_registry`` reads/writes need.
 
     Args:
         engine: ClickHouse table engine. Defaults to Memory (RAM).
@@ -220,14 +224,29 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
 
     Rules:
     - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
-    - ``name`` set, ``scope=None``: default to ``"job"`` when an orch job_id is
-      available, otherwise ``"global"``.
-    - ``name`` set, ``scope`` explicit: use it as-is.
+    - ``name`` set: requires an active ``orch_context()`` — persistent
+      tables need the SQL ``table_registry`` row, which only the orch
+      lifecycle handler writes. ``data_context()`` alone is rejected.
+    - ``scope="job"``: requires an active orch job_id (raises ValueError
+      otherwise — see scope.py).
+    - ``name`` set, ``scope=None``: default to ``"job"`` (the only scope
+      reachable inside an orch job).
     """
     if name is None:
         if scope is not None:
             raise ValueError("scope can only be set together with name")
         return None
+
+    from aaiclick.orchestration.sql_context import _sql_engine_var
+
+    if _sql_engine_var.get() is None:
+        raise RuntimeError(
+            "Persistent objects (name=...) require an active orch_context() — "
+            "data_context() does not provide the SQL session that table_registry needs. "
+            "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
+            "or drop the name= argument for a temp table."
+        )
+
     if scope is not None:
         return scope
     lifecycle = get_data_lifecycle()
@@ -257,16 +276,15 @@ async def create_object(
     Args:
         schema: Schema dataclass with fieldtype, columns, engine, and order_by.
         engine: Table engine override. Priority (highest to lowest):
-                ``name`` (persistent) → this param → ``schema.engine`` → context default.
-                Ignored when ``name`` is set — persistent tables always use MergeTree.
-        name: Optional persistent name. When provided, creates a persistent
-              table that survives context exit. Uses ``CREATE TABLE IF NOT EXISTS``
-              so subsequent calls with the same name append data. Always uses
-              MergeTree regardless of ``engine`` or ``schema.engine``.
-        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
-              (forever, user-managed). ``"job"`` → ``j_<job_id>_<name>`` (until
-              job TTL). Defaults to ``"job"`` inside an orch job and ``"global"``
-              in pure ``data_context()``.
+                ``name`` (named) → this param → ``schema.engine`` → context default.
+                Ignored when ``name`` is set — named tables always use MergeTree.
+        name: Optional name. When set, ``scope`` is required and selects the
+              persistence tier — see ``scope`` below.
+        scope: Required when ``name`` is set, must be ``None`` otherwise.
+              ``"global"`` → ``p_<name>`` (user-managed, removed only by
+              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
+              (lives only as long as the active orch job; raises if no job is
+              active).
 
     Returns:
         Object: New Object instance with created table
@@ -281,25 +299,15 @@ async def create_object(
     else:
         obj = Object(schema=schema)
 
-    # Build column definitions for CREATE TABLE
-    column_defs = []
-    for col_name, col_def in schema.columns.items():
-        if col_name == "aai_id" and col_def.nullable:
-            raise ValueError("aai_id column cannot be nullable")
-
+    # Fieldtype metadata for these columns lives in table_registry.schema_doc
+    # (written by register_table below) rather than ClickHouse COMMENTs.
+    def _column_ddl(col_name: str, col_def: ColumnInfo) -> str:
         ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
-        if col_name == "aai_id":
-            ddl += " DEFAULT generateSnowflakeID()"
-            # Store the object-level fieldtype on aai_id so _get_table_schema
-            # can reconstruct it exactly without inferring from column structure.
-            comment_fieldtype = schema.fieldtype
-        else:
-            comment_fieldtype = schema.col_fieldtype or FIELDTYPE_ARRAY
+        if col_def.default:
+            ddl += f" DEFAULT {col_def.default}"
+        return ddl
 
-        comment = ColumnMeta(fieldtype=comment_fieldtype).to_yaml()
-        if comment:
-            ddl += f" COMMENT '{comment}'"
-        column_defs.append(ddl)
+    column_defs = [_column_ddl(name, info) for name, info in schema.columns.items()]
 
     # Persistent tables always use MergeTree regardless of engine param or schema.engine.
     if obj.persistent:
@@ -333,9 +341,22 @@ async def create_object(
 
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)
-    # are scoped to their job and cleaned up when the job expires.
+    # are scoped to their job and cleaned up when the job expires. The
+    # schema_doc carries the serialised SchemaView that _get_table_schema
+    # reads back — replaces the per-column ClickHouse COMMENT YAML.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
-    oplog_record_table(obj.table)
+    from ..view_models import schema_to_view
+
+    register_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
+
+    # Flush the lifecycle queue so the registry row is committed before the
+    # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
+    # The queue is async and order-sensitive for incref/decref, but registry
+    # writes are standalone and idempotent; a synchronous flush here is
+    # cheaper than forcing every read path to flush.
+    lifecycle = get_data_lifecycle()
+    if lifecycle is not None:
+        await lifecycle.flush()
 
     return obj
 
@@ -480,14 +501,9 @@ def _apply_field_specs(
     """Apply field specs to inferred columns, validating field names."""
     if not fields:
         return columns
-    if "aai_id" in fields:
-        raise ValueError("Cannot override aai_id column with FieldSpec")
     unknown = set(fields) - set(columns)
     if unknown:
-        raise ValueError(
-            f"fields references unknown columns: {sorted(unknown)}. "
-            f"Available columns: {sorted(c for c in columns if c != 'aai_id')}"
-        )
+        raise ValueError(f"fields references unknown columns: {sorted(unknown)}. Available columns: {sorted(columns)}")
     return {name: _apply_field_spec(col, fields[name]) if name in fields else col for name, col in columns.items()}
 
 
@@ -521,10 +537,10 @@ async def _create_nested_object(
     flat = _flatten_nested_record(val)
     nested_cols = _flatten_nested_schema(val)
 
-    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns = {}
     columns.update(nested_cols)
 
-    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR)
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name, scope=scope)
 
     keys = list(flat.keys())
@@ -569,8 +585,10 @@ async def _create_nested_records_object(
                 sample[key] = [found]
 
     nested_cols = _flatten_nested_schema(sample)
-    columns = {"aai_id": ColumnInfo("UInt64")}
-    columns.update(nested_cols)
+    # List-of-records is dict-of-arrays — each column carries N values across
+    # the input records, so ColumnInfo.fieldtype must be ARRAY (default is
+    # SCALAR, which would make data() return only the first row).
+    columns = {name_: ci.with_fieldtype(FIELDTYPE_ARRAY) for name_, ci in nested_cols.items()}
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name, scope=scope)
@@ -596,6 +614,8 @@ async def create_object_from_value(
     order_by: list[str] | None = None,
     fields: dict[str, FieldSpec] | None = None,
     scope: NamedScope | None = None,
+    *,
+    aai_id: bool = False,
 ) -> Object:
     """Create a new Object from Python values with automatic schema inference.
 
@@ -607,22 +627,32 @@ async def create_object_from_value(
             - Dict of scalars: Single row with columns per key
             - Dict of arrays: Multiple rows with columns per key
             - Dict/List with nested list-of-dicts: Flattened with dot-star notation
-        name: Optional persistent name. When provided, creates a persistent
-              table that survives context exit. If the table already exists,
-              data is appended.
+        name: Optional name. When set, ``scope`` is required and selects
+              the persistence tier — see ``scope`` below.
         order_by: Optional list of column names for the table ORDER BY clause.
-                  ``aai_id`` is always appended as the last ORDER BY column.
-                  Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
+                  Empty input yields ``tuple()`` (ClickHouse no-sort form).
+                  Example: ``order_by=['date']`` → ``ORDER BY (date)``
         fields: Optional per-column overrides for inferred types. Maps column
                 names to ``FieldSpec`` instances that control nullable,
                 low_cardinality, and type override.
                 Example: ``fields={"name": FieldSpec(low_cardinality=True),
                 "score": FieldSpec(nullable=True)}``
-        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
-               (forever, user-managed — only ``delete_persistent_object()`` drops
-               it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
-               job's TTL expires). Default: ``"job"`` inside an orch job,
-               ``"global"`` outside.
+        scope: Required when ``name`` is set, must be ``None`` otherwise.
+              ``"global"`` → ``p_<name>`` (user-managed, removed only by
+              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
+              (lives only as long as the active orch job; raises when called
+              from pure ``data_context()``).
+        aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
+              ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
+              monotonically-increasing 64-bit Snowflake assigned per-row by
+              ClickHouse at insert time. Use ``view(order_by="aai_id").data()``
+              to recover insertion order — handy for cross-table arithmetic
+              that needs pair-stable row ordering.
+
+              When the LEFT operand of a binary operator carries ``aai_id``,
+              the result table propagates the LEFT side's ``aai_id`` values,
+              so ``(a + b).view(order_by="aai_id")`` recovers the original
+              row order.
 
     Returns:
         Object: New Object instance with data
@@ -635,6 +665,13 @@ async def create_object_from_value(
     ch = get_ch_client()
     order_by_clause = build_order_by_clause(order_by) if order_by is not None else None
 
+    def _maybe_add_aai_id(columns: dict[str, ColumnInfo]) -> dict[str, ColumnInfo]:
+        if not aai_id:
+            return columns
+        if AAI_ID_COLUMN in columns:
+            raise ValueError(f"aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
+        return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
+
     if isinstance(val, dict):
         if _has_nested_dicts(val):
             result = await _create_nested_object(val, ch, name, scope=scope)
@@ -644,7 +681,7 @@ async def create_object_from_value(
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             array_len = None
 
             for key, value in val.items():
@@ -660,9 +697,9 @@ async def create_object_from_value(
                     raise ValueError(
                         f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
                     )
-                columns[key] = col_def
+                columns[key] = col_def.with_fieldtype(FIELDTYPE_ARRAY)
 
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -679,14 +716,12 @@ async def create_object_from_value(
                     )
 
         else:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             for key, value in val.items():
                 columns[key] = _infer_clickhouse_type(value)
 
-            columns = _apply_field_specs(columns, fields)
-            schema = Schema(
-                fieldtype=FIELDTYPE_DICT, columns=columns, col_fieldtype=FIELDTYPE_SCALAR, order_by=order_by_clause
-            )
+            columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
+            schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
             keys = list(val.keys())
@@ -719,7 +754,7 @@ async def create_object_from_value(
                         f"record {i} has {sorted(record.keys())}"
                     )
 
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             keys = list(records[0].keys())
             for key in keys:
                 sample: Any = records[0][key]
@@ -731,11 +766,11 @@ async def create_object_from_value(
                             if isinstance(candidate, list) and candidate:
                                 sample = candidate
                                 break
-                    columns[key] = _infer_array_clickhouse_type(sample)
+                    columns[key] = _infer_array_clickhouse_type(sample).with_fieldtype(FIELDTYPE_ARRAY)
                 else:
-                    columns[key] = _infer_clickhouse_type(sample)
+                    columns[key] = _infer_clickhouse_type(sample).with_fieldtype(FIELDTYPE_ARRAY)
 
-            columns = _apply_field_specs(columns, fields)
+            columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -752,8 +787,8 @@ async def create_object_from_value(
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
             col_def = _infer_clickhouse_type(scalars)
-            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
-            columns = _apply_field_specs(columns, fields)
+            columns = {"value": col_def.with_fieldtype(FIELDTYPE_ARRAY)}
+            columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             col_def = columns["value"]
             schema = Schema(
                 fieldtype=FIELDTYPE_ARRAY,
@@ -774,12 +809,11 @@ async def create_object_from_value(
 
     else:
         col_def = _infer_clickhouse_type(val)
-        columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+        columns = {"value": col_def}
         columns = _apply_field_specs(columns, fields)
         col_def = columns["value"]
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            col_fieldtype=FIELDTYPE_SCALAR,
             columns=columns,
             order_by=order_by_clause,
         )
@@ -825,10 +859,8 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
     if not result:
         raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
 
-    col_fieldtype, columns = await _get_table_schema(table_name, ch)
-    is_dict_type = not (set(columns.keys()) <= {"aai_id", "value"})
-    fieldtype = FIELDTYPE_DICT if is_dict_type else col_fieldtype
-    schema = Schema(fieldtype=fieldtype, columns=columns, col_fieldtype=col_fieldtype)
+    fieldtype, columns = await _get_table_schema(table_name, ch)
+    schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = Object(table=table_name, schema=schema)
     register_object(obj)
     return obj

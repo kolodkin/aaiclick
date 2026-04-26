@@ -1,10 +1,10 @@
 Insert Advisory Lock for Concurrent Workers
 ---
 
-Serialize concurrent inserts into the same shared ClickHouse table so
-`generateSnowflakeID()` produces a contiguous, non-interleaved ID range per
-insert. Distributed mode only — local mode (chdb + SQLite) is single-process
-and needs no lock.
+Serialize concurrent inserts into the same shared ClickHouse table so each
+worker's INSERT writes its rows contiguously, without interleaving with
+another worker's. Distributed mode only — local mode (chdb + SQLite) is
+single-process and needs no lock.
 
 Tracked in `docs/future.md` (High Priority).
 
@@ -12,17 +12,14 @@ Tracked in `docs/future.md` (High Priority).
 
 # Problem
 
-`p_<name>` and (future) `j_<job_id>_<name>` tables permit append-on-existing
+`p_<name>` and `j_<job_id>_<name>` tables permit append-on-existing
 semantics: two workers calling `create_object_from_value(..., name="foo")`
-or `insert_objects_db(...)` against the same destination both rely on
-ClickHouse's `DEFAULT generateSnowflakeID()` to assign per-row IDs.
+or `insert_objects_db(...)` against the same destination both write into
+the same ClickHouse table.
 
-ClickHouse guarantees the IDs are unique, but it does not guarantee that one
-worker's INSERT consumes a contiguous sequence range. Concurrent INSERTs
-interleave at the row level, so worker A's rows end up with IDs
-`[100, 102, 104, ...]` and worker B's with `[101, 103, 105, ...]`. The
-`aai_id` column then no longer marks an insert-batch boundary, and any
-downstream consumer that relies on per-batch contiguity breaks.
+Without serialisation, ClickHouse interleaves the two workers' rows at
+the storage level. Downstream readers that assume each INSERT's rows are
+contiguous (e.g. for batch-bounded reads) see corrupted batches.
 
 Operator-produced temp tables (`t_<snowflake_id>`) are immune — each gets a
 unique name at creation, so there is no shared destination to race on. Only
@@ -163,8 +160,8 @@ For an `insert_objects_db(dest, src)` in distributed mode:
 
 # Guarantees
 
-- Per-table: rows from one INSERT share a contiguous `aai_id` range, with no
-  interleaving from concurrent workers writing to that same table.
+- Per-table: each INSERT's rows are written contiguously, with no
+  interleaving from concurrent workers writing to the same table.
 - Cross-table: zero contention. Two workers writing to different `p_*`
   tables never block each other.
 - Failure-safe: PG auto-releases session-level locks when the worker's
@@ -223,9 +220,9 @@ Distributed-mode integration test only — local mode short-circuits the lock
 path and has nothing to verify there.
 
 - Two workers concurrently call `insert_objects_db` against the same `p_foo`
-  destination. Assert the resulting `aai_id` values, sorted by insert
-  timestamp, partition cleanly into two contiguous ranges with no
-  interleaving.
+  destination. Assert that each worker's rows land contiguously rather
+  than interleaved (e.g. by tagging each worker's source rows with a marker
+  column and reading the destination in physical-row order).
 - Two workers concurrently call `insert_objects_db` against two different
   destinations (`p_foo`, `p_bar`). Assert wall-clock overlap of the INSERTs
   to confirm no false serialization.

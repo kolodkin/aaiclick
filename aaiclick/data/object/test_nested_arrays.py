@@ -163,7 +163,7 @@ async def test_nested_single_element_array(ctx):
 async def test_nested_many_elements(ctx):
     """Nested array with many elements."""
     items = [{"val": i, "doubled": i * 2} for i in range(10)]
-    obj = await create_object_from_value({"data": items})
+    obj = await create_object_from_value({"data": items}, aai_id=True)
 
     data = await obj.data()
 

@@ -20,7 +20,6 @@ IS_ASYNC = True
 _SCHEMA = Schema(
     fieldtype="d",
     columns={
-        "aai_id": ColumnInfo("UInt64"),
         "id": ColumnInfo("Int64"),
         "category": ColumnInfo("String", low_cardinality=True),
         "subcategory": ColumnInfo("String", low_cardinality=True),

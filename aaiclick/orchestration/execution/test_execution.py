@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlmodel import col
 
+from aaiclick import create_object_from_value
 from aaiclick.data.object import Object, View
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
@@ -32,6 +33,7 @@ from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
+from aaiclick.testing import seed_registry_row
 
 # Logging tests
 
@@ -160,6 +162,7 @@ async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
 
 async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
+    await seed_registry_row("t123")
     kwargs = {"data": {"object_type": "object", "table": "t123"}}
 
     result = await deserialize_task_params(kwargs)
@@ -170,6 +173,7 @@ async def test_deserialize_task_params_object(orch_ctx):
 
 async def test_deserialize_task_params_view(orch_ctx):
     """Test deserializing a View parameter with constraints."""
+    await seed_registry_row("t456")
     kwargs = {
         "data": {
             "object_type": "view",
@@ -177,7 +181,7 @@ async def test_deserialize_task_params_view(orch_ctx):
             "where": "value > 10",
             "limit": 100,
             "offset": 50,
-            "order_by": "aai_id ASC",
+            "order_by": "value ASC",
         }
     }
 
@@ -188,7 +192,7 @@ async def test_deserialize_task_params_view(orch_ctx):
     assert result["data"]._build_where() == "(value > 10)"
     assert result["data"].limit == 100
     assert result["data"].offset == 50
-    assert result["data"].order_by == "aai_id ASC"
+    assert result["data"].order_by == "value ASC"
 
 
 async def test_serialize_task_result_none(orch_ctx):
@@ -544,7 +548,6 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
 
 async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
     """DICT Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick import create_object_from_value
     from aaiclick.data.models import FIELDTYPE_DICT
 
     obj = await create_object_from_value({"x": [1, 2, 3], "y": ["a", "b", "c"]})
@@ -561,7 +564,6 @@ async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
 
 async def test_object_array_fieldtype_preserved_through_roundtrip(orch_ctx):
     """ARRAY Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick import create_object_from_value
     from aaiclick.data.models import FIELDTYPE_ARRAY
 
     obj = await create_object_from_value([10, 20, 30])
@@ -581,7 +583,6 @@ async def test_dict_object_explode_works_after_roundtrip(orch_ctx):
     Regression test: before the fix, _get_table_schema returned FIELDTYPE_ARRAY
     for DICT objects, causing explode() to raise 'can only be used on dict Objects'.
     """
-    from aaiclick import create_object_from_value
 
     obj = await create_object_from_value({"genre": ["Action,Drama", "Comedy"], "title": ["A", "B"]})
 

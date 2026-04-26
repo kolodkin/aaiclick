@@ -48,7 +48,6 @@ from .models import (
     Agg,
     AggSpec,
     ColumnInfo,
-    ColumnMeta,
     ColumnType,
     Computed,
     EngineType,

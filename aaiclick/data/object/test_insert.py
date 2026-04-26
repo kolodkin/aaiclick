@@ -106,21 +106,21 @@ def test_not_castable_numeric_to_string():
 
 async def test_get_table_schema_array_object(ctx):
     """ARRAY Objects (single-value list) round-trip as FIELDTYPE_ARRAY."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_ARRAY
 
 
 async def test_get_table_schema_dict_object(ctx):
     """DICT Objects (multi-column) round-trip as FIELDTYPE_DICT."""
-    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
+    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]}, aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_DICT
 
 
 async def test_get_table_schema_scalar_object(ctx):
     """SCALAR Objects round-trip as FIELDTYPE_SCALAR."""
-    obj = await create_object_from_value(42)
+    obj = await create_object_from_value(42, aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_SCALAR
 
@@ -132,7 +132,7 @@ async def test_get_table_schema_dict_columns_preserved(ctx):
     assert fieldtype == FIELDTYPE_DICT
     assert "a" in columns
     assert "b" in columns
-    assert "aai_id" in columns
+    assert "aai_id" not in columns
 
 
 # =============================================================================
@@ -150,8 +150,8 @@ async def test_get_table_schema_dict_columns_preserved(ctx):
 )
 async def test_array_insert(ctx, array_a, array_b, expected_result):
     """Test inserting arrays of the same type in place."""
-    obj_a = await create_object_from_value(array_a)
-    obj_b = await create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a, aai_id=True)
+    obj_b = await create_object_from_value(array_b, aai_id=True)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
@@ -178,7 +178,7 @@ async def test_array_insert(ctx, array_a, array_b, expected_result):
 )
 async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected_result):
     """Test inserting scalar value into array in place."""
-    obj = await create_object_from_value(array)
+    obj = await create_object_from_value(array, aai_id=True)
 
     await obj.insert(scalar_value)
     data = await obj.data()
@@ -205,7 +205,7 @@ async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected
 )
 async def test_array_insert_with_list_value(ctx, array, list_value, expected_result):
     """Test inserting list value into array in place."""
-    obj = await create_object_from_value(array)
+    obj = await create_object_from_value(array, aai_id=True)
 
     await obj.insert(list_value)
     data = await obj.data()
@@ -224,7 +224,7 @@ async def test_array_insert_with_list_value(ctx, array, list_value, expected_res
 
 async def test_array_insert_with_empty_list(ctx):
     """Test inserting empty list into array (should remain unchanged)."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
 
     await obj.insert([])
     data = await obj.data()
@@ -239,7 +239,7 @@ async def test_array_insert_with_empty_list(ctx):
 
 async def test_insert_modifies_in_place(ctx):
     """Test that insert modifies the original object in place."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     original_table = obj.table
 
     await obj.insert([4, 5])
@@ -256,7 +256,7 @@ async def test_insert_modifies_in_place(ctx):
 
 async def test_multiple_inserts(ctx):
     """Test multiple consecutive inserts."""
-    obj = await create_object_from_value([1, 2])
+    obj = await create_object_from_value([1, 2], aai_id=True)
 
     await obj.insert([3, 4])
     await obj.insert(5)
@@ -282,8 +282,8 @@ async def test_multiple_inserts(ctx):
 )
 async def test_scalar_insert_fails(ctx, scalar_value, array_value):
     """Test that insert method on scalar fails."""
-    scalar_obj = await create_object_from_value(scalar_value)
-    array_obj = await create_object_from_value(array_value)
+    scalar_obj = await create_object_from_value(scalar_value, aai_id=True)
+    array_obj = await create_object_from_value(array_value, aai_id=True)
 
     with pytest.raises(ValueError, match="insert requires target table to have array fieldtype"):
         await scalar_obj.insert(array_obj)
@@ -304,8 +304,8 @@ async def test_scalar_insert_fails(ctx, scalar_value, array_value):
 )
 async def test_insert_preserves_data_integrity(ctx, array_a, array_b):
     """Test that insert preserves all data from both arrays."""
-    obj_a = await create_object_from_value(array_a)
-    obj_b = await create_object_from_value(array_b)
+    obj_a = await create_object_from_value(array_a, aai_id=True)
+    obj_b = await create_object_from_value(array_b, aai_id=True)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
@@ -328,9 +328,9 @@ async def test_insert_preserves_data_integrity(ctx, array_a, array_b):
 
 async def test_array_insert_multiple_objects(ctx):
     """Test inserting multiple objects with *args."""
-    obj_a = await create_object_from_value([1, 2])
-    obj_b = await create_object_from_value([3, 4])
-    obj_c = await create_object_from_value([5, 6])
+    obj_a = await create_object_from_value([1, 2], aai_id=True)
+    obj_b = await create_object_from_value([3, 4], aai_id=True)
+    obj_c = await create_object_from_value([5, 6], aai_id=True)
 
     await obj_a.insert(obj_b, obj_c)
     data = await obj_a.data()
@@ -340,7 +340,7 @@ async def test_array_insert_multiple_objects(ctx):
 
 async def test_array_insert_mixed_types(ctx):
     """Test inserting with mixed argument types (objects, scalars, lists)."""
-    obj = await create_object_from_value([1, 2])
+    obj = await create_object_from_value([1, 2], aai_id=True)
 
     await obj.insert(3, 4, [5, 6])
     data = await obj.data()
@@ -350,8 +350,8 @@ async def test_array_insert_mixed_types(ctx):
 
 async def test_array_insert_many_arguments(ctx):
     """Test inserting many objects (4+) to verify variadic support."""
-    obj_a = await create_object_from_value([1, 2])
-    others = [await create_object_from_value([v]) for v in [3, 4, 5, 6]]
+    obj_a = await create_object_from_value([1, 2], aai_id=True)
+    others = [await create_object_from_value([v], aai_id=True) for v in [3, 4, 5, 6]]
 
     await obj_a.insert(*others)
     data = await obj_a.data()
@@ -366,8 +366,8 @@ async def test_array_insert_many_arguments(ctx):
 
 async def test_insert_view_with_where(ctx):
     """Insert a WHERE-filtered view into a target object."""
-    src = await create_object_from_value([10, 20, 30, 40, 50])
-    target = await create_object_from_value([1, 2])
+    src = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
+    target = await create_object_from_value([1, 2], aai_id=True)
 
     await target.insert(src.where("value > 25"))
     data = await target.data()
@@ -377,8 +377,8 @@ async def test_insert_view_with_where(ctx):
 
 async def test_insert_view_with_limit(ctx):
     """Insert a LIMIT-constrained view."""
-    src = await create_object_from_value([10, 20, 30])
-    target = await create_object_from_value([1])
+    src = await create_object_from_value([10, 20, 30], aai_id=True)
+    target = await create_object_from_value([1], aai_id=True)
 
     await target.insert(src.view(limit=2))
     data = await target.data()
@@ -393,9 +393,10 @@ async def test_insert_view_field_selection(ctx):
         {
             "x": [10, 20, 30],
             "y": [100, 200, 300],
-        }
+        },
+        aai_id=True,
     )
-    target = await create_object_from_value([1, 2])
+    target = await create_object_from_value([1, 2], aai_id=True)
 
     await target.insert(src["x"])
     data = await target.data()
@@ -408,14 +409,14 @@ async def test_insert_view_with_computed_columns(ctx):
     src = await create_object_from_value(
         {
             "name": ["alice", "bob"],
-        }
+        },
+        aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "name": ColumnInfo("String"),
-            "active": ColumnInfo("UInt8"),
+            "name": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "active": ColumnInfo("UInt8", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -434,15 +435,15 @@ async def test_insert_subset_columns_nullable_fill(ctx):
         {
             "id": ["A", "B"],
             "val1": [10, 20],
-        }
+        },
+        aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "id": ColumnInfo("String"),
-            "val1": ColumnInfo("Int64", nullable=True),
-            "val2": ColumnInfo("String", nullable=True),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "val1": ColumnInfo("Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "val2": ColumnInfo("String", nullable=True, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -460,14 +461,14 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
     src = await create_object_from_value(
         {
             "id": ["A", "B"],
-        }
+        },
+        aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "id": ColumnInfo("String"),
-            "count": ColumnInfo("Int64"),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "count": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -485,13 +486,13 @@ async def test_insert_skips_extra_source_columns(ctx):
         {
             "id": ["A"],
             "extra": [999],
-        }
+        },
+        aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
-            "id": ColumnInfo("String"),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -503,8 +504,8 @@ async def test_insert_skips_extra_source_columns(ctx):
 
 async def test_insert_view_with_offset(ctx):
     """Insert a view with OFFSET."""
-    src = await create_object_from_value([10, 20, 30])
-    target = await create_object_from_value([1, 2])
+    src = await create_object_from_value([10, 20, 30], aai_id=True)
+    target = await create_object_from_value([1, 2], aai_id=True)
 
     await target.insert(src.view(offset=1))
     data = await target.data()
@@ -514,8 +515,8 @@ async def test_insert_view_with_offset(ctx):
 
 async def test_insert_view_with_order_by(ctx):
     """Insert a view with ORDER BY + LIMIT picks specific rows."""
-    src = await create_object_from_value([30, 10, 20])
-    target = await create_object_from_value([100])
+    src = await create_object_from_value([30, 10, 20], aai_id=True)
+    target = await create_object_from_value([100], aai_id=True)
 
     await target.insert(src.view(order_by="value ASC", limit=2))
     data = await target.data()
@@ -525,8 +526,8 @@ async def test_insert_view_with_order_by(ctx):
 
 async def test_insert_view_chained_where(ctx):
     """Insert a view with chained WHERE conditions."""
-    src = await create_object_from_value([5, 10, 15, 20, 25])
-    target = await create_object_from_value([1])
+    src = await create_object_from_value([5, 10, 15, 20, 25], aai_id=True)
+    target = await create_object_from_value([1], aai_id=True)
 
     await target.insert(src.where("value > 5").where("value < 25"))
     data = await target.data()

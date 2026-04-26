@@ -6,6 +6,7 @@ including table name, fieldtype, and column details.
 """
 
 import pytest
+from sqlmodel import delete
 
 from aaiclick import (
     FIELDTYPE_ARRAY,
@@ -15,7 +16,12 @@ from aaiclick import (
     Schema,
     create_object_from_value,
 )
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import ViewSchema
+from aaiclick.data.object.ingest import _get_table_schema
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.testing import seed_registry_row
 
 # =============================================================================
 # Basic Schema Tests
@@ -30,9 +36,7 @@ async def test_schema_array(ctx):
 
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_ARRAY
-    assert "aai_id" in schema.columns
-    assert "value" in schema.columns
-    assert schema.columns["aai_id"].type == "UInt64"
+    assert list(schema.columns) == ["value"]
     assert schema.columns["value"].type == "Int64"
 
 
@@ -53,7 +57,7 @@ async def test_schema_dict(ctx):
     schema = obj.schema
 
     assert schema.fieldtype == FIELDTYPE_DICT
-    assert "aai_id" in schema.columns
+    assert "aai_id" not in schema.columns
     assert "param1" in schema.columns
     assert "param2" in schema.columns
     assert schema.columns["param1"].type == "Int64"
@@ -85,15 +89,6 @@ async def test_column_info_structure(ctx):
 
     assert isinstance(value_col, ColumnInfo)
     assert value_col.type == "Float64"
-
-
-async def test_column_info_aai_id(ctx):
-    """Test aai_id column type."""
-    obj = await create_object_from_value([1, 2, 3])
-
-    aai_id_col = obj.schema.columns["aai_id"]
-
-    assert aai_id_col.type == "UInt64"
 
 
 # =============================================================================
@@ -229,3 +224,36 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
 
     assert schema.fieldtype == expected_fieldtype
     assert schema.columns["value"].type == expected_type
+
+
+# =============================================================================
+# Registry-backed schema reads (Phase 2 Task 2.3)
+# =============================================================================
+
+
+async def test_get_table_schema_reads_from_registry(orch_ctx):
+    """_get_table_schema hydrates from table_registry.schema_doc when populated."""
+    table = "t_phase2_read_test"
+    await seed_registry_row(table, fieldtype=FIELDTYPE_ARRAY)
+
+    try:
+        ch_client = get_ch_client()
+        fieldtype, columns = await _get_table_schema(table, ch_client)
+        assert fieldtype == FIELDTYPE_ARRAY
+        assert set(columns) == {"value"}
+        assert columns["value"].fieldtype == FIELDTYPE_ARRAY
+    finally:
+        async with get_sql_session() as sess:
+            await sess.execute(delete(TableRegistry).where(TableRegistry.table_name == table))
+            await sess.commit()
+
+
+async def test_get_table_schema_missing_registry_row_raises(orch_ctx):
+    """_get_table_schema raises LookupError when the table has no registry row."""
+    ch_client = get_ch_client()
+    await ch_client.command("CREATE TABLE t_orphan_test (v Int64) ENGINE = Memory")
+    try:
+        with pytest.raises(LookupError, match="not registered"):
+            await _get_table_schema("t_orphan_test", ch_client)
+    finally:
+        await ch_client.command("DROP TABLE IF EXISTS t_orphan_test")

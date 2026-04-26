@@ -2,13 +2,6 @@
 aaiclick.ai.agents.prompts - Shared prompt fragments for AI agents.
 """
 
-AAI_ID_WARNING = (
-    "Important: `insert` and `concat` operations generate fresh aai_id values in the\n"
-    "target table. Source and target aai_ids will NOT match across these boundaries.\n"
-    "To trace individual rows through an insert/concat, compare actual data values\n"
-    "(column contents) — never assume aai_id equality between source and target."
-)
-
 OUTPUT_FORMAT = (
     "Output rules:\n"
     "- Be concise: short sentences, no filler.\n"
@@ -49,7 +42,5 @@ Method:
    - `not_live` / `not_found`: note the blocker and escalate in your final
      explanation.
 4. Cite concrete evidence rows fetched via `query_table` in the final answer.
-
-{AAI_ID_WARNING}
 
 {OUTPUT_FORMAT}"""

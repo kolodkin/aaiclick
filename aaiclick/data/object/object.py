@@ -28,6 +28,7 @@ from ..data_context import (
 from ..data_context.ch_client import export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
+    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
@@ -43,7 +44,6 @@ from ..models import (
     ORIENT_DICT,
     AggSpec,
     ColumnInfo,
-    ColumnMeta,
     Computed,
     CopyInfo,
     GroupByInfo,
@@ -62,6 +62,10 @@ from . import data_extraction, ingest, operators
 from . import join as join_module
 from .refs import ObjectRef, ViewRef
 
+# Sentinel for "caller did not pass this kwarg" — distinguishes from None
+# which means "explicitly no value" (e.g. limit=None to disable the safety cap).
+_UNSET: Any = object()
+
 
 @dataclass
 class DataResult:
@@ -70,11 +74,37 @@ class DataResult:
 
     Attributes:
         rows: List of tuples containing row data
-        columns: Dict mapping column name to ColumnMeta with datatype/fieldtype info
+        columns: Dict mapping column name to ColumnInfo with datatype/fieldtype info
     """
 
     rows: list[tuple[Any, ...]]
-    columns: dict[str, ColumnMeta]
+    columns: dict[str, ColumnInfo]
+
+
+def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
+    """Enforce the cross-table operator contract.
+
+    Binary elementwise ops between two array Objects from different tables
+    need an explicit row order on both sides — otherwise the JOIN
+    ``row_number() OVER ()`` pairs rows arbitrarily. Same-table ops and
+    scalar broadcast skip the check (they have a natural alignment).
+
+    Uses the public ``.order_by`` property (``None`` on base Object, the
+    stored ``_order_by`` on View) so the helper stays symmetric and
+    doesn't reach into private attributes.
+    """
+    if a._schema.fieldtype != FIELDTYPE_ARRAY or b._schema.fieldtype != FIELDTYPE_ARRAY:
+        return
+    if a.table == b.table:
+        return
+    if a.order_by is not None and b.order_by is not None:
+        return
+    raise TypeError(
+        "Binary elementwise ops on array Objects from different sources "
+        "require an explicit row order. Wrap both sides with "
+        ".view(order_by=...) before combining.\n"
+        f"  Got: {a!r} + {b!r}"
+    )
 
 
 class Object:
@@ -107,12 +137,12 @@ class Object:
                   using Snowflake ID prefixed with 't' for ClickHouse compatibility
             schema: Optional Schema with column types (cached for internal use)
             order_by: Optional list of column names for the table ORDER BY clause.
-                      ``aai_id`` is always appended as the last ORDER BY column.
-                      Example: ``order_by=['date']`` → ``ORDER BY (date, aai_id)``
+                      Empty input yields ``tuple()`` (ClickHouse no-sort form).
+                      Example: ``order_by=['date']`` → ``ORDER BY (date)``
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
         if schema is None:
-            schema = Schema(fieldtype=FIELDTYPE_SCALAR, col_fieldtype=FIELDTYPE_SCALAR, columns={})
+            schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
         replace_kw: dict = {"table": table_name}
         if order_by is not None:
             replace_kw["order_by"] = build_order_by_clause(order_by)
@@ -187,8 +217,28 @@ class Object:
         return None
 
     @property
+    def _explicit_order_by(self) -> str | None:
+        """User-set ORDER BY (no aai_id fallback). Used by ``has_constraints``
+        so the auto-default doesn't force a subquery wrap on reads where
+        ordering doesn't matter (e.g. aggregations).
+        """
+        return None
+
+    @property
     def order_by(self) -> str | None:
-        """Get ORDER BY clause (None for base Object)."""
+        """ORDER BY clause for this Object.
+
+        Falls back to ``AAI_ID_COLUMN`` when the schema carries that column
+        and no explicit ordering is set — so tables created with
+        ``aai_id=True`` get deterministic insertion order on reads and
+        pair-stable cross-table arithmetic without requiring callers to wrap
+        them in ``.view(order_by=AAI_ID_COLUMN)``.
+        """
+        explicit = self._explicit_order_by
+        if explicit is not None:
+            return explicit
+        if AAI_ID_COLUMN in self._schema.columns:
+            return AAI_ID_COLUMN
         return None
 
     @property
@@ -251,12 +301,18 @@ class Object:
 
     @property
     def has_constraints(self) -> bool:
-        """Check if this object has any view constraints."""
+        """Check if this object has any view constraints.
+
+        Uses ``_explicit_order_by`` so the auto ``aai_id`` fallback in
+        ``order_by`` doesn't wrap unconstrained sources in a redundant
+        subquery — aggregations, GROUP BY, and other order-insensitive
+        consumers select directly from the table.
+        """
         return bool(
             self.where_clauses
             or self.limit is not None
             or self.offset is not None
-            or self.order_by
+            or self._explicit_order_by
             or self.selected_fields
             or self.computed_columns
             or self.renamed_columns
@@ -290,6 +346,10 @@ class Object:
         columns: str = "*",
         default_order_by: str | None = None,
         skip_order_by: bool = False,
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
     ) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -298,22 +358,30 @@ class Object:
             columns: Column specification (default "*")
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
             skip_order_by: If True, omit ORDER BY from the query.
+            order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
+                used in place of the View's stored attributes. Lets
+                ``data(order_by=..., limit=..., offset=...)`` override the
+                View it's called on without mutating the View itself.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_limit = limit if limit is not _UNSET else self.limit
+        eff_offset = offset if offset is not _UNSET else self.offset
+
         query = f"SELECT {columns} FROM {self.table}"
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
         if not skip_order_by:
-            order_clause = self.order_by or default_order_by
+            order_clause = eff_order_by or default_order_by
             if order_clause:
                 query += f" ORDER BY {order_clause}"
-        if self.limit is not None:
-            query += f" LIMIT {self.limit}"
-        if self.offset is not None:
-            query += f" OFFSET {self.offset}"
+        if eff_limit is not None:
+            query += f" LIMIT {eff_limit}"
+        if eff_offset is not None:
+            query += f" OFFSET {eff_offset}"
         return query
 
     def _get_query_info(self) -> QueryInfo:
@@ -347,6 +415,8 @@ class Object:
             value_type=col_def.type,
             nullable=col_def.nullable,
             constraint_sql=constraint_sql,
+            order_by=self.order_by,
+            aai_id_info=self._schema.columns.get(AAI_ID_COLUMN),
         )
 
     def _build_constraint_sql(self) -> str:
@@ -401,7 +471,6 @@ class Object:
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
             columns=self._schema.columns,
-            col_fieldtype=self._schema.col_fieldtype,
         )
 
     async def result(self):
@@ -418,59 +487,78 @@ class Object:
         self.checkstale()
         return await self.ch_client.query(f"SELECT * FROM {self.table}")
 
-    async def data(self, orient: str = ORIENT_DICT) -> Any:
+    async def data(
+        self,
+        orient: str = ORIENT_DICT,
+        *,
+        order_by: Any = _UNSET,
+        offset: Any = _UNSET,
+        limit: Any = _UNSET,
+    ) -> Any:
         """
         Get the data from the object's table.
 
         Returns a scalar value, list, or dict depending on the object's field type.
         Scalar objects return the value directly; array objects return a list;
-        dict objects return a dict or list-of-dicts controlled by `orient`.
+        dict objects return a dict or list-of-dicts controlled by ``orient``.
 
         Args:
-            orient: Output format for dict data. Options:
-                - ORIENT_DICT ('dict'): returns dict with column names as keys (default)
-                - ORIENT_RECORDS ('records'): returns list of dicts (one per row)
+            orient: Output format for dict data — ``ORIENT_DICT`` (default) or
+                ``ORIENT_RECORDS``.
+            order_by: Optional ``ORDER BY`` clause. When omitted on a View,
+                inherits the View's stored ``order_by``. Scalar reads ignore.
+            offset: Optional row offset. Same View-inheritance rule as above.
+            limit: Row cap. Defaults to 1000 as a safety rail when called on a
+                base Object; pass ``None`` to fetch all rows. On a View, defers
+                to the View's ``limit`` when omitted (which may itself be 1000
+                or None — the View's choice wins). Scalar / single-row reads
+                ignore.
         """
         self.checkstale()
 
-        # Query column names and comments
-        columns_query = f"""
-        SELECT name, comment
-        FROM system.columns
-        WHERE table = '{self.table}'
-        ORDER BY position
-        """
-        columns_result = await self.ch_client.query(columns_query)
+        # Object caches its schema on construction (from create_object or from
+        # the registry during deserialize) — no need to round-trip SQL here.
+        fieldtype = self._schema.fieldtype
+        columns = self._schema.columns
+        column_names = list(columns)
 
-        # Parse YAML from comments and get column names
-        columns: dict[str, ColumnMeta] = {}
-        column_names: list[str] = []
-        for name, comment in columns_result.result_rows:
-            columns[name] = ColumnMeta.from_yaml(comment)
-            column_names.append(name)
-
-        # Determine data type based on columns
-        is_simple_structure = set(column_names) <= {"aai_id", "value"}
-
-        if not is_simple_structure:
-            # Dict type (scalar or arrays)
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
-
-        # Simple structure: aai_id and value columns
-        value_meta = columns.get("value")
-        if value_meta and value_meta.fieldtype == FIELDTYPE_SCALAR:
-            # Scalar: return single value
+        if fieldtype == FIELDTYPE_SCALAR:
             return await data_extraction.extract_scalar_data(self)
+
+        # Resolve override kwargs against View state (or apply 1000 safety cap
+        # for base Objects). _UNSET means "caller didn't pass"; explicit None
+        # means "no value" (e.g. limit=None to disable the cap).
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_offset = offset if offset is not _UNSET else self.offset
+        if limit is not _UNSET:
+            eff_limit = limit
+        elif self.limit is not None:
+            eff_limit = self.limit
         else:
-            # Array: return list of values
-            return await data_extraction.extract_array_data(self)
+            eff_limit = 1000
+
+        if fieldtype == FIELDTYPE_DICT:
+            return await data_extraction.extract_dict_data(
+                self,
+                column_names,
+                columns,
+                orient,
+                order_by=eff_order_by,
+                offset=eff_offset,
+                limit=eff_limit,
+            )
+        return await data_extraction.extract_array_data(
+            self,
+            order_by=eff_order_by,
+            offset=eff_offset,
+            limit=eff_limit,
+        )
 
     async def markdown(self, truncate: dict[str, int] | None = None) -> str:
         """Return the object's data formatted as a markdown table.
 
         Fetches data via ``.data()`` and renders it as a plain-text markdown
-        table with auto-sized column widths.  The internal ``aai_id`` column
-        is omitted.
+        table with auto-sized column widths.
 
         Args:
             truncate: Optional mapping of column name to maximum character
@@ -488,7 +576,7 @@ class Object:
         if not isinstance(raw, dict):
             raw = {"value": raw if isinstance(raw, list) else [raw]}
 
-        columns = [c for c in raw if c != "aai_id"]
+        columns = list(raw)
         if not columns:
             return ""
         n_rows = len(raw[columns[0]]) if isinstance(raw[columns[0]], list) else 1
@@ -539,30 +627,23 @@ class Object:
         scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
         — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
-        View constraints (``where``, ``limit``, ``order_by``) are honored and
-        the internal ``aai_id`` column is omitted. Backends stream directly:
-        chdb writes via ``INSERT INTO FUNCTION file()`` from the embedded
-        engine; remote ClickHouse streams the formatted bytes over HTTP.
+        View constraints (``where``, ``limit``, ``order_by``) are honored.
+        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
+        file()`` from the embedded engine; remote ClickHouse streams the
+        formatted bytes over HTTP.
 
         Returns the absolute path written.
         """
         self.checkstale()
         fmt = format_for_extension(path)
-        select_sql = self._build_select(columns="* EXCEPT aai_id")
+        select_sql = self._build_select(columns="*")
         return await export_query_to_file(select_sql, path, fmt)
 
     async def _get_fieldtype(self) -> str | None:
-        """Get the fieldtype of the value column."""
+        """Get the fieldtype of the value column from the cached schema."""
         self.checkstale()
-        columns_query = f"""
-        SELECT comment FROM system.columns
-        WHERE table = '{self.table}' AND name = 'value'
-        """
-        result = await self.ch_client.query(columns_query)
-        if result.result_rows:
-            meta = ColumnMeta.from_yaml(result.result_rows[0][0])
-            return meta.fieldtype
-        return None
+        col = self._schema.columns.get("value")
+        return col.fieldtype if col is not None else None
 
     @staticmethod
     async def _ensure_object(value: Object | ValueScalarType) -> Object:
@@ -599,6 +680,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(self, other)
         info_a = self._get_query_info()
         info_b = other._get_query_info()
         return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
@@ -619,6 +701,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(other, self)
         info_a = other._get_query_info()
         info_b = self._get_query_info()
         return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
@@ -796,7 +879,6 @@ class Object:
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
             ...     fieldtype=FIELDTYPE_ARRAY,
-            ...     columns={"aai_id": ColumnInfo("UInt64"),
             ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
@@ -963,8 +1045,8 @@ class Object:
 
         Args:
             url: HTTP(S) URL to load data from (e.g., Parquet file on S3)
-            columns: Column names to select. If None, uses this object's columns
-                (excluding aai_id). Column names must match the URL source.
+            columns: Column names to select. If None, uses this object's columns.
+                Column names must match the URL source.
             format: ClickHouse format name. Default "Parquet".
                 Supported: Parquet, CSV, CSVWithNames, TSV, JSON, JSONEachRow, etc.
             where: Optional SQL WHERE clause for filtering rows at load time
@@ -994,9 +1076,8 @@ class Object:
         _validate_url(url)
         _validate_url_format(format)
 
-        # If columns not specified, use this object's columns (excluding aai_id)
         if columns is None:
-            columns = [c for c in self.schema.columns.keys() if c != "aai_id"]
+            columns = list(self.schema.columns)
 
         _validate_url_columns(columns)
 
@@ -1017,9 +1098,7 @@ class Object:
         else:
             select_cols = columns_str
 
-        # Build INSERT query (aai_id uses DEFAULT generateSnowflakeID())
-        insert_col_names = [k for k in self.schema.columns if k != "aai_id"]
-        insert_cols_str = ", ".join(insert_col_names)
+        insert_cols_str = ", ".join(self.schema.columns)
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
@@ -1534,6 +1613,7 @@ class Object:
         self.checkstale()
         other = await self._ensure_object(other)
         other.checkstale()
+        _require_explicit_order_for_cross_table(self, other)
         info_a = self._get_query_info()
         info_b = other._get_query_info()
         return await operators.coalesce_op(info_a, info_b, self.ch_client)
@@ -1659,14 +1739,12 @@ class Object:
         for old_name in columns:
             if old_name not in existing:
                 raise ValueError(f"Column '{old_name}' does not exist in schema")
-            if old_name == "aai_id":
-                raise ValueError("Cannot rename 'aai_id' column")
         # Check for duplicate new names
         new_names = list(columns.values())
         if len(new_names) != len(set(new_names)):
             raise ValueError("Duplicate new column names in rename mapping")
         # Check collision: new names must not collide with non-renamed columns
-        kept = existing - renamed_away - {"aai_id"}
+        kept = existing - renamed_away
         for new_name in new_names:
             if new_name in kept:
                 raise ValueError(f"Renamed column '{new_name}' collides with existing column")
@@ -1960,7 +2038,7 @@ class Object:
             GroupByQuery: Intermediate object for applying aggregations
 
         Raises:
-            ValueError: If no keys provided, key doesn't exist, or key is 'aai_id'
+            ValueError: If no keys provided, or key doesn't exist
 
         Examples:
             >>> obj = await create_object_from_value({
@@ -2038,27 +2116,22 @@ class GroupByQuery:
             keys: List of column names to group by
 
         Raises:
-            ValueError: If no keys, key is 'aai_id', key doesn't exist in schema
+            ValueError: If no keys, or key doesn't exist in schema
         """
         if not keys:
             raise ValueError("group_by requires at least one key")
-
-        if "aai_id" in keys:
-            raise ValueError("Cannot group by 'aai_id'")
 
         schema = source._schema
         if schema is None:
             raise ValueError("Source object has no cached schema")
 
-        # Determine available columns based on source type
         if isinstance(source, View) and source.is_single_field:
-            # Single-field View projects to {aai_id, value}
+            # Single-field View projects to {value}
             available = {"value"}
         elif isinstance(source, View) and source.selected_fields:
-            # Multi-field View projects to selected fields only
             available = set(source.selected_fields)
         else:
-            available = set(schema.columns.keys()) - {"aai_id"}
+            available = set(schema.columns)
         # Include computed columns
         if source.computed_columns:
             available |= set(source.computed_columns.keys())
@@ -2161,14 +2234,13 @@ class GroupByQuery:
         # Determine source query and columns based on source type
         if isinstance(source, View):
             if source.is_single_field and source.selected_fields:
-                # Single-field View: columns are {aai_id, value}
+                # Single-field View projects to {value}
                 field = source.selected_fields[0]
                 col_def = schema.columns.get(field, ColumnInfo("Float64"))
-                columns = {"aai_id": "UInt64", "value": col_def.type}
+                columns = {"value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source.selected_fields:
-                # Multi-field View: only selected columns available
-                columns = {"aai_id": "UInt64"}
+                columns = {}
                 for field in source.selected_fields:
                     col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
@@ -2368,8 +2440,7 @@ class View(Object):
         return self._offset
 
     @property
-    def order_by(self) -> str | None:
-        """Get ORDER BY clause."""
+    def _explicit_order_by(self) -> str | None:
         return self._order_by
 
     @property
@@ -2412,8 +2483,6 @@ class View(Object):
         - Renamed columns (old_name -> new_name)
         - Computed columns (added as new columns)
 
-        Always includes aai_id.
-
         Cached because View instances are immutable — all fields are set at
         init and never mutated in place.
         """
@@ -2423,9 +2492,9 @@ class View(Object):
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
             col_def = orig.get(field, ColumnInfo("Float64"))
-            columns = {"aai_id": ColumnInfo("UInt64"), "value": col_def}
+            columns = {"value": col_def}
         elif self._selected_fields:
-            columns = {"aai_id": ColumnInfo("UInt64")}
+            columns = {}
             for f in self._selected_fields:
                 columns[f] = orig[f]
         else:
@@ -2555,6 +2624,10 @@ class View(Object):
         columns: str = "*",
         default_order_by: str | None = None,
         skip_order_by: bool = False,
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
     ) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -2570,22 +2643,25 @@ class View(Object):
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
             skip_order_by: If True, omit ORDER BY from the query. Used by copy()
                 to avoid a wasted sort when the order is preserved as a View.
+            order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
+                used in place of the View's stored attributes.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         if self.selected_fields:
+            # Carry aai_id through field-selected subqueries so binary
+            # operators can propagate it onto the result table — without
+            # this, ``(obj["x"] + array_b)`` would build a source subquery
+            # that omits aai_id, and the operator's outer SELECT can't find it.
+            aai_id_proj = ", aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
             if self.is_single_field:
                 # Single field: rename as 'value' for array compatibility
                 field = quote_identifier(self.selected_fields[0])
-                if columns == "value":
-                    select_cols = f"{field} AS value"
-                else:
-                    select_cols = f"aai_id, {field} AS value"
+                select_cols = f"{field} AS value{aai_id_proj}"
             else:
-                # Multiple fields: select all specified fields
                 fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
-                select_cols = f"aai_id, {fields_str}"
+                select_cols = f"{fields_str}{aai_id_proj}"
         elif self._renamed_columns and columns == "*":
             # Expand * into explicit columns with renames applied
             renames = self._renamed_columns
@@ -2638,25 +2714,28 @@ class View(Object):
                 else:
                     join_parts.append(quote_identifier(col))
             query += f" {join_type} {', '.join(join_parts)}"
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_limit = limit if limit is not _UNSET else self.limit
+        eff_offset = offset if offset is not _UNSET else self.offset
+
         where_clause = self._build_where()
         if where_clause:
             query += f" WHERE {where_clause}"
         if not skip_order_by:
-            order_clause = self.order_by or default_order_by
+            order_clause = eff_order_by or default_order_by
             if order_clause:
                 query += f" ORDER BY {order_clause}"
-        if self.limit is not None:
-            query += f" LIMIT {self.limit}"
-        if self.offset is not None:
-            query += f" OFFSET {self.offset}"
+        if eff_limit is not None:
+            query += f" LIMIT {eff_limit}"
+        if eff_offset is not None:
+            query += f" OFFSET {eff_offset}"
         return query
 
     def _get_copy_info(self) -> CopyInfo:
         """Get copy info for database-level copy operations.
 
         ORDER BY is stripped from the source query and passed separately
-        via CopyInfo.order_by — copy_db() uses it to sort during INSERT
-        while excluding aai_id so new IDs are generated in sorted order.
+        via CopyInfo.order_by — copy_db() uses it to sort during INSERT.
         """
         has_non_order_constraints = bool(
             self.where_clauses
@@ -2689,11 +2768,17 @@ class View(Object):
             columns=columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
-            col_fieldtype=self._schema.col_fieldtype,
             order_by=self.order_by,
         )
 
-    async def data(self, orient: str = ORIENT_DICT) -> Any:
+    async def data(
+        self,
+        orient: str = ORIENT_DICT,
+        *,
+        order_by: Any = _UNSET,
+        offset: Any = _UNSET,
+        limit: Any = _UNSET,
+    ) -> Any:
         """
         Get the data from the view.
 
@@ -2703,32 +2788,37 @@ class View(Object):
 
         Args:
             orient: Output format for dict data
+            order_by: Per-call ``ORDER BY`` override — see ``Object.data``.
+            offset: Per-call ``OFFSET`` override — see ``Object.data``.
+            limit: Per-call ``LIMIT`` override — see ``Object.data``.
         """
         self.checkstale()
 
+        # Resolve overrides against View state. Same rule as Object.data:
+        # _UNSET means "caller didn't pass" → fall back to the View attr;
+        # explicit None means "no value" (e.g. limit=None to disable any cap).
+        eff_order_by = order_by if order_by is not _UNSET else self.order_by
+        eff_offset = offset if offset is not _UNSET else self.offset
+        eff_limit = limit if limit is not _UNSET else self.limit
+        ext_kwargs = {"order_by": eff_order_by, "offset": eff_offset, "limit": eff_limit}
+
         if self.selected_fields:
             if self.is_single_field:
-                # Single field: return as array
-                return await data_extraction.extract_array_data(self)
-            else:
-                # Multiple fields: return as dict with only selected fields
-                columns: dict[str, ColumnMeta] = {}
-                for field in self.selected_fields:
-                    columns[field] = ColumnMeta(fieldtype=FIELDTYPE_ARRAY)
-
-                column_names = ["aai_id"] + list(self.selected_fields)
-                return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+                return await data_extraction.extract_array_data(self, **ext_kwargs)
+            columns: dict[str, ColumnInfo] = {
+                field: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
+            }
+            column_names = list(self.selected_fields)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
-            columns: dict[str, ColumnMeta] = {
-                name: ColumnMeta(fieldtype=FIELDTYPE_ARRAY) for name in eff if name != "aai_id"
-            }
+            columns: dict[str, ColumnInfo] = {name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff}
             column_names = list(eff.keys())
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient)
+            return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
         # Delegate to parent for normal views
-        return await super().data(orient=orient)
+        return await super().data(orient=orient, order_by=order_by, offset=offset, limit=limit)
 
     @property
     def schema(self) -> ViewSchema:

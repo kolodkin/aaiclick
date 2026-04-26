@@ -18,6 +18,7 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import datetime
 
 import pytest
 from alembic import command
@@ -26,10 +27,12 @@ from sqlalchemy import create_engine, text
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import chdb_client as _chdb_client
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogNode
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
-from aaiclick.orchestration.orch_context import get_sql_session, orch_context
+from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
+from aaiclick.snowflake import get_snowflake_id
 
 # ``aaiclick.orchestration`` re-exports ``orch_context`` as a function, which
 # shadows the submodule attribute on the package. Resolve the submodule by
@@ -120,6 +123,33 @@ async def reset_test_state(
     async with ctx:
         await per_test_reset(reset_ch=reset_ch, reset_sql=reset_sql)
         yield
+
+
+async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> None:
+    """Insert (or upsert) a minimal ``table_registry.schema_doc`` row.
+
+    Lets tests point Object / View machinery at arbitrary table names
+    without going through ``create_object``. The emitted ``schema_doc``
+    declares a single ``value`` column inheriting ``fieldtype``.
+    """
+    from aaiclick.data.view_models import ColumnView, SchemaView
+
+    schema_doc = SchemaView(
+        columns=[ColumnView(name="value", type="Int64", fieldtype=fieldtype)],
+        engine="MergeTree",
+        fieldtype=fieldtype,
+    ).model_dump_json()
+    async with get_sql_session() as sess:
+        await sess.execute(
+            text(
+                "INSERT INTO table_registry "
+                "(table_name, created_at, schema_doc) "
+                "VALUES (:t, :now, :sd) "
+                "ON CONFLICT (table_name) DO NOTHING"
+            ),
+            {"t": table, "now": datetime.utcnow(), "sd": schema_doc},
+        )
+        await sess.commit()
 
 
 def make_oplog_node(
@@ -371,9 +401,17 @@ async def orch_module_ctx_no_ch():
 
 @pytest.fixture
 async def orch_ctx(orch_module_ctx):
-    """Per-test state reset on top of the module-scoped chdb orch context."""
+    """Per-test state reset + synthetic task_scope on top of the module-scoped
+    chdb orch context.
+
+    The task_scope activates OrchLifecycleHandler so ``create_object`` can
+    write to ``table_registry.schema_doc`` — required by Phase 2's
+    registry-backed ``_get_table_schema`` read path.
+    """
     await per_test_reset(reset_ch=True, reset_sql=True)
-    yield
+    synthetic_id = get_snowflake_id()
+    async with task_scope(task_id=synthetic_id, job_id=synthetic_id, run_id=synthetic_id):
+        yield
 
 
 @pytest.fixture

@@ -8,12 +8,13 @@ and oplog recording.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar
 
-from sqlalchemy import BigInteger, Column, DateTime, String
+from sqlalchemy import BigInteger, Column, DateTime, String, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -26,6 +27,7 @@ class DBLifecycleOp(Enum):
     UNPIN = auto()
     OPLOG_RECORD = auto()
     OPLOG_TABLE = auto()
+    FLUSH = auto()
     SHUTDOWN = auto()
 
 
@@ -50,6 +52,7 @@ class OplogTablePayload:
     task_id: int | None = None
     job_id: int | None = None
     run_id: int | None = None
+    schema_doc: str | None = None
 
 
 @dataclass
@@ -61,6 +64,7 @@ class DBLifecycleMessage:
     pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
+    flush_event: asyncio.Event | None = None  # signalled after FLUSH reaches here
 
 
 class TableContextRef(SQLModel, table=True):
@@ -134,4 +138,8 @@ class TableRegistry(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime, nullable=False, index=True),
+    )
+    schema_doc: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
     )

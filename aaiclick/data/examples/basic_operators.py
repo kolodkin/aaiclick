@@ -79,8 +79,8 @@ async def example():
     print("-" * 50)
 
     # Create two numeric objects for operations
-    obj_a = await create_object_from_value([10.0, 20.0, 30.0])
-    obj_b = await create_object_from_value([2.0, 4.0, 5.0])
+    obj_a = await create_object_from_value([10.0, 20.0, 30.0], aai_id=True)
+    obj_b = await create_object_from_value([2.0, 4.0, 5.0], aai_id=True)
 
     print(f"Created {obj_a}")
     print(f"Values in a: {await obj_a.data()}\n")  # → [10.0, 20.0, 30.0]
@@ -124,8 +124,8 @@ async def example():
     print("Example 5: Comparison operators")
     print("-" * 50)
 
-    obj_x = await create_object_from_value([1, 5, 10, 15])
-    obj_y = await create_object_from_value([5, 5, 8, 20])
+    obj_x = await create_object_from_value([1, 5, 10, 15], aai_id=True)
+    obj_y = await create_object_from_value([5, 5, 8, 20], aai_id=True)
 
     print(f"Values in x: {await obj_x.data()}")  # → [1, 5, 10, 15]
     print(f"Values in y: {await obj_y.data()}\n")  # → [5, 5, 8, 20]
@@ -159,8 +159,8 @@ async def example():
     print("Example 6: Bitwise operators")
     print("-" * 50)
 
-    obj_m = await create_object_from_value([12, 10, 8])  # Binary: 1100, 1010, 1000
-    obj_n = await create_object_from_value([10, 12, 4])  # Binary: 1010, 1100, 0100
+    obj_m = await create_object_from_value([12, 10, 8], aai_id=True)  # Binary: 1100, 1010, 1000
+    obj_n = await create_object_from_value([10, 12, 4], aai_id=True)  # Binary: 1010, 1100, 0100
 
     print(f"Values in m: {await obj_m.data()}")  # → [12, 10, 8]
     print(f"Values in n: {await obj_n.data()}\n")  # → [10, 12, 4]

@@ -17,23 +17,23 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-async def apply_operator(obj_a, obj_b, operator: str):
+async def apply_operator(a, b, operator: str):
     """Apply a binary operator to two objects using match/case."""
     match operator:
         case "+":
-            return await (obj_a + obj_b)
+            return await (a + b)
         case "-":
-            return await (obj_a - obj_b)
+            return await (a - b)
         case "*":
-            return await (obj_a * obj_b)
+            return await (a * b)
         case "/":
-            return await (obj_a / obj_b)
+            return await (a / b)
         case "//":
-            return await (obj_a // obj_b)
+            return await (a // b)
         case "%":
-            return await (obj_a % obj_b)
+            return await (a % b)
         case "**":
-            return await (obj_a**obj_b)
+            return await (a**b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -60,8 +60,8 @@ async def apply_operator(obj_a, obj_b, operator: str):
 )
 async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on integer scalars with various inputs."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
 
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
@@ -91,8 +91,8 @@ async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_resu
 )
 async def test_int_array_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on integer arrays with various inputs."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
 
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
@@ -122,8 +122,8 @@ async def test_int_array_operators(ctx, data_a, data_b, operator, expected_resul
 )
 async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on float scalars with various inputs."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
 
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
@@ -153,8 +153,8 @@ async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_re
 )
 async def test_float_array_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators on float arrays with various inputs."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
 
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
@@ -186,8 +186,8 @@ async def test_float_array_operators(ctx, data_a, data_b, operator, expected_res
 )
 async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_result):
     """Test binary operators with edge cases."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
 
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
@@ -220,9 +220,9 @@ async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_resul
 )
 async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected_result):
     """Test chained binary operations."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
-    obj_c = await create_object_from_value(data_c)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
+    obj_c = await create_object_from_value(data_c, aai_id=True)
 
     temp = await apply_operator(obj_a, obj_b, op1)
     result = await apply_operator(temp, obj_c, op2)
@@ -250,8 +250,8 @@ async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected
 )
 async def test_mul_div_scalar(ctx, data_a, data_b, operator, expected_result):
     """Test multiplication, division, floordiv, mod, pow on scalars."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
     assert abs(result_data - expected_result) < THRESHOLD
@@ -269,8 +269,8 @@ async def test_mul_div_scalar(ctx, data_a, data_b, operator, expected_result):
 )
 async def test_mul_div_array(ctx, data_a, data_b, operator, expected_result):
     """Test multiplication, division, floordiv, mod, pow on arrays."""
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, aai_id=True)
+    obj_b = await create_object_from_value(data_b, aai_id=True)
     result = await apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
     for i, val in enumerate(result_data):

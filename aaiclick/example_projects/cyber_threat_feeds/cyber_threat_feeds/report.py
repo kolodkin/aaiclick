@@ -78,7 +78,7 @@ def _fmt(value: object) -> str:
 def _print_field_table(columns: dict[str, ColumnInfo]) -> None:
     """Print a markdown table of field names, types, and descriptions.
 
-    Skips columns without a description (e.g. internal aai_id).
+    Skips columns without a description.
     """
     described = {f: c for f, c in columns.items() if c.description}
     if not described:

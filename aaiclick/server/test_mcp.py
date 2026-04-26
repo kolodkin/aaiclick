@@ -115,7 +115,7 @@ async def test_stop_worker_transitions_to_stopping(orch_ctx, mcp_client):
 
 
 async def test_list_objects_returns_page(orch_ctx, mcp_client):
-    await create_object_from_value([1, 2, 3], name="mcp_obj_a")
+    await create_object_from_value([1, 2, 3], name="mcp_obj_a", scope="global")
 
     result = await mcp_client.call_tool("list_objects", {})
 
@@ -124,7 +124,7 @@ async def test_list_objects_returns_page(orch_ctx, mcp_client):
 
 
 async def test_get_object_returns_detail(orch_ctx, mcp_client):
-    await create_object_from_value([4, 5], name="mcp_obj_detail")
+    await create_object_from_value([4, 5], name="mcp_obj_detail", scope="global")
 
     result = await mcp_client.call_tool("get_object", {"name": "mcp_obj_detail"})
 

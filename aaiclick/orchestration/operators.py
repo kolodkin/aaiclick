@@ -113,6 +113,11 @@ async def _expand_map(
 
     out = await create_object(obj.schema)
 
+    # Partitioning uses LIMIT/OFFSET, which needs a stable ordering for the
+    # slices to be disjoint. Honour the Object's declared order_by; fall back
+    # to tuple() (no-op). Callers who care wrap in .view(order_by=...) first.
+    partition_order = obj.order_by or "tuple()"
+
     tasks = []
     for i in range(n_partitions):
         child = _map_part(
@@ -121,7 +126,7 @@ async def _expand_map(
                 table=table_name,
                 limit=partition,
                 offset=i * partition,
-                order_by="aai_id",
+                order_by=partition_order,
             ).to_dict(),
             out=out,
             cbk_args=cbk_args,
@@ -232,6 +237,7 @@ def _build_layer_group(
     group = Group(id=get_snowflake_id(), name=f"layer_{L}")
     if prev_group is not None:
         group.depends_on(prev_group)
+    partition_order = src.order_by or "tuple()"
     for i in range(M):
         part_task = _reduce_part(
             cbk=cbk,
@@ -239,7 +245,7 @@ def _build_layer_group(
                 table=src.table,
                 limit=partition,
                 offset=i * partition,
-                order_by="aai_id",
+                order_by=partition_order,
             ).to_dict(),
             layer_obj=layer_obj,
             cbk_args=cbk_args,

@@ -220,8 +220,6 @@ def render_object_detail(detail: ObjectDetail) -> None:
     print(f"Created:   {_fmt_optional(detail.created_at)}")
     print("Columns:")
     for col in detail.table_schema.columns:
-        if col.name == "aai_id":
-            continue
         print(f"  {col.name}: {col.type}")
 
 

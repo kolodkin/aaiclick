@@ -4,7 +4,7 @@ aaiclick.ai.agents.lineage_agent - LLM-powered lineage explanation.
 
 from __future__ import annotations
 
-from aaiclick.ai.agents.prompts import AAI_ID_WARNING, OUTPUT_FORMAT
+from aaiclick.ai.agents.prompts import OUTPUT_FORMAT
 from aaiclick.ai.agents.tools import get_schemas_for_nodes
 from aaiclick.ai.config import get_ai_provider
 from aaiclick.oplog.lineage import OplogGraph, oplog_subgraph
@@ -13,8 +13,6 @@ _SYSTEM_PROMPT = f"""\
 You are a data lineage expert analyzing a ClickHouse data pipeline.
 Explain how the target table was produced as a short numbered list of steps.
 Each step: operation, input tables, output table.
-
-{AAI_ID_WARNING}
 
 {OUTPUT_FORMAT}"""
 

@@ -57,7 +57,7 @@ async def test_get_schemas_for_nodes_fetches_all_tables():
         make_oplog_node("a", "create_from_value"),
     ]
 
-    with patch("aaiclick.ai.agents.tools.get_schema", new=AsyncMock(return_value="aai_id: UInt64\nval: Float64")):
+    with patch("aaiclick.ai.agents.tools.get_schema", new=AsyncMock(return_value="id: UInt64\nval: Float64")):
         result = await get_schemas_for_nodes(nodes)
 
     assert "# Table Schemas" in result

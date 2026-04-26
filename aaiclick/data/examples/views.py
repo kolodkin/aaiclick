@@ -295,8 +295,8 @@ async def example():
     print("Example 11: Views work with operators")
     print("-" * 50)
 
-    obj_a = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    obj_b = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    obj_a = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
+    obj_b = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80, 90, 100], aai_id=True)
 
     print(f"Original data A: {await obj_a.data()}")
     print(f"Original data B: {await obj_b.data()}\n")

@@ -58,13 +58,15 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
-from typing import cast
+from dataclasses import replace
+from typing import NamedTuple, cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
 from ..data_context import create_object
 from ..models import (
+    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
@@ -140,7 +142,17 @@ async def _validate_array_lengths(source_a, source_b, ch_client):
         raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
 
-async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client):
+async def _materialize_array_join(
+    source_a,
+    type_a,
+    source_b,
+    type_b,
+    ch_client,
+    *,
+    order_a: str,
+    order_b: str,
+    propagate_aai_id_from: str | None = None,
+):
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
     Creates a temporary Memory table containing both operand values joined by
@@ -154,6 +166,11 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
         source_b: SQL source for right operand
         type_b: ClickHouse value type of right operand
         ch_client: ClickHouse async client
+        order_a: ORDER BY expression for left source — from ``View._order_by``.
+        order_b: ORDER BY expression for right source.
+        propagate_aai_id_from: ``"a"`` or ``"b"`` to copy that side's
+            ``aai_id`` column into the temp table as ``aai_id Nullable(UInt64)``;
+            ``None`` (default) skips propagation.
 
     Returns:
         Name of the temp table.  Caller is responsible for DROP.
@@ -163,12 +180,24 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
     """
     temp_table = f"tmp_{get_snowflake_id()}"
 
+    if propagate_aai_id_from is None:
+        aai_id_col_def = ""
+        outer_select = ""
+        inner_a = ""
+        inner_b = ""
+    else:
+        aai_id_col_def = f", {AAI_ID_COLUMN} Nullable(UInt64)"
+        outer_select = f", {propagate_aai_id_from}.{AAI_ID_COLUMN} AS {AAI_ID_COLUMN}"
+        side_inner = f", CAST({AAI_ID_COLUMN} AS Nullable(UInt64)) AS {AAI_ID_COLUMN}"
+        inner_a = side_inner if propagate_aai_id_from == "a" else ""
+        inner_b = side_inner if propagate_aai_id_from == "b" else ""
+
     await ch_client.command(f"""
         CREATE TABLE {temp_table} (
             a_value Nullable({type_a}),
             b_value Nullable({type_b}),
             a_present Nullable(UInt8),
-            b_present Nullable(UInt8)
+            b_present Nullable(UInt8){aai_id_col_def}
         ) ENGINE = Memory
     """)
 
@@ -178,17 +207,17 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
     await ch_client.command(f"""
         INSERT INTO {temp_table}
         SELECT a.value AS a_value, b.value AS b_value,
-               a.present AS a_present, b.present AS b_present
+               a.present AS a_present, b.present AS b_present{outer_select}
         FROM (
-            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_a})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present
+                   CAST(1 AS Nullable(UInt8)) AS present{inner_a}
             FROM {source_a}
         ) AS a
         FULL OUTER JOIN (
-            SELECT CAST(row_number() OVER (ORDER BY aai_id) AS Nullable(UInt64)) AS rn,
+            SELECT CAST(row_number() OVER (ORDER BY {order_b}) AS Nullable(UInt64)) AS rn,
                    CAST(value AS Nullable({type_b})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present
+                   CAST(1 AS Nullable(UInt8)) AS present{inner_b}
             FROM {source_b}
         ) AS b
         ON a.rn = b.rn
@@ -204,6 +233,30 @@ async def _materialize_array_join(source_a, type_a, source_b, type_b, ch_client)
             raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
     return temp_table
+
+
+class _AaiIdProj(NamedTuple):
+    """SQL fragments emitted when ``aai_id`` propagates to the result.
+
+    All fields are empty strings when no propagation occurs so call sites can
+    interpolate them unconditionally without inline ternaries. ``alias``
+    selects the side ``aliased`` references — "a" for LHS-driven paths,
+    "b" for scalar broadcast with array RHS or array×array RHS-only aai_id.
+    """
+
+    insert_cols: str  # "(value, aai_id)" or "(value)"
+    inner: str  # ", aai_id" — bare column reference (unaliased subquery / temp table)
+    aliased: str  # ", <alias>.aai_id AS aai_id" — table-qualified projection
+
+
+def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
+    if not propagate:
+        return _AaiIdProj("(value)", "", "")
+    return _AaiIdProj(
+        f"(value, {AAI_ID_COLUMN})",
+        f", {AAI_ID_COLUMN}",
+        f", {alias}.{AAI_ID_COLUMN} AS {AAI_ID_COLUMN}",
+    )
 
 
 async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
@@ -232,20 +285,29 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     type_b = info_b.value_type
     value_type = _promote_arithmetic_type(operator, type_a, type_b)
 
-    # Build schema for result table
+    # Propagate ``aai_id`` from whichever operand is the array (preferring LHS
+    # when both arrays carry it). For scalar broadcast, the row-aligned aai_id
+    # comes from the array side regardless of LHS/RHS position.
     result_nullable = info_a.nullable or info_b.nullable
-    schema = Schema(
-        fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
-    )
-
-    # Create result object with schema
+    result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
+    if a_is_array and info_a.aai_id_info is not None:
+        aai_id_source = info_a.aai_id_info
+        aai_id_alias = "a"
+    elif b_is_array and info_b.aai_id_info is not None:
+        aai_id_source = info_b.aai_id_info
+        aai_id_alias = "b"
+    else:
+        aai_id_source = None
+        aai_id_alias = "a"  # unused when aai_id_source is None
+    proj = _aai_id_proj(aai_id_source is not None, alias=aai_id_alias)
+    if aai_id_source is not None:
+        # Mirror the source column shape, but drop DEFAULT — values are copied
+        # via INSERT, not generated per-row by ClickHouse.
+        result_columns[AAI_ID_COLUMN] = replace(aai_id_source, default=None)
+    schema = Schema(fieldtype=fieldtype, columns=result_columns)
     result = await create_object(schema)
 
     # Insert data based on fieldtype combinations
-    # aai_id uses DEFAULT generateSnowflakeID() for array-array and scalar-scalar.
-    # For mixed cases, preserve source aai_id to maintain ordering.
     if a_is_array and b_is_array:
         # Same-table optimization: when both operands are field selections from
         # the same table with identical constraints, emit a single SELECT instead
@@ -263,14 +325,19 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
             suffix = info_a.constraint_sql
             if suffix:
-                source_sql = f"(SELECT {col_a}, {col_b} FROM {info_a.base_table} {suffix})"
+                source_sql = f"(SELECT {col_a}, {col_b}{proj.inner} FROM {info_a.base_table} {suffix})"
             else:
                 source_sql = info_a.base_table
             await ch_client.command(f"""
-                INSERT INTO {result.table} (value)
-                SELECT {expr} AS value FROM {source_sql}
+                INSERT INTO {result.table} {proj.insert_cols}
+                SELECT {expr} AS value{proj.inner} FROM {source_sql}
             """)
         else:
+            # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
+            assert info_a.order_by and info_b.order_by, (
+                "cross-table elementwise op reached operator SQL without order_by "
+                "on both sides — the contract check in _apply_operator should have rejected it"
+            )
             either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
             if either_is_view:
@@ -280,22 +347,27 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     info_b.source,
                     info_b.value_type,
                     ch_client,
+                    order_a=info_a.order_by,
+                    order_b=info_b.order_by,
+                    propagate_aai_id_from=aai_id_alias if aai_id_source is not None else None,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
                     await ch_client.command(f"""
-                        INSERT INTO {result.table} (value)
-                        SELECT {temp_expr} AS value FROM {temp_table}
+                        INSERT INTO {result.table} {proj.insert_cols}
+                        SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}
                     """)
                 finally:
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+                inner_a = proj.inner if aai_id_alias == "a" else ""
+                inner_b = proj.inner if aai_id_alias == "b" else ""
                 await ch_client.command(f"""
-                    INSERT INTO {result.table} (value)
-                    SELECT {expression} AS value
-                    FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
-                    INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                    INSERT INTO {result.table} {proj.insert_cols}
+                    SELECT {expression} AS value{proj.aliased}
+                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a
+                    INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b
                     ON a.rn = b.rn
                 """)
 
@@ -303,21 +375,11 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
-    # Cross-join works for all cases; only the aai_id source differs.
-    # Scalar-scalar omits aai_id (DEFAULT generateSnowflakeID() fills it).
-    if a_is_array:
-        insert_target = result.table
-        select_cols = f"a.aai_id, {expression} AS value"
-    elif b_is_array:
-        insert_target = result.table
-        select_cols = f"b.aai_id, {expression} AS value"
-    else:
-        insert_target = f"{result.table} (value)"
-        select_cols = f"{expression} AS value"
-
+    # Cross-join works for all cases. Row order follows ClickHouse's natural
+    # source order; callers wanting determinism apply .view(order_by=...).
     await ch_client.command(f"""
-        INSERT INTO {insert_target}
-        SELECT {select_cols}
+        INSERT INTO {result.table} {proj.insert_cols}
+        SELECT {expression} AS value{proj.aliased}
         FROM {info_a.source} AS a, {info_b.source} AS b
     """)
 
@@ -441,14 +503,12 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
     result = await create_object(schema)
 
-    # Insert aggregated data (aai_id uses DEFAULT generateSnowflakeID())
     # count() uses count() without column, others use func(value)
     if agg_func == "count":
         agg_expr = f"{sql_func}()"
@@ -592,15 +652,14 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     if isinstance(condition, str):
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            col_fieldtype=FIELDTYPE_SCALAR,
-            columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+            columns={"value": ColumnInfo("UInt64")},
         )
         result = await create_object(schema)
         query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
         await ch_client.command(query)
         return result
 
-    columns = {"aai_id": ColumnInfo("UInt64")}
+    columns = {}
     select_exprs = []
     for name, cond in condition.items():
         columns[name] = ColumnInfo("UInt64")
@@ -609,7 +668,6 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns=columns,
-        col_fieldtype=FIELDTYPE_SCALAR,
     )
     result = await create_object(schema)
     insert_cols = ", ".join(condition.keys())
@@ -642,14 +700,12 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
     result = await create_object(schema)
 
-    # Insert quantile result (aai_id uses DEFAULT generateSnowflakeID())
     insert_query = f"""
     INSERT INTO {result.table} (value)
     SELECT quantile({q})(value) AS value
@@ -683,13 +739,12 @@ async def unique_group(info: QueryInfo, ch_client):
     source_col_def = ColumnInfo(info.value_type, nullable=info.nullable)
 
     # Build schema for result table (array type - multiple unique values)
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"aai_id": ColumnInfo("UInt64"), "value": source_col_def})
+    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": source_col_def})
 
     # Create result object with schema
     result = await create_object(schema)
 
     # Insert unique values using GROUP BY (not DISTINCT) entirely in ClickHouse
-    # aai_id uses DEFAULT generateSnowflakeID()
     insert_query = f"""
     INSERT INTO {result.table} (value)
     SELECT value FROM {info.source} GROUP BY value
@@ -720,8 +775,7 @@ async def nunique_agg(info: QueryInfo, ch_client):
     """
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        col_fieldtype=FIELDTYPE_SCALAR,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt64")},
+        columns={"value": ColumnInfo("UInt64")},
     )
     result = await create_object(schema)
     await ch_client.command(f"""
@@ -778,7 +832,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
@@ -792,7 +846,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         SELECT arrayJoin(
             arrayMap(
                 x -> {scalar_expr},
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id))
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source}))
             )
         ) AS value
         """
@@ -803,8 +857,8 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         SELECT arrayJoin(
             arrayMap(
                 (x, y) -> {expression},
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source} ORDER BY aai_id)),
-                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source} ORDER BY aai_id))
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_a.source})),
+                (SELECT groupArray(value) FROM (SELECT value FROM {info_b.source}))
             )
         ) AS value
         """
@@ -861,33 +915,34 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     entries = _normalize_aggregations(aggregations)
     keys_str = ", ".join(info.group_keys)
 
-    # Build aggregation expressions and result schema
+    # Build aggregation expressions and result schema. Every result column
+    # carries multiple rows (one per group), so fieldtype=ARRAY.
     agg_exprs = []
-    result_columns = {"aai_id": ColumnInfo("UInt64")}
+    result_columns = {}
 
     for key in info.group_keys:
-        result_columns[key] = ColumnInfo(info.columns[key])
+        result_columns[key] = ColumnInfo(info.columns[key], fieldtype=FIELDTYPE_ARRAY)
 
     for source_col, agg in entries:
         sql_func = AGGREGATION_FUNCTIONS[agg.op]
         if agg.op == "count":
             agg_exprs.append(f"{sql_func}() AS {agg.alias}")
-            result_columns[agg.alias] = ColumnInfo("UInt64")
+            result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
-            result_columns[agg.alias] = ColumnInfo(base_type, array=True)
+            result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
-            result_columns[agg.alias] = ColumnInfo(_determine_agg_result_type(agg.op, source_type))
+            result_columns[agg.alias] = ColumnInfo(
+                _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
+            )
 
     agg_str = ", ".join(agg_exprs)
 
-    # Build non-aai_id column names for INSERT
-    insert_cols = [k for k in result_columns if k != "aai_id"]
-    insert_cols_str = ", ".join(insert_cols)
+    insert_cols_str = ", ".join(result_columns)
 
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
@@ -910,10 +965,9 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     else:
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
 
-    schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns=result_columns)
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     result = await create_object(schema)
 
-    # Insert directly from query (aai_id uses DEFAULT generateSnowflakeID())
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
     await ch_client.command(insert_query)
 
@@ -979,15 +1033,14 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     result = await create_object(schema)
 
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT a.aai_id, {expression} AS value
+        SELECT {expression} AS value
         FROM {info.source} AS a
     """)
     return result
@@ -1030,14 +1083,13 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
     fieldtype = info.fieldtype
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     subquery = f"SELECT value FROM {other_info.source}"
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT a.aai_id, toUInt8(a.value IN ({subquery})) AS value
+        SELECT toUInt8(a.value IN ({subquery})) AS value
         FROM {info.source} AS a
     """)
     oplog_record_sample(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
@@ -1084,14 +1136,13 @@ async def unary_transform(info: QueryInfo, transform: str, ch_client):
 
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(result_type)},
+        columns={"value": ColumnInfo(result_type)},
     )
     result = await create_object(schema)
 
     await ch_client.command(f"""
         INSERT INTO {result.table}
-        SELECT aai_id, {ch_func}(value) AS value FROM {info.source}
+        SELECT {ch_func}(value) AS value FROM {info.source}
     """)
     return result
 
@@ -1104,13 +1155,12 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, isNull(value) AS value FROM {info.source}
+    SELECT isNull(value) AS value FROM {info.source}
     """
     await ch_client.command(insert_query)
     return result
@@ -1120,13 +1170,12 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        col_fieldtype=info.fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo("UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
     INSERT INTO {result.table}
-    SELECT aai_id, isNotNull(value) AS value FROM {info.source}
+    SELECT isNotNull(value) AS value FROM {info.source}
     """
     await ch_client.command(insert_query)
     return result
@@ -1148,12 +1197,19 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
-        col_fieldtype=fieldtype,
-        columns={"aai_id": ColumnInfo("UInt64"), "value": ColumnInfo(value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
     if a_is_array and b_is_array:
+        # Cross-table contract enforced by Object.coalesce — both operands must
+        # be Views with explicit order_by. Same-base-table coalesce is legal
+        # without views (matching source rows 1:1).
+        same_table = info_a.base_table == info_b.base_table
+        assert same_table or (info_a.order_by and info_b.order_by), (
+            "cross-table coalesce reached operator SQL without order_by — the "
+            "contract check in Object.coalesce should have rejected it"
+        )
         either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
         if either_is_view:
@@ -1163,6 +1219,8 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
                 info_b.source,
                 info_b.value_type,
                 ch_client,
+                order_a=info_a.order_by or "tuple()",
+                order_b=info_b.order_by or "tuple()",
             )
             try:
                 await ch_client.command(f"""
@@ -1173,11 +1231,13 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
                 await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
         else:
             await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            order_a = info_a.order_by or "tuple()"
+            order_b = info_b.order_by or "tuple()"
             await ch_client.command(f"""
                 INSERT INTO {result.table} (value)
                 SELECT coalesce(a.value, b.value) AS value
-                FROM (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_a.source}) AS a
-                INNER JOIN (SELECT row_number() OVER (ORDER BY aai_id) AS rn, value FROM {info_b.source}) AS b
+                FROM (SELECT row_number() OVER (ORDER BY {order_a}) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY {order_b}) AS rn, value FROM {info_b.source}) AS b
                 ON a.rn = b.rn
             """)
 
@@ -1186,10 +1246,10 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     if a_is_array:
         insert_target = result.table
-        select_cols = "a.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "coalesce(a.value, b.value) AS value"
     elif b_is_array:
         insert_target = result.table
-        select_cols = "b.aai_id, coalesce(a.value, b.value) AS value"
+        select_cols = "coalesce(a.value, b.value) AS value"
     else:
         insert_target = f"{result.table} (value)"
         select_cols = "coalesce(a.value, b.value) AS value"

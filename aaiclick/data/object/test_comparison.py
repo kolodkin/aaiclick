@@ -10,21 +10,21 @@ import pytest
 from aaiclick import create_object_from_value
 
 
-async def apply_comparison(obj_a, obj_b, operator: str):
+async def apply_comparison(a, b, operator: str):
     """Apply a comparison operator to two Objects."""
     match operator:
         case "==":
-            return await (obj_a == obj_b)
+            return await (a == b)
         case "!=":
-            return await (obj_a != obj_b)
+            return await (a != b)
         case "<":
-            return await (obj_a < obj_b)
+            return await (a < b)
         case "<=":
-            return await (obj_a <= obj_b)
+            return await (a <= b)
         case ">":
-            return await (obj_a > obj_b)
+            return await (a > b)
         case ">=":
-            return await (obj_a >= obj_b)
+            return await (a >= b)
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -55,8 +55,8 @@ async def apply_comparison(obj_a, obj_b, operator: str):
 )
 async def test_scalar_comparison(ctx, val_a, val_b, operator, expected):
     """Test comparison operators on scalar Objects."""
-    obj_a = await create_object_from_value(val_a)
-    obj_b = await create_object_from_value(val_b)
+    obj_a = await create_object_from_value(val_a, aai_id=True)
+    obj_b = await create_object_from_value(val_b, aai_id=True)
     result = await apply_comparison(obj_a, obj_b, operator)
     assert await result.data() == expected
 
@@ -79,8 +79,8 @@ async def test_scalar_comparison(ctx, val_a, val_b, operator, expected):
 )
 async def test_array_comparison(ctx, vals_a, vals_b, operator, expected):
     """Test comparison operators on array Objects."""
-    obj_a = await create_object_from_value(vals_a)
-    obj_b = await create_object_from_value(vals_b)
+    obj_a = await create_object_from_value(vals_a, aai_id=True)
+    obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = await apply_comparison(obj_a, obj_b, operator)
     assert await result.data() == expected
 
@@ -92,8 +92,8 @@ async def test_array_comparison(ctx, vals_a, vals_b, operator, expected):
 
 async def test_comparison_then_sum(ctx):
     """Comparison result (UInt8) can be summed to count matches."""
-    obj_a = await create_object_from_value([1, 2, 3, 4, 5])
-    obj_b = await create_object_from_value([1, 0, 3, 0, 5])
+    obj_a = await create_object_from_value([1, 2, 3, 4, 5], aai_id=True)
+    obj_b = await create_object_from_value([1, 0, 3, 0, 5], aai_id=True)
     matches = await (obj_a == obj_b)
     count = await (await matches.sum()).data()
     assert count == 3
@@ -101,8 +101,8 @@ async def test_comparison_then_sum(ctx):
 
 async def test_comparison_then_unique(ctx):
     """Comparison result values are 0 and 1 only."""
-    obj_a = await create_object_from_value([1, 2, 3, 4])
-    obj_b = await create_object_from_value([1, 1, 1, 1])
+    obj_a = await create_object_from_value([1, 2, 3, 4], aai_id=True)
+    obj_b = await create_object_from_value([1, 1, 1, 1], aai_id=True)
     result = await (obj_a == obj_b)
     unique_vals = sorted(await (await result.unique()).data())
     assert unique_vals == [0, 1]
@@ -123,7 +123,7 @@ async def test_comparison_then_unique(ctx):
 )
 async def test_float_comparison(ctx, vals_a, vals_b, operator, expected):
     """Test comparison operators on float arrays."""
-    obj_a = await create_object_from_value(vals_a)
-    obj_b = await create_object_from_value(vals_b)
+    obj_a = await create_object_from_value(vals_a, aai_id=True)
+    obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = await apply_comparison(obj_a, obj_b, operator)
     assert await result.data() == expected

@@ -4,11 +4,9 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
-
-import yaml
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -41,6 +39,18 @@ FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
 
+# Fieldtype constants
+FIELDTYPE_SCALAR = "s"
+FIELDTYPE_ARRAY = "a"
+FIELDTYPE_DICT = "d"
+ColumnFieldtype = Literal["s", "a"]
+Fieldtype = Literal["s", "a", "d"]
+
+# Reserved column name for the optional row-id added by ``aai_id=True``.
+# Operators check the source schema for this name to decide whether to
+# propagate it to the result, and ``order_by`` falls back to it when present.
+AAI_ID_COLUMN = "aai_id"
+
 
 @dataclass(frozen=True)
 class ColumnInfo:
@@ -52,6 +62,9 @@ class ColumnInfo:
         array: Nesting depth of Array wrapping. ``False``/``0`` means plain column,
                ``True``/``1`` means ``Array(T)``, ``2`` means ``Array(Array(T))``, etc.
         low_cardinality: Whether to use LowCardinality encoding
+        fieldtype: Per-column fieldtype — scalar or array. Replaces the YAML-comment
+                   fieldtype stored in ClickHouse today; populated from the registry's
+                   schema_doc once Phase 3 writes it.
     """
 
     type: str
@@ -59,6 +72,12 @@ class ColumnInfo:
     array: int = False
     low_cardinality: bool = False
     description: str = ""
+    fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
+    default: str | None = None  # ClickHouse DEFAULT expression, e.g. "now64(3)"
+
+    def with_fieldtype(self, fieldtype: ColumnFieldtype) -> "ColumnInfo":
+        """Return a copy with ``fieldtype`` replaced."""
+        return replace(self, fieldtype=fieldtype)
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
@@ -82,6 +101,18 @@ class ColumnInfo:
         for _ in range(depth):
             base = f"Array({base})"
         return base
+
+
+# Source-of-truth ColumnInfo for the optional aai_id row-id column.
+# ``data_context.create_object_from_value(aai_id=True)`` injects this
+# directly; binary operators propagate it onto result tables via
+# ``replace(AAI_ID_INFO, default=None)`` (no DEFAULT — values come from
+# INSERT, not generated per-row).
+AAI_ID_INFO = ColumnInfo(
+    type="UInt64",
+    fieldtype=FIELDTYPE_ARRAY,
+    default="generateSnowflakeID()",
+)
 
 
 class FieldSpec(NamedTuple):
@@ -139,11 +170,6 @@ def parse_ch_type(type_str: str) -> "ColumnInfo":
 
     return ColumnInfo(type=type_str, nullable=nullable, array=array, low_cardinality=low_cardinality)
 
-
-# Fieldtype constants
-FIELDTYPE_SCALAR = "s"
-FIELDTYPE_ARRAY = "a"
-FIELDTYPE_DICT = "d"
 
 # ClickHouse engine constants
 ENGINE_MERGE_TREE = "MergeTree"
@@ -211,6 +237,8 @@ class QueryInfo:
     value_type: str
     nullable: bool = False
     constraint_sql: str = ""
+    order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
+    aai_id_info: Optional["ColumnInfo"] = None  # Source's aai_id ColumnInfo when present — operators propagate it
 
 
 @dataclass
@@ -236,9 +264,6 @@ class CopyInfo:
         columns: Column name to ClickHouse type mapping (from cached schema)
         selected_fields: Fields to select from dict (None for base copy)
         is_single_field: True if single field selection
-        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT.
-                       Propagated from source schema so copied tables have
-                       correct column comments for data() to work correctly.
     """
 
     source_query: str
@@ -246,7 +271,6 @@ class CopyInfo:
     columns: dict[str, "ColumnInfo"]
     selected_fields: list[str] | None = None
     is_single_field: bool = False
-    col_fieldtype: str | None = None
     order_by: str | None = None
 
 
@@ -258,10 +282,10 @@ class Schema:
 
     Attributes:
         fieldtype: Overall fieldtype - 's' for scalar, 'a' for array, 'd' for dict
-        columns: Dict mapping column names to ColumnInfo
+        columns: Dict mapping column names to ColumnInfo. Each ColumnInfo carries
+                 its own per-column fieldtype, replacing the legacy
+                 ``col_fieldtype`` / YAML-COMMENT mechanism.
         table: ClickHouse table name (empty for blueprints, set for realized objects)
-        col_fieldtype: Per-column fieldtype for ClickHouse COMMENT. Defaults to fieldtype.
-                       For dict schemas, distinguishes array data ('a') from scalar data ('s').
         engine: ClickHouse table engine. If None, uses context's engine setting.
         order_by: ORDER BY key for MergeTree-family engines. If None, defaults to tuple().
     """
@@ -269,7 +293,6 @@ class Schema:
     fieldtype: str
     columns: dict[str, "ColumnInfo"]
     table: str | None = None
-    col_fieldtype: str | None = None
     engine: Optional["EngineType"] = None
     order_by: str | None = None
 
@@ -277,18 +300,12 @@ class Schema:
 def build_order_by_clause(columns: list[str]) -> str:
     """Build an ORDER BY clause string from column names.
 
-    ``aai_id`` is always appended as the last column (and deduplicated
-    if already present).
-
-    Args:
-        columns: Column names for the ORDER BY clause.
-
-    Returns:
-        Parenthesised ORDER BY expression, e.g. ``(date, aai_id)``.
+    Empty input yields ``tuple()`` — the ClickHouse "no ordering key" form.
+    Otherwise columns are joined into a parenthesised list as given.
     """
-    cols = [c for c in columns if c != "aai_id"]
-    cols.append("aai_id")
-    return f"({', '.join(cols)})"
+    if not columns:
+        return "tuple()"
+    return f"({', '.join(columns)})"
 
 
 @dataclass
@@ -331,50 +348,3 @@ class GroupByInfo:
     columns: dict[str, str]
     fieldtype: str
     having: str | None = None
-
-
-@dataclass
-class ColumnMeta:
-    """
-    Metadata for a column parsed from YAML comment.
-
-    Attributes:
-        fieldtype: 's' for scalar, 'a' for array
-    """
-
-    fieldtype: str | None = None
-
-    def to_yaml(self) -> str:
-        """
-        Convert metadata to single-line YAML format for column comment.
-
-        Returns:
-            str: YAML string like "{fieldtype: a}"
-        """
-        if self.fieldtype is None:
-            return ""
-
-        return yaml.dump({"fieldtype": self.fieldtype}, default_flow_style=True).strip()
-
-    @classmethod
-    def from_yaml(cls, comment: str) -> "ColumnMeta":
-        """
-        Parse YAML from column comment string.
-
-        Args:
-            comment: Column comment string containing YAML
-
-        Returns:
-            ColumnMeta: Parsed metadata
-        """
-        if not comment or not comment.strip():
-            return cls()
-
-        try:
-            data = yaml.safe_load(comment)
-            if not isinstance(data, dict):
-                return cls()
-
-            return cls(fieldtype=data.get("fieldtype"))
-        except yaml.YAMLError:
-            return cls()

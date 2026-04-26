@@ -33,7 +33,6 @@ async def example():
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "aai_id": ColumnInfo("UInt64"),
             "value": ColumnInfo("Int64", nullable=True),
         },
     )

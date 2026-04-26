@@ -39,10 +39,3 @@ def oplog_record_sample(
     lc = _get_lifecycle()
     if lc is not None:
         lc.oplog_record_sample(result_table, operation, kwargs=kwargs, sql=sql)
-
-
-def oplog_record_table(table_name: str) -> None:
-    """Register a newly created table via the active lifecycle handler."""
-    lc = _get_lifecycle()
-    if lc is not None:
-        lc.oplog_record_table(table_name)

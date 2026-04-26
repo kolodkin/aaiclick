@@ -14,7 +14,7 @@ from aaiclick import View, create_object_from_value
 
 async def test_dict_selector_basic(ctx):
     """Test basic dict field selection with __getitem__."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
 
     view = obj["param1"]
 
@@ -25,7 +25,7 @@ async def test_dict_selector_basic(ctx):
 
 async def test_dict_selector_data(ctx):
     """Test that selecting a field returns the correct data."""
-    obj = await create_object_from_value({"param1": [10, 20, 30], "param2": [40, 50, 60]})
+    obj = await create_object_from_value({"param1": [10, 20, 30], "param2": [40, 50, 60]}, aai_id=True)
 
     view = obj["param1"]
     data = await view.data()
@@ -35,7 +35,7 @@ async def test_dict_selector_data(ctx):
 
 async def test_dict_selector_second_field(ctx):
     """Test selecting the second field."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
 
     view = obj["param2"]
     data = await view.data()
@@ -45,7 +45,7 @@ async def test_dict_selector_second_field(ctx):
 
 async def test_dict_selector_multiple_fields(ctx):
     """Test selecting different fields from the same dict."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30], "z": [100, 200, 300]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30], "z": [100, 200, 300]}, aai_id=True)
 
     view_x = obj["x"]
     view_y = obj["y"]
@@ -63,7 +63,7 @@ async def test_dict_selector_multiple_fields(ctx):
 
 async def test_dict_selector_copy(ctx):
     """Test that copy() materializes a view as a new array Object."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
 
     view = obj["param1"]
     arr = await view.copy()
@@ -77,7 +77,7 @@ async def test_dict_selector_copy(ctx):
 
 async def test_dict_selector_copy_second_field(ctx):
     """Test copying the second field."""
-    obj = await create_object_from_value({"param1": [10, 20], "param2": [30, 40]})
+    obj = await create_object_from_value({"param1": [10, 20], "param2": [30, 40]}, aai_id=True)
 
     view = obj["param2"]
     arr = await view.copy()
@@ -87,7 +87,7 @@ async def test_dict_selector_copy_second_field(ctx):
 
 async def test_dict_selector_copy_float(ctx):
     """Test copying a float field."""
-    obj = await create_object_from_value({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]})
+    obj = await create_object_from_value({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, aai_id=True)
 
     view = obj["floats"]
     arr = await view.copy()
@@ -97,7 +97,7 @@ async def test_dict_selector_copy_float(ctx):
 
 async def test_dict_selector_copy_string(ctx):
     """Test copying a string field."""
-    obj = await create_object_from_value({"names": ["Alice", "Bob"], "ages": [30, 25]})
+    obj = await create_object_from_value({"names": ["Alice", "Bob"], "ages": [30, 25]}, aai_id=True)
 
     view = obj["names"]
     arr = await view.copy()
@@ -112,8 +112,8 @@ async def test_dict_selector_copy_string(ctx):
 
 async def test_dict_selector_add(ctx):
     """Test addition operator with dict selector views."""
-    obj_a = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30]})
-    obj_b = await create_object_from_value({"x": [100, 200, 300], "y": [1000, 2000, 3000]})
+    obj_a = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30]}, aai_id=True)
+    obj_b = await create_object_from_value({"x": [100, 200, 300], "y": [1000, 2000, 3000]}, aai_id=True)
 
     view_a = obj_a["x"]
     view_b = obj_b["x"]
@@ -126,7 +126,7 @@ async def test_dict_selector_add(ctx):
 
 async def test_dict_selector_multiply(ctx):
     """Test multiplication operator with dict selector views."""
-    obj = await create_object_from_value({"prices": [10, 20, 30], "qty": [2, 3, 4]})
+    obj = await create_object_from_value({"prices": [10, 20, 30], "qty": [2, 3, 4]}, aai_id=True)
 
     prices = obj["prices"]
     qty = obj["qty"]
@@ -139,8 +139,8 @@ async def test_dict_selector_multiply(ctx):
 
 async def test_dict_selector_with_array_object(ctx):
     """Test operation between dict selector view and array object."""
-    dict_obj = await create_object_from_value({"values": [10, 20, 30]})
-    array_obj = await create_object_from_value([1, 2, 3])
+    dict_obj = await create_object_from_value({"values": [10, 20, 30]}, aai_id=True)
+    array_obj = await create_object_from_value([1, 2, 3], aai_id=True)
 
     view = dict_obj["values"]
     result = await (view + array_obj)
@@ -156,7 +156,7 @@ async def test_dict_selector_with_array_object(ctx):
 
 async def test_dict_selector_sum(ctx):
     """Test sum aggregation on dict selector view."""
-    obj = await create_object_from_value({"numbers": [1, 2, 3, 4, 5]})
+    obj = await create_object_from_value({"numbers": [1, 2, 3, 4, 5]}, aai_id=True)
 
     view = obj["numbers"]
     result = await view.sum()
@@ -166,7 +166,7 @@ async def test_dict_selector_sum(ctx):
 
 async def test_dict_selector_mean(ctx):
     """Test mean aggregation on dict selector view."""
-    obj = await create_object_from_value({"numbers": [10, 20, 30, 40]})
+    obj = await create_object_from_value({"numbers": [10, 20, 30, 40]}, aai_id=True)
 
     view = obj["numbers"]
     result = await view.mean()
@@ -176,7 +176,7 @@ async def test_dict_selector_mean(ctx):
 
 async def test_dict_selector_min_max(ctx):
     """Test min/max aggregation on dict selector view."""
-    obj = await create_object_from_value({"values": [5, 2, 8, 1, 9]})
+    obj = await create_object_from_value({"values": [5, 2, 8, 1, 9]}, aai_id=True)
 
     view = obj["values"]
 
@@ -194,7 +194,7 @@ async def test_dict_selector_min_max(ctx):
 
 async def test_dict_selector_repr(ctx):
     """Test that View repr includes selected_fields."""
-    obj = await create_object_from_value({"param1": [1, 2, 3]})
+    obj = await create_object_from_value({"param1": [1, 2, 3]}, aai_id=True)
 
     view = obj["param1"]
 
@@ -209,7 +209,7 @@ async def test_dict_selector_repr(ctx):
 
 async def test_dict_selector_single_element(ctx):
     """Test dict selector with single element arrays."""
-    obj = await create_object_from_value({"a": [42], "b": [100]})
+    obj = await create_object_from_value({"a": [42], "b": [100]}, aai_id=True)
 
     view = obj["a"]
     data = await view.data()
@@ -219,7 +219,7 @@ async def test_dict_selector_single_element(ctx):
 
 async def test_dict_selector_preserves_order(ctx):
     """Test that dict selector preserves original array order."""
-    obj = await create_object_from_value({"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]})
+    obj = await create_object_from_value({"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]}, aai_id=True)
 
     view = obj["letters"]
     data = await view.data()
@@ -235,7 +235,7 @@ async def test_dict_selector_preserves_order(ctx):
 
 async def test_multi_field_selector_basic(ctx):
     """Test multi-field selection with list syntax."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
 
     view = obj[["x", "y"]]
 
@@ -246,7 +246,7 @@ async def test_multi_field_selector_basic(ctx):
 
 async def test_multi_field_selector_data(ctx):
     """Test that multi-field selector returns dict with selected columns."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
 
     view = obj[["x", "z"]]
     data = await view.data()
@@ -256,7 +256,7 @@ async def test_multi_field_selector_data(ctx):
 
 async def test_multi_field_selector_copy(ctx):
     """Test copying a multi-field view creates dict Object."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]})
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
 
     view = obj[["x", "y"]]
     cloned = await view.copy()
@@ -273,7 +273,7 @@ async def test_multi_field_selector_copy(ctx):
 
 async def test_multi_field_selector_repr(ctx):
     """Test that View repr includes selected_fields."""
-    obj = await create_object_from_value({"x": [1], "y": [2]})
+    obj = await create_object_from_value({"x": [1], "y": [2]}, aai_id=True)
 
     view = obj[["x", "y"]]
 
@@ -285,7 +285,7 @@ async def test_multi_field_selector_repr(ctx):
 
 async def test_multi_field_selector_schema(ctx):
     """Test that ViewSchema includes selected_fields."""
-    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4], "z": [5, 6]})
+    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4], "z": [5, 6]}, aai_id=True)
 
     view = obj[["x", "z"]]
     schema = view.schema

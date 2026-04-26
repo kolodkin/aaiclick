@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnMeta
+from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnInfo
 
 if TYPE_CHECKING:
     from .object import Object
@@ -83,7 +83,7 @@ def _unflatten_record(flat_record: dict) -> dict:
 
 async def extract_scalar_data(obj: Object) -> Any:
     """
-    Extract data from a scalar table (single row with aai_id and value).
+    Extract data from a scalar table (single 'value' row).
 
     Args:
         obj: Object instance with scalar data
@@ -91,31 +91,34 @@ async def extract_scalar_data(obj: Object) -> Any:
     Returns:
         Single scalar value or None if empty
     """
-    query = obj._build_select(columns="value", default_order_by="aai_id")
+    query = obj._build_select(columns="value", default_order_by=None)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return _convert_value(rows[0][0]) if rows else None
 
 
-async def extract_array_data(obj: Object) -> list[Any]:
+async def extract_array_data(obj: Object, **build_select_kwargs: Any) -> list[Any]:
     """
-    Extract data from an array table (multiple rows with aai_id and value).
+    Extract data from an array table (multiple 'value' rows).
 
-    Args:
-        obj: Object instance with array data
-
-    Returns:
-        List of values ordered by aai_id
+    Extra kwargs (``order_by``, ``limit``, ``offset``) are forwarded to
+    ``Object._build_select`` to override View-stored attrs per-call.
     """
-    query = obj._build_select(columns="value", default_order_by="aai_id")
+    query = obj._build_select(columns="value", default_order_by=None, **build_select_kwargs)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
     return [_convert_value(row[0]) for row in rows]
 
 
-async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[str, ColumnMeta], orient: str):
+async def extract_dict_data(
+    obj: Object,
+    column_names: list[str],
+    columns: dict[str, ColumnInfo],
+    orient: str,
+    **build_select_kwargs: Any,
+):
     """
-    Extract data from a dict table (multiple columns with aai_id).
+    Extract data from a dict table.
 
     Handles nested structures by detecting dot-star notation in column names
     and unflattening them back to nested dicts.
@@ -123,25 +126,24 @@ async def extract_dict_data(obj: Object, column_names: list[str], columns: dict[
     Args:
         obj: Object instance with dict data
         column_names: List of column names in order
-        columns: Dict mapping column names to metadata
+        columns: Dict mapping column names to ColumnInfo (with fieldtype)
         orient: Output format (ORIENT_DICT or ORIENT_RECORDS)
 
     Returns:
         Dict or list of dicts based on orient parameter
     """
-    query = obj._build_select(columns="*", default_order_by="aai_id")
+    query = obj._build_select(columns="*", default_order_by=None, **build_select_kwargs)
     data_result = await obj.ch_client.query(query)
     rows = data_result.result_rows
 
-    # Filter out aai_id from output
-    output_columns = [name for name in column_names if name != "aai_id"]
+    output_columns = list(column_names)
     col_indices = {name: column_names.index(name) for name in output_columns}
 
     nested = _has_nested_columns(output_columns)
 
-    # Check if this is dict of arrays by looking at fieldtype
+    # Dict-of-arrays when the first column carries fieldtype=ARRAY.
     first_col = output_columns[0] if output_columns else None
-    is_dict_of_arrays = bool(first_col and columns.get(first_col, ColumnMeta()).fieldtype == FIELDTYPE_ARRAY)
+    is_dict_of_arrays = bool(first_col and columns.get(first_col) and columns[first_col].fieldtype == FIELDTYPE_ARRAY)
 
     if nested:
         return _extract_nested_dict_data(rows, output_columns, col_indices, is_dict_of_arrays, orient)

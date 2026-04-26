@@ -18,7 +18,6 @@ _HAS_SHODAN = "has(sources, 'shodan')"
 _HAS_EPSS = "has(sources, 'epss')"
 
 CONSOLIDATED_COLUMNS = {
-    "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String"),
     "source": ColumnInfo("String"),
     "is_kev": ColumnInfo("Bool", nullable=True),
@@ -37,7 +36,6 @@ CONSOLIDATED_COLUMNS = {
 }
 
 MERGED_COLUMNS = {
-    "aai_id": ColumnInfo("UInt64"),
     "cve_id": ColumnInfo("String", description="CVE identifier (GROUP BY key)"),
     "sources": ColumnInfo("String", array=True, description="Contributing feeds, e.g. ['kev','shodan','epss']"),
     "is_kev": ColumnInfo(

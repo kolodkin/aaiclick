@@ -91,7 +91,7 @@ def test_resolve_join_keys_errors(kwargs, match):
 
 
 def _cols(**kwargs: ColumnInfo) -> dict[str, ColumnInfo]:
-    return {"aai_id": ColumnInfo("UInt64"), **kwargs}
+    return dict(kwargs)
 
 
 def test_schema_using_form_dedupes_key():
@@ -104,7 +104,7 @@ def test_schema_using_form_dedupes_key():
 
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_DICT
-    assert list(schema.columns) == ["aai_id", "k", "a", "b"]
+    assert list(schema.columns) == ["k", "a", "b"]
     assert lproj == [("k", "k"), ("a", "a")]
     assert rproj == [("b", "b")]
 
@@ -117,7 +117,7 @@ def test_schema_on_form_keeps_both_keys():
         left, right, JoinKeys(left=["id"], right=["tconst"]), how="inner", suffixes=None
     )
 
-    assert list(schema.columns) == ["aai_id", "id", "tconst", "name", "total"]
+    assert list(schema.columns) == ["id", "tconst", "name", "total"]
     assert lproj == [("id", "id"), ("name", "name")]
     assert rproj == [("tconst", "tconst"), ("total", "total")]
 
@@ -197,7 +197,7 @@ def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
         how="inner",
         suffixes=suffixes,
     )
-    assert list(schema.columns) == ["aai_id", "k", expected_l, expected_r]
+    assert list(schema.columns) == ["k", expected_l, expected_r]
     assert lproj == [("k", "k"), ("score", expected_l)]
     assert rproj == [("score", expected_r)]
 
@@ -259,7 +259,7 @@ def test_schema_cross_join_has_no_keys():
     right = _cols(b=ColumnInfo("Float64"))
     schema, lproj, rproj, _ = build_join_schema(left, right, JoinKeys(left=[], right=[]), how="cross", suffixes=None)
 
-    assert list(schema.columns) == ["aai_id", "a", "b"]
+    assert list(schema.columns) == ["a", "b"]
     assert lproj == [("a", "a")]
     assert rproj == [("b", "b")]
 

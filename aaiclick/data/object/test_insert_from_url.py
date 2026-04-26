@@ -21,8 +21,7 @@ from pathlib import Path
 import pytest
 
 from aaiclick import create_object_from_url
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.models import FIELDTYPE_DICT, ColumnInfo
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
 
 _NUM_ROWS = 200
@@ -67,14 +66,6 @@ async def test_url_no_host(ctx):
 async def test_url_empty_columns(ctx):
     with pytest.raises(ValueError, match="non-empty"):
         await create_object_from_url("https://example.com/data.parquet", columns=[])
-
-
-async def test_url_reserved_aai_id_column(ctx):
-    with pytest.raises(ValueError, match="reserved"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["aai_id"],
-        )
 
 
 async def test_url_unsupported_format(ctx):
@@ -227,21 +218,6 @@ async def test_url_with_where(ctx, fileserver):
     assert len(data["price"]) < _NUM_ROWS
 
 
-async def test_url_snowflake_ids_ordered(ctx, fileserver):
-    """Snowflake IDs are monotonically increasing and unique."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=100,
-    )
-    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
-    ids = [row[0] for row in result.result_rows]
-    assert ids == sorted(ids)
-    assert len(set(ids)) == len(ids)
-    assert len(ids) == 100
-
-
 async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
     """ch_settings skips a comment header line in CSV before column headers."""
     obj = await create_object_from_url(
@@ -389,28 +365,6 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     assert len(data["id"]) < initial_count + _NUM_ROWS
 
 
-async def test_insert_from_url_snowflake_ids(ctx, fileserver):
-    """insert_from_url generates unique Snowflake IDs."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=5,
-    )
-
-    await obj.insert_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=5,
-    )
-
-    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table}")
-    ids = [row[0] for row in result.result_rows]
-    assert len(set(ids)) == len(ids)
-    assert len(ids) == 10
-
-
 # =============================================================================
 # JSON mode: _json_extract_expr unit tests
 # =============================================================================
@@ -492,13 +446,6 @@ async def test_json_mode_validation_errors(ctx):
             json_path="data",
             json_columns={"id": ColumnInfo("String")},
         )
-    with pytest.raises(ValueError, match="reserved"):
-        await create_object_from_url(
-            "https://example.com/api.json",
-            format="RawBLOB",
-            json_path="data",
-            json_columns={"aai_id": ColumnInfo("UInt64")},
-        )
     with pytest.raises(ValueError, match="Either columns or json_path"):
         await create_object_from_url("https://example.com/api.json")
 
@@ -556,6 +503,9 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
             "tags": ColumnInfo("String", array=True),
         },
     )
+    # Multi-column json_columns produces a DICT Object — same rule as the
+    # tabular CSV path (1 col → ARRAY with "value", N cols → DICT).
+    assert obj.schema.fieldtype == FIELDTYPE_DICT
     data = await obj.data()
     assert isinstance(data, dict)
     assert len(data["id"]) == 3
@@ -566,6 +516,25 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
     assert schema.columns["score"].type == "Float64"
     assert schema.columns["tags"].array is True
     assert schema.columns["tags"].type == "String"
+
+
+async def test_json_load_single_column_renames_to_value(ctx, json_server):
+    """Single-column json_columns produces an ARRAY Object with the column
+    renamed to ``"value"`` — matches the tabular CSV path's contract so
+    ``data()`` / ``extract_array_data`` find the column by name.
+    """
+    obj = await create_object_from_url(
+        f"{json_server}/data.json",
+        format="RawBLOB",
+        json_path="items",
+        json_columns={"id": ColumnInfo("String")},
+    )
+    assert obj.schema.fieldtype == FIELDTYPE_ARRAY
+    assert list(obj.schema.columns) == ["value"]
+    # data() returns a list (array form) — not a dict.
+    data = await obj.data()
+    assert isinstance(data, list)
+    assert sorted(data) == ["A-001", "A-002", "A-003"]
 
 
 async def test_json_load_subset_with_limit_and_where(ctx, json_server):
@@ -590,8 +559,10 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
         json_columns={"id": ColumnInfo("String")},
         limit=2,
     )
+    # Single-column json_columns yields a FIELDTYPE_ARRAY Object (column
+    # renamed to "value"), matching the single-column tabular contract.
     data_limited = await obj_limited.data()
-    assert len(data_limited["id"]) == 2
+    assert len(data_limited) == 2
 
     obj_filtered = await create_object_from_url(
         f"{json_server}/data.json",
@@ -634,5 +605,6 @@ async def test_json_load_json_as_string_format(ctx, json_server):
         json_path="items",
         json_columns={"id": ColumnInfo("String")},
     )
+    # Single-column → FIELDTYPE_ARRAY Object — data() returns a list.
     data = await obj.data()
-    assert len(data["id"]) == 3
+    assert len(data) == 3

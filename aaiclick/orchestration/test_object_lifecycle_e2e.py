@@ -26,7 +26,9 @@ from aaiclick.orchestration.sql_context import _sql_engine_var
 
 @task
 async def produce() -> Object:
-    return await create_object_from_value([10, 20, 30])
+    # aai_id=True so downstream cross-table operators (add_objects) inherit
+    # the implicit order_by="aai_id" pair-stability without explicit views.
+    return await create_object_from_value([10, 20, 30], aai_id=True)
 
 
 @task

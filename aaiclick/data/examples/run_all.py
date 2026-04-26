@@ -13,7 +13,6 @@ from .isin import amain as isin_example
 from .nested_arrays import amain as nested_arrays_example
 from .nullable import amain as nullable_example
 from .order_by import amain as order_by_example
-from .persistent import amain as persistent_example
 from .selectors import amain as selectors_example
 from .statistics import amain as statistics_example
 from .transforms import amain as transforms_example
@@ -35,7 +34,6 @@ EXAMPLES = [
     ("Dict Selectors", selectors_example),
     ("Aggregation Table", aggregation_table_example),
     ("Order By", order_by_example),
-    ("Persistent Objects", persistent_example),
 ]
 
 
