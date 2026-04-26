@@ -182,7 +182,7 @@ Expected: no hits.
 - [ ] **Step 5: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 - [ ] **Step 6: Run the project's check-pr skill**

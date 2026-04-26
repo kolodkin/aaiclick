@@ -20,10 +20,10 @@ Phase 1 — Foundation
 git -C /home/user/aaiclick branch --show-current
 ```
 
-Expected: `claude/simplify-orchestration-lifecycle-gwqt4`. If different, switch:
+Expected: `claude/simplify-orchestration-lifecycle-aNOnA`. If different, switch:
 
 ```bash
-git -C /home/user/aaiclick switch claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick switch claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 - [ ] **Step 2: Run baseline test suite**
@@ -186,7 +186,7 @@ Capture the generated filename — call it `MIG_FILE` for the rest of this task.
 cd /home/user/aaiclick && alembic -c aaiclick/orchestration/alembic.ini heads
 ```
 
-The generated file's `down_revision` must equal the head returned. If multiple heads exist, stop and ask — do not invent a merge.
+Expected: `161cfe0f1117_add_schema_doc_to_table_registry`. The generated migration's `down_revision` must equal whatever `alembic heads` returns. If multiple heads exist, stop and ask — do not invent a merge.
 
 - [ ] **Step 3: Commit the empty skeleton**
 
@@ -229,7 +229,8 @@ def upgrade() -> None:
     op.drop_table("table_run_refs")
     op.drop_table("table_context_refs")
 
-    # 5. Trim `table_registry`: drop `run_id`, add `preserved`
+    # 5. Trim `table_registry`: drop `run_id`, add `preserved`.
+    #    Leave `schema_doc` alone — owned by migration 161cfe0f1117.
     op.drop_column("table_registry", "run_id")
     op.add_column(
         "table_registry",
@@ -284,7 +285,8 @@ def downgrade() -> None:
     op.drop_index("ix_task_name_locks_task_id", "task_name_locks")
     op.drop_table("task_name_locks")
 
-    # 5. Restore table_registry: drop `preserved`, add `run_id`
+    # 5. Restore table_registry: drop `preserved`, add `run_id`.
+    #    Leave `schema_doc` alone — owned by migration 161cfe0f1117.
     op.drop_column("table_registry", "preserved")
     op.add_column("table_registry", sa.Column("run_id", sa.BigInteger(), nullable=True))
 
@@ -362,7 +364,55 @@ git commit -m "feature: alembic downgrade for lifecycle simplification"
 
 ---
 
-## Task 7: Phase 1 sanity check
+## Task 7: Stub `_cleanup_unreferenced_tables()` to a no-op
+
+The migration above drops `table_run_refs`; `_cleanup_unreferenced_tables()` queries it every poll. Stub it now; Phase 6 deletes it.
+
+**Files:**
+- Modify: `aaiclick/orchestration/background/background_worker.py`.
+
+- [ ] **Step 1: Locate the method and its callers**
+
+```bash
+grep -rn "_cleanup_unreferenced_tables" /home/user/aaiclick/aaiclick/
+```
+
+- [ ] **Step 2: Stub the body**
+
+```python
+async def _cleanup_unreferenced_tables(self) -> None:
+    """No-op; scheduled for removal."""
+    return
+```
+
+Leave the call sites in the scheduler poll loop alone — Phase 6 removes them along with the method.
+
+- [ ] **Step 3: Run the BG worker tests**
+
+```bash
+cd /home/user/aaiclick && pytest aaiclick/orchestration/background/ -x --no-cov -q
+```
+
+Expected: PASS. Any test that asserted `_cleanup_unreferenced_tables` *did* something must be updated to assert it is a no-op (or marked obsolete and queued for Phase 6 deletion).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add aaiclick/orchestration/background/background_worker.py
+git commit -m "$(cat <<'EOF'
+refactor: stub _cleanup_unreferenced_tables to no-op
+
+Phase 1 of the lifecycle simplification drops table_run_refs. The
+BackgroundWorker method that queried that table is stubbed to a no-op
+so the BG poll loop keeps working between Phase 1 and Phase 6 (which
+deletes the method outright).
+EOF
+)"
+```
+
+---
+
+## Task 8: Phase 1 sanity check
 
 - [ ] **Step 1: Run the full orchestration test suite**
 
@@ -375,7 +425,7 @@ Expected: PASS at the same level as the baseline (Task 1 Step 2). Some tests may
 - [ ] **Step 2: Push the branch**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 ---

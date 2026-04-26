@@ -5,13 +5,17 @@ Simplify Orchestration Lifecycle — Implementation Plan
 
 **Goal:** Replace the distributed-refcount task lifecycle (`OrchLifecycleHandler`, `table_run_refs`, `table_context_refs`, `PreservationMode`) with a `LocalLifecycleHandler`-based per-task scope plus an explicit `preserve` list of named tables. Inline-drop task-local tables on success; BackgroundWorker handles all cross-task and job-scoped cleanup.
 
-**Architecture:** Tasks become DataContexts with three extras — pin/unpin for Object outputs, name-lock acquisition for non-preserved named tables, and preserved-name registration. Three SQL tables go away (`table_run_refs`, `table_context_refs`, the `preservation_mode` columns); one new SQL table comes in (`task_name_locks`). All cleanup ownership rules live in two places: `task_scope.__aexit__` (inline DROPs) and `BackgroundWorker` (every `j_<id>_*` and pinned `t_*` drop).
+**Architecture:** Tasks become DataContexts with three extras — pin/unpin for Object outputs, name-lock acquisition for non-preserved named tables, and preserved-name registration. Three SQL tables go away (`table_run_refs`, `table_context_refs`, the `preservation_mode` columns); one new SQL table comes in (`task_name_locks`). All cleanup ownership rules live in two places: `task_scope.__aexit__` (inline DROPs through the existing `AsyncTableWorker` queue, never parallel `ch_client.command` calls) and `BackgroundWorker` (every `j_<id>_*` and pinned `t_*` drop).
+
+`task_scope` swaps `OrchLifecycleHandler` for a new `TaskLifecycleHandler` (a `LocalLifecycleHandler` subclass) that owns the SQL-side writes the orch handler did. See the spec for the full responsibilities list.
 
 **Tech Stack:** Python 3.11+, SQLModel, Alembic, async ClickHouse client (`ChClient`), pytest with `asyncio_mode=auto`, pytest-asyncio.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md`
 
-**Branch:** `claude/simplify-orchestration-lifecycle-gwqt4`
+**Branch:** `claude/simplify-orchestration-lifecycle-aNOnA`
+
+**Project-wide invariant:** every phase ends with `pytest aaiclick/ -x` green. The data suite (`aaiclick/data/`) is the most sensitive part — it routes through `Object.data()` → `_get_table_schema` → `table_registry.schema_doc`, so any handler swap that drops the `register_table` write path fails it wholesale.
 
 ---
 
@@ -40,12 +44,13 @@ Each phase is a separate file. Phases are sequential — finish one before start
 | `aaiclick/orchestration/models.py`                                              | Add `Preserve` type, `preserve` JSON column on `Job` and `RegisteredJob`. Delete `PreservationMode` (Phase 6). |
 | `aaiclick/orchestration/factories.py`                                           | Add `resolve_preserve()`, `create_job(preserve=...)`. Delete `resolve_job_config()` (Phase 6). |
 | `aaiclick/orchestration/decorators.py` / `registered_jobs.py`                   | `@register_job(preserve=...)` parameter.                            |
-| `aaiclick/orchestration/orch_context.py`                                        | Rewrite `task_scope()`. Delete `OrchLifecycleHandler` (Phase 6).    |
-| `aaiclick/orchestration/lifecycle/db_lifecycle.py`                              | Add `TaskNameLock`, `TableNameCollision`. Delete `TableRunRef` / `TableContextRef` (Phase 6). Add `preserved` column to `TableRegistry`. |
+| `aaiclick/orchestration/orch_context.py`                                        | Rewrite `task_scope()` over `TaskLifecycleHandler`. Delete `OrchLifecycleHandler` (Phase 6).    |
+| `aaiclick/orchestration/lifecycle/db_lifecycle.py`                              | Add `TaskNameLock`, `TableNameCollision`. Delete `TableRunRef` / `TableContextRef` (Phase 6). Add `preserved` column to `TableRegistry` (alongside the existing `schema_doc` from migration `161cfe0f1117`). |
+| `aaiclick/orchestration/lifecycle/task_lifecycle.py` (NEW)                      | `TaskLifecycleHandler(LocalLifecycleHandler)` — see spec § `TaskLifecycleHandler` responsibilities. |
 | `aaiclick/orchestration/env.py`                                                 | Delete `get_default_preservation_mode()` and `AAICLICK_DEFAULT_PRESERVATION_MODE` (Phase 6). |
-| `aaiclick/orchestration/background/background_worker.py`                        | Add `_cleanup_failed_task_tables()`, `_cleanup_orphan_scratch_tables()`, `_cleanup_at_job_completion()`. Extend `_cleanup_dead_workers()`. Delete `_cleanup_unreferenced_tables()` (Phase 6). |
+| `aaiclick/orchestration/background/background_worker.py`                        | Add `_cleanup_failed_task_tables()`, `_cleanup_orphan_scratch_tables()`, `_cleanup_at_job_completion()`. Extend `_cleanup_dead_workers()`. Phase 1 stubs `_cleanup_unreferenced_tables()` to no-op; Phase 6 deletes it. |
 | `aaiclick/orchestration/background/handler.py` (+ `pg_handler.py`, `sqlite_handler.py`) | Add query helpers for new cleanup methods and lock ops. |
-| `aaiclick/data/data_context/lifecycle.py`                                       | Extend `LocalLifecycleHandler` with `register_table(table_name, *, pinned, preserved)` and `iter_tables()` so task_scope can decide what to drop on exit. |
+| `aaiclick/data/data_context/lifecycle.py`                                       | Extend `LocalLifecycleHandler` with `track_table(name, *, preserved)`, `mark_pinned(name)`, `iter_tracked_tables()` so task_scope can decide what to drop on exit. Drops still go through the existing `AsyncTableWorker` queue (no parallel `ch_client.command`). |
 | `aaiclick/orchestration/migrations/versions/<new>_simplify_lifecycle.py`        | Single new migration: `preserve` columns, drop `table_run_refs` / `table_context_refs`, add `preserved` to `table_registry`, create `task_name_locks`. |
 
 ## Files created (tests)

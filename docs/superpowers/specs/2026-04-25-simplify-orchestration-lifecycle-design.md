@@ -13,15 +13,17 @@ Plus a `PreservationMode` enum (`NONE` / `FULL`) controlling whether `j_<id>_*` 
 
 Meanwhile, `DataContext` already has a clean local lifecycle: weakref tracking, queue-based incref/decref, immediate DROP at refcount 0. Tasks should work the same way: a task is conceptually a `DataContext` with a few extras for cross-task handoff.
 
-This refactor collapses the three tracking mechanisms into one (the `LocalLifecycleHandler` from `DataContext`), keeps pinning for Object outputs, and replaces `PreservationMode` with an explicit `preserve` list of named tables.
+This refactor collapses the three tracking mechanisms into one (a new `TaskLifecycleHandler` that subclasses `LocalLifecycleHandler`), keeps pinning for Object outputs, and replaces `PreservationMode` with an explicit `preserve` list of named tables.
+
+`table_registry.schema_doc` (added by an earlier migration) is read by `_get_table_schema` and written by every `create_object` via `LifecycleHandler.register_table`. `TaskLifecycleHandler` MUST preserve this write path — `task_scope`'s swap from `OrchLifecycleHandler` is otherwise silently fatal for `Object.data()` and the `aaiclick/data/conftest.py::ctx` fixture.
 
 # Scope
 
 In scope:
 
-- Replace `OrchLifecycleHandler` with `LocalLifecycleHandler` + a thin `TaskExtensions` wrapper.
+- Replace `OrchLifecycleHandler` with `TaskLifecycleHandler` (a `LocalLifecycleHandler` subclass that owns the SQL writes the orch handler used to do).
 - Delete `table_run_refs` and `table_context_refs` SQL tables and all related code paths.
-- Trim `table_registry` to `(table_name, job_id, task_id, preserved, created_at)`.
+- Trim `table_registry` to `(table_name, job_id, task_id, preserved, created_at, schema_doc)` — `schema_doc` is the column added by the `aai_id` removal work and MUST survive both upgrade and downgrade.
 - Add `task_name_locks` SQL table for non-preserved-name collision detection.
 - Replace `PreservationMode` enum with `preserve: list[str] | Literal["*"] | None` on `Job` and `RegisteredJob`.
 - Inline DROP of task-local tables on successful task exit.
@@ -139,8 +141,10 @@ class TableNameCollision(Exception):
 ```
 worker claims task → enters task_scope()
   ↓
-LocalLifecycleHandler created, registered in ContextVars
-TaskExtensions wraps it: pin/unpin hooks, name-lock acquisition, preserved-name registration
+TaskLifecycleHandler(task_id, job_id, run_id) created, registered in
+  _lifecycle_var so data layer (incref / register_table / current_job_id)
+  routes through it. Inherits LocalLifecycleHandler queue + tracking;
+  adds SQL-side writes (table_registry, pin_refs, name locks).
   ↓
 Task body runs:
   - ctx.table()           → unnamed t_<snowflake>; incref local
@@ -195,22 +199,39 @@ When all tasks reach a terminal state, `BackgroundWorker.try_complete_job()`:
 
 | Component                                              | Status                              |
 |--------------------------------------------------------|-------------------------------------|
-| `LocalLifecycleHandler` (`data_context/lifecycle.py`)  | Kept; lightly extended              |
-| `task_scope()` (`orchestration/orch_context.py`)       | Rewritten over `LocalLifecycleHandler` + `TaskExtensions` |
+| `LocalLifecycleHandler` (`data_context/lifecycle.py`)  | Kept; gains `track_table` / `mark_pinned` / `iter_tracked_tables` |
+| `TaskLifecycleHandler` (`orchestration/lifecycle/task_lifecycle.py`) | **New** — `LocalLifecycleHandler` subclass; owns SQL-side writes (`table_registry` + `schema_doc`, pin_refs, name locks) and exposes `current_job_id()` |
+| `task_scope()` (`orchestration/orch_context.py`)       | Rewritten over `TaskLifecycleHandler` |
 | `OrchLifecycleHandler`                                 | **Deleted**                         |
 | `TablePinRef` (SQL)                                    | Kept                                |
 | `TableRunRef` (SQL)                                    | **Deleted**                         |
 | `TableContextRef` (SQL)                                | **Deleted**                         |
-| `TableRegistry` (SQL)                                  | Trimmed (drop `run_id`, add `preserved`) |
+| `TableRegistry` (SQL)                                  | Trimmed (drop `run_id`, add `preserved`); `schema_doc` retained |
 | `TaskNameLock` (SQL)                                   | **New**                             |
 | `BackgroundWorker`                                     | Trimmed (see below)                 |
 | `PreservationMode` enum                                | **Deleted**                         |
 
+## `TaskLifecycleHandler` responsibilities
+
+This is the single non-trivial new class. It exists because three responsibilities of the old `OrchLifecycleHandler` are still load-bearing for the rest of the codebase:
+
+1. **`register_table(table_name, schema_doc=...)`** — writes one `table_registry` row per CH table created in the task, including the Pydantic-serialised `SchemaView` JSON. Read back by `_get_table_schema` in `aaiclick/data/object/ingest.py`; without this every `Object.data()` raises `LookupError`. Implementation: `INSERT ... ON CONFLICT DO NOTHING` with a synchronous flush before returning, so callers that immediately read back `schema_doc` don't race the AsyncTableWorker queue.
+2. **`current_job_id() -> int`** — returns the task's owning job_id so `create_object_from_value(scope="job")` can build `j_<job_id>_<name>` table names. `aaiclick/data/data_context/data_context.py` reads this on every job-scoped object creation.
+3. **`pin(table_name)` / `unpin(table_name)`** — fans out to `table_pin_refs` rows per downstream consumer task (existing logic, extracted from `OrchLifecycleHandler`). Also calls `self.mark_pinned(table_name)` so `iter_tracked_tables` skips the table on inline-DROP.
+
+Plus the new behaviour:
+
+4. **`track_table(table_name, *, preserved=False)` / `mark_pinned(table_name)` / `iter_tracked_tables()`** — inherited from `LocalLifecycleHandler`. `task_scope.__aexit__` reads `iter_tracked_tables()` to decide what to inline-DROP.
+5. **Name-lock acquisition / release** — `acquire_task_name_lock(job_id, name, task_id)` (called from `ctx.table(name)` for non-preserved names), `release_task_name_locks_for_task(task_id)` (called from `task_scope.__aexit__`).
+
+`incref` / `decref` semantics: distributed run_refs are gone. `LocalLifecycleHandler.incref` calls `self.track_table` so every existing `incref` site participates in inline-DROP without enumerating call sites. `decref` becomes a hint; actual drops happen at `__aexit__` based on the (preserved, pinned) flags. The inherited `AsyncTableWorker` queue serialises the `DROP TABLE` calls so chdb sessions are not entered concurrently.
+
 ## BackgroundWorker changes
 
-Deleted:
+Deleted (in **Phase 1**, alongside the migration that drops `table_run_refs`):
 
-- `_cleanup_unreferenced_tables()` — `table_run_refs` is gone.
+- `_cleanup_unreferenced_tables()` — queries `table_run_refs`, which Phase 1 drops. Stub to no-op in the same phase that drops the table; otherwise the BackgroundWorker errors on every poll cycle until Phase 6.
+- Any caller / scheduler entry that invokes `_cleanup_unreferenced_tables()`.
 
 Modified / new:
 
@@ -227,11 +248,13 @@ Single Alembic revision. Both upgrade and downgrade paths must run.
 
 ## Upgrade
 
+The migration chains off `161cfe0f1117_add_schema_doc_to_table_registry`. Confirm with `alembic heads` before generating.
+
 1. Add `preserve JSONB NULL` to `jobs` and `registered_jobs`.
 2. Backfill: `preservation_mode='NONE'` → `preserve=NULL`; `preservation_mode='FULL'` → `preserve='"*"'`.
 3. Drop `preservation_mode` column from `jobs` and `registered_jobs`.
 4. Drop tables: `table_run_refs`, `table_context_refs`.
-5. On `table_registry`: drop `run_id`; add `preserved BOOLEAN NOT NULL DEFAULT FALSE`.
+5. On `table_registry`: drop `run_id`; add `preserved BOOLEAN NOT NULL DEFAULT FALSE`. **Leave `schema_doc` untouched** — `_get_table_schema` reads it.
 6. Create `task_name_locks`:
 
    ```sql
@@ -247,6 +270,8 @@ Single Alembic revision. Both upgrade and downgrade paths must run.
 ## Downgrade
 
 Reverse, with the constraint that only `NONE` and `FULL` round-trip cleanly. List values in `preserve` cannot map back to a real `PreservationMode` value (`STRATEGY` was never implemented), so downgrade fails loudly if any non-`NULL`, non-`"*"` `preserve` value exists.
+
+`schema_doc` is not touched by either direction — it was added by an earlier migration and stays in the `table_registry` shape after both upgrade and downgrade.
 
 # Concurrency
 
@@ -277,7 +302,7 @@ Preserved-name tables are coordination-free: they're created idempotently with `
 
 - `PreservationMode.NONE` / `FULL` direct exercise — migrate to `preserve` arg.
 - `table_run_refs` incref/decref tests — machinery gone.
-- `OrchLifecycleHandler` direct exercise — replaced by `LocalLifecycleHandler` coverage.
+- `OrchLifecycleHandler` direct exercise — replaced by `TaskLifecycleHandler` / `LocalLifecycleHandler` coverage.
 
 # Documentation updates
 
@@ -291,3 +316,5 @@ Preserved-name tables are coordination-free: they're created idempotently with `
 - **TaskNameLock semantics around retry**: the conservative rule (raise on any existing row with a different task_id) means a failed task's lock blocks retries until the dead-worker sweep runs (10s poll). For most workloads this is acceptable; if it becomes a problem, BackgroundWorker can be triggered immediately on PENDING_CLEANUP transition.
 - **CH-side orphan tables on worker death**: `_cleanup_orphan_scratch_tables()` needs a "no live owner" check that's robust to clock skew. Use `task_id NOT IN (SELECT task_id FROM tasks WHERE status IN ('CLAIMED','RUNNING'))` plus a minimum age threshold (e.g. 5 minutes) before dropping any `t_*` CH table.
 - **Idempotent preserved-table creation**: two concurrent tasks calling `ctx.table("training_set")` race on `CREATE TABLE IF NOT EXISTS` — the schema must match. If schemas diverge, the second caller errors. Document this; recommend declaring the table once in a setup task.
+- **chdb session reentrancy on inline DROP**: chdb sessions are not safe to enter concurrently — that is why `AsyncTableWorker` exists. The success-path inline-DROP loop in `task_scope.__aexit__` must route through the worker (e.g. by calling `decref` for tracked-and-droppable tables and letting the existing serialised drop path run) rather than firing `asyncio.gather(*ch_client.command(DROP...))` directly. The plan's Phase 4 implementation must reflect this: drops go through `LocalLifecycleHandler`'s queue, not parallel `ch_client.command` calls.
+- **Object decref bypass**: today's `task_scope.__aexit__` calls `decref(obj.table)` on every live Object as the drop trigger. The new model relies on `iter_tracked_tables` flags at `__aexit__` instead — see `incref` / `decref` semantics above for the auto-track contract that makes this work without enumerating call sites.
