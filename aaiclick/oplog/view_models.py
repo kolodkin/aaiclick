@@ -1,10 +1,4 @@
-"""Lineage / oplog domain view models.
-
-Domain-specific pydantic models for the lineage AI agents. The
-``OplogNode`` / ``OplogEdge`` / ``OplogGraph`` types in
-``aaiclick.oplog.lineage`` are themselves pydantic ``BaseModel``s and
-serialize natively across MCP and REST — no adapter layer needed.
-"""
+"""Lineage / oplog domain view models."""
 
 from __future__ import annotations
 

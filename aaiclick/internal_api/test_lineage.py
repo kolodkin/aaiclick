@@ -47,7 +47,7 @@ async def test_query_table_runs_validated_select():
         )
 
     assert result is qr
-    mock_run.assert_awaited_once_with("SELECT id FROM p_revenue", 50)
+    mock_run.assert_awaited_once_with("SELECT id FROM p_revenue", 50, scan="SELECT id FROM p_revenue")
 
 
 async def test_query_table_raises_invalid_on_ddl():

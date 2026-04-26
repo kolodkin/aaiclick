@@ -196,13 +196,8 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 # --- lineage primitives -----------------------------------------------
-#
-# These are the building blocks an MCP client (itself an LLM agent) composes
-# to investigate a pipeline: walk the graph, look at schemas, sample data.
-# The turnkey AI agents ``explain_lineage`` / ``debug_result`` exist in
-# ``internal_api.lineage`` for CLI use but are NOT exposed here — calling
-# them from MCP would force an Ollama round-trip from inside an LLM client
-# that is already perfectly capable of doing the reasoning itself.
+# Turnkey LLM wrappers (``explain_lineage`` / ``debug_result``) live in
+# ``internal_api.lineage_ai`` for CLI use; MCP exposes the primitives only.
 
 
 @mcp.tool

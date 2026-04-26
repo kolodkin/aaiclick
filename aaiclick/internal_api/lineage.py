@@ -17,6 +17,7 @@ from aaiclick.ai.agents.lineage_tools import (
     QueryResult,
     TableSchema,
     describe_table,
+    normalize_sql_for_scan,
     run_select,
     validate_scope,
     validate_select_safety,
@@ -48,11 +49,12 @@ async def query_table(
     pins ``max_execution_time``. Callers should populate ``scope_tables``
     from a prior ``oplog_subgraph()`` (use ``OplogGraph.tables``).
     """
-    if err := validate_select_safety(sql):
+    scan = normalize_sql_for_scan(sql)
+    if err := validate_select_safety(sql, scan=scan):
         raise Invalid(err.message)
-    if err := validate_scope(sql, set(scope_tables)):
+    if err := validate_scope(sql, set(scope_tables), scan=scan):
         raise Invalid(err.message)
-    return await run_select(sql, row_limit)
+    return await run_select(sql, row_limit, scan=scan)
 
 
 async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:

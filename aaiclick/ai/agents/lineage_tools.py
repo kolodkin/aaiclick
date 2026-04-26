@@ -34,13 +34,6 @@ ToolErrorKind = Literal[
 
 
 class ToolError(NamedTuple):
-    """Internal error sentinel for the agent's tool loop.
-
-    Stays a ``NamedTuple`` because it never crosses the MCP/REST boundary —
-    the public ``internal_api`` surface translates these into ``Invalid`` /
-    ``NotFound`` exceptions.
-    """
-
     kind: ToolErrorKind
     message: str
 
@@ -148,47 +141,49 @@ def _classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
     return kinds
 
 
-def validate_select_safety(sql: str) -> ToolError | None:
+def normalize_sql_for_scan(sql: str) -> str:
+    """Strip comments and literals so SQL safety/scope regex passes don't trip on them.
+
+    Callers running multiple validation passes on the same SQL should compute this
+    once and thread it through ``validate_select_safety(scan=...)`` /
+    ``validate_scope(scan=...)`` / ``run_select(scan=...)``.
+    """
+    return _strip_literals(_strip_comments(sql))
+
+
+def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | None:
     """Reject anything that isn't a single read-only ``SELECT`` (or ``WITH … SELECT``).
 
-    Returns ``None`` when the SQL is safe; a ``ToolError`` describing the violation
-    otherwise. Stateless — independent of any lineage scope so it can be reused by
-    the public ``internal_api`` surface.
+    Stateless. Pass ``scan`` to skip the comment + literal strip when the caller
+    has already normalized the SQL.
     """
-    stripped = _strip_comments(sql).strip()
-    scan = _strip_literals(stripped)
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
     if _SEMICOLON_RE.search(scan):
         return ToolError("not_select", "Only a single SELECT statement is allowed.")
     if not _STATEMENT_START_RE.match(scan):
-        return ToolError(
-            "not_select",
-            "query_table accepts only SELECT (or WITH ... SELECT) statements.",
-        )
+        return ToolError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
     if _FORBIDDEN_KEYWORDS_RE.search(scan):
-        return ToolError(
-            "not_select",
-            "query_table rejects DDL/DML keywords; only SELECT is permitted.",
-        )
+        return ToolError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
     return None
 
 
-def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
+def validate_scope(sql: str, scope_tables: set[str], *, scan: str | None = None) -> ToolError | None:
     """Reject when ``sql`` references any ``t_*`` / ``p_*`` table outside ``scope_tables``."""
-    scan = _strip_literals(_strip_comments(sql))
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
     referenced = set(_TABLE_REF_RE.findall(scan))
     unknown = referenced - scope_tables
     if unknown:
         sample = ", ".join(sorted(unknown)[:3])
-        return ToolError(
-            "out_of_scope",
-            f"Tables not in scope: {sample}.",
-        )
+        return ToolError("out_of_scope", f"Tables not in scope: {sample}.")
     return None
 
 
-async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
+async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT, *, scan: str | None = None) -> QueryResult:
     """Execute a (pre-validated) ``SELECT`` with row + execution-time caps."""
-    scan = _strip_literals(_strip_comments(sql))
+    if scan is None:
+        scan = normalize_sql_for_scan(sql)
     row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
     effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
 
@@ -259,14 +254,12 @@ class LineageToolbox:
         / ``run_select`` helpers. The out-of-scope error gets a graph-flavored
         suffix so the LLM knows which tool to call to inspect the scope.
         """
-        if err := validate_select_safety(sql):
+        scan = normalize_sql_for_scan(sql)
+        if err := validate_select_safety(sql, scan=scan):
             return err
-        if err := validate_scope(sql, self._tables):
-            return ToolError(
-                err.kind,
-                err.message + " Use list_graph_nodes() to see what's in scope.",
-            )
-        return await run_select(sql, row_limit)
+        if err := validate_scope(sql, self._tables, scan=scan):
+            return err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
+        return await run_select(sql, row_limit, scan=scan)
 
     async def get_op_sql(self, table: str) -> str | ToolError:
         """Rendered SQL template for the operation that produced ``table``."""

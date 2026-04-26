@@ -207,6 +207,21 @@ Several pure data containers are defined twice — once as a `@dataclass` for in
 - Sweep all `Schema(...)`, `ColumnInfo(...)`, and `replace(info, ...)` call sites; verify keyword-only construction holds.
 - Already done in scope `claude/test-lineage-mcp-dmOVz` for `OplogNode` / `OplogEdge` / `OplogGraph` (`aaiclick/oplog/lineage.py`) — no mirrors needed; the dataclasses became Pydantic models in place.
 
+## Outer `orch_context` Lifespan for the FastMCP Sub-app
+
+Each `@mcp.tool` in `aaiclick/server/mcp.py` opens its own `orch_context(with_ch=True)`, which on every call (re)creates a SQLAlchemy `AsyncEngine` and a `ChClient`. For the lineage primitives (`oplog_subgraph`, `query_table`, `get_table_schema`) an MCP-driven debug loop is intrinsically multi-step — one graph call followed by N schema/query calls — so the per-tool setup tax is `N + 1`× the steady-state cost. On the chdb backend it's worse than a perf issue: `orch_context` calls `close_session()` on exit, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)).
+
+`orch_context.py:393-395` already handles re-entry — when `_ch_client_var` is set, the inner `async with` skips engine creation. So an outer scope at the FastMCP sub-app level (`aaiclick/server/app.py:_mcp_app = mcp.http_app(path="/")`) would let every tool nest cleanly without code changes inside the tool bodies.
+
+**Work**:
+- Wire a FastMCP lifespan that opens `orch_context(with_ch=True)` for the lifetime of the sub-app and closes on shutdown.
+- Couple to the chdb opt-in once "Make `close_session()` Opt-In" lands so the long-lived MCP scope doesn't fight the worker-spawning path.
+- Add a regression test asserting that calling two `@mcp.tool`s back-to-back does not re-create the `ChClient` (mock `create_ch_client` and assert call count = 1).
+
+## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
+
+`aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
+
 ---
 
 # Deferred
