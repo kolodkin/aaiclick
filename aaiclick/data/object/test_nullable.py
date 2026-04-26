@@ -4,6 +4,7 @@ import pytest
 
 from aaiclick import (
     FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     ColumnInfo,
     Schema,
@@ -128,10 +129,10 @@ async def test_create_nullable_scalar(ctx):
 async def test_nullable_dict_columns(ctx):
     """Create dict object with mixed nullable and non-nullable columns."""
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "name": ColumnInfo("String"),
-            "score": ColumnInfo("Float64", nullable=True),
+            "name": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "score": ColumnInfo("Float64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     obj = await create_object(schema)

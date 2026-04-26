@@ -413,10 +413,10 @@ async def test_insert_view_with_computed_columns(ctx):
         aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "name": ColumnInfo("String"),
-            "active": ColumnInfo("UInt8"),
+            "name": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "active": ColumnInfo("UInt8", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -439,11 +439,11 @@ async def test_insert_subset_columns_nullable_fill(ctx):
         aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String"),
-            "val1": ColumnInfo("Int64", nullable=True),
-            "val2": ColumnInfo("String", nullable=True),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "val1": ColumnInfo("Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "val2": ColumnInfo("String", nullable=True, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -465,10 +465,10 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
         aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String"),
-            "count": ColumnInfo("Int64"),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "count": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -490,9 +490,9 @@ async def test_insert_skips_extra_source_columns(ctx):
         aai_id=True,
     )
     schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String"),
+            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)

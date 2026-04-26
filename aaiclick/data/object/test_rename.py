@@ -6,7 +6,7 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import create_object
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Computed, Schema
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, Schema
 
 
 async def test_rename_basic(ctx):
@@ -35,10 +35,10 @@ async def test_rename_insert_into_target(ctx):
     """Renamed view can be inserted into target with matching column names."""
     # Source has "src_col", target expects "dst_col"
     src_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "src_col": ColumnInfo("String"),
-            "shared": ColumnInfo("Int32"),
+            "src_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -46,10 +46,10 @@ async def test_rename_insert_into_target(ctx):
     await ch.command(f"INSERT INTO {src.table} (src_col, shared) VALUES ('alpha', 10)")
 
     tgt_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "dst_col": ColumnInfo("String"),
-            "shared": ColumnInfo("Int32"),
+            "dst_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
@@ -108,10 +108,10 @@ async def test_rename_nonexistent_raises(ctx):
 async def test_insert_skips_extra_source_columns(ctx):
     """insert() silently skips source columns not present in target."""
     src_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "shared": ColumnInfo("Int32"),
-            "extra_col": ColumnInfo("String"),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -119,9 +119,9 @@ async def test_insert_skips_extra_source_columns(ctx):
     await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
 
     tgt_schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
+        fieldtype=FIELDTYPE_DICT,
         columns={
-            "shared": ColumnInfo("Int32"),
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
