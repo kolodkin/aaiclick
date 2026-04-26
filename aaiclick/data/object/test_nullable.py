@@ -314,6 +314,7 @@ async def test_coalesce_with_object(ctx):
         fieldtype=FIELDTYPE_ARRAY,
         columns={
             "value": ColumnInfo("Int64", nullable=True),
+            "aai_id": ColumnInfo("UInt64", fieldtype="a", default="generateSnowflakeID()"),
         },
     )
     obj = await create_object(schema)
