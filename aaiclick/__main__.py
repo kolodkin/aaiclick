@@ -5,7 +5,7 @@ Usage:
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
-    python -m aaiclick local start              # Start worker + background (local mode)
+    python -m aaiclick local start              # Start REST + MCP server with workers (local mode)
     python -m aaiclick local stop <worker_id>   # Stop a local worker
     python -m aaiclick worker start             # Start a distributed worker process
     python -m aaiclick worker list              # List workers
@@ -330,13 +330,19 @@ def main():
     # local start
     local_start_parser = local_subparsers.add_parser(
         "start",
-        help="Start worker + background in a single process",
+        help="Start the combined REST + MCP server with workers (local mode)",
     )
     local_start_parser.add_argument(
-        "--max-tasks",
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind (default: 127.0.0.1)",
+    )
+    local_start_parser.add_argument(
+        "--port",
         type=int,
-        default=None,
-        help="Maximum tasks to execute (default: unlimited)",
+        default=8000,
+        help="Port to bind (default: 8000)",
     )
 
     # local stop
@@ -684,7 +690,7 @@ def main():
         if args.local_command == "start":
             from aaiclick.orchestration.cli import start_local
 
-            asyncio.run(start_local(max_tasks=args.max_tasks))
+            asyncio.run(start_local(host=args.host, port=args.port))
 
         elif args.local_command == "stop":
             asyncio.run(_run_worker_stop(args))
