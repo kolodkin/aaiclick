@@ -1,11 +1,14 @@
 """
-Tests for the lineage internal_api wrappers.
+Tests for the AI-independent lineage internal_api primitives.
 
-The underlying ``oplog_subgraph`` / ``explain_lineage`` / ``debug_result`` and
-the SQL-safety / scope helpers are covered in their own test modules. Here we
-assert the wrappers correctly delegate, pass kwargs through, raise ``Invalid``
-/ ``NotFound`` for safety violations, and wrap plain-text agent answers in
-``LineageAnswer``.
+The underlying ``oplog_subgraph`` and the SQL-safety / scope helpers have
+their own test modules; here we only assert the wrappers correctly delegate,
+pass kwargs through, and translate ``ToolError`` results into ``Invalid`` /
+``NotFound`` exceptions.
+
+Tests for the AI-backed wrappers (``explain_lineage`` / ``debug_result``)
+live in ``aaiclick/ai/agents/test_lineage_internal_api.py`` so they only
+run in matrices that install the ``ai`` extra.
 """
 
 from __future__ import annotations
@@ -18,7 +21,6 @@ from aaiclick.ai.agents.lineage_tools import ColumnSchema, QueryResult, TableSch
 from aaiclick.internal_api import lineage as lineage_api
 from aaiclick.internal_api.errors import Invalid, NotFound
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.oplog.view_models import LineageAnswer
 from aaiclick.testing import make_oplog_node
 
 
@@ -83,25 +85,3 @@ async def test_get_table_schema_raises_not_found_when_describe_fails():
     with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
         with pytest.raises(NotFound):
             await lineage_api.get_table_schema("p_revenue", scope_tables=["p_revenue"])
-
-
-async def test_explain_lineage_wraps_string_in_answer():
-    mock_explain = AsyncMock(return_value="Explanation text.")
-
-    with patch("aaiclick.internal_api.lineage._explain_lineage", new=mock_explain):
-        result = await lineage_api.explain_lineage("result", question="Why?")
-
-    assert isinstance(result, LineageAnswer)
-    assert result.text == "Explanation text."
-    mock_explain.assert_awaited_once_with("result", question="Why?")
-
-
-async def test_debug_result_wraps_string_in_answer():
-    mock_debug = AsyncMock(return_value="Debug answer.")
-
-    with patch("aaiclick.internal_api.lineage._debug_result", new=mock_debug):
-        result = await lineage_api.debug_result("result", question="Why?", max_iterations=3)
-
-    assert isinstance(result, LineageAnswer)
-    assert result.text == "Debug answer."
-    mock_debug.assert_awaited_once_with("result", question="Why?", max_iterations=3)
