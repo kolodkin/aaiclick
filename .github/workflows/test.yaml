@@ -225,7 +225,7 @@ jobs:
           - group: Data examples
             module: aaiclick.data.examples.run_all
             summary-title: Data Examples Output
-            needs-postgres: true
+            needs-postgres: false
             extras: distributed
           - group: Orch examples
             module: aaiclick.orchestration.examples.run_all
