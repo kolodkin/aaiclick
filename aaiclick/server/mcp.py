@@ -20,13 +20,16 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import jobs as jobs_api
+from aaiclick.internal_api import lineage as lineage_api
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import workers as workers_api
+from aaiclick.oplog.lineage import LineageDirection, OplogGraph
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     JobDetail,
@@ -190,6 +193,44 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     """Drop global-scope persistent objects filtered by creation time."""
     async with orch_context(with_ch=True):
         return await objects_api.purge_objects(request)
+
+
+# --- lineage primitives -----------------------------------------------
+# Turnkey LLM wrappers (``explain_lineage`` / ``debug_result``) live in
+# ``internal_api.lineage_ai`` for CLI use; MCP exposes the primitives only.
+
+
+@mcp.tool
+async def oplog_subgraph(
+    target_table: str,
+    direction: LineageDirection = "backward",
+    max_depth: int = 10,
+) -> OplogGraph:
+    """Return the lineage graph for ``target_table`` (backward or forward)."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
+
+
+@mcp.tool
+async def query_table(
+    sql: str,
+    scope_tables: list[str],
+    row_limit: int = DEFAULT_ROW_LIMIT,
+) -> QueryResult:
+    """Run a sandboxed read-only SELECT against tables in ``scope_tables``.
+
+    ``scope_tables`` should come from a prior ``oplog_subgraph`` call
+    (use ``OplogGraph.tables``). Rejects DDL/DML and out-of-scope refs.
+    """
+    async with orch_context(with_ch=True):
+        return await lineage_api.query_table(sql, scope_tables=scope_tables, row_limit=row_limit)
+
+
+@mcp.tool
+async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
+    """Return columns and types for ``table`` (must be in ``scope_tables``)."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.get_table_schema(table, scope_tables=scope_tables)
 
 
 # --- setup ------------------------------------------------------------
