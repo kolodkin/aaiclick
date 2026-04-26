@@ -2783,7 +2783,9 @@ class View(Object):
 
         Args:
             orient: Output format for dict data
-            order_by/offset/limit: Per-call overrides — see ``Object.data``.
+            order_by: Per-call ``ORDER BY`` override — see ``Object.data``.
+            offset: Per-call ``OFFSET`` override — see ``Object.data``.
+            limit: Per-call ``LIMIT`` override — see ``Object.data``.
         """
         self.checkstale()
 

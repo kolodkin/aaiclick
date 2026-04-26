@@ -27,8 +27,8 @@ async def example():
     print("\nArithmetic operators")
     print("-" * 60)
 
-    a = await create_object_from_value([10, 20, 30, 40, 50])
-    b = await create_object_from_value([2, 4, 5, 8, 10])
+    a = await create_object_from_value([10, 20, 30, 40, 50], with_aai_id=True)
+    b = await create_object_from_value([2, 4, 5, 8, 10], with_aai_id=True)
 
     print(f"a: {await a.data()}")  # → [10, 20, 30, 40, 50]
     print(f"b: {await b.data()}\n")  # → [2, 4, 5, 8, 10]
@@ -77,8 +77,8 @@ async def example():
     print("\nComparison operators")
     print("-" * 60)
 
-    x = await create_object_from_value([1, 5, 10, 15, 20])
-    y = await create_object_from_value([5, 5, 8, 20, 20])
+    x = await create_object_from_value([1, 5, 10, 15, 20], with_aai_id=True)
+    y = await create_object_from_value([5, 5, 8, 20, 20], with_aai_id=True)
 
     print(f"x: {await x.data()}")  # → [1, 5, 10, 15, 20]
     print(f"y: {await y.data()}\n")  # → [5, 5, 8, 20, 20]
@@ -96,8 +96,8 @@ async def example():
     print("\nBitwise operators")
     print("-" * 60)
 
-    m = await create_object_from_value([12, 10, 8])  # 1100, 1010, 1000
-    n = await create_object_from_value([10, 12, 4])  # 1010, 1100, 0100
+    m = await create_object_from_value([12, 10, 8], with_aai_id=True)  # 1100, 1010, 1000
+    n = await create_object_from_value([10, 12, 4], with_aai_id=True)  # 1010, 1100, 0100
 
     print(f"m: {await m.data()}")  # → [12, 10, 8]
     print(f"n: {await n.data()}\n")  # → [10, 12, 4]
@@ -137,14 +137,14 @@ async def example():
     print("\nChained operations")
     print("-" * 60)
 
-    a = await create_object_from_value([1, 2, 3, 4, 5])
+    a = await create_object_from_value([1, 2, 3, 4, 5], with_aai_id=True)
     print(f"a: {await a.data()}\n")
 
     total = await a.sum()
     normalized = await (a / total)
     print(f"normalized (a / sum(a)): {await normalized.data()}")  # → [0, 0, 0, 0, 0]
 
-    b = await create_object_from_value([10, 20, 30, 40, 50])
+    b = await create_object_from_value([10, 20, 30, 40, 50], with_aai_id=True)
     diff = await (b - a)
     mean_diff = await diff.mean()
     print(f"mean(b - a): {await mean_diff.data()}")  # → 27.0
@@ -153,8 +153,8 @@ async def example():
     print("\nSize mismatch raises ValueError")
     print("-" * 60)
 
-    a = await create_object_from_value([1, 2, 3])
-    c = await create_object_from_value([10, 20])
+    a = await create_object_from_value([1, 2, 3], with_aai_id=True)
+    c = await create_object_from_value([10, 20], with_aai_id=True)
 
     try:
         await (a + c)
