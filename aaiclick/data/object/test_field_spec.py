@@ -176,6 +176,7 @@ async def test_field_spec_nullable_arithmetic(ctx):
     obj = await create_object_from_value(
         [10, 20, 30],
         fields={"value": FieldSpec(nullable=True)},
+        aai_id=True,
     )
     ch = get_ch_client()
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (NULL)")
