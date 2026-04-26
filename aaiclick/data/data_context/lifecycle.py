@@ -8,11 +8,16 @@ for single-process local operation.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
+from datetime import datetime
 
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
+
+logger = logging.getLogger(__name__)
 
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", default=None)
 
@@ -98,17 +103,23 @@ class LocalLifecycleHandler(LifecycleHandler):
     automatic DROP TABLE when refcount reaches 0. Runs entirely in the main
     event loop; no background thread or sync client needed.
 
+    When an SQL engine is bound to the active ``data_context()``, also
+    writes ``table_registry.schema_doc`` rows so persistent objects are
+    re-openable across context exits via ``open_object()``.
+
     Args:
         ch_client: Async ClickHouse client to use for DROP TABLE operations.
     """
 
     def __init__(self, ch_client: ChClient):
         self._worker = AsyncTableWorker(ch_client)
+        self._registry_tasks: list[asyncio.Task] = []
 
     async def start(self) -> None:
         await self._worker.start()
 
     async def stop(self) -> None:
+        await self._await_registry_tasks()
         await self._worker.stop()
 
     def incref(self, table_name: str) -> None:
@@ -119,6 +130,48 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     async def flush(self) -> None:
         await self._worker.flush()
+        await self._await_registry_tasks()
+
+    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
+        if schema_doc is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._registry_tasks.append(loop.create_task(self._write_registry_row(table_name, schema_doc)))
+
+    async def _await_registry_tasks(self) -> None:
+        if not self._registry_tasks:
+            return
+        pending, self._registry_tasks = self._registry_tasks, []
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _write_registry_row(self, table_name: str, schema_doc: str) -> None:
+        from sqlalchemy import text
+
+        from aaiclick.orchestration.sql_context import get_sql_session
+
+        try:
+            async with get_sql_session() as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO table_registry "
+                        "(table_name, created_at, schema_doc) "
+                        "VALUES (:table_name, :created_at, :schema_doc) "
+                        "ON CONFLICT (table_name) DO NOTHING"
+                    ),
+                    {
+                        "table_name": table_name,
+                        "created_at": datetime.utcnow(),
+                        "schema_doc": schema_doc,
+                    },
+                )
+                await session.commit()
+        except RuntimeError:
+            return
+        except Exception:
+            logger.error("Failed to write table registry for %s", table_name, exc_info=True)
 
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode

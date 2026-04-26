@@ -150,6 +150,10 @@ async def data_context(
     Sets per-resource ContextVars for the duration of the block:
     - ChClient (ch_client.py)
     - LocalLifecycleHandler (lifecycle.py)
+    - SQL engine (orchestration.sql_context) — only created when not
+      already provided by an outer ``orch_context()``; allows
+      ``open_object()`` and ``table_registry`` reads/writes without
+      requiring orchestration setup.
     - EngineType and object registry (data_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
@@ -158,6 +162,11 @@ async def data_context(
     Args:
         engine: ClickHouse table engine. Defaults to Memory (RAM).
     """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from aaiclick.orchestration.env import get_db_url
+    from aaiclick.orchestration.sql_context import _sql_engine_var
+
     ch_client = await create_ch_client()
     effective_engine = engine if engine is not None else ENGINE_MEMORY
 
@@ -165,6 +174,12 @@ async def data_context(
     await lifecycle.start()
 
     objects: dict[int, weakref.ref] = {}
+
+    sql_engine = None
+    sql_token = None
+    if _sql_engine_var.get() is None:
+        sql_engine = create_async_engine(get_db_url(), echo=False)
+        sql_token = _sql_engine_var.set(sql_engine)
 
     ch_token = _ch_client_var.set(ch_client)
     lc_token = _lifecycle_var.set(lifecycle)
@@ -194,6 +209,10 @@ async def data_context(
         _engine_var.reset(eng_token)
         _lifecycle_var.reset(lc_token)
         _ch_client_var.reset(ch_token)
+        if sql_token is not None:
+            _sql_engine_var.reset(sql_token)
+        if sql_engine is not None:
+            await sql_engine.dispose()
 
 
 def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:

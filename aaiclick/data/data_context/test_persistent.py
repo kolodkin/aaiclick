@@ -1,4 +1,10 @@
-"""Tests for persistent named objects."""
+"""Tests for persistent named objects via the ``ctx`` orch fixture.
+
+Cross-context persistence tests (verifying that data survives a
+``data_context()`` exit) live in ``aaiclick/data_extra_tests/test_persistent.py`` —
+they need explicit enter/exit blocks the shared ``ctx`` fixture cannot
+provide.
+"""
 
 import pytest
 
@@ -7,33 +13,31 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
-    list_persistent_objects,
     open_object,
 )
 from aaiclick.data.data_context.data_context import _validate_persistent_name
 
 
-async def test_create_persistent_object(ctx):
-    """Persistent object has p_ prefix and persistent property."""
+async def test_create_persistent_object_table_prefix(ctx):
+    """``scope='global'`` named objects use the ``p_`` table prefix."""
     obj = await create_object_from_value([10, 20, 30], name="test_persist_create", scope="global")
     try:
         assert obj.table == "p_test_persist_create"
         assert obj.persistent is True
-        data = await obj.data()
-        assert data == [10, 20, 30]
+        assert await obj.data() == [10, 20, 30]
     finally:
         await delete_persistent_object("test_persist_create")
 
 
 async def test_regular_object_not_persistent(ctx):
-    """Regular (unnamed) objects are not persistent."""
+    """Unnamed objects use ``t_`` and are not persistent."""
     obj = await create_object_from_value([1, 2, 3])
     assert obj.persistent is False
     assert obj.table.startswith("t_")
 
 
-async def test_open_persistent_object(ctx):
-    """Opening an existing persistent object returns correct data."""
+async def test_open_persistent_object_in_same_context(ctx):
+    """``open_object`` round-trips schema and data within one context."""
     await create_object_from_value(
         {"x": [1, 2, 3], "y": [4, 5, 6]},
         name="test_persist_open",
@@ -50,20 +54,8 @@ async def test_open_persistent_object(ctx):
         await delete_persistent_object("test_persist_open")
 
 
-async def test_persistent_survives_context_exit(ctx):
-    """Data in a persistent object is accessible from a new context."""
-    await create_object_from_value([100, 200], name="test_persist_survive", scope="global")
-
-    try:
-        obj = await open_object("test_persist_survive")
-        data = await obj.data()
-        assert data == [100, 200]
-    finally:
-        await delete_persistent_object("test_persist_survive")
-
-
-async def test_delete_persistent_object(ctx):
-    """Deleting a persistent object removes the table."""
+async def test_delete_persistent_object_then_open_raises(ctx):
+    """After deletion, ``open_object`` raises RuntimeError."""
     await create_object_from_value([1], name="test_persist_delete", scope="global")
     await delete_persistent_object("test_persist_delete")
 
@@ -71,80 +63,23 @@ async def test_delete_persistent_object(ctx):
         await open_object("test_persist_delete")
 
 
-async def test_list_persistent_objects(ctx):
-    """Listing persistent objects returns their names."""
-    await create_object_from_value([1], name="test_persist_list_a", scope="global")
-    await create_object_from_value([2], name="test_persist_list_b", scope="global")
-    try:
-        names = await list_persistent_objects()
-        assert "test_persist_list_a" in names
-        assert "test_persist_list_b" in names
-    finally:
-        await delete_persistent_object("test_persist_list_a")
-        await delete_persistent_object("test_persist_list_b")
-
-
 async def test_persistent_name_validation(ctx):
     """Invalid names raise ValueError."""
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
-
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("has space")
-
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("has-dash")
-
     _validate_persistent_name("valid_name")
     _validate_persistent_name("_underscore")
     _validate_persistent_name("CamelCase")
-
-
-async def test_persistent_append_semantics(ctx):
-    """Creating with same name appends data."""
-    try:
-        await create_object_from_value([1, 2], name="test_persist_append", scope="global")
-        await create_object_from_value([3, 4], name="test_persist_append", scope="global")
-
-        obj = await open_object("test_persist_append")
-        data = await obj.data()
-        assert sorted(data) == [1, 2, 3, 4]
-    finally:
-        await delete_persistent_object("test_persist_append")
 
 
 async def test_open_nonexistent_raises(ctx):
     """Opening a non-existent persistent object raises RuntimeError."""
     with pytest.raises(RuntimeError, match="does not exist"):
         await open_object("this_does_not_exist_xyz")
-
-
-async def test_persistent_dict_object(ctx):
-    """Persistent objects work with dict values."""
-    try:
-        obj = await create_object_from_value(
-            {"name": ["Alice", "Bob"], "age": [30, 25]},
-            name="test_persist_dict",
-            scope="global",
-        )
-        assert obj.persistent is True
-
-        opened = await open_object("test_persist_dict")
-        data = await opened.data()
-        assert len(data) == 2
-    finally:
-        await delete_persistent_object("test_persist_dict")
-
-
-async def test_persistent_scalar_object(ctx):
-    """Persistent objects work with scalar values."""
-    try:
-        obj = await create_object_from_value(42, name="test_persist_scalar", scope="global")
-        assert obj.persistent is True
-        data = await obj.data()
-        assert data == 42
-    finally:
-        await delete_persistent_object("test_persist_scalar")
 
 
 async def test_delete_persistent_objects_requires_time_filter(ctx):
@@ -198,6 +133,7 @@ async def test_scope_without_name_raises(ctx):
 
 
 async def test_object_scope_property_for_temp(ctx):
+    """Unnamed objects report ``scope == "temp"``."""
     obj = await create_object_from_value([1, 2, 3])
     assert obj.scope == "temp"
     assert obj.persistent is False
