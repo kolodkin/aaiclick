@@ -4,12 +4,11 @@ import asyncio
 
 import pytest
 from fastapi.routing import APIRoute
-from sqlmodel import select
 from starlette.routing import Route
 
 from aaiclick.backend import is_local
-from aaiclick.orchestration.models import Worker, WorkerStatus
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.execution import list_workers
+from aaiclick.orchestration.models import WorkerStatus
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
@@ -100,20 +99,14 @@ async def test_lifespan_starts_worker_in_local_mode():
     """In local mode, the lifespan registers an execution Worker row.
 
     httpx 0.28's ASGITransport does not drive lifespans, so we enter
-    ``_lifespan`` directly. The worker_main_loop runs as a background
-    asyncio.Task; poll up to 5 seconds for the registration.
+    ``_lifespan`` directly.
     """
     if not is_local():
         pytest.skip("lifespan starts workers only in local mode")
 
     async with _lifespan(app):
         for _ in range(50):
-            async with get_sql_session() as session:
-                result = await session.execute(
-                    select(Worker).where(Worker.status == WorkerStatus.ACTIVE),
-                )
-                workers = result.scalars().all()
-            if workers:
+            if await list_workers(status=WorkerStatus.ACTIVE):
                 return
             await asyncio.sleep(0.1)
 
@@ -126,10 +119,5 @@ async def test_lifespan_no_worker_in_distributed_mode():
         pytest.skip("verifies the distributed-mode no-op path")
 
     async with _lifespan(app):
-        async with get_sql_session() as session:
-            result = await session.execute(
-                select(Worker).where(Worker.status == WorkerStatus.ACTIVE),
-            )
-            workers = result.scalars().all()
-
-        assert not workers, f"no ACTIVE worker should be registered in distributed mode, got {workers}"
+        active = await list_workers(status=WorkerStatus.ACTIVE)
+        assert not active, f"no ACTIVE worker should be registered in distributed mode, got {active}"
