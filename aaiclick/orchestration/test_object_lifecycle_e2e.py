@@ -20,14 +20,15 @@ from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
-from aaiclick.testing import with_value_order
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
 
 @task
 async def produce() -> Object:
-    return await create_object_from_value([10, 20, 30])
+    # aai_id=True so downstream cross-table operators (add_objects) inherit
+    # the implicit order_by="aai_id" pair-stability without explicit views.
+    return await create_object_from_value([10, 20, 30], aai_id=True)
 
 
 @task
@@ -42,8 +43,7 @@ async def add_ten(data: Object) -> Object:
 
 @task
 async def add_objects(a: Object, b: Object) -> Object:
-    # Cross-table array+array requires explicit order on both sides (Phase 4 contract).
-    return await (with_value_order(a) + with_value_order(b))
+    return await (a + b)
 
 
 @task

@@ -1,15 +1,16 @@
-"""Tests for persistent named objects via the ``ctx`` orch fixture.
+"""Tests for persistent named objects.
 
-Cross-context persistence tests (verifying that data survives a
-``data_context()`` exit) live in ``aaiclick/data_extra_tests/test_persistent.py`` —
-they need explicit enter/exit blocks the shared ``ctx`` fixture cannot
-provide.
+Most tests use the ``ctx`` fixture (orch_context + task_scope) — that is
+the only environment in which persistent named objects are supported.
+A small section at the end opens a bare ``data_context()`` block to
+verify that attempting persistence **without** orch_context raises.
 """
 
 import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
+    data_context,
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
@@ -137,3 +138,39 @@ async def test_object_scope_property_for_temp(ctx):
     obj = await create_object_from_value([1, 2, 3])
     assert obj.scope == "temp"
     assert obj.persistent is False
+
+
+# --- Persistent attempts outside orch_context are rejected ---
+
+
+async def test_named_object_in_bare_data_context_raises():
+    """``name=...`` outside orch_context raises RuntimeError.
+
+    These tests open their own ``async with data_context():`` block
+    (no ``ctx`` fixture) so the persistence helpers can verify the
+    "no SQL session → can't write table_registry" rejection path.
+    """
+    async with data_context():
+        with pytest.raises(RuntimeError, match="orch_context"):
+            await create_object_from_value([1, 2, 3], name="should_not_persist")
+
+
+async def test_scope_global_in_bare_data_context_raises():
+    async with data_context():
+        with pytest.raises(RuntimeError, match="orch_context"):
+            await create_object_from_value([1, 2, 3], name="x", scope="global")
+
+
+async def test_scope_job_in_bare_data_context_raises():
+    async with data_context():
+        with pytest.raises(RuntimeError, match="orch_context"):
+            await create_object_from_value([1, 2, 3], name="x", scope="job")
+
+
+async def test_unnamed_object_in_bare_data_context_works():
+    """No ``name=`` → temp table is fine in bare ``data_context()``."""
+    async with data_context():
+        obj = await create_object_from_value([1, 2, 3])
+        assert obj.table.startswith("t_")
+        assert obj.persistent is False
+        assert sorted(await obj.data()) == [1, 2, 3]
