@@ -190,6 +190,16 @@ the `.html` → `HTML` mapping to `_EXPORT_FORMATS` and the corresponding test
 once chdb's build includes it, or once aaiclick gains a way to fall back to
 clickhouse-connect for formats chdb doesn't ship.
 
+## Nightly AI Live Tests
+
+Bring back a nightly workflow that runs the live-LLM tests (`aaiclick/ai/test_provider_live.py`, `aaiclick/ai/agents/test_lineage_agent_live.py`) against a real model. The previous `project-ai-tests.yaml` spun up an `ollama/ollama` service and pulled `llama3.2:1b` on every run, which was slow and flaky. The non-live AI tests now run on every PR inside `test.yaml` (`AI local` group); the live tests auto-skip without `AAICLICK_AI_LIVE_TESTS=1`, so they cost nothing there.
+
+**When to revisit**: once we either (a) have a stable, cached Ollama model image to avoid the per-run pull, or (b) move to a hosted provider with a CI-friendly budget. Gate the workflow to `schedule:` only — never on PRs.
+
+**Work**:
+- Recreate `.github/workflows/project-ai-tests.yaml` (or fold into a broader nightly workflow) running `pytest -m live_llm` against `aaiclick/ai/`.
+- Re-add the `ai-tests` job to `run-all-projects.yaml` (or its successor).
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

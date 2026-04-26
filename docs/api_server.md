@@ -112,6 +112,10 @@ stabilises.
 
 # View Model Catalogue
 
+Phase 5 adds `StartWorkerRequest` and expands `ProblemCode` — see
+[Spawning workers](#spawning-workers--post-apiv0workers) and
+[Authentication](#authentication) for the additions.
+
 ## Shared (`aaiclick/view_models.py`)
 
 | Model                  | Purpose                                                      |
@@ -282,26 +286,120 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 `/api/v1` once the schema has settled and external callers exist.
 
 - **Error mapping**: one exception handler turns `internal_api.errors.NotFound`
-  into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`.
+  into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`,
+  `Unauthorized` into `401`.
 - **OpenAPI**: derived automatically from view models; served at
   `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
 - **Logs**: out of scope. Task log files are served statically or streamed
   verbatim; no log envelope view model.
 
-# MCP Surface
+## Spawning workers — `POST /api/v0/workers`
 
-`aaiclick/server/mcp.py` mounts a FastMCP server on the same app. Each tool
-is a direct wrapper that opens the surrounding context:
+The CLI's `worker start` is a blocking process loop that runs until
+SIGTERM — it does not fit the request/response pattern. The REST
+endpoint spawns a **detached subprocess** and returns `202 Accepted`
+once the fork/exec has succeeded. The caller polls `GET /api/v0/workers`
+if it wants to see the new row:
 
-```python
-@mcp.tool()
-async def run_job(req: RunJobRequest) -> JobView:
-    async with orch_context(with_ch=False):
-        return await internal_api.run_job(req)
+```
+POST /api/v0/workers
+Content-Type: application/json
+
+{ "max_tasks": 100 }          # all fields optional → unlimited if omitted
 ```
 
-FastMCP generates tool schemas from the pydantic models — identical inputs
+Request body maps to `StartWorkerRequest` (new shared view model). The
+handler flow:
+
+1. `internal_api.workers.start_worker(request)` refuses in local mode
+   (`is_local() → raise Invalid`) — same constraint as the CLI.
+2. Spawn `python -m aaiclick worker start [--max-tasks N]` with
+   `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
+   child survives the HTTP request. POSIX-only, matching the project's
+   Linux / macOS scope; Windows is not a supported deployment target.
+3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
+   to `Conflict(code=WORKER_SPAWN_FAILED)` → `503`. Otherwise return
+   `None`.
+4. Router returns `202 Accepted` with header
+   `Location: /api/v0/workers` and an empty body.
+
+The caller polls `GET /api/v0/workers` to observe the new worker row;
+whether the child has finished registering (or has already crashed) is
+an orchestration-layer concern, not an HTTP concern. This keeps the
+endpoint idempotent in intent ("ensure one more worker is running"),
+avoids a new DB column, and sidesteps the race where two concurrent
+spawns would both claim "the next id."
+
+Failure modes:
+
+| Scenario                                | HTTP | `Problem.code`        |
+|-----------------------------------------|------|-----------------------|
+| Local mode (chdb + SQLite)              | 422  | `invalid`             |
+| Subprocess exec raises (missing binary) | 503  | `worker_spawn_failed` |
+| Insufficient scope (post-scope rollout) | 403  | `forbidden`           |
+
+The server does **not** track child PIDs — shutdown uses the existing
+cooperative `stop_worker` path, which writes a stop signal to SQL and
+relies on the worker's own polling loop to exit. Orphan reaping remains
+the orchestration layer's responsibility, identical to CLI-spawned
+workers.
+
+!!! warning "`start_worker` requires distributed backends"
+    The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
+    where every process shares one chdb data path and a spawned child
+    would deadlock on the file lock. Use the CLI's `local start` verb in
+    local mode — it runs worker + background in a single process.
+
+## New / changed view models
+
+| Model                 | Where                          | Purpose                                                       |
+|-----------------------|--------------------------------|---------------------------------------------------------------|
+| `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
+| `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
+| `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
+| `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
+
+`Forbidden` ships in v0 so the error-mapping table is stable; no route
+raises it until scopes land.
+
+# MCP Surface
+
+`aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick")`
+instance. Each tool is a direct wrapper that opens the surrounding context:
+
+```python
+@mcp.tool
+async def run_job(request: RunJobRequest) -> JobView:
+    async with orch_context(with_ch=True):
+        return await internal_api.run_job(request)
+```
+
+The server mounts it on the main FastAPI app under `/mcp`:
+
+```python
+# aaiclick/server/app.py
+_mcp_app = mcp.http_app(path="/")
+app = FastAPI(..., lifespan=_mcp_app.lifespan)
+app.mount("/mcp", _mcp_app)
+```
+
+FastMCP generates tool schemas from the pydantic types — identical inputs
 and outputs to the REST surface.
+
+**Testing**: use FastMCP's in-process client against the same module-level
+`mcp` instance — no HTTP round-trip, no uvicorn:
+
+```python
+from fastmcp import Client
+from aaiclick.server.mcp import mcp
+
+async with Client(mcp) as client:
+    result = await client.call_tool("list_jobs", {})
+    page = Page[JobView].model_validate(result.structured_content)
+```
+
+Internal-API errors (`NotFound` / `Conflict` / `Invalid`) surface as
+`fastmcp.exceptions.ToolError` on the client.
 
 # Running the server
 
@@ -322,17 +420,112 @@ parallel `AAICLICK_SERVER_*` namespace.
 
 # Configuration
 
-The server reuses the CLI's existing env vars:
+The server reuses the CLI's existing env vars and adds a single auth knob:
 
-| Variable               | Purpose                                    | Status                 |
-|------------------------|--------------------------------------------|------------------------|
-| `AAICLICK_CH_URL`      | ClickHouse connection URL                  | Existing (see `backend.py`) |
-| `AAICLICK_SQL_URL`     | Orchestration SQL backend URL              | Existing (see `backend.py`) |
-| `UVICORN_HOST`         | Bind host (uvicorn native)                 | Standard uvicorn       |
-| `UVICORN_PORT`         | Bind port (uvicorn native)                 | Standard uvicorn       |
+| Variable               | Purpose                                              | Status                 |
+|------------------------|------------------------------------------------------|------------------------|
+| `AAICLICK_CH_URL`      | ClickHouse connection URL                            | Existing (see `backend.py`) |
+| `AAICLICK_SQL_URL`     | Orchestration SQL backend URL                        | Existing (see `backend.py`) |
+| `AAICLICK_API_TOKEN`   | Shared bearer token for `/api/v0/*` and `/mcp` (v0)  | See `Authentication`   |
+| `UVICORN_HOST`         | Bind host (uvicorn native)                           | Standard uvicorn       |
+| `UVICORN_PORT`         | Bind port (uvicorn native)                           | Standard uvicorn       |
 
-Auth is out of scope for v1 — the server is localhost-only. Token / OAuth
-is added when the orchestration UI needs remote access.
+# Authentication
+
+The `/api/v0/*` REST surface and the `/mcp` mount share one bearer-token
+check in v0. The CLI, in-process MCP client, and router-level tests all
+bypass the check — authentication is an HTTP-transport concern, not an
+internal-API concern.
+
+## Static token (v0)
+
+- **Token source**: the `AAICLICK_API_TOKEN` env var, read per-request
+  via a module-level helper so tests can flip it with `monkeypatch`.
+  No DB-backed token store, no rotation, no scopes.
+- **Enforcement**: if the env var is set, every request to `/api/v0/*`
+  and `/mcp/*` must carry `Authorization: Bearer <token>`. Mismatches
+  return `401 Problem` (`code="unauthorized"`). Missing headers return
+  `401` with a `WWW-Authenticate: Bearer` response header.
+- **Unset token → open server**: when `AAICLICK_API_TOKEN` is unset, the
+  check is a no-op and the server logs a `WARNING` at startup
+  (`"AAICLICK_API_TOKEN unset — server is open"`). This preserves the
+  "localhost-only, no config needed" onboarding path while making the
+  exposure visible in logs.
+- **Timing-safe compare**: the check uses `hmac.compare_digest`, not `==`.
+
+!!! warning "Unset token ≠ safe in production"
+    An unset `AAICLICK_API_TOKEN` means *any* network-reachable client
+    can hit the API. Run behind a bind-to-localhost socket, a reverse
+    proxy, or a firewall rule — or set the token.
+
+## Wiring
+
+One FastAPI dependency, attached once at the mount site — not at every
+endpoint:
+
+```python
+# aaiclick/server/auth.py
+async def require_bearer(authorization: str | None = Header(default=None)) -> None:
+    token = os.environ.get("AAICLICK_API_TOKEN")
+    if token is None:
+        return  # open-server mode
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise Unauthorized("missing bearer token")
+    if not hmac.compare_digest(authorization.removeprefix("Bearer "), token):
+        raise Unauthorized("invalid bearer token")
+
+# aaiclick/server/app.py
+for router in (jobs.router, registered_jobs.router, tasks.router,
+               workers.router, objects.router):
+    app.include_router(router, prefix=API_PREFIX,
+                       dependencies=[Depends(require_bearer)])
+
+app.mount(MCP_PATH, _mcp_app, ...)  # protected by ASGI middleware — see below
+```
+
+The `/mcp` mount is protected by a lightweight ASGI middleware that runs
+the same check before delegating to the FastMCP sub-app. `Depends()` does
+not propagate into mounted sub-apps, so a middleware is required at the
+mount boundary.
+
+## What stays open
+
+| Path                       | Auth required? | Why                                                                  |
+|----------------------------|----------------|----------------------------------------------------------------------|
+| `GET /health`              | No             | Liveness / uptime probes must never 401                              |
+| `GET /api/v0/openapi.json` | No             | FastAPI serves it at the app level; router-dependency does not cover it, and an info-leak isn't a v0 concern |
+| `GET /api/v0/docs`         | No             | Same                                                                 |
+| `GET /api/v0/redoc`        | No             | Same                                                                 |
+
+Gating the schema / docs behind auth would need a middleware (like the
+`/mcp` one below) or `openapi_url=None` + a hand-written authed route —
+both are deferred to the DB-backed-tokens phase alongside scopes.
+
+## Error envelope
+
+```json
+{
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "missing bearer token",
+  "code": "unauthorized"
+}
+```
+
+`Unauthorized` is a new `internal_api.errors.*` subclass. The server-side
+handler sets the `WWW-Authenticate: Bearer` response header; the CLI and
+MCP paths never raise it because they bypass the bearer check.
+
+## Future (tracked in `docs/future.md`)
+
+- **DB-backed tokens with scopes** — `api_tokens` table, per-token
+  `read` / `write` / `admin` scope, CRUD CLI (`aaiclick token issue`,
+  `aaiclick token revoke`), rotation, expiry. Scopes gate mutating verbs
+  (`cancel_job`, `delete_object`, `start_worker`, `setup`).
+- **OAuth 2.0 / OIDC** — for the orchestration UI once a browser client
+  exists. Delegated identity, not a concern of the v0 static token.
+- **Per-request audit log** — who called what, when. Out of scope until
+  token identity exists.
 
 # Non-Goals
 
