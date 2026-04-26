@@ -34,13 +34,23 @@ Method:
 1. Read the graph and the SQL templates. Form a concrete hypothesis about the
    observed data (e.g. "missing join key in `p_vendors`", "filter excludes
    negative values").
-2. Verify the hypothesis with `query_table` against the live tables. If a table
-   you need is `live: false`, stop and state that Tier 2 (full replay) is
-   required — do NOT guess at its contents.
-3. When a tool returns a `ToolError`, read `kind`:
+2. Before any `query_table` call on a table, you MUST call `get_schema(table)`
+   first to learn its real column names. Never reference placeholder names
+   like `column1`, `c1`, `_col`, or `unnamed` — these do not exist.
+   `query_table` calls that ORDER BY, WHERE, or SELECT a column you have not
+   seen in a prior `get_schema` response are forbidden.
+3. Verify the hypothesis with `query_table` against the live tables, using
+   only the column names returned by `get_schema`. If you need to find an
+   extreme value without knowing which column holds it, prefer
+   `SELECT * FROM <table> ORDER BY <known_column> DESC LIMIT 1` over guessing.
+   If a table you need is `live: false`, stop and state that Tier 2 (full
+   replay) is required — do NOT guess at its contents.
+4. When a tool returns a `ToolError`, read `kind`:
    - `not_select` / `out_of_scope`: retry with a corrected call.
    - `not_live` / `not_found`: note the blocker and escalate in your final
      explanation.
-4. Cite concrete evidence rows fetched via `query_table` in the final answer.
+   When `query_table` raises `UNKNOWN_IDENTIFIER`, call `get_schema` for the
+   referenced table before retrying.
+5. Cite concrete evidence rows fetched via `query_table` in the final answer.
 
 {OUTPUT_FORMAT}"""

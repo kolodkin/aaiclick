@@ -194,6 +194,67 @@ async def test_debug_result_provider_failure_returns_graceful_message():
     assert "upstream timeout" in result
 
 
+async def test_debug_result_recovers_inline_tool_call_in_content():
+    """Some Ollama models emit a tool call as JSON text in `content` instead of
+    the structured `tool_calls` field. The loop must parse and dispatch it
+    instead of returning the JSON as a final answer.
+    """
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    inline_resp = _stop_response(
+        '{"id": "call_inline", "type": "function", "function": '
+        '{"name": "get_schema", "arguments": {"table": "' + TARGET + '"}}}'
+    )
+    final_resp = _stop_response("Schema inspected.")
+    toolbox = _mock_toolbox(dispatch_side_effect=["id: UInt64\nval: Float64"])
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(inline_resp, final_resp)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        result = await debug_result(TARGET, "Schema?")
+
+    assert result == "Schema inspected."
+    toolbox.dispatch_tool.assert_awaited_once_with("get_schema", {"table": TARGET})
+
+
+async def test_debug_result_inline_tool_calls_list_form():
+    """A model may emit multiple inline tool calls as a JSON array in `content`."""
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    inline_resp = _stop_response(
+        '[{"function": {"name": "get_schema", "arguments": {"table": "' + TARGET + '"}}},'
+        ' {"function": {"name": "list_graph_nodes", "arguments": {}}}]'
+    )
+    final_resp = _stop_response("done")
+    toolbox = _mock_toolbox(dispatch_side_effect=["schema-result", "nodes-result"])
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(inline_resp, final_resp)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        await debug_result(TARGET, "Inspect.")
+
+    assert toolbox.dispatch_tool.await_count == 2
+
+
+async def test_debug_result_plain_text_content_is_final_answer():
+    """Content that isn't JSON or doesn't match the tool-call shape is returned
+    verbatim as the final answer — the inline-parser fallback must not over-trigger.
+    """
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+    json_but_not_a_tool_call = _stop_response('{"answer": "42"}')
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(json_but_not_a_tool_call)),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=_mock_toolbox()),
+    ):
+        result = await debug_result(TARGET, "Why?")
+
+    assert result == '{"answer": "42"}'
+
+
 async def test_debug_result_with_prebuilt_graph_skips_subgraph():
     """Passing graph= avoids the backward_oplog traversal."""
     graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
