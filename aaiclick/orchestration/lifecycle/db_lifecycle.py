@@ -8,6 +8,7 @@ and oplog recording.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
@@ -63,7 +64,7 @@ class DBLifecycleMessage:
     pin_task_id: int | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
-    flush_event: object | None = None  # asyncio.Event signalled after FLUSH reaches here
+    flush_event: asyncio.Event | None = None  # signalled after FLUSH reaches here
 
 
 class TableContextRef(SQLModel, table=True):
