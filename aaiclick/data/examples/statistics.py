@@ -58,8 +58,8 @@ async def example():
     data_a = [100.0, 200.0, 300.0]
     data_b = [50.0, 100.0, 150.0]
 
-    obj_a = await create_object_from_value(data_a)
-    obj_b = await create_object_from_value(data_b)
+    obj_a = await create_object_from_value(data_a, with_aai_id=True)
+    obj_b = await create_object_from_value(data_b, with_aai_id=True)
 
     print(f"Data A: {data_a}")
     print(f"Data B: {data_b}\n")
