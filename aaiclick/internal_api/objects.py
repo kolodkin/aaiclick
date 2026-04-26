@@ -20,11 +20,11 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
     open_object,
 )
+from aaiclick.data.object.adapters import object_to_detail
 from aaiclick.data.scope import make_persistent_table_name
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
-    object_to_detail,
 )
 from aaiclick.view_models import (
     ObjectDeleted,

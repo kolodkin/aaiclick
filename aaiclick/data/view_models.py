@@ -1,10 +1,10 @@
-"""Data domain view models plus ``Object`` → view adapters.
+"""Data domain view models.
 
-The view models themselves (``ColumnView``, ``SchemaView``, ``ObjectView``,
-``ObjectDetail``) are plain pydantic and know nothing about the ClickHouse
-client. The ``*_to_view`` adapters bridge the ``Object`` / ``Schema`` world
-to the view world, and are the only code in this module that depends on the
-data runtime.
+``ColumnView``, ``SchemaView``, ``ObjectView``, and ``ObjectDetail`` are
+plain pydantic and know nothing about the ClickHouse client. The
+``Schema`` ↔ ``SchemaView`` adapters live here too. ``Object`` →
+``ObjectDetail`` lives in ``aaiclick.data.object.adapters`` to avoid a
+circular dependency through ``object/ingest.py``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from .models import (
     FIELDTYPE_ARRAY,
-    FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     ColumnFieldtype,
     ColumnInfo,
@@ -23,7 +22,7 @@ from .models import (
     Fieldtype,
     Schema,
 )
-from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope, scope_of
+from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope
 
 
 class ColumnView(BaseModel):
@@ -80,9 +79,7 @@ def _object_name_from_table(table: str) -> str:
     return table
 
 
-def column_info_to_view(
-    name: str, info: ColumnInfo, *, schema_fieldtype: Fieldtype | None = None
-) -> ColumnView:
+def column_info_to_view(name: str, info: ColumnInfo, *, schema_fieldtype: Fieldtype | None = None) -> ColumnView:
     """Adapt a ``ColumnInfo`` to its ``ColumnView``.
 
     When ``info.fieldtype`` is the SCALAR default (older call sites that don't
@@ -110,8 +107,7 @@ def column_info_to_view(
 def schema_to_view(schema: Schema) -> SchemaView:
     return SchemaView(
         columns=[
-            column_info_to_view(name, info, schema_fieldtype=schema.fieldtype)
-            for name, info in schema.columns.items()
+            column_info_to_view(name, info, schema_fieldtype=schema.fieldtype) for name, info in schema.columns.items()
         ],
         order_by=schema.order_by,
         engine=schema.engine,
@@ -142,50 +138,4 @@ def view_to_schema(view: SchemaView, *, table: str) -> Schema:
         table=table,
         order_by=view.order_by,
         engine=view.engine,
-    )
-
-
-def object_to_view(
-    obj: Object,
-    *,
-    row_count: int | None = None,
-    size_bytes: int | None = None,
-    created_at: datetime | None = None,
-) -> ObjectView:
-    """Adapt an :class:`Object` to a list-form view.
-
-    ``row_count``, ``size_bytes``, and ``created_at`` come from
-    ``system.tables`` and are supplied by the caller (``internal_api``) because
-    ``Object`` itself does not carry them.
-    """
-    return ObjectView(
-        name=_object_name_from_table(obj.table),
-        table=obj.table,
-        scope=scope_of(obj.table),
-        persistent=obj.persistent,
-        row_count=row_count,
-        size_bytes=size_bytes,
-        created_at=created_at,
-    )
-
-
-def object_to_detail(
-    obj: Object,
-    *,
-    row_count: int | None = None,
-    size_bytes: int | None = None,
-    created_at: datetime | None = None,
-    lineage_summary: str | None = None,
-) -> ObjectDetail:
-    """Adapt an :class:`Object` to a detail-form view."""
-    return ObjectDetail(
-        name=_object_name_from_table(obj.table),
-        table=obj.table,
-        scope=scope_of(obj.table),
-        persistent=obj.persistent,
-        row_count=row_count,
-        size_bytes=size_bytes,
-        created_at=created_at,
-        table_schema=schema_to_view(obj.schema),
-        lineage_summary=lineage_summary,
     )
