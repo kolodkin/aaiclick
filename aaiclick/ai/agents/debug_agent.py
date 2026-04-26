@@ -70,10 +70,7 @@ async def debug_result(
             message = choice.message
 
             if message.tool_calls:
-                calls = [
-                    _ToolCallSpec(tc.id, tc.function.name, tc.function.arguments)
-                    for tc in message.tool_calls
-                ]
+                calls = [_ToolCallSpec(tc.id, tc.function.name, tc.function.arguments) for tc in message.tool_calls]
                 assistant_content = message.content
             else:
                 # Ollama-served models (qwen2.5, llama3.1, ...) sometimes emit a tool

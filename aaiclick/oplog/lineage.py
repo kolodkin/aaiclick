@@ -138,9 +138,7 @@ class OplogGraph:
                 lookup[table_id[2:]] = label
 
         keys = sorted(lookup, key=len, reverse=True)
-        pattern = re.compile(
-            r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)"
-        )
+        pattern = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)")
         return pattern.sub(lambda m: lookup[m.group()], text)
 
     def to_prompt_context(self) -> str:

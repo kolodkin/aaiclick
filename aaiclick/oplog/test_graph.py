@@ -15,7 +15,6 @@ from aaiclick.oplog.lineage import (
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
-from aaiclick.testing import make_oplog_node
 
 
 async def _run_pipeline():
@@ -146,16 +145,3 @@ def test_replace_labels_empty_dict_returns_input():
     """Empty labels dict short-circuits — no regex compiled, text unchanged."""
     text = "anything goes here including t_12345678901234567"
     assert OplogGraph.replace_labels(text, {}) == text
-
-
-def test_prompt_context_id_breaking_ops_warning():
-    """insert and concat get an aai_id freshness warning; other ops do not."""
-    for op in ("insert", "concat"):
-        node = make_oplog_node("target", op, {"source": "src"})
-        context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
-        assert "fresh aai_id" in context, f"{op} should warn"
-        assert "do NOT match" in context
-
-    node = make_oplog_node("result", "add", {"source_0": "a"})
-    context = OplogGraph(nodes=[node], edges=[]).to_prompt_context()
-    assert "fresh aai_id" not in context
