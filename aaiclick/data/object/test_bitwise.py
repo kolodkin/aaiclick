@@ -44,8 +44,8 @@ async def apply_bitwise(obj_a, obj_b, operator: str):
 )
 async def test_scalar_bitwise(ctx, val_a, val_b, operator, expected):
     """Test bitwise operators on scalar Objects."""
-    obj_a = await create_object_from_value(val_a)
-    obj_b = await create_object_from_value(val_b)
+    obj_a = await create_object_from_value(val_a, aai_id=True)
+    obj_b = await create_object_from_value(val_b, aai_id=True)
     result = await apply_bitwise(obj_a, obj_b, operator)
     assert await result.data() == expected
 
@@ -65,8 +65,8 @@ async def test_scalar_bitwise(ctx, val_a, val_b, operator, expected):
 )
 async def test_array_bitwise(ctx, vals_a, vals_b, operator, expected):
     """Test bitwise operators on array Objects."""
-    obj_a = await create_object_from_value(vals_a)
-    obj_b = await create_object_from_value(vals_b)
+    obj_a = await create_object_from_value(vals_a, aai_id=True)
+    obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = await apply_bitwise(obj_a, obj_b, operator)
     assert await result.data() == expected
 
@@ -86,7 +86,7 @@ async def test_array_bitwise(ctx, vals_a, vals_b, operator, expected):
 )
 async def test_reverse_bitwise(ctx, scalar, val, operator, expected):
     """Test reverse bitwise operators (scalar <op> obj)."""
-    obj = await create_object_from_value(val)
+    obj = await create_object_from_value(val, aai_id=True)
     match operator:
         case "&":
             result = await (scalar & obj)
@@ -104,8 +104,8 @@ async def test_reverse_bitwise(ctx, scalar, val, operator, expected):
 
 async def test_bitwise_and_then_sum(ctx):
     """AND mask result can be summed (counts set bits per element)."""
-    obj_a = await create_object_from_value([0b1111, 0b1010, 0b0000, 0b1100])
-    obj_b = await create_object_from_value([0b1010, 0b1010, 0b1111, 0b0101])
+    obj_a = await create_object_from_value([0b1111, 0b1010, 0b0000, 0b1100], aai_id=True)
+    obj_b = await create_object_from_value([0b1010, 0b1010, 0b1111, 0b0101], aai_id=True)
     masked = await (obj_a.view(order_by="value") & obj_b.view(order_by="value"))
     total = await (await masked.sum()).data()
     assert total == 0b1010 + 0b1010 + 0b0000 + 0b0100

@@ -31,21 +31,21 @@ DT_MILLIS = datetime(2024, 3, 10, 8, 15, 30, 123000, tzinfo=timezone.utc)
 
 async def test_scalar_datetime(ctx):
     """Datetime scalar is auto-detected and round-trips correctly."""
-    obj = await create_object_from_value(DT_2024)
+    obj = await create_object_from_value(DT_2024, aai_id=True)
     data = await obj.data()
     assert data == DT_2024
 
 
 async def test_scalar_datetime_with_millis(ctx):
     """Datetime with millisecond precision is preserved."""
-    obj = await create_object_from_value(DT_MILLIS)
+    obj = await create_object_from_value(DT_MILLIS, aai_id=True)
     data = await obj.data()
     assert data == DT_MILLIS
 
 
 async def test_scalar_datetime_epoch(ctx):
     """Unix epoch datetime round-trips correctly."""
-    obj = await create_object_from_value(DT_EPOCH)
+    obj = await create_object_from_value(DT_EPOCH, aai_id=True)
     data = await obj.data()
     assert data == DT_EPOCH
 
@@ -58,7 +58,7 @@ async def test_scalar_datetime_epoch(ctx):
 async def test_array_datetime(ctx):
     """List of datetimes is auto-detected and preserves order."""
     values = [DT_2024, DT_2025, DT_EPOCH]
-    obj = await create_object_from_value(values)
+    obj = await create_object_from_value(values, aai_id=True)
     data = await obj.data()
     assert data == values
 
@@ -66,7 +66,7 @@ async def test_array_datetime(ctx):
 async def test_array_datetime_with_millis(ctx):
     """List of datetimes with millisecond precision is preserved."""
     values = [DT_MILLIS, DT_2024]
-    obj = await create_object_from_value(values)
+    obj = await create_object_from_value(values, aai_id=True)
     data = await obj.data()
     assert data == values
 
@@ -74,7 +74,7 @@ async def test_array_datetime_with_millis(ctx):
 async def test_array_datetime_single(ctx):
     """Single-element datetime list works."""
     values = [DT_2024]
-    obj = await create_object_from_value(values)
+    obj = await create_object_from_value(values, aai_id=True)
     data = await obj.data()
     assert data == values
 
@@ -90,7 +90,7 @@ async def test_dict_of_datetime_arrays(ctx):
         "event_time": [DT_2024, DT_2025],
         "label": ["start", "end"],
     }
-    obj = await create_object_from_value(val)
+    obj = await create_object_from_value(val, aai_id=True)
     data = await obj.data()
     assert data["event_time"] == [DT_2024, DT_2025]
     assert data["label"] == ["start", "end"]
@@ -102,7 +102,7 @@ async def test_dict_of_datetime_scalars(ctx):
         "created_at": DT_2024,
         "name": "test",
     }
-    obj = await create_object_from_value(val)
+    obj = await create_object_from_value(val, aai_id=True)
     data = await obj.data()
     assert data["created_at"] == DT_2024
     assert data["name"] == "test"
@@ -119,7 +119,7 @@ async def test_records_with_datetime(ctx):
         {"ts": DT_2024, "value": 10},
         {"ts": DT_2025, "value": 20},
     ]
-    obj = await create_object_from_value(val)
+    obj = await create_object_from_value(val, aai_id=True)
     data = await obj.data(orient="records")
     assert data[0]["ts"] == DT_2024
     assert data[1]["ts"] == DT_2025
@@ -138,7 +138,7 @@ async def test_records_with_array_datetime(ctx):
         {"user": "Alice", "logins": [DT_2024, DT_2025]},
         {"user": "Bob", "logins": [DT_EPOCH, DT_MILLIS]},
     ]
-    obj = await create_object_from_value(val)
+    obj = await create_object_from_value(val, aai_id=True)
     data = await obj.data()
     assert data["logins"] == [[DT_2024, DT_2025], [DT_EPOCH, DT_MILLIS]]
     assert data["user"] == ["Alice", "Bob"]

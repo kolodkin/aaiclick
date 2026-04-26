@@ -20,8 +20,8 @@ async def test_add_int_float(ctx):
     float_array = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj_int = await create_object_from_value(int_array)
-    obj_float = await create_object_from_value(float_array)
+    obj_int = await create_object_from_value(int_array, aai_id=True)
+    obj_float = await create_object_from_value(float_array, aai_id=True)
 
     # Perform addition
     result = await (obj_int.view(order_by="value") + obj_float.view(order_by="value"))
@@ -44,8 +44,8 @@ async def test_sub_float_float(ctx):
     float_array2 = [float(i) * 0.5 for i in range(NUM_ITEMS)]  # [0.0, 0.5, 1.0, ..., 4999.5]
 
     # Create objects
-    obj1 = await create_object_from_value(float_array1)
-    obj2 = await create_object_from_value(float_array2)
+    obj1 = await create_object_from_value(float_array1, aai_id=True)
+    obj2 = await create_object_from_value(float_array2, aai_id=True)
 
     # Perform subtraction
     result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))
@@ -67,7 +67,7 @@ async def test_min_int(ctx):
     int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
 
     # Create object
-    obj = await create_object_from_value(int_array)
+    obj = await create_object_from_value(int_array, aai_id=True)
 
     # Get minimum (returns Object, use .data() to extract value)
     min_obj = await obj.min()
@@ -85,7 +85,7 @@ async def test_max_float(ctx):
     float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array, aai_id=True)
 
     # Get maximum (returns Object, use .data() to extract value)
     max_obj = await obj.max()
@@ -103,7 +103,7 @@ async def test_sum_float(ctx):
     float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array, aai_id=True)
 
     # Get sum (returns Object, use .data() to extract value)
     sum_obj = await obj.sum()
@@ -122,7 +122,7 @@ async def test_mean_int(ctx):
     int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create object
-    obj = await create_object_from_value(int_array)
+    obj = await create_object_from_value(int_array, aai_id=True)
 
     # Get mean (returns Object, use .data() to extract value)
     mean_obj = await obj.mean()
@@ -141,7 +141,7 @@ async def test_std_float(ctx):
     float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
 
     # Create object
-    obj = await create_object_from_value(float_array)
+    obj = await create_object_from_value(float_array, aai_id=True)
 
     # Get standard deviation (returns Object, use .data() to extract value)
     std_obj = await obj.std()
@@ -162,8 +162,8 @@ async def test_add_int_int(ctx):
     int_array2 = list(range(NUM_ITEMS, NUM_ITEMS * 2))  # [10000, 10001, ..., 19999]
 
     # Create objects
-    obj1 = await create_object_from_value(int_array1)
-    obj2 = await create_object_from_value(int_array2)
+    obj1 = await create_object_from_value(int_array1, aai_id=True)
+    obj2 = await create_object_from_value(int_array2, aai_id=True)
 
     # Perform addition
     result = await (obj1.view(order_by="value") + obj2.view(order_by="value"))
@@ -186,8 +186,8 @@ async def test_sub_int_int(ctx):
     int_array2 = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
 
     # Create objects
-    obj1 = await create_object_from_value(int_array1)
-    obj2 = await create_object_from_value(int_array2)
+    obj1 = await create_object_from_value(int_array1, aai_id=True)
+    obj2 = await create_object_from_value(int_array2, aai_id=True)
 
     # Perform subtraction
     result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))

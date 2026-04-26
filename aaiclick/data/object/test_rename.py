@@ -100,7 +100,7 @@ async def test_rename_collision_raises(ctx):
 
 async def test_rename_nonexistent_raises(ctx):
     """Renaming a column that doesn't exist raises."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     with pytest.raises(ValueError, match="does not exist"):
         obj.rename({"nonexistent": "new_name"})
 
@@ -146,7 +146,7 @@ async def test_insert_skips_extra_source_columns(ctx):
 
 async def test_rename_empty_raises(ctx):
     """Empty rename mapping raises."""
-    obj = await create_object_from_value([1, 2, 3])
+    obj = await create_object_from_value([1, 2, 3], aai_id=True)
     with pytest.raises(ValueError, match="non-empty"):
         obj.rename({})
 

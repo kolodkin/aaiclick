@@ -9,8 +9,8 @@ async def test_context_with_memory_engine():
     """Test non-default engine (Memory) set on data_context."""
     async with data_context(engine=ENGINE_MEMORY):
         ch_client = get_ch_client()
-        obj_a = await create_object_from_value([1, 2, 3])
-        obj_b = await create_object_from_value([4, 5, 6])
+        obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+        obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
 
         # Verify source tables use Memory engine
         result = await ch_client.query(f"""
@@ -57,7 +57,7 @@ async def test_mixed_engine_scenario():
     async with data_context(engine=ENGINE_MEMORY):
         ch_client = get_ch_client()
         # Create with context default (Memory)
-        obj_a = await create_object_from_value([10, 20, 30])
+        obj_a = await create_object_from_value([10, 20, 30], aai_id=True)
 
         result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_a.table}'
