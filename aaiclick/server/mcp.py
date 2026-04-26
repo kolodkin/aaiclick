@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import jobs as jobs_api
 from aaiclick.internal_api import lineage as lineage_api
@@ -29,7 +30,6 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import workers as workers_api
 from aaiclick.oplog.lineage import LineageDirection, OplogGraph
-from aaiclick.oplog.view_models import LineageAnswer
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     JobDetail,
@@ -195,7 +195,14 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
         return await objects_api.purge_objects(request)
 
 
-# --- lineage / ai -----------------------------------------------------
+# --- lineage primitives -----------------------------------------------
+#
+# These are the building blocks an MCP client (itself an LLM agent) composes
+# to investigate a pipeline: walk the graph, look at schemas, sample data.
+# The turnkey AI agents ``explain_lineage`` / ``debug_result`` exist in
+# ``internal_api.lineage`` for CLI use but are NOT exposed here — calling
+# them from MCP would force an Ollama round-trip from inside an LLM client
+# that is already perfectly capable of doing the reasoning itself.
 
 
 @mcp.tool
@@ -210,21 +217,25 @@ async def oplog_subgraph(
 
 
 @mcp.tool
-async def explain_lineage(target_table: str, question: str | None = None) -> LineageAnswer:
-    """Explain how ``target_table`` was produced using a structural LLM agent."""
+async def query_table(
+    sql: str,
+    scope_tables: list[str],
+    row_limit: int = DEFAULT_ROW_LIMIT,
+) -> QueryResult:
+    """Run a sandboxed read-only SELECT against tables in ``scope_tables``.
+
+    ``scope_tables`` should come from a prior ``oplog_subgraph`` call
+    (use ``OplogGraph.tables``). Rejects DDL/DML and out-of-scope refs.
+    """
     async with orch_context(with_ch=True):
-        return await lineage_api.explain_lineage(target_table, question=question)
+        return await lineage_api.query_table(sql, scope_tables=scope_tables, row_limit=row_limit)
 
 
 @mcp.tool
-async def debug_result(
-    target_table: str,
-    question: str,
-    max_iterations: int = 10,
-) -> LineageAnswer:
-    """Run the lineage debug agent's tool loop to investigate ``target_table``."""
+async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
+    """Return columns and types for ``table`` (must be in ``scope_tables``)."""
     async with orch_context(with_ch=True):
-        return await lineage_api.debug_result(target_table, question=question, max_iterations=max_iterations)
+        return await lineage_api.get_table_schema(table, scope_tables=scope_tables)
 
 
 # --- setup ------------------------------------------------------------

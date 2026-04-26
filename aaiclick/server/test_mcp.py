@@ -15,10 +15,10 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from aaiclick.ai.agents.lineage_tools import ColumnSchema, QueryResult, TableSchema
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.oplog.view_models import LineageAnswer
 from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
@@ -48,8 +48,8 @@ EXPECTED_TOOLS = {
     "delete_object",
     "purge_objects",
     "oplog_subgraph",
-    "explain_lineage",
-    "debug_result",
+    "query_table",
+    "get_table_schema",
     "setup",
     "migrate",
     "bootstrap_ollama",
@@ -154,29 +154,60 @@ async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
     mock_subgraph.assert_awaited_once_with("result_table", direction="backward", max_depth=10)
 
 
-async def test_explain_lineage_returns_answer(orch_ctx, mcp_client):
-    mock_explain = AsyncMock(return_value="Pipeline does X then Y.")
+async def test_query_table_returns_query_result(orch_ctx, mcp_client):
+    qr = QueryResult(columns=["id", "val"], rows=[[1, 10.0], [2, 20.0]], truncated=False)
+    mock_run = AsyncMock(return_value=qr)
 
-    with patch("aaiclick.internal_api.lineage._explain_lineage", new=mock_explain):
+    with patch("aaiclick.internal_api.lineage.run_select", new=mock_run):
         result = await mcp_client.call_tool(
-            "explain_lineage",
-            {"target_table": "result_table", "question": "How?"},
+            "query_table",
+            {"sql": "SELECT id, val FROM p_revenue", "scope_tables": ["p_revenue"]},
         )
 
-    answer = LineageAnswer.model_validate(result.structured_content)
-    assert answer.text == "Pipeline does X then Y."
-    mock_explain.assert_awaited_once_with("result_table", question="How?")
+    parsed = QueryResult.model_validate(result.structured_content)
+    assert parsed.columns == ["id", "val"]
+    assert parsed.rows == [[1, 10.0], [2, 20.0]]
+    mock_run.assert_awaited_once()
 
 
-async def test_debug_result_returns_answer(orch_ctx, mcp_client):
-    mock_debug = AsyncMock(return_value="Row 3 has the highest value.")
-
-    with patch("aaiclick.internal_api.lineage._debug_result", new=mock_debug):
-        result = await mcp_client.call_tool(
-            "debug_result",
-            {"target_table": "result_table", "question": "Which row?", "max_iterations": 5},
+async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client):
+    """Out-of-scope table reference raises Invalid → MCP ToolError."""
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool(
+            "query_table",
+            {"sql": "SELECT * FROM p_secret", "scope_tables": ["p_revenue"]},
         )
 
-    answer = LineageAnswer.model_validate(result.structured_content)
-    assert answer.text == "Row 3 has the highest value."
-    mock_debug.assert_awaited_once_with("result_table", question="Which row?", max_iterations=5)
+
+async def test_query_table_rejects_ddl(orch_ctx, mcp_client):
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool(
+            "query_table",
+            {"sql": "DROP TABLE p_revenue", "scope_tables": ["p_revenue"]},
+        )
+
+
+async def test_get_table_schema_returns_columns(orch_ctx, mcp_client):
+    schema = TableSchema(
+        table="p_revenue",
+        columns=[ColumnSchema(name="id", type="UInt64"), ColumnSchema(name="val", type="Float64")],
+    )
+    mock_describe = AsyncMock(return_value=schema)
+
+    with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
+        result = await mcp_client.call_tool(
+            "get_table_schema",
+            {"table": "p_revenue", "scope_tables": ["p_revenue"]},
+        )
+
+    parsed = TableSchema.model_validate(result.structured_content)
+    assert parsed.table == "p_revenue"
+    assert [c.name for c in parsed.columns] == ["id", "val"]
+
+
+async def test_get_table_schema_rejects_out_of_scope(orch_ctx, mcp_client):
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool(
+            "get_table_schema",
+            {"table": "p_secret", "scope_tables": ["p_revenue"]},
+        )
