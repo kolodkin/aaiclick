@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from aaiclick import create_object_from_value
-from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
+from aaiclick.data.data_context import LifecycleHandler, LocalLifecycleHandler
 
 
 def test_lifecycle_handler_is_abstract():
@@ -58,10 +57,8 @@ async def test_local_lifecycle_stop_delegates(ctx):
     mock_worker.stop.assert_called_once()
 
 
-async def test_data_context_always_creates_local_lifecycle(ctx):
-    """data_context always creates and owns a LocalLifecycleHandler."""
-    assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
-
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    data = await obj.data()
-    assert data == [1, 2, 3]
+# Note: ``test_data_context_always_creates_local_lifecycle`` lives in
+# ``aaiclick/data_extra_tests/test_lifecycle.py`` because it requires a real
+# ``async with data_context():`` block — the ``ctx`` fixture wraps
+# orch_context and gives an ``OrchLifecycleHandler``, not the
+# ``LocalLifecycleHandler`` this assertion targets.

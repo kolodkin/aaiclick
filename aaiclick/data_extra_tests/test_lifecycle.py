@@ -21,7 +21,13 @@ from aaiclick import (
     create_object,
     create_object_from_value,
 )
-from aaiclick.data.data_context import data_context, delete_object, get_ch_client
+from aaiclick.data.data_context import (
+    data_context,
+    delete_object,
+    get_ch_client,
+    get_data_lifecycle,
+)
+from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler
 
 
 async def test_context_basic_usage():
@@ -149,3 +155,11 @@ async def test_delete_object_marks_stale_inline():
         assert not obj.stale
         await delete_object(obj)
         assert obj.stale
+
+
+async def test_data_context_always_creates_local_lifecycle():
+    """``data_context()`` (vs ``orch_context()``) creates a LocalLifecycleHandler."""
+    async with data_context():
+        assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
+        obj = await create_object_from_value([1, 2, 3])
+        assert await obj.data() == [1, 2, 3]
