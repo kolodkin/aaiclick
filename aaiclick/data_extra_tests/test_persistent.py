@@ -25,9 +25,7 @@ from aaiclick.data.data_context import (
 async def test_persistent_survives_context_exit():
     """Data written in one context is readable in a fresh context."""
     async with data_context():
-        await create_object_from_value(
-            [100, 200], name="extra_persist_survive", scope="global"
-        )
+        await create_object_from_value([100, 200], name="extra_persist_survive", scope="global")
 
     try:
         async with data_context():
@@ -76,15 +74,11 @@ async def test_persistent_scalar_survives_context_exit():
 async def test_persistent_append_across_contexts():
     """Re-creating with the same name in a new context appends."""
     async with data_context():
-        await create_object_from_value(
-            [1, 2], name="extra_persist_append", scope="global"
-        )
+        await create_object_from_value([1, 2], name="extra_persist_append", scope="global")
 
     try:
         async with data_context():
-            await create_object_from_value(
-                [3, 4], name="extra_persist_append", scope="global"
-            )
+            await create_object_from_value([3, 4], name="extra_persist_append", scope="global")
 
         async with data_context():
             obj = await open_object("extra_persist_append")
@@ -97,9 +91,7 @@ async def test_persistent_append_across_contexts():
 async def test_delete_persistent_actually_removes_across_contexts():
     """delete_persistent_object in one context makes open_object fail in the next."""
     async with data_context():
-        await create_object_from_value(
-            [1], name="extra_persist_delete", scope="global"
-        )
+        await create_object_from_value([1], name="extra_persist_delete", scope="global")
 
     async with data_context():
         await delete_persistent_object("extra_persist_delete")
@@ -112,9 +104,7 @@ async def test_delete_persistent_actually_removes_across_contexts():
 async def test_persistent_object_is_stale_after_context_exit():
     """The ``Object`` handle becomes stale on exit even though its table persists."""
     async with data_context():
-        obj = await create_object_from_value(
-            [1, 2, 3], name="extra_persist_stale", scope="global"
-        )
+        obj = await create_object_from_value([1, 2, 3], name="extra_persist_stale", scope="global")
         assert not obj.stale
 
     assert obj.stale  # handle is stale

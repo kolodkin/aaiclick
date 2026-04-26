@@ -39,5 +39,3 @@ def oplog_record_sample(
     lc = _get_lifecycle()
     if lc is not None:
         lc.oplog_record_sample(result_table, operation, kwargs=kwargs, sql=sql)
-
-
