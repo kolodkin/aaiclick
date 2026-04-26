@@ -186,6 +186,42 @@ class Job(SQLModel, table=True):
 - Audit alembic migrations for new diffs; hand-write migrations for any that autogenerate misses.
 - `CLAUDE.md` Literal-first rule is already in place; revisit once migration lands to remove the "scheduled for migration" callout.
 
+## Collapse Dataclass ↔ Pydantic View-Model Duplication
+
+Several pure data containers are defined twice — once as a `@dataclass` for in-process use and once as a Pydantic `BaseModel` for the API/MCP/REST surface — with hand-written adapters to convert between the two. Pydantic v2 handles methods, properties, classmethods, and `Field(default_factory=...)` natively, so the dataclass form earns its keep only when something forces it (frozen + slotted hot path, `dataclasses.asdict` consumers, etc.). For these cases, nothing forces it.
+
+**Confirmed duplications** (all keyword-constructed, no `dataclasses.asdict` / `replace` / `fields()` consumers in production):
+
+- `ColumnInfo` (`aaiclick/data/models.py:55`) ↔ `ColumnView` (`aaiclick/data/view_models.py:28`), bridged by `column_info_to_view`. Note `ColumnInfo` is `frozen=True` and has a `with_fieldtype()` helper plus a `ch_type()` formatter — both translate to Pydantic with `model_config = ConfigDict(frozen=True)` + `model_copy(update=...)`.
+- `Schema` / `ViewSchema` (`aaiclick/data/models.py:277`, `:311`) ↔ `SchemaView` (`aaiclick/data/view_models.py:40`), bridged by `schema_to_view` / `view_to_schema`.
+
+**Intentionally NOT in scope**:
+
+- `aaiclick/orchestration/models.py` SQLModel tables (`Job`, `Task`, `Worker`, `RegisteredJob`) ↔ `orchestration/view_models.py` views — that split is the deliberate persistence-vs-API boundary, not duplication.
+- `aaiclick/data/models.py` `QueryInfo` / `IngestQueryInfo` / `CopyInfo` / `GroupByInfo` — internal SQL-builder DTOs that never cross the API boundary; no Pydantic mirror exists.
+
+**Work**:
+
+- Replace `@dataclass` with `BaseModel` on `ColumnInfo`, `Schema`, `ViewSchema`. Convert `field(default_factory=...)` → `Field(default_factory=...)`; methods stay as-is; for `ColumnInfo` keep the frozen semantics via `model_config = ConfigDict(frozen=True)` and replace `dataclasses.replace` call sites with `model_copy(update=...)`.
+- Delete `ColumnView`, `SchemaView`, `column_info_to_view`, `schema_to_view`, `view_to_schema` from `aaiclick/data/view_models.py`; expose `ColumnInfo` / `Schema` directly to the API surface and update `ObjectDetail.table_schema: Schema`.
+- Sweep all `Schema(...)`, `ColumnInfo(...)`, and `replace(info, ...)` call sites; verify keyword-only construction holds.
+- Already done in scope `claude/test-lineage-mcp-dmOVz` for `OplogNode` / `OplogEdge` / `OplogGraph` (`aaiclick/oplog/lineage.py`) — no mirrors needed; the dataclasses became Pydantic models in place.
+
+## Outer `orch_context` Lifespan for the FastMCP Sub-app
+
+Each `@mcp.tool` in `aaiclick/server/mcp.py` opens its own `orch_context(with_ch=True)`, which on every call (re)creates a SQLAlchemy `AsyncEngine` and a `ChClient`. For the lineage primitives (`oplog_subgraph`, `query_table`, `get_table_schema`) an MCP-driven debug loop is intrinsically multi-step — one graph call followed by N schema/query calls — so the per-tool setup tax is `N + 1`× the steady-state cost. On the chdb backend it's worse than a perf issue: `orch_context` calls `close_session()` on exit, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)).
+
+`orch_context.py:393-395` already handles re-entry — when `_ch_client_var` is set, the inner `async with` skips engine creation. So an outer scope at the FastMCP sub-app level (`aaiclick/server/app.py:_mcp_app = mcp.http_app(path="/")`) would let every tool nest cleanly without code changes inside the tool bodies.
+
+**Work**:
+- Wire a FastMCP lifespan that opens `orch_context(with_ch=True)` for the lifetime of the sub-app and closes on shutdown.
+- Couple to the chdb opt-in once "Make `close_session()` Opt-In" lands so the long-lived MCP scope doesn't fight the worker-spawning path.
+- Add a regression test asserting that calling two `@mcp.tool`s back-to-back does not re-create the `ChClient` (mock `create_ch_client` and assert call count = 1).
+
+## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
+
+`aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
+
 ---
 
 # Deferred
