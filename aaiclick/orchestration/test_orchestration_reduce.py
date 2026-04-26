@@ -23,7 +23,9 @@ async def sum_reduce(partition: Object, output: Object) -> None:
 
 @task
 async def create_test_object(values: list) -> Object:
-    return await create_object_from_value(values)
+    # aai_id=True gives the partitioner a stable order_by so LIMIT/OFFSET
+    # slicing in _expand_map produces disjoint, complete partitions.
+    return await create_object_from_value(values, aai_id=True)
 
 
 @job("test_reduce_single_layer")
