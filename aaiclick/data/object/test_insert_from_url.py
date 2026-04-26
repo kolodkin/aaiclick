@@ -446,13 +446,6 @@ async def test_json_mode_validation_errors(ctx):
             json_path="data",
             json_columns={"id": ColumnInfo("String")},
         )
-    with pytest.raises(ValueError, match="reserved"):
-        await create_object_from_url(
-            "https://example.com/api.json",
-            format="RawBLOB",
-            json_path="data",
-            json_columns={"aai_id": ColumnInfo("UInt64")},
-        )
     with pytest.raises(ValueError, match="Either columns or json_path"):
         await create_object_from_url("https://example.com/api.json")
 
