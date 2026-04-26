@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from fastapi.routing import APIRoute
+from sqlmodel import select
 from starlette.routing import Route
 
+from aaiclick.backend import is_local
+from aaiclick.orchestration.models import Worker, WorkerStatus
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.view_models import Problem
 
-from .app import API_PREFIX, app
+from .app import API_PREFIX, _lifespan, app
 
 
 def test_all_resource_routes_are_prefixed():
@@ -87,3 +94,42 @@ async def test_openapi_advertises_problem_responses_for_declared_routes(app_clie
             ref = route_responses[key].get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
             assert ref.endswith("/Problem"), f"{method.upper()} {route.path} {code} is not Problem (got {ref!r})"
     assert saw_any_declared, "no routes declared Problem responses — check problem_responses() usage"
+
+
+async def test_lifespan_starts_worker_in_local_mode():
+    """In local mode, the lifespan registers an execution Worker row.
+
+    httpx 0.28's ASGITransport does not drive lifespans, so we enter
+    ``_lifespan`` directly. The worker_main_loop runs as a background
+    asyncio.Task; poll up to 5 seconds for the registration.
+    """
+    if not is_local():
+        pytest.skip("lifespan starts workers only in local mode")
+
+    async with _lifespan(app):
+        for _ in range(50):
+            async with get_sql_session() as session:
+                result = await session.execute(
+                    select(Worker).where(Worker.status == WorkerStatus.ACTIVE),
+                )
+                workers = result.scalars().all()
+            if workers:
+                return
+            await asyncio.sleep(0.1)
+
+        pytest.fail("no ACTIVE worker after 5s")
+
+
+async def test_lifespan_no_worker_in_distributed_mode():
+    """In distributed mode, the lifespan is a no-op for workers."""
+    if is_local():
+        pytest.skip("verifies the distributed-mode no-op path")
+
+    async with _lifespan(app):
+        async with get_sql_session() as session:
+            result = await session.execute(
+                select(Worker).where(Worker.status == WorkerStatus.ACTIVE),
+            )
+            workers = result.scalars().all()
+
+        assert not workers, f"no ACTIVE worker should be registered in distributed mode, got {workers}"
