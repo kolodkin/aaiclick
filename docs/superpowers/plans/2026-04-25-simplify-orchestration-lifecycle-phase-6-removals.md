@@ -12,14 +12,16 @@ Targets:
 - `resolve_job_config()` and the `Job.preservation_mode` / `RegisteredJob.preservation_mode` ORM columns.
 - `AAICLICK_DEFAULT_PRESERVATION_MODE` env var + `get_default_preservation_mode()`.
 - `TableRunRef` and `TableContextRef` SQLModel classes (the SQL tables are already gone via the Phase 1 migration; only the Python classes remain).
-- `BackgroundWorker._cleanup_unreferenced_tables()` (replaced by `_cleanup_orphan_scratch_tables` and `_cleanup_at_job_completion`).
+- `BackgroundWorker._cleanup_unreferenced_tables()` — already stubbed to a no-op in Phase 1 Task 7. This phase removes the empty stub and its call sites.
 - The `oplog_dispatch` / `DBLifecycleOp` / `DBLifecycleMessage` machinery if it was only used by `OrchLifecycleHandler` (verify before deleting).
 
 After this phase the codebase has no references to the old lifecycle.
 
 ---
 
-## Task 1: Delete `_cleanup_unreferenced_tables()`
+## Task 1: Delete the stubbed `_cleanup_unreferenced_tables()`
+
+The method body is already a `return` no-op as of Phase 1 Task 7. This task removes the empty stub and the (now pointless) call site.
 
 **Files:**
 - Modify: `aaiclick/orchestration/background/background_worker.py`
@@ -31,7 +33,9 @@ After this phase the codebase has no references to the old lifecycle.
 grep -rn "_cleanup_unreferenced_tables\|cleanup_unreferenced_tables" /home/user/aaiclick/aaiclick/
 ```
 
-- [ ] **Step 2: Delete the method**
+Expected: the empty stub plus one or two call sites in the BG worker poll loop (left in place by Phase 1 deliberately).
+
+- [ ] **Step 2: Delete the method and its caller**
 
 Remove the `async def _cleanup_unreferenced_tables` definition from `background_worker.py`. Remove the call from `BackgroundWorker._run_loop` (or whichever method drives the polling cycle).
 
@@ -247,7 +251,7 @@ git commit -m "cleanup: residual references to removed lifecycle types"
 - [ ] **Step 4: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 ---

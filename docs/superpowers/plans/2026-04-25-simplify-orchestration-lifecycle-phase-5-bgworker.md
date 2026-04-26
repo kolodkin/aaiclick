@@ -10,7 +10,7 @@ Phase 5 — BackgroundWorker
 - `_cleanup_at_job_completion()` — at job terminal transition, drop every CH table tied to the job.
 - Extend `_cleanup_dead_workers()` to release `task_name_locks`.
 
-The old `_cleanup_unreferenced_tables()` stays in this phase (still works against the migrated schema since it referenced `table_run_refs`, but that table is gone — see Phase 6 for the actual delete). For Phase 5, ensure callers don't invoke it; it's already dead code.
+`_cleanup_unreferenced_tables()` was already stubbed to a no-op in Phase 1 Task 7 (the same phase that drops `table_run_refs` from the schema). Phase 5 leaves it alone; Phase 6 deletes the empty stub and its call sites.
 
 ---
 
@@ -638,7 +638,7 @@ Expected: PASS.
 - [ ] **Step 2: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 ---

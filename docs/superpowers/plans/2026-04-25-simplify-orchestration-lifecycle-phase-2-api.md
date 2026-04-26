@@ -332,7 +332,7 @@ Expected: `create_job has preserve param: ok`.
 - [ ] **Step 3: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-gwqt4
+git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
 ```
 
 ---
