@@ -14,7 +14,7 @@ from aaiclick.data.data_context.data_context import _validate_persistent_name
 
 async def test_create_persistent_object(ctx):
     """Persistent object has p_ prefix and persistent property."""
-    obj = await create_object_from_value([10, 20, 30], name="test_persist_create")
+    obj = await create_object_from_value([10, 20, 30], name="test_persist_create", scope="global")
     try:
         assert obj.table == "p_test_persist_create"
         assert obj.persistent is True
@@ -36,6 +36,7 @@ async def test_open_persistent_object(ctx):
     await create_object_from_value(
         {"x": [1, 2, 3], "y": [4, 5, 6]},
         name="test_persist_open",
+        scope="global",
     )
     try:
         opened = await open_object("test_persist_open")
@@ -50,7 +51,7 @@ async def test_open_persistent_object(ctx):
 
 async def test_persistent_survives_context_exit(ctx):
     """Data in a persistent object is accessible from a new context."""
-    await create_object_from_value([100, 200], name="test_persist_survive")
+    await create_object_from_value([100, 200], name="test_persist_survive", scope="global")
 
     try:
         obj = await open_object("test_persist_survive")
@@ -62,7 +63,7 @@ async def test_persistent_survives_context_exit(ctx):
 
 async def test_delete_persistent_object(ctx):
     """Deleting a persistent object removes the table."""
-    await create_object_from_value([1], name="test_persist_delete")
+    await create_object_from_value([1], name="test_persist_delete", scope="global")
     await delete_persistent_object("test_persist_delete")
 
     with pytest.raises(RuntimeError, match="does not exist"):
@@ -71,8 +72,8 @@ async def test_delete_persistent_object(ctx):
 
 async def test_list_persistent_objects(ctx):
     """Listing persistent objects returns their names."""
-    await create_object_from_value([1], name="test_persist_list_a")
-    await create_object_from_value([2], name="test_persist_list_b")
+    await create_object_from_value([1], name="test_persist_list_a", scope="global")
+    await create_object_from_value([2], name="test_persist_list_b", scope="global")
     try:
         names = await list_persistent_objects()
         assert "test_persist_list_a" in names
@@ -101,8 +102,8 @@ async def test_persistent_name_validation(ctx):
 async def test_persistent_append_semantics(ctx):
     """Creating with same name appends data."""
     try:
-        await create_object_from_value([1, 2], name="test_persist_append")
-        await create_object_from_value([3, 4], name="test_persist_append")
+        await create_object_from_value([1, 2], name="test_persist_append", scope="global")
+        await create_object_from_value([3, 4], name="test_persist_append", scope="global")
 
         obj = await open_object("test_persist_append")
         data = await obj.data()
@@ -123,6 +124,7 @@ async def test_persistent_dict_object(ctx):
         obj = await create_object_from_value(
             {"name": ["Alice", "Bob"], "age": [30, 25]},
             name="test_persist_dict",
+            scope="global",
         )
         assert obj.persistent is True
 
@@ -136,7 +138,7 @@ async def test_persistent_dict_object(ctx):
 async def test_persistent_scalar_object(ctx):
     """Persistent objects work with scalar values."""
     try:
-        obj = await create_object_from_value(42, name="test_persist_scalar")
+        obj = await create_object_from_value(42, name="test_persist_scalar", scope="global")
         assert obj.persistent is True
         data = await obj.data()
         assert data == 42
@@ -151,7 +153,8 @@ async def test_delete_persistent_objects_requires_time_filter(ctx):
 
 
 async def test_scope_global_explicit_creates_p_prefix(ctx):
-    """scope='global' forces the ``p_`` prefix even outside orch."""
+    """``scope='global'`` forces the ``p_`` prefix even when an orch job
+    is active (which would otherwise default named objects to ``j_<id>_``)."""
     obj = await create_object_from_value(
         [1, 2, 3],
         name="test_scope_global_explicit",
@@ -165,18 +168,8 @@ async def test_scope_global_explicit_creates_p_prefix(ctx):
         await delete_persistent_object("test_scope_global_explicit")
 
 
-async def test_scope_job_outside_orch_raises(ctx):
-    """scope='job' without an orch job_id raises a helpful error."""
-    with pytest.raises(ValueError, match="scope='job' requires a job_id"):
-        await create_object_from_value(
-            [1, 2, 3],
-            name="needs_orch",
-            scope="job",
-        )
-
-
 async def test_scope_without_name_raises(ctx):
-    """Passing scope without name is an API misuse."""
+    """Passing ``scope`` without a name is an API misuse."""
     with pytest.raises(ValueError, match="scope can only be set together with name"):
         await create_object_from_value([1, 2, 3], scope="global")
 

@@ -15,6 +15,10 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+SCOPE_TEMP = "temp"
+SCOPE_JOB = "job"
+SCOPE_GLOBAL = "global"
+
 ObjectScope = Literal["temp", "job", "global"]
 NamedScope = Literal["job", "global"]
 

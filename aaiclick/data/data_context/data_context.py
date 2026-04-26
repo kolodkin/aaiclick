@@ -221,9 +221,10 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
 
     Rules:
     - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
-    - ``name`` set, ``scope=None``: default to ``"job"`` when an orch job_id is
-      available, otherwise ``"global"``.
-    - ``name`` set, ``scope`` explicit: use it as-is.
+    - ``name`` set, ``scope`` explicit: use it as-is. ``"job"`` requires an
+      active orch job_id (raises ValueError otherwise — see scope.py).
+    - ``name`` set, ``scope=None``: default by context — ``"job"`` inside an
+      orch job, ``"global"`` in pure ``data_context()``.
     """
     if name is None:
         if scope is not None:
@@ -258,16 +259,15 @@ async def create_object(
     Args:
         schema: Schema dataclass with fieldtype, columns, engine, and order_by.
         engine: Table engine override. Priority (highest to lowest):
-                ``name`` (persistent) → this param → ``schema.engine`` → context default.
-                Ignored when ``name`` is set — persistent tables always use MergeTree.
-        name: Optional persistent name. When provided, creates a persistent
-              table that survives context exit. Uses ``CREATE TABLE IF NOT EXISTS``
-              so subsequent calls with the same name append data. Always uses
-              MergeTree regardless of ``engine`` or ``schema.engine``.
-        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
-              (forever, user-managed). ``"job"`` → ``j_<job_id>_<name>`` (until
-              job TTL). Defaults to ``"job"`` inside an orch job and ``"global"``
-              in pure ``data_context()``.
+                ``name`` (named) → this param → ``schema.engine`` → context default.
+                Ignored when ``name`` is set — named tables always use MergeTree.
+        name: Optional name. When set, ``scope`` is required and selects the
+              persistence tier — see ``scope`` below.
+        scope: Required when ``name`` is set, must be ``None`` otherwise.
+              ``"global"`` → ``p_<name>`` (user-managed, removed only by
+              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
+              (lives only as long as the active orch job; raises if no job is
+              active).
 
     Returns:
         Object: New Object instance with created table
@@ -608,9 +608,8 @@ async def create_object_from_value(
             - Dict of scalars: Single row with columns per key
             - Dict of arrays: Multiple rows with columns per key
             - Dict/List with nested list-of-dicts: Flattened with dot-star notation
-        name: Optional persistent name. When provided, creates a persistent
-              table that survives context exit. If the table already exists,
-              data is appended.
+        name: Optional name. When set, ``scope`` is required and selects
+              the persistence tier — see ``scope`` below.
         order_by: Optional list of column names for the table ORDER BY clause.
                   Empty input yields ``tuple()`` (ClickHouse no-sort form).
                   Example: ``order_by=['date']`` → ``ORDER BY (date)``
@@ -619,11 +618,11 @@ async def create_object_from_value(
                 low_cardinality, and type override.
                 Example: ``fields={"name": FieldSpec(low_cardinality=True),
                 "score": FieldSpec(nullable=True)}``
-        scope: Persistence tier when ``name`` is set. ``"global"`` → ``p_<name>``
-               (forever, user-managed — only ``delete_persistent_object()`` drops
-               it). ``"job"`` → ``j_<job_id>_<name>`` (dropped when the owning
-               job's TTL expires). Default: ``"job"`` inside an orch job,
-               ``"global"`` outside.
+        scope: Required when ``name`` is set, must be ``None`` otherwise.
+              ``"global"`` → ``p_<name>`` (user-managed, removed only by
+              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
+              (lives only as long as the active orch job; raises when called
+              from pure ``data_context()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
               monotonically-increasing 64-bit Snowflake assigned per-row by

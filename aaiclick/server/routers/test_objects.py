@@ -8,7 +8,7 @@ from ..app import API_PREFIX
 
 
 async def test_list_objects(orch_ctx, app_client):
-    await create_object_from_value([1, 2, 3], name="http_obj_a")
+    await create_object_from_value([1, 2, 3], name="http_obj_a", scope="global")
 
     response = await app_client.get(f"{API_PREFIX}/objects")
 
@@ -18,7 +18,7 @@ async def test_list_objects(orch_ctx, app_client):
 
 
 async def test_get_object(orch_ctx, app_client):
-    await create_object_from_value([1, 2], name="http_obj_get")
+    await create_object_from_value([1, 2], name="http_obj_get", scope="global")
 
     response = await app_client.get(f"{API_PREFIX}/objects/http_obj_get")
 
@@ -36,7 +36,7 @@ async def test_get_object_not_found_returns_404(orch_ctx, app_client):
 
 
 async def test_delete_object(orch_ctx, app_client):
-    await create_object_from_value([9], name="http_obj_del")
+    await create_object_from_value([9], name="http_obj_del", scope="global")
 
     response = await app_client.delete(f"{API_PREFIX}/objects/http_obj_del")
 
