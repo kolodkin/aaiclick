@@ -46,7 +46,9 @@ async def test_create_object_writes_schema_doc(ctx):
     obj = await create_object_from_value([1, 2, 3])
     # Registry write goes through the DBLifecycleHandler queue; flush so the
     # INSERT has committed before we read.
-    await get_data_lifecycle().flush()
+    lifecycle = get_data_lifecycle()
+    assert lifecycle is not None
+    await lifecycle.flush()
     async with get_sql_session() as sess:
         result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == obj.table))
         raw = result.scalar_one()
