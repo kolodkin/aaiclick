@@ -7,7 +7,7 @@ Simplify Orchestration Lifecycle — Implementation Plan
 
 **Architecture:** Tasks become DataContexts with three extras — pin/unpin for Object outputs, name-lock acquisition for non-preserved named tables, and preserved-name registration. Three SQL tables go away (`table_run_refs`, `table_context_refs`, the `preservation_mode` columns); one new SQL table comes in (`task_name_locks`). All cleanup ownership rules live in two places: `task_scope.__aexit__` (inline DROPs through the existing `AsyncTableWorker` queue, never parallel `ch_client.command` calls) and `BackgroundWorker` (every `j_<id>_*` and pinned `t_*` drop).
 
-`task_scope` swaps `OrchLifecycleHandler` for a new `TaskLifecycleHandler` (a `LocalLifecycleHandler` subclass). The subclass owns the SQL-side writes today's orch handler does — `table_registry` rows including `schema_doc`, `current_job_id()`, and pin/lock SQL — so the rest of the codebase (`_get_table_schema`, `create_object_from_value(scope="job")`, the data test fixture in `aaiclick/data/conftest.py`) keeps working.
+`task_scope` swaps `OrchLifecycleHandler` for a new `TaskLifecycleHandler` (a `LocalLifecycleHandler` subclass) that owns the SQL-side writes the orch handler did. See the spec for the full responsibilities list.
 
 **Tech Stack:** Python 3.11+, SQLModel, Alembic, async ClickHouse client (`ChClient`), pytest with `asyncio_mode=auto`, pytest-asyncio.
 
@@ -15,7 +15,7 @@ Simplify Orchestration Lifecycle — Implementation Plan
 
 **Branch:** `claude/simplify-orchestration-lifecycle-aNOnA`
 
-**Re-evaluation note (2026-04-26):** Commit `82aef62` (aai_id removal Phase 1-4) landed on the branch *after* the spec was committed. Plan was reviewed against current branch state; corrections folded into Phase 1 (alembic head + neutralise `_cleanup_unreferenced_tables`), Phase 4 (TaskLifecycleHandler split + chdb-safe DROPs + fixture preservation), Phase 5/6 (already-neutralised cleanup method).
+**Project-wide invariant:** every phase ends with `pytest aaiclick/ -x` green. The data suite (`aaiclick/data/`) is the most sensitive part — it routes through `Object.data()` → `_get_table_schema` → `table_registry.schema_doc`, so any handler swap that drops the `register_table` write path fails it wholesale.
 
 ---
 
@@ -46,9 +46,9 @@ Each phase is a separate file. Phases are sequential — finish one before start
 | `aaiclick/orchestration/decorators.py` / `registered_jobs.py`                   | `@register_job(preserve=...)` parameter.                            |
 | `aaiclick/orchestration/orch_context.py`                                        | Rewrite `task_scope()` over `TaskLifecycleHandler`. Delete `OrchLifecycleHandler` (Phase 6).    |
 | `aaiclick/orchestration/lifecycle/db_lifecycle.py`                              | Add `TaskNameLock`, `TableNameCollision`. Delete `TableRunRef` / `TableContextRef` (Phase 6). Add `preserved` column to `TableRegistry` (alongside the existing `schema_doc` from migration `161cfe0f1117`). |
-| `aaiclick/orchestration/lifecycle/task_lifecycle.py` (NEW)                      | `TaskLifecycleHandler(LocalLifecycleHandler)` — owns `register_table` (writes `table_registry` row including `schema_doc`), `current_job_id()`, `pin/unpin`, name-lock acquisition. `incref` auto-calls `track_table` so existing `data_context` callers keep working. |
+| `aaiclick/orchestration/lifecycle/task_lifecycle.py` (NEW)                      | `TaskLifecycleHandler(LocalLifecycleHandler)` — see spec § `TaskLifecycleHandler` responsibilities. |
 | `aaiclick/orchestration/env.py`                                                 | Delete `get_default_preservation_mode()` and `AAICLICK_DEFAULT_PRESERVATION_MODE` (Phase 6). |
-| `aaiclick/orchestration/background/background_worker.py`                        | Add `_cleanup_failed_task_tables()`, `_cleanup_orphan_scratch_tables()`, `_cleanup_at_job_completion()`. Extend `_cleanup_dead_workers()`. **Phase 1** also neutralises `_cleanup_unreferenced_tables()` (its `table_run_refs` source table is dropped by Phase 1's migration); Phase 6 deletes the empty stub. |
+| `aaiclick/orchestration/background/background_worker.py`                        | Add `_cleanup_failed_task_tables()`, `_cleanup_orphan_scratch_tables()`, `_cleanup_at_job_completion()`. Extend `_cleanup_dead_workers()`. Phase 1 stubs `_cleanup_unreferenced_tables()` to no-op; Phase 6 deletes it. |
 | `aaiclick/orchestration/background/handler.py` (+ `pg_handler.py`, `sqlite_handler.py`) | Add query helpers for new cleanup methods and lock ops. |
 | `aaiclick/data/data_context/lifecycle.py`                                       | Extend `LocalLifecycleHandler` with `track_table(name, *, preserved)`, `mark_pinned(name)`, `iter_tracked_tables()` so task_scope can decide what to drop on exit. Drops still go through the existing `AsyncTableWorker` queue (no parallel `ch_client.command`). |
 | `aaiclick/orchestration/migrations/versions/<new>_simplify_lifecycle.py`        | Single new migration: `preserve` columns, drop `table_run_refs` / `table_context_refs`, add `preserved` to `table_registry`, create `task_name_locks`. |

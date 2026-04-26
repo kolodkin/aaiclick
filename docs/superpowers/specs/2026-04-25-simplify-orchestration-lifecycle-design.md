@@ -15,7 +15,7 @@ Meanwhile, `DataContext` already has a clean local lifecycle: weakref tracking, 
 
 This refactor collapses the three tracking mechanisms into one (a new `TaskLifecycleHandler` that subclasses `LocalLifecycleHandler`), keeps pinning for Object outputs, and replaces `PreservationMode` with an explicit `preserve` list of named tables.
 
-> **Coordination with `aai_id` removal (commit `82aef62`).** That work added a `schema_doc` column to `table_registry` and routes every `create_object` through `LifecycleHandler.register_table(schema_doc=...)`. `_get_table_schema` reads the column back; the data test suite now hard-depends on the active handler writing the registry row (see `aaiclick/data/conftest.py::ctx`). The new `TaskLifecycleHandler` MUST preserve this write path — task_scope's swap from `OrchLifecycleHandler` is otherwise silently fatal for `Object.data()`.
+`table_registry.schema_doc` (added by an earlier migration) is read by `_get_table_schema` and written by every `create_object` via `LifecycleHandler.register_table`. `TaskLifecycleHandler` MUST preserve this write path — `task_scope`'s swap from `OrchLifecycleHandler` is otherwise silently fatal for `Object.data()` and the `aaiclick/data/conftest.py::ctx` fixture.
 
 # Scope
 
@@ -215,7 +215,7 @@ When all tasks reach a terminal state, `BackgroundWorker.try_complete_job()`:
 
 This is the single non-trivial new class. It exists because three responsibilities of the old `OrchLifecycleHandler` are still load-bearing for the rest of the codebase:
 
-1. **`register_table(table_name, schema_doc=...)`** — writes one `table_registry` row per CH table created in the task, including the Pydantic-serialised `SchemaView` JSON. Read back by `_get_table_schema` in `aaiclick/data/object/ingest.py`. Without this, every `Object.data()` raises `LookupError`. Implementation: synchronous-flush `INSERT ... ON CONFLICT DO NOTHING` (matches the post-fix path landed in `82aef62`'s "fix: flush DB lifecycle queue after create_object registry write" commit). The synchronous flush avoids racing reads against the AsyncTableWorker queue.
+1. **`register_table(table_name, schema_doc=...)`** — writes one `table_registry` row per CH table created in the task, including the Pydantic-serialised `SchemaView` JSON. Read back by `_get_table_schema` in `aaiclick/data/object/ingest.py`; without this every `Object.data()` raises `LookupError`. Implementation: `INSERT ... ON CONFLICT DO NOTHING` with a synchronous flush before returning, so callers that immediately read back `schema_doc` don't race the AsyncTableWorker queue.
 2. **`current_job_id() -> int`** — returns the task's owning job_id so `create_object_from_value(scope="job")` can build `j_<job_id>_<name>` table names. `aaiclick/data/data_context/data_context.py` reads this on every job-scoped object creation.
 3. **`pin(table_name)` / `unpin(table_name)`** — fans out to `table_pin_refs` rows per downstream consumer task (existing logic, extracted from `OrchLifecycleHandler`). Also calls `self.mark_pinned(table_name)` so `iter_tracked_tables` skips the table on inline-DROP.
 
@@ -224,13 +224,13 @@ Plus the new behaviour:
 4. **`track_table(table_name, *, preserved=False)` / `mark_pinned(table_name)` / `iter_tracked_tables()`** — inherited from `LocalLifecycleHandler`. `task_scope.__aexit__` reads `iter_tracked_tables()` to decide what to inline-DROP.
 5. **Name-lock acquisition / release** — `acquire_task_name_lock(job_id, name, task_id)` (called from `ctx.table(name)` for non-preserved names), `release_task_name_locks_for_task(task_id)` (called from `task_scope.__aexit__`).
 
-`incref` / `decref` semantics: in the simplified model, distributed run_refs are gone. `incref` from `data_context.create_object` becomes "register the table for inline-DROP tracking on task exit." Concretely, `TaskLifecycleHandler.incref(table_name)` calls `self.track_table(table_name)` automatically — every `incref` site in `data_context.py` automatically gets local tracking without enumerating call sites. `decref` becomes a hint that the producer has released its handle; actual drops happen in `__aexit__` based on the (preserved, pinned) flags. The inherited `AsyncTableWorker` queue stays as the serialisation point for the actual `DROP TABLE` calls so chdb sessions are not entered concurrently.
+`incref` / `decref` semantics: distributed run_refs are gone. `LocalLifecycleHandler.incref` calls `self.track_table` so every existing `incref` site participates in inline-DROP without enumerating call sites. `decref` becomes a hint; actual drops happen at `__aexit__` based on the (preserved, pinned) flags. The inherited `AsyncTableWorker` queue serialises the `DROP TABLE` calls so chdb sessions are not entered concurrently.
 
 ## BackgroundWorker changes
 
 Deleted (in **Phase 1**, alongside the migration that drops `table_run_refs`):
 
-- `_cleanup_unreferenced_tables()` — queries `table_run_refs`, which Phase 1 drops. Must be neutralised in the same phase that drops the table; otherwise the BackgroundWorker errors on every poll cycle until Phase 6.
+- `_cleanup_unreferenced_tables()` — queries `table_run_refs`, which Phase 1 drops. Stub to no-op in the same phase that drops the table; otherwise the BackgroundWorker errors on every poll cycle until Phase 6.
 - Any caller / scheduler entry that invokes `_cleanup_unreferenced_tables()`.
 
 Modified / new:
@@ -248,7 +248,7 @@ Single Alembic revision. Both upgrade and downgrade paths must run.
 
 ## Upgrade
 
-The migration chains off the current head, **`161cfe0f1117_add_schema_doc_to_table_registry`** (added by the `aai_id` removal Phase 1 in commit `82aef62`). Confirm with `alembic heads` before generating.
+The migration chains off `161cfe0f1117_add_schema_doc_to_table_registry`. Confirm with `alembic heads` before generating.
 
 1. Add `preserve JSONB NULL` to `jobs` and `registered_jobs`.
 2. Backfill: `preservation_mode='NONE'` → `preserve=NULL`; `preservation_mode='FULL'` → `preserve='"*"'`.
@@ -304,10 +304,6 @@ Preserved-name tables are coordination-free: they're created idempotently with `
 - `table_run_refs` incref/decref tests — machinery gone.
 - `OrchLifecycleHandler` direct exercise — replaced by `TaskLifecycleHandler` / `LocalLifecycleHandler` coverage.
 
-## Tests to preserve
-
-The `aaiclick/data/conftest.py::ctx` fixture currently enters `orch_context() + task_scope()` so the active handler writes `table_registry.schema_doc`. Roughly 1000 data tests now route through this path. Phase 4 MUST keep the fixture green — the `TaskLifecycleHandler` substituted into the new `task_scope` must perform the same `register_table` write as today's `OrchLifecycleHandler`. If it doesn't, the data suite fails wholesale with `LookupError: not registered in table_registry`.
-
 # Documentation updates
 
 - `docs/orchestration.md` — new lifecycle diagram (this spec's flow), `preserve` API, removed `PreservationMode` references.
@@ -321,4 +317,4 @@ The `aaiclick/data/conftest.py::ctx` fixture currently enters `orch_context() + 
 - **CH-side orphan tables on worker death**: `_cleanup_orphan_scratch_tables()` needs a "no live owner" check that's robust to clock skew. Use `task_id NOT IN (SELECT task_id FROM tasks WHERE status IN ('CLAIMED','RUNNING'))` plus a minimum age threshold (e.g. 5 minutes) before dropping any `t_*` CH table.
 - **Idempotent preserved-table creation**: two concurrent tasks calling `ctx.table("training_set")` race on `CREATE TABLE IF NOT EXISTS` — the schema must match. If schemas diverge, the second caller errors. Document this; recommend declaring the table once in a setup task.
 - **chdb session reentrancy on inline DROP**: chdb sessions are not safe to enter concurrently — that is why `AsyncTableWorker` exists. The success-path inline-DROP loop in `task_scope.__aexit__` must route through the worker (e.g. by calling `decref` for tracked-and-droppable tables and letting the existing serialised drop path run) rather than firing `asyncio.gather(*ch_client.command(DROP...))` directly. The plan's Phase 4 implementation must reflect this: drops go through `LocalLifecycleHandler`'s queue, not parallel `ch_client.command` calls.
-- **Object decref bypass**: today's `task_scope.__aexit__` calls `decref(obj.table)` on every live Object before the lifecycle queue drains. The new model relies on `track_table` being called wherever `incref` is called today. `TaskLifecycleHandler.incref` MUST therefore also call `track_table` so every existing `incref` site (in `data_context.create_object` and elsewhere) is automatically covered without enumerating call sites. Decref then becomes a hint, not a drop trigger; actual drops are decided by `iter_tracked_tables` flags at `__aexit__`.
+- **Object decref bypass**: today's `task_scope.__aexit__` calls `decref(obj.table)` on every live Object as the drop trigger. The new model relies on `iter_tracked_tables` flags at `__aexit__` instead — see `incref` / `decref` semantics above for the auto-track contract that makes this work without enumerating call sites.

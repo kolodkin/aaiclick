@@ -186,7 +186,7 @@ Capture the generated filename — call it `MIG_FILE` for the rest of this task.
 cd /home/user/aaiclick && alembic -c aaiclick/orchestration/alembic.ini heads
 ```
 
-Expected at the time of writing: **`161cfe0f1117`** (`add_schema_doc_to_table_registry`, landed in commit `82aef62`). The generated migration's `down_revision` must equal whatever `alembic heads` returns. If multiple heads exist, stop and ask — do not invent a merge.
+Expected: `161cfe0f1117_add_schema_doc_to_table_registry`. The generated migration's `down_revision` must equal whatever `alembic heads` returns. If multiple heads exist, stop and ask — do not invent a merge.
 
 - [ ] **Step 3: Commit the empty skeleton**
 
@@ -230,8 +230,7 @@ def upgrade() -> None:
     op.drop_table("table_context_refs")
 
     # 5. Trim `table_registry`: drop `run_id`, add `preserved`.
-    #    DO NOT touch `schema_doc` — added in migration 161cfe0f1117 by the
-    #    aai_id removal work; _get_table_schema reads it on every Object.data().
+    #    Leave `schema_doc` alone — owned by migration 161cfe0f1117.
     op.drop_column("table_registry", "run_id")
     op.add_column(
         "table_registry",
@@ -287,8 +286,7 @@ def downgrade() -> None:
     op.drop_table("task_name_locks")
 
     # 5. Restore table_registry: drop `preserved`, add `run_id`.
-    #    Leave `schema_doc` alone — its lifetime is owned by migration
-    #    161cfe0f1117, not by this one.
+    #    Leave `schema_doc` alone — owned by migration 161cfe0f1117.
     op.drop_column("table_registry", "preserved")
     op.add_column("table_registry", sa.Column("run_id", sa.BigInteger(), nullable=True))
 
@@ -366,37 +364,28 @@ git commit -m "feature: alembic downgrade for lifecycle simplification"
 
 ---
 
-## Task 7: Neutralise `_cleanup_unreferenced_tables()`
+## Task 7: Stub `_cleanup_unreferenced_tables()` to a no-op
 
-**Why this lands in Phase 1, not Phase 6:** the migration above drops `table_run_refs`. `BackgroundWorker._cleanup_unreferenced_tables()` queries that table on every poll. Without a fix, the background worker errors continuously between Phase 1 and Phase 6. The actual class deletion happens in Phase 6 — this task just stops calling it and stops querying the dropped table.
+The migration above drops `table_run_refs`; `_cleanup_unreferenced_tables()` queries it every poll. Stub it now; Phase 6 deletes it.
 
 **Files:**
-- Modify: `aaiclick/orchestration/background/background_worker.py`
-- Modify: any scheduler / loop entry that invokes `_cleanup_unreferenced_tables()` (search before editing).
+- Modify: `aaiclick/orchestration/background/background_worker.py`.
 
-- [ ] **Step 1: Locate callers**
+- [ ] **Step 1: Locate the method and its callers**
 
 ```bash
 grep -rn "_cleanup_unreferenced_tables" /home/user/aaiclick/aaiclick/
 ```
 
-Expected: at least one definition + one or more call sites in the BackgroundWorker poll loop.
-
-- [ ] **Step 2: Stub the method body**
-
-Replace the body with a hard `pass` (and a TODO comment pointing to Phase 6):
+- [ ] **Step 2: Stub the body**
 
 ```python
 async def _cleanup_unreferenced_tables(self) -> None:
-    """No-op as of the lifecycle simplification. Removed in Phase 6.
-
-    The previous implementation queried table_run_refs, which Phase 1
-    drops as part of the schema simplification.
-    """
+    """No-op; scheduled for removal."""
     return
 ```
 
-Do NOT delete the method or its caller in this phase — Phase 6 owns the deletion. Keeping the empty stub here means the existing scheduler wiring keeps working without a parallel refactor.
+Leave the call sites in the scheduler poll loop alone — Phase 6 removes them along with the method.
 
 - [ ] **Step 3: Run the BG worker tests**
 
@@ -411,7 +400,7 @@ Expected: PASS. Any test that asserted `_cleanup_unreferenced_tables` *did* some
 ```bash
 git add aaiclick/orchestration/background/background_worker.py
 git commit -m "$(cat <<'EOF'
-refactor: neutralise _cleanup_unreferenced_tables ahead of Phase 6 delete
+refactor: stub _cleanup_unreferenced_tables to no-op
 
 Phase 1 of the lifecycle simplification drops table_run_refs. The
 BackgroundWorker method that queried that table is stubbed to a no-op

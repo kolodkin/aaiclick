@@ -6,16 +6,13 @@ Phase 4 — Lifecycle Refactor (the core of the change)
 **Goal:** Replace the body of `task_scope()` with a new `TaskLifecycleHandler` (a `LocalLifecycleHandler` subclass) that:
 
 1. Tracks every CH table the task touches with its `(preserved, pinned)` flags (inherited from `LocalLifecycleHandler`).
-2. Owns the SQL-side writes the old `OrchLifecycleHandler` did — `table_registry` rows including `schema_doc`, `pin_refs`, name-lock acquisition. **This is non-negotiable**: `_get_table_schema` reads `table_registry.schema_doc` (added in commit `82aef62`'s migration `161cfe0f1117`); roughly 1000 data tests route through `Object.data()` and will `LookupError` if the new handler doesn't write the row.
+2. Owns the SQL-side writes the old `OrchLifecycleHandler` did — see spec § `TaskLifecycleHandler` responsibilities.
 3. Exposes `current_job_id()` so `create_object_from_value(scope="job")` keeps building `j_<job_id>_<name>` table names.
-4. On successful exit, drops unpinned + unpreserved tables **through the inherited `AsyncTableWorker` queue** (NOT via parallel `asyncio.gather(*ch_client.command(DROP...))` — chdb sessions aren't reentrant).
+4. On successful exit, drops unpinned + unpreserved tables through the inherited `AsyncTableWorker` queue (chdb sessions aren't reentrant — see spec § Open risks).
 5. On failure exit, drops only unpinned `t_*` tables; leaves all `j_<id>_*` for the BackgroundWorker.
-6. Acquires `task_name_locks` for non-preserved named tables on creation.
-7. Releases the locks (success or failure) before returning.
+6. Acquires `task_name_locks` for non-preserved named tables on creation; releases on exit.
 
-The old `OrchLifecycleHandler` stays in the codebase through this phase so existing behavior keeps working until the cutover at the end of Phase 4 Task 5. After this phase the new implementation is the active one; Phase 6 deletes the dead `OrchLifecycleHandler` class.
-
-> **Critical invariant for this phase:** `aaiclick/data/conftest.py::ctx` enters `orch_context() + task_scope()` because the data suite depends on the active handler writing `table_registry.schema_doc`. After Phase 4 Task 2's task_scope rewrite, the data fixture must still produce a handler with the same write semantics. Run `pytest aaiclick/data/ -x` at the end of Phase 4 — green is the acceptance gate.
+The old `OrchLifecycleHandler` stays in the codebase through this phase so existing behavior keeps working until the cutover at the end of Phase 4 Task 5. Phase 6 deletes the dead `OrchLifecycleHandler` class.
 
 ---
 
@@ -130,10 +127,7 @@ class LocalLifecycleHandler(LifecycleHandler):
     # ... existing start/stop/decref/flush/claim ...
 
     def incref(self, table_name: str) -> None:
-        # Auto-track on incref so every existing data_context.create_object
-        # caller (and any other incref site) automatically participates in
-        # task_scope's inline-DROP decision. Without this we would have to
-        # enumerate every incref call site and add a parallel track_table().
+        # Auto-track so every incref site participates in inline-DROP.
         self._worker.incref(table_name)
         self.track_table(table_name)
 
@@ -230,7 +224,7 @@ async def test_register_table_writes_registry_row(ch_client, orch_session):
     handler = TaskLifecycleHandler(task_id=1, job_id=2, run_id=3, ch_client=ch_client)
     async with handler:
         handler.register_table("t_x", schema_doc='{"columns":[]}')
-        await handler.flush()  # synchronous-flush the registry write
+        await handler.flush()
 
     row = (await orch_session.exec(
         select(TableRegistry).where(TableRegistry.table_name == "t_x")
@@ -274,143 +268,31 @@ Expected: ImportError on `task_lifecycle`.
 
 - [ ] **Step 4: Implement `TaskLifecycleHandler`**
 
+Reuse the existing `OrchLifecycleHandler` queue infrastructure rather than reinventing it. Concretely, port from `aaiclick/orchestration/orch_context.py::OrchLifecycleHandler`:
+
+- `__init__` (task_id / job_id / run_id state)
+- `_process_loop` and the `DBLifecycleMessage` queue
+- `register_table` → `OPLOG_TABLE` enqueue, `_write_table_registry_row`
+- `pin` / `unpin` and the `PIN` / `UNPIN` branches of `_process_loop`
+- `oplog_record` / `_write_oplog_row` (oplog stays on this handler — same blast radius as before, no extra abstraction needed)
+- `current_job_id`
+- `flush` (`FLUSH` barrier event)
+
+Class signature:
+
 ```python
-# aaiclick/orchestration/lifecycle/task_lifecycle.py
-"""Per-task lifecycle handler.
-
-Subclass of LocalLifecycleHandler that adds the SQL-side writes that
-OrchLifecycleHandler used to do — table_registry rows (with schema_doc),
-table_pin_refs fan-out, task_name_locks acquisition / release. The
-inherited LocalLifecycleHandler queue handles the actual DROP TABLE
-calls so chdb sessions are not entered concurrently.
-"""
-
-from __future__ import annotations
-
-import logging
-from datetime import datetime
-
-from sqlalchemy import text
-
-from aaiclick.data.data_context.ch_client import ChClient
-from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler
-from aaiclick.orchestration.sql_context import get_sql_session
-
-logger = logging.getLogger(__name__)
-
-
 class TaskLifecycleHandler(LocalLifecycleHandler):
     def __init__(self, task_id: int, job_id: int, run_id: int, ch_client: ChClient):
         super().__init__(ch_client)
-        self._task_id = task_id
-        self._job_id = job_id
-        self._run_id = run_id
-
-    def current_job_id(self) -> int:
-        return self._job_id
-
-    def register_table(self, table_name: str, schema_doc: str | None = None) -> None:
-        # Synchronous INSERT (matches the post-fix path in 82aef62: the
-        # registry write is idempotent ON CONFLICT DO NOTHING and not
-        # ordered against incref/decref, so callers that immediately read
-        # back schema_doc don't have to flush the lifecycle queue first).
-        # Track locally too, so __aexit__ can decide what to inline-DROP.
-        self.track_table(table_name)
-        # The actual write is async; schedule it on the running loop.
-        # Use a fire-and-forget task with logged failure.
-        import asyncio  # local import: tight to this method
-        loop = asyncio.get_running_loop()
-        loop.create_task(self._write_registry_row(table_name, schema_doc))
-
-    async def _write_registry_row(self, table_name: str, schema_doc: str | None) -> None:
-        now = datetime.utcnow()
-        try:
-            async with get_sql_session() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO table_registry "
-                        "(table_name, job_id, task_id, created_at, preserved, schema_doc) "
-                        "VALUES (:table_name, :job_id, :task_id, :created_at, :preserved, :schema_doc) "
-                        "ON CONFLICT (table_name) DO NOTHING"
-                    ),
-                    {
-                        "table_name": table_name,
-                        "job_id": self._job_id,
-                        "task_id": self._task_id,
-                        "created_at": now,
-                        "preserved": False,
-                        "schema_doc": schema_doc,
-                    },
-                )
-                await session.commit()
-        except Exception:
-            logger.error("Failed to write table_registry for %s", table_name, exc_info=True)
-
-    def pin(self, table_name: str) -> None:
-        # Local flag for inline-DROP decision.
-        self.mark_pinned(table_name)
-        import asyncio
-        loop = asyncio.get_running_loop()
-        loop.create_task(self._write_pin_refs(table_name))
-
-    async def _write_pin_refs(self, table_name: str) -> None:
-        try:
-            async with get_sql_session() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT next_id FROM dependencies "
-                        "WHERE previous_id = :task_id "
-                        "AND previous_type = 'task' AND next_type = 'task'"
-                    ),
-                    {"task_id": self._task_id},
-                )
-                consumer_ids = [row[0] for row in result.fetchall()]
-                for cid in consumer_ids:
-                    await session.execute(
-                        text(
-                            "INSERT INTO table_pin_refs (table_name, task_id) "
-                            "VALUES (:table_name, :task_id) "
-                            "ON CONFLICT (table_name, task_id) DO NOTHING"
-                        ),
-                        {"table_name": table_name, "task_id": cid},
-                    )
-                await session.commit()
-        except Exception:
-            logger.error("Failed to write pin_refs for %s", table_name, exc_info=True)
-
-    def unpin(self, table_name: str) -> None:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        loop.create_task(self._delete_pin_ref(table_name))
-
-    async def _delete_pin_ref(self, table_name: str) -> None:
-        try:
-            async with get_sql_session() as session:
-                await session.execute(
-                    text(
-                        "DELETE FROM table_pin_refs "
-                        "WHERE table_name = :table_name AND task_id = :task_id"
-                    ),
-                    {"table_name": table_name, "task_id": self._task_id},
-                )
-                await session.commit()
-        except Exception:
-            logger.error("Failed to delete pin_ref for %s", table_name, exc_info=True)
-
-    async def flush(self) -> None:
-        # Flush both the inherited AsyncTableWorker queue AND any pending
-        # SQL writes scheduled via create_task above. Tests that immediately
-        # read back state need this barrier.
-        await super().flush()
-        # Yield once so create_task'd coroutines run to completion before
-        # the test's next await reads SQL.
-        import asyncio
-        await asyncio.sleep(0)
+        ...
 ```
 
-> Per `CLAUDE.md`, lift the `import asyncio` and `from sqlalchemy import text` to the top of the file in your final commit. The skeleton above keeps them inline only to mark which methods need the import; pre-commit will catch the rest.
+Deltas vs. `OrchLifecycleHandler`:
 
-Open question for the implementer: oplog writes (`oplog_record`) currently flow through the `OrchLifecycleHandler` queue. They have nothing to do with table lifecycle, but they *do* live on the same handler today. **Decide before writing the code** whether to (a) keep oplog on `TaskLifecycleHandler` as a parallel concern, (b) split it into a separate `OplogRecorder` injected into `task_scope`. Recommend (a) for now (smaller blast radius); revisit in a follow-up. Either way, port the existing `oplog_record` / `_write_oplog_row` from `OrchLifecycleHandler`.
+- Subclasses `LocalLifecycleHandler`, so the inherited `AsyncTableWorker` queue handles every `DROP TABLE` — drop the `INCREF` / `DECREF` branches of `_process_loop` (run_refs / context_refs are gone after Phase 1).
+- `register_table` still enqueues `OPLOG_TABLE` for SQL ordering, but ALSO calls `self.track_table(table_name)` synchronously so `iter_tracked_tables()` sees the entry before `__aexit__` runs.
+- `pin` calls `self.mark_pinned(table_name)` in addition to the existing `OPLOG_PIN` enqueue.
+- `_write_table_registry_row` drops `run_id` from the INSERT and adds `preserved` (default `FALSE`); `schema_doc` stays.
 
 - [ ] **Step 5: Run tests**
 
@@ -602,10 +484,7 @@ async def task_scope(
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Stale-mark all weakref-tracked Objects. Decref is no longer
-        # the drop trigger — track_table+iter_tracked_tables decides
-        # what to drop. We still mark stale so callers using the object
-        # post-exit get a clear error.
+        # Stale-mark live objects so post-exit access raises clearly.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
@@ -620,12 +499,8 @@ async def task_scope(
                 and not tt.preserved
                 and (success or tt.name.startswith("t_"))
             ]
-            # Route through the AsyncTableWorker queue (inherited from
-            # LocalLifecycleHandler). decref serialises drops; chdb's
-            # non-reentrant Session is what makes this mandatory rather
-            # than a stylistic choice. Do NOT replace this with
-            # asyncio.gather(*ch_client.command(...)) — chdb will deadlock
-            # or corrupt session state.
+            # decref routes drops through AsyncTableWorker — required
+            # because chdb's Session is not reentrant.
             for name in to_drop:
                 handler.decref(name)
             await handler.flush()
@@ -640,9 +515,9 @@ async def task_scope(
                 await session.commit()
 ```
 
-Confirm `decref` actually triggers the worker's drop loop in `LocalLifecycleHandler` (i.e. that refcount-zero on a never-incref'd table still produces a DROP). If not, expose a worker-routed `drop(name)` helper on `LocalLifecycleHandler` and call that here instead. The point is: every `DROP TABLE` goes through the existing serial queue, never `ch_client.command` directly.
+Confirm `decref` actually triggers the worker's drop loop on a never-incref'd table. If not, expose a worker-routed `drop(name)` helper on `LocalLifecycleHandler` and call that. Every `DROP TABLE` must go through the serial queue, never `ch_client.command` directly.
 
-Top-of-file imports to add (per `CLAUDE.md`): `from aaiclick.orchestration.lifecycle.task_lifecycle import TaskLifecycleHandler` and `from aaiclick.orchestration.lifecycle.db_lifecycle import release_task_name_locks_for_task`. `get_sql_session`, `asyncio`, and module-level `logger` are already imported in `orch_context.py`.
+Top-of-file imports to add: `TaskLifecycleHandler` from `aaiclick.orchestration.lifecycle.task_lifecycle` and `release_task_name_locks_for_task` from `aaiclick.orchestration.lifecycle.db_lifecycle`.
 
 - [ ] **Step 4: Run tests**
 
@@ -969,12 +844,8 @@ git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycl
 # Done When
 
 - `task_scope()` uses `TaskLifecycleHandler`. `OrchLifecycleHandler` is unused but not yet deleted.
-- `TaskLifecycleHandler.register_table` writes `table_registry` rows including `schema_doc`. `current_job_id()` returns the constructor-supplied job_id.
+- `TaskLifecycleHandler.register_table` writes `table_registry` rows including `schema_doc`; `current_job_id()` returns the constructor-supplied job_id.
 - All inline DROPs route through the inherited `AsyncTableWorker` queue (no parallel `ch_client.command` calls).
-- Success-path test green.
-- Failure-path test green.
-- Concurrent name-collision test green.
-- Preserved-name idempotent-create test green.
+- Success, failure, name-collision, and preserved-name idempotent-create tests green.
 - Object pin marks the table on the local handler AND writes `table_pin_refs` rows.
-- **`pytest aaiclick/data/ -x --no-cov -q` is green** — the data fixture (`aaiclick/data/conftest.py::ctx`) still produces a handler that writes `schema_doc`, so `Object.data()` reads succeed.
-- Full `pytest aaiclick/ -x` is green.
+- Project-wide invariant holds: `pytest aaiclick/ -x` green (the data suite is the canary).
