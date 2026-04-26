@@ -568,8 +568,10 @@ async def _create_nested_records_object(
                 sample[key] = [found]
 
     nested_cols = _flatten_nested_schema(sample)
-    columns = {}
-    columns.update(nested_cols)
+    # List-of-records is dict-of-arrays — each column carries N values across
+    # the input records, so ColumnInfo.fieldtype must be ARRAY (default is
+    # SCALAR, which would make data() return only the first row).
+    columns = {name_: ci.with_fieldtype(FIELDTYPE_ARRAY) for name_, ci in nested_cols.items()}
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name, scope=scope)
