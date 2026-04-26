@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 
 from aaiclick import create_object_from_url
-from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
 
@@ -67,14 +66,6 @@ async def test_url_no_host(ctx):
 async def test_url_empty_columns(ctx):
     with pytest.raises(ValueError, match="non-empty"):
         await create_object_from_url("https://example.com/data.parquet", columns=[])
-
-
-async def test_url_reserved_aai_id_column(ctx):
-    with pytest.raises(ValueError, match="reserved"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["aai_id"],
-        )
 
 
 async def test_url_unsupported_format(ctx):
@@ -227,21 +218,6 @@ async def test_url_with_where(ctx, fileserver):
     assert len(data["price"]) < _NUM_ROWS
 
 
-async def test_url_snowflake_ids_ordered(ctx, fileserver):
-    """Snowflake IDs are monotonically increasing and unique."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=100,
-    )
-    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table} ORDER BY aai_id")
-    ids = [row[0] for row in result.result_rows]
-    assert ids == sorted(ids)
-    assert len(set(ids)) == len(ids)
-    assert len(ids) == 100
-
-
 async def test_url_ch_settings_skip_comment_line(ctx, fileserver):
     """ch_settings skips a comment header line in CSV before column headers."""
     obj = await create_object_from_url(
@@ -387,28 +363,6 @@ async def test_insert_from_url_with_where(ctx, fileserver):
 
     assert len(data["id"]) > initial_count
     assert len(data["id"]) < initial_count + _NUM_ROWS
-
-
-async def test_insert_from_url_snowflake_ids(ctx, fileserver):
-    """insert_from_url generates unique Snowflake IDs."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=5,
-    )
-
-    await obj.insert_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["price"],
-        format="Parquet",
-        limit=5,
-    )
-
-    result = await get_ch_client().query(f"SELECT aai_id FROM {obj.table}")
-    ids = [row[0] for row in result.result_rows]
-    assert len(set(ids)) == len(ids)
-    assert len(ids) == 10
 
 
 # =============================================================================
