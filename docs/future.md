@@ -21,6 +21,17 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## Replace `datetime.utcnow()` and Add Python 3.13 to CI Matrix
+
+`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has ~59 call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
+
+A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only call site touched by `aaiclick/oplog/test_graph.py`). The rest of the sweep is deferred.
+
+**Work**:
+- Replace every `datetime.utcnow()` with `datetime.now(UTC)` (add `UTC` to existing `from datetime import …` imports).
+- For SQLModel/Pydantic `default_factory=datetime.utcnow` fields, switch to `default_factory=lambda: datetime.now(UTC)` and verify the column types still round-trip correctly — `datetime.now(UTC)` returns a timezone-aware datetime, whereas `utcnow()` returned naive. The DB columns + serializers may need to be made tz-aware (or strip tzinfo at the boundary if we want to preserve naive storage).
+- Add a Python 3.13 leg to the test matrix in `.github/workflows/test.yaml`: change the `--python 3.10` pins to a matrix `python-version: ["3.10", "3.13"]` so future deprecations are caught at the CI boundary instead of by individual developers.
+
 ## Make `close_session()` Opt-In Instead of Unconditional on `orch_context` Exit
 
 `orch_context.py` unconditionally calls `close_session(get_chdb_data_path())` in its `finally` block when running on chdb. The reason is real — a subprocess worker about to be spawned needs the chdb file lock — but in-process-only callers pay the cost for nothing, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)). Tests work around it today via the `_pin_chdb_session` fixture; production code shouldn't need a test fixture to stay stable.
