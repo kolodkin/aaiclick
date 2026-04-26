@@ -126,16 +126,21 @@ async def reset_test_state(
 
 
 def with_value_order(obj):
-    """Wrap a cross-table array Object with ``.view(order_by="value")``.
+    """Wrap a cross-table array Object with an explicit ``order_by`` clause.
 
-    Used by operator tests to satisfy the Phase 4 cross-table contract
-    (``Object._apply_operator`` rejects array+array ops between different
-    tables without explicit ``order_by`` on both sides). Scalars pass
-    through unchanged.
+    Prefers ``aai_id`` when the column is present (preserves insertion
+    order — the natural pair-stable ordering); falls back to ``value`` for
+    legacy callers whose source Objects predate ``aai_id=True``. Scalars
+    pass through unchanged.
+
+    Satisfies the cross-table operator contract (``Object._apply_operator``
+    rejects array+array ops between different tables without explicit
+    ``order_by`` on both sides).
     """
-    if obj._schema.fieldtype == FIELDTYPE_ARRAY:
-        return obj.view(order_by="value")
-    return obj
+    if obj._schema.fieldtype != FIELDTYPE_ARRAY:
+        return obj
+    column = "aai_id" if "aai_id" in obj._schema.columns else "value"
+    return obj.view(order_by=column)
 
 
 async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> None:

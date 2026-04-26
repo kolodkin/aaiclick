@@ -127,7 +127,7 @@ async def test_get_table_schema_scalar_object(ctx):
 
 async def test_get_table_schema_dict_columns_preserved(ctx):
     """Column names are preserved correctly for DICT objects."""
-    obj = await create_object_from_value({"a": [1, 2], "b": ["x", "y"]}, aai_id=True)
+    obj = await create_object_from_value({"a": [1, 2], "b": ["x", "y"]})
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_DICT
     assert "a" in columns

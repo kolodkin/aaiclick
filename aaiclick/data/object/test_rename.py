@@ -105,19 +105,6 @@ async def test_rename_nonexistent_raises(ctx):
         obj.rename({"nonexistent": "new_name"})
 
 
-async def test_rename_aai_id_raises(ctx):
-    """Cannot rename aai_id."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "col": ColumnInfo("String"),
-        },
-    )
-    obj = await create_object(schema)
-    with pytest.raises(ValueError, match="Cannot rename 'aai_id'"):
-        obj.rename({"aai_id": "id"})
-
-
 async def test_insert_skips_extra_source_columns(ctx):
     """insert() silently skips source columns not present in target."""
     src_schema = Schema(

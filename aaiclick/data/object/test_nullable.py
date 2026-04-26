@@ -342,7 +342,7 @@ async def test_concat_nullable_with_nonnullable(ctx):
     ch = get_ch_client()
     await ch.command(f"INSERT INTO {obj_a.table} (value) VALUES (1), (NULL)")
 
-    obj_b = await create_object_from_value([3, 4], aai_id=True)
+    obj_b = await create_object_from_value([3, 4])
 
     result = await obj_a.concat(obj_b)
     schema = result.schema
