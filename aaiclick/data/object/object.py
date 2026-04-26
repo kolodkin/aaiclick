@@ -2650,13 +2650,18 @@ class View(Object):
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
         if self.selected_fields:
+            # Carry aai_id through field-selected subqueries so binary
+            # operators can propagate it onto the result table — without
+            # this, ``(obj["x"] + array_b)`` would build a source subquery
+            # that omits aai_id, and the operator's outer SELECT can't find it.
+            aai_id_proj = ", aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
             if self.is_single_field:
                 # Single field: rename as 'value' for array compatibility
                 field = quote_identifier(self.selected_fields[0])
-                select_cols = f"{field} AS value"
+                select_cols = f"{field} AS value{aai_id_proj}"
             else:
                 fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
-                select_cols = fields_str
+                select_cols = f"{fields_str}{aai_id_proj}"
         elif self._renamed_columns and columns == "*":
             # Expand * into explicit columns with renames applied
             renames = self._renamed_columns
