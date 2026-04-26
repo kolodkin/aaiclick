@@ -41,12 +41,3 @@ def oplog_record_sample(
         lc.oplog_record_sample(result_table, operation, kwargs=kwargs, sql=sql)
 
 
-def oplog_record_table(table_name: str, schema_doc: str | None = None) -> None:
-    """Register a newly created table via the active lifecycle handler.
-
-    ``schema_doc`` is a Pydantic-serialised ``SchemaView`` JSON document; it lands
-    in ``table_registry.schema_doc`` and is read back by ``_get_table_schema``.
-    """
-    lc = _get_lifecycle()
-    if lc is not None:
-        lc.oplog_record_table(table_name, schema_doc=schema_doc)

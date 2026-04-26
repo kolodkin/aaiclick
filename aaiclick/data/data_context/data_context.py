@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pyarrow as pa
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
-from aaiclick.oplog.oplog_api import oplog_record, oplog_record_table
+from aaiclick.oplog.oplog_api import oplog_record
 
 from ..models import (
     AAI_ID_COLUMN,
@@ -42,7 +42,7 @@ from ..models import (
 from ..scope import NamedScope, make_persistent_table_name
 from ..sql_utils import quote_identifier
 from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
-from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle
+from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
 
 if TYPE_CHECKING:
     from ..object import Object
@@ -302,7 +302,7 @@ async def create_object(
         obj = Object(schema=schema)
 
     # Fieldtype metadata for these columns lives in table_registry.schema_doc
-    # (written by oplog_record_table below) rather than ClickHouse COMMENTs.
+    # (written by register_table below) rather than ClickHouse COMMENTs.
     def _column_ddl(col_name: str, col_def: ColumnInfo) -> str:
         ddl = f"{quote_identifier(col_name)} {col_def.ch_type()}"
         if col_def.default:
@@ -349,7 +349,7 @@ async def create_object(
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
     from ..view_models import schema_to_view
 
-    oplog_record_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
+    register_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
 
     # Flush the lifecycle queue so the registry row is committed before the
     # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).

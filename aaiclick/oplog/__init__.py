@@ -9,4 +9,4 @@ from .lineage import (
     oplog_subgraph,
 )
 from .models import init_oplog_tables
-from .oplog_api import oplog_record, oplog_record_sample, oplog_record_table
+from .oplog_api import oplog_record, oplog_record_sample

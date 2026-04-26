@@ -184,7 +184,7 @@ class OrchLifecycleHandler(LifecycleHandler):
     ) -> None:
         self.oplog_record(result_table, operation, kwargs, sql)
 
-    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
+    def register_table(self, table_name: str, schema_doc: str | None = None) -> None:
         self._enqueue(
             DBLifecycleMessage(
                 DBLifecycleOp.OPLOG_TABLE,

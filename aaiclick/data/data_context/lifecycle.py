@@ -27,6 +27,19 @@ def get_data_lifecycle() -> LifecycleHandler | None:
     return _lifecycle_var.get()
 
 
+def register_table(table_name: str, schema_doc: str | None = None) -> None:
+    """Register a newly created table via the active lifecycle handler.
+
+    Writes ``schema_doc`` (a Pydantic-serialised ``SchemaView`` JSON) into
+    SQL ``table_registry`` so ``open_object()`` can rehydrate the table's
+    schema later. Distinct from oplog: ``operation_log`` records what
+    operations ran; ``table_registry`` records what tables exist.
+    """
+    lc = _lifecycle_var.get()
+    if lc is not None:
+        lc.register_table(table_name, schema_doc=schema_doc)
+
+
 class LifecycleHandler(ABC):
     """Abstract interface for Object table lifecycle management.
 
@@ -76,8 +89,15 @@ class LifecycleHandler(ABC):
     ) -> None:
         """Record an oplog entry with lineage sampling. No-op in local mode."""
 
-    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
-        """Record a table registry entry. No-op in local mode."""
+    def register_table(self, table_name: str, schema_doc: str | None = None) -> None:
+        """Insert a row into ``table_registry`` (SQL) for the new table.
+
+        ``schema_doc`` is the Pydantic-serialised ``SchemaView`` JSON read
+        back by ``_get_table_schema``. This is **not** an oplog write —
+        the oplog (``operation_log`` in ClickHouse) tracks per-operation
+        audit; ``table_registry`` is the SQL keyed-lookup that
+        ``open_object()`` uses to rehydrate a table's schema.
+        """
 
     def current_job_id(self) -> int | None:
         """Return the job ID owning this handler, or ``None`` outside orch.
@@ -132,7 +152,7 @@ class LocalLifecycleHandler(LifecycleHandler):
         await self._worker.flush()
         await self._await_registry_tasks()
 
-    def oplog_record_table(self, table_name: str, schema_doc: str | None = None) -> None:
+    def register_table(self, table_name: str, schema_doc: str | None = None) -> None:
         if schema_doc is None:
             return
         try:
