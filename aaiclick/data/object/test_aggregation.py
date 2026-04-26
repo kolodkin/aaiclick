@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.testing import with_value_order
 
 THRESHOLD = 1e-5
 
@@ -216,14 +215,13 @@ async def test_array_std(ctx, values):
 )
 async def test_statistics_after_operation(ctx, array_a, array_b, operator):
     """Test statistics on result of arithmetic operations. Returns Objects, use .data() to extract values."""
-    obj_a = await create_object_from_value(array_a)
-    obj_b = await create_object_from_value(array_b)
-    va, vb = with_value_order(obj_a), with_value_order(obj_b)
+    obj_a = await create_object_from_value(array_a, aai_id=True)
+    obj_b = await create_object_from_value(array_b, aai_id=True)
 
     if operator == "+":
-        result = await (va + vb)
+        result = await (obj_a + obj_b)
     elif operator == "-":
-        result = await (va - vb)
+        result = await (obj_a - obj_b)
     else:
         raise ValueError(f"Unsupported operator: {operator}")
 

@@ -2,7 +2,14 @@
 
 from aaiclick import create_object, create_object_from_value
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.models import ENGINE_AGGREGATING_MERGE_TREE, ENGINE_MEMORY, ENGINE_MERGE_TREE, ColumnInfo, Schema
+from aaiclick.data.models import (
+    AAI_ID_INFO,
+    ENGINE_AGGREGATING_MERGE_TREE,
+    ENGINE_MEMORY,
+    ENGINE_MERGE_TREE,
+    ColumnInfo,
+    Schema,
+)
 
 
 async def test_context_with_memory_engine():
@@ -64,8 +71,13 @@ async def test_mixed_engine_scenario():
         """)
         assert result.result_rows[0][0] == "Memory"
 
-        # Override to MergeTree for specific object
-        schema = Schema(fieldtype="a", columns={"value": ColumnInfo("Int64")})
+        # Override to MergeTree for specific object. Add aai_id so the
+        # operator below has stable cross-table ordering without needing
+        # an explicit view(order_by=...).
+        schema = Schema(
+            fieldtype="a",
+            columns={"value": ColumnInfo("Int64"), "aai_id": AAI_ID_INFO},
+        )
         obj_b = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
         result = await ch_client.query(f"""
@@ -73,14 +85,13 @@ async def test_mixed_engine_scenario():
         """)
         assert result.result_rows[0][0] == "MergeTree"
 
-        # Insert data into obj_b
+        # Insert data into obj_b — aai_id is auto-filled by DEFAULT generateSnowflakeID().
         await ch_client.insert(obj_b.table, [[100], [200], [300]], column_names=["value"], column_type_names=["Int64"])
 
         # Operator between Memory and MergeTree objects.
-        # obj_b was created via explicit Schema (no aai_id); wrap both sides
-        # with view(order_by="value") to satisfy the cross-table contract.
-        # Result should use context default (Memory).
-        obj_c = await (obj_a.view(order_by="value") + obj_b.view(order_by="value"))
+        # Both carry aai_id, so order_by is implicit and the result uses
+        # the context default (Memory).
+        obj_c = await (obj_a + obj_b)
 
         result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_c.table}'

@@ -1,4 +1,11 @@
-"""Tests for operand length validation in array-array binary operations."""
+"""Tests for operand length validation in array-array binary operations.
+
+Most happy-path operator tests live in ``test_arithmetic_parametrized.py``
+and rely on ``aai_id=True`` for implicit pair ordering. This module
+focuses on the **without-aai_id** path: views built from a base Object
+with ``order_by="value"`` (or filtered with ``where``/``limit``) and the
+length-mismatch errors they trigger.
+"""
 
 import pytest
 
@@ -6,7 +13,7 @@ from aaiclick import create_object_from_value
 
 
 async def test_array_array_same_length(ctx):
-    """Same-length arrays produce correct results."""
+    """Same-length arrays produce correct results when ordered by value."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     result = await (a.view(order_by="value") + b.view(order_by="value"))
@@ -78,10 +85,14 @@ async def test_view_object_length_mismatch_raises(ctx):
 
 
 async def test_object_view_same_length_works(ctx):
-    """View + View with same length produces correct results."""
-    a = await create_object_from_value([1, 2, 3])
+    """View + View with same length produces correct results.
+
+    aai_id is the more natural choice when no value-based slicing is
+    needed, so ``view_b`` keeps the explicit ``limit=3, order_by="value"``
+    only because the test is about value-ordered slicing.
+    """
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value([10, 20, 30, 40, 50])
-    view_a = a.view(order_by="value")
     view_b = b.view(limit=3, order_by="value")  # [10, 20, 30]
-    result = await (view_a + view_b)
+    result = await (a + view_b)
     assert sorted(await result.data(order_by="value")) == [11, 22, 33]

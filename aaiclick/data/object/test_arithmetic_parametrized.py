@@ -8,7 +8,6 @@ using pytest parametrization for comprehensive coverage.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.testing import with_value_order
 
 THRESHOLD = 1e-5
 
@@ -18,9 +17,8 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-async def apply_operator(obj_a, obj_b, operator: str):
+async def apply_operator(a, b, operator: str):
     """Apply a binary operator to two objects using match/case."""
-    a, b = with_value_order(obj_a), with_value_order(obj_b)
     match operator:
         case "+":
             return await (a + b)

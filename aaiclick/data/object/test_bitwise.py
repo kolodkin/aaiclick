@@ -9,12 +9,10 @@ Scalar broadcast is covered in test_scalar_broadcast.py.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.testing import with_value_order
 
 
-async def apply_bitwise(obj_a, obj_b, operator: str):
+async def apply_bitwise(a, b, operator: str):
     """Apply a bitwise operator to two Objects."""
-    a, b = with_value_order(obj_a), with_value_order(obj_b)
     match operator:
         case "&":
             return await (a & b)
@@ -106,6 +104,6 @@ async def test_bitwise_and_then_sum(ctx):
     """AND mask result can be summed (counts set bits per element)."""
     obj_a = await create_object_from_value([0b1111, 0b1010, 0b0000, 0b1100], aai_id=True)
     obj_b = await create_object_from_value([0b1010, 0b1010, 0b1111, 0b0101], aai_id=True)
-    masked = await (obj_a.view(order_by="aai_id") & obj_b.view(order_by="aai_id"))
+    masked = await (obj_a & obj_b)
     total = await (await masked.sum()).data()
     assert total == 0b1010 + 0b1010 + 0b0000 + 0b0100
