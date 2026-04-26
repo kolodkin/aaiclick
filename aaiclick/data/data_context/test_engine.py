@@ -76,9 +76,11 @@ async def test_mixed_engine_scenario():
         # Insert data into obj_b
         await ch_client.insert(obj_b.table, [[100], [200], [300]], column_names=["value"], column_type_names=["Int64"])
 
-        # Operator between Memory and MergeTree objects
-        # Result should use context default (Memory)
-        obj_c = await (obj_a + obj_b)
+        # Operator between Memory and MergeTree objects.
+        # obj_b was created via explicit Schema (no aai_id); wrap both sides
+        # with view(order_by="value") to satisfy the cross-table contract.
+        # Result should use context default (Memory).
+        obj_c = await (obj_a.view(order_by="value") + obj_b.view(order_by="value"))
 
         result = await ch_client.query(f"""
             SELECT engine FROM system.tables WHERE name = '{obj_c.table}'

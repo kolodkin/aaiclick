@@ -25,7 +25,7 @@ async def test_add_int_float(ctx):
 
     # Perform addition
     result = await (obj_int.view(order_by="value") + obj_float.view(order_by="value"))
-    result_data = await result.data()
+    result_data = await result.data(limit=None)
 
     # Verify results
     assert len(result_data) == NUM_ITEMS
@@ -49,7 +49,7 @@ async def test_sub_float_float(ctx):
 
     # Perform subtraction
     result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))
-    result_data = await result.data()
+    result_data = await result.data(limit=None)
 
     # Verify results
     assert len(result_data) == NUM_ITEMS
@@ -167,7 +167,7 @@ async def test_add_int_int(ctx):
 
     # Perform addition
     result = await (obj1.view(order_by="value") + obj2.view(order_by="value"))
-    result_data = await result.data()
+    result_data = await result.data(limit=None)
 
     # Verify results
     assert len(result_data) == NUM_ITEMS
@@ -191,7 +191,7 @@ async def test_sub_int_int(ctx):
 
     # Perform subtraction
     result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))
-    result_data = await result.data()
+    result_data = await result.data(limit=None)
 
     # Verify results
     assert len(result_data) == NUM_ITEMS
