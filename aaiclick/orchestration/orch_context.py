@@ -12,9 +12,8 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.backend import is_chdb, is_postgres
+from aaiclick.backend import is_postgres
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
-from aaiclick.data.data_context.chdb_client import close_session, get_chdb_data_path
 from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
@@ -384,18 +383,13 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     registry_token = _task_registry_var.set({})
 
     ch_token = None
-    owns_ch_client = False
     if with_ch:
         # Reuse an outer context's ch_client so nested ``orch_context()`` calls
         # (e.g. ``ajob_test``) don't tear down the shared chdb Session — chdb's
         # Session cannot be safely closed and reopened in-process (see
         # ``docs/technical_debt.md``).
         existing = _ch_client_var.get()
-        if existing is not None:
-            ch_client = existing
-        else:
-            ch_client = await create_ch_client()
-            owns_ch_client = True
+        ch_client = existing if existing is not None else await create_ch_client()
         ch_token = _ch_client_var.set(ch_client)
 
     try:
@@ -406,8 +400,11 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         _engine_var.reset(eng_token)
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
-            if owns_ch_client and is_chdb():
-                close_session(get_chdb_data_path())
+            # chdb's Session is a true per-process singleton: closing it mid-process
+            # leaves dangling references in concurrent tasks (e.g. the lifespan worker
+            # vs request handlers under uvicorn) and re-opening is not safely supported
+            # — see `pin_chdb_session` in aaiclick/testing.py for the test-side mirror
+            # of the same constraint. Process exit cleans up the OS resources.
         _task_registry_var.reset(registry_token)
         await engine.dispose()
 
