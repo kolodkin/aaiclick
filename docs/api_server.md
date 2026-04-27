@@ -422,7 +422,7 @@ There is no separate worker process to launch.
 For convenience, the CLI exposes the same flow:
 
 ```bash
-python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:8000
+python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
 python -m aaiclick local start --port 9000
 ```
 

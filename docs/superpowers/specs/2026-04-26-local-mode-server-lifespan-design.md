@@ -220,7 +220,7 @@ The only structural difference from today is the named `_lifespan` callable that
 `aaiclick/orchestration/cli.py` — `start_local()` is rewritten; `start_worker()` and `start_background()` are unchanged:
 
 ```python
-async def start_local(host: str = "127.0.0.1", port: int = 8000) -> None:
+async def start_local(host: str = "127.0.0.1", port: int = 5255) -> None:
     """Run the combined REST + MCP server with workers in a single local-mode process."""
     if not is_local():
         raise RuntimeError(
@@ -274,7 +274,7 @@ Tests follow the project's existing pattern (`async def test_*`, no class wrappe
 
 # Migration / backward compatibility
 
-- **`local start` keeps the same CLI shape.** Today: workers only. After: REST + MCP + workers. Users who relied on the absence of an HTTP port now bind to `127.0.0.1:8000`. Documented in the changelog; no rollback flag.
+- **`local start` keeps the same CLI shape.** Today: workers only. After: REST + MCP + workers. Users who relied on the absence of an HTTP port now bind to `127.0.0.1:5255`. Documented in the changelog; no rollback flag.
 - **`local start --max-tasks`** is removed. It was a debug-only affordance; production callers never set it.
 - **`uvicorn aaiclick.server.app:app` becomes functional in local mode.** Today it's broken (no workers); after, it works. No code path is removed.
 - **Distributed mode is byte-for-byte unchanged.**

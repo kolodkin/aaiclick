@@ -341,8 +341,8 @@ def main():
     local_start_parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port to bind (default: 8000)",
+        default=5255,
+        help="Port to bind (default: 5255)",
     )
 
     # local stop

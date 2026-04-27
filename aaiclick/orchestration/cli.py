@@ -44,7 +44,7 @@ async def start_worker(max_tasks: int | None = None) -> None:
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 
-async def start_local(host: str = "127.0.0.1", port: int = 8000) -> None:
+async def start_local(host: str = "127.0.0.1", port: int = 5255) -> None:
     """Run the combined REST + MCP server with workers in a single local-mode process.
 
     Local mode only — chdb's file lock requires a single process. The
