@@ -16,6 +16,7 @@ from sqlmodel import col, select
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import (
     JobDetail,
@@ -151,7 +152,8 @@ async def run_job(request: RunJobRequest) -> JobView:
         name = request.name.rsplit(".", 1)[-1]
     else:
         name = request.name
-        entrypoint = request.name
+        registered = await get_registered_job(name)
+        entrypoint = registered.entrypoint if registered is not None else request.name
 
     job = await _run_job_impl(
         name=name,
