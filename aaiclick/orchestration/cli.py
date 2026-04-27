@@ -58,15 +58,16 @@ async def start_local(host: str = "127.0.0.1", port: int = 8000) -> None:
             "`uvicorn aaiclick.server.app:app` in distributed mode."
         )
 
+    # Inline: keep the [server] extra optional — users without it never hit this import.
     try:
+        import uvicorn
+
         from aaiclick.server.app import app
     except ImportError as exc:
         raise ImportError(
             "`local start` requires the [server] extra. Install it with "
             "`pip install 'aaiclick[server]'` (or `uv add 'aaiclick[server]'`)."
         ) from exc
-
-    import uvicorn
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     await uvicorn.Server(config).serve()
