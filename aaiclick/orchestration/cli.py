@@ -44,12 +44,16 @@ async def start_worker(max_tasks: int | None = None) -> None:
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 
-async def start_local(host: str = "127.0.0.1", port: int = 5255) -> None:
+async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = False) -> None:
     """Run the combined REST + MCP server with workers in a single local-mode process.
 
     Local mode only — chdb's file lock requires a single process. The
     server's lifespan starts the BackgroundWorker and the execution
     worker via local_runtime(). uvicorn handles SIGTERM / SIGINT.
+
+    Pass ``reload=True`` for dev: uvicorn watches the source tree and
+    restarts the server on every save. Reload mode needs the app as
+    an import string, not an object.
     """
     if not is_local():
         raise RuntimeError(
@@ -62,14 +66,21 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255) -> None:
     try:
         import uvicorn
 
-        from aaiclick.server.app import app
+        if not reload:
+            from aaiclick.server.app import app
     except ImportError as exc:
         raise ImportError(
             "`local start` requires the [server] extra. Install it with "
             "`pip install 'aaiclick[server]'` (or `uv add 'aaiclick[server]'`)."
         ) from exc
 
-    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    # Reload watches the filesystem and re-imports — uvicorn needs the app as an
+    # import string in that mode. In normal mode we hand it the app object directly.
+    config = (
+        uvicorn.Config("aaiclick.server.app:app", host=host, port=port, log_level="info", reload=True)
+        if reload
+        else uvicorn.Config(app, host=host, port=port, log_level="info")
+    )
     await uvicorn.Server(config).serve()
 
 

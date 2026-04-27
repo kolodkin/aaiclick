@@ -198,13 +198,9 @@ Several pure data containers are defined twice — once as a `@dataclass` for in
 
 ## Outer `orch_context` Lifespan for the FastMCP Sub-app
 
-Each `@mcp.tool` in `aaiclick/server/mcp.py` opens its own `orch_context(with_ch=True)`, which on every call (re)creates a SQLAlchemy `AsyncEngine`. The chdb `ChClient` itself is reused via the process-singleton `Session`, so this is a SQL-engine perf issue, not a correctness one. For the lineage primitives (`oplog_subgraph`, `query_table`, `get_table_schema`) an MCP-driven debug loop is intrinsically multi-step — one graph call followed by N schema/query calls — so the per-tool setup tax is `N + 1`× the steady-state cost.
+Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAlchemy `AsyncEngine` per call (the chdb `ChClient` is already shared via the process singleton). For multi-step MCP debug loops — `oplog_subgraph` followed by N `query_table` / `get_table_schema` calls — the per-tool engine creation cost is `N + 1`× the steady-state cost.
 
-`orch_context.py` already handles re-entry: when `_ch_client_var` is set, the inner `async with` skips client creation. So an outer scope at the FastMCP sub-app level (`aaiclick/server/app.py:_mcp_app = mcp.http_app(path="/")`) would let every tool nest cleanly without code changes inside the tool bodies — collapsing both the engine and client setup costs.
-
-**Work**:
-- Wire a FastMCP lifespan that opens `orch_context(with_ch=True)` for the lifetime of the sub-app and closes on shutdown.
-- Add a regression test asserting that calling two `@mcp.tool`s back-to-back does not re-create the `AsyncEngine` (mock `create_async_engine` and assert call count = 1).
+**Work**: open one outer `orch_context` at the FastMCP sub-app lifespan so per-tool calls nest into it. Regression test: mock `create_async_engine`, call two tools back-to-back, assert call count = 1.
 
 ## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
 

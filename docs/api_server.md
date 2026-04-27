@@ -410,8 +410,6 @@ uvicorn directly:
 ```bash
 pip install 'aaiclick[server]'
 uvicorn aaiclick.server.app:app
-# dev:
-uvicorn aaiclick.server.app:app --reload
 ```
 
 In **local mode** (`chdb` + `sqlite`) the lifespan auto-starts the
@@ -424,6 +422,7 @@ For convenience, the CLI exposes the same flow:
 ```bash
 python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
 python -m aaiclick local start --port 9000
+python -m aaiclick local start --reload   # auto-restart on code change (dev)
 ```
 
 In **distributed mode** (PostgreSQL + ClickHouse) the lifespan is a

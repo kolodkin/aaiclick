@@ -170,8 +170,8 @@ combined REST + MCP server with the background and execution workers
 wired into the FastAPI lifespan — auto-runs setup if needed.
 
 ```bash
-python -m aaiclick local start [--host HOST] [--port PORT]
-python -m aaiclick local stop <worker_id>
+python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
+# Stop with Ctrl+C / SIGTERM — the lifespan tears down workers cleanly.
 ```
 
 ## Distributed Mode (ClickHouse + PostgreSQL)
