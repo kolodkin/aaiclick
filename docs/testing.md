@@ -27,7 +27,7 @@ Subpackage conftests only hold subpackage-local fixtures.
 |----------------------|-------------------------------------------------------------------------|
 | `ch_worker_setup`    | Per-xdist-worker chdb tempdir / CH database                             |
 | `sql_worker_setup`   | Per-xdist-worker SQLite file / Postgres database                        |
-| `pin_chdb_session`   | No-ops `close_session` for the pytest run (see [chdb Session](#chdb-session-constraint)) |
+| `pin_chdb_session`   | Defensive no-op patch on `chdb_client.close_session` for the pytest run (production no longer calls it from `orch_context` exit either) |
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
@@ -57,27 +57,26 @@ intermittently trips a glibc pthread_mutex assertion inside
 
 # Workaround Layers
 
-Three independent mitigations compose to get a stable suite:
+Two independent mitigations compose to get a stable suite:
 
 1. **Nested `orch_context()` reuses the outer `ch_client`.** Inner
    `orch_context` / inline `data_context()` calls don't create their own
-   chdb session; only the outermost owns teardown. See the
-   `owns_ch_client` branch in `aaiclick/orchestration/orch_context.py`.
+   chdb session; they reuse the existing one cached in
+   `aaiclick/data/data_context/chdb_client.py::_sessions`. See the
+   `existing = _ch_client_var.get()` branch in
+   `aaiclick/orchestration/orch_context.py`.
 
 2. **Module-scoped orch fixtures.** `orch_ctx` / `orch_ctx_no_ch` sit on
-   top of `orch_module_ctx*`, not per-test `orch_context()`. Teardown
-   drops from ~500 cycles/run to ~20. Requires
+   top of `orch_module_ctx*`, not per-test `orch_context()`. Requires
    `asyncio_default_fixture_loop_scope = "module"` (+ test loop scope)
    in `pyproject.toml` so the async fixtures persist across the module's
    tests.
 
-3. **`pin_chdb_session`** no-ops `close_session` for the pytest run.
-   Module boundaries never call the real close; the Session lives once
-   per process.
-
-A production-side alternative — making `close_session()` opt-in instead
-of unconditional on every `orch_context` exit — is tracked in
-`docs/future.md`. Landing it lets us delete `pin_chdb_session`.
+Production aligned with this constraint: `orch_context.py` no longer
+calls `close_session()` on exit. The Session lives for the whole
+process; OS resources clean up at process exit. `pin_chdb_session`
+stays as a defensive no-op patch on `chdb_client.close_session` itself
+in case any future caller imports it directly.
 
 # mp-Worker Module Split
 
