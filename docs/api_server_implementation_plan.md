@@ -32,7 +32,7 @@ shippable, each leaves the tree green.
 | Phase 3 | `uvicorn aaiclick.server.app:app` invocation         | ✅      | Module-level `app` in `aaiclick/server/app.py` — no wrapper entrypoint |
 | Phase 4 | `aaiclick[server]` extra includes `fastmcp`          | ✅      | `pyproject.toml`                            |
 | Phase 4 | `aaiclick/server/mcp.py`                             | ✅      | `aaiclick/server/mcp.py`                    |
-| Phase 4 | FastMCP mounted on FastAPI at `/mcp`                 | ✅      | `aaiclick/server/app.py` — `_mcp_app = mcp.http_app(path="/")` + `app.mount("/mcp", _mcp_app)` with forwarded `lifespan` |
+| Phase 4 | FastMCP mounted on FastAPI at `/mcp`                 | ✅      | `aaiclick/server/app.py` — `_mcp_app = mcp.http_app(path="/")` + `app.mount("/mcp", _mcp_app)`; the FastAPI `lifespan` chains FastMCP's startup with `local_runtime()` (workers in local mode) |
 | Phase 4 | In-process `Client(mcp)` tool tests                  | ✅      | `aaiclick/server/test_mcp.py`               |
 | Phase 5 | `Unauthorized` / `Forbidden` in `internal_api/errors`| ⚠️      | New subclasses + `ProblemCode` entries      |
 | Phase 5 | `aaiclick/server/auth.py` — bearer-token dependency  | ⚠️      | New module                                  |
@@ -376,12 +376,11 @@ server — for the canonical invocation.
   `aaiclick.server.mcp`, which is imported at FastAPI app-assembly time
   in `aaiclick/server/app.py` and nowhere else.
 - Mount pattern follows the FastMCP → FastAPI integration guide:
-  `_mcp_app = mcp.http_app(path="/")` then
-  `app = FastAPI(..., lifespan=_mcp_app.lifespan)` and
-  `app.mount("/mcp", _mcp_app)`. The MCP streamable-HTTP transport
-  requires its lifespan to run, so forwarding it onto the FastAPI app is
-  mandatory — HTTP-only tests that skip the ASGI lifespan still work
-  because they never hit `/mcp/*`.
+  `_mcp_app = mcp.http_app(path="/")` plus `app.mount("/mcp", _mcp_app)`.
+  The FastAPI `lifespan` is a named callable that chains FastMCP's
+  startup with `local_runtime()` so workers boot alongside the server
+  in local mode; in distributed mode the inner branch is a plain
+  `yield` — see `aaiclick/server/app.py::_lifespan`.
 - Each tool opens the same context its REST counterpart opens per
   request (`orch_context(with_ch=False)` for SQL reads, `with_ch=True`
   for object / `run_job` routes). `setup` / `migrate` /
