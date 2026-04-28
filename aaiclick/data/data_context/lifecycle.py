@@ -22,14 +22,17 @@ _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", de
 class TrackedTable(NamedTuple):
     """Per-table state recorded by :class:`LocalLifecycleHandler`.
 
-    ``preserved`` tables survive past ``task_scope`` exit (BackgroundWorker
-    drops them at job completion). ``pinned`` tables survive because a
-    downstream consumer task still needs them.
+    ``owned`` is True when *this* handler's task created the table
+    (``register_table`` was called). ``False`` when only consumed via
+    ``incref``. ``preserved`` tables survive past ``task_scope`` exit
+    (BackgroundWorker drops them at job completion). ``pinned`` tables
+    survive because a downstream consumer task still needs them.
     """
 
     name: str
     preserved: bool
     pinned: bool
+    owned: bool
 
 
 def get_data_lifecycle() -> LifecycleHandler | None:
@@ -115,7 +118,7 @@ class LifecycleHandler(ABC):
         """
         return None
 
-    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+    def track_table(self, table_name: str, *, preserved: bool = False, owned: bool = False) -> None:
         """Record that this handler's lifetime owns ``table_name``. Default no-op."""
 
     def mark_pinned(self, table_name: str) -> None:
@@ -168,12 +171,18 @@ class LocalLifecycleHandler(LifecycleHandler):
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode
 
-    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+    def track_table(self, table_name: str, *, preserved: bool = False, owned: bool = False) -> None:
         existing = self._tracked.get(table_name)
         if existing is None:
-            self._tracked[table_name] = TrackedTable(table_name, preserved, False)
-        elif preserved and not existing.preserved:
-            self._tracked[table_name] = existing._replace(preserved=True)
+            self._tracked[table_name] = TrackedTable(table_name, preserved, False, owned)
+            return
+        upgraded = existing
+        if preserved and not existing.preserved:
+            upgraded = upgraded._replace(preserved=True)
+        if owned and not existing.owned:
+            upgraded = upgraded._replace(owned=True)
+        if upgraded is not existing:
+            self._tracked[table_name] = upgraded
 
     def mark_pinned(self, table_name: str) -> None:
         existing = self._tracked.get(table_name)

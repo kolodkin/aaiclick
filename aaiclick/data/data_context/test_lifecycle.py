@@ -72,6 +72,22 @@ def test_track_table_records_default_flags():
     assert tracked[0].name == "t_123"
     assert tracked[0].preserved is False
     assert tracked[0].pinned is False
+    assert tracked[0].owned is False
+
+
+def test_track_table_with_owned_flag():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("t_owned", owned=True)
+    tracked = list(handler.iter_tracked_tables())
+    assert tracked[0].owned is True
+
+
+def test_track_table_owned_flag_upgraded_not_downgraded():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("t_x", owned=True)
+    handler.track_table("t_x")
+    tracked = list(handler.iter_tracked_tables())
+    assert tracked[0].owned is True
 
 
 def test_track_table_with_preserved_flag():

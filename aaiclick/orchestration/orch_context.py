@@ -23,7 +23,14 @@ from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, init_oplog_tab
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
+from .lifecycle.db_lifecycle import (
+    DBLifecycleMessage,
+    DBLifecycleOp,
+    OplogPayload,
+    OplogTablePayload,
+    release_task_name_locks_for_task,
+)
+from .lifecycle.task_lifecycle import TaskLifecycleHandler
 from .models import Group, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
@@ -417,56 +424,74 @@ async def task_scope(
 ) -> AsyncIterator[None]:
     """Per-task context nested inside orch_context.
 
-    Creates isolated per-task state:
-    - Fresh objects registry for stale-marking on exit
-    - OrchLifecycleHandler using task_id as context_id for distributed refcounting
-    - Oplog recording via OrchLifecycleHandler queue (always active in orch mode)
+    Uses :class:`TaskLifecycleHandler` to own the SQL-side writes
+    (``table_registry``, ``table_pin_refs``, ``operation_log``) and to
+    track every CH table the task touches with its
+    ``(owned, preserved, pinned)`` flags. On exit, drops every owned
+    table that is neither pinned (a downstream consumer needs it) nor
+    preserved (the job declared it long-lived) — on the failure path
+    only ``t_*`` scratch tables are dropped, leaving every ``j_<id>_*``
+    for the BackgroundWorker.
 
-    Oplog is flushed on clean exit; discarded on exception.
-    All tracked objects are stale-marked on exit.
+    Locks held in ``task_name_locks`` by this task are released regardless
+    of outcome.
 
     Args:
-        task_id: ID of the current task (used as context_id for lifecycle refs and oplog).
-        job_id: ID of the job (for pin/claim lifecycle ownership).
+        task_id: ID of the current task.
+        job_id: ID of the job.
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
-    lifecycle = OrchLifecycleHandler(
+    ch_client = get_ch_client()
+    lifecycle = TaskLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
+        ch_client=ch_client,
     )
     await lifecycle.start()
 
     objects: dict[int, weakref.ref] = {}
-    await init_oplog_tables(get_ch_client())
-    await migrate_table_registry_to_sql(get_ch_client())
+    await init_oplog_tables(ch_client)
+    await migrate_table_registry_to_sql(ch_client)
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)
     registry_token = _task_registry_var.set({})
 
+    success = False
     try:
         yield
+        success = True
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Decref all live objects (deletes this run_id from table_run_refs).
-        # Pinned tables are protected by their job_id marker in
-        # table_context_refs — the background worker skips tables with
-        # non-NULL job_id even when no run refs remain.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
                 obj._stale = True
-                if obj._registered and obj._owns_lifecycle_ref and not obj.persistent:
-                    decref(obj.table)
                 obj._registered = False
         objects.clear()
         _objects_var.reset(obj_token)
 
-        # Drain remaining lifecycle messages (decrefs enqueued above)
+        await lifecycle.flush()
+        for tt in list(lifecycle.iter_tracked_tables()):
+            if not tt.owned or tt.pinned:
+                continue
+            if success and tt.preserved:
+                continue
+            if not success and not tt.name.startswith("t_"):
+                continue
+            try:
+                await ch_client.command(f"DROP TABLE IF EXISTS {tt.name}")
+            except Exception:
+                logger.warning("Failed to drop %s on task exit", tt.name, exc_info=True)
+
         await lifecycle.stop()
         _lifecycle_var.reset(lc_token)
+
+        async with get_sql_session() as session:
+            await release_task_name_locks_for_task(session, task_id=task_id)
+            await session.commit()
 
 
 def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
