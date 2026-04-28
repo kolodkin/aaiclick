@@ -14,11 +14,11 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar
 
-from sqlalchemy import BigInteger, Column, DateTime, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, String, Text, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, SQLModel, select
 
-from aaiclick.orchestration.models import Task, TaskStatus
+from aaiclick.orchestration.models import LIVE_TASK_STATUSES, Task
 
 
 class DBLifecycleOp(Enum):
@@ -158,66 +158,55 @@ async def acquire_task_name_lock(
 ) -> None:
     """Take the ``(job_id, name)`` lock for ``task_id``.
 
-    Idempotent: re-acquiring an already-held lock for the same task is a no-op.
-    Raises :class:`TableNameCollision` if another task currently holds the lock.
+    Idempotent for the same task. Raises :class:`TableNameCollision` if a
+    different task currently holds the lock. Atomic via ``ON CONFLICT DO NOTHING``
+    — concurrent acquirers serialize on the primary key without a SELECT/INSERT
+    race window.
     """
-    existing = (
+    result = await session.execute(
+        text(
+            "INSERT INTO task_name_locks (job_id, name, task_id, acquired_at) "
+            "VALUES (:job_id, :name, :task_id, :acquired_at) "
+            "ON CONFLICT (job_id, name) DO NOTHING "
+            "RETURNING task_id"
+        ),
+        {
+            "job_id": job_id,
+            "name": name,
+            "task_id": task_id,
+            "acquired_at": datetime.utcnow(),
+        },
+    )
+    if result.scalar_one_or_none() is not None:
+        return
+    holder_id = (
         await session.execute(
-            select(TaskNameLock).where(
+            select(TaskNameLock.task_id).where(
                 TaskNameLock.job_id == job_id,
                 TaskNameLock.name == name,
             )
         )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.task_id == task_id:
-            return
-        raise TableNameCollision(name=name, held_by_task_id=existing.task_id)
-    session.add(TaskNameLock(job_id=job_id, name=name, task_id=task_id))
-    await session.flush()
+    ).scalar_one()
+    if holder_id == task_id:
+        return
+    raise TableNameCollision(name=name, held_by_task_id=holder_id)
 
 
 async def release_task_name_locks_for_task(
     session: AsyncSession, *, task_id: int
 ) -> None:
     """Drop every lock held by ``task_id``."""
-    rows = list(
-        (
-            await session.execute(
-                select(TaskNameLock).where(TaskNameLock.task_id == task_id)
-            )
-        ).scalars()
+    await session.execute(
+        delete(TaskNameLock).where(TaskNameLock.task_id == task_id)
     )
-    for row in rows:
-        await session.delete(row)
-    await session.flush()
 
 
 async def release_task_name_locks_for_dead_tasks(session: AsyncSession) -> None:
-    """Drop locks whose holding task is in a terminal (non-live) state.
-
-    Called by the BackgroundWorker dead-worker sweep — keeps the lock table
-    from accumulating stale rows when tasks die without going through their
-    own ``__aexit__``.
-    """
-    live_statuses = (TaskStatus.PENDING, TaskStatus.CLAIMED, TaskStatus.RUNNING)
-    locks = list((await session.execute(select(TaskNameLock))).scalars())
-    if not locks:
-        return
-    task_ids = {lock.task_id for lock in locks}
-    live_rows = (
-        await session.execute(
-            select(Task.id).where(
-                Task.id.in_(task_ids),
-                Task.status.in_(live_statuses),
-            )
-        )
-    ).scalars()
-    live_ids = set(live_rows)
-    for lock in locks:
-        if lock.task_id not in live_ids:
-            await session.delete(lock)
-    await session.flush()
+    """Drop locks whose holding task is no longer in a live status."""
+    live_task_ids = select(Task.id).where(Task.status.in_(LIVE_TASK_STATUSES))
+    await session.execute(
+        delete(TaskNameLock).where(TaskNameLock.task_id.notin_(live_task_ids))
+    )
 
 
 class TableRegistry(SQLModel, table=True):

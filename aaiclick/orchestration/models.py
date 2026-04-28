@@ -75,6 +75,14 @@ class TaskStatus(StrEnum):
     PENDING_CLEANUP = "PENDING_CLEANUP"
 
 
+LIVE_TASK_STATUSES: tuple[TaskStatus, ...] = (
+    TaskStatus.PENDING,
+    TaskStatus.CLAIMED,
+    TaskStatus.RUNNING,
+)
+"""Statuses for tasks that are still doing work (not terminal, not in cleanup)."""
+
+
 class WorkerStatus(StrEnum):
     """Worker status."""
 
