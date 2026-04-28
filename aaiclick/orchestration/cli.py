@@ -13,11 +13,9 @@ import asyncio
 import signal
 
 from aaiclick.backend import is_local
-from aaiclick.cli_renderers import render_setup_result
-from aaiclick.internal_api.setup import is_setup_done, setup
 
 from .background import BackgroundWorker
-from .execution import mp_worker_main_loop, worker_main_loop
+from .execution import mp_worker_main_loop
 from .orch_context import orch_context
 
 
@@ -46,31 +44,44 @@ async def start_worker(max_tasks: int | None = None) -> None:
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 
-async def start_local(max_tasks: int | None = None) -> None:
-    """Start worker + background cleanup in a single process (local mode).
+async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = False) -> None:
+    """Run the combined REST + MCP server with workers in a single local-mode process.
 
-    Everything runs in one process: the background worker, task claiming,
-    and task execution all share one chdb session via the process-level
-    singleton.  This avoids the file-lock conflict that occurs when
-    multiple OS processes open the same chdb data directory.
+    Local mode only — chdb's file lock requires a single process. The
+    server's lifespan starts the BackgroundWorker and the execution
+    worker via local_runtime(). uvicorn handles SIGTERM / SIGINT.
 
-    Automatically runs setup if it hasn't been run yet.
-
-    Args:
-        max_tasks: Maximum tasks to execute (None for unlimited).
+    Pass ``reload=True`` for dev: uvicorn watches the source tree and
+    restarts the server on every save. Reload mode needs the app as
+    an import string, not an object.
     """
-    if not is_setup_done():
-        print("Setup not yet run — running setup automatically...\n")
-        render_setup_result(setup())
-        print()
+    if not is_local():
+        raise RuntimeError(
+            "'local start' requires local mode (chdb + SQLite). "
+            "Use `worker start` + `background start` + "
+            "`uvicorn aaiclick.server.app:app` in distributed mode."
+        )
 
-    background = BackgroundWorker()
-    await background.start()
+    # Inline: keep the [server] extra optional — users without it never hit this import.
     try:
-        async with orch_context(with_ch=True):
-            await worker_main_loop(max_tasks=max_tasks)
-    finally:
-        await background.stop()
+        import uvicorn
+
+        if not reload:
+            from aaiclick.server.app import app
+    except ImportError as exc:
+        raise ImportError(
+            "`local start` requires the [server] extra. Install it with "
+            "`pip install 'aaiclick[server]'` (or `uv add 'aaiclick[server]'`)."
+        ) from exc
+
+    # Reload watches the filesystem and re-imports — uvicorn needs the app as an
+    # import string in that mode. In normal mode we hand it the app object directly.
+    config = (
+        uvicorn.Config("aaiclick.server.app:app", host=host, port=port, log_level="info", reload=True)
+        if reload
+        else uvicorn.Config(app, host=host, port=port, log_level="info")
+    )
+    await uvicorn.Server(config).serve()
 
 
 async def start_background(poll_interval: float = 10.0) -> None:

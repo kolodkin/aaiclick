@@ -8,6 +8,7 @@ from sqlmodel import select
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.models import JobStatus, Task
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import JobListFilter, Page, RunJobRequest
 
@@ -147,3 +148,13 @@ async def test_run_job_dotted_name_splits_entrypoint(orch_ctx):
 
     assert view.name == "daily_etl"
     assert detail.tasks[0].entrypoint == "myapp.pipelines.daily_etl"
+
+
+async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
+    """A bare name must look up the registered job's entrypoint, not reuse the name."""
+    await register_job(name="my_pipeline", entrypoint=_SAMPLE_TASK)
+
+    view = await jobs.run_job(RunJobRequest(name="my_pipeline"))
+    detail = await jobs.get_job(view.id)
+
+    assert detail.tasks[0].entrypoint == _SAMPLE_TASK

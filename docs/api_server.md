@@ -410,8 +410,28 @@ uvicorn directly:
 ```bash
 pip install 'aaiclick[server]'
 uvicorn aaiclick.server.app:app
-# dev:
-uvicorn aaiclick.server.app:app --reload
+```
+
+In **local mode** (`chdb` + `sqlite`) the lifespan auto-starts the
+`BackgroundWorker` and the execution worker — submitting a job via
+the REST or MCP surface picks it up and runs it in the same process.
+There is no separate worker process to launch.
+
+For convenience, the CLI exposes the same flow:
+
+```bash
+python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
+python -m aaiclick local start --port 9000
+python -m aaiclick local start --reload   # auto-restart on code change (dev)
+```
+
+In **distributed mode** (PostgreSQL + ClickHouse) the lifespan is a
+no-op and the worker / background processes run separately:
+
+```bash
+uvicorn aaiclick.server.app:app           # serves REST + MCP
+python -m aaiclick worker start           # one or more worker processes
+python -m aaiclick background start       # one cleanup process
 ```
 
 Host, port, workers, reload, TLS, etc. are uvicorn's standard flags and

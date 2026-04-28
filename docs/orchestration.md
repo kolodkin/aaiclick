@@ -165,11 +165,13 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 ## Local Mode (chdb + SQLite)
 
-Single process, no infrastructure required.
+Single process, no infrastructure required. `local start` runs the
+combined REST + MCP server with the background and execution workers
+wired into the FastAPI lifespan — auto-runs setup if needed.
 
 ```bash
-python -m aaiclick local start [--max-tasks N]  # auto-runs setup if needed
-python -m aaiclick local stop <worker_id>
+python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
+# Stop with Ctrl+C / SIGTERM — the lifespan tears down workers cleanly.
 ```
 
 ## Distributed Mode (ClickHouse + PostgreSQL)

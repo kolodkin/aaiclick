@@ -5,8 +5,7 @@ Usage:
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
-    python -m aaiclick local start              # Start worker + background (local mode)
-    python -m aaiclick local stop <worker_id>   # Stop a local worker
+    python -m aaiclick local start              # Start REST + MCP server with workers (local mode)
     python -m aaiclick worker start             # Start a distributed worker process
     python -m aaiclick worker list              # List workers
     python -m aaiclick worker stop <worker_id>  # Stop a worker gracefully
@@ -330,26 +329,25 @@ def main():
     # local start
     local_start_parser = local_subparsers.add_parser(
         "start",
-        help="Start worker + background in a single process",
+        help="Start the combined REST + MCP server with workers (local mode)",
     )
     local_start_parser.add_argument(
-        "--max-tasks",
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind (default: 127.0.0.1)",
+    )
+    local_start_parser.add_argument(
+        "--port",
         type=int,
-        default=None,
-        help="Maximum tasks to execute (default: unlimited)",
+        default=5255,
+        help="Port to bind (default: 5255)",
     )
-
-    # local stop
-    local_stop_parser = local_subparsers.add_parser(
-        "stop",
-        help="Request a local worker to stop gracefully",
+    local_start_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Auto-restart on code change (dev)",
     )
-    local_stop_parser.add_argument(
-        "worker_id",
-        type=int,
-        help="Worker ID to stop",
-    )
-    _add_json_flag(local_stop_parser)
 
     # Add worker subcommand (distributed mode)
     worker_parser = subparsers.add_parser(
@@ -684,10 +682,7 @@ def main():
         if args.local_command == "start":
             from aaiclick.orchestration.cli import start_local
 
-            asyncio.run(start_local(max_tasks=args.max_tasks))
-
-        elif args.local_command == "stop":
-            asyncio.run(_run_worker_stop(args))
+            asyncio.run(start_local(host=args.host, port=args.port, reload=args.reload))
 
         else:
             local_parser.print_help()

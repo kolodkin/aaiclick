@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from fastapi.routing import APIRoute
 from starlette.routing import Route
 
+from aaiclick.backend import is_local
+from aaiclick.orchestration.execution import list_workers
+from aaiclick.orchestration.models import WorkerStatus
 from aaiclick.view_models import Problem
 
-from .app import API_PREFIX, app
+from .app import API_PREFIX, _lifespan, app
 
 
 def test_all_resource_routes_are_prefixed():
@@ -87,3 +93,37 @@ async def test_openapi_advertises_problem_responses_for_declared_routes(app_clie
             ref = route_responses[key].get("content", {}).get("application/json", {}).get("schema", {}).get("$ref", "")
             assert ref.endswith("/Problem"), f"{method.upper()} {route.path} {code} is not Problem (got {ref!r})"
     assert saw_any_declared, "no routes declared Problem responses — check problem_responses() usage"
+
+
+async def test_lifespan_starts_worker_in_local_mode():
+    """In local mode, the lifespan registers an execution Worker row.
+
+    httpx 0.28's ASGITransport does not drive lifespans, so we enter
+    ``_lifespan`` directly.
+    """
+    if not is_local():
+        pytest.skip("lifespan starts workers only in local mode")
+
+    async with _lifespan(app):
+        for _ in range(50):
+            if await list_workers(status=WorkerStatus.ACTIVE):
+                return
+            await asyncio.sleep(0.1)
+
+        pytest.fail("no ACTIVE worker after 5s")
+
+
+async def test_lifespan_distributed_mode_is_a_no_op():
+    """In distributed mode, the lifespan must enter and exit cleanly without
+    starting workers — workers run as separate processes there.
+
+    Verifying the no-op side-effect-free is enough; the local-mode test
+    above verifies the active path. We don't query worker rows here
+    because the distributed test DB is shared across the test session
+    and may carry rows from other tests.
+    """
+    if is_local():
+        pytest.skip("verifies the distributed-mode no-op path")
+
+    async with _lifespan(app):
+        pass

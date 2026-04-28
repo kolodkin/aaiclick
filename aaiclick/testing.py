@@ -12,7 +12,6 @@ scope. Keeping the implementations here avoids copy-paste across
 
 from __future__ import annotations
 
-import importlib
 import os
 import shutil
 import tempfile
@@ -33,11 +32,6 @@ from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
-
-# ``aaiclick.orchestration`` re-exports ``orch_context`` as a function, which
-# shadows the submodule attribute on the package. Resolve the submodule by
-# fully-qualified name so ``pin_chdb_session`` can patch its ``close_session``.
-_orch_context_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
@@ -202,16 +196,17 @@ def pin_chdb_session():
     if not is_chdb():
         yield
         return
+    # `aaiclick.orchestration.orch_context` no longer calls `close_session` —
+    # production now treats chdb's Session as a true per-process singleton, the
+    # same constraint this fixture enforces. We still patch `_chdb_client.close_session`
+    # in case any other module path imports and calls it directly.
     noop = lambda _path: None  # noqa: E731 — intentional trivial no-op stub
     original_src = _chdb_client.close_session
-    original_orch = _orch_context_module.close_session
     _chdb_client.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
-    _orch_context_module.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
     try:
         yield
     finally:
         _chdb_client.close_session = original_src  # pyright: ignore[reportAttributeAccessIssue]
-        _orch_context_module.close_session = original_orch  # pyright: ignore[reportAttributeAccessIssue]
 
 
 @pytest.fixture(autouse=True, scope="session")

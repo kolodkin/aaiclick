@@ -32,17 +32,6 @@ A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only cal
 - For SQLModel/Pydantic `default_factory=datetime.utcnow` fields, switch to `default_factory=lambda: datetime.now(UTC)` and verify the column types still round-trip correctly — `datetime.now(UTC)` returns a timezone-aware datetime, whereas `utcnow()` returned naive. The DB columns + serializers may need to be made tz-aware (or strip tzinfo at the boundary if we want to preserve naive storage).
 - Add a Python 3.13 leg to the test matrix in `.github/workflows/test.yaml`: change the `--python 3.10` pins to a matrix `python-version: ["3.10", "3.13"]` so future deprecations are caught at the CI boundary instead of by individual developers.
 
-## Make `close_session()` Opt-In Instead of Unconditional on `orch_context` Exit
-
-`orch_context.py` unconditionally calls `close_session(get_chdb_data_path())` in its `finally` block when running on chdb. The reason is real — a subprocess worker about to be spawned needs the chdb file lock — but in-process-only callers pay the cost for nothing, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)). Tests work around it today via the `_pin_chdb_session` fixture; production code shouldn't need a test fixture to stay stable.
-
-**Proposal**: gate the close behind an explicit signal that the caller is about to hand the chdb file off to another process. Shapes to consider:
-- A `release_chdb_session: bool = False` kwarg on `orch_context()` that the worker-spawning path sets to `True`.
-- A context manager `with releasing_chdb_session():` around the code that spawns workers.
-- An env var (`AAICLICK_CHDB_RELEASE_ON_EXIT=1`) for test-runner-style callers.
-
-**Work**: `aaiclick/orchestration/orch_context.py` — remove the unconditional `close_session()` from the `finally` branch; add the opt-in signal above; update any worker-spawning path (`aaiclick/orchestration/execution/mp_worker.py`, etc.) to invoke it. Remove the `_pin_chdb_session` fixture once this lands.
-
 ## Retry `create_object_from_url` on Transient Upstream Failures
 
 `create_object_from_url` currently surfaces any HTTP failure from the
@@ -209,14 +198,9 @@ Several pure data containers are defined twice — once as a `@dataclass` for in
 
 ## Outer `orch_context` Lifespan for the FastMCP Sub-app
 
-Each `@mcp.tool` in `aaiclick/server/mcp.py` opens its own `orch_context(with_ch=True)`, which on every call (re)creates a SQLAlchemy `AsyncEngine` and a `ChClient`. For the lineage primitives (`oplog_subgraph`, `query_table`, `get_table_schema`) an MCP-driven debug loop is intrinsically multi-step — one graph call followed by N schema/query calls — so the per-tool setup tax is `N + 1`× the steady-state cost. On the chdb backend it's worse than a perf issue: `orch_context` calls `close_session()` on exit, and chdb's `Session.cleanup()` + re-init is not safe to repeat within one process (see `docs/technical_debt.md`, [chdb-io/chdb#229](https://github.com/chdb-io/chdb/issues/229)).
+Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAlchemy `AsyncEngine` per call (the chdb `ChClient` is already shared via the process singleton). For multi-step MCP debug loops — `oplog_subgraph` followed by N `query_table` / `get_table_schema` calls — the per-tool engine creation cost is `N + 1`× the steady-state cost.
 
-`orch_context.py:393-395` already handles re-entry — when `_ch_client_var` is set, the inner `async with` skips engine creation. So an outer scope at the FastMCP sub-app level (`aaiclick/server/app.py:_mcp_app = mcp.http_app(path="/")`) would let every tool nest cleanly without code changes inside the tool bodies.
-
-**Work**:
-- Wire a FastMCP lifespan that opens `orch_context(with_ch=True)` for the lifetime of the sub-app and closes on shutdown.
-- Couple to the chdb opt-in once "Make `close_session()` Opt-In" lands so the long-lived MCP scope doesn't fight the worker-spawning path.
-- Add a regression test asserting that calling two `@mcp.tool`s back-to-back does not re-create the `ChClient` (mock `create_ch_client` and assert call count = 1).
+**Work**: open one outer `orch_context` at the FastMCP sub-app lifespan so per-tool calls nest into it. Regression test: mock `create_async_engine`, call two tools back-to-back, assert call count = 1.
 
 ## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
 
