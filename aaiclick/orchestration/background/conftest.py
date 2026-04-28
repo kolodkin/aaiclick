@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -29,14 +30,49 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def insert_job(engine, job_id, *, status="RUNNING"):
+async def insert_job(engine, job_id, *, status="RUNNING", preserve=None):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
+                "INSERT INTO jobs (id, name, status, run_type, preserve, created_at) "
+                "VALUES (:id, 'test_job', :status, 'MANUAL', :preserve, :now)"
             ),
-            {"id": job_id, "status": status, "now": datetime.utcnow()},
+            {
+                "id": job_id,
+                "status": status,
+                "preserve": json.dumps(preserve) if preserve is not None else None,
+                "now": datetime.utcnow(),
+            },
+        )
+        await session.commit()
+
+
+async def insert_task(engine, task_id, *, job_id, status="RUNNING"):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO tasks "
+                "(id, job_id, entrypoint, name, kwargs, status, created_at, max_retries, attempt, run_ids, run_statuses) "
+                "VALUES (:id, :job_id, 'm.f', 't', '{}', :status, :now, 0, 0, '[]', '[]')"
+            ),
+            {
+                "id": task_id,
+                "job_id": job_id,
+                "status": status,
+                "now": datetime.utcnow(),
+            },
+        )
+        await session.commit()
+
+
+async def insert_task_name_lock(engine, *, job_id, name, task_id):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO task_name_locks (job_id, name, task_id, acquired_at) "
+                "VALUES (:job_id, :name, :task_id, :now)"
+            ),
+            {"job_id": job_id, "name": name, "task_id": task_id, "now": datetime.utcnow()},
         )
         await session.commit()
 
