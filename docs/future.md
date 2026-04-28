@@ -1,6 +1,22 @@
 Future Plans
 ---
 
+# Collapse the `preserve` API: named ⇒ preserved
+
+**Status**: design idea, not yet implemented.
+
+The current `preserve` parameter has three forms (`None` / `list[str]` / `"*"`) plus a `task_name_locks` table that gates non-preserved named-table creation. A simpler model:
+
+- `preserve=None` (default): every `j_<id>_<name>` is job-shared and survives the run; BackgroundWorker drops them at job completion.
+- `preserve="*"`: also keep anonymous `t_*` scratch tables (Tier 2 / full-replay debugging).
+- Drop the `list[str]` form. If a task wants throwaway scratch storage, use an anonymous Object (`create_object_from_value(...)`).
+- Delete `task_name_locks`, `acquire_task_name_lock`, the dead-task sweep, and the `LifecycleHandler.acquire_named_table_lock` plumbing — concurrent `CREATE TABLE IF NOT EXISTS j_<id>_<name>` is naturally idempotent.
+
+Net: ~150 lines deleted; user mental model becomes "anonymous = scratch, named = job-scoped."
+
+Trade-off: jobs that create many named intermediates can no longer drop them at task exit. The fix for that case is to use anonymous Objects, which the existing `t_*` machinery handles.
+
+
 Planned work across aaiclick, ordered by priority.
 
 ---
@@ -144,7 +160,7 @@ No action today — fresh installs keep working, existing installs degrade grace
 
 **Codebase-wide rule** (also in `CLAUDE.md` → Coding Guidelines): `typing.Literal` is preferred over `StrEnum` / `(str, Enum)` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
 
-Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). `aaiclick/view_models.py` also still carries `OllamaBootstrapStatus` and `MigrationAction` as `(str, Enum)` subclasses; these do not need DB mapping and can flip to `Literal` directly.
+Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). `aaiclick/view_models.py` also still carries `OllamaBootstrapStatus` and `MigrationAction` as `(str, Enum)` subclasses; these do not need DB mapping and can flip to `Literal` directly.
 
 **Proposal**: make Literal the single source of truth; declare the DB mapping explicitly via `sa_column` with `SaEnum(*get_args(MyLiteral))`.
 

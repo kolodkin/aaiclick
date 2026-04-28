@@ -6,6 +6,14 @@ worker's INSERT writes its rows contiguously, without interleaving with
 another worker's. Distributed mode only — local mode (chdb + SQLite) is
 single-process and needs no lock.
 
+!!! note "Status: implemented; design doc retained for historical context"
+    The advisory-lock mechanism described here ships in
+    `aaiclick/locks.py`. The `advisory_id` column has since moved from the
+    deleted `table_context_refs` table onto `table_registry.advisory_id`,
+    and `TaskLifecycleHandler.register_table` mints the id eagerly.
+    The locking protocol is unchanged. Treat code-level references to
+    `OrchLifecycleHandler` and `table_context_refs` below as historical.
+
 Tracked in `docs/future.md` (High Priority).
 
 ---

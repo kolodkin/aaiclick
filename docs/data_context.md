@@ -179,30 +179,32 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 ## Table Lifecycle Tracking
 
-Tables are reference-counted and dropped when unreferenced. On context exit, live objects are decreffed and stale-marked. `LocalLifecycleHandler` drops tables on refcount 0; in distributed mode, `OrchLifecycleHandler` defers cleanup to `BackgroundWorker`.
+Tables are tracked by the active `LifecycleHandler`. In standalone `data_context()`, `LocalLifecycleHandler` reference-counts via the in-process `AsyncTableWorker` and drops on count 0. Inside `task_scope()`, `TaskLifecycleHandler` flag-tracks each table with `(owned, preserved, pinned)` and drops the unpinned + unpreserved owned ones on exit; everything else is left for the BackgroundWorker.
 
-See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
+See [Orchestration documentation](orchestration.md) — "Object Lifecycle" for the full design.
 
-## Preservation Modes
+## Preserve declaration
 
-**Implementation**: `aaiclick/orchestration/models.py` — see `PreservationMode`
+**Implementation**: `aaiclick/orchestration/models.py` — see `Preserve`; `aaiclick/orchestration/factories.py` — see `resolve_preserve()`
 
-Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in both modes — only the cleanup step differs.
+Each `Job` carries a `preserve` value that controls which named tables survive past the run. Task execution is identical regardless of the value — only the cleanup step differs.
 
-| Mode         | What survives after job              | Use case                       |
-|--------------|--------------------------------------|--------------------------------|
-| `NONE`       | Persistent tables only (default)     | Production runs (as today)     |
-| `FULL`       | All tables until the job TTL expires | Development / debugging        |
+| `preserve`        | What survives the run                          | Use case                          |
+|-------------------|------------------------------------------------|-----------------------------------|
+| `None` (default)  | Persistent (`p_*`) tables only                 | Production runs                   |
+| `list[str]`       | Each named `j_<id>_<name>` from the list       | Targeted preservation             |
+| `"*"`             | Every `j_<id>_<name>` created during the run   | Development, full replay          |
 
-The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`) and overridden per submission:
+Override per submission:
 
 ```python
-from aaiclick.orchestration import PreservationMode
 from aaiclick.orchestration.registered_jobs import run_job
 
 await run_job(
     "debug_run",
     "myapp.pipelines.etl",
-    preservation_mode=PreservationMode.FULL,
+    preserve="*",
 )
 ```
+
+Resolution order: explicit > `RegisteredJob.preserve` > `None`. See `docs/orchestration.md#declaring-preserved-tables` for the full API.

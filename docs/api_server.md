@@ -154,8 +154,8 @@ Phase 5 adds `StartWorkerRequest` and expands `ProblemCode` — see
 ## Enums
 
 Reuse existing enums from `aaiclick/orchestration/models.py`:
-`JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode`.
-View models import **enums only**, never SQLModel classes.
+`JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`. View models import
+**enums and the `Preserve` type alias only**, never SQLModel classes.
 
 ## View vs Detail
 

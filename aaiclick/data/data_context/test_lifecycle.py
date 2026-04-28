@@ -60,7 +60,7 @@ async def test_local_lifecycle_stop_delegates(ctx):
 # Note: ``test_data_context_always_creates_local_lifecycle`` lives in
 # ``aaiclick/data_extra_tests/test_lifecycle.py`` because it requires a real
 # ``async with data_context():`` block — the ``ctx`` fixture wraps
-# orch_context and gives an ``OrchLifecycleHandler``, not the
+# orch_context and gives a ``TaskLifecycleHandler``, not the
 # ``LocalLifecycleHandler`` this assertion targets.
 
 

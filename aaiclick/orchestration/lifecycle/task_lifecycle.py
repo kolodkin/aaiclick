@@ -1,7 +1,6 @@
 """TaskLifecycleHandler — orch-aware LifecycleHandler for task_scope.
 
-Replaces the deleted-in-Phase-6 ``OrchLifecycleHandler``. Differences from
-``LocalLifecycleHandler``:
+Differences from ``LocalLifecycleHandler``:
 
 - No ``AsyncTableWorker`` / refcount machinery. Within a task_scope, tables
   live until ``__aexit__`` and the cleanup decision is purely flag-based:
