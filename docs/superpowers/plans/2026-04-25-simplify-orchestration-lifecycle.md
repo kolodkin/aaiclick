@@ -32,6 +32,8 @@ Each phase is a separate file. Phases are sequential — finish one before start
 | 5     | `2026-04-25-simplify-orchestration-lifecycle-phase-5-bgworker.md`                      | New `BackgroundWorker` cleanup methods; integrate into `try_complete_job()` and dead-worker sweep |
 | 6     | `2026-04-25-simplify-orchestration-lifecycle-phase-6-removals.md`                      | Delete `OrchLifecycleHandler`, `PreservationMode`, `TableRunRef`, `TableContextRef`, env default, `resolve_job_config()` |
 | 7     | `2026-04-25-simplify-orchestration-lifecycle-phase-7-docs.md`                          | Update `docs/orchestration.md`, `docs/future.md`, examples |
+| 8a    | `2026-04-25-simplify-orchestration-lifecycle-phase-8a-collapse-preserve-api.md`        | Collapse `preserve` to `Literal["*"] \| None`; delete `task_name_locks` + lock plumbing |
+| 8b    | `2026-04-25-simplify-orchestration-lifecycle-phase-8b-preserve-column-rename.md`       | Replace `jobs.preserve` JSON column with `jobs.preserve_all` boolean |
 
 ---
 
