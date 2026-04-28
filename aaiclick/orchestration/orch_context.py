@@ -481,6 +481,8 @@ async def task_scope(
         for tt in list(lifecycle.iter_tracked_tables()):
             if not tt.owned or tt.pinned:
                 continue
+            if tt.name.startswith("p_"):
+                continue
             if success and tt.preserved:
                 continue
             if not success and not tt.name.startswith("t_"):
