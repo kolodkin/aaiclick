@@ -38,7 +38,7 @@ from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake import get_snowflake_id
-from .factories import _callable_to_string, resolve_preserve_all
+from .factories import _callable_to_string
 from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
@@ -243,7 +243,7 @@ class JobFactory:
     ) -> Job:
         """Internal method to create job within an OrchContext."""
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
-        resolved = resolve_preserve_all(explicit=preserve_all, registered=False)
+        resolved = preserve_all if preserve_all is not None else False
 
         job = Job(
             id=get_snowflake_id(),

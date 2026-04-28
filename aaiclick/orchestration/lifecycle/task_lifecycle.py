@@ -4,8 +4,9 @@ Differences from ``LocalLifecycleHandler``:
 
 - No ``AsyncTableWorker`` / refcount machinery. Within a task_scope, tables
   live until ``__aexit__`` and the cleanup decision is purely flag-based:
-  drop a tracked table when ``owned=True``, ``pinned=False``, and
-  ``preserved=False`` (success) or it is a ``t_*`` scratch table (failure).
+  drop a tracked ``t_*`` scratch table when ``owned=True`` and ``pinned=False``
+  (named ``j_<id>_*`` tables are job-scoped — they survive the task and the
+  BackgroundWorker drops them at job completion).
 - Owns the SQL-side writes the prior orch handler did: ``register_table``
   inserts a ``table_registry`` row including ``schema_doc`` (read by
   ``_get_table_schema``); ``pin`` fans out one ``table_pin_refs`` row per

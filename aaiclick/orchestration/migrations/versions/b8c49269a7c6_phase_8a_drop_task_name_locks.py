@@ -35,7 +35,10 @@ def upgrade() -> None:
             table,
             sa.Column("preserve_all", sa.Boolean(), nullable=False, server_default=sa.false()),
         )
-        op.execute(f"UPDATE {table} SET preserve_all = TRUE WHERE preserve = '\"*\"'")
+        # The Phase 1 migration only ever wrote ``'"*"'`` or NULL into
+        # ``preserve``; backfill IS NOT NULL → preserve_all = TRUE without
+        # casting (PG's JSON `=` operator vs SQLite's TEXT diverge here).
+        op.execute(f"UPDATE {table} SET preserve_all = TRUE WHERE preserve IS NOT NULL")
         op.drop_column(table, "preserve")
 
 
@@ -43,7 +46,10 @@ def downgrade() -> None:
     """Recreate the JSON column and the lock table empty."""
     for table in ("jobs", "registered_jobs"):
         op.add_column(table, sa.Column("preserve", sa.JSON(), nullable=True))
-        op.execute(f"UPDATE {table} SET preserve = '\"*\"' WHERE preserve_all = TRUE")
+        # PG: JSON column accepts a JSON-encoded text literal via parameterized
+        # bind; raw '"*"' would need a cast. Use a parameterized UPDATE so the
+        # driver handles the JSON conversion uniformly on both backends.
+        op.execute(sa.text(f"UPDATE {table} SET preserve = :v WHERE preserve_all = TRUE").bindparams(v='"*"'))
         op.drop_column(table, "preserve_all")
 
     op.create_table(

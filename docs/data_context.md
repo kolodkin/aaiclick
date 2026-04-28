@@ -179,23 +179,13 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 ## Table Lifecycle Tracking
 
-Tables are tracked by the active `LifecycleHandler`. In standalone `data_context()`, `LocalLifecycleHandler` reference-counts via the in-process `AsyncTableWorker` and drops on count 0. Inside `task_scope()`, `TaskLifecycleHandler` flag-tracks each table with `(owned, preserved, pinned)` and drops the unpinned + unpreserved owned ones on exit; everything else is left for the BackgroundWorker.
+Tables are tracked by the active `LifecycleHandler`. In standalone `data_context()`, `LocalLifecycleHandler` reference-counts via the in-process `AsyncTableWorker` and drops on count 0. Inside `task_scope()`, `TaskLifecycleHandler` flag-tracks each table with `(owned, pinned)` and drops the unpinned owned ``t_*`` scratch tables on exit; named ``j_<id>_*`` tables are job-scoped and the BackgroundWorker drops them at job completion.
 
 See [Orchestration documentation](orchestration.md) — "Object Lifecycle" for the full design.
 
 ## Preserve declaration
 
-**Implementation**: `aaiclick/orchestration/models.py` — see `Preserve`; `aaiclick/orchestration/factories.py` — see `resolve_preserve()`
-
-Each `Job` carries a `preserve` value that controls which named tables survive past the run. Task execution is identical regardless of the value — only the cleanup step differs.
-
-| `preserve`        | What survives the run                          | Use case                          |
-|-------------------|------------------------------------------------|-----------------------------------|
-| `None` (default)  | Persistent (`p_*`) tables only                 | Production runs                   |
-| `list[str]`       | Each named `j_<id>_<name>` from the list       | Targeted preservation             |
-| `"*"`             | Every `j_<id>_<name>` created during the run   | Development, full replay          |
-
-Override per submission:
+Each `Job` carries a `preserve_all` boolean. The default (``False``) drops anonymous ``t_*`` scratch tables at task exit; ``True`` keeps them alive past task exit (Tier 2 / full-replay debugging). Named ``j_<id>_<name>`` tables always survive the run regardless — naming a table is the preservation signal.
 
 ```python
 from aaiclick.orchestration.registered_jobs import run_job
@@ -203,8 +193,8 @@ from aaiclick.orchestration.registered_jobs import run_job
 await run_job(
     "debug_run",
     "myapp.pipelines.etl",
-    preserve="*",
+    preserve_all=True,
 )
 ```
 
-Resolution order: explicit > `RegisteredJob.preserve` > `None`. See `docs/orchestration.md#declaring-preserved-tables` for the full API.
+Resolution order: explicit `preserve_all` argument > `RegisteredJob.preserve_all` > `False`. See `docs/orchestration.md#declaring-preserved-tables` for the full API.

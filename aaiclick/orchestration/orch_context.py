@@ -116,9 +116,6 @@ async def task_scope(
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
     ch_client = get_ch_client()
-    async with get_sql_session() as session:
-        row = (await session.execute(select(Job.preserve_all).where(Job.id == job_id))).first()
-        preserve_all = bool(row[0]) if row is not None else False
     lifecycle = TaskLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
@@ -149,16 +146,19 @@ async def task_scope(
         _objects_var.reset(obj_token)
 
         await lifecycle.flush()
-        if not preserve_all:
-            for tt in list(lifecycle.iter_tracked_tables()):
-                if not tt.owned or tt.pinned:
-                    continue
-                if not tt.name.startswith("t_"):
-                    continue
-                try:
-                    await ch_client.command(f"DROP TABLE IF EXISTS {tt.name}")
-                except Exception:
-                    logger.warning("Failed to drop %s on task exit", tt.name, exc_info=True)
+        droppable = [
+            tt.name for tt in lifecycle.iter_tracked_tables() if tt.owned and not tt.pinned and tt.name.startswith("t_")
+        ]
+        if droppable:
+            async with get_sql_session() as session:
+                row = (await session.execute(select(Job.preserve_all).where(Job.id == job_id))).first()
+                preserve_all = bool(row[0]) if row is not None else False
+            if not preserve_all:
+                for name in droppable:
+                    try:
+                        await ch_client.command(f"DROP TABLE IF EXISTS {name}")
+                    except Exception:
+                        logger.warning("Failed to drop %s on task exit", name, exc_info=True)
 
         await lifecycle.stop()
         _lifecycle_var.reset(lc_token)

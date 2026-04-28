@@ -12,19 +12,6 @@ from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
 
-def resolve_preserve_all(
-    explicit: bool | None = None,
-    registered: bool = False,
-) -> bool:
-    """Resolve effective ``preserve_all`` for a job run.
-
-    Precedence: explicit (when not ``None``) > registered > ``False``.
-    """
-    if explicit is None:
-        return registered
-    return explicit
-
-
 def _resolve_main_module(func: Callable) -> str:
     """Resolve the actual module path for a function defined in __main__.
 
@@ -173,8 +160,10 @@ async def create_job(
     Returns:
         Job object with id populated after database commit
     """
-    registered_preserve_all = registered.preserve_all if registered is not None else False
-    resolved = resolve_preserve_all(explicit=preserve_all, registered=registered_preserve_all)
+    if preserve_all is not None:
+        resolved = preserve_all
+    else:
+        resolved = registered.preserve_all if registered is not None else False
 
     job_id = get_snowflake_id()
     job = Job(

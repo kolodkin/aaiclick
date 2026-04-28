@@ -3,9 +3,10 @@ AI-powered lineage explanation for a revenue pipeline.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline with ``preserve="*"`` so all intermediate tables are
-preserved for debugging. The debug agent uses its tool loop to inspect
-tables and trace the computation graph.
+Runs the pipeline with ``preserve_all=True`` so all intermediate
+``t_*`` scratch tables survive past task exit; the debug agent uses
+its tool loop to inspect every intermediate and trace the computation
+graph.
 """
 
 import asyncio
@@ -68,7 +69,7 @@ def revenue_pipeline():
 
 async def main():
     async with orch_context():
-        pipeline = await revenue_pipeline(preserve="*")
+        pipeline = await revenue_pipeline(preserve_all=True)
         await ajob_test(pipeline)
         assert pipeline.status == JobStatus.COMPLETED, f"Job failed: {pipeline.error}"
 
