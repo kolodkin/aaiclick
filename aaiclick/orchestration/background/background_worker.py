@@ -48,9 +48,6 @@ DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
-_REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
-
-
 def _parse_preserve(raw: Any) -> Any:
     """Decode a ``Job.preserve`` cell.
 
@@ -84,16 +81,15 @@ def _is_preserved(table_name: str, job_id: int | None, preserve: Any) -> bool:
     return isinstance(preserve, list) and suffix in preserve
 
 
-async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> None:
-    """Delete all ref-table rows for the given table names."""
+async def _delete_table_pin_refs(session: AsyncSession, table_names: list[str]) -> None:
+    """Delete table_pin_refs rows for the given tables."""
     if not table_names:
         return
     ph, params = in_clause(table_names, "tn")
-    for ref_table in _REF_TABLES:
-        await session.execute(
-            text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
-            params,
-        )
+    await session.execute(
+        text(f"DELETE FROM table_pin_refs WHERE table_name IN ({ph})"),
+        params,
+    )
 
 
 class BackgroundWorker:
@@ -175,10 +171,10 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            # Clean run_refs (batched) and pin_refs (per-task) for all failed tasks
-            run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
-            if run_ids_to_clean:
-                await self._handler.clean_task_runs(session, run_ids_to_clean)
+            # Clean pin_refs (per-task) for each failed task. Phase 5's
+            # _cleanup_failed_task_tables / _cleanup_orphan_scratch_tables
+            # handle the CH-side drops; pin_refs need explicit clearance so
+            # they don't pin tables to a dead consumer.
             for t in tasks:
                 await self._handler.clean_task_pins(session, t.task_id)
 
@@ -240,15 +236,6 @@ class BackgroundWorker:
                     completed_ids = [row[0] for row in rows]
                 for job_id in completed_ids:
                     await self._cleanup_at_job_completion(job_id=job_id)
-
-    async def _cleanup_unreferenced_tables(self) -> None:
-        """No-op; scheduled for removal in Phase 6 of the lifecycle simplification.
-
-        Phase 1 of the lifecycle simplification dropped table_run_refs and
-        table_context_refs, which this method queried. The poll loop still
-        invokes it; Phase 6 deletes both the call site and the method.
-        """
-        return
 
     async def _cleanup_at_job_completion(self, *, job_id: int) -> None:
         """Drop every CH table tied to a completed job and clear bookkeeping.
@@ -527,8 +514,8 @@ class BackgroundWorker:
                     params,
                 )
 
-            # Delete ref tables for tables belonging to this job
-            await _delete_table_refs(session, table_names)
+            # Delete pin_refs for tables belonging to this job
+            await _delete_table_pin_refs(session, table_names)
 
             # Delete tasks
             await session.execute(

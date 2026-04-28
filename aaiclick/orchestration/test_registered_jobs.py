@@ -5,8 +5,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from .factories import resolve_job_config
-from .models import Job, PreservationMode, RegisteredJob, RunType, Task
+from .models import Job, RegisteredJob, RunType, Task  # noqa: F401
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
@@ -229,91 +228,6 @@ async def test_run_job_with_existing_registration(orch_ctx):
     job = await run_job("existing_reg", "myapp.existing")
     assert job.registered_job_id == reg.id
     assert job.run_type == RunType.MANUAL
-
-
-# resolve_job_config precedence chain
-
-
-def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
-    )
-    resolved = resolve_job_config(PreservationMode.NONE, registered)
-    assert resolved is PreservationMode.NONE
-
-
-def test_resolve_registered_mode_wins_over_env(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "NONE")
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
-    )
-    resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
-
-
-def test_resolve_env_wins_when_no_registered_default(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
-    registered = RegisteredJob(id=1, name="x", entrypoint="foo")
-    resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
-
-
-def test_resolve_hardcoded_fallback(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    resolved = resolve_job_config(None, None)
-    assert resolved is PreservationMode.NONE
-
-
-# register_job with preservation_mode
-
-
-async def test_register_job_persists_preservation_mode(orch_ctx):
-    reg = await register_job(
-        name="full_job",
-        entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
-    )
-    assert reg.preservation_mode is PreservationMode.FULL
-
-    fetched = await get_registered_job("full_job")
-    assert fetched is not None
-    assert fetched.preservation_mode is PreservationMode.FULL
-
-
-# run_job inherits registered-job defaults
-
-
-async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    await register_job(
-        name="full_inherited",
-        entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
-    )
-    job = await run_job("full_inherited", "myapp.full_pipeline")
-    assert job.preservation_mode is PreservationMode.FULL
-
-
-async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    await register_job(
-        name="override_test",
-        entrypoint="myapp.foo",
-        preservation_mode=PreservationMode.FULL,
-    )
-    job = await run_job(
-        "override_test",
-        "myapp.foo",
-        preservation_mode=PreservationMode.NONE,
-    )
-    assert job.preservation_mode is PreservationMode.NONE
 
 
 # preserve list / "*" through register_job / upsert / run_job

@@ -7,8 +7,7 @@ from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
-from .env import get_default_preservation_mode
-from .models import Job, JobStatus, PreservationMode, Preserve, RegisteredJob, RunType, Task, TaskStatus
+from .models import Job, JobStatus, Preserve, RegisteredJob, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
@@ -45,31 +44,6 @@ def resolve_preserve(
     if chosen == "*":
         return "*"
     return list(chosen)
-
-
-def resolve_job_config(
-    explicit_mode: PreservationMode | None,
-    registered: RegisteredJob | None = None,
-) -> PreservationMode:
-    """Resolve ``preservation_mode`` for a job run.
-
-    Precedence (highest first):
-
-    1. Explicit ``explicit_mode`` argument
-    2. ``registered.preservation_mode``
-    3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var
-    4. ``PreservationMode.NONE`` (hardcoded fallback)
-
-    The explicit override is considered "set" when it's not ``None`` —
-    this lets callers pass ``None`` to mean "inherit from the next level".
-    """
-    mode = explicit_mode
-    if mode is None and registered is not None:
-        mode = registered.preservation_mode
-    if mode is None:
-        mode = get_default_preservation_mode()
-
-    return mode
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -200,7 +174,6 @@ async def create_job(
     *,
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
-    preservation_mode: PreservationMode | None = None,
     preserve: Preserve | _Unset = _UNSET,
     registered: RegisteredJob | None = None,
 ) -> Job:
@@ -211,7 +184,6 @@ async def create_job(
         entry: Callback string, callable function, or Task object
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
-        preservation_mode: Legacy preservation mode (kept until Phase 6).
         preserve: Names of tables that survive past the run, the literal
             ``"*"`` (preserve every ``j_<id>_*`` table), ``[]`` (explicitly
             preserve nothing), or ``None`` (inherit the registered default).
@@ -220,7 +192,6 @@ async def create_job(
     Returns:
         Job object with id populated after database commit
     """
-    mode = resolve_job_config(preservation_mode, registered)
     registered_preserve = registered.preserve if registered is not None else None
     resolved_preserve = resolve_preserve(explicit=preserve, registered=registered_preserve)
 
@@ -231,7 +202,6 @@ async def create_job(
         status=JobStatus.PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preservation_mode=mode,
         preserve=resolved_preserve,
         created_at=datetime.utcnow(),
     )

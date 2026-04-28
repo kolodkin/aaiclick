@@ -9,27 +9,19 @@ each INSERT's rows from interleaving with another worker's. In local mode
 prevents the race.
 
 The ``advisory_id`` is the 64-bit Snowflake stored on
-``table_context_refs.advisory_id`` and minted once per table_name by
-``OrchLifecycleHandler``'s INCREF handler. ``load_advisory_id(table_name)``
-looks it up from SQL (cached per-process by table_name).
+``table_registry.advisory_id`` and minted lazily by ``load_advisory_id``.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
 from .backend import is_distributed
 from .snowflake import get_snowflake_id
-
-# Sentinel context_id for "lock-only" registrations of persistent tables
-# (p_*) that bypass the regular incref/decref lifecycle. Real context IDs
-# are positive Snowflake values; a negative value cannot be produced by
-# any legitimate code path. The background cleanup query already excludes
-# p_* tables, so this row is inert.
-_LOCK_ONLY_CONTEXT_ID = -1
 
 # Per-process cache: table_name -> advisory_id. Safe because advisory_id
 # never changes for a table's lifetime; entries become stale only after the
@@ -42,8 +34,7 @@ async def lookup_advisory_id(session, table_name: str) -> int | None:
 
     In distributed mode, first acquires a transient
     ``pg_advisory_xact_lock(hashtext(table_name))`` so two concurrent callers
-    cannot bind different advisory_ids to the same table_name. The caller
-    decides how to handle None (mint + INSERT, sentinel, etc.).
+    cannot bind different advisory_ids to the same table_name.
     """
     if is_distributed():
         await session.execute(
@@ -52,25 +43,19 @@ async def lookup_advisory_id(session, table_name: str) -> int | None:
         )
     return (
         await session.execute(
-            text("SELECT advisory_id FROM table_context_refs WHERE table_name = :n LIMIT 1"),
+            text("SELECT advisory_id FROM table_registry WHERE table_name = :n"),
             {"n": table_name},
         )
     ).scalar_one_or_none()
 
 
 async def load_advisory_id(table_name: str) -> int | None:
-    """Return the advisory_id bound to ``table_name`` in table_context_refs.
+    """Return the advisory_id bound to ``table_name`` in ``table_registry``.
 
-    For tables registered through the regular incref path (temp ``t_*``
-    tables), the advisory_id is read directly. For persistent tables
-    (``p_*``) — which bypass incref — this function mints a fresh
-    advisory_id and inserts a sentinel row on first call.
-
-    Returns None only when there is no active orch_context (e.g. ad-hoc
-    operations outside the orchestration layer); the caller should treat
-    that as "no lock needed".
-
-    Cached per-process by table_name once read.
+    Mints + UPSERTs an advisory_id on first call for tables that don't yet
+    have one (e.g. ``p_*`` globals registered outside ``register_table``).
+    Returns None when no active orch_context — caller treats that as
+    "no lock needed". Cached per-process once read.
     """
     cached = _advisory_id_cache.get(table_name)
     if cached is not None:
@@ -86,24 +71,34 @@ async def load_advisory_id(table_name: str) -> int | None:
 
     async with get_sql_session() as session:
         existing = await lookup_advisory_id(session, table_name)
-
         if existing is not None:
             advisory_id = existing
         else:
             advisory_id = get_snowflake_id()
             await session.execute(
                 text(
-                    "INSERT INTO table_context_refs "
-                    "(table_name, context_id, advisory_id) "
-                    "VALUES (:n, :c, :a) "
-                    "ON CONFLICT (table_name, context_id) DO NOTHING"
+                    "INSERT INTO table_registry "
+                    "(table_name, advisory_id, created_at) "
+                    "VALUES (:n, :a, :now) "
+                    "ON CONFLICT (table_name) DO UPDATE "
+                    "SET advisory_id = COALESCE(table_registry.advisory_id, EXCLUDED.advisory_id)"
                 ),
-                {"n": table_name, "c": _LOCK_ONLY_CONTEXT_ID, "a": advisory_id},
+                {"n": table_name, "a": advisory_id, "now": _utcnow()},
             )
             await session.commit()
+            advisory_id = (
+                await session.execute(
+                    text("SELECT advisory_id FROM table_registry WHERE table_name = :n"),
+                    {"n": table_name},
+                )
+            ).scalar_one()
 
     _advisory_id_cache[table_name] = advisory_id
     return advisory_id
+
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @asynccontextmanager

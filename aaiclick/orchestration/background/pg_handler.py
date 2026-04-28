@@ -34,13 +34,6 @@ class PgBackgroundHandler(BackgroundHandler):
         )
 
     @staticmethod
-    async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
-        await session.execute(
-            text("DELETE FROM table_run_refs WHERE run_id = ANY(:run_ids)"),
-            {"run_ids": run_ids},
-        )
-
-    @staticmethod
     async def get_pending_cleanup_tasks(
         session: AsyncSession,
     ) -> list[PendingCleanupTask]:

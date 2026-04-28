@@ -17,7 +17,7 @@ from .jobs.stats import _short_entrypoint
 from .models import (
     Job,
     JobStatus,
-    PreservationMode,
+    Preserve,
     RegisteredJob,
     RunType,
     Task,
@@ -34,7 +34,7 @@ class JobView(BaseModel):
     name: str
     status: JobStatus
     run_type: RunType
-    preservation_mode: PreservationMode
+    preserve: Preserve = None
     registered_job_id: int | None = None
     created_at: datetime
     started_at: datetime | None = None
@@ -124,7 +124,7 @@ class RegisteredJobView(BaseModel):
     enabled: bool
     schedule: str | None = None
     default_kwargs: dict[str, Any] | None = None
-    preservation_mode: PreservationMode | None = None
+    preserve: Preserve = None
     next_run_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -142,7 +142,7 @@ def job_to_view(job: Job) -> JobView:
         name=job.name,
         status=job.status,
         run_type=job.run_type,
-        preservation_mode=job.preservation_mode,
+        preserve=job.preserve,
         registered_job_id=job.registered_job_id,
         created_at=job.created_at,
         started_at=job.started_at,
@@ -191,7 +191,7 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         name=job.name,
         status=job.status,
         run_type=job.run_type,
-        preservation_mode=job.preservation_mode,
+        preserve=job.preserve,
         registered_job_id=job.registered_job_id,
         created_at=job.created_at,
         started_at=job.started_at,
@@ -223,7 +223,7 @@ def registered_job_to_view(rj: RegisteredJob) -> RegisteredJobView:
         enabled=rj.enabled,
         schedule=rj.schedule,
         default_kwargs=rj.default_kwargs,
-        preservation_mode=rj.preservation_mode,
+        preserve=rj.preserve,
         next_run_at=rj.next_run_at,
         created_at=rj.created_at,
         updated_at=rj.updated_at,

@@ -38,8 +38,8 @@ from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake import get_snowflake_id
-from .factories import _UNSET, _callable_to_string, _Unset, resolve_job_config, resolve_preserve
-from .models import Group, Job, JobStatus, PreservationMode, Preserve, RunType, Task, TaskStatus
+from .factories import _UNSET, _callable_to_string, _Unset, resolve_preserve
+from .models import Group, Job, JobStatus, Preserve, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 
@@ -214,31 +214,19 @@ class JobFactory:
     async def __call__(
         self,
         *,
-        preservation_mode: PreservationMode | None = None,
         preserve: Preserve | _Unset = _UNSET,
         **kwargs,
     ) -> Job:
         """Create a Job with an entry point task.
 
-        Manages database context automatically — no need to wrap
-        in OrchContext externally.
-
         Args:
-            preservation_mode: Legacy preservation mode (kept until Phase 6).
             preserve: Names of tables that survive past the run, ``"*"``,
                 ``[]`` (preserve nothing), or ``None`` (no preserve).
             **kwargs: Arguments passed to the entry point task.
-
-        Returns:
-            Job: Created job with entry point task committed
         """
 
         async def _run() -> Job:
-            return await self._create_job(
-                preservation_mode=preservation_mode,
-                preserve=preserve,
-                **kwargs,
-            )
+            return await self._create_job(preserve=preserve, **kwargs)
 
         if _sql_engine_var.get() is not None:
             return await _run()
@@ -249,14 +237,11 @@ class JobFactory:
         self,
         run_type: RunType = RunType.MANUAL,
         registered_job_id: int | None = None,
-        preservation_mode: PreservationMode | None = None,
         preserve: Preserve | _Unset = _UNSET,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
-
-        mode = resolve_job_config(preservation_mode, registered=None)
         resolved_preserve = resolve_preserve(explicit=preserve, registered=None)
 
         job = Job(
@@ -265,7 +250,6 @@ class JobFactory:
             status=JobStatus.PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
-            preservation_mode=mode,
             preserve=resolved_preserve,
             created_at=datetime.utcnow(),
         )

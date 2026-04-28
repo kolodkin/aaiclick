@@ -70,53 +70,18 @@ class DBLifecycleMessage:
     flush_event: asyncio.Event | None = None  # signalled after FLUSH reaches here
 
 
-class TableContextRef(SQLModel, table=True):
-    """Registry of tracked ClickHouse tables.
-
-    Composite PK (table_name, context_id) allows multiple contexts to
-    register the same table independently.
-
-    advisory_id is a 64-bit Snowflake ID used as the pg_advisory_lock key
-    that serializes concurrent inserts into the same shared CH table in
-    distributed mode.  All rows sharing the same table_name MUST carry the
-    same advisory_id; the invariant is enforced in OrchLifecycleHandler's
-    INCREF handler, not in the DB schema.
-    """
-
-    __tablename__: ClassVar[str] = "table_context_refs"
-
-    table_name: str = Field(sa_column=Column(String, primary_key=True))
-    context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    advisory_id: int = Field(sa_column=Column(BigInteger, nullable=False))
-
-
 class TablePinRef(SQLModel, table=True):
-    """Junction table: which consumer tasks hold a pin on which tables.
+    """One row per downstream consumer task that holds a pin on a table.
 
-    Producer inserts one row per downstream consumer task. Each consumer
-    deletes its own row during deserialization (after incref commits the
-    run_ref). Table is droppable when no pin_refs AND no run_refs remain.
+    Producer inserts one row per consumer; each consumer deletes its own
+    row during deserialization. Table is droppable at job completion or
+    via the orphan-scratch sweep once all pin_refs are gone.
     """
 
     __tablename__: ClassVar[str] = "table_pin_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     task_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-
-
-class TableRunRef(SQLModel, table=True):
-    """Junction table: which run_ids hold a reference to which tables.
-
-    incref inserts a row; decref deletes it.  clean_task_run deletes all
-    rows for a given run_id (crash recovery).  When no rows remain for a
-    table (and no pin in table_context_refs), the background worker drops
-    the ClickHouse table.
-    """
-
-    __tablename__: ClassVar[str] = "table_run_refs"
-
-    table_name: str = Field(sa_column=Column(String, primary_key=True))
-    run_id: str = Field(sa_column=Column(String, primary_key=True))
 
 
 class TaskNameLock(SQLModel, table=True):
@@ -220,6 +185,7 @@ class TableRegistry(SQLModel, table=True):
     job_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True))
     task_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     run_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
+    advisory_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime, nullable=False, index=True),

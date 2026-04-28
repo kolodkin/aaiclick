@@ -47,5 +47,5 @@ from .jobs import (
     print_job_stats,
     resolve_job,
 )
-from .models import JobStatus, PreservationMode, TaskStatus
+from .models import JobStatus, TaskStatus
 # fmt: on

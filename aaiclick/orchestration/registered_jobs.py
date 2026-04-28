@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
 from .factories import _UNSET, _Unset, create_job, create_task, resolve_preserve
-from .models import Job, PreservationMode, Preserve, RegisteredJob, RunType
+from .models import Job, Preserve, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 
@@ -48,7 +48,6 @@ async def register_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: PreservationMode | None = None,
     preserve: Preserve = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
@@ -59,12 +58,8 @@ async def register_job(
         schedule: Cron expression for scheduled runs (optional)
         default_kwargs: Default kwargs for scheduled runs (optional)
         enabled: Whether the job is enabled (default: True)
-        preservation_mode: Legacy preservation mode (kept until Phase 6).
         preserve: Default preserve declaration for every run; individual
             runs override via ``run_job(..., preserve=...)``.
-
-    Returns:
-        Created RegisteredJob
 
     Raises:
         RegisteredJobAlreadyExists: If a job with this name already exists.
@@ -77,7 +72,6 @@ async def register_job(
         enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
-        preservation_mode=preservation_mode,
         preserve=resolve_preserve(explicit=preserve, registered=None),
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
@@ -117,14 +111,12 @@ async def upsert_registered_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: PreservationMode | None = None,
     preserve: Preserve = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preservation_mode, preserve, and enabled.
-    Otherwise creates a new entry.
+    default_kwargs, preserve, and enabled. Otherwise creates a new entry.
     """
     now = datetime.utcnow()
     normalized_preserve = resolve_preserve(explicit=preserve, registered=None)
@@ -137,7 +129,6 @@ async def upsert_registered_job(
             existing.entrypoint = entrypoint
             existing.schedule = schedule
             existing.default_kwargs = default_kwargs
-            existing.preservation_mode = preservation_mode
             existing.preserve = normalized_preserve
             existing.enabled = enabled
             existing.updated_at = now
@@ -154,7 +145,6 @@ async def upsert_registered_job(
             enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
-            preservation_mode=preservation_mode,
             preserve=normalized_preserve,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
@@ -248,7 +238,6 @@ async def run_job(
     *,
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RunType.MANUAL,
-    preservation_mode: PreservationMode | None = None,
     preserve: Preserve | _Unset = _UNSET,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
@@ -261,13 +250,9 @@ async def run_job(
         entrypoint: Python dotted path
         kwargs: Override parameters (merged over default_kwargs)
         run_type: How the job was triggered (default: MANUAL)
-        preservation_mode: Legacy preservation mode (kept until Phase 6).
         preserve: Override the registered preserve default. Omit (or pass
             the sentinel) to inherit; pass ``[]`` to explicitly preserve
             nothing.
-
-    Returns:
-        Created Job
     """
     registered = await get_registered_job(name)
     if registered is None:
@@ -281,7 +266,6 @@ async def run_job(
         entry=task,
         run_type=run_type,
         registered_job_id=registered.id,
-        preservation_mode=preservation_mode,
         preserve=preserve,
         registered=registered,
     )

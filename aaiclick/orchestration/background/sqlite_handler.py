@@ -37,14 +37,6 @@ class SqliteBackgroundHandler(BackgroundHandler):
         )
 
     @staticmethod
-    async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
-        placeholders, params = in_clause(run_ids, "rid")
-        await session.execute(
-            text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
-            params,
-        )
-
-    @staticmethod
     async def get_pending_cleanup_tasks(
         session: AsyncSession,
     ) -> list[PendingCleanupTask]:

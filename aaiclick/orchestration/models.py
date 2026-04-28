@@ -92,19 +92,6 @@ class WorkerStatus(StrEnum):
     STOPPED = "STOPPED"
 
 
-class PreservationMode(StrEnum):
-    """Which tables survive after a job completes.
-
-    - ``NONE``: persistent tables only (default) — intermediate tables are
-      dropped as soon as their refs fall to zero.
-    - ``FULL``: every table the job produced stays until the job TTL expires,
-      useful for development and debugging.
-    """
-
-    NONE = "NONE"
-    FULL = "FULL"
-
-
 class RegisteredJob(SQLModel, table=True):
     """
     RegisteredJob model - catalog of known jobs.
@@ -123,7 +110,6 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    preservation_mode: PreservationMode | None = Field(default=None)
     preserve: Preserve = Field(
         default=None,
         sa_column=Column(JSON, nullable=True),
@@ -149,10 +135,6 @@ class Job(SQLModel, table=True):
     registered_job_id: int | None = Field(
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
-    )
-    preservation_mode: PreservationMode = Field(
-        default=PreservationMode.NONE,
-        sa_column_kwargs={"server_default": PreservationMode.NONE.value, "nullable": False},
     )
     preserve: Preserve = Field(
         default=None,

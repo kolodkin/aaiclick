@@ -399,9 +399,8 @@ async def orch_ctx(orch_module_ctx):
     """Per-test state reset + synthetic task_scope on top of the module-scoped
     chdb orch context.
 
-    The task_scope activates OrchLifecycleHandler so ``create_object`` can
-    write to ``table_registry.schema_doc`` — required by Phase 2's
-    registry-backed ``_get_table_schema`` read path.
+    The task_scope activates a TaskLifecycleHandler so ``create_object`` can
+    write to ``table_registry.schema_doc``.
     """
     await per_test_reset(reset_ch=True, reset_sql=True)
     synthetic_id = get_snowflake_id()
