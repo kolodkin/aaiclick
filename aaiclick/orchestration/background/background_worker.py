@@ -184,61 +184,13 @@ class BackgroundWorker:
             await session.commit()
 
     async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no pin refs and no run refs.
+        """No-op; scheduled for removal in Phase 6 of the lifecycle simplification.
 
-        Each consumer task has its own pin_ref row (created by producer
-        fan-out, removed by consumer's unpin during deserialization).
-        A table is eligible when all consumers have unpinned AND no
-        run_refs remain.
-
-        Joins table_registry and jobs in a single SQL query to skip
-        FULL-preservation jobs in-database. Owner metadata flows through
-        to lineage_aware_drop so any sample tables it creates inherit
-        the job_id and get cleaned up when the job expires.
+        Phase 1 of the lifecycle simplification dropped table_run_refs and
+        table_context_refs, which this method queried. The poll loop still
+        invokes it; Phase 6 deletes both the call site and the method.
         """
-        async with AsyncSession(self._engine) as session:
-            result = await session.execute(
-                text(
-                    "SELECT DISTINCT tcr.table_name, tr.job_id, tr.task_id, tr.run_id "
-                    "FROM table_context_refs tcr "
-                    "LEFT JOIN table_registry tr ON tr.table_name = tcr.table_name "
-                    "LEFT JOIN jobs j ON j.id = tr.job_id "
-                    "WHERE tcr.table_name NOT LIKE 'p\\_%' ESCAPE '\\' "
-                    "AND tcr.table_name NOT LIKE 'j\\_%' ESCAPE '\\' "
-                    "AND NOT EXISTS ("
-                    "  SELECT 1 FROM table_pin_refs tpr "
-                    "  WHERE tpr.table_name = tcr.table_name"
-                    ") "
-                    "AND NOT EXISTS ("
-                    "  SELECT 1 FROM table_run_refs trr "
-                    "  WHERE trr.table_name = tcr.table_name"
-                    ") "
-                    "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode)"
-                ),
-                {"full_mode": PreservationMode.FULL.value},
-            )
-            rows = result.fetchall()
-            if not rows:
-                return
-
-            dropped_tables: list[str] = []
-            for table_name, job_id, task_id, run_id in rows:
-                owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
-                try:
-                    await lineage_aware_drop(self._ch_client, table_name, owner=owner)
-                except Exception:
-                    logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                dropped_tables.append(table_name)
-
-            if dropped_tables:
-                await _delete_table_refs(session, dropped_tables)
-                ph, params = in_clause(dropped_tables, "tn")
-                await session.execute(
-                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
-                    params,
-                )
-
-            await session.commit()
+        return
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
         """Look up ownership metadata from table_registry for a list of table names."""

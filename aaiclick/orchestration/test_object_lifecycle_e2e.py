@@ -8,8 +8,16 @@ audit trail matches expectations.
 from typing import NamedTuple
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import event, text
 from sqlmodel import select
+
+pytestmark = pytest.mark.skip(
+    reason="Refcount-based per-consumer pin lifecycle is being removed in "
+    "lifecycle simplification Phase 6; _cleanup_unreferenced_tables is a "
+    "no-op as of Phase 1, so the post-cleanup assertions in this module no "
+    "longer hold. Replaced by Phase 4/5 task_scope and BackgroundWorker tests.",
+)
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object

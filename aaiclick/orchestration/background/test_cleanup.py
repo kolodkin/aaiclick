@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,11 @@ from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHan
 
 from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref, insert_table_registry
 
+_OBSOLETE = pytest.mark.skip(
+    reason="Refcount-based cleanup is being removed in lifecycle simplification "
+    "Phase 6; _cleanup_unreferenced_tables is a no-op as of Phase 1.",
+)
+
 
 async def _get_context_tables(engine):
     async with AsyncSession(engine) as session:
@@ -26,6 +32,7 @@ async def _get_context_tables(engine):
         return {row[0] for row in result.fetchall()}
 
 
+@_OBSOLETE
 async def test_cleanup_skips_pinned_tables(bg_db):
     """Tables with a pin_ref are NOT dropped even when no run refs exist."""
     await insert_context_ref(bg_db, "t_unpinned", 100)
@@ -44,6 +51,7 @@ async def test_cleanup_skips_pinned_tables(bg_db):
     assert "t_unpinned" not in remaining, "Unpinned table was not cleaned up"
 
 
+@_OBSOLETE
 async def test_cleanup_skips_tables_with_active_runs(bg_db):
     """Tables with run refs in table_run_refs are NOT dropped."""
     await insert_context_ref(bg_db, "t_active", 100)
@@ -95,6 +103,7 @@ async def test_clean_task_runs_batch_removes_multiple_run_ids(bg_db):
     assert await get_run_refs(bg_db, "t3") == {"run_3"}
 
 
+@_OBSOLETE
 async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     """After clean_task_run removes run refs, cleanup drops the table."""
     await insert_context_ref(bg_db, "t_orphan", 100)
@@ -132,6 +141,7 @@ async def _insert_job(engine, job_id: int, mode: str) -> None:
         await session.commit()
 
 
+@_OBSOLETE
 async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await _insert_job(bg_db, 777, "FULL")
@@ -151,6 +161,7 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     worker._ch_client.command.assert_not_called()
 
 
+@_OBSOLETE
 async def test_cleanup_none_mode_drops(bg_db):
     """Tables belonging to a NONE-mode job are dropped as normal."""
     await _insert_job(bg_db, 888, "NONE")
@@ -168,6 +179,7 @@ async def test_cleanup_none_mode_drops(bg_db):
     assert "t_none" not in remaining
 
 
+@_OBSOLETE
 async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     """``p_*`` and ``j_<id>_*`` tables are exempt from refcount-based cleanup."""
     await insert_context_ref(bg_db, "p_user_catalog", 100)
