@@ -6,9 +6,10 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
+from aaiclick.orchestration.models import Job, JobStatus, RegisteredJob, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
+from aaiclick.snowflake import get_snowflake_id
 
 
 async def test_create_task_unique_ids(orch_ctx):
@@ -93,6 +94,65 @@ async def test_job_task_relationship(orch_ctx):
         tasks = result.scalars().all()
         assert len(tasks) == 1
         assert tasks[0].job_id == job.id
+
+
+async def test_create_job_persists_explicit_preserve(orch_ctx):
+    job = await create_job("preserve_explicit", "mymodule.task1", preserve=["foo", "bar"])
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == ["foo", "bar"]
+
+
+async def test_create_job_uses_registered_preserve_default(orch_ctx):
+    registered = RegisteredJob(
+        id=get_snowflake_id(),
+        name="preserve_default_reg",
+        entrypoint="mymodule.task1",
+        preserve=["default_table"],
+    )
+    async with get_sql_session() as session:
+        session.add(registered)
+        await session.commit()
+        await session.refresh(registered)
+
+    job = await create_job(
+        "preserve_default_run",
+        "mymodule.task1",
+        registered=registered,
+    )
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == ["default_table"]
+
+
+async def test_create_job_explicit_overrides_registered(orch_ctx):
+    registered = RegisteredJob(
+        id=get_snowflake_id(),
+        name="preserve_override_reg",
+        entrypoint="mymodule.task1",
+        preserve=["from_registered"],
+    )
+    async with get_sql_session() as session:
+        session.add(registered)
+        await session.commit()
+        await session.refresh(registered)
+
+    job = await create_job(
+        "preserve_override_run",
+        "mymodule.task1",
+        registered=registered,
+        preserve=["from_explicit"],
+    )
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == ["from_explicit"]
+
+
+async def test_create_job_preserve_star(orch_ctx):
+    job = await create_job("preserve_star", "mymodule.task1", preserve="*")
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == "*"
 
 
 def test_data_list_single(orch_ctx):

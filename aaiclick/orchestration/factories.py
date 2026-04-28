@@ -202,6 +202,7 @@ async def create_job(
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
+    preserve: Preserve | object = _UNSET,
     registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
@@ -211,29 +212,18 @@ async def create_job(
         entry: Callback string, callable function, or Task object
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
-        preservation_mode: Which tables survive after the job completes.
-            Overrides the registered job's default; falls through to the
-            ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
-            ``PreservationMode.NONE``.
-        registered: Optional ``RegisteredJob`` to source level-2 defaults
-            from. When supplied, ``registered.preservation_mode`` becomes
-            the fallback value.
+        preservation_mode: Legacy preservation mode (kept until Phase 6).
+        preserve: Names of tables that survive past the run, the literal
+            ``"*"`` (preserve every ``j_<id>_*`` table), ``[]`` (explicitly
+            preserve nothing), or ``None`` (inherit the registered default).
+        registered: Optional ``RegisteredJob`` to source defaults from.
 
     Returns:
         Job object with id populated after database commit
-
-    Example:
-        # Using callback string
-        job = await create_job("my_job", "mymodule.task1")
-
-        # Using callable function
-        job = await create_job("my_job", my_function)
-
-        # Using Task object
-        task = create_task("mymodule.task1", {"param": "value"})
-        job = await create_job("my_job", task)
     """
     mode = resolve_job_config(preservation_mode, registered)
+    registered_preserve = registered.preserve if registered is not None else None
+    resolved_preserve = resolve_preserve(explicit=preserve, registered=registered_preserve)
 
     job_id = get_snowflake_id()
     job = Job(
@@ -243,6 +233,7 @@ async def create_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,
+        preserve=resolved_preserve,
         created_at=datetime.utcnow(),
     )
 
