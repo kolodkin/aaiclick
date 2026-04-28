@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import select
 
 from .factories import resolve_job_config
-from .models import PreservationMode, RegisteredJob, RunType, Task
+from .models import Job, PreservationMode, RegisteredJob, RunType, Task
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
@@ -314,3 +314,72 @@ async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
         preservation_mode=PreservationMode.NONE,
     )
     assert job.preservation_mode is PreservationMode.NONE
+
+
+# preserve list / "*" through register_job / upsert / run_job
+
+
+async def test_register_job_stores_preserve_list(orch_ctx):
+    await register_job(
+        name="preserve_list_reg",
+        entrypoint="myapp.task",
+        preserve=["a", "b"],
+    )
+    fetched = await get_registered_job("preserve_list_reg")
+    assert fetched is not None
+    assert fetched.preserve == ["a", "b"]
+
+
+async def test_register_job_stores_preserve_star(orch_ctx):
+    await register_job(
+        name="preserve_star_reg",
+        entrypoint="myapp.task",
+        preserve="*",
+    )
+    fetched = await get_registered_job("preserve_star_reg")
+    assert fetched is not None
+    assert fetched.preserve == "*"
+
+
+async def test_upsert_updates_preserve(orch_ctx):
+    await upsert_registered_job(
+        name="upsert_pres",
+        entrypoint="myapp.task",
+        preserve=["a"],
+    )
+    await upsert_registered_job(
+        name="upsert_pres",
+        entrypoint="myapp.task",
+        preserve=["a", "b"],
+    )
+    fetched = await get_registered_job("upsert_pres")
+    assert fetched is not None
+    assert fetched.preserve == ["a", "b"]
+
+
+async def test_run_job_inherits_registered_preserve(orch_ctx):
+    await register_job(
+        name="run_inherits_preserve",
+        entrypoint="myapp.task",
+        preserve=["x"],
+    )
+    job = await run_job("run_inherits_preserve", "myapp.task")
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == ["x"]
+
+
+async def test_run_job_explicit_preserve_overrides(orch_ctx):
+    await register_job(
+        name="run_override_preserve",
+        entrypoint="myapp.task",
+        preserve=["from_registered"],
+    )
+    job = await run_job(
+        "run_override_preserve",
+        "myapp.task",
+        preserve=["from_explicit"],
+    )
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve == ["from_explicit"]
