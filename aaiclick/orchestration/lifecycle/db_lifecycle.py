@@ -16,7 +16,7 @@ from typing import ClassVar
 
 from sqlalchemy import BigInteger, Column, DateTime, String, Text, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Field, SQLModel, select
+from sqlmodel import Field, SQLModel, col, select
 
 from aaiclick.orchestration.models import LIVE_TASK_STATUSES, Task
 
@@ -144,9 +144,7 @@ class TableNameCollision(ValueError):
     def __init__(self, name: str, held_by_task_id: int):
         self.name = name
         self.held_by_task_id = held_by_task_id
-        super().__init__(
-            f"non-preserved table name {name!r} is held by live task id={held_by_task_id}"
-        )
+        super().__init__(f"non-preserved table name {name!r} is held by live task id={held_by_task_id}")
 
 
 async def acquire_task_name_lock(
@@ -192,21 +190,15 @@ async def acquire_task_name_lock(
     raise TableNameCollision(name=name, held_by_task_id=holder_id)
 
 
-async def release_task_name_locks_for_task(
-    session: AsyncSession, *, task_id: int
-) -> None:
+async def release_task_name_locks_for_task(session: AsyncSession, *, task_id: int) -> None:
     """Drop every lock held by ``task_id``."""
-    await session.execute(
-        delete(TaskNameLock).where(TaskNameLock.task_id == task_id)
-    )
+    await session.execute(delete(TaskNameLock).where(TaskNameLock.task_id == task_id))
 
 
 async def release_task_name_locks_for_dead_tasks(session: AsyncSession) -> None:
     """Drop locks whose holding task is no longer in a live status."""
-    live_task_ids = select(Task.id).where(Task.status.in_(LIVE_TASK_STATUSES))
-    await session.execute(
-        delete(TaskNameLock).where(TaskNameLock.task_id.notin_(live_task_ids))
-    )
+    live_task_ids = select(Task.id).where(col(Task.status).in_(LIVE_TASK_STATUSES))
+    await session.execute(delete(TaskNameLock).where(col(TaskNameLock.task_id).notin_(live_task_ids)))
 
 
 class TableRegistry(SQLModel, table=True):

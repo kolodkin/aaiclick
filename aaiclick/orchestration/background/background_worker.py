@@ -30,7 +30,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
+from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url

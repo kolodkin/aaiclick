@@ -8,9 +8,10 @@ from pathlib import Path
 from aaiclick.snowflake import get_snowflake_id
 
 from .env import get_default_preservation_mode
-from .models import Job, JobStatus, Preserve, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .models import Job, JobStatus, PreservationMode, Preserve, RegisteredJob, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
+
 
 class _Unset:
     """Sentinel type for ``preserve=`` kwargs that distinguish "not supplied"
@@ -37,9 +38,7 @@ def resolve_preserve(
             raise TypeError("preserve list must contain only str")
         chosen = explicit
     else:
-        raise TypeError(
-            f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}"
-        )
+        raise TypeError(f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}")
 
     if chosen is None:
         return None

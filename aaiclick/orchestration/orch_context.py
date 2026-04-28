@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_postgres
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
-from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
+from aaiclick.data.data_context.data_context import _engine_var, _objects_var
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id

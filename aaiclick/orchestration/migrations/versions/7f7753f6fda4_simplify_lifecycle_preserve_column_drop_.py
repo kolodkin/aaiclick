@@ -5,11 +5,11 @@ Revises: 161cfe0f1117
 Create Date: 2026-04-28 06:39:25.105739
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-
 
 # revision identifiers, used by Alembic.
 revision: str = "7f7753f6fda4"
@@ -26,12 +26,8 @@ def upgrade() -> None:
 
     # 2. Backfill preserve from preservation_mode where the column exists.
     #    NONE -> NULL (default already), FULL -> '"*"'.
-    op.execute(
-        "UPDATE jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'"
-    )
-    op.execute(
-        "UPDATE registered_jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'"
-    )
+    op.execute("UPDATE jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'")
+    op.execute("UPDATE registered_jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'")
 
     # 3. Drop preservation_mode columns and the Postgres enum type
     op.drop_column("jobs", "preservation_mode")
@@ -115,32 +111,22 @@ def downgrade() -> None:
 
     # 2. Backfill preservation_mode from preserve. Only "*" round-trips to FULL;
     #    list values cannot be expressed and trigger an explicit failure.
-    op.execute(
-        "UPDATE jobs SET preservation_mode = 'FULL' WHERE preserve = '\"*\"'"
-    )
-    op.execute(
-        "UPDATE registered_jobs SET preservation_mode = 'FULL' WHERE preserve = '\"*\"'"
-    )
+    op.execute("UPDATE jobs SET preservation_mode = 'FULL' WHERE preserve = '\"*\"'")
+    op.execute("UPDATE registered_jobs SET preservation_mode = 'FULL' WHERE preserve = '\"*\"'")
 
     bind = op.get_bind()
     bad_jobs = bind.execute(
-        sa.text(
-            "SELECT id, preserve FROM jobs WHERE preserve IS NOT NULL AND preserve <> '\"*\"'"
-        )
+        sa.text("SELECT id, preserve FROM jobs WHERE preserve IS NOT NULL AND preserve <> '\"*\"'")
     ).fetchall()
     if bad_jobs:
         raise RuntimeError(
             f"Cannot downgrade: jobs have list-shaped preserve values that don't map to PreservationMode: {bad_jobs!r}"
         )
     bad_reg = bind.execute(
-        sa.text(
-            "SELECT id, preserve FROM registered_jobs WHERE preserve IS NOT NULL AND preserve <> '\"*\"'"
-        )
+        sa.text("SELECT id, preserve FROM registered_jobs WHERE preserve IS NOT NULL AND preserve <> '\"*\"'")
     ).fetchall()
     if bad_reg:
-        raise RuntimeError(
-            f"Cannot downgrade: registered_jobs have list-shaped preserve values: {bad_reg!r}"
-        )
+        raise RuntimeError(f"Cannot downgrade: registered_jobs have list-shaped preserve values: {bad_reg!r}")
 
     # 1. Drop preserve columns
     op.drop_column("jobs", "preserve")

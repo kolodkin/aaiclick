@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from aaiclick.data.data_context.ch_client import ChClient, get_ch_client
+from aaiclick.data.data_context.ch_client import ChClient
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, TrackedTable
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS
 
@@ -105,9 +105,7 @@ class TaskLifecycleHandler(LifecycleHandler):
 
     async def acquire_named_table_lock(self, name: str) -> None:
         async with get_sql_session() as session:
-            await acquire_task_name_lock(
-                session, job_id=self._job_id, name=name, task_id=self._task_id
-            )
+            await acquire_task_name_lock(session, job_id=self._job_id, name=name, task_id=self._task_id)
             await session.commit()
 
     def incref(self, table_name: str) -> None:
@@ -284,10 +282,7 @@ class TaskLifecycleHandler(LifecycleHandler):
             elif msg.op == DBLifecycleOp.UNPIN:
                 async with get_sql_session() as session:
                     await session.execute(
-                        text(
-                            "DELETE FROM table_pin_refs "
-                            "WHERE table_name = :table_name AND task_id = :task_id"
-                        ),
+                        text("DELETE FROM table_pin_refs WHERE table_name = :table_name AND task_id = :task_id"),
                         {"table_name": msg.table_name, "task_id": msg.pin_task_id},
                     )
                     await session.commit()
