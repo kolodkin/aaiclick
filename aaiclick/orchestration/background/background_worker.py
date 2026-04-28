@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import warnings
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -31,12 +30,13 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.data.scope import parse_job_table
 from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url
 from ..lifecycle.db_lifecycle import release_task_name_locks_for_dead_tasks
-from ..models import JobStatus, TaskStatus
+from ..models import LIVE_TASK_STATUSES, JobStatus, TaskStatus
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -50,20 +50,13 @@ DEFAULT_WORKER_TIMEOUT = 90.0
 
 _REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
 
-_JOB_TABLE_RE = re.compile(r"^j_(\d+)_(.+)$")
-
 
 def _parse_preserve(raw: Any) -> Any:
     """Decode a ``Job.preserve`` cell.
 
-    Postgres' JSON column returns python-deserialized values directly.
-    SQLite stores JSON as TEXT, so a raw cursor query returns the stored
-    string and we must ``json.loads`` it. Distinguish by trying the JSON
-    decode and falling through if it's already a list / dict / None.
+    Postgres returns python-deserialized JSON; SQLite returns the raw TEXT.
     """
-    if raw is None:
-        return None
-    if isinstance(raw, (list, dict)):
+    if raw is None or isinstance(raw, (list, dict)):
         return raw
     if isinstance(raw, str):
         if raw == "":
@@ -76,21 +69,19 @@ def _parse_preserve(raw: Any) -> Any:
 
 
 def _is_preserved(table_name: str, job_id: int | None, preserve: Any) -> bool:
-    """Return True when ``table_name`` is a ``j_<job_id>_<name>`` table whose
-    bare name appears in the job's ``preserve`` declaration (or ``preserve == "*"``)."""
+    """``True`` when ``table_name`` is a ``j_<job_id>_<name>`` table whose
+    bare name is in the owning job's ``preserve`` (or ``preserve == "*"``)."""
     if preserve is None or job_id is None:
         return False
-    match = _JOB_TABLE_RE.match(table_name)
-    if match is None:
+    parsed = parse_job_table(table_name)
+    if parsed is None:
         return False
-    table_job_id = int(match.group(1))
+    table_job_id, suffix = parsed
     if table_job_id != job_id:
         return False
     if preserve == "*":
         return True
-    if isinstance(preserve, list):
-        return match.group(2) in preserve
-    return False
+    return isinstance(preserve, list) and suffix in preserve
 
 
 async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> None:
@@ -230,22 +221,24 @@ class BackgroundWorker:
 
             # Run post-completion cleanup for any job that just transitioned
             # to a terminal status. try_complete_job is a no-op while tasks
-            # are still running, so we re-query rather than cleanup blindly.
-            for job_id in failed_job_ids:
+            # are still running, so re-query in one batched call.
+            if failed_job_ids:
                 async with AsyncSession(self._engine) as check:
-                    status_row = (
+                    ph, params = in_clause(list(failed_job_ids), "jid")
+                    terminal_statuses = (
+                        JobStatus.COMPLETED.value,
+                        JobStatus.FAILED.value,
+                        JobStatus.CANCELLED.value,
+                    )
+                    st_ph, st_params = in_clause(list(terminal_statuses), "st")
+                    rows = (
                         await check.execute(
-                            text("SELECT status FROM jobs WHERE id = :id"),
-                            {"id": job_id},
+                            text(f"SELECT id FROM jobs WHERE id IN ({ph}) AND status IN ({st_ph})"),
+                            {**params, **st_params},
                         )
-                    ).first()
-                if status_row is None:
-                    continue
-                if status_row[0] in (
-                    JobStatus.COMPLETED.value,
-                    JobStatus.FAILED.value,
-                    JobStatus.CANCELLED.value,
-                ):
+                    ).fetchall()
+                    completed_ids = [row[0] for row in rows]
+                for job_id in completed_ids:
                     await self._cleanup_at_job_completion(job_id=job_id)
 
     async def _cleanup_unreferenced_tables(self) -> None:
@@ -390,10 +383,11 @@ class BackgroundWorker:
             if not task_ids:
                 return
             tid_ph, tid_params = in_clause(list(task_ids), "tid")
+            ls_ph, ls_params = in_clause([s.value for s in LIVE_TASK_STATUSES], "ls")
             live = (
                 await session.execute(
-                    text(f"SELECT id FROM tasks WHERE id IN ({tid_ph}) AND status IN ('PENDING','CLAIMED','RUNNING')"),
-                    tid_params,
+                    text(f"SELECT id FROM tasks WHERE id IN ({tid_ph}) AND status IN ({ls_ph})"),
+                    {**tid_params, **ls_params},
                 )
             ).fetchall()
             live_ids = {row[0] for row in live}
