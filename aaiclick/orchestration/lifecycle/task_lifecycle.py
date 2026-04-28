@@ -30,6 +30,7 @@ from sqlalchemy import text
 from aaiclick.data.data_context.ch_client import ChClient
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, TrackedTable
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS
+from aaiclick.snowflake import get_snowflake_id
 
 from ..models import Preserve
 from ..sql_context import get_sql_session
@@ -146,7 +147,6 @@ class TaskLifecycleHandler(LifecycleHandler):
                     table_name=table_name,
                     task_id=self._task_id,
                     job_id=self._job_id,
-                    run_id=self._run_id,
                     schema_doc=schema_doc,
                 ),
             )
@@ -230,21 +230,24 @@ class TaskLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
 
     async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
+        """Insert a registry row, minting the advisory_id eagerly so that
+        ``aaiclick.locks.load_advisory_id`` never has to perform a lazy
+        UPDATE under the per-table xact lock."""
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         try:
             async with get_sql_session() as session:
                 await session.execute(
                     text(
                         "INSERT INTO table_registry "
-                        "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
-                        "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
+                        "(table_name, job_id, task_id, advisory_id, created_at, schema_doc) "
+                        "VALUES (:table_name, :job_id, :task_id, :advisory_id, :created_at, :schema_doc) "
                         "ON CONFLICT (table_name) DO NOTHING"
                     ),
                     {
                         "table_name": p.table_name,
                         "job_id": p.job_id,
                         "task_id": p.task_id,
-                        "run_id": p.run_id,
+                        "advisory_id": get_snowflake_id(),
                         "created_at": now,
                         "schema_doc": p.schema_doc,
                     },

@@ -18,7 +18,6 @@ class TableOwner(NamedTuple):
 
     job_id: int | None = None
     task_id: int | None = None
-    run_id: int | None = None
 
 
 async def lineage_aware_drop(

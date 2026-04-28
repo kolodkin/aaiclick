@@ -1,9 +1,10 @@
 """
-aaiclick.orchestration.db_lifecycle - Database models for distributed lifecycle tracking.
+aaiclick.orchestration.db_lifecycle — SQL models and helpers for the task lifecycle.
 
-DBLifecycleOp, DBLifecycleMessage, and TableContextRef define the data structures
-used by OrchLifecycleHandler (in context.py) for distributed table reference counting
-and oplog recording.
+DBLifecycleOp / DBLifecycleMessage drive TaskLifecycleHandler's queue.
+TablePinRef tracks downstream consumer pins; TableNameLock coordinates
+non-preserved named tables across concurrent tasks. TableRegistry is the
+ownership map every cleanup path joins on.
 """
 
 from __future__ import annotations
@@ -54,7 +55,6 @@ class OplogTablePayload:
     table_name: str
     task_id: int | None = None
     job_id: int | None = None
-    run_id: int | None = None
     schema_doc: str | None = None
 
 
@@ -184,7 +184,6 @@ class TableRegistry(SQLModel, table=True):
     table_name: str = Field(sa_column=Column(String, primary_key=True))
     job_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True))
     task_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
-    run_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     advisory_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

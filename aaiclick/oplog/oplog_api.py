@@ -3,7 +3,7 @@ aaiclick.oplog.oplog_api - Oplog recording via the lifecycle handler.
 
 Module-level functions delegate to the active LifecycleHandler.
 In local mode (data_context), the handler's oplog methods are no-ops.
-In orchestration mode (task_scope), OrchLifecycleHandler enqueues
+In orchestration mode (task_scope), TaskLifecycleHandler enqueues
 messages on the same FIFO queue as incref/decref.
 """
 

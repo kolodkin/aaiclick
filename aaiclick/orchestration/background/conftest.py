@@ -85,18 +85,17 @@ async def insert_pin_ref(engine, table_name, task_id):
         await session.commit()
 
 
-async def insert_table_registry(engine, table_name, job_id=None, task_id=None, run_id=None, schema_doc=None):
+async def insert_table_registry(engine, table_name, job_id=None, task_id=None, schema_doc=None):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO table_registry (table_name, job_id, task_id, run_id, created_at, schema_doc) "
-                "VALUES (:tn, :jid, :tid, :rid, :now, :sd)"
+                "INSERT INTO table_registry (table_name, job_id, task_id, created_at, schema_doc) "
+                "VALUES (:tn, :jid, :tid, :now, :sd)"
             ),
             {
                 "tn": table_name,
                 "jid": job_id,
                 "tid": task_id,
-                "rid": run_id,
                 "now": datetime.utcnow(),
                 "sd": schema_doc,
             },

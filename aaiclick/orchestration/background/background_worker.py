@@ -416,10 +416,10 @@ class BackgroundWorker:
         async with AsyncSession(self._engine) as session:
             ph, params = in_clause(table_names, "tn")
             result = await session.execute(
-                text(f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({ph})"),
+                text(f"SELECT table_name, job_id, task_id FROM table_registry WHERE table_name IN ({ph})"),
                 params,
             )
-            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.fetchall()}
+            return {row[0]: TableOwner(job_id=row[1], task_id=row[2]) for row in result.fetchall()}
 
     async def _cleanup_expired_jobs(self) -> None:
         """Delete all data for expired jobs and orphaned resources.

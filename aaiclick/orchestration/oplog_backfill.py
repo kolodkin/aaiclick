@@ -61,9 +61,7 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
             return
 
         try:
-            ch_rows = await ch_client.query(
-                "SELECT table_name, job_id, task_id, run_id, created_at FROM table_registry"
-            )
+            ch_rows = await ch_client.query("SELECT table_name, job_id, task_id, created_at FROM table_registry")
         except Exception:
             logger.debug("Failed to read CH table_registry for backfill", exc_info=True)
             return
@@ -72,8 +70,8 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
             await session.execute(
                 text(
                     "INSERT INTO table_registry "
-                    "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
-                    "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
+                    "(table_name, job_id, task_id, created_at, schema_doc) "
+                    "VALUES (:table_name, :job_id, :task_id, :created_at, :schema_doc) "
                     "ON CONFLICT (table_name) DO NOTHING"
                 ),
                 [
@@ -81,8 +79,7 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
                         "table_name": row[0],
                         "job_id": row[1],
                         "task_id": row[2],
-                        "run_id": row[3],
-                        "created_at": row[4],
+                        "created_at": row[3],
                         # Legacy CH source had no schema_doc; backfilled rows surface a
                         # LookupError on read until they're re-created.
                         "schema_doc": None,
