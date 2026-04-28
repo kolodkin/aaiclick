@@ -116,6 +116,17 @@ class TableRunRef(SQLModel, table=True):
     run_id: str = Field(sa_column=Column(String, primary_key=True))
 
 
+class TableNameCollision(Exception):
+    """Raised when a task takes a non-preserved name held by another live task in the same job."""
+
+    def __init__(self, name: str, held_by_task_id: int):
+        self.name = name
+        self.held_by_task_id = held_by_task_id
+        super().__init__(
+            f"non-preserved table name {name!r} is held by live task id={held_by_task_id}"
+        )
+
+
 class TableRegistry(SQLModel, table=True):
     """Ownership metadata for every ClickHouse data table aaiclick creates.
 

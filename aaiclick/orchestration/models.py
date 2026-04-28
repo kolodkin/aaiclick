@@ -25,6 +25,15 @@ DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
 # Type alias for dependency type annotations (Literal requires hardcoded values)
 DependencyType = Literal["task", "group"]
 
+Preserve = list[str] | Literal["*"] | None
+"""Job-level table preservation declaration.
+
+- ``None`` — nothing preserved (default; pure task-local semantics).
+- ``["foo", "bar"]`` — these named tables survive the run; dropped at job completion.
+- ``"*"`` — every ``j_<id>_<name>`` created during the job survives the run.
+- ``[]`` — explicit ``no preservation``; does NOT fall through to RegisteredJob default.
+"""
+
 
 # Python 3.10 compatibility: StrEnum was added in 3.11
 if sys.version_info >= (3, 11):
