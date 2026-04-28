@@ -8,9 +8,44 @@ from pathlib import Path
 from aaiclick.snowflake import get_snowflake_id
 
 from .env import get_default_preservation_mode
-from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .models import Job, JobStatus, Preserve, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
+
+_UNSET: object = object()
+
+
+def resolve_preserve(
+    explicit: Preserve | object = _UNSET,
+    registered: Preserve = None,
+) -> Preserve:
+    """Resolve effective ``preserve`` value for a job run.
+
+    Precedence (highest first):
+        1. ``explicit`` if supplied (including ``[]`` — explicit empty list is honored).
+        2. ``registered`` (the RegisteredJob default).
+        3. ``None``.
+
+    The sentinel distinguishes ``explicit=None`` (caller didn't supply anything;
+    fall through) from ``explicit=[]`` (caller explicitly said nothing should be
+    preserved; do NOT fall through).
+    """
+    if explicit is _UNSET or explicit is None:
+        chosen: Preserve = registered
+    else:
+        if not (explicit == "*" or isinstance(explicit, list)):
+            raise TypeError(
+                f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}"
+            )
+        if isinstance(explicit, list) and not all(isinstance(x, str) for x in explicit):
+            raise TypeError("preserve list must contain only str")
+        chosen = explicit  # type: ignore[assignment]
+
+    if chosen is None:
+        return None
+    if chosen == "*":
+        return "*"
+    return list(chosen)
 
 
 def resolve_job_config(
