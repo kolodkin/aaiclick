@@ -20,10 +20,10 @@ Phase 1 — Foundation
 git -C /home/user/aaiclick branch --show-current
 ```
 
-Expected: `claude/simplify-orchestration-lifecycle-aNOnA`. If different, switch:
+Expected: `claude/simplify-plab-lifecycle-YRXOm`. If different, switch:
 
 ```bash
-git -C /home/user/aaiclick switch claude/simplify-orchestration-lifecycle-aNOnA
+git -C /home/user/aaiclick switch claude/simplify-plab-lifecycle-YRXOm
 ```
 
 - [ ] **Step 2: Run baseline test suite**
@@ -425,7 +425,7 @@ Expected: PASS at the same level as the baseline (Task 1 Step 2). Some tests may
 - [ ] **Step 2: Push the branch**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
+git -C /home/user/aaiclick push -u origin claude/simplify-plab-lifecycle-YRXOm
 ```
 
 ---

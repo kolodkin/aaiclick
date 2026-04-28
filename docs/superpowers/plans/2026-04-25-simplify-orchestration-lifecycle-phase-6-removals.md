@@ -251,7 +251,7 @@ git commit -m "cleanup: residual references to removed lifecycle types"
 - [ ] **Step 4: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
+git -C /home/user/aaiclick push -u origin claude/simplify-plab-lifecycle-YRXOm
 ```
 
 ---

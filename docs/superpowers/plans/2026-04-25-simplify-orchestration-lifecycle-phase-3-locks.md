@@ -280,7 +280,7 @@ Expected: PASS.
 - [ ] **Step 2: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
+git -C /home/user/aaiclick push -u origin claude/simplify-plab-lifecycle-YRXOm
 ```
 
 ---

@@ -13,7 +13,7 @@ Simplify Orchestration Lifecycle — Implementation Plan
 
 **Spec:** `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md`
 
-**Branch:** `claude/simplify-orchestration-lifecycle-aNOnA`
+**Branch:** `claude/simplify-plab-lifecycle-YRXOm`
 
 **Project-wide invariant:** every phase ends with `pytest aaiclick/ -x` green. The data suite (`aaiclick/data/`) is the most sensitive part — it routes through `Object.data()` → `_get_table_schema` → `table_registry.schema_doc`, so any handler swap that drops the `register_table` write path fails it wholesale.
 
