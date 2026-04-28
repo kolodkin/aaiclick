@@ -14,7 +14,7 @@ from aaiclick.orchestration.lifecycle.db_lifecycle import (
     release_task_name_locks_for_dead_tasks,
     release_task_name_locks_for_task,
 )
-from aaiclick.orchestration.models import Task, TaskStatus
+from aaiclick.orchestration.models import Job, JobStatus, RunType, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 
@@ -23,10 +23,17 @@ async def _all_locks(session):
     return list((await session.execute(select(TaskNameLock))).scalars().all())
 
 
-async def _make_task(session, *, status: TaskStatus) -> Task:
+async def _make_job(session) -> Job:
+    job = Job(id=get_snowflake_id(), name="j", run_type=RunType.MANUAL, status=JobStatus.RUNNING)
+    session.add(job)
+    await session.flush()
+    return job
+
+
+async def _make_task(session, *, status: TaskStatus, job_id: int) -> Task:
     task = Task(
         id=get_snowflake_id(),
-        job_id=0,
+        job_id=job_id,
         entrypoint="m.f",
         name="t",
         status=status,
@@ -101,10 +108,11 @@ async def test_release_after_release_allows_acquire(orch_ctx):
 
 async def test_dead_task_sweep_releases_locks(orch_ctx):
     async with get_sql_session() as session:
-        alive_task = await _make_task(session, status=TaskStatus.RUNNING)
-        dead_task = await _make_task(session, status=TaskStatus.FAILED)
-        await acquire_task_name_lock(session, job_id=1, name="alive", task_id=alive_task.id)
-        await acquire_task_name_lock(session, job_id=1, name="dead", task_id=dead_task.id)
+        job = await _make_job(session)
+        alive_task = await _make_task(session, status=TaskStatus.RUNNING, job_id=job.id)
+        dead_task = await _make_task(session, status=TaskStatus.FAILED, job_id=job.id)
+        await acquire_task_name_lock(session, job_id=job.id, name="alive", task_id=alive_task.id)
+        await acquire_task_name_lock(session, job_id=job.id, name="dead", task_id=dead_task.id)
         await release_task_name_locks_for_dead_tasks(session)
         rows = await _all_locks(session)
     assert len(rows) == 1
