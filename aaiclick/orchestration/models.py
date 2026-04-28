@@ -116,6 +116,10 @@ class RegisteredJob(SQLModel, table=True):
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     preservation_mode: PreservationMode | None = Field(default=None)
+    preserve: Preserve = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -141,6 +145,10 @@ class Job(SQLModel, table=True):
     preservation_mode: PreservationMode = Field(
         default=PreservationMode.NONE,
         sa_column_kwargs={"server_default": PreservationMode.NONE.value, "nullable": False},
+    )
+    preserve: Preserve = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: datetime | None = Field(default=None)
