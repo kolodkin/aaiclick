@@ -292,8 +292,14 @@ async def create_object(
     from ..object import Object
 
     effective_scope = _resolve_scope(name, scope)
+    job_named_preserved = False
     if effective_scope is not None:
         assert name is not None
+        lifecycle = get_data_lifecycle()
+        if effective_scope == "job" and lifecycle is not None:
+            job_named_preserved = lifecycle.is_preserved(name)
+            if not job_named_preserved:
+                await lifecycle.acquire_named_table_lock(name)
         table_name = _build_persistent_table(name, effective_scope)
         obj = Object(table=table_name, schema=schema)
     else:
@@ -356,6 +362,8 @@ async def create_object(
     # cheaper than forcing every read path to flush.
     lifecycle = get_data_lifecycle()
     if lifecycle is not None:
+        if job_named_preserved:
+            lifecycle.track_table(obj.table, preserved=True, owned=True)
         await lifecycle.flush()
 
     return obj

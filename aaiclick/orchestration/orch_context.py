@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.backend import is_postgres
@@ -31,7 +31,7 @@ from .lifecycle.db_lifecycle import (
     release_task_name_locks_for_task,
 )
 from .lifecycle.task_lifecycle import TaskLifecycleHandler
-from .models import Group, Task, TasksType
+from .models import Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
@@ -442,11 +442,15 @@ async def task_scope(
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
     ch_client = get_ch_client()
+    async with get_sql_session() as session:
+        job_row = (await session.execute(select(Job.preserve).where(Job.id == job_id))).first()
+        preserve = job_row[0] if job_row is not None else None
     lifecycle = TaskLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
         ch_client=ch_client,
+        preserve=preserve,
     )
     await lifecycle.start()
 

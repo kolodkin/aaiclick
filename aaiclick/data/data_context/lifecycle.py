@@ -118,6 +118,21 @@ class LifecycleHandler(ABC):
         """
         return None
 
+    def current_task_id(self) -> int | None:
+        """Return the task ID owning this handler, or ``None`` outside task_scope."""
+        return None
+
+    def is_preserved(self, name: str) -> bool:
+        """Return True when ``name`` is in the active job's preserve list.
+
+        ``name`` is the bare object name (no ``j_<job_id>_`` prefix).
+        """
+        return False
+
+    async def acquire_named_table_lock(self, name: str) -> None:
+        """Acquire the orchestration-level lock for a non-preserved named
+        table. Default no-op for non-orchestration handlers."""
+
     def track_table(self, table_name: str, *, preserved: bool = False, owned: bool = False) -> None:
         """Record that this handler's lifetime owns ``table_name``. Default no-op."""
 

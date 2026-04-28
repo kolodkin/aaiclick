@@ -31,12 +31,14 @@ from aaiclick.data.data_context.ch_client import ChClient, get_ch_client
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, TrackedTable
 from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS
 
+from ..models import Preserve
 from ..sql_context import get_sql_session
 from .db_lifecycle import (
     DBLifecycleMessage,
     DBLifecycleOp,
     OplogPayload,
     OplogTablePayload,
+    acquire_task_name_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,11 +64,13 @@ class TaskLifecycleHandler(LifecycleHandler):
         job_id: int,
         run_id: int,
         ch_client: ChClient,
+        preserve: Preserve = None,
     ):
         self._task_id = task_id
         self._job_id = job_id
         self._run_id = run_id
         self._ch_client = ch_client
+        self._preserve = preserve
         self._tracked: dict[str, TrackedTable] = {}
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._process_task: asyncio.Task | None = None
@@ -88,6 +92,23 @@ class TaskLifecycleHandler(LifecycleHandler):
 
     def current_job_id(self) -> int | None:
         return self._job_id
+
+    def current_task_id(self) -> int | None:
+        return self._task_id
+
+    def is_preserved(self, name: str) -> bool:
+        if self._preserve is None:
+            return False
+        if self._preserve == "*":
+            return True
+        return name in self._preserve
+
+    async def acquire_named_table_lock(self, name: str) -> None:
+        async with get_sql_session() as session:
+            await acquire_task_name_lock(
+                session, job_id=self._job_id, name=name, task_id=self._task_id
+            )
+            await session.commit()
 
     def incref(self, table_name: str) -> None:
         """Cross-task input read. Track but don't claim ownership."""
