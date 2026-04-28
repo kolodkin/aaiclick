@@ -116,7 +116,7 @@ class TableRunRef(SQLModel, table=True):
     run_id: str = Field(sa_column=Column(String, primary_key=True))
 
 
-class TableNameCollision(Exception):
+class TableNameCollision(ValueError):
     """Raised when a task takes a non-preserved name held by another live task in the same job."""
 
     def __init__(self, name: str, held_by_task_id: int):

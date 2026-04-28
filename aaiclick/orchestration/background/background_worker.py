@@ -34,7 +34,7 @@ from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus, PreservationMode
+from ..models import JobStatus
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.

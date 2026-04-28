@@ -5,18 +5,17 @@ Revises: 161cfe0f1117
 Create Date: 2026-04-28 06:39:25.105739
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-import sqlmodel
+from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7f7753f6fda4'
-down_revision: Union[str, Sequence[str], None] = '161cfe0f1117'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "7f7753f6fda4"
+down_revision: str | Sequence[str] | None = "161cfe0f1117"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -34,9 +33,10 @@ def upgrade() -> None:
         "UPDATE registered_jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'"
     )
 
-    # 3. Drop preservation_mode columns
+    # 3. Drop preservation_mode columns and the Postgres enum type
     op.drop_column("jobs", "preservation_mode")
     op.drop_column("registered_jobs", "preservation_mode")
+    sa.Enum(name="preservationmode").drop(op.get_bind(), checkfirst=True)
 
     # 4. Drop obsolete tables (their indexes drop with them)
     op.drop_table("table_run_refs")
@@ -101,14 +101,16 @@ def downgrade() -> None:
         ["context_id"],
     )
 
-    # 3. Restore preservation_mode columns
+    # 3. Restore preservation_mode columns and the Postgres enum type
+    preservation_mode = sa.Enum("NONE", "FULL", name="preservationmode")
+    preservation_mode.create(op.get_bind(), checkfirst=True)
     op.add_column(
         "jobs",
-        sa.Column("preservation_mode", sa.String(length=16), nullable=False, server_default="NONE"),
+        sa.Column("preservation_mode", preservation_mode, nullable=False, server_default="NONE"),
     )
     op.add_column(
         "registered_jobs",
-        sa.Column("preservation_mode", sa.String(length=16), nullable=False, server_default="NONE"),
+        sa.Column("preservation_mode", preservation_mode, nullable=False, server_default="NONE"),
     )
 
     # 2. Backfill preservation_mode from preserve. Only "*" round-trips to FULL;

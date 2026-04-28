@@ -12,13 +12,6 @@ import pytest
 from sqlalchemy import event, text
 from sqlmodel import select
 
-pytestmark = pytest.mark.skip(
-    reason="Refcount-based per-consumer pin lifecycle is being removed in "
-    "lifecycle simplification Phase 6; _cleanup_unreferenced_tables is a "
-    "no-op as of Phase 1, so the post-cleanup assertions in this module no "
-    "longer hold. Replaced by Phase 4/5 task_scope and BackgroundWorker tests.",
-)
-
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
@@ -28,6 +21,13 @@ from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
+
+pytestmark = pytest.mark.skip(
+    reason="Refcount-based per-consumer pin lifecycle is being removed in "
+    "lifecycle simplification Phase 6; _cleanup_unreferenced_tables is a "
+    "no-op as of Phase 1, so the post-cleanup assertions in this module no "
+    "longer hold. Replaced by Phase 4/5 task_scope and BackgroundWorker tests.",
+)
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
