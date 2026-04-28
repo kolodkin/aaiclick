@@ -17,7 +17,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
-from .orchestration.models import JobStatus, Preserve, WorkerStatus
+from .orchestration.models import JobStatus, WorkerStatus
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -60,7 +60,7 @@ class RunJobRequest(BaseModel):
 
     name: str
     kwargs: dict[str, Any] = Field(default_factory=dict)
-    preserve: Preserve = None
+    preserve_all: bool | None = None
 
 
 class RegisterJobRequest(BaseModel):
@@ -76,7 +76,7 @@ class RegisterJobRequest(BaseModel):
     schedule: str | None = None
     default_kwargs: dict[str, Any] | None = None
     enabled: bool = True
-    preserve: Preserve = None
+    preserve_all: bool = False
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

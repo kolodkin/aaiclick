@@ -1,9 +1,8 @@
-"""Tests for Phase 5 BackgroundWorker cleanup methods.
+"""Tests for BackgroundWorker cleanup methods (Phase 5 + Phase 8 simplification).
 
 - ``_cleanup_at_job_completion``: drops every CH table tied to a completed job.
-- ``_cleanup_failed_task_tables``: per-task drop honoring preserve + pinned.
+- ``_cleanup_failed_task_tables``: per-task drop of unpinned ``t_*`` scratch.
 - ``_cleanup_orphan_scratch_tables``: drops unpinned ``t_*`` whose owner is dead.
-- ``_cleanup_dead_workers``: now also releases stale ``task_name_locks``.
 """
 
 from __future__ import annotations
@@ -16,13 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
-from .conftest import (
-    insert_job,
-    insert_pin_ref,
-    insert_table_registry,
-    insert_task,
-    insert_task_name_lock,
-)
+from .conftest import insert_job, insert_pin_ref, insert_table_registry, insert_task
 
 
 def _worker(engine) -> BackgroundWorker:
@@ -47,41 +40,32 @@ async def _registry_tables(engine) -> set[str]:
         return {row[0] for row in result.fetchall()}
 
 
-async def _all_locks(engine) -> set[tuple[int, str]]:
-    async with AsyncSession(engine) as session:
-        result = await session.execute(text("SELECT job_id, name FROM task_name_locks"))
-        return {(row[0], row[1]) for row in result.fetchall()}
-
-
 # _cleanup_at_job_completion
 
 
 async def test_completion_drops_all_job_tables(bg_db):
     job_id = 100
-    await insert_job(bg_db, job_id, preserve=["training_set"])
-    preserved = f"j_{job_id}_training_set"
+    await insert_job(bg_db, job_id)
+    named = f"j_{job_id}_training_set"
     pinned = "t_pinned"
     other_job_table = "j_999_other"
 
-    await insert_table_registry(bg_db, preserved, job_id=job_id, task_id=1)
+    await insert_table_registry(bg_db, named, job_id=job_id, task_id=1)
     await insert_table_registry(bg_db, pinned, job_id=job_id, task_id=1)
     await insert_table_registry(bg_db, other_job_table, job_id=999, task_id=2)
     await insert_pin_ref(bg_db, pinned, 50)
-    await insert_task_name_lock(bg_db, job_id=job_id, name="x", task_id=10)
 
     worker = _worker(bg_db)
     await worker._cleanup_at_job_completion(job_id=job_id)
 
     dropped = await _ch_drop_calls(worker)
-    assert preserved in dropped
+    assert named in dropped
     assert pinned in dropped
     assert other_job_table not in dropped
 
     remaining = await _registry_tables(bg_db)
-    assert preserved not in remaining and pinned not in remaining
+    assert named not in remaining and pinned not in remaining
     assert other_job_table in remaining
-
-    assert await _all_locks(bg_db) == set()
 
 
 async def test_completion_skips_global_p_tables(bg_db):
@@ -101,26 +85,35 @@ async def test_completion_skips_global_p_tables(bg_db):
 # _cleanup_failed_task_tables
 
 
-async def test_failed_task_drops_non_preserved_named(bg_db):
+async def test_failed_task_drops_t_scratch(bg_db):
     job_id = 200
-    await insert_job(bg_db, job_id, preserve=["keep"])
+    await insert_job(bg_db, job_id)
     await insert_task(bg_db, task_id=10, job_id=job_id, status="PENDING_CLEANUP")
 
-    preserved_name = f"j_{job_id}_keep"
-    scratch_name = f"j_{job_id}_scratch"
-    await insert_table_registry(bg_db, preserved_name, job_id=job_id, task_id=10)
-    await insert_table_registry(bg_db, scratch_name, job_id=job_id, task_id=10)
+    scratch = "t_failed_scratch"
+    await insert_table_registry(bg_db, scratch, job_id=job_id, task_id=10)
 
     worker = _worker(bg_db)
     await worker._cleanup_failed_task_tables()
 
     dropped = await _ch_drop_calls(worker)
-    assert scratch_name in dropped
-    assert preserved_name not in dropped
+    assert scratch in dropped
 
-    remaining = await _registry_tables(bg_db)
-    assert preserved_name in remaining
-    assert scratch_name not in remaining
+
+async def test_failed_task_keeps_named_j_tables(bg_db):
+    """Named j_<id>_* tables are job-scoped — survive task failure, drop at job end."""
+    job_id = 200
+    await insert_job(bg_db, job_id)
+    await insert_task(bg_db, task_id=10, job_id=job_id, status="PENDING_CLEANUP")
+
+    named = f"j_{job_id}_keep"
+    await insert_table_registry(bg_db, named, job_id=job_id, task_id=10)
+
+    worker = _worker(bg_db)
+    await worker._cleanup_failed_task_tables()
+
+    assert named not in await _ch_drop_calls(worker)
+    assert named in await _registry_tables(bg_db)
 
 
 async def test_failed_task_skips_pinned(bg_db):
@@ -137,22 +130,6 @@ async def test_failed_task_skips_pinned(bg_db):
 
     assert pinned_t not in await _ch_drop_calls(worker)
     assert pinned_t in await _registry_tables(bg_db)
-
-
-async def test_failed_task_preserve_star_keeps_all_named(bg_db):
-    job_id = 202
-    await insert_job(bg_db, job_id, preserve="*")
-    await insert_task(bg_db, task_id=12, job_id=job_id, status="PENDING_CLEANUP")
-
-    a, b = f"j_{job_id}_a", f"j_{job_id}_b"
-    await insert_table_registry(bg_db, a, job_id=job_id, task_id=12)
-    await insert_table_registry(bg_db, b, job_id=job_id, task_id=12)
-
-    worker = _worker(bg_db)
-    await worker._cleanup_failed_task_tables()
-
-    dropped = await _ch_drop_calls(worker)
-    assert a not in dropped and b not in dropped
 
 
 async def test_failed_task_no_pending_cleanup_is_noop(bg_db):
@@ -219,23 +196,3 @@ async def test_orphan_scratch_skips_named_j_tables(bg_db):
     await worker._cleanup_orphan_scratch_tables()
 
     assert name not in await _ch_drop_calls(worker)
-
-
-# _cleanup_dead_workers releases name locks
-
-
-async def test_dead_worker_sweep_releases_name_locks(bg_db):
-    job_id = 400
-    await insert_job(bg_db, job_id)
-    await insert_task(bg_db, task_id=30, job_id=job_id, status="RUNNING")
-    await insert_task(bg_db, task_id=31, job_id=job_id, status="FAILED")
-    await insert_task_name_lock(bg_db, job_id=job_id, name="alive", task_id=30)
-    await insert_task_name_lock(bg_db, job_id=job_id, name="dead", task_id=31)
-
-    worker = _worker(bg_db)
-    worker._worker_timeout = 0.1
-    await worker._cleanup_dead_workers()
-
-    locks = await _all_locks(bg_db)
-    assert (job_id, "alive") in locks
-    assert (job_id, "dead") not in locks

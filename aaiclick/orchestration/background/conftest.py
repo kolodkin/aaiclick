@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tempfile
@@ -29,17 +28,17 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def insert_job(engine, job_id, *, status="RUNNING", preserve=None):
+async def insert_job(engine, job_id, *, status="RUNNING", preserve_all=False):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO jobs (id, name, status, run_type, preserve, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :preserve, :now)"
+                "INSERT INTO jobs (id, name, status, run_type, preserve_all, created_at) "
+                "VALUES (:id, 'test_job', :status, 'MANUAL', :preserve_all, :now)"
             ),
             {
                 "id": job_id,
                 "status": status,
-                "preserve": json.dumps(preserve) if preserve is not None else None,
+                "preserve_all": preserve_all,
                 "now": datetime.utcnow(),
             },
         )
@@ -60,18 +59,6 @@ async def insert_task(engine, task_id, *, job_id, status="RUNNING"):
                 "status": status,
                 "now": datetime.utcnow(),
             },
-        )
-        await session.commit()
-
-
-async def insert_task_name_lock(engine, *, job_id, name, task_id):
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO task_name_locks (job_id, name, task_id, acquired_at) "
-                "VALUES (:job_id, :name, :task_id, :now)"
-            ),
-            {"job_id": job_id, "name": name, "task_id": task_id, "now": datetime.utcnow()},
         )
         await session.commit()
 

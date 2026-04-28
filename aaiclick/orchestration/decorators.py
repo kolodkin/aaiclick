@@ -38,8 +38,8 @@ from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake import get_snowflake_id
-from .factories import _UNSET, _callable_to_string, _Unset, resolve_preserve
-from .models import Group, Job, JobStatus, Preserve, RunType, Task, TaskStatus
+from .factories import _callable_to_string, resolve_preserve_all
+from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 
@@ -214,19 +214,20 @@ class JobFactory:
     async def __call__(
         self,
         *,
-        preserve: Preserve | _Unset = _UNSET,
+        preserve_all: bool | None = None,
         **kwargs,
     ) -> Job:
         """Create a Job with an entry point task.
 
         Args:
-            preserve: Names of tables that survive past the run, ``"*"``,
-                ``[]`` (preserve nothing), or ``None`` (no preserve).
+            preserve_all: When ``True``, anonymous ``t_*`` tables also survive
+                past task exit (Tier 2 / full-replay). ``None`` defaults to
+                ``False``.
             **kwargs: Arguments passed to the entry point task.
         """
 
         async def _run() -> Job:
-            return await self._create_job(preserve=preserve, **kwargs)
+            return await self._create_job(preserve_all=preserve_all, **kwargs)
 
         if _sql_engine_var.get() is not None:
             return await _run()
@@ -237,12 +238,12 @@ class JobFactory:
         self,
         run_type: RunType = RunType.MANUAL,
         registered_job_id: int | None = None,
-        preserve: Preserve | _Unset = _UNSET,
+        preserve_all: bool | None = None,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
-        resolved_preserve = resolve_preserve(explicit=preserve, registered=None)
+        resolved = resolve_preserve_all(explicit=preserve_all, registered=False)
 
         job = Job(
             id=get_snowflake_id(),
@@ -250,7 +251,7 @@ class JobFactory:
             status=JobStatus.PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
-            preserve=resolved_preserve,
+            preserve_all=resolved,
             created_at=datetime.utcnow(),
         )
 

@@ -9,8 +9,8 @@ from croniter import croniter
 from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
-from .factories import _UNSET, _Unset, create_job, create_task, resolve_preserve
-from .models import Job, Preserve, RegisteredJob, RunType
+from .factories import create_job, create_task
+from .models import Job, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 
@@ -48,7 +48,7 @@ async def register_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preserve: Preserve = None,
+    preserve_all: bool = False,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -58,8 +58,10 @@ async def register_job(
         schedule: Cron expression for scheduled runs (optional)
         default_kwargs: Default kwargs for scheduled runs (optional)
         enabled: Whether the job is enabled (default: True)
-        preserve: Default preserve declaration for every run; individual
-            runs override via ``run_job(..., preserve=...)``.
+        preserve_all: Default for every run of this job — when ``True``,
+            anonymous ``t_*`` tables also survive past task exit (Tier 2 /
+            full-replay debugging). Individual runs override via
+            ``run_job(..., preserve_all=...)``.
 
     Raises:
         RegisteredJobAlreadyExists: If a job with this name already exists.
@@ -72,7 +74,7 @@ async def register_job(
         enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
-        preserve=resolve_preserve(explicit=preserve, registered=None),
+        preserve_all=preserve_all,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -111,15 +113,14 @@ async def upsert_registered_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preserve: Preserve = None,
+    preserve_all: bool = False,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preserve, and enabled. Otherwise creates a new entry.
+    default_kwargs, preserve_all, and enabled. Otherwise creates a new entry.
     """
     now = datetime.utcnow()
-    normalized_preserve = resolve_preserve(explicit=preserve, registered=None)
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -129,7 +130,7 @@ async def upsert_registered_job(
             existing.entrypoint = entrypoint
             existing.schedule = schedule
             existing.default_kwargs = default_kwargs
-            existing.preserve = normalized_preserve
+            existing.preserve_all = preserve_all
             existing.enabled = enabled
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
@@ -145,7 +146,7 @@ async def upsert_registered_job(
             enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
-            preserve=normalized_preserve,
+            preserve_all=preserve_all,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -238,7 +239,7 @@ async def run_job(
     *,
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RunType.MANUAL,
-    preserve: Preserve | _Unset = _UNSET,
+    preserve_all: bool | None = None,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
 
@@ -250,9 +251,8 @@ async def run_job(
         entrypoint: Python dotted path
         kwargs: Override parameters (merged over default_kwargs)
         run_type: How the job was triggered (default: MANUAL)
-        preserve: Override the registered preserve default. Omit (or pass
-            the sentinel) to inherit; pass ``[]`` to explicitly preserve
-            nothing.
+        preserve_all: Override the registered ``preserve_all`` default;
+            ``None`` inherits.
     """
     registered = await get_registered_job(name)
     if registered is None:
@@ -266,6 +266,6 @@ async def run_job(
         entry=task,
         run_type=run_type,
         registered_job_id=registered.id,
-        preserve=preserve,
+        preserve_all=preserve_all,
         registered=registered,
     )

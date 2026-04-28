@@ -70,7 +70,6 @@ def test_track_table_records_default_flags():
     tracked = list(handler.iter_tracked_tables())
     assert len(tracked) == 1
     assert tracked[0].name == "t_123"
-    assert tracked[0].preserved is False
     assert tracked[0].pinned is False
     assert tracked[0].owned is False
 
@@ -88,23 +87,6 @@ def test_track_table_owned_flag_upgraded_not_downgraded():
     handler.track_table("t_x")
     tracked = list(handler.iter_tracked_tables())
     assert tracked[0].owned is True
-
-
-def test_track_table_with_preserved_flag():
-    handler = LocalLifecycleHandler(MagicMock())
-    handler.track_table("j_42_training_set", preserved=True)
-    tracked = list(handler.iter_tracked_tables())
-    assert tracked[0].preserved is True
-
-
-def test_track_table_idempotent_does_not_lose_preserved_flag():
-    """A later track_table without preserved=True must not clear the prior True."""
-    handler = LocalLifecycleHandler(MagicMock())
-    handler.track_table("t_x", preserved=True)
-    handler.track_table("t_x")
-    tracked = list(handler.iter_tracked_tables())
-    assert len(tracked) == 1
-    assert tracked[0].preserved is True
 
 
 def test_mark_pinned_after_track():

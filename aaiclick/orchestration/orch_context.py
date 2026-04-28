@@ -20,7 +20,6 @@ from aaiclick.oplog.models import init_oplog_tables
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
-from .lifecycle.db_lifecycle import release_task_name_locks_for_task
 from .lifecycle.task_lifecycle import TaskLifecycleHandler
 from .models import Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
@@ -104,15 +103,12 @@ async def task_scope(
 
     Uses :class:`TaskLifecycleHandler` to own the SQL-side writes
     (``table_registry``, ``table_pin_refs``, ``operation_log``) and to
-    track every CH table the task touches with its
-    ``(owned, preserved, pinned)`` flags. On exit, drops every owned
-    table that is neither pinned (a downstream consumer needs it) nor
-    preserved (the job declared it long-lived) — on the failure path
-    only ``t_*`` scratch tables are dropped, leaving every ``j_<id>_*``
-    for the BackgroundWorker.
-
-    Locks held in ``task_name_locks`` by this task are released regardless
-    of outcome.
+    track every CH table the task touches with its ``(owned, pinned)``
+    flags. On exit, drops every ``t_*`` scratch table that is owned by
+    this task and not pinned. ``j_<id>_<name>`` named tables are always
+    job-scoped — they survive the task and the BackgroundWorker drops
+    them at job completion (or earlier via the failed-task / orphan
+    sweeps). ``p_*`` global tables are never dropped here.
 
     Args:
         task_id: ID of the current task.
@@ -121,14 +117,13 @@ async def task_scope(
     """
     ch_client = get_ch_client()
     async with get_sql_session() as session:
-        job_row = (await session.execute(select(Job.preserve).where(Job.id == job_id))).first()
-        preserve = job_row[0] if job_row is not None else None
+        row = (await session.execute(select(Job.preserve_all).where(Job.id == job_id))).first()
+        preserve_all = bool(row[0]) if row is not None else False
     lifecycle = TaskLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
         run_id=run_id,
         ch_client=ch_client,
-        preserve=preserve,
     )
     await lifecycle.start()
 
@@ -140,10 +135,8 @@ async def task_scope(
     obj_token = _objects_var.set(objects)
     registry_token = _task_registry_var.set({})
 
-    success = False
     try:
         yield
-        success = True
     finally:
         _task_registry_var.reset(registry_token)
 
@@ -156,26 +149,19 @@ async def task_scope(
         _objects_var.reset(obj_token)
 
         await lifecycle.flush()
-        for tt in list(lifecycle.iter_tracked_tables()):
-            if not tt.owned or tt.pinned:
-                continue
-            if tt.name.startswith("p_"):
-                continue
-            if success and tt.preserved:
-                continue
-            if not success and not tt.name.startswith("t_"):
-                continue
-            try:
-                await ch_client.command(f"DROP TABLE IF EXISTS {tt.name}")
-            except Exception:
-                logger.warning("Failed to drop %s on task exit", tt.name, exc_info=True)
+        if not preserve_all:
+            for tt in list(lifecycle.iter_tracked_tables()):
+                if not tt.owned or tt.pinned:
+                    continue
+                if not tt.name.startswith("t_"):
+                    continue
+                try:
+                    await ch_client.command(f"DROP TABLE IF EXISTS {tt.name}")
+                except Exception:
+                    logger.warning("Failed to drop %s on task exit", tt.name, exc_info=True)
 
         await lifecycle.stop()
         _lifecycle_var.reset(lc_token)
-
-        async with get_sql_session() as session:
-            await release_task_name_locks_for_task(session, task_id=task_id)
-            await session.commit()
 
 
 def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:

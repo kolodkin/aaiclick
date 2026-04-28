@@ -39,7 +39,7 @@ def _make_job(
         name=name,
         status=status,
         run_type=RunType.MANUAL,
-        preserve=None,
+        preserve_all=False,
         registered_job_id=registered_job_id,
         created_at=created_at,
         started_at=started_at,
@@ -92,7 +92,7 @@ def test_job_to_view_json_serializes_enums():
     payload = view.model_dump(mode="json")
     assert payload["status"] == "FAILED"
     assert payload["run_type"] == "MANUAL"
-    assert payload["preserve"] is None
+    assert payload["preserve_all"] is False
     assert payload["error"] == "boom"
 
 

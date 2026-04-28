@@ -230,70 +230,66 @@ async def test_run_job_with_existing_registration(orch_ctx):
     assert job.run_type == RunType.MANUAL
 
 
-# preserve list / "*" through register_job / upsert / run_job
+# preserve_all through register_job / upsert / run_job
 
 
-async def test_register_job_stores_preserve_list(orch_ctx):
+async def test_register_job_stores_preserve_all_true(orch_ctx):
     await register_job(
-        name="preserve_list_reg",
+        name="preserve_all_reg",
         entrypoint="myapp.task",
-        preserve=["a", "b"],
+        preserve_all=True,
     )
-    fetched = await get_registered_job("preserve_list_reg")
+    fetched = await get_registered_job("preserve_all_reg")
     assert fetched is not None
-    assert fetched.preserve == ["a", "b"]
+    assert fetched.preserve_all is True
 
 
-async def test_register_job_stores_preserve_star(orch_ctx):
-    await register_job(
-        name="preserve_star_reg",
-        entrypoint="myapp.task",
-        preserve="*",
-    )
-    fetched = await get_registered_job("preserve_star_reg")
+async def test_register_job_default_preserve_all_false(orch_ctx):
+    await register_job(name="default_reg", entrypoint="myapp.task")
+    fetched = await get_registered_job("default_reg")
     assert fetched is not None
-    assert fetched.preserve == "*"
+    assert fetched.preserve_all is False
 
 
-async def test_upsert_updates_preserve(orch_ctx):
+async def test_upsert_updates_preserve_all(orch_ctx):
     await upsert_registered_job(
         name="upsert_pres",
         entrypoint="myapp.task",
-        preserve=["a"],
+        preserve_all=False,
     )
     await upsert_registered_job(
         name="upsert_pres",
         entrypoint="myapp.task",
-        preserve=["a", "b"],
+        preserve_all=True,
     )
     fetched = await get_registered_job("upsert_pres")
     assert fetched is not None
-    assert fetched.preserve == ["a", "b"]
+    assert fetched.preserve_all is True
 
 
-async def test_run_job_inherits_registered_preserve(orch_ctx):
+async def test_run_job_inherits_registered_preserve_all(orch_ctx):
     await register_job(
-        name="run_inherits_preserve",
+        name="run_inherits",
         entrypoint="myapp.task",
-        preserve=["x"],
+        preserve_all=True,
     )
-    job = await run_job("run_inherits_preserve", "myapp.task")
+    job = await run_job("run_inherits", "myapp.task")
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == ["x"]
+    assert refreshed.preserve_all is True
 
 
-async def test_run_job_explicit_preserve_overrides(orch_ctx):
+async def test_run_job_explicit_preserve_all_overrides(orch_ctx):
     await register_job(
-        name="run_override_preserve",
+        name="run_override",
         entrypoint="myapp.task",
-        preserve=["from_registered"],
+        preserve_all=True,
     )
     job = await run_job(
-        "run_override_preserve",
+        "run_override",
         "myapp.task",
-        preserve=["from_explicit"],
+        preserve_all=False,
     )
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == ["from_explicit"]
+    assert refreshed.preserve_all is False

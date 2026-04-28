@@ -96,51 +96,51 @@ async def test_job_task_relationship(orch_ctx):
         assert tasks[0].job_id == job.id
 
 
-async def test_create_job_persists_explicit_preserve(orch_ctx):
-    job = await create_job("preserve_explicit", "mymodule.task1", preserve=["foo", "bar"])
+async def test_create_job_persists_explicit_preserve_all(orch_ctx):
+    job = await create_job("preserve_all_explicit", "mymodule.task1", preserve_all=True)
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == ["foo", "bar"]
+    assert refreshed.preserve_all is True
 
 
-async def test_create_job_uses_registered_preserve_default(orch_ctx):
+async def test_create_job_uses_registered_preserve_all_default(orch_ctx):
     registered = await register_job(
-        name="preserve_default_reg",
+        name="preserve_all_default_reg",
         entrypoint="mymodule.task1",
-        preserve=["default_table"],
+        preserve_all=True,
     )
     job = await create_job(
-        "preserve_default_run",
+        "preserve_all_default_run",
         "mymodule.task1",
         registered=registered,
     )
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == ["default_table"]
+    assert refreshed.preserve_all is True
 
 
 async def test_create_job_explicit_overrides_registered(orch_ctx):
     registered = await register_job(
         name="preserve_override_reg",
         entrypoint="mymodule.task1",
-        preserve=["from_registered"],
+        preserve_all=True,
     )
     job = await create_job(
         "preserve_override_run",
         "mymodule.task1",
         registered=registered,
-        preserve=["from_explicit"],
+        preserve_all=False,
     )
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == ["from_explicit"]
+    assert refreshed.preserve_all is False
 
 
-async def test_create_job_preserve_star(orch_ctx):
-    job = await create_job("preserve_star", "mymodule.task1", preserve="*")
+async def test_create_job_default_preserve_all_false(orch_ctx):
+    job = await create_job("default_preserve_all", "mymodule.task1")
     async with get_sql_session() as session:
         refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-    assert refreshed.preserve == "*"
+    assert refreshed.preserve_all is False
 
 
 def test_data_list_single(orch_ctx):

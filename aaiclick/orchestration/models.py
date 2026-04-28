@@ -25,15 +25,6 @@ DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
 # Type alias for dependency type annotations (Literal requires hardcoded values)
 DependencyType = Literal["task", "group"]
 
-Preserve = list[str] | Literal["*"] | None
-"""Job-level table preservation declaration.
-
-- ``None`` — nothing preserved (default; pure task-local semantics).
-- ``["foo", "bar"]`` — these named tables survive the run; dropped at job completion.
-- ``"*"`` — every ``j_<id>_<name>`` created during the job survives the run.
-- ``[]`` — explicit ``no preservation``; does NOT fall through to RegisteredJob default.
-"""
-
 
 # Python 3.10 compatibility: StrEnum was added in 3.11
 if sys.version_info >= (3, 11):
@@ -110,9 +101,9 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    preserve: Preserve = Field(
-        default=None,
-        sa_column=Column(JSON, nullable=True),
+    preserve_all: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="0"),
     )
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -136,9 +127,9 @@ class Job(SQLModel, table=True):
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
     )
-    preserve: Preserve = Field(
-        default=None,
-        sa_column=Column(JSON, nullable=True),
+    preserve_all: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="0"),
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: datetime | None = Field(default=None)

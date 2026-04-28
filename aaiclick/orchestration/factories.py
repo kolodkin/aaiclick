@@ -7,43 +7,22 @@ from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
-from .models import Job, JobStatus, Preserve, RegisteredJob, RunType, Task, TaskStatus
+from .models import Job, JobStatus, RegisteredJob, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
 
-class _Unset:
-    """Sentinel type for ``preserve=`` kwargs that distinguish "not supplied"
-    from explicit ``None``. Use the module-level :data:`_UNSET` singleton; the
-    class is exposed only so callers can type their forwarding kwargs."""
+def resolve_preserve_all(
+    explicit: bool | None = None,
+    registered: bool = False,
+) -> bool:
+    """Resolve effective ``preserve_all`` for a job run.
 
-
-_UNSET = _Unset()
-
-
-def resolve_preserve(
-    explicit: Preserve | _Unset = _UNSET,
-    registered: Preserve = None,
-) -> Preserve:
-    """Resolve effective ``preserve`` value with precedence: explicit > registered > None.
-
-    The sentinel honors ``explicit=[]`` ("preserve nothing") instead of falling
-    through to the registered default.
+    Precedence: explicit (when not ``None``) > registered > ``False``.
     """
-    if isinstance(explicit, _Unset) or explicit is None:
-        chosen: Preserve = registered
-    elif explicit == "*" or isinstance(explicit, list):
-        if isinstance(explicit, list) and not all(isinstance(x, str) for x in explicit):
-            raise TypeError("preserve list must contain only str")
-        chosen = explicit
-    else:
-        raise TypeError(f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}")
-
-    if chosen is None:
-        return None
-    if chosen == "*":
-        return "*"
-    return list(chosen)
+    if explicit is None:
+        return registered
+    return explicit
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -174,7 +153,7 @@ async def create_job(
     *,
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
-    preserve: Preserve | _Unset = _UNSET,
+    preserve_all: bool | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
@@ -184,16 +163,18 @@ async def create_job(
         entry: Callback string, callable function, or Task object
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
-        preserve: Names of tables that survive past the run, the literal
-            ``"*"`` (preserve every ``j_<id>_*`` table), ``[]`` (explicitly
-            preserve nothing), or ``None`` (inherit the registered default).
+        preserve_all: ``True`` keeps every ``t_*`` scratch table alive past
+            task exit (Tier 2 / full-replay debugging); ``False`` drops them.
+            ``None`` inherits ``RegisteredJob.preserve_all``. Named
+            ``j_<id>_<name>`` and global ``p_<name>`` tables always survive
+            past task exit regardless.
         registered: Optional ``RegisteredJob`` to source defaults from.
 
     Returns:
         Job object with id populated after database commit
     """
-    registered_preserve = registered.preserve if registered is not None else None
-    resolved_preserve = resolve_preserve(explicit=preserve, registered=registered_preserve)
+    registered_preserve_all = registered.preserve_all if registered is not None else False
+    resolved = resolve_preserve_all(explicit=preserve_all, registered=registered_preserve_all)
 
     job_id = get_snowflake_id()
     job = Job(
@@ -202,7 +183,7 @@ async def create_job(
         status=JobStatus.PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preserve=resolved_preserve,
+        preserve_all=resolved,
         created_at=datetime.utcnow(),
     )
 

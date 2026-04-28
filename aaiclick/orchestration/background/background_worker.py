@@ -30,12 +30,10 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.data.scope import parse_job_table
 from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url
-from ..lifecycle.db_lifecycle import release_task_name_locks_for_dead_tasks
 from ..models import LIVE_TASK_STATUSES, JobStatus, TaskStatus
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
@@ -46,39 +44,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
-
-
-def _parse_preserve(raw: Any) -> Any:
-    """Decode a ``Job.preserve`` cell.
-
-    Postgres returns python-deserialized JSON; SQLite returns the raw TEXT.
-    """
-    if raw is None or isinstance(raw, (list, dict)):
-        return raw
-    if isinstance(raw, str):
-        if raw == "":
-            return None
-        try:
-            return json.loads(raw)
-        except (ValueError, TypeError):
-            return raw
-    return raw
-
-
-def _is_preserved(table_name: str, job_id: int | None, preserve: Any) -> bool:
-    """``True`` when ``table_name`` is a ``j_<job_id>_<name>`` table whose
-    bare name is in the owning job's ``preserve`` (or ``preserve == "*"``)."""
-    if preserve is None or job_id is None:
-        return False
-    parsed = parse_job_table(table_name)
-    if parsed is None:
-        return False
-    table_job_id, suffix = parsed
-    if table_job_id != job_id:
-        return False
-    if preserve == "*":
-        return True
-    return isinstance(preserve, list) and suffix in preserve
 
 
 async def _delete_table_pin_refs(session: AsyncSession, table_names: list[str]) -> None:
@@ -271,41 +236,36 @@ class BackgroundWorker:
                     text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
                     params,
                 )
-            await session.execute(
-                text("DELETE FROM task_name_locks WHERE job_id = :job_id"),
-                {"job_id": job_id},
-            )
             await session.commit()
 
     async def _cleanup_failed_task_tables(self) -> None:
-        """For PENDING_CLEANUP tasks, drop their unpinned + non-preserved tables.
+        """For PENDING_CLEANUP tasks, drop their unpinned ``t_*`` scratch tables.
 
-        Pinned tables stay (downstream consumers may still need them).
-        Preserved names — those listed in the owning job's ``preserve`` —
-        also stay; they're dropped at job completion.
+        Named ``j_<id>_*`` tables are job-scoped by virtue of being named —
+        they survive the failing task and are dropped at job completion (or
+        wait for the orphan-scratch sweep when the entire job is abandoned).
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text("SELECT id, job_id FROM tasks WHERE status = :status"),
+                text("SELECT id FROM tasks WHERE status = :status"),
                 {"status": TaskStatus.PENDING_CLEANUP.value},
             )
-            failed = {row[0]: row[1] for row in result.fetchall()}
-            if not failed:
+            failed_task_ids = [row[0] for row in result.fetchall()]
+            if not failed_task_ids:
                 return
 
-            task_ph, task_params = in_clause(list(failed.keys()), "tid")
+            task_ph, task_params = in_clause(failed_task_ids, "tid")
             result = await session.execute(
                 text(
-                    f"SELECT table_name, task_id FROM table_registry "
-                    f"WHERE task_id IN ({task_ph}) AND table_name NOT LIKE 'p\\_%' ESCAPE '\\'"
+                    f"SELECT table_name FROM table_registry "
+                    f"WHERE task_id IN ({task_ph}) AND table_name LIKE 't\\_%' ESCAPE '\\'"
                 ),
                 task_params,
             )
-            registry = result.fetchall()
-            if not registry:
+            candidate_names = [row[0] for row in result.fetchall()]
+            if not candidate_names:
                 return
 
-            candidate_names = [row[0] for row in registry]
             name_ph, name_params = in_clause(candidate_names, "tn")
             pinned = (
                 await session.execute(
@@ -315,26 +275,7 @@ class BackgroundWorker:
             ).fetchall()
             pinned_names = {row[0] for row in pinned}
 
-            job_ids = set(failed.values())
-            job_ph, job_params = in_clause(list(job_ids), "jid")
-            preserve_rows = (
-                await session.execute(
-                    text(f"SELECT id, preserve FROM jobs WHERE id IN ({job_ph})"),
-                    job_params,
-                )
-            ).fetchall()
-            preserve_by_job = {row[0]: _parse_preserve(row[1]) for row in preserve_rows}
-
-            droppable: list[str] = []
-            for table_name, task_id in registry:
-                if table_name in pinned_names:
-                    continue
-                job_id = failed.get(task_id)
-                preserve = preserve_by_job.get(job_id) if job_id is not None else None
-                if _is_preserved(table_name, job_id, preserve):
-                    continue
-                droppable.append(table_name)
-
+            droppable = [n for n in candidate_names if n not in pinned_names]
             if not droppable:
                 return
 
@@ -596,9 +537,6 @@ class BackgroundWorker:
         """Detect dead workers, mark their running tasks as PENDING_CLEANUP.
 
         Ref cleanup is handled by _process_pending_cleanup on the next cycle.
-        Also releases task_name_locks held by terminal-status tasks (the
-        sweep is independent of the heartbeat check — it cleans stale lock
-        rows whether or not any worker just died).
         """
         cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
 
@@ -608,12 +546,11 @@ class BackgroundWorker:
                 {"cutoff": cutoff},
             )
             dead_worker_ids = [row[0] for row in result.fetchall()]
+            if not dead_worker_ids:
+                return
 
-            if dead_worker_ids:
-                now = datetime.utcnow()
-                await self._handler.mark_dead_workers(session, dead_worker_ids, now)
-
-            await release_task_name_locks_for_dead_tasks(session)
+            now = datetime.utcnow()
+            await self._handler.mark_dead_workers(session, dead_worker_ids, now)
             await session.commit()
 
             for wid in dead_worker_ids:
