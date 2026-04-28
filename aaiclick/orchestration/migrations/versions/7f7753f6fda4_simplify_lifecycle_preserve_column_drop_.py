@@ -31,13 +31,10 @@ def upgrade() -> None:
     op.execute("UPDATE jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'")
     op.execute("UPDATE registered_jobs SET preserve = '\"*\"' WHERE preservation_mode = 'FULL'")
 
-    # 3. Drop obsolete tables (their indexes drop with them).
-    #    BackgroundWorker._cleanup_unreferenced_tables is stubbed to a no-op
-    #    in Phase 1 Task 7, so no live code path queries these tables.
-    op.drop_table("table_run_refs")
-    op.drop_table("table_context_refs")
-
-    # 4. Create `task_name_locks`
+    # 3. Create `task_name_locks`.
+    #    Phase 6 drops table_run_refs / table_context_refs alongside the
+    #    SQLModel deletions in db_lifecycle.py and the locks.py /
+    #    background/handler.py call sites that still reference them.
     op.create_table(
         "task_name_locks",
         sa.Column("job_id", sa.BigInteger(), nullable=False),
@@ -55,33 +52,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 4. Drop task_name_locks
+    # 3. Drop task_name_locks
     op.drop_index("ix_task_name_locks_task_id", table_name="task_name_locks")
     op.drop_table("task_name_locks")
-
-    # 3. Recreate table_run_refs and table_context_refs (empty — historical
-    #    data is unrecoverable; the goal is to allow ORM imports against the
-    #    prior schema, not to round-trip data).
-    op.create_table(
-        "table_run_refs",
-        sa.Column("table_name", sa.String(), nullable=False),
-        sa.Column("run_id", sa.String(), nullable=False),
-        sa.PrimaryKeyConstraint("table_name", "run_id"),
-    )
-    op.create_index("ix_table_run_refs_run_id", "table_run_refs", ["run_id"])
-    op.create_table(
-        "table_context_refs",
-        sa.Column("table_name", sa.String(), nullable=False),
-        sa.Column("context_id", sa.BigInteger(), nullable=False),
-        sa.Column("advisory_id", sa.BigInteger(), nullable=True),
-        sa.Column("job_id", sa.BigInteger(), nullable=True),
-        sa.PrimaryKeyConstraint("table_name", "context_id"),
-    )
-    op.create_index(
-        "ix_table_context_refs_context_id",
-        "table_context_refs",
-        ["context_id"],
-    )
 
     # 1. Drop preserve columns. preservation_mode was never dropped in
     #    upgrade, so nothing to restore.
