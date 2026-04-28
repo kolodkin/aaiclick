@@ -62,3 +62,77 @@ async def test_local_lifecycle_stop_delegates(ctx):
 # ``async with data_context():`` block — the ``ctx`` fixture wraps
 # orch_context and gives an ``OrchLifecycleHandler``, not the
 # ``LocalLifecycleHandler`` this assertion targets.
+
+
+def test_track_table_records_default_flags():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("t_123")
+    tracked = list(handler.iter_tracked_tables())
+    assert len(tracked) == 1
+    assert tracked[0].name == "t_123"
+    assert tracked[0].preserved is False
+    assert tracked[0].pinned is False
+
+
+def test_track_table_with_preserved_flag():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("j_42_training_set", preserved=True)
+    tracked = list(handler.iter_tracked_tables())
+    assert tracked[0].preserved is True
+
+
+def test_track_table_idempotent_does_not_lose_preserved_flag():
+    """A later track_table without preserved=True must not clear the prior True."""
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("t_x", preserved=True)
+    handler.track_table("t_x")
+    tracked = list(handler.iter_tracked_tables())
+    assert len(tracked) == 1
+    assert tracked[0].preserved is True
+
+
+def test_mark_pinned_after_track():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.track_table("t_999")
+    handler.mark_pinned("t_999")
+    tracked = list(handler.iter_tracked_tables())
+    assert tracked[0].pinned is True
+
+
+def test_mark_pinned_unknown_table_is_silent():
+    """Pin can be set by the serializer for tables not registered in this
+    handler — be tolerant."""
+    handler = LocalLifecycleHandler(MagicMock())
+    handler.mark_pinned("t_unknown")
+    assert list(handler.iter_tracked_tables()) == []
+
+
+def test_incref_auto_tracks_table():
+    handler = LocalLifecycleHandler(MagicMock())
+    handler._worker = MagicMock()
+    handler.incref("t_auto")
+    tracked = list(handler.iter_tracked_tables())
+    assert len(tracked) == 1
+    assert tracked[0].name == "t_auto"
+
+
+def test_lifecycle_handler_base_track_methods_are_noops():
+    """Base class defaults: track/mark_pinned no-op, iter_tracked_tables empty."""
+
+    class StubHandler(LifecycleHandler):
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+        def incref(self, table_name: str) -> None:
+            pass
+
+        def decref(self, table_name: str) -> None:
+            pass
+
+    handler = StubHandler()
+    handler.track_table("anything")
+    handler.mark_pinned("anything")
+    assert list(handler.iter_tracked_tables()) == []

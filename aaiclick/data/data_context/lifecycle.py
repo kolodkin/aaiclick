@@ -9,12 +9,27 @@ for single-process local operation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextvars import ContextVar
+from typing import NamedTuple
 
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", default=None)
+
+
+class TrackedTable(NamedTuple):
+    """Per-table state recorded by :class:`LocalLifecycleHandler`.
+
+    ``preserved`` tables survive past ``task_scope`` exit (BackgroundWorker
+    drops them at job completion). ``pinned`` tables survive because a
+    downstream consumer task still needs them.
+    """
+
+    name: str
+    preserved: bool
+    pinned: bool
 
 
 def get_data_lifecycle() -> LifecycleHandler | None:
@@ -100,6 +115,16 @@ class LifecycleHandler(ABC):
         """
         return None
 
+    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+        """Record that this handler's lifetime owns ``table_name``. Default no-op."""
+
+    def mark_pinned(self, table_name: str) -> None:
+        """Flag a tracked table as pinned (consumer-bound). Default no-op."""
+
+    def iter_tracked_tables(self) -> Iterable[TrackedTable]:
+        """Yield :class:`TrackedTable` entries. Default empty."""
+        return iter(())
+
     async def __aenter__(self):
         await self.start()
         return self
@@ -122,6 +147,7 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def __init__(self, ch_client: ChClient):
         self._worker = AsyncTableWorker(ch_client)
+        self._tracked: dict[str, TrackedTable] = {}
 
     async def start(self) -> None:
         await self._worker.start()
@@ -131,6 +157,7 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def incref(self, table_name: str) -> None:
         self._worker.incref(table_name)
+        self.track_table(table_name)
 
     def decref(self, table_name: str) -> None:
         self._worker.decref(table_name)
@@ -140,3 +167,18 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode
+
+    def track_table(self, table_name: str, *, preserved: bool = False) -> None:
+        existing = self._tracked.get(table_name)
+        if existing is None:
+            self._tracked[table_name] = TrackedTable(table_name, preserved, False)
+        elif preserved and not existing.preserved:
+            self._tracked[table_name] = existing._replace(preserved=True)
+
+    def mark_pinned(self, table_name: str) -> None:
+        existing = self._tracked.get(table_name)
+        if existing is not None and not existing.pinned:
+            self._tracked[table_name] = existing._replace(pinned=True)
+
+    def iter_tracked_tables(self) -> Iterable[TrackedTable]:
+        return iter(list(self._tracked.values()))
