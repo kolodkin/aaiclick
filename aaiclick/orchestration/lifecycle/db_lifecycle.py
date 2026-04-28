@@ -116,6 +116,25 @@ class TableRunRef(SQLModel, table=True):
     run_id: str = Field(sa_column=Column(String, primary_key=True))
 
 
+class TaskNameLock(SQLModel, table=True):
+    """One row per ``(job_id, name)`` held by a live task.
+
+    Acquired by ``task_scope()`` when a task creates ``j_<id>_<name>`` for a
+    name not in the job's ``preserve`` list. Released on task exit (success or
+    failure) and by the BackgroundWorker dead-worker sweep.
+    """
+
+    __tablename__: ClassVar[str] = "task_name_locks"
+
+    job_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    task_id: int = Field(sa_column=Column(BigInteger, nullable=False, index=True))
+    acquired_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime, nullable=False),
+    )
+
+
 class TableNameCollision(ValueError):
     """Raised when a task takes a non-preserved name held by another live task in the same job."""
 
