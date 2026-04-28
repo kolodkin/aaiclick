@@ -6,10 +6,10 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import Job, JobStatus, RegisteredJob, Task, TaskStatus
+from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.result import data_list
-from aaiclick.snowflake import get_snowflake_id
 
 
 async def test_create_task_unique_ids(orch_ctx):
@@ -104,17 +104,11 @@ async def test_create_job_persists_explicit_preserve(orch_ctx):
 
 
 async def test_create_job_uses_registered_preserve_default(orch_ctx):
-    registered = RegisteredJob(
-        id=get_snowflake_id(),
+    registered = await register_job(
         name="preserve_default_reg",
         entrypoint="mymodule.task1",
         preserve=["default_table"],
     )
-    async with get_sql_session() as session:
-        session.add(registered)
-        await session.commit()
-        await session.refresh(registered)
-
     job = await create_job(
         "preserve_default_run",
         "mymodule.task1",
@@ -126,17 +120,11 @@ async def test_create_job_uses_registered_preserve_default(orch_ctx):
 
 
 async def test_create_job_explicit_overrides_registered(orch_ctx):
-    registered = RegisteredJob(
-        id=get_snowflake_id(),
+    registered = await register_job(
         name="preserve_override_reg",
         entrypoint="mymodule.task1",
         preserve=["from_registered"],
     )
-    async with get_sql_session() as session:
-        session.add(registered)
-        await session.commit()
-        await session.refresh(registered)
-
     job = await create_job(
         "preserve_override_run",
         "mymodule.task1",

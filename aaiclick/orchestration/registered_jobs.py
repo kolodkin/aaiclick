@@ -9,7 +9,7 @@ from croniter import croniter
 from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
-from .factories import _UNSET, create_job, create_task, resolve_preserve
+from .factories import _UNSET, _Unset, create_job, create_task, resolve_preserve
 from .models import Job, PreservationMode, Preserve, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
@@ -249,7 +249,7 @@ async def run_job(
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RunType.MANUAL,
     preservation_mode: PreservationMode | None = None,
-    preserve: Preserve | object = _UNSET,
+    preserve: Preserve | _Unset = _UNSET,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
 

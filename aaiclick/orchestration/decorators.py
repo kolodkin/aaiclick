@@ -38,7 +38,7 @@ from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake import get_snowflake_id
-from .factories import _UNSET, _callable_to_string, resolve_job_config, resolve_preserve
+from .factories import _UNSET, _Unset, _callable_to_string, resolve_job_config, resolve_preserve
 from .models import Group, Job, JobStatus, PreservationMode, Preserve, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
@@ -215,7 +215,7 @@ class JobFactory:
         self,
         *,
         preservation_mode: PreservationMode | None = None,
-        preserve: Preserve | object = _UNSET,
+        preserve: Preserve | _Unset = _UNSET,
         **kwargs,
     ) -> Job:
         """Create a Job with an entry point task.
@@ -250,7 +250,7 @@ class JobFactory:
         run_type: RunType = RunType.MANUAL,
         registered_job_id: int | None = None,
         preservation_mode: PreservationMode | None = None,
-        preserve: Preserve | object = _UNSET,
+        preserve: Preserve | _Unset = _UNSET,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""

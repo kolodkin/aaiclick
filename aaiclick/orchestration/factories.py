@@ -12,34 +12,34 @@ from .models import Job, JobStatus, Preserve, PreservationMode, RegisteredJob, R
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
-_UNSET: object = object()
+class _Unset:
+    """Sentinel type for ``preserve=`` kwargs that distinguish "not supplied"
+    from explicit ``None``. Use the module-level :data:`_UNSET` singleton; the
+    class is exposed only so callers can type their forwarding kwargs."""
+
+
+_UNSET = _Unset()
 
 
 def resolve_preserve(
-    explicit: Preserve | object = _UNSET,
+    explicit: Preserve | _Unset = _UNSET,
     registered: Preserve = None,
 ) -> Preserve:
-    """Resolve effective ``preserve`` value for a job run.
+    """Resolve effective ``preserve`` value with precedence: explicit > registered > None.
 
-    Precedence (highest first):
-        1. ``explicit`` if supplied (including ``[]`` — explicit empty list is honored).
-        2. ``registered`` (the RegisteredJob default).
-        3. ``None``.
-
-    The sentinel distinguishes ``explicit=None`` (caller didn't supply anything;
-    fall through) from ``explicit=[]`` (caller explicitly said nothing should be
-    preserved; do NOT fall through).
+    The sentinel honors ``explicit=[]`` ("preserve nothing") instead of falling
+    through to the registered default.
     """
-    if explicit is _UNSET or explicit is None:
+    if isinstance(explicit, _Unset) or explicit is None:
         chosen: Preserve = registered
-    else:
-        if not (explicit == "*" or isinstance(explicit, list)):
-            raise TypeError(
-                f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}"
-            )
+    elif explicit == "*" or isinstance(explicit, list):
         if isinstance(explicit, list) and not all(isinstance(x, str) for x in explicit):
             raise TypeError("preserve list must contain only str")
-        chosen = explicit  # type: ignore[assignment]
+        chosen = explicit
+    else:
+        raise TypeError(
+            f"preserve must be None, '*', or list[str]; got {type(explicit).__name__}"
+        )
 
     if chosen is None:
         return None
@@ -202,7 +202,7 @@ async def create_job(
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
-    preserve: Preserve | object = _UNSET,
+    preserve: Preserve | _Unset = _UNSET,
     registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
