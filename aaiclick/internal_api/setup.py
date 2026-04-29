@@ -20,7 +20,6 @@ import urllib.request
 from pathlib import Path
 
 from alembic import command
-from chdb.session import Session
 from sqlalchemy import create_engine
 
 from aaiclick.backend import (
@@ -31,7 +30,7 @@ from aaiclick.backend import (
     is_local,
     is_sqlite,
 )
-from aaiclick.data.data_context.chdb_client import get_chdb_data_path
+from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
@@ -74,9 +73,9 @@ def setup(*, ai: bool = False) -> SetupResult:
     if is_chdb():
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)
-        sess = Session(chdb_path)
-        sess.query("SELECT 1")
-        sess.cleanup()
+        # chdb's Session is a per-process singleton: opening it here also
+        # populates the shared cache so subsequent callers reuse the same handle.
+        get_shared_session(chdb_path).query("SELECT 1")
         steps.append(SetupStep(name="chdb", status="ok", detail=chdb_path))
     else:
         steps.append(
