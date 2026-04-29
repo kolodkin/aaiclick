@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from aaiclick import create_object_from_url
+from aaiclick.backend import is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
 
@@ -668,6 +669,12 @@ def flaky_server():
     server.server_close()
 
 
+@pytest.mark.skipif(
+    not is_chdb(),
+    reason="Real ClickHouse server adds Range requests and internal http_max_tries "
+    "retries that confound the simple flaky stub. Retry logic itself is covered "
+    "by aaiclick/data/object/test_url_retry.py.",
+)
 async def test_url_retries_transient_503(ctx, flaky_server):
     """create_object_from_url retries on 503 and succeeds on the second attempt."""
     base, handler = flaky_server
@@ -689,6 +696,12 @@ async def test_url_retries_transient_503(ctx, flaky_server):
     assert handler.request_count == 2
 
 
+@pytest.mark.skipif(
+    not is_chdb(),
+    reason="Real ClickHouse server adds Range requests and internal http_max_tries "
+    "retries that confound the simple flaky stub. Retry logic itself is covered "
+    "by aaiclick/data/object/test_url_retry.py.",
+)
 async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
     """Persistent 503 exhausts retries and raises."""
     base, handler = flaky_server
