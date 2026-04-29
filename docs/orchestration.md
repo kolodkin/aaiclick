@@ -75,8 +75,8 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 
 ## Entities
 
-- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preserve` (JSON; the run's table-preservation declaration), `next_run_at`, `created_at`, `updated_at`
-- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preserve` (JSON), `created_at`, `started_at`, `completed_at`, `error`
+- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preserve_all` (BOOLEAN; keeps anonymous `t_*` scratch alive past task exit), `next_run_at`, `created_at`, `updated_at`
+- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preserve_all` (BOOLEAN), `created_at`, `started_at`, `completed_at`, `error`
 - **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
@@ -124,11 +124,11 @@ Workers detect cancellation by polling task status. **Known limitation**: CPU-bo
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`, `aaiclick/orchestration/models.py` — see `RegisteredJob`
 
-Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, default `preserve` declaration, and enabled flag.
+Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, default `preserve_all` flag, and enabled flag.
 
 ## Registration & CRUD
 
-- `register_job(name, entrypoint, schedule, default_kwargs, preserve, enabled)` — create a new catalog entry
+- `register_job(name, entrypoint, schedule, default_kwargs, preserve_all, enabled)` — create a new catalog entry
 - `get_registered_job(name)` — lookup by name
 - `upsert_registered_job(...)` — insert or update
 - `enable_job(name)` / `disable_job(name)` — toggle enabled, recompute `next_run_at`
@@ -136,49 +136,42 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 
 ## Lifecycle
 
-Tasks are conceptually `DataContext`s with three orchestration extras: pin/unpin
-for cross-task Object handoff, `task_name_locks` for non-preserved named tables,
-and a `preserve` list of named tables that survive the run.
+Tasks are conceptually `DataContext`s with two orchestration extras: pin/unpin for cross-task Object handoff, and a per-job `preserve_all` flag that controls whether anonymous ``t_*`` scratch tables survive past task exit. Naming a table is itself the preservation signal — every ``j_<id>_<name>`` is job-scoped and survives the run.
 
-| Table type                              | On successful task exit          | On task failure / worker death | At job completion          |
-|-----------------------------------------|----------------------------------|--------------------------------|----------------------------|
-| `t_*` not pinned (pure scratch)         | Inline DROP by task              | BackgroundWorker sweeps        | n/a                        |
-| `t_*` pinned (Object output)            | Leave (pin-controlled)           | Leave (pin-controlled)         | BackgroundWorker drops     |
-| `j_<id>_<name>`, not preserved          | Inline DROP by task              | Leave for job-end cleanup      | BackgroundWorker drops     |
-| `j_<id>_<name>`, preserved              | Leave (job-end)                  | Leave (job-end)                | BackgroundWorker drops     |
-| `p_*` (persistent)                      | Never                            | Never                          | Never (user-managed)       |
+| Table type                              | On successful task exit            | On task failure / worker death | At job completion          |
+|-----------------------------------------|------------------------------------|--------------------------------|----------------------------|
+| `t_*` not pinned (pure scratch)         | Inline DROP by task                | BackgroundWorker sweeps        | n/a                        |
+| `t_*` pinned (Object output)            | Leave (pin-controlled)             | Leave (pin-controlled)         | BackgroundWorker drops     |
+| `t_*` with `preserve_all=True`          | Leave                              | Leave                          | BackgroundWorker drops     |
+| `j_<id>_<name>` (named, job-scoped)     | Leave (job-end)                    | Leave (job-end)                | BackgroundWorker drops     |
+| `p_*` (persistent)                      | Never                              | Never                          | Never (user-managed)       |
 
 See `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md` for the rationale.
 
-## Declaring preserved tables
+## Declaring preserve_all
 
-`create_job(preserve=...)` and `@register_job(preserve=...)` declare which named tables survive the run.
+`create_job(preserve_all=...)` and `@register_job(preserve_all=...)` declare whether anonymous ``t_*`` scratch tables should survive past task exit. Named ``j_<id>_<name>`` tables are always job-scoped and survive regardless.
 
 ```python
 job = await create_job(
     "train_embeddings",
     "myapp.train",
-    preserve=["training_set", "vocab"],
+    preserve_all=True,  # Tier 2 / full-replay debugging
 )
 ```
 
-`preserve` accepts:
+`preserve_all` accepts:
 
-- `None` — nothing preserved (default).
-- `list[str]` — those names are preserved.
-- `"*"` — every `j_<id>_<name>` created during the job is preserved.
-- `[]` — explicitly nothing preserved (does NOT fall through to the RegisteredJob default).
+- `False` (default) — anonymous `t_*` tables drop at task exit; named tables survive the run.
+- `True` — keep anonymous `t_*` tables alive past task exit too.
 
-Resolution order: explicit > `RegisteredJob.preserve` > `None` (resolved by `factories.resolve_preserve()`).
+Resolution order: explicit > `RegisteredJob.preserve_all` > `False`.
 
-Inside a task, `create_object(scope="job", name=...)` either:
-
-- creates `j_<job_id>_<name>` once for the job (when the name is preserved or `preserve == "*"`), with idempotent `CREATE IF NOT EXISTS`, or
-- creates `j_<job_id>_<name>` task-locally (when not preserved), guarded by `task_name_locks` so two concurrent tasks can't take the same name. Collision raises `TableNameCollision`.
+Inside a task, `create_object(scope="job", name=...)` issues `CREATE TABLE IF NOT EXISTS j_<job_id>_<name>` — concurrent calls from sibling tasks are naturally idempotent.
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs, preserve)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves the `preserve` value via the precedence rule above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task.
+`run_job(name, entrypoint, kwargs, preserve_all)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves the `preserve_all` value via the precedence rule above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task.
 
 ## Cron Scheduling
 
@@ -256,23 +249,21 @@ Empty input raises `TypeError("reduce() of empty sequence with no initial value"
 
 **Implementation**: `aaiclick/orchestration/lifecycle/task_lifecycle.py`, `aaiclick/orchestration/orch_context.py` — see `task_scope`; `aaiclick/orchestration/background/background_worker.py`
 
-Two SQL tables coordinate the orchestration extras around the per-task `LocalLifecycleHandler`:
+One SQL coordinator sits alongside the per-task `LocalLifecycleHandler`:
 
-| Table              | PK                         | Purpose                                                                |
-|--------------------|----------------------------|------------------------------------------------------------------------|
-| `table_pin_refs`   | `(table_name, task_id)`    | Per-consumer pins; producer fans out, consumer deletes its own row     |
-| `task_name_locks`  | `(job_id, name)`           | At-most-one live task may own a non-preserved `j_<id>_<name>` table    |
+| Table            | PK                         | Purpose                                                            |
+|------------------|----------------------------|--------------------------------------------------------------------|
+| `table_pin_refs` | `(table_name, task_id)`    | Per-consumer pins; producer fans out, consumer deletes its own row |
 
 `table_registry` holds ownership metadata (`table_name`, `job_id`, `task_id`, `advisory_id`, `created_at`, `schema_doc`); it is the join target every cleanup path uses.
 
 ## task_scope
 
-`task_scope(task_id, job_id, run_id)` activates a `TaskLifecycleHandler`, fetches the job's `preserve` declaration, and on exit (`__aexit__`):
+`task_scope(task_id, job_id, run_id)` activates a `TaskLifecycleHandler` and on exit (`__aexit__`):
 
 1. Stale-marks every live `Object` so post-scope access raises clearly.
-2. Iterates `iter_tracked_tables()` — every table touched in the body, with `(owned, preserved, pinned)` flags.
-3. Inline-DROPs tables where `owned=True`, `pinned=False`, and either the run succeeded with `preserved=False` or the run failed and the table is `t_*` scratch. `p_*` global tables are excluded outright.
-4. Releases every `task_name_locks` row held by `task_id` regardless of outcome.
+2. Iterates `iter_tracked_tables()` — every table touched in the body, with `(owned, pinned)` flags.
+3. Builds a drop list of `t_*` scratch tables that are `owned=True` and `pinned=False`. If the list is non-empty, fetches `Job.preserve_all`; when `False` (default), inline-DROPs each. `j_<id>_<name>` named tables and `p_*` globals are never dropped here.
 
 The handler tracks tables via two synchronous calls:
 
@@ -284,24 +275,21 @@ Plus the cross-task pin path:
 - `pin(table_name)` — sync `mark_pinned(table_name)` plus an OPLOG_PIN message that fans out one `table_pin_refs` row per downstream consumer task (resolved via the `dependencies` table).
 - `unpin(table_name)` — consumer-side delete of its own pin_refs row.
 
-## ctx.table name lock
+## ctx.table
 
-`create_object(scope="job", name=...)` consults the active handler:
-
-- **Preserved name** (in `job.preserve` list, or `preserve == "*"`): issues `CREATE TABLE IF NOT EXISTS j_<job_id>_<name>` with no lock; `track_table(preserved=True, owned=True)`.
-- **Non-preserved name**: calls `lifecycle.acquire_named_table_lock(name)` which performs an atomic `INSERT INTO task_name_locks (...) ON CONFLICT (job_id, name) DO NOTHING RETURNING task_id`. Same task re-acquiring is a no-op; a different task triggers a holder lookup and `TableNameCollision`. If acquired, the call site issues `CREATE TABLE j_<job_id>_<name>`.
+`create_object(scope="job", name=...)` issues `CREATE TABLE IF NOT EXISTS j_<job_id>_<name>` and `track_table(owned=True)`. Concurrent calls from sibling tasks are naturally idempotent — no lock needed.
 
 ## BackgroundWorker
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Five operations per poll:
+Six operations per poll:
 
 1. **Pending cleanup** — process `PENDING_CLEANUP` tasks: drop pin_refs, transition to `PENDING` (retries left) or `FAILED`. Re-queries each affected job and runs `_cleanup_at_job_completion` for any that just transitioned to a terminal status.
-2. **Failed task tables** — for `PENDING_CLEANUP` tasks, drop unpinned + non-preserved registry rows.
+2. **Failed task tables** — for `PENDING_CLEANUP` tasks, drop unpinned `t_*` registry rows. Named `j_<id>_*` tables wait for job completion.
 3. **Orphan scratch** — sweep `t_*` whose owning task is no longer live and which aren't pinned.
 4. **Expired jobs** — TTL sweep based on `AAICLICK_JOB_TTL_DAYS`.
-5. **Dead worker detection** — heartbeat cutoff marks tasks `PENDING_CLEANUP`; releases `task_name_locks` held by terminal-status tasks.
+5. **Dead worker detection** — heartbeat cutoff marks tasks `PENDING_CLEANUP`.
 6. **Job scheduling** — create new runs for registered jobs whose `next_run_at` is due.
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
@@ -314,7 +302,7 @@ Within-task lifetime is Python reference counting — `View.__init__` stores `_s
 
 ## Local Mode
 
-`LocalLifecycleHandler` wraps `AsyncTableWorker` — refcount-based immediate DROP on count 0, no PostgreSQL. The flag-tracking surface (`track_table`, `mark_pinned`, `iter_tracked_tables`, `is_preserved`, `acquire_named_table_lock`) defaults to no-ops on the base `LifecycleHandler`. See [DataContext](data_context.md).
+`LocalLifecycleHandler` wraps `AsyncTableWorker` — refcount-based immediate DROP on count 0, no PostgreSQL. The flag-tracking surface (`track_table`, `mark_pinned`, `iter_tracked_tables`) defaults to no-ops on the base `LifecycleHandler`. See [DataContext](data_context.md).
 
 # Operation Provenance (Oplog)
 

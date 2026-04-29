@@ -18,7 +18,7 @@ replay only when static state is insufficient.
 | Tier | What runs                           | What the agent can query                        | Cost         |
 |------|-------------------------------------|------------------------------------------------|--------------|
 | 1    | Nothing — use existing state        | Persistent inputs (`p_*`), target table, oplog SQL | Zero replay |
-| 2    | Full replay with `preserve="*"`     | Everything above + every intermediate table    | One full pipeline run |
+| 2    | Full replay with `preserve_all=True` | Everything above + every intermediate table  | One full pipeline run |
 
 Tier 1 is tried first. The agent escalates to Tier 2 only when it cannot
 answer from static state alone. The user can also pre-commit to Tier 2
@@ -76,7 +76,7 @@ longer exists must escalate.
 # Tier 2 -- Full Replay + Exploration
 
 Tier 2 is not a separate API — it is the existing `run_job()` entry
-point invoked with `preserve="*"`. No cloning, no task-graph surgery,
+point invoked with `preserve_all=True`. No cloning, no task-graph surgery,
 no special replay function.
 
 Triggered by `request_full_replay` (or by `--deep` on the initial
@@ -84,7 +84,7 @@ request). Mechanics:
 
 1. Read the original job's `registered_job_id` and `kwargs` off its row
 2. Submit a fresh run:
-   `run_job(registered_job_id, kwargs=original.kwargs, preserve="*")`
+   `run_job(registered_job_id, kwargs=original.kwargs, preserve_all=True)`
 3. Wait for the fresh run to complete — every intermediate table is
    now materialized and alive under the new job's id
 4. Build a graph from the new job's oplog
@@ -112,20 +112,19 @@ evidence for the price of one run.
 
 # Preserve Declaration
 
-A job's `preserve` value declares which named tables survive the run (until job completion, when the BackgroundWorker drops them).
+Naming a table is itself the preservation signal: every ``j_<id>_<name>`` is job-scoped and survives the run. A job's `preserve_all` boolean only controls anonymous ``t_*`` scratch tables.
 
-| `preserve`        | What survives after job      | Use case                                      |
-|-------------------|------------------------------|-----------------------------------------------|
-| `None` (default)  | Persistent (`p_*`) tables only | Production runs, Tier 1 debugging           |
-| `list[str]`       | The named `j_<id>_<name>` tables | Targeted preservation                       |
-| `"*"`             | Every `j_<id>_<name>` from the run | Tier 2 debugging, replay target          |
+| `preserve_all`    | What survives after job (in addition to `j_<id>_*` and `p_*`) | Use case                          |
+|-------------------|--------------------------------------------------------------|-----------------------------------|
+| `False` (default) | nothing extra                                                | Production runs, Tier 1 debugging |
+| `True`            | every anonymous `t_*` table                                  | Tier 2 debugging, replay target   |
 
 Precedence:
 
 ```
-1. Explicit run_job(..., preserve=...) / create_job(..., preserve=...) argument
-2. RegisteredJob.preserve
-3. None
+1. Explicit run_job(..., preserve_all=...) / create_job(..., preserve_all=...) argument
+2. RegisteredJob.preserve_all
+3. False
 ```
 
 ---
@@ -164,7 +163,7 @@ async def get_schema(table: str) -> TableSchema:
 async def request_full_replay(reason: str) -> ReplayHandle:
     """
     Escalate to Tier 2. Submits a fresh run of the original job's
-    registered_job with the original kwargs and `preserve="*"`,
+    registered_job with the original kwargs and `preserve_all=True`,
     waits for completion, and returns a handle the agent uses to continue
     querying against the new job's graph. The `reason` is logged so the
     user can see why the escalation happened.
