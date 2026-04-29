@@ -18,6 +18,5 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     orch_ctx_no_ch,
     orch_module_ctx,
     orch_module_ctx_no_ch,
-    pin_chdb_session,
     sql_worker_setup,
 )

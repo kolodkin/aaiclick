@@ -20,27 +20,21 @@ from . import errors, setup
 def _stub_chdb_and_sqlalchemy(monkeypatch):
     """Replace chdb Session + SQLAlchemy DDL so ``setup()`` has no side effects.
 
-    The ``pin_chdb_session`` session fixture already owns the one chdb Session
-    the process is allowed to hold; spinning up a second one here would race
-    chdb's native threadpool. The SQLAlchemy stub likewise avoids touching the
-    test DB (whose schema is owned by the fixture-run alembic migration).
+    chdb's Session is a per-process singleton; tests stub the shared-session
+    accessor so ``setup()`` doesn't touch real chdb state. The SQLAlchemy stub
+    likewise avoids touching the test DB (whose schema is owned by the
+    fixture-run alembic migration).
     """
 
     class _FakeSession:
-        def __init__(self, path):
-            pass
-
         def query(self, _sql):
-            return None
-
-        def cleanup(self):
             return None
 
     class _FakeEngine:
         def dispose(self):
             return None
 
-    monkeypatch.setattr(setup, "Session", _FakeSession)
+    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
     monkeypatch.setattr(setup, "create_engine", lambda _url: _FakeEngine())
     monkeypatch.setattr(setup.SQLModel.metadata, "create_all", lambda _engine: None)
 
