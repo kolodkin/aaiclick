@@ -126,11 +126,10 @@ async def _run_job_cancel(args: argparse.Namespace) -> None:
 
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
-    preserve_all = getattr(args, "preserve_all", False)
     request = RunJobRequest(
         name=args.name,
         kwargs=kwargs,
-        preserve_all=preserve_all if preserve_all else None,
+        preserve_all=args.preserve_all or None,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -143,7 +142,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         entrypoint=args.entrypoint,
         schedule=args.schedule,
         default_kwargs=default_kwargs,
-        preserve_all=getattr(args, "preserve_all", False),
+        preserve_all=args.preserve_all,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)

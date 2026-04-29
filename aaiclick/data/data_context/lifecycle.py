@@ -175,6 +175,15 @@ class LocalLifecycleHandler(LifecycleHandler):
         pass  # No distributed refs to release in local mode
 
     def track_table(self, table_name: str, *, owned: bool = False) -> None:
+        """Insert or upgrade a tracking entry for ``table_name``.
+
+        Called by ``register_table`` (with ``owned=True``) when this task
+        creates a table, and by ``incref`` (with ``owned=False``) when a
+        task only reads it. A later ``owned=True`` call upgrades an
+        existing read-only entry to owned; otherwise the row is left
+        unchanged. ``iter_tracked_tables`` later reads the (owned, pinned)
+        flags to decide what to drop on scope exit.
+        """
         existing = self._tracked.get(table_name)
         if existing is None:
             self._tracked[table_name] = TrackedTable(table_name, False, owned)
@@ -183,6 +192,13 @@ class LocalLifecycleHandler(LifecycleHandler):
             self._tracked[table_name] = existing._replace(owned=True)
 
     def mark_pinned(self, table_name: str) -> None:
+        """Flip the tracked entry's ``pinned`` flag to True.
+
+        Called from ``pin()`` when a downstream consumer task is going to
+        read the table after this scope exits — pinned tables are excluded
+        from the inline DROP at scope exit and survive until the consumer
+        unpins or the BackgroundWorker sweeps them.
+        """
         existing = self._tracked.get(table_name)
         if existing is not None and not existing.pinned:
             self._tracked[table_name] = existing._replace(pinned=True)
