@@ -1,13 +1,12 @@
 """Pytest fixtures for aaiclick.data tests.
 
-Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``,
-``pin_chdb_session``, ``orch_ctx`` family) register globally via the
-``aaiclick.testing`` plugin (see ``aaiclick/conftest.py``). This
-conftest adds the data-specific ``ctx`` fixture — an ``orch_context``
-+ ``task_scope`` wrapper that gives data tests SQL-session access
-(required by ``_get_table_schema``'s registry read path) and an
-``OrchLifecycleHandler`` that writes ``table_registry.schema_doc``
-on every ``create_object``.
+Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``, ``orch_ctx``
+family) register globally via the ``aaiclick.testing`` plugin (see
+``aaiclick/conftest.py``). This conftest adds the data-specific ``ctx``
+fixture — an ``orch_context`` + ``task_scope`` wrapper that gives data
+tests SQL-session access (required by ``_get_table_schema``'s registry
+read path) and an ``OrchLifecycleHandler`` that writes
+``table_registry.schema_doc`` on every ``create_object``.
 """
 
 import pytest

@@ -1,11 +1,11 @@
 """Shared test helpers and fixtures.
 
 Per-subpackage conftests import the pytest fixtures defined here
-(``ch_worker_setup``, ``sql_worker_setup``, ``pin_chdb_session``,
-``orch_module_ctx``, ``orch_module_ctx_no_ch``, ``orch_ctx``,
-``orch_ctx_no_ch``). pytest recognises imported fixtures by identity, so
-the same fixture re-exported from multiple conftests still runs once per
-scope. Keeping the implementations here avoids copy-paste across
+(``ch_worker_setup``, ``sql_worker_setup``, ``orch_module_ctx``,
+``orch_module_ctx_no_ch``, ``orch_ctx``, ``orch_ctx_no_ch``). pytest
+recognises imported fixtures by identity, so the same fixture re-exported
+from multiple conftests still runs once per scope. Keeping the
+implementations here avoids copy-paste across
 ``aaiclick/data/conftest.py``, ``aaiclick/orchestration/conftest.py``,
 ``aaiclick/oplog/conftest.py``, and ``aaiclick/ai/conftest.py``.
 """
@@ -24,7 +24,6 @@ from alembic import command
 from sqlalchemy import create_engine, text
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
-from aaiclick.data.data_context import chdb_client as _chdb_client
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogNode
@@ -182,34 +181,6 @@ def _pg_connect(dbname: str):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def pin_chdb_session():
-    """Keep the chdb Session alive for the entire pytest run.
-
-    Module-scoped orch fixtures already reduce chdb Session teardown
-    calls from per-test to per-module, but even those remaining cycles
-    intermittently race chdb's native ThreadPool on teardown (glibc
-    ``pthread_mutex_lock`` assertion inside ``_chdb.abi3.so``, see
-    ``docs/technical_debt.md``). No-op ``close_session`` for the
-    lifetime of the pytest run so the chdb Session is a true per-process
-    singleton — what chdb actually supports.
-    """
-    if not is_chdb():
-        yield
-        return
-    # `aaiclick.orchestration.orch_context` no longer calls `close_session` —
-    # production now treats chdb's Session as a true per-process singleton, the
-    # same constraint this fixture enforces. We still patch `_chdb_client.close_session`
-    # in case any other module path imports and calls it directly.
-    noop = lambda _path: None  # noqa: E731 — intentional trivial no-op stub
-    original_src = _chdb_client.close_session
-    _chdb_client.close_session = noop  # pyright: ignore[reportAttributeAccessIssue]
-    try:
-        yield
-    finally:
-        _chdb_client.close_session = original_src  # pyright: ignore[reportAttributeAccessIssue]
-
-
-@pytest.fixture(autouse=True, scope="session")
 def ch_worker_setup():
     """Per-worker CH isolation — tempdir for chdb, database for real CH.
 
@@ -353,10 +324,9 @@ def sql_worker_setup():
 async def orch_module_ctx():
     """Module-scoped ``orch_context()`` with chdb — entered once per module.
 
-    Keeps the chdb Session alive across every test in the module so the
-    per-test Session teardown (which races chdb's native ThreadPool, see
-    ``docs/technical_debt.md``) fires at most once per module, not once
-    per test.
+    chdb's Session is a true per-process singleton (see
+    ``docs/technical_debt.md``); orch_context never closes it, so this
+    fixture's scope only affects orchestration state, not chdb lifecycle.
     """
     async with module_orch_scope(orch_context()):
         yield

@@ -384,10 +384,11 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
     ch_token = None
     if with_ch:
-        # Reuse an outer context's ch_client so nested ``orch_context()`` calls
-        # (e.g. ``ajob_test``) don't tear down the shared chdb Session — chdb's
-        # Session cannot be safely closed and reopened in-process (see
-        # ``docs/technical_debt.md``).
+        # chdb's Session is a true per-process singleton (see
+        # ``docs/technical_debt.md``): we open it once and reuse it for the
+        # lifetime of the process. Reusing an outer context's client when
+        # nested keeps that invariant for callers that enter ``orch_context``
+        # multiple times (e.g. ``ajob_test``).
         existing = _ch_client_var.get()
         ch_client = existing if existing is not None else await create_ch_client()
         ch_token = _ch_client_var.set(ch_client)
@@ -400,11 +401,6 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         _engine_var.reset(eng_token)
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
-            # chdb's Session is a true per-process singleton: closing it mid-process
-            # leaves dangling references in concurrent tasks (e.g. the lifespan worker
-            # vs request handlers under uvicorn) and re-opening is not safely supported
-            # — see `pin_chdb_session` in aaiclick/testing.py for the test-side mirror
-            # of the same constraint. Process exit cleans up the OS resources.
         _task_registry_var.reset(registry_token)
         await engine.dispose()
 

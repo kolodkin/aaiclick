@@ -281,10 +281,6 @@ class ChdbClient:
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
-    def cleanup(self) -> None:
-        """Clean up the chdb session."""
-        self._session.cleanup()
-
 
 class ChdbSyncClient:
     """Sync chdb client for TableWorker background thread.
@@ -310,7 +306,7 @@ class ChdbSyncClient:
         return None
 
     def close(self) -> None:
-        """No-op — session lifecycle managed by ChdbClient."""
+        """No-op — chdb Session is a per-process singleton, never closed mid-process."""
 
 
 _PA_BASE_TYPES: dict[str, pa.DataType] = {
@@ -396,6 +392,9 @@ def get_chdb_data_path() -> str:
 # Process-wide singleton chdb session, keyed by data path.
 # All ChdbClient and ChdbSyncClient instances in a process share this session
 # so that tables created in one data_context are visible to all others.
+# chdb's Session cannot be safely closed and reopened in-process — we hold and
+# reuse one Session per process for its entire lifetime; OS process exit is the
+# only teardown.
 _sessions: dict[str, Session] = {}
 
 
@@ -415,30 +414,6 @@ def get_shared_session(path: str | None = None) -> Session:
             Path(data_path).mkdir(parents=True, exist_ok=True)
             _sessions[data_path] = Session(data_path)
     return _sessions[data_path]
-
-
-def close_session(path: str) -> None:
-    """Remove a cached chdb Session for the given data path.
-
-    Calls cleanup() on the session before discarding to release native
-    resources (file locks, C++ state).
-    """
-    session = _sessions.pop(path, None)
-    if session is not None:
-        session.cleanup()
-
-
-def get_open_session(path: str) -> Session | None:
-    """Return the cached Session for *path* if already open, else None.
-
-    Unlike get_shared_session(), this never creates a new session.
-    """
-    return _sessions.get(path)
-
-
-def create_chdb_session(path: str | None = None) -> Session:
-    """Return the shared chdb Session (singleton per data path)."""
-    return get_shared_session(path)
 
 
 def create_chdb_client(path: str | None = None) -> ChdbClient:
