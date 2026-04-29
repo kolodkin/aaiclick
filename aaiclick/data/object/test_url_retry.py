@@ -26,7 +26,11 @@ from aaiclick.data.object._url_retry import (
 
 def _http_error(code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(
-        url="http://example.com", code=code, msg="x", hdrs=None, fp=None  # type: ignore[arg-type]
+        url="http://example.com",
+        code=code,
+        msg="x",
+        hdrs=None,
+        fp=None,  # type: ignore[arg-type]
     )
 
 
@@ -52,7 +56,7 @@ def _http_error(code: int) -> urllib.error.HTTPError:
         (TimeoutError("read timeout"), True),
         (ConnectionResetError("reset"), True),
         (ConnectionRefusedError("refused"), True),
-        (socket.timeout("socket timeout"), True),
+        (TimeoutError("socket timeout"), True),
         (socket.gaierror(8, "DNS lookup failed"), True),
         # CH-server-side wrapped errors (clickhouse-connect / chdb message shapes)
         (RuntimeError("HTTP/1.1 502 Bad Gateway from upstream"), True),

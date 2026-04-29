@@ -50,7 +50,11 @@ def _download_to_path(url: str, dest: str) -> None:
     with opener.open(url) as response:
         if response.status >= 400:
             raise urllib.error.HTTPError(
-                url, response.status, response.reason, response.headers, response  # type: ignore[arg-type]
+                url,
+                response.status,
+                response.reason,
+                response.headers,
+                response,  # type: ignore[arg-type]
             )
         with open(dest, "wb") as out:
             shutil.copyfileobj(response, out)

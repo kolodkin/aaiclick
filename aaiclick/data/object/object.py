@@ -58,9 +58,9 @@ from ..models import (
 )
 from ..scope import ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
-from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from . import data_extraction, ingest, operators
 from . import join as join_module
+from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None

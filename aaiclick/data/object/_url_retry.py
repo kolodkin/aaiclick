@@ -126,6 +126,6 @@ async def with_url_retry(
         except Exception as exc:
             if attempt == retries or not _is_retryable_url_error(exc):
                 raise
-            await asyncio.sleep(backoff_factor ** attempt)
+            await asyncio.sleep(backoff_factor**attempt)
 
     raise AssertionError("unreachable: with_url_retry exited loop without returning or raising")
