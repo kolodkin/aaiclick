@@ -6,7 +6,7 @@ Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``,
 conftest adds the data-specific ``ctx`` fixture — an ``orch_context``
 + ``task_scope`` wrapper that gives data tests SQL-session access
 (required by ``_get_table_schema``'s registry read path) and an
-``OrchLifecycleHandler`` that writes ``table_registry.schema_doc``
+``TaskLifecycleHandler`` that writes ``table_registry.schema_doc``
 on every ``create_object``.
 """
 
@@ -25,7 +25,7 @@ async def ctx():
 
     Wraps ``orch_context() + task_scope()`` so data tests get:
     - SQL engine (``_get_table_schema`` reads ``table_registry.schema_doc``)
-    - ``OrchLifecycleHandler`` (``create_object`` writes ``schema_doc``)
+    - ``TaskLifecycleHandler`` (``create_object`` writes ``schema_doc``)
 
     The orch context defaults the table engine to MergeTree; data tests
     expect the historical Memory default, so we override it here. Synthetic

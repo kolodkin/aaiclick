@@ -5,8 +5,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from .factories import resolve_job_config
-from .models import PreservationMode, RegisteredJob, RunType, Task
+from .models import Job, RegisteredJob, RunType, Task  # noqa: F401
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
@@ -231,86 +230,66 @@ async def test_run_job_with_existing_registration(orch_ctx):
     assert job.run_type == RunType.MANUAL
 
 
-# resolve_job_config precedence chain
+# preserve_all through register_job / upsert / run_job
 
 
-def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
+async def test_register_job_stores_preserve_all_true(orch_ctx):
+    await register_job(
+        name="preserve_all_reg",
+        entrypoint="myapp.task",
+        preserve_all=True,
     )
-    resolved = resolve_job_config(PreservationMode.NONE, registered)
-    assert resolved is PreservationMode.NONE
-
-
-def test_resolve_registered_mode_wins_over_env(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "NONE")
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
-    )
-    resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
-
-
-def test_resolve_env_wins_when_no_registered_default(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
-    registered = RegisteredJob(id=1, name="x", entrypoint="foo")
-    resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
-
-
-def test_resolve_hardcoded_fallback(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    resolved = resolve_job_config(None, None)
-    assert resolved is PreservationMode.NONE
-
-
-# register_job with preservation_mode
-
-
-async def test_register_job_persists_preservation_mode(orch_ctx):
-    reg = await register_job(
-        name="full_job",
-        entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
-    )
-    assert reg.preservation_mode is PreservationMode.FULL
-
-    fetched = await get_registered_job("full_job")
+    fetched = await get_registered_job("preserve_all_reg")
     assert fetched is not None
-    assert fetched.preservation_mode is PreservationMode.FULL
+    assert fetched.preserve_all is True
 
 
-# run_job inherits registered-job defaults
+async def test_register_job_default_preserve_all_false(orch_ctx):
+    await register_job(name="default_reg", entrypoint="myapp.task")
+    fetched = await get_registered_job("default_reg")
+    assert fetched is not None
+    assert fetched.preserve_all is False
 
 
-async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    await register_job(
-        name="full_inherited",
-        entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
+async def test_upsert_updates_preserve_all(orch_ctx):
+    await upsert_registered_job(
+        name="upsert_pres",
+        entrypoint="myapp.task",
+        preserve_all=False,
     )
-    job = await run_job("full_inherited", "myapp.full_pipeline")
-    assert job.preservation_mode is PreservationMode.FULL
+    await upsert_registered_job(
+        name="upsert_pres",
+        entrypoint="myapp.task",
+        preserve_all=True,
+    )
+    fetched = await get_registered_job("upsert_pres")
+    assert fetched is not None
+    assert fetched.preserve_all is True
 
 
-async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
+async def test_run_job_inherits_registered_preserve_all(orch_ctx):
     await register_job(
-        name="override_test",
-        entrypoint="myapp.foo",
-        preservation_mode=PreservationMode.FULL,
+        name="run_inherits",
+        entrypoint="myapp.task",
+        preserve_all=True,
+    )
+    job = await run_job("run_inherits", "myapp.task")
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve_all is True
+
+
+async def test_run_job_explicit_preserve_all_overrides(orch_ctx):
+    await register_job(
+        name="run_override",
+        entrypoint="myapp.task",
+        preserve_all=True,
     )
     job = await run_job(
-        "override_test",
-        "myapp.foo",
-        preservation_mode=PreservationMode.NONE,
+        "run_override",
+        "myapp.task",
+        preserve_all=False,
     )
-    assert job.preservation_mode is PreservationMode.NONE
+    async with get_sql_session() as session:
+        refreshed = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert refreshed.preserve_all is False

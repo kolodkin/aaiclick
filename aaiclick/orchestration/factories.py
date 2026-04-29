@@ -7,35 +7,9 @@ from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
-from .env import get_default_preservation_mode
-from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .models import Job, JobStatus, RegisteredJob, RunType, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
-
-
-def resolve_job_config(
-    explicit_mode: PreservationMode | None,
-    registered: RegisteredJob | None = None,
-) -> PreservationMode:
-    """Resolve ``preservation_mode`` for a job run.
-
-    Precedence (highest first):
-
-    1. Explicit ``explicit_mode`` argument
-    2. ``registered.preservation_mode``
-    3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var
-    4. ``PreservationMode.NONE`` (hardcoded fallback)
-
-    The explicit override is considered "set" when it's not ``None`` —
-    this lets callers pass ``None`` to mean "inherit from the next level".
-    """
-    mode = explicit_mode
-    if mode is None and registered is not None:
-        mode = registered.preservation_mode
-    if mode is None:
-        mode = get_default_preservation_mode()
-
-    return mode
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -166,7 +140,7 @@ async def create_job(
     *,
     run_type: RunType = RunType.MANUAL,
     registered_job_id: int | None = None,
-    preservation_mode: PreservationMode | None = None,
+    preserve_all: bool | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
@@ -176,29 +150,20 @@ async def create_job(
         entry: Callback string, callable function, or Task object
         run_type: How the job was triggered (MANUAL or SCHEDULED)
         registered_job_id: FK to registered_jobs (optional)
-        preservation_mode: Which tables survive after the job completes.
-            Overrides the registered job's default; falls through to the
-            ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
-            ``PreservationMode.NONE``.
-        registered: Optional ``RegisteredJob`` to source level-2 defaults
-            from. When supplied, ``registered.preservation_mode`` becomes
-            the fallback value.
+        preserve_all: ``True`` keeps every ``t_*`` scratch table alive past
+            task exit (Tier 2 / full-replay debugging); ``False`` drops them.
+            ``None`` inherits ``RegisteredJob.preserve_all``. Named
+            ``j_<id>_<name>`` and global ``p_<name>`` tables always survive
+            past task exit regardless.
+        registered: Optional ``RegisteredJob`` to source defaults from.
 
     Returns:
         Job object with id populated after database commit
-
-    Example:
-        # Using callback string
-        job = await create_job("my_job", "mymodule.task1")
-
-        # Using callable function
-        job = await create_job("my_job", my_function)
-
-        # Using Task object
-        task = create_task("mymodule.task1", {"param": "value"})
-        job = await create_job("my_job", task)
     """
-    mode = resolve_job_config(preservation_mode, registered)
+    if preserve_all is not None:
+        resolved = preserve_all
+    else:
+        resolved = registered.preserve_all if registered is not None else False
 
     job_id = get_snowflake_id()
     job = Job(
@@ -207,7 +172,7 @@ async def create_job(
         status=JobStatus.PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preservation_mode=mode,
+        preserve_all=resolved,
         created_at=datetime.utcnow(),
     )
 

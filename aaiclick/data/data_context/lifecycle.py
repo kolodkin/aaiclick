@@ -9,12 +9,29 @@ for single-process local operation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextvars import ContextVar
+from typing import NamedTuple
 
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
 _lifecycle_var: ContextVar[LifecycleHandler | None] = ContextVar("lifecycle", default=None)
+
+
+class TrackedTable(NamedTuple):
+    """Per-table state recorded by :class:`LocalLifecycleHandler`.
+
+    ``owned`` is True when *this* handler's task created the table
+    (``register_table`` was called). ``False`` when only consumed via
+    ``incref`` — those rows live for cross-task visibility but the
+    consumer task does not drop them on exit. ``pinned`` tables survive
+    because a downstream consumer task still needs them.
+    """
+
+    name: str
+    pinned: bool
+    owned: bool
 
 
 def get_data_lifecycle() -> LifecycleHandler | None:
@@ -100,6 +117,20 @@ class LifecycleHandler(ABC):
         """
         return None
 
+    def current_task_id(self) -> int | None:
+        """Return the task ID owning this handler, or ``None`` outside task_scope."""
+        return None
+
+    def track_table(self, table_name: str, *, owned: bool = False) -> None:
+        """Record that this handler's lifetime owns ``table_name``. Default no-op."""
+
+    def mark_pinned(self, table_name: str) -> None:
+        """Flag a tracked table as pinned (consumer-bound). Default no-op."""
+
+    def iter_tracked_tables(self) -> Iterable[TrackedTable]:
+        """Yield :class:`TrackedTable` entries. Default empty."""
+        return iter(())
+
     async def __aenter__(self):
         await self.start()
         return self
@@ -122,6 +153,7 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def __init__(self, ch_client: ChClient):
         self._worker = AsyncTableWorker(ch_client)
+        self._tracked: dict[str, TrackedTable] = {}
 
     async def start(self) -> None:
         await self._worker.start()
@@ -131,6 +163,7 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     def incref(self, table_name: str) -> None:
         self._worker.incref(table_name)
+        self.track_table(table_name)
 
     def decref(self, table_name: str) -> None:
         self._worker.decref(table_name)
@@ -140,3 +173,35 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     async def claim(self, table_name: str, job_id: int) -> None:
         pass  # No distributed refs to release in local mode
+
+    def track_table(self, table_name: str, *, owned: bool = False) -> None:
+        """Insert or upgrade a tracking entry for ``table_name``.
+
+        Called by ``register_table`` (with ``owned=True``) when this task
+        creates a table, and by ``incref`` (with ``owned=False``) when a
+        task only reads it. A later ``owned=True`` call upgrades an
+        existing read-only entry to owned; otherwise the row is left
+        unchanged. ``iter_tracked_tables`` later reads the (owned, pinned)
+        flags to decide what to drop on scope exit.
+        """
+        existing = self._tracked.get(table_name)
+        if existing is None:
+            self._tracked[table_name] = TrackedTable(table_name, False, owned)
+            return
+        if owned and not existing.owned:
+            self._tracked[table_name] = existing._replace(owned=True)
+
+    def mark_pinned(self, table_name: str) -> None:
+        """Flip the tracked entry's ``pinned`` flag to True.
+
+        Called from ``pin()`` when a downstream consumer task is going to
+        read the table after this scope exits — pinned tables are excluded
+        from the inline DROP at scope exit and survive until the consumer
+        unpins or the BackgroundWorker sweeps them.
+        """
+        existing = self._tracked.get(table_name)
+        if existing is not None and not existing.pinned:
+            self._tracked[table_name] = existing._replace(pinned=True)
+
+    def iter_tracked_tables(self) -> Iterable[TrackedTable]:
+        return iter(list(self._tracked.values()))

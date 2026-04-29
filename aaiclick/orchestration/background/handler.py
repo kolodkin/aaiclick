@@ -105,14 +105,6 @@ class BackgroundHandler(ABC):
         ...
 
     @staticmethod
-    async def clean_task_run(session: AsyncSession, run_id: str) -> None:
-        """Delete all table_run_refs rows for a given run_id (crash recovery)."""
-        await session.execute(
-            text("DELETE FROM table_run_refs WHERE run_id = :run_id"),
-            {"run_id": run_id},
-        )
-
-    @staticmethod
     async def clean_task_pins(session: AsyncSession, task_id: int) -> None:
         """Delete all table_pin_refs rows for a given task_id.
 
@@ -124,12 +116,6 @@ class BackgroundHandler(ABC):
             text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
             {"task_id": task_id},
         )
-
-    @staticmethod
-    @abstractmethod
-    async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:
-        """Batch-delete table_run_refs rows for multiple run_ids."""
-        ...
 
     @staticmethod
     @abstractmethod

@@ -13,7 +13,7 @@ Simplify Orchestration Lifecycle — Implementation Plan
 
 **Spec:** `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md`
 
-**Branch:** `claude/simplify-orchestration-lifecycle-aNOnA`
+**Branch:** `claude/simplify-plab-lifecycle-YRXOm`
 
 **Project-wide invariant:** every phase ends with `pytest aaiclick/ -x` green. The data suite (`aaiclick/data/`) is the most sensitive part — it routes through `Object.data()` → `_get_table_schema` → `table_registry.schema_doc`, so any handler swap that drops the `register_table` write path fails it wholesale.
 
@@ -32,6 +32,7 @@ Each phase is a separate file. Phases are sequential — finish one before start
 | 5     | `2026-04-25-simplify-orchestration-lifecycle-phase-5-bgworker.md`                      | New `BackgroundWorker` cleanup methods; integrate into `try_complete_job()` and dead-worker sweep |
 | 6     | `2026-04-25-simplify-orchestration-lifecycle-phase-6-removals.md`                      | Delete `OrchLifecycleHandler`, `PreservationMode`, `TableRunRef`, `TableContextRef`, env default, `resolve_job_config()` |
 | 7     | `2026-04-25-simplify-orchestration-lifecycle-phase-7-docs.md`                          | Update `docs/orchestration.md`, `docs/future.md`, examples |
+| 8     | `2026-04-25-simplify-orchestration-lifecycle-phase-8-collapse-preserve.md`             | Collapse `preserve` to `preserve_all: bool`; delete `task_name_locks` + lock plumbing; replace `jobs.preserve` JSON with `jobs.preserve_all` BOOLEAN |
 
 ---
 

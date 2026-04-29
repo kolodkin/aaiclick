@@ -67,22 +67,23 @@ Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage
 
 # Table Lifecycle & Cleanup ✅ IMPLEMENTED
 
-**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_unreferenced_tables()` and `BackgroundWorker._cleanup_expired_jobs()`
+**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_at_job_completion()`, `_cleanup_failed_task_tables()`, `_cleanup_orphan_scratch_tables()`, and `_cleanup_expired_jobs()`
 
-All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup does:
+Per-task cleanup is owned by `task_scope.__aexit__`: every owned, unpinned, unpreserved table is DROPped inline; on failure only `t_*` scratch tables drop, leaving `j_<id>_*` for the BackgroundWorker. The BackgroundWorker handles cross-task and post-completion cleanup:
 
-| Mode         | Cleanup behavior                                                              |
-|--------------|-------------------------------------------------------------------------------|
-| `NONE`       | Drop unpinned tables as soon as refs fall to zero (default).                  |
-| `FULL`       | Skip the drop entirely — tables live until the job TTL expires.               |
+| Path                              | What it drops                                                              |
+|-----------------------------------|----------------------------------------------------------------------------|
+| `_cleanup_at_job_completion`      | Every CH table for the completed job (preserved, non-preserved, pinned)    |
+| `_cleanup_failed_task_tables`     | Per-failed-task: unpinned + non-preserved tables                           |
+| `_cleanup_orphan_scratch_tables`  | `t_*` whose owning task is no longer live and which aren't pinned          |
+| `_cleanup_expired_jobs`           | All data (CH + SQL metadata) for jobs older than `AAICLICK_JOB_TTL_DAYS`   |
 
-`BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
+See `docs/orchestration.md#lifecycle` for the full per-table-type cleanup matrix.
 
 ---
 
 # Environment Variables
 
-| Variable                             | Default | Description                                                                   |
-|--------------------------------------|---------|-------------------------------------------------------------------------------|
-| `AAICLICK_JOB_TTL_DAYS`              | `90`    | Days after job completion before all job data is deleted.                     |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Default preservation mode for jobs that don't pass one explicitly. One of `NONE`, `FULL`. |
+| Variable                | Default | Description                                                  |
+|-------------------------|---------|--------------------------------------------------------------|
+| `AAICLICK_JOB_TTL_DAYS` | `90`    | Days after job completion before all job data is deleted.    |

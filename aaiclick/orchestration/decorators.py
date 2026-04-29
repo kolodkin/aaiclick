@@ -38,8 +38,8 @@ from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
 from ..snowflake import get_snowflake_id
-from .factories import _callable_to_string, resolve_job_config
-from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .factories import _callable_to_string
+from .models import Group, Job, JobStatus, RunType, Task, TaskStatus
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 
@@ -214,29 +214,20 @@ class JobFactory:
     async def __call__(
         self,
         *,
-        preservation_mode: PreservationMode | None = None,
+        preserve_all: bool | None = None,
         **kwargs,
     ) -> Job:
         """Create a Job with an entry point task.
 
-        Manages database context automatically — no need to wrap
-        in OrchContext externally.
-
         Args:
-            preservation_mode: Override the job's preservation mode. Falls
-                through to ``AAICLICK_DEFAULT_PRESERVATION_MODE`` then
-                ``PreservationMode.NONE`` when unset.
+            preserve_all: When ``True``, anonymous ``t_*`` tables also survive
+                past task exit (Tier 2 / full-replay). ``None`` defaults to
+                ``False``.
             **kwargs: Arguments passed to the entry point task.
-
-        Returns:
-            Job: Created job with entry point task committed
         """
 
         async def _run() -> Job:
-            return await self._create_job(
-                preservation_mode=preservation_mode,
-                **kwargs,
-            )
+            return await self._create_job(preserve_all=preserve_all, **kwargs)
 
         if _sql_engine_var.get() is not None:
             return await _run()
@@ -247,18 +238,12 @@ class JobFactory:
         self,
         run_type: RunType = RunType.MANUAL,
         registered_job_id: int | None = None,
-        preservation_mode: PreservationMode | None = None,
+        preserve_all: bool | None = None,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""
-        # Serialize kwargs for the entry point task
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
-
-        # Route through resolve_job_config so the @job decorator path honors
-        # explicit overrides, the AAICLICK_DEFAULT_PRESERVATION_MODE env var,
-        # and any future registered-job defaults instead of silently
-        # defaulting to NONE.
-        mode = resolve_job_config(preservation_mode, registered=None)
+        resolved = preserve_all if preserve_all is not None else False
 
         job = Job(
             id=get_snowflake_id(),
@@ -266,7 +251,7 @@ class JobFactory:
             status=JobStatus.PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
-            preservation_mode=mode,
+            preserve_all=resolved,
             created_at=datetime.utcnow(),
         )
 

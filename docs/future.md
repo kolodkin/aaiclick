@@ -144,7 +144,7 @@ No action today — fresh installs keep working, existing installs degrade grace
 
 **Codebase-wide rule** (also in `CLAUDE.md` → Coding Guidelines): `typing.Literal` is preferred over `StrEnum` / `(str, Enum)` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
 
-Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). `aaiclick/view_models.py` also still carries `OllamaBootstrapStatus` and `MigrationAction` as `(str, Enum)` subclasses; these do not need DB mapping and can flip to `Literal` directly.
+Every status/mode in `aaiclick/orchestration/models.py` — `JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType` — is a `StrEnum` purely because SQLModel needs a real `Enum` class to map a type hint to a column. Pure-view models already use `Literal` (`ObjectScope`, `NamedScope`, `SetupStepStatus`). `aaiclick/view_models.py` also still carries `OllamaBootstrapStatus` and `MigrationAction` as `(str, Enum)` subclasses; these do not need DB mapping and can flip to `Literal` directly.
 
 **Proposal**: make Literal the single source of truth; declare the DB mapping explicitly via `sa_column` with `SaEnum(*get_args(MyLiteral))`.
 

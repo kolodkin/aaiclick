@@ -23,13 +23,13 @@ async def test_load_advisory_id_no_orch_context_returns_none():
 
 
 async def test_load_advisory_id_returns_existing_row(orch_ctx):
-    """Reads advisory_id back from a pre-existing table_context_refs row."""
+    """Reads advisory_id back from an existing table_registry row."""
     _advisory_id_cache.clear()
     async with get_sql_session() as session:
         await session.execute(
             text(
-                "INSERT INTO table_context_refs (table_name, context_id, advisory_id) "
-                "VALUES ('t_test_existing', 42, 999111)"
+                "INSERT INTO table_registry (table_name, advisory_id, created_at) "
+                "VALUES ('t_test_existing', 999111, '2026-01-01 00:00:00')"
             )
         )
         await session.commit()
@@ -37,24 +37,19 @@ async def test_load_advisory_id_returns_existing_row(orch_ctx):
     assert await load_advisory_id("t_test_existing") == 999111
 
 
-async def test_load_advisory_id_mints_sentinel_row_when_missing(orch_ctx):
-    """First read of an unregistered table mints a sentinel row."""
+async def test_load_advisory_id_mints_when_missing(orch_ctx):
+    """First read of an unregistered table mints + UPSERTs a fresh advisory_id."""
     _advisory_id_cache.clear()
     advisory_id = await load_advisory_id("p_test_mint")
 
     assert advisory_id is not None and advisory_id > 0
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            text("SELECT context_id, advisory_id FROM table_context_refs WHERE table_name = 'p_test_mint'")
-        )
+        result = await session.execute(text("SELECT advisory_id FROM table_registry WHERE table_name = 'p_test_mint'"))
         rows = result.fetchall()
 
-    # Sentinel context_id is negative (out of band vs positive Snowflake IDs);
-    # exact value is an implementation detail.
     assert len(rows) == 1
-    assert rows[0][0] < 0
-    assert rows[0][1] == advisory_id
+    assert rows[0][0] == advisory_id
 
 
 async def test_load_advisory_id_caches_per_process(orch_ctx):
@@ -64,9 +59,7 @@ async def test_load_advisory_id_caches_per_process(orch_ctx):
 
     # Mutate the row out-of-band — cached lookup should still see the original.
     async with get_sql_session() as session:
-        await session.execute(
-            text("UPDATE table_context_refs SET advisory_id = 12345 WHERE table_name = 'p_test_cache'")
-        )
+        await session.execute(text("UPDATE table_registry SET advisory_id = 12345 WHERE table_name = 'p_test_cache'"))
         await session.commit()
 
     second = await load_advisory_id("p_test_cache")

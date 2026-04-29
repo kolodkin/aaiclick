@@ -74,7 +74,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             schedule=request.schedule,
             default_kwargs=request.default_kwargs,
             enabled=request.enabled,
-            preservation_mode=request.preservation_mode,
+            preserve_all=request.preserve_all,
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc

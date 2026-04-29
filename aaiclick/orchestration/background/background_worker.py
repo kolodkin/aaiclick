@@ -30,11 +30,11 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
+from aaiclick.oplog.cleanup import TableOwner
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus, PreservationMode
+from ..models import LIVE_TASK_STATUSES, JobStatus, TaskStatus
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -46,19 +46,15 @@ DEFAULT_POLL_INTERVAL = 10.0
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
-_REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
-
-
-async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> None:
-    """Delete all ref-table rows for the given table names."""
+async def _delete_table_pin_refs(session: AsyncSession, table_names: list[str]) -> None:
+    """Delete table_pin_refs rows for the given tables."""
     if not table_names:
         return
     ph, params = in_clause(table_names, "tn")
-    for ref_table in _REF_TABLES:
-        await session.execute(
-            text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
-            params,
-        )
+    await session.execute(
+        text(f"DELETE FROM table_pin_refs WHERE table_name IN ({ph})"),
+        params,
+    )
 
 
 class BackgroundWorker:
@@ -122,7 +118,8 @@ class BackgroundWorker:
 
     async def _do_cleanup(self) -> None:
         await self._process_pending_cleanup()
-        await self._cleanup_unreferenced_tables()
+        await self._cleanup_failed_task_tables()
+        await self._cleanup_orphan_scratch_tables()
         await self._cleanup_expired_jobs()
         await self._cleanup_dead_workers()
         await self._check_schedules()
@@ -139,10 +136,10 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            # Clean run_refs (batched) and pin_refs (per-task) for all failed tasks
-            run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
-            if run_ids_to_clean:
-                await self._handler.clean_task_runs(session, run_ids_to_clean)
+            # Clean pin_refs (per-task) for each failed task. Phase 5's
+            # _cleanup_failed_task_tables / _cleanup_orphan_scratch_tables
+            # handle the CH-side drops; pin_refs need explicit clearance so
+            # they don't pin tables to a dead consumer.
             for t in tasks:
                 await self._handler.clean_task_pins(session, t.task_id)
 
@@ -183,61 +180,174 @@ class BackgroundWorker:
 
             await session.commit()
 
-    async def _cleanup_unreferenced_tables(self) -> None:
-        """Drop CH tables with no pin refs and no run refs.
+            # Run post-completion cleanup for any job that just transitioned
+            # to a terminal status. try_complete_job is a no-op while tasks
+            # are still running, so re-query in one batched call.
+            if failed_job_ids:
+                async with AsyncSession(self._engine) as check:
+                    ph, params = in_clause(list(failed_job_ids), "jid")
+                    terminal_statuses = (
+                        JobStatus.COMPLETED.value,
+                        JobStatus.FAILED.value,
+                        JobStatus.CANCELLED.value,
+                    )
+                    st_ph, st_params = in_clause(list(terminal_statuses), "st")
+                    rows = (
+                        await check.execute(
+                            text(f"SELECT id FROM jobs WHERE id IN ({ph}) AND status IN ({st_ph})"),
+                            {**params, **st_params},
+                        )
+                    ).fetchall()
+                    completed_ids = [row[0] for row in rows]
+                for job_id in completed_ids:
+                    await self._cleanup_at_job_completion(job_id=job_id)
 
-        Each consumer task has its own pin_ref row (created by producer
-        fan-out, removed by consumer's unpin during deserialization).
-        A table is eligible when all consumers have unpinned AND no
-        run_refs remain.
+    async def _cleanup_at_job_completion(self, *, job_id: int) -> None:
+        """Drop every CH table tied to a completed job and clear bookkeeping.
 
-        Joins table_registry and jobs in a single SQL query to skip
-        FULL-preservation jobs in-database. Owner metadata flows through
-        to lineage_aware_drop so any sample tables it creates inherit
-        the job_id and get cleaned up when the job expires.
+        Idempotent: ``DROP TABLE IF EXISTS`` skips already-dropped tables;
+        ``DELETE WHERE`` skips empty rows. ``p_*`` global tables are excluded
+        — they outlive every job and are only removed via
+        ``delete_persistent_object``.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT DISTINCT tcr.table_name, tr.job_id, tr.task_id, tr.run_id "
-                    "FROM table_context_refs tcr "
-                    "LEFT JOIN table_registry tr ON tr.table_name = tcr.table_name "
-                    "LEFT JOIN jobs j ON j.id = tr.job_id "
-                    "WHERE tcr.table_name NOT LIKE 'p\\_%' ESCAPE '\\' "
-                    "AND tcr.table_name NOT LIKE 'j\\_%' ESCAPE '\\' "
-                    "AND NOT EXISTS ("
-                    "  SELECT 1 FROM table_pin_refs tpr "
-                    "  WHERE tpr.table_name = tcr.table_name"
-                    ") "
-                    "AND NOT EXISTS ("
-                    "  SELECT 1 FROM table_run_refs trr "
-                    "  WHERE trr.table_name = tcr.table_name"
-                    ") "
-                    "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode)"
+                    "SELECT table_name FROM table_registry "
+                    "WHERE job_id = :job_id AND table_name NOT LIKE 'p\\_%' ESCAPE '\\'"
                 ),
-                {"full_mode": PreservationMode.FULL.value},
+                {"job_id": job_id},
+            )
+            table_names = [row[0] for row in result.fetchall()]
+
+            for name in table_names:
+                try:
+                    await self._ch_client.command(f"DROP TABLE IF EXISTS {name}")
+                except Exception:
+                    logger.warning("DROP failed for %s on job completion", name, exc_info=True)
+
+            if table_names:
+                ph, params = in_clause(table_names, "tn")
+                await session.execute(
+                    text(f"DELETE FROM table_pin_refs WHERE table_name IN ({ph})"),
+                    params,
+                )
+                await session.execute(
+                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                    params,
+                )
+            await session.commit()
+
+    async def _cleanup_failed_task_tables(self) -> None:
+        """For PENDING_CLEANUP tasks, drop their unpinned ``t_*`` scratch tables.
+
+        Named ``j_<id>_*`` tables are job-scoped by virtue of being named —
+        they survive the failing task and are dropped at job completion (or
+        wait for the orphan-scratch sweep when the entire job is abandoned).
+        """
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text("SELECT id FROM tasks WHERE status = :status"),
+                {"status": TaskStatus.PENDING_CLEANUP.value},
+            )
+            failed_task_ids = [row[0] for row in result.fetchall()]
+            if not failed_task_ids:
+                return
+
+            task_ph, task_params = in_clause(failed_task_ids, "tid")
+            result = await session.execute(
+                text(
+                    f"SELECT table_name FROM table_registry "
+                    f"WHERE task_id IN ({task_ph}) AND table_name LIKE 't\\_%' ESCAPE '\\'"
+                ),
+                task_params,
+            )
+            candidate_names = [row[0] for row in result.fetchall()]
+            if not candidate_names:
+                return
+
+            name_ph, name_params = in_clause(candidate_names, "tn")
+            pinned = (
+                await session.execute(
+                    text(f"SELECT DISTINCT table_name FROM table_pin_refs WHERE table_name IN ({name_ph})"),
+                    name_params,
+                )
+            ).fetchall()
+            pinned_names = {row[0] for row in pinned}
+
+            droppable = [n for n in candidate_names if n not in pinned_names]
+            if not droppable:
+                return
+
+            for name in droppable:
+                try:
+                    await self._ch_client.command(f"DROP TABLE IF EXISTS {name}")
+                except Exception:
+                    logger.warning("Failed-task DROP of %s failed", name, exc_info=True)
+
+            ph, params = in_clause(droppable, "tn")
+            await session.execute(
+                text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                params,
+            )
+            await session.commit()
+
+    async def _cleanup_orphan_scratch_tables(self) -> None:
+        """Drop unpinned ``t_*`` tables whose owning task is no longer live.
+
+        Anonymous scratch tables only — ``j_<id>_*`` named tables are handled
+        by ``_cleanup_failed_task_tables`` (per-task) or
+        ``_cleanup_at_job_completion`` (per-job).
+        """
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                text("SELECT table_name, task_id FROM table_registry WHERE table_name LIKE 't\\_%' ESCAPE '\\'"),
             )
             rows = result.fetchall()
             if not rows:
                 return
 
-            dropped_tables: list[str] = []
-            for table_name, job_id, task_id, run_id in rows:
-                owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
-                try:
-                    await lineage_aware_drop(self._ch_client, table_name, owner=owner)
-                except Exception:
-                    logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                dropped_tables.append(table_name)
-
-            if dropped_tables:
-                await _delete_table_refs(session, dropped_tables)
-                ph, params = in_clause(dropped_tables, "tn")
+            task_ids = {row[1] for row in rows if row[1] is not None}
+            if not task_ids:
+                return
+            tid_ph, tid_params = in_clause(list(task_ids), "tid")
+            ls_ph, ls_params = in_clause([s.value for s in LIVE_TASK_STATUSES], "ls")
+            live = (
                 await session.execute(
-                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                    text(f"SELECT id FROM tasks WHERE id IN ({tid_ph}) AND status IN ({ls_ph})"),
+                    {**tid_params, **ls_params},
+                )
+            ).fetchall()
+            live_ids = {row[0] for row in live}
+
+            orphan_names = [row[0] for row in rows if row[1] is not None and row[1] not in live_ids]
+            if not orphan_names:
+                return
+
+            ph, params = in_clause(orphan_names, "tn")
+            pinned = (
+                await session.execute(
+                    text(f"SELECT DISTINCT table_name FROM table_pin_refs WHERE table_name IN ({ph})"),
                     params,
                 )
+            ).fetchall()
+            pinned_names = {row[0] for row in pinned}
 
+            droppable = [n for n in orphan_names if n not in pinned_names]
+            if not droppable:
+                return
+
+            for name in droppable:
+                try:
+                    await self._ch_client.command(f"DROP TABLE IF EXISTS {name}")
+                except Exception:
+                    logger.warning("Orphan scratch DROP of %s failed", name, exc_info=True)
+
+            ph, params = in_clause(droppable, "tn")
+            await session.execute(
+                text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                params,
+            )
             await session.commit()
 
     async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
@@ -247,10 +357,10 @@ class BackgroundWorker:
         async with AsyncSession(self._engine) as session:
             ph, params = in_clause(table_names, "tn")
             result = await session.execute(
-                text(f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({ph})"),
+                text(f"SELECT table_name, job_id, task_id FROM table_registry WHERE table_name IN ({ph})"),
                 params,
             )
-            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.fetchall()}
+            return {row[0]: TableOwner(job_id=row[1], task_id=row[2]) for row in result.fetchall()}
 
     async def _cleanup_expired_jobs(self) -> None:
         """Delete all data for expired jobs and orphaned resources.
@@ -345,8 +455,8 @@ class BackgroundWorker:
                     params,
                 )
 
-            # Delete ref tables for tables belonging to this job
-            await _delete_table_refs(session, table_names)
+            # Delete pin_refs for tables belonging to this job
+            await _delete_table_pin_refs(session, table_names)
 
             # Delete tasks
             await session.execute(
@@ -436,7 +546,6 @@ class BackgroundWorker:
                 {"cutoff": cutoff},
             )
             dead_worker_ids = [row[0] for row in result.fetchall()]
-
             if not dead_worker_ids:
                 return
 

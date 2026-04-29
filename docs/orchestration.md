@@ -53,7 +53,7 @@ Two deployment modes, controlled by two independent environment variables:
 | **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
-| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
+| **Table lifecycle** | `LocalLifecycleHandler` (in-process refs)    | `TaskLifecycleHandler` (per-task scope, SQL pin/lock) |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
@@ -75,8 +75,8 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 
 ## Entities
 
-- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preservation_mode`, `next_run_at`, `created_at`, `updated_at`
-- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preservation_mode`, `created_at`, `started_at`, `completed_at`, `error`
+- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preserve_all` (BOOLEAN; keeps anonymous `t_*` scratch alive past task exit), `next_run_at`, `created_at`, `updated_at`
+- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preserve_all` (BOOLEAN), `created_at`, `started_at`, `completed_at`, `error`
 - **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
@@ -124,34 +124,54 @@ Workers detect cancellation by polling task status. **Known limitation**: CPU-bo
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`, `aaiclick/orchestration/models.py` — see `RegisteredJob`
 
-Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode defaults, and enabled flag.
+Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, default `preserve_all` flag, and enabled flag.
 
 ## Registration & CRUD
 
-- `register_job(name, entrypoint, schedule, default_kwargs, preservation_mode, enabled)` — create a new catalog entry
+- `register_job(name, entrypoint, schedule, default_kwargs, preserve_all, enabled)` — create a new catalog entry
 - `get_registered_job(name)` — lookup by name
 - `upsert_registered_job(...)` — insert or update
 - `enable_job(name)` / `disable_job(name)` — toggle enabled, recompute `next_run_at`
 - `list_registered_jobs(enabled_only)` — list all or enabled only
 
-## Preservation Config Precedence
+## Lifecycle
 
-`preservation_mode` follows a four-level precedence chain resolved by `factories.resolve_job_config()`:
+Tasks are conceptually `DataContext`s with two orchestration extras: pin/unpin for cross-task Object handoff, and a per-job `preserve_all` flag that controls whether anonymous ``t_*`` scratch tables survive past task exit. Naming a table is itself the preservation signal — every ``j_<id>_<name>`` is job-scoped and survives the run.
 
-| Level | Source                                        | Wins when                                    |
-|-------|-----------------------------------------------|-----------------------------------------------|
-| 1     | Explicit `run_job(...)` / `create_job(...)` argument | The caller passes a non-`None` value   |
-| 2     | `RegisteredJob.preservation_mode`             | The registered job carries a default          |
-| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var  | Set in environment                            |
-| 4     | `PreservationMode.NONE`                       | Hardcoded fallback                            |
+| Table type                              | On successful task exit            | On task failure / worker death | At job completion          |
+|-----------------------------------------|------------------------------------|--------------------------------|----------------------------|
+| `t_*` not pinned (pure scratch)         | Inline DROP by task                | BackgroundWorker sweeps        | n/a                        |
+| `t_*` pinned (Object output)            | Leave (pin-controlled)             | Leave (pin-controlled)         | BackgroundWorker drops     |
+| `t_*` with `preserve_all=True`          | Leave                              | Leave                          | BackgroundWorker drops     |
+| `j_<id>_<name>` (named, job-scoped)     | Leave (job-end)                    | Leave (job-end)                | BackgroundWorker drops     |
+| `p_*` (persistent)                      | Never                              | Never                          | Never (user-managed)       |
 
-`None` at any level means "inherit from the next level"; an explicit mode terminates the chain.
+See `docs/superpowers/specs/2026-04-25-simplify-orchestration-lifecycle-design.md` for the rationale.
 
-Scheduled runs inherit the registered job's level-2 defaults automatically. Manual runs via `run_job()` or the CLI can override at level 1.
+## Declaring preserve_all
+
+`create_job(preserve_all=...)` and `@register_job(preserve_all=...)` declare whether anonymous ``t_*`` scratch tables should survive past task exit. Named ``j_<id>_<name>`` tables are always job-scoped and survive regardless.
+
+```python
+job = await create_job(
+    "train_embeddings",
+    "myapp.train",
+    preserve_all=True,  # Tier 2 / full-replay debugging
+)
+```
+
+`preserve_all` accepts:
+
+- `False` (default) — anonymous `t_*` tables drop at task exit; named tables survive the run.
+- `True` — keep anonymous `t_*` tables alive past task exit too.
+
+Resolution order: explicit > `RegisteredJob.preserve_all` > `False`.
+
+Inside a task, `create_object(scope="job", name=...)` issues `CREATE TABLE IF NOT EXISTS j_<job_id>_<name>` — concurrent calls from sibling tasks are naturally idempotent.
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs, preservation_mode)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves preservation config via the precedence chain above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task. See [DataContext — Preservation Modes](data_context.md#preservation-modes) for the two modes' semantics.
+`run_job(name, entrypoint, kwargs, preserve_all)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves the `preserve_all` value via the precedence rule above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task.
 
 ## Cron Scheduling
 
@@ -225,118 +245,64 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
-# Distributed Object Lifecycle
+# Object Lifecycle
 
-**Implementation**: `aaiclick/orchestration/lifecycle/`
+**Implementation**: `aaiclick/orchestration/lifecycle/task_lifecycle.py`, `aaiclick/orchestration/orch_context.py` — see `task_scope`; `aaiclick/orchestration/background/background_worker.py`
 
-In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
+One SQL coordinator sits alongside the per-task `LocalLifecycleHandler`:
 
-| Table                | PK                         | Purpose                                              |
-|----------------------|----------------------------|------------------------------------------------------|
-| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table         |
-| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)                |
-| `table_pin_refs`     | `(table_name, task_id)`    | Per-consumer pins protecting result tables           |
+| Table            | PK                         | Purpose                                                            |
+|------------------|----------------------------|--------------------------------------------------------------------|
+| `table_pin_refs` | `(table_name, task_id)`    | Per-consumer pins; producer fans out, consumer deletes its own row |
 
-The background worker is the sole cleanup authority.
+`table_registry` holds ownership metadata (`table_name`, `job_id`, `task_id`, `advisory_id`, `created_at`, `schema_doc`); it is the join target every cleanup path uses.
 
-```
-Worker Process (spawns child per task)
-├── OrchLifecycleHandler (per task, per child process)
-│   ├── incref → insert into table_context_refs + table_run_refs
-│   ├── decref → delete from table_run_refs
-│   ├── pin → fan out: insert one pin_ref per downstream consumer
-│   └── unpin → delete own pin_ref
-├── task_scope exit → decrefs ALL objects, stale-marks
-├── BackgroundWorker (sole cleanup authority)
-│   ├── DROP where no pin_refs AND no run_refs
-│   ├── deletes context_refs + pin_refs alongside dropped tables
-│   └── detects dead workers → marks tasks FAILED
-└── orch_context() — shared SQL session
-```
+## task_scope
 
-## Pin Lifecycle
+`task_scope(task_id, job_id, run_id)` activates a `TaskLifecycleHandler` and on exit (`__aexit__`):
 
-Only at runtime — when a producer task returns an Object — do we know
-both the `table_name` and the upstream `task_id`. The downstream consumer
-task_ids are discovered via the dependencies table. This is the only point
-where the table→task mapping exists.
+1. Stale-marks every live `Object` so post-scope access raises clearly.
+2. Iterates `iter_tracked_tables()` — every table touched in the body, with `(owned, pinned)` flags.
+3. Builds a drop list of `t_*` scratch tables that are `owned=True` and `pinned=False`. If the list is non-empty, fetches `Job.preserve_all`; when `False` (default), inline-DROPs each. `j_<id>_<name>` named tables and `p_*` globals are never dropped here.
 
-```
-Task A executes, returns Object(table=T)
-  ├── PIN fans out via dependencies table:
-  │   SELECT next_id FROM dependencies WHERE previous_id = A.id
-  │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
-  └── task_scope exit: decref all → run_refs removed, pin_refs protect T
+The handler tracks tables via two synchronous calls:
 
-Task B starts, deserializes T
-  ├── incref → run_ref(T, B.run_id)     ← FIFO queue
-  └── unpin → delete pin_ref(T, B.task_id)  ← FIFO: after incref
+- `register_table(table_name, schema_doc=...)` — called from `create_object`. Marks `owned=True` and enqueues a `table_registry` row write (with a freshly-minted `advisory_id`).
+- `incref(table_name)` — called when an Object is read across tasks. Marks `owned=False` so the consumer doesn't drop the producer's table on its own exit.
 
-Task C starts, deserializes T
-  ├── incref → run_ref(T, C.run_id)
-  └── unpin → delete pin_ref(T, C.task_id)
+Plus the cross-task pin path:
 
-All consumers started → 0 pin_refs, run_refs protect during execution
-All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
-```
+- `pin(table_name)` — sync `mark_pinned(table_name)` plus an OPLOG_PIN message that fans out one `table_pin_refs` row per downstream consumer task (resolved via the `dependencies` table).
+- `unpin(table_name)` — consumer-side delete of its own pin_refs row.
 
-## OrchLifecycleHandler
+## ctx.table
 
-**Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
-
-Uses `task_id` as `context_id` for context_refs. Pin fans out to downstream consumers via dependencies table. Unpin removes the consumer's own pin_ref row.
-
-**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
+`create_object(scope="job", name=...)` issues `CREATE TABLE IF NOT EXISTS j_<job_id>_<name>` and `track_table(owned=True)`. Concurrent calls from sibling tasks are naturally idempotent — no lock needed.
 
 ## BackgroundWorker
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker` class
 
-Five operations per poll:
+Six operations per poll:
 
-1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
-2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
-3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
-4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+1. **Pending cleanup** — process `PENDING_CLEANUP` tasks: drop pin_refs, transition to `PENDING` (retries left) or `FAILED`. Re-queries each affected job and runs `_cleanup_at_job_completion` for any that just transitioned to a terminal status.
+2. **Failed task tables** — for `PENDING_CLEANUP` tasks, drop unpinned `t_*` registry rows. Named `j_<id>_*` tables wait for job completion.
+3. **Orphan scratch** — sweep `t_*` whose owning task is no longer live and which aren't pinned.
+4. **Expired jobs** — TTL sweep based on `AAICLICK_JOB_TTL_DAYS`.
+5. **Dead worker detection** — heartbeat cutoff marks tasks `PENDING_CLEANUP`.
+6. **Job scheduling** — create new runs for registered jobs whose `next_run_at` is due.
 
 Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
 
-## View Lifecycle
+## View lifecycle
 
-Views share the underlying ClickHouse table with their source Object. This interacts with `table_run_refs` in a non-obvious way.
+Views share the underlying ClickHouse table with their source Object. They do not own lifecycle refs (`_owns_lifecycle_ref = False`); only the source Object's `_register()` writes a `table_pin_refs` row, so a View's `__del__` cannot strand the source.
 
-**`table_run_refs` is a set, not a counter.** The composite PK `(table_name, run_id)` means at most one row exists per table per run — `INSERT … ON CONFLICT DO NOTHING`. A second `incref` for the same table in the same run is a no-op; the matching `decref` still deletes the one row.
-
-**Views do not own lifecycle refs.** `_owns_lifecycle_ref = False` on every View. Only the source Object that originally called `_register()` (and actually inserted a row into `table_run_refs`) issues the corresponding `decref`. This prevents a View's `__del__` from deleting the source's run_ref while the source Object is still alive.
-
-**Within-task View lifetime** is managed by Python reference counting: `View.__init__` stores `_source_obj = source`, keeping the source Object alive as long as the View is alive. When the View is GC'd the Python ref is released — if the source has no other refs, it is also GC'd and its `decref` fires normally.
-
-**Cross-task View lifetime** uses the PIN mechanism — the same as for Objects:
-
-```
-Task A returns View(table=T)
-  ├── pin fans out → pin_ref(T, B.task_id)
-  └── task_scope exit → decref(T) [run_refs → 0, pin protects]
-
-Task B deserializes View
-  ├── fresh source = Object(table=T); source._register() → INCREF(T)
-  ├── view = View(source=source)   [_source_obj keeps source alive]
-  └── unpin(T)                     [FIFO: after INCREF commits]
-```
-
-The deserialized source Object holds its own `_owns_lifecycle_ref = True` and issues a normal `decref` at `task_scope` exit.
-
-## Write-Ahead Incref
-
-`create_object()` calls `incref` before `CREATE TABLE` — crash between the two is harmless (`DROP TABLE IF EXISTS`).
-
-## TableSweeper
-
-Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row.
+Within-task lifetime is Python reference counting — `View.__init__` stores `_source_obj = source`, keeping the source Object alive while any View references it. Cross-task lifetime piggybacks on the same pin mechanism as Objects.
 
 ## Local Mode
 
-`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [DataContext](data_context.md).
+`LocalLifecycleHandler` wraps `AsyncTableWorker` — refcount-based immediate DROP on count 0, no PostgreSQL. The flag-tracking surface (`track_table`, `mark_pinned`, `iter_tracked_tables`) defaults to no-ops on the base `LifecycleHandler`. See [DataContext](data_context.md).
 
 # Operation Provenance (Oplog)
 

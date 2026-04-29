@@ -182,7 +182,7 @@ Expected: no hits.
 - [ ] **Step 5: Push**
 
 ```bash
-git -C /home/user/aaiclick push -u origin claude/simplify-orchestration-lifecycle-aNOnA
+git -C /home/user/aaiclick push -u origin claude/simplify-plab-lifecycle-YRXOm
 ```
 
 - [ ] **Step 6: Run the project's check-pr skill**

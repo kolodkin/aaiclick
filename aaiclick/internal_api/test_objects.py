@@ -22,7 +22,7 @@ async def _object_data_ctx(orch_ctx) -> AsyncIterator[None]:
 
     Reuses the shared ``orch_ctx`` fixture (orch_context + synthetic
     task_scope) so ``create_object`` writes ``table_registry.schema_doc``
-    via the OrchLifecycleHandler — Phase 2's registry-backed read path
+    via the TaskLifecycleHandler — Phase 2's registry-backed read path
     requires it.
     """
     for name in await list_persistent_objects():

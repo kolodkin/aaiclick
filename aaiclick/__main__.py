@@ -36,7 +36,7 @@ from aaiclick import cli_renderers, internal_api
 from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api.errors import InternalApiError
-from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerStatus
+from aaiclick.orchestration.models import JobStatus, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
     JobListFilter,
@@ -124,16 +124,12 @@ async def _run_job_cancel(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_job_cancelled)
 
 
-def _parse_preservation_mode(value: str | None) -> PreservationMode | None:
-    return PreservationMode(value) if value else None
-
-
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
     request = RunJobRequest(
         name=args.name,
         kwargs=kwargs,
-        preservation_mode=_parse_preservation_mode(args.preservation_mode),
+        preserve_all=args.preserve_all or None,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -146,7 +142,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         entrypoint=args.entrypoint,
         schedule=args.schedule,
         default_kwargs=default_kwargs,
-        preservation_mode=_parse_preservation_mode(args.preservation_mode),
+        preserve_all=args.preserve_all,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -516,10 +512,9 @@ def main():
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
     register_job_parser.add_argument(
-        "--preservation-mode",
-        choices=[m.value for m in PreservationMode],
-        default=None,
-        help="Default preservation mode for every run of this job (runs can override)",
+        "--preserve-all",
+        action="store_true",
+        help="Default for every run: keep anonymous t_* tables alive past task exit (Tier 2 / full-replay)",
     )
     _add_json_flag(register_job_parser)
 
@@ -531,10 +526,9 @@ def main():
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
     run_job_parser.add_argument(
-        "--preservation-mode",
-        choices=[m.value for m in PreservationMode],
-        default=None,
-        help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
+        "--preserve-all",
+        action="store_true",
+        help="Override the registered preserve_all default for this run.",
     )
     _add_json_flag(run_job_parser)
 

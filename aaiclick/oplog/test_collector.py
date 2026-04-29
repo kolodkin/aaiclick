@@ -29,7 +29,7 @@ async def test_oplog_writes_on_operation(orch_ctx):
 
     async with get_sql_session() as session:
         result = await session.execute(
-            text("SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name = :tn"),
+            text("SELECT table_name, job_id, task_id FROM table_registry WHERE table_name = :tn"),
             {"tn": table_name},
         )
         reg = result.fetchone()
@@ -37,7 +37,6 @@ async def test_oplog_writes_on_operation(orch_ctx):
     assert reg[0] == table_name
     assert reg[1] == 99
     assert reg[2] == 42
-    assert reg[3] == 420
 
 
 async def test_job_scoped_named_object(orch_ctx):

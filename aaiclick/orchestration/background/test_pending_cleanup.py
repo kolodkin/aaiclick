@@ -18,7 +18,7 @@ from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
+from .conftest import insert_job, insert_pin_ref
 
 
 async def _insert_task(
@@ -112,11 +112,9 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
         status="PENDING_CLEANUP",
         attempt=0,
         max_retries=3,
-        run_ids="[111]",
         error="task failed",
         worker_id=999,
     )
-    await insert_run_ref(bg_db, "t_intermediate", "111")
 
     await _make_worker(bg_db)._process_pending_cleanup()
 
@@ -126,8 +124,6 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
     assert attempt == 1
     assert retry_after is not None
     assert worker_id is None
-
-    assert await get_run_refs(bg_db, "t_intermediate") == set()
 
 
 async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
@@ -140,10 +136,8 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
         status="PENDING_CLEANUP",
         attempt=0,
         max_retries=0,
-        run_ids="[111]",
         error="task failed",
     )
-    await insert_run_ref(bg_db, "t_table", "111")
 
     await _make_worker(bg_db)._process_pending_cleanup()
 
@@ -151,8 +145,6 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     status, attempt, retry_after, error, worker_id, completed_at = row
     assert status == "FAILED"
     assert completed_at is not None
-
-    assert await get_run_refs(bg_db, "t_table") == set()
 
 
 async def test_pending_cleanup_cleans_pin_refs(bg_db):

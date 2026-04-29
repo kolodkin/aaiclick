@@ -41,6 +41,20 @@ def is_persistent_table(table_name: str) -> bool:
     return scope_of(table_name) != "temp"
 
 
+def parse_job_table(table_name: str) -> tuple[int, str] | None:
+    """Decompose ``j_<job_id>_<name>`` into ``(job_id, name)`` or return ``None``.
+
+    Returns ``None`` for ``p_*``, ``t_*``, and any other table name shape.
+    """
+    if not JOB_SCOPED_RE.match(table_name):
+        return None
+    rest = table_name[len("j_") :]
+    sep = rest.find("_")
+    if sep <= 0:
+        return None
+    return int(rest[:sep]), rest[sep + 1 :]
+
+
 def make_persistent_table_name(scope: NamedScope, name: str, job_id: int | None = None) -> str:
     """Build the full CH table name for a scoped named object.
 

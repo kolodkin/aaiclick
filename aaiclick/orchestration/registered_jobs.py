@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
 from .factories import create_job, create_task
-from .models import Job, PreservationMode, RegisteredJob, RunType
+from .models import Job, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 
@@ -48,7 +48,7 @@ async def register_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: PreservationMode | None = None,
+    preserve_all: bool = False,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -58,11 +58,10 @@ async def register_job(
         schedule: Cron expression for scheduled runs (optional)
         default_kwargs: Default kwargs for scheduled runs (optional)
         enabled: Whether the job is enabled (default: True)
-        preservation_mode: Default preservation mode for every run of
-            this job. Individual runs can override via ``run_job()``.
-
-    Returns:
-        Created RegisteredJob
+        preserve_all: Default for every run of this job — when ``True``,
+            anonymous ``t_*`` tables also survive past task exit (Tier 2 /
+            full-replay debugging). Individual runs override via
+            ``run_job(..., preserve_all=...)``.
 
     Raises:
         RegisteredJobAlreadyExists: If a job with this name already exists.
@@ -75,7 +74,7 @@ async def register_job(
         enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
-        preservation_mode=preservation_mode,
+        preserve_all=preserve_all,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -114,24 +113,12 @@ async def upsert_registered_job(
     schedule: str | None = None,
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
-    preservation_mode: PreservationMode | None = None,
+    preserve_all: bool = False,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preservation_mode, and enabled.
-    Otherwise creates a new entry.
-
-    Args:
-        name: Unique job name
-        entrypoint: Python dotted path
-        schedule: Cron expression (optional)
-        default_kwargs: Default parameters (optional)
-        enabled: Whether the job is enabled
-        preservation_mode: Default preservation mode for every run
-
-    Returns:
-        The created or updated RegisteredJob
+    default_kwargs, preserve_all, and enabled. Otherwise creates a new entry.
     """
     now = datetime.utcnow()
 
@@ -143,7 +130,7 @@ async def upsert_registered_job(
             existing.entrypoint = entrypoint
             existing.schedule = schedule
             existing.default_kwargs = default_kwargs
-            existing.preservation_mode = preservation_mode
+            existing.preserve_all = preserve_all
             existing.enabled = enabled
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
@@ -159,7 +146,7 @@ async def upsert_registered_job(
             enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
-            preservation_mode=preservation_mode,
+            preserve_all=preserve_all,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -252,27 +239,20 @@ async def run_job(
     *,
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RunType.MANUAL,
-    preservation_mode: PreservationMode | None = None,
+    preserve_all: bool | None = None,
 ) -> Job:
     """Run a job immediately, auto-registering if needed.
 
     Upserts into registered_jobs (without schedule), merges kwargs
     over default_kwargs, then creates a Job + entry point Task.
 
-    The preservation mode resolves via the precedence chain
-    (see ``factories.resolve_job_config``):
-    explicit arg > registered-job default > env var > hardcoded NONE.
-
     Args:
         name: Job name
         entrypoint: Python dotted path
         kwargs: Override parameters (merged over default_kwargs)
         run_type: How the job was triggered (default: MANUAL)
-        preservation_mode: Level-1 override for the registered job's
-            baseline. Pass ``None`` to inherit.
-
-    Returns:
-        Created Job
+        preserve_all: Override the registered ``preserve_all`` default;
+            ``None`` inherits.
     """
     registered = await get_registered_job(name)
     if registered is None:
@@ -286,6 +266,6 @@ async def run_job(
         entry=task,
         run_type=run_type,
         registered_job_id=registered.id,
-        preservation_mode=preservation_mode,
+        preserve_all=preserve_all,
         registered=registered,
     )

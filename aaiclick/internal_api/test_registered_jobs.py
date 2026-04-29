@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.orchestration.models import PreservationMode
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
@@ -59,7 +58,7 @@ async def test_register_job_returns_view_and_persists(orch_ctx):
         name="new_reg",
         entrypoint="myapp.new_reg",
         schedule="0 8 * * *",
-        preservation_mode=PreservationMode.FULL,
+        preserve_all=True,
     )
 
     view = await registered_jobs.register_job(request)
@@ -67,7 +66,7 @@ async def test_register_job_returns_view_and_persists(orch_ctx):
     assert isinstance(view, RegisteredJobView)
     assert view.name == "new_reg"
     assert view.schedule == "0 8 * * *"
-    assert view.preservation_mode is PreservationMode.FULL
+    assert view.preserve_all is True
     assert view.next_run_at is not None
 
     page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="new_reg"))

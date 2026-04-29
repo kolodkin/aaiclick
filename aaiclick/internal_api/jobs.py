@@ -159,6 +159,6 @@ async def run_job(request: RunJobRequest) -> JobView:
         name=name,
         entrypoint=entrypoint,
         kwargs=request.kwargs or None,
-        preservation_mode=request.preservation_mode,
+        preserve_all=request.preserve_all,
     )
     return job_to_view(job)

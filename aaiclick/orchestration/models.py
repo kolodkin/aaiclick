@@ -66,6 +66,14 @@ class TaskStatus(StrEnum):
     PENDING_CLEANUP = "PENDING_CLEANUP"
 
 
+LIVE_TASK_STATUSES: tuple[TaskStatus, ...] = (
+    TaskStatus.PENDING,
+    TaskStatus.CLAIMED,
+    TaskStatus.RUNNING,
+)
+"""Statuses for tasks that are still doing work (not terminal, not in cleanup)."""
+
+
 class WorkerStatus(StrEnum):
     """Worker status."""
 
@@ -73,19 +81,6 @@ class WorkerStatus(StrEnum):
     IDLE = "IDLE"
     STOPPING = "STOPPING"
     STOPPED = "STOPPED"
-
-
-class PreservationMode(StrEnum):
-    """Which tables survive after a job completes.
-
-    - ``NONE``: persistent tables only (default) — intermediate tables are
-      dropped as soon as their refs fall to zero.
-    - ``FULL``: every table the job produced stays until the job TTL expires,
-      useful for development and debugging.
-    """
-
-    NONE = "NONE"
-    FULL = "FULL"
 
 
 class RegisteredJob(SQLModel, table=True):
@@ -106,7 +101,10 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    preservation_mode: PreservationMode | None = Field(default=None)
+    preserve_all: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="0"),
+    )
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -129,9 +127,9 @@ class Job(SQLModel, table=True):
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
     )
-    preservation_mode: PreservationMode = Field(
-        default=PreservationMode.NONE,
-        sa_column_kwargs={"server_default": PreservationMode.NONE.value, "nullable": False},
+    preserve_all: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="0"),
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: datetime | None = Field(default=None)

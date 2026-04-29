@@ -138,8 +138,8 @@ def render_registered_job(view: RegisteredJobView) -> None:
     print(f"Registered job '{view.name}' (id={view.id})")
     if view.schedule:
         print(f"  Schedule:         {view.schedule}")
-    if view.preservation_mode:
-        print(f"  Preservation:     {view.preservation_mode.value}")
+    if view.preserve_all:
+        print("  Preserve all:     True")
     if view.next_run_at:
         print(f"  Next run at:      {view.next_run_at}")
 
