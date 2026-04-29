@@ -616,11 +616,23 @@ async def test_json_load_json_as_string_format(ctx, json_server):
 
 
 class _FlakyHandler(BaseHTTPRequestHandler):
-    """Returns 503 on the first ``fail_count`` requests, then proxies to the static file."""
+    """Returns 503 on the first ``fail_count`` GETs, then serves the static body.
+
+    HEAD always succeeds — the distributed ClickHouse backend sends a HEAD
+    probe before each GET to determine content length, so we want HEAD to be
+    invisible to the retry counter.
+    """
 
     fail_count = 1
     request_count = 0
     body: bytes = b""
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(len(type(self).body)))
+        self.end_headers()
 
     def do_GET(self):
         type(self).request_count += 1
