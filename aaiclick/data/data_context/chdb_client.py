@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 import tempfile
+import urllib.error
 import urllib.request
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -29,6 +31,29 @@ from aaiclick.data.sql_utils import escape_sql_string
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
 _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
+
+
+def _download_to_path(url: str, dest: str) -> None:
+    """Download ``url`` to ``dest`` with deterministic socket cleanup.
+
+    Uses a bare opener (``HTTPHandler`` / ``HTTPSHandler`` without
+    ``HTTPErrorProcessor``) so non-2xx responses surface as a regular
+    ``HTTPResponse`` whose socket closes when the ``with`` block exits.
+    The default ``urllib.request.urlopen`` raises ``HTTPError`` from
+    inside the error processor and leaks the underlying socket, which
+    later trips ``filterwarnings=error`` via ``PytestUnraisableExceptionWarning``.
+    """
+    opener = urllib.request.OpenerDirector()
+    opener.add_handler(urllib.request.HTTPHandler())
+    opener.add_handler(urllib.request.HTTPSHandler())
+    opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+    with opener.open(url) as response:
+        if response.status >= 400:
+            raise urllib.error.HTTPError(
+                url, response.status, response.reason, response.headers, response  # type: ignore[arg-type]
+            )
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(response, out)
 
 
 @asynccontextmanager
@@ -56,7 +81,7 @@ async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
             suffix = "".join(Path(urlparse(url).path).suffixes)  # e.g. ".tsv.gz"
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
             tmp_files.append(tmp)
-            await asyncio.to_thread(urllib.request.urlretrieve, url, tmp.name)
+            await asyncio.to_thread(_download_to_path, url, tmp.name)
             safe_tmp = escape_sql_string(tmp.name)
             replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
 

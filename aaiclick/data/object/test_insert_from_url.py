@@ -608,3 +608,89 @@ async def test_json_load_json_as_string_format(ctx, json_server):
     # Single-column → FIELDTYPE_ARRAY Object — data() returns a list.
     data = await obj.data()
     assert len(data) == 3
+
+
+# =============================================================================
+# Retry integration: flaky upstream server returning 503 then 200
+# =============================================================================
+
+
+class _FlakyHandler(BaseHTTPRequestHandler):
+    """Returns 503 on the first ``fail_count`` requests, then proxies to the static file."""
+
+    fail_count = 1
+    request_count = 0
+    body: bytes = b""
+
+    def do_GET(self):
+        type(self).request_count += 1
+        if type(self).request_count <= type(self).fail_count:
+            self.send_response(503)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(type(self).body)))
+        self.end_headers()
+        self.wfile.write(type(self).body)
+
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture
+def flaky_server():
+    """Per-test flaky HTTP server. Resets counters and serves sample.parquet."""
+    sample_path = Path(_SAMPLES_DIR) / "sample.parquet"
+    _FlakyHandler.body = sample_path.read_bytes()
+    _FlakyHandler.fail_count = 1
+    _FlakyHandler.request_count = 0
+
+    server = HTTPServer(("0.0.0.0", 0), _FlakyHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://{_FILESERVER_HOST}:{port}", _FlakyHandler
+    server.shutdown()
+    server.server_close()
+
+
+async def test_url_retries_transient_503(ctx, flaky_server):
+    """create_object_from_url retries on 503 and succeeds on the second attempt."""
+    base, handler = flaky_server
+    handler.fail_count = 1
+
+    # Skip the DESCRIBE round-trip by passing column_types so request_count
+    # only reflects the INSERT path.
+    obj = await create_object_from_url(
+        f"{base}/sample.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=5,
+        column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
+        backoff_factor=0,  # zero sleep — keep test fast
+    )
+    data = await obj.data()
+    assert len(data["id"]) == 5
+    # Two upstream hits: first 503, second 200.
+    assert handler.request_count == 2
+
+
+async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
+    """Persistent 503 exhausts retries and raises."""
+    base, handler = flaky_server
+    handler.fail_count = 100  # always fail
+
+    with pytest.raises(Exception):  # noqa: B017 - either HTTPError or driver wrapper
+        await create_object_from_url(
+            f"{base}/sample.parquet",
+            columns=["id", "price"],
+            format="Parquet",
+            limit=5,
+            column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
+            retries=3,
+            backoff_factor=0,
+        )
+    # 3 attempts, all 503.
+    assert handler.request_count == 3
