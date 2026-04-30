@@ -226,7 +226,7 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
     - ``name`` set: requires an active ``orch_context()`` — persistent
       tables need the SQL ``table_registry`` row, which only the orch
-      lifecycle handler writes. ``data_context()`` alone is rejected.
+      lifecycle handler writes. Bare ``data_context()`` is rejected.
     - ``scope="job"``: requires an active orch job_id (raises ValueError
       otherwise — see scope.py).
     - ``name`` set, ``scope=None``: default to ``"job"`` (the only scope
@@ -237,20 +237,18 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
             raise ValueError("scope can only be set together with name")
         return None
 
-    from aaiclick.orchestration.sql_context import _sql_engine_var
-
-    if _sql_engine_var.get() is None:
+    lifecycle = get_data_lifecycle()
+    if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
         raise RuntimeError(
-            "Persistent objects (name=...) require an active orch_context() — "
-            "data_context() does not provide the SQL session that table_registry needs. "
+            f"scope={scope!r} requires an active orch_context() — bare "
+            "data_context() only supports temp (unnamed) objects. "
             "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
             "or drop the name= argument for a temp table."
         )
 
     if scope is not None:
         return scope
-    lifecycle = get_data_lifecycle()
-    if lifecycle is not None and lifecycle.current_job_id() is not None:
+    if lifecycle.current_job_id() is not None:
         return "job"
     return "global"
 
