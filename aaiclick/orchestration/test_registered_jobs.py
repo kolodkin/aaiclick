@@ -183,14 +183,13 @@ async def test_list_registered_jobs(orch_ctx):
     assert "list_c" in enabled_names
 
 
-async def test_run_job_auto_registers(orch_ctx):
-    job = await run_job("auto_reg", "myapp.auto_reg")
+async def test_run_job_does_not_register(orch_ctx):
+    job = await run_job("no_reg", "myapp.no_reg")
     assert job.run_type == RunType.MANUAL
-    assert job.registered_job_id is not None
+    assert job.registered_job_id is None
 
-    reg = await get_registered_job("auto_reg")
-    assert reg is not None
-    assert reg.entrypoint == "myapp.auto_reg"
+    reg = await get_registered_job("no_reg")
+    assert reg is None
 
 
 async def test_run_job_creates_entry_task(orch_ctx):

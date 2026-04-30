@@ -141,11 +141,13 @@ async def cancel_job(ref: RefId) -> JobView:
 
 
 async def run_job(request: RunJobRequest) -> JobView:
-    """Run a job immediately, auto-registering if needed.
+    """Run a job immediately.
 
     The entrypoint is derived from ``request.name``: dotted names become the
     entrypoint directly, bare names reuse the registered job's entrypoint (or
-    fall back to the name itself if not yet registered).
+    fall back to the name itself if not yet registered). When a matching
+    ``RegisteredJob`` exists, the new job links to it and inherits its
+    ``default_kwargs``; otherwise it runs standalone.
     """
     if "." in request.name:
         entrypoint = request.name

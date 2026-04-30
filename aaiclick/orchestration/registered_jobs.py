@@ -254,10 +254,13 @@ async def run_job(
     run_type: RunType = RunType.MANUAL,
     preservation_mode: PreservationMode | None = None,
 ) -> Job:
-    """Run a job immediately, auto-registering if needed.
+    """Run a job immediately, linking to a registration if one exists.
 
-    Upserts into registered_jobs (without schedule), merges kwargs
-    over default_kwargs, then creates a Job + entry point Task.
+    Looks up an existing ``RegisteredJob`` by name. If found, merges
+    ``kwargs`` over its ``default_kwargs`` and links the new ``Job``
+    via ``registered_job_id``. If no registration exists, the job runs
+    standalone with ``registered_job_id=None`` — registration is not
+    a prerequisite for running.
 
     The preservation mode resolves via the precedence chain
     (see ``factories.resolve_job_config``):
@@ -275,17 +278,16 @@ async def run_job(
         Created Job
     """
     registered = await get_registered_job(name)
-    if registered is None:
-        registered = await register_job(name=name, entrypoint=entrypoint)
 
-    merged_kwargs = {**(registered.default_kwargs or {}), **(kwargs or {})}
+    default_kwargs = registered.default_kwargs if registered is not None else None
+    merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(
         name=name,
         entry=task,
         run_type=run_type,
-        registered_job_id=registered.id,
+        registered_job_id=registered.id if registered is not None else None,
         preservation_mode=preservation_mode,
         registered=registered,
     )
