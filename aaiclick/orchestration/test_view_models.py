@@ -3,10 +3,18 @@
 from datetime import datetime
 
 from .models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_PENDING,
     Job,
     JobStatus,
+    PRESERVATION_NONE,
     PreservationMode,
+    RUN_MANUAL,
     RunType,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
     Task,
     TaskStatus,
 )
@@ -28,7 +36,7 @@ def _make_job(
     *,
     job_id: int = 1,
     name: str = "test_job",
-    status: JobStatus = JobStatus.COMPLETED,
+    status: JobStatus = JOB_COMPLETED,
     registered_job_id: int | None = None,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime | None = datetime(2025, 1, 1, 12, 0, 1),
@@ -39,8 +47,8 @@ def _make_job(
         id=job_id,
         name=name,
         status=status,
-        run_type=RunType.MANUAL,
-        preservation_mode=PreservationMode.NONE,
+        run_type=RUN_MANUAL,
+        preservation_mode=PRESERVATION_NONE,
         registered_job_id=registered_job_id,
         created_at=created_at,
         started_at=started_at,
@@ -54,7 +62,7 @@ def _make_task(
     task_id: int = 100,
     job_id: int = 1,
     entrypoint: str = "pkg.mod:extract",
-    status: TaskStatus = TaskStatus.COMPLETED,
+    status: TaskStatus = TASK_COMPLETED,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime | None = datetime(2025, 1, 1, 12, 0, 2),
     completed_at: datetime | None = datetime(2025, 1, 1, 12, 0, 5),
@@ -89,7 +97,7 @@ def test_job_to_view_propagates_registered_job_id():
 
 
 def test_job_to_view_json_serializes_enums():
-    view = job_to_view(_make_job(status=JobStatus.FAILED, error="boom"))
+    view = job_to_view(_make_job(status=JOB_FAILED, error="boom"))
     payload = view.model_dump(mode="json")
     assert payload["status"] == "FAILED"
     assert payload["run_type"] == "MANUAL"
@@ -103,7 +111,7 @@ def test_task_to_view_omits_detail_fields():
     dumped = view.model_dump()
     assert dumped["id"] == 100
     assert dumped["job_id"] == 1
-    assert dumped["status"] == TaskStatus.COMPLETED
+    assert dumped["status"] == TASK_COMPLETED
     assert "kwargs" not in dumped
     assert "worker_id" not in dumped
 
@@ -125,7 +133,7 @@ def test_job_to_detail_embeds_task_views_and_duration():
 
 
 def test_job_to_detail_duration_none_when_not_completed():
-    job = _make_job(started_at=None, completed_at=None, status=JobStatus.PENDING)
+    job = _make_job(started_at=None, completed_at=None, status=JOB_PENDING)
     detail = job_to_detail(job, [])
     assert detail.duration_ms is None
 
@@ -139,7 +147,7 @@ def test_compute_job_stats_view_basic():
     stats = compute_job_stats_view(job, tasks)
     assert isinstance(stats, JobStatsView)
     assert stats.job_id == 1
-    assert stats.job_status == JobStatus.COMPLETED
+    assert stats.job_status == JOB_COMPLETED
     assert stats.total_tasks == 2
     assert stats.status_counts == {"COMPLETED": 2}
     assert stats.wall_time_ms == 10_000
@@ -148,18 +156,18 @@ def test_compute_job_stats_view_basic():
 
 
 def test_compute_job_stats_view_mixed_statuses():
-    job = _make_job(status=JobStatus.FAILED)
+    job = _make_job(status=JOB_FAILED)
     tasks = [
-        _make_task(task_id=100, status=TaskStatus.COMPLETED),
+        _make_task(task_id=100, status=TASK_COMPLETED),
         _make_task(
             task_id=101,
-            status=TaskStatus.FAILED,
+            status=TASK_FAILED,
             completed_at=datetime(2025, 1, 1, 12, 0, 4),
             error="boom",
         ),
         _make_task(
             task_id=102,
-            status=TaskStatus.PENDING,
+            status=TASK_PENDING,
             started_at=None,
             completed_at=None,
         ),

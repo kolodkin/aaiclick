@@ -8,7 +8,7 @@ from starlette.routing import Route
 
 from aaiclick.backend import is_local
 from aaiclick.orchestration.execution import list_workers
-from aaiclick.orchestration.models import WorkerStatus
+from aaiclick.orchestration.models import WORKER_ACTIVE, WorkerStatus
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
@@ -106,7 +106,7 @@ async def test_lifespan_starts_worker_in_local_mode():
 
     async with _lifespan(app):
         for _ in range(50):
-            if await list_workers(status=WorkerStatus.ACTIVE):
+            if await list_workers(status=WORKER_ACTIVE):
                 return
             await asyncio.sleep(0.1)
 

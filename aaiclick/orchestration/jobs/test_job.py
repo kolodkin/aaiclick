@@ -1,7 +1,7 @@
 """Tests for job query functions."""
 
 from ..factories import create_job
-from ..models import JobStatus
+from ..models import JOB_COMPLETED, JOB_PENDING, JobStatus
 from .queries import count_jobs, get_job, list_jobs
 
 
@@ -13,7 +13,7 @@ async def test_get_job(orch_ctx):
     assert result is not None
     assert result.id == job.id
     assert result.name == "test_get_job"
-    assert result.status == JobStatus.PENDING
+    assert result.status == JOB_PENDING
 
 
 async def test_get_job_not_found(orch_ctx):
@@ -37,11 +37,11 @@ async def test_list_jobs_filter_by_status(orch_ctx):
     """Test filtering jobs by status."""
     await create_job("status_filter", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-    pending = await list_jobs(status=JobStatus.PENDING)
+    pending = await list_jobs(status=JOB_PENDING)
     pending_names = [j.name for j in pending]
     assert "status_filter" in pending_names
 
-    completed = await list_jobs(status=JobStatus.COMPLETED)
+    completed = await list_jobs(status=JOB_COMPLETED)
     completed_names = [j.name for j in completed]
     assert "status_filter" not in completed_names
 
@@ -81,8 +81,8 @@ async def test_count_jobs(orch_ctx):
     total = await count_jobs(name_like="count_test_%")
     assert total >= 2
 
-    pending = await count_jobs(status=JobStatus.PENDING, name_like="count_test_%")
+    pending = await count_jobs(status=JOB_PENDING, name_like="count_test_%")
     assert pending >= 2
 
-    completed = await count_jobs(status=JobStatus.COMPLETED, name_like="count_test_%")
+    completed = await count_jobs(status=JOB_COMPLETED, name_like="count_test_%")
     assert completed == 0

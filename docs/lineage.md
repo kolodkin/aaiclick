@@ -18,7 +18,7 @@ replay only when static state is insufficient.
 | Tier | What runs                           | What the agent can query                        | Cost         |
 |------|-------------------------------------|------------------------------------------------|--------------|
 | 1    | Nothing — use existing state        | Persistent inputs (`p_*`), target table, oplog SQL | Zero replay |
-| 2    | Full replay under `PreservationMode.FULL` | Everything above + every intermediate table    | One full pipeline run |
+| 2    | Full replay with `PRESERVATION_FULL` | Everything above + every intermediate table    | One full pipeline run |
 
 Tier 1 is tried first. The agent escalates to Tier 2 only when it cannot
 answer from static state alone. The user can also pre-commit to Tier 2
@@ -125,7 +125,7 @@ Precedence:
 1. Explicit run_job(..., preservation_mode=...) argument
 2. RegisteredJob.preservation_mode
 3. AAICLICK_DEFAULT_PRESERVATION_MODE env var
-4. PreservationMode.NONE
+4. PRESERVATION_NONE
 ```
 
 ---

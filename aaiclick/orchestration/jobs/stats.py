@@ -67,7 +67,7 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
     """
     status_counts: dict[str, int] = {}
     for t in tasks:
-        status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
+        status_counts[t.status] = status_counts.get(t.status, 0) + 1
 
     task_stats = []
     for t in tasks:
@@ -82,7 +82,7 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
             TaskStats(
                 id=t.id,
                 entrypoint=_short_entrypoint(t.entrypoint),
-                status=t.status.value,
+                status=t.status,
                 queue_time=queue_time,
                 exec_time=exec_time,
                 error=t.error,
@@ -99,7 +99,7 @@ def compute_job_stats(job: Job, tasks: list[Task]) -> JobStats:
     return JobStats(
         job_id=job.id,
         job_name=job.name,
-        job_status=job.status.value,
+        job_status=job.status,
         total_tasks=len(tasks),
         status_counts=status_counts,
         wall_time=wall_time,

@@ -5,10 +5,10 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlmodel import select
 
-from ..models import Job, JobStatus, Task, TaskStatus
+from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, Job, JobStatus, TASK_CANCELLED, TASK_CLAIMED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING, TASK_PENDING_CLEANUP, TASK_RUNNING, Task, TaskStatus
 from ..orch_context import get_db_handler, get_sql_session
 
-_TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+_TERMINAL_JOB_STATUSES = (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
 
 
 class JobNotFound(ValueError):
@@ -78,13 +78,13 @@ async def update_task_status(
         if task is None:
             return False
 
-        if task.status == TaskStatus.CANCELLED:
+        if task.status == TASK_CANCELLED:
             return False
 
         task.status = status
-        if status == TaskStatus.RUNNING:
+        if status == TASK_RUNNING:
             task.started_at = datetime.utcnow()
-        elif status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+        elif status in (TASK_COMPLETED, TASK_FAILED):
             task.completed_at = datetime.utcnow()
             if error:
                 task.error = error
@@ -95,7 +95,7 @@ async def update_task_status(
             task.log_path = log_path
 
         if task.run_statuses:
-            task.run_statuses = [*task.run_statuses[:-1], status.value]
+            task.run_statuses = [*task.run_statuses[:-1], status]
 
         session.add(task)
         await session.commit()
@@ -123,7 +123,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: str | None = 
             return False
 
         job.status = status
-        if status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+        if status in (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED):
             job.completed_at = datetime.utcnow()
             if error:
                 job.error = error
@@ -163,10 +163,10 @@ async def cancel_job(job_id: int) -> Job:
             raise JobNotFound(f"Job {job_id} not found")
 
         if job.status in _TERMINAL_JOB_STATUSES:
-            raise JobAlreadyTerminal(f"Job {job_id} already in terminal state: {job.status.value}")
+            raise JobAlreadyTerminal(f"Job {job_id} already in terminal state: {job.status}")
 
         now = datetime.utcnow()
-        job.status = JobStatus.CANCELLED
+        job.status = JOB_CANCELLED
         job.completed_at = now
         session.add(job)
 
@@ -178,13 +178,13 @@ async def cancel_job(job_id: int) -> Job:
                 "AND status IN (:pending, :claimed, :running, :pending_cleanup)"
             ),
             {
-                "cancelled_status": TaskStatus.CANCELLED.value,
+                "cancelled_status": TASK_CANCELLED,
                 "now": now,
                 "job_id": job_id,
-                "pending": TaskStatus.PENDING.value,
-                "claimed": TaskStatus.CLAIMED.value,
-                "running": TaskStatus.RUNNING.value,
-                "pending_cleanup": TaskStatus.PENDING_CLEANUP.value,
+                "pending": TASK_PENDING,
+                "claimed": TASK_CLAIMED,
+                "running": TASK_RUNNING,
+                "pending_cleanup": TASK_PENDING_CLEANUP,
             },
         )
 
@@ -208,4 +208,4 @@ async def check_task_cancelled(task_id: int) -> bool:
     async with get_sql_session() as session:
         result = await session.execute(select(Task.status).where(Task.id == task_id))
         status = result.scalar_one_or_none()
-        return status == TaskStatus.CANCELLED
+        return status == TASK_CANCELLED

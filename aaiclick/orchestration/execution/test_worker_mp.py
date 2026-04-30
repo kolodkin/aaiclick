@@ -5,7 +5,7 @@ Kept in a dedicated module so ``orch_ctx_no_ch`` can be module-scoped
 each spawned child).
 """
 
-from ..models import WorkerStatus
+from ..models import WORKER_STOPPED, WorkerStatus
 from .mp_worker import mp_worker_main_loop
 from .worker import get_worker, register_worker, request_worker_stop
 
@@ -27,4 +27,4 @@ async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatc
 
     db_worker = await get_worker(worker.id)
     assert db_worker is not None
-    assert db_worker.status == WorkerStatus.STOPPED
+    assert db_worker.status == WORKER_STOPPED

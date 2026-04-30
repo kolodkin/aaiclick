@@ -8,7 +8,7 @@ from pathlib import Path
 from aaiclick.snowflake import get_snowflake_id
 
 from .env import get_default_preservation_mode
-from .models import Job, JobStatus, PreservationMode, RegisteredJob, RunType, Task, TaskStatus
+from .models import JOB_PENDING, Job, JobStatus, PRESERVATION_NONE, PreservationMode, RUN_MANUAL, RegisteredJob, RunType, TASK_PENDING, Task, TaskStatus
 from .orch_context import get_sql_session
 from .task_registry import get_task_registry
 
@@ -24,7 +24,7 @@ def resolve_job_config(
     1. Explicit ``explicit_mode`` argument
     2. ``registered.preservation_mode``
     3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var
-    4. ``PreservationMode.NONE`` (hardcoded fallback)
+    4. ``PRESERVATION_NONE`` (hardcoded fallback)
 
     The explicit override is considered "set" when it's not ``None`` —
     this lets callers pass ``None`` to mean "inherit from the next level".
@@ -150,7 +150,7 @@ def create_task(
         entrypoint=entrypoint,
         name=resolved_name,
         kwargs=kwargs or {},
-        status=TaskStatus.PENDING,
+        status=TASK_PENDING,
         created_at=datetime.utcnow(),
         max_retries=max_retries,
     )
@@ -164,7 +164,7 @@ async def create_job(
     name: str,
     entry: str | Callable | Task,
     *,
-    run_type: RunType = RunType.MANUAL,
+    run_type: RunType = RUN_MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
@@ -179,7 +179,7 @@ async def create_job(
         preservation_mode: Which tables survive after the job completes.
             Overrides the registered job's default; falls through to the
             ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
-            ``PreservationMode.NONE``.
+            ``PRESERVATION_NONE``.
         registered: Optional ``RegisteredJob`` to source level-2 defaults
             from. When supplied, ``registered.preservation_mode`` becomes
             the fallback value.
@@ -204,7 +204,7 @@ async def create_job(
     job = Job(
         id=job_id,
         name=name,
-        status=JobStatus.PENDING,
+        status=JOB_PENDING,
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,

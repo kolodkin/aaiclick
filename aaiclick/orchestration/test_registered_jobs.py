@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import select
 
 from .factories import resolve_job_config
-from .models import PreservationMode, RegisteredJob, RunType, Task
+from .models import PRESERVATION_FULL, PRESERVATION_NONE, PreservationMode, RUN_MANUAL, RegisteredJob, RunType, Task
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,
@@ -185,7 +185,7 @@ async def test_list_registered_jobs(orch_ctx):
 
 async def test_run_job_does_not_register(orch_ctx):
     job = await run_job("no_reg", "myapp.no_reg")
-    assert job.run_type == RunType.MANUAL
+    assert job.run_type == RUN_MANUAL
     assert job.registered_job_id is None
 
     reg = await get_registered_job("no_reg")
@@ -227,7 +227,7 @@ async def test_run_job_with_existing_registration(orch_ctx):
     )
     job = await run_job("existing_reg", "myapp.existing")
     assert job.registered_job_id == reg.id
-    assert job.run_type == RunType.MANUAL
+    assert job.run_type == RUN_MANUAL
 
 
 # resolve_job_config precedence chain
@@ -239,10 +239,10 @@ def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
         id=1,
         name="x",
         entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
+        preservation_mode=PRESERVATION_FULL,
     )
-    resolved = resolve_job_config(PreservationMode.NONE, registered)
-    assert resolved is PreservationMode.NONE
+    resolved = resolve_job_config(PRESERVATION_NONE, registered)
+    assert resolved == PRESERVATION_NONE
 
 
 def test_resolve_registered_mode_wins_over_env(monkeypatch):
@@ -251,23 +251,23 @@ def test_resolve_registered_mode_wins_over_env(monkeypatch):
         id=1,
         name="x",
         entrypoint="foo",
-        preservation_mode=PreservationMode.FULL,
+        preservation_mode=PRESERVATION_FULL,
     )
     resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
+    assert resolved == PRESERVATION_FULL
 
 
 def test_resolve_env_wins_when_no_registered_default(monkeypatch):
     monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
     registered = RegisteredJob(id=1, name="x", entrypoint="foo")
     resolved = resolve_job_config(None, registered)
-    assert resolved is PreservationMode.FULL
+    assert resolved == PRESERVATION_FULL
 
 
 def test_resolve_hardcoded_fallback(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     resolved = resolve_job_config(None, None)
-    assert resolved is PreservationMode.NONE
+    assert resolved == PRESERVATION_NONE
 
 
 # register_job with preservation_mode
@@ -277,13 +277,13 @@ async def test_register_job_persists_preservation_mode(orch_ctx):
     reg = await register_job(
         name="full_job",
         entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
+        preservation_mode=PRESERVATION_FULL,
     )
-    assert reg.preservation_mode is PreservationMode.FULL
+    assert reg.preservation_mode == PRESERVATION_FULL
 
     fetched = await get_registered_job("full_job")
     assert fetched is not None
-    assert fetched.preservation_mode is PreservationMode.FULL
+    assert fetched.preservation_mode == PRESERVATION_FULL
 
 
 # run_job inherits registered-job defaults
@@ -294,10 +294,10 @@ async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypat
     await register_job(
         name="full_inherited",
         entrypoint="myapp.full_pipeline",
-        preservation_mode=PreservationMode.FULL,
+        preservation_mode=PRESERVATION_FULL,
     )
     job = await run_job("full_inherited", "myapp.full_pipeline")
-    assert job.preservation_mode is PreservationMode.FULL
+    assert job.preservation_mode == PRESERVATION_FULL
 
 
 async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
@@ -305,11 +305,11 @@ async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
     await register_job(
         name="override_test",
         entrypoint="myapp.foo",
-        preservation_mode=PreservationMode.FULL,
+        preservation_mode=PRESERVATION_FULL,
     )
     job = await run_job(
         "override_test",
         "myapp.foo",
-        preservation_mode=PreservationMode.NONE,
+        preservation_mode=PRESERVATION_NONE,
     )
-    assert job.preservation_mode is PreservationMode.NONE
+    assert job.preservation_mode == PRESERVATION_NONE

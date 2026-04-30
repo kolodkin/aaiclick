@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import Job, JobStatus, Task, TaskStatus
+from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, JOB_PENDING, Job, JobStatus, TASK_CANCELLED, TASK_COMPLETED, Task, TaskStatus
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import (
     JobAlreadyTerminal,
@@ -22,19 +22,19 @@ from .worker import register_worker
 async def test_cancel_pending_job(orch_ctx):
     """Test cancelling a PENDING job sets job and tasks to CANCELLED."""
     job = await create_job("cancel_pending", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    assert job.status == JobStatus.PENDING
+    assert job.status == JOB_PENDING
 
     cancelled = await cancel_job(job.id)
-    assert cancelled.status == JobStatus.CANCELLED
+    assert cancelled.status == JOB_CANCELLED
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JobStatus.CANCELLED
+        assert db_job.status == JOB_CANCELLED
         assert db_job.completed_at is not None
 
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
         for t in tasks:
-            assert t.status == TaskStatus.CANCELLED
+            assert t.status == TASK_CANCELLED
             assert t.completed_at is not None
 
 
@@ -53,41 +53,41 @@ async def test_cancel_running_job(orch_ctx):
     assert claimed is not None
 
     cancelled = await cancel_job(job.id)
-    assert cancelled.status == JobStatus.CANCELLED
+    assert cancelled.status == JOB_CANCELLED
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JobStatus.CANCELLED
+        assert db_job.status == JOB_CANCELLED
 
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
         for t in tasks:
-            assert t.status == TaskStatus.CANCELLED
+            assert t.status == TASK_CANCELLED
 
 
 async def test_cancel_completed_job_raises_already_terminal(orch_ctx):
     """Test that a COMPLETED job cannot be cancelled."""
     job = await create_job("cancel_completed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    await update_job_status(job.id, JobStatus.COMPLETED)
+    await update_job_status(job.id, JOB_COMPLETED)
 
     with pytest.raises(JobAlreadyTerminal, match="COMPLETED"):
         await cancel_job(job.id)
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JobStatus.COMPLETED
+        assert db_job.status == JOB_COMPLETED
 
 
 async def test_cancel_failed_job_raises_already_terminal(orch_ctx):
     """Test that a FAILED job cannot be cancelled."""
     job = await create_job("cancel_failed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    await update_job_status(job.id, JobStatus.FAILED, error="some error")
+    await update_job_status(job.id, JOB_FAILED, error="some error")
 
     with pytest.raises(JobAlreadyTerminal, match="FAILED"):
         await cancel_job(job.id)
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JobStatus.FAILED
+        assert db_job.status == JOB_FAILED
 
 
 async def test_cancel_already_cancelled_raises_already_terminal(orch_ctx):
@@ -95,7 +95,7 @@ async def test_cancel_already_cancelled_raises_already_terminal(orch_ctx):
     job = await create_job("cancel_twice", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
     first = await cancel_job(job.id)
-    assert first.status == JobStatus.CANCELLED
+    assert first.status == JOB_CANCELLED
 
     with pytest.raises(JobAlreadyTerminal, match="CANCELLED"):
         await cancel_job(job.id)
@@ -137,7 +137,7 @@ async def test_cancel_preserves_completed_tasks(orch_ctx):
     # Claim and complete the task
     claimed = await claim_next_task(worker.id)
     assert claimed is not None
-    await update_task_status(claimed.id, TaskStatus.COMPLETED)
+    await update_task_status(claimed.id, TASK_COMPLETED)
 
     # Add another pending task
     extra = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -150,8 +150,8 @@ async def test_cancel_preserves_completed_tasks(orch_ctx):
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))).scalars().all()
 
         statuses = [t.status for t in tasks]
-        assert TaskStatus.COMPLETED in statuses
-        assert TaskStatus.CANCELLED in statuses
+        assert TASK_COMPLETED in statuses
+        assert TASK_CANCELLED in statuses
 
 
 async def test_check_task_cancelled(orch_ctx):
@@ -187,10 +187,10 @@ async def test_update_task_status_refuses_overwrite_cancelled(orch_ctx):
     await cancel_job(job.id)
 
     # Attempt to overwrite with COMPLETED should fail
-    result = await update_task_status(task_id, TaskStatus.COMPLETED)
+    result = await update_task_status(task_id, TASK_COMPLETED)
     assert result is False
 
     # Verify status is still CANCELLED
     task = await get_task(task_id)
     assert task is not None
-    assert task.status == TaskStatus.CANCELLED
+    assert task.status == TASK_CANCELLED

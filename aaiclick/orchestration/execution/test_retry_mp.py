@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..background.test_pending_cleanup import run_pending_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
-from ..models import Job, JobStatus, Task, TaskStatus
+from ..models import JOB_COMPLETED, JOB_FAILED, Job, JobStatus, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, Task, TaskStatus
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
 from .test_retry import _cancel_all_pending_tasks, _run_until_terminal
@@ -33,7 +33,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         t = result.scalar_one()
-        assert t.status == TaskStatus.FAILED
+        assert t.status == TASK_FAILED
         assert t.attempt == 2
         assert t.max_retries == 2
         assert t.error is not None
@@ -41,7 +41,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
         j = result.scalar_one()
-        assert j.status == JobStatus.FAILED
+        assert j.status == JOB_FAILED
 
 
 async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
@@ -65,21 +65,21 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         t = result.scalar_one()
-        assert t.status == TaskStatus.PENDING_CLEANUP
+        assert t.status == TASK_PENDING_CLEANUP
 
     await run_pending_cleanup()
 
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         t = result.scalar_one()
-        assert t.status == TaskStatus.FAILED
+        assert t.status == TASK_FAILED
         assert t.attempt == 0
         assert t.error is not None
 
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
         j = result.scalar_one()
-        assert j.status == JobStatus.FAILED
+        assert j.status == JOB_FAILED
 
 
 async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, fast_poll):
@@ -100,10 +100,10 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, 
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         t = result.scalar_one()
-        assert t.status == TaskStatus.COMPLETED
+        assert t.status == TASK_COMPLETED
         assert t.attempt == 2
 
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
         j = result.scalar_one()
-        assert j.status == JobStatus.COMPLETED
+        assert j.status == JOB_COMPLETED

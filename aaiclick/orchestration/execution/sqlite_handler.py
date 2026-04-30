@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlmodel import select
 
-from ..models import JobStatus, Task, TaskStatus
+from ..models import JOB_CANCELLED, JOB_FAILED, JOB_RUNNING, JobStatus, TASK_COMPLETED, TASK_PENDING, TASK_RUNNING, Task, TaskStatus
 from .db_handler import DEPENDENCY_WHERE, DbHandler
 
 
@@ -31,10 +31,10 @@ class SqliteDbHandler(DbHandler):
                 LIMIT 1
             """),
             {
-                "pending_status": TaskStatus.PENDING.value,
-                "completed_status": TaskStatus.COMPLETED.value,
-                "cancelled_job_status": JobStatus.CANCELLED.value,
-                "failed_job_status": JobStatus.FAILED.value,
+                "pending_status": TASK_PENDING,
+                "completed_status": TASK_COMPLETED,
+                "cancelled_job_status": JOB_CANCELLED,
+                "failed_job_status": JOB_FAILED,
                 "now": now,
             },
         )
@@ -52,7 +52,7 @@ class SqliteDbHandler(DbHandler):
                 "WHERE id = :task_id"
             ),
             {
-                "claimed_status": TaskStatus.RUNNING.value,
+                "claimed_status": TASK_RUNNING,
                 "worker_id": worker_id,
                 "now": now,
                 "task_id": task_id,
@@ -69,7 +69,7 @@ class SqliteDbHandler(DbHandler):
             ),
             {
                 "now": now,
-                "running_status": JobStatus.RUNNING.value,
+                "running_status": JOB_RUNNING,
                 "task_id": task_id,
             },
         )

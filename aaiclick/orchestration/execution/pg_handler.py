@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from ..models import JobStatus, Task, TaskStatus
+from ..models import JOB_CANCELLED, JOB_FAILED, JOB_RUNNING, TASK_COMPLETED, TASK_PENDING, TASK_RUNNING, Task
 from .db_handler import DEPENDENCY_WHERE, DbHandler
 
 
@@ -55,12 +55,12 @@ class PgDbHandler(DbHandler):
                 SELECT * FROM claimed_task
             """),
             {
-                "claimed_status": TaskStatus.RUNNING.value,
-                "pending_status": TaskStatus.PENDING.value,
-                "completed_status": TaskStatus.COMPLETED.value,
-                "running_status": JobStatus.RUNNING.value,
-                "cancelled_job_status": JobStatus.CANCELLED.value,
-                "failed_job_status": JobStatus.FAILED.value,
+                "claimed_status": TASK_RUNNING,
+                "pending_status": TASK_PENDING,
+                "completed_status": TASK_COMPLETED,
+                "running_status": JOB_RUNNING,
+                "cancelled_job_status": JOB_CANCELLED,
+                "failed_job_status": JOB_FAILED,
                 "worker_id": worker_id,
                 "now": now,
             },
@@ -71,7 +71,6 @@ class PgDbHandler(DbHandler):
             return None
 
         task_data = dict(row)
-        task_data["status"] = TaskStatus(task_data["status"])
         return Task(**task_data)
 
     @staticmethod

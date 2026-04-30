@@ -34,7 +34,7 @@ from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake import get_snowflake_id
 
 from ..env import get_db_url
-from ..models import JobStatus, PreservationMode
+from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, JobStatus, PRESERVATION_FULL, PreservationMode
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -215,7 +215,7 @@ class BackgroundWorker:
                     ") "
                     "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode)"
                 ),
-                {"full_mode": PreservationMode.FULL.value},
+                {"full_mode": PRESERVATION_FULL},
             )
             rows = result.fetchall()
             if not rows:
@@ -270,9 +270,9 @@ class BackgroundWorker:
                     "SELECT id FROM jobs WHERE status IN (:completed, :failed, :cancelled) AND completed_at < :cutoff"
                 ),
                 {
-                    "completed": JobStatus.COMPLETED.value,
-                    "failed": JobStatus.FAILED.value,
-                    "cancelled": JobStatus.CANCELLED.value,
+                    "completed": JOB_COMPLETED,
+                    "failed": JOB_FAILED,
+                    "cancelled": JOB_CANCELLED,
                     "cutoff": cutoff,
                 },
             )

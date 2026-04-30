@@ -10,7 +10,7 @@ from aaiclick.backend import is_sqlite
 
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
-from ..models import Group, Job, JobStatus, Task, TaskStatus, WorkerStatus
+from ..models import Group, JOB_RUNNING, Job, JobStatus, TASK_COMPLETED, TASK_RUNNING, Task, TaskStatus, WORKER_ACTIVE, WORKER_STOPPED, WORKER_STOPPING, WorkerStatus
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .runner import execute_task
@@ -29,7 +29,7 @@ async def test_register_worker(orch_ctx):
     worker = await register_worker()
 
     assert worker.id is not None
-    assert worker.status == WorkerStatus.ACTIVE
+    assert worker.status == WORKER_ACTIVE
     assert worker.hostname is not None
     assert worker.pid is not None
     assert worker.tasks_completed == 0
@@ -38,7 +38,7 @@ async def test_register_worker(orch_ctx):
     # Verify in database
     db_worker = await get_worker(worker.id)
     assert db_worker is not None
-    assert db_worker.status == WorkerStatus.ACTIVE
+    assert db_worker.status == WORKER_ACTIVE
 
 
 async def test_register_worker_custom_values(orch_ctx):
@@ -58,7 +58,7 @@ async def test_worker_heartbeat(orch_ctx):
     await asyncio.sleep(0.1)
     result = await worker_heartbeat(worker.id)
 
-    assert result == WorkerStatus.ACTIVE
+    assert result == WORKER_ACTIVE
 
     # Verify heartbeat was updated
     db_worker = await get_worker(worker.id)
@@ -82,7 +82,7 @@ async def test_deregister_worker(orch_ctx):
     # Verify status changed
     db_worker = await get_worker(worker.id)
     assert db_worker is not None
-    assert db_worker.status == WorkerStatus.STOPPED
+    assert db_worker.status == WORKER_STOPPED
 
 
 async def test_deregister_worker_nonexistent(orch_ctx):
@@ -105,12 +105,12 @@ async def test_list_workers(orch_ctx):
     assert len(all_workers) >= 2
 
     # List only active workers
-    active_workers = await list_workers(status=WorkerStatus.ACTIVE)
+    active_workers = await list_workers(status=WORKER_ACTIVE)
     active_ids = [w.id for w in active_workers]
     assert worker2.id in active_ids
 
     # List only stopped workers
-    stopped_workers = await list_workers(status=WorkerStatus.STOPPED)
+    stopped_workers = await list_workers(status=WORKER_STOPPED)
     stopped_ids = [w.id for w in stopped_workers]
     assert worker1.id in stopped_ids
 
@@ -129,7 +129,7 @@ async def test_request_worker_stop(orch_ctx):
 
     db_worker = await get_worker(worker.id)
     assert db_worker is not None
-    assert db_worker.status == WorkerStatus.STOPPING
+    assert db_worker.status == WORKER_STOPPING
 
 
 async def test_request_worker_stop_nonexistent(orch_ctx):
@@ -163,7 +163,7 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
 
     # Heartbeat should return STOPPING, not reset to ACTIVE
     result = await worker_heartbeat(worker.id)
-    assert result == WorkerStatus.STOPPING
+    assert result == WORKER_STOPPING
 
 
 # =============================================================================
@@ -202,7 +202,7 @@ async def test_claim_next_task_basic(orch_ctx):
 
     assert task is not None
     assert task.job_id == job.id
-    assert task.status == TaskStatus.RUNNING
+    assert task.status == TASK_RUNNING
     assert task.worker_id == worker.id
     assert task.claimed_at is not None
 
@@ -210,7 +210,7 @@ async def test_claim_next_task_basic(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
         db_job = result.scalar_one()
-        assert db_job.status == JobStatus.RUNNING
+        assert db_job.status == JOB_RUNNING
         assert db_job.started_at is not None
 
 
@@ -270,7 +270,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     await execute_task(task1)
 
     # Mark task as completed
-    await update_task_status(task1.id, TaskStatus.COMPLETED)
+    await update_task_status(task1.id, TASK_COMPLETED)
 
     # Now create a second job (newer)
     await create_job(
@@ -321,7 +321,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
     assert claimed2 is None
 
     # Mark initial_task as completed
-    await update_task_status(initial_task.id, TaskStatus.COMPLETED)
+    await update_task_status(initial_task.id, TASK_COMPLETED)
 
     # Now task2 should be claimable
     claimed3 = await claim_next_task(worker.id)
@@ -376,7 +376,7 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     assert claimed2 is None
 
     # Complete initial_task
-    await update_task_status(initial_task.id, TaskStatus.COMPLETED)
+    await update_task_status(initial_task.id, TASK_COMPLETED)
 
     # Now task2 should be claimable (group1 is complete)
     claimed3 = await claim_next_task(worker.id)

@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import Job, JobStatus, Task, TaskStatus
+from aaiclick.orchestration.models import JOB_PENDING, Job, JobStatus, TASK_PENDING, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 
@@ -27,7 +27,7 @@ async def test_create_job_with_string(orch_ctx):
 
     assert job.id > 0
     assert job.name == "test_job"
-    assert job.status == JobStatus.PENDING
+    assert job.status == JOB_PENDING
     assert isinstance(job.created_at, datetime)
     assert job.started_at is None
     assert job.completed_at is None
@@ -40,14 +40,14 @@ async def test_create_job_with_string(orch_ctx):
         db_job = result.scalar_one_or_none()
         assert db_job is not None
         assert db_job.name == "test_job"
-        assert db_job.status == JobStatus.PENDING
+        assert db_job.status == JOB_PENDING
 
         # Verify task was created and persisted
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         tasks = result.scalars().all()
         assert len(tasks) == 1
         assert tasks[0].entrypoint == "mymodule.task1"
-        assert tasks[0].status == TaskStatus.PENDING
+        assert tasks[0].status == TASK_PENDING
         assert tasks[0].kwargs == {}
 
 

@@ -8,7 +8,7 @@ from sqlmodel import select
 from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import Task, TaskStatus
+from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task, TaskStatus
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop
@@ -47,12 +47,12 @@ async def test_set_pending_cleanup(orch_ctx):
         t = result.scalar_one()
         task_id = t.id
 
-    await update_task_status(task_id, TaskStatus.RUNNING)
+    await update_task_status(task_id, TASK_RUNNING)
     await _set_pending_cleanup(task_id, "test error")
 
     t = await get_task(task_id)
     assert t is not None
-    assert t.status == TaskStatus.PENDING_CLEANUP
+    assert t.status == TASK_PENDING_CLEANUP
     assert t.error == "test error"
 
 
@@ -112,7 +112,7 @@ async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:
         async with get_sql_session() as session:
             result = await session.execute(select(Task.status).where(Task.job_id == job_id))
             status = result.scalar_one()
-            if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+            if status in (TASK_COMPLETED, TASK_FAILED, TASK_CANCELLED):
                 return
 
         await mp_worker_main_loop(

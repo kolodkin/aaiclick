@@ -42,9 +42,9 @@ def print_report(
             table = t.result.get("table", "")
             label = backward_labels.get(table, "")
             suffix = f" ({label})" if label else ""
-            print(f"- **{t.name}**: {t.status.value}{suffix}")
+            print(f"- **{t.name}**: {t.status}{suffix}")
         else:
-            print(f"- **{t.name}**: {t.status.value}")
+            print(f"- **{t.name}**: {t.status}")
 
     _print_graph(backward_graph, "Backward Lineage Graph", target_table, backward_labels)
     _print_graph(forward_graph, "Forward Lineage Graph", source_table, forward_labels)

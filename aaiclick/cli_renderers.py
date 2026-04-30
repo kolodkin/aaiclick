@@ -68,7 +68,7 @@ def render_jobs_page(page: Page[JobView], offset: int) -> None:
     print("-" * 87)
     for j in page.items:
         created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{j.id:<20} {j.name:<25} {j.status.value:<12} {j.run_type.value:<10} {created:<20}")
+        print(f"{j.id:<20} {j.name:<25} {j.status:<12} {j.run_type:<10} {created:<20}")
     _print_page_footer(page, offset)
 
 
@@ -76,8 +76,8 @@ def render_job_detail(detail: JobDetail) -> None:
     """Print full job details — ID, name, status, timestamps, registration."""
     print(f"ID:           {detail.id}")
     print(f"Name:         {detail.name}")
-    print(f"Status:       {detail.status.value}")
-    print(f"Run type:     {detail.run_type.value}")
+    print(f"Status:       {detail.status}")
+    print(f"Run type:     {detail.run_type}")
     print(f"Registered:   {_fmt_optional(detail.registered_job_id)}")
     print(f"Created at:   {detail.created_at}")
     print(f"Started at:   {_fmt_optional(detail.started_at)}")
@@ -94,7 +94,7 @@ def render_job_stats(stats: JobStatsView) -> None:
     print("| Status | Tasks | Wall Time | Exec Time | Breakdown |")
     print("|--------|-------|-----------|-----------|-----------|")
     print(
-        f"| {stats.job_status.value} "
+        f"| {stats.job_status} "
         f"| {stats.total_tasks} "
         f"| {_fmt_ms(stats.wall_time_ms)} "
         f"| {_fmt_ms(stats.exec_time_ms)} "
@@ -107,7 +107,7 @@ def render_job_stats(stats: JobStatsView) -> None:
         error_suffix = f" `{t.error[:60]}`" if t.error else ""
         print(
             f"| {t.entrypoint} "
-            f"| {t.status.value} "
+            f"| {t.status} "
             f"| {_fmt_ms(t.queue_time_ms)} "
             f"| {_fmt_ms(t.exec_time_ms)}{error_suffix} |"
         )
@@ -121,7 +121,7 @@ def render_job_cancelled(view: JobView) -> None:
 
 def render_job_created(view: JobView) -> None:
     """Single-line confirmation that ``internal_api.run_job`` created a job."""
-    print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type.value})")
+    print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type})")
 
 
 def render_registered_jobs_page(page: Page[RegisteredJobView], offset: int) -> None:
@@ -144,7 +144,7 @@ def render_registered_job(view: RegisteredJobView) -> None:
     if view.schedule:
         print(f"  Schedule:         {view.schedule}")
     if view.preservation_mode:
-        print(f"  Preservation:     {view.preservation_mode.value}")
+        print(f"  Preservation:     {view.preservation_mode}")
     if view.next_run_at:
         print(f"  Next run at:      {view.next_run_at}")
 
@@ -165,7 +165,7 @@ def render_task_detail(detail: TaskDetail) -> None:
     print(f"Job:          {detail.job_id}")
     print(f"Name:         {detail.name}")
     print(f"Entrypoint:   {detail.entrypoint}")
-    print(f"Status:       {detail.status.value}")
+    print(f"Status:       {detail.status}")
     print(f"Attempt:      {detail.attempt}")
     print(f"Max retries:  {detail.max_retries}")
     print(f"Created at:   {detail.created_at}")
@@ -191,7 +191,7 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
     print("-" * 80)
     for w in page.items:
         print(
-            f"{w.id:<20} {w.status.value:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
+            f"{w.id:<20} {w.status:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
         )
     _print_page_footer(page, offset)
 

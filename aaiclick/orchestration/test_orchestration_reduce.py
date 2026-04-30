@@ -5,7 +5,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, JobStatus
 from aaiclick.orchestration.operators import reduce
 
 # --- Reduction callbacks (module-level for entrypoint resolution) ---
@@ -64,7 +64,7 @@ async def test_reduce_single_layer(orch_ctx):
     j = await reduce_single_layer(values=[1, 2, 3, 4, 5])
     await ajob_test(j)
 
-    assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == 15
@@ -77,7 +77,7 @@ async def test_reduce_multi_layer(orch_ctx):
     j = await reduce_multi_layer(values=[1, 2, 3, 4, 5], partition_size=2)
     await ajob_test(j)
 
-    assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == 15
@@ -88,7 +88,7 @@ async def test_reduce_empty_raises(orch_ctx):
     j = await reduce_empty()
     await ajob_test(j)
 
-    assert j.status == JobStatus.FAILED
+    assert j.status == JOB_FAILED
     assert "reduce() of empty sequence" in (j.error or "")
 
 
@@ -97,7 +97,7 @@ async def test_reduce_single_row(orch_ctx):
     j = await reduce_single_row()
     await ajob_test(j)
 
-    assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == 42
@@ -108,7 +108,7 @@ async def test_reduce_native_api(orch_ctx):
     j = await reduce_single_layer(values=[10, 20, 30, 40])
     await ajob_test(j)
 
-    assert j.status == JobStatus.COMPLETED, f"Job failed: {j.error}"
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == 100

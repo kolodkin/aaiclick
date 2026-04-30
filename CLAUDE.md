@@ -179,9 +179,10 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
 
-- **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it (e.g. SQLModel column mapping — and even then, track the migration in `docs/future.md`).
+- **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
   - Define a `Literal` type alias for the validated value set.
   - Export module-level constants for the individual values so callers don't repeat string literals at call sites.
+  - For DB-mapped fields, attach `sa_column=Column(String, CheckConstraint("col IN (...)", name="ck_<table>_<col>"), ...)`. Avoid native ENUM types — `ALTER TYPE ADD VALUE` is non-transactional in Postgres, and a String + CHECK constraint round-trips cleanly through both Postgres and SQLite.
   - Example:
     ```python
     from typing import Literal
@@ -206,7 +207,6 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
     eat_fruit(FruitType.APPLES)
     ```
-  - Existing `StrEnum`s in `aaiclick/orchestration/models.py` (`JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode`) and `aaiclick/view_models.py` (`OllamaBootstrapStatus`, `MigrationAction`) are scheduled for migration — see `docs/future.md` → "Switch DB Enums from `StrEnum` to `Literal` + `sa_column`".
 
 - **Prefer NamedTuples over plain tuples in APIs**: When a function accepts or returns tuples with fixed fields, define a `NamedTuple` instead
   - Use named attributes (`.op`, `.alias`) in internal code — not positional unpacking

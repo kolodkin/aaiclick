@@ -17,7 +17,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
-from aaiclick.orchestration.models import Job, JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED, Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
 
@@ -189,7 +189,7 @@ async def _run_and_verify(pipeline_fn):
 
         async with get_sql_session() as session:
             db_job = (await session.execute(select(Job).where(Job.id == job_obj.id))).scalar_one()
-            assert db_job.status == JobStatus.COMPLETED, f"Job failed: {db_job.error}"
+            assert db_job.status == JOB_COMPLETED, f"Job failed: {db_job.error}"
 
             # No active run_refs after job completes
             run_refs = await _get_run_refs(session)

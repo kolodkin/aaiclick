@@ -197,12 +197,12 @@ Each `Job` carries a `preservation_mode` that controls which tables survive clea
 The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`) and overridden per submission:
 
 ```python
-from aaiclick.orchestration import PreservationMode
+from aaiclick.orchestration import PRESERVATION_FULL
 from aaiclick.orchestration.registered_jobs import run_job
 
 await run_job(
     "debug_run",
     "myapp.pipelines.etl",
-    preservation_mode=PreservationMode.FULL,
+    preservation_mode=PRESERVATION_FULL,
 )
 ```
