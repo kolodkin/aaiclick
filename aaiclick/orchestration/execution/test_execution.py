@@ -30,7 +30,16 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
-from aaiclick.orchestration.models import Dependency, Group, JobStatus, Task, TaskStatus
+from aaiclick.orchestration.models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_PENDING,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    Dependency,
+    Group,
+    Task,
+)
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
 from aaiclick.testing import seed_registry_row
@@ -276,7 +285,7 @@ async def test_run_job_tasks_single_task(orch_ctx, monkeypatch):
 
         await run_job_tasks(job)
 
-        assert job.status == JobStatus.COMPLETED
+        assert job.status == JOB_COMPLETED
         assert job.completed_at is not None
 
         # Verify task completed in database
@@ -284,7 +293,7 @@ async def test_run_job_tasks_single_task(orch_ctx, monkeypatch):
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
-            assert tasks[0].status == TaskStatus.COMPLETED
+            assert tasks[0].status == TASK_COMPLETED
 
 
 async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
@@ -296,7 +305,7 @@ async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
 
         await run_job_tasks(job)
 
-        assert job.status == JobStatus.FAILED
+        assert job.status == JOB_FAILED
         assert job.error is not None
         assert "intentionally" in job.error
 
@@ -305,7 +314,7 @@ async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
             result = await session.execute(select(Task).where(Task.job_id == job.id))
             tasks = list(result.scalars().all())
             assert len(tasks) == 1
-            assert tasks[0].status == TaskStatus.FAILED
+            assert tasks[0].status == TASK_FAILED
             assert tasks[0].error is not None
 
 
@@ -353,7 +362,7 @@ async def test_job_test_simple(orch_ctx, monkeypatch):
         # Test execution via the async helper (same code path as job_test())
         await ajob_test(job)
 
-        assert job.status == JobStatus.COMPLETED
+        assert job.status == JOB_COMPLETED
 
 
 # TaskResult tests
@@ -481,7 +490,7 @@ async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
 
         job = await dynamic_pipeline()
 
-        assert job.status == JobStatus.PENDING
+        assert job.status == JOB_PENDING
 
         # Verify entry point task was created
         async with get_sql_session() as session:
@@ -500,7 +509,7 @@ async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
         job = await dynamic_pipeline()
         await run_job_tasks(job)
 
-        assert job.status == JobStatus.COMPLETED
+        assert job.status == JOB_COMPLETED
 
         # Entry point + 2 child tasks = 3 tasks total
         async with get_sql_session() as session:
@@ -510,7 +519,7 @@ async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
 
             # All tasks should be completed
             for t in tasks:
-                assert t.status == TaskStatus.COMPLETED
+                assert t.status == TASK_COMPLETED
 
             # Child tasks should have results
             child_tasks = [t for t in tasks if t.name != "dynamic_pipeline"]
@@ -527,7 +536,7 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
         job = await chain_pipeline()
         await run_job_tasks(job)
 
-        assert job.status == JobStatus.COMPLETED
+        assert job.status == JOB_COMPLETED
 
         # chain_pipeline -> step_one -> step_two = 3 tasks
         async with get_sql_session() as session:
@@ -536,7 +545,7 @@ async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
             assert len(tasks) == 3
 
             for t in tasks:
-                assert t.status == TaskStatus.COMPLETED
+                assert t.status == TASK_COMPLETED
 
 
 # =============================================================================

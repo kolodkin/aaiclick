@@ -143,7 +143,7 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 | 1     | Explicit `run_job(...)` / `create_job(...)` argument | The caller passes a non-`None` value   |
 | 2     | `RegisteredJob.preservation_mode`             | The registered job carries a default          |
 | 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var  | Set in environment                            |
-| 4     | `PreservationMode.NONE`                       | Hardcoded fallback                            |
+| 4     | `PRESERVATION_NONE`                           | Hardcoded fallback                            |
 
 `None` at any level means "inherit from the next level"; an explicit mode terminates the chain.
 

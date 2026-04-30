@@ -248,7 +248,7 @@ def compute_job_stats_view(job: Job, tasks: list[Task]) -> JobStatsView:
         job_name=job.name,
         job_status=job.status,
         total_tasks=len(tasks),
-        status_counts=dict(Counter(t.status.value for t in tasks)),
+        status_counts=dict(Counter(t.status for t in tasks)),
         wall_time_ms=_ms_between(job.created_at, job.completed_at),
         exec_time_ms=_ms_between(job.started_at, job.completed_at),
         tasks=[task_to_stats_view(t) for t in tasks],

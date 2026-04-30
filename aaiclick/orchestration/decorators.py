@@ -39,7 +39,16 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_
 
 from ..snowflake import get_snowflake_id
 from .factories import _callable_to_string, resolve_job_config
-from .models import Group, Job, JobStatus, PreservationMode, RunType, Task, TaskStatus
+from .models import (
+    JOB_PENDING,
+    RUN_MANUAL,
+    TASK_PENDING,
+    Group,
+    Job,
+    PreservationMode,
+    RunType,
+    Task,
+)
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 
@@ -142,7 +151,7 @@ class TaskFactory:
             entrypoint=self.entrypoint,
             name=self.name,
             kwargs=serialized_kwargs,
-            status=TaskStatus.PENDING,
+            status=TASK_PENDING,
             created_at=datetime.utcnow(),
             max_retries=self.max_retries,
         )
@@ -225,7 +234,7 @@ class JobFactory:
         Args:
             preservation_mode: Override the job's preservation mode. Falls
                 through to ``AAICLICK_DEFAULT_PRESERVATION_MODE`` then
-                ``PreservationMode.NONE`` when unset.
+                ``PRESERVATION_NONE`` when unset.
             **kwargs: Arguments passed to the entry point task.
 
         Returns:
@@ -245,7 +254,7 @@ class JobFactory:
 
     async def _create_job(
         self,
-        run_type: RunType = RunType.MANUAL,
+        run_type: RunType = RUN_MANUAL,
         registered_job_id: int | None = None,
         preservation_mode: PreservationMode | None = None,
         **kwargs,
@@ -263,7 +272,7 @@ class JobFactory:
         job = Job(
             id=get_snowflake_id(),
             name=self.name,
-            status=JobStatus.PENDING,
+            status=JOB_PENDING,
             run_type=run_type,
             registered_job_id=registered_job_id,
             preservation_mode=mode,
@@ -281,7 +290,7 @@ class JobFactory:
             entrypoint=self.entrypoint,
             name=self.name,
             kwargs=serialized_kwargs,
-            status=TaskStatus.PENDING,
+            status=TASK_PENDING,
             created_at=datetime.utcnow(),
         )
 

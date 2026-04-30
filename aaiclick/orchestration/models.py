@@ -5,13 +5,11 @@ This module defines SQLModel models for jobs, tasks, workers, groups, and depend
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
 
-import sys
 from collections.abc import Sequence
 from datetime import datetime
-from enum import Enum
-from typing import Any, ClassVar, Literal, Union
+from typing import Any, ClassVar, Literal, Union, get_args
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -26,66 +24,56 @@ DEPENDENCY_TYPES = [DEPENDENCY_TASK, DEPENDENCY_GROUP]
 DependencyType = Literal["task", "group"]
 
 
-# Python 3.10 compatibility: StrEnum was added in 3.11
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-
-    class StrEnum(str, Enum):
-        """String Enum for Python 3.10 compatibility."""
-
-        pass
+RUN_SCHEDULED = "SCHEDULED"
+RUN_MANUAL = "MANUAL"
+RunType = Literal["SCHEDULED", "MANUAL"]
+"""How a job run was triggered."""
 
 
-class RunType(StrEnum):
-    """How a job run was triggered."""
-
-    SCHEDULED = "SCHEDULED"
-    MANUAL = "MANUAL"
-
-
-class JobStatus(StrEnum):
-    """Job execution status."""
-
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
+JOB_PENDING = "PENDING"
+JOB_RUNNING = "RUNNING"
+JOB_COMPLETED = "COMPLETED"
+JOB_FAILED = "FAILED"
+JOB_CANCELLED = "CANCELLED"
+JobStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+"""Job execution status."""
 
 
-class TaskStatus(StrEnum):
-    """Task execution status."""
-
-    PENDING = "PENDING"
-    CLAIMED = "CLAIMED"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-    PENDING_CLEANUP = "PENDING_CLEANUP"
-
-
-class WorkerStatus(StrEnum):
-    """Worker status."""
-
-    ACTIVE = "ACTIVE"
-    IDLE = "IDLE"
-    STOPPING = "STOPPING"
-    STOPPED = "STOPPED"
+TASK_PENDING = "PENDING"
+TASK_CLAIMED = "CLAIMED"
+TASK_RUNNING = "RUNNING"
+TASK_COMPLETED = "COMPLETED"
+TASK_FAILED = "FAILED"
+TASK_CANCELLED = "CANCELLED"
+TASK_PENDING_CLEANUP = "PENDING_CLEANUP"
+TaskStatus = Literal["PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP"]
+"""Task execution status."""
 
 
-class PreservationMode(StrEnum):
-    """Which tables survive after a job completes.
+WORKER_ACTIVE = "ACTIVE"
+WORKER_IDLE = "IDLE"
+WORKER_STOPPING = "STOPPING"
+WORKER_STOPPED = "STOPPED"
+WorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
+"""Worker status."""
 
-    - ``NONE``: persistent tables only (default) — intermediate tables are
-      dropped as soon as their refs fall to zero.
-    - ``FULL``: every table the job produced stays until the job TTL expires,
-      useful for development and debugging.
-    """
 
-    NONE = "NONE"
-    FULL = "FULL"
+PRESERVATION_NONE = "NONE"
+PRESERVATION_FULL = "FULL"
+PreservationMode = Literal["NONE", "FULL"]
+"""Which tables survive after a job completes.
+
+- ``NONE``: persistent tables only (default) — intermediate tables are
+  dropped as soon as their refs fall to zero.
+- ``FULL``: every table the job produced stays until the job TTL expires,
+  useful for development and debugging.
+"""
+
+
+def _enum_check(col: str, values: tuple[str, ...], constraint_name: str) -> CheckConstraint:
+    """Build a ``CHECK (col IN (...))`` constraint for a string-enum column."""
+    quoted = ", ".join(f"'{v}'" for v in values)
+    return CheckConstraint(f"{col} IN ({quoted})", name=constraint_name)
 
 
 class RegisteredJob(SQLModel, table=True):
@@ -106,7 +94,14 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    preservation_mode: PreservationMode | None = Field(default=None)
+    preservation_mode: PreservationMode | None = Field(
+        default=None,
+        sa_column=Column(
+            String,
+            _enum_check("preservation_mode", get_args(PreservationMode), "ck_registered_jobs_preservation_mode"),
+            nullable=True,
+        ),
+    )
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -123,15 +118,34 @@ class Job(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     name: str = Field(index=True)
-    status: JobStatus = Field(default=JobStatus.PENDING, index=True)
-    run_type: RunType = Field()
+    status: JobStatus = Field(
+        default=JOB_PENDING,
+        sa_column=Column(
+            String,
+            _enum_check("status", get_args(JobStatus), "ck_jobs_status"),
+            nullable=False,
+            index=True,
+        ),
+    )
+    run_type: RunType = Field(
+        sa_column=Column(
+            String,
+            _enum_check("run_type", get_args(RunType), "ck_jobs_run_type"),
+            nullable=False,
+        ),
+    )
     registered_job_id: int | None = Field(
         default=None,
         sa_column=Column(BigInteger, ForeignKey("registered_jobs.id"), nullable=True, index=True),
     )
     preservation_mode: PreservationMode = Field(
-        default=PreservationMode.NONE,
-        sa_column_kwargs={"server_default": PreservationMode.NONE.value, "nullable": False},
+        default=PRESERVATION_NONE,
+        sa_column=Column(
+            String,
+            _enum_check("preservation_mode", get_args(PreservationMode), "ck_jobs_preservation_mode"),
+            nullable=False,
+            server_default=PRESERVATION_NONE,
+        ),
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: datetime | None = Field(default=None)
@@ -151,7 +165,15 @@ class Worker(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     hostname: str = Field(index=True)
     pid: int = Field()
-    status: WorkerStatus = Field(default=WorkerStatus.ACTIVE, index=True)
+    status: WorkerStatus = Field(
+        default=WORKER_ACTIVE,
+        sa_column=Column(
+            String,
+            _enum_check("status", get_args(WorkerStatus), "ck_workers_status"),
+            nullable=False,
+            index=True,
+        ),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: datetime = Field(default_factory=datetime.utcnow)
     last_heartbeat: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -309,7 +331,15 @@ class Task(SQLModel, table=True):
     entrypoint: str = Field()
     name: str = Field()
     kwargs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
+    status: TaskStatus = Field(
+        default=TASK_PENDING,
+        sa_column=Column(
+            String,
+            _enum_check("status", get_args(TaskStatus), "ck_tasks_status"),
+            nullable=False,
+            index=True,
+        ),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     claimed_at: datetime | None = Field(default=None)
     started_at: datetime | None = Field(default=None)

@@ -31,6 +31,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime
+from typing import cast, get_args
 
 from aaiclick import cli_renderers, internal_api
 from aaiclick.data.data_context import data_context
@@ -100,7 +101,7 @@ def _run_sync_api(call):
 
 async def _run_job_list(args: argparse.Namespace) -> None:
     filter = JobListFilter(
-        status=JobStatus(args.status) if args.status else None,
+        status=cast(JobStatus, args.status) if args.status else None,
         name=args.like,
         limit=args.limit,
         offset=args.offset,
@@ -125,7 +126,7 @@ async def _run_job_cancel(args: argparse.Namespace) -> None:
 
 
 def _parse_preservation_mode(value: str | None) -> PreservationMode | None:
-    return PreservationMode(value) if value else None
+    return cast(PreservationMode, value) if value else None
 
 
 async def _run_run_job(args: argparse.Namespace) -> None:
@@ -216,7 +217,7 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
 
 async def _run_worker_list(args: argparse.Namespace) -> None:
     filter = WorkerFilter(
-        status=WorkerStatus(args.status) if args.status else None,
+        status=cast(WorkerStatus, args.status) if args.status else None,
         limit=args.limit,
         offset=args.offset,
     )
@@ -271,12 +272,11 @@ def _run_migrate_cli(args: argparse.Namespace) -> None:
         return
 
     action_name, *rest = raw_args
-    try:
-        action = MigrationAction(action_name)
-    except ValueError:
+    if action_name not in get_args(MigrationAction):
         print(f"Unknown command: {action_name}", file=sys.stderr)
         print("Run 'python -m aaiclick migrate --help' for usage", file=sys.stderr)
         sys.exit(1)
+    action = cast(MigrationAction, action_name)
     revision = rest[0] if rest else None
 
     result = _run_sync_api(lambda: setup_api.migrate(action, revision))
@@ -378,7 +378,7 @@ def main():
     )
     worker_list_parser.add_argument(
         "--status",
-        choices=[s.value for s in WorkerStatus],
+        choices=list(get_args(WorkerStatus)),
         default=None,
         help="Filter by status",
     )
@@ -449,7 +449,7 @@ def main():
     )
     job_list_parser.add_argument(
         "--status",
-        choices=[s.value for s in JobStatus],
+        choices=list(get_args(JobStatus)),
         default=None,
         help="Filter by status",
     )
@@ -517,7 +517,7 @@ def main():
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
     register_job_parser.add_argument(
         "--preservation-mode",
-        choices=[m.value for m in PreservationMode],
+        choices=list(get_args(PreservationMode)),
         default=None,
         help="Default preservation mode for every run of this job (runs can override)",
     )
@@ -532,7 +532,7 @@ def main():
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
     run_job_parser.add_argument(
         "--preservation-mode",
-        choices=[m.value for m in PreservationMode],
+        choices=list(get_args(PreservationMode)),
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
     )

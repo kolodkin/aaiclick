@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
 from .factories import create_job, create_task
-from .models import Job, PreservationMode, RegisteredJob, RunType
+from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 
@@ -251,7 +251,7 @@ async def run_job(
     entrypoint: str,
     *,
     kwargs: dict[str, Any] | None = None,
-    run_type: RunType = RunType.MANUAL,
+    run_type: RunType = RUN_MANUAL,
     preservation_mode: PreservationMode | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.

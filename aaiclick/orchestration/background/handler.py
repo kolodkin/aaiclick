@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
-from ..models import JobStatus, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    TASK_CLAIMED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_PENDING_CLEANUP,
+    TASK_RUNNING,
+)
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 
@@ -50,11 +58,11 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
         ),
         {
             "job_id": job_id,
-            "pending": TaskStatus.PENDING.value,
-            "claimed": TaskStatus.CLAIMED.value,
-            "running": TaskStatus.RUNNING.value,
-            "pending_cleanup": TaskStatus.PENDING_CLEANUP.value,
-            "failed": TaskStatus.FAILED.value,
+            "pending": TASK_PENDING,
+            "claimed": TASK_CLAIMED,
+            "running": TASK_RUNNING,
+            "pending_cleanup": TASK_PENDING_CLEANUP,
+            "failed": TASK_FAILED,
         },
     )
     total, non_terminal, failed = result.one()
@@ -68,14 +76,14 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
             {
                 "job_id": job_id,
                 "now": now,
-                "status": JobStatus.FAILED.value,
+                "status": JOB_FAILED,
                 "error": JOB_FAILED_ERROR,
             },
         )
     else:
         await session.execute(
             text("UPDATE jobs SET status = :status, completed_at = :now WHERE id = :job_id"),
-            {"job_id": job_id, "now": now, "status": JobStatus.COMPLETED.value},
+            {"job_id": job_id, "now": now, "status": JOB_COMPLETED},
         )
 
 
@@ -162,7 +170,7 @@ class BackgroundHandler(ABC):
                     "task_id": task_id,
                     "attempt": attempt,
                     "retry_after": retry_after,
-                    "status": TaskStatus.PENDING.value,
+                    "status": TASK_PENDING,
                 },
             )
         else:
@@ -171,7 +179,7 @@ class BackgroundHandler(ABC):
                 {
                     "task_id": task_id,
                     "now": datetime.utcnow(),
-                    "status": TaskStatus.FAILED.value,
+                    "status": TASK_FAILED,
                 },
             )
 

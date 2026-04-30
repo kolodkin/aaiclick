@@ -8,7 +8,7 @@ from aaiclick.orchestration.execution.worker import (
     deregister_worker,
     register_worker,
 )
-from aaiclick.orchestration.models import WorkerStatus
+from aaiclick.orchestration.models import WORKER_ACTIVE, WORKER_STOPPED, WORKER_STOPPING
 from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, WorkerFilter
 
@@ -33,8 +33,8 @@ async def test_list_workers_filter_by_status(orch_ctx):
     stopped = await register_worker(hostname="stopped", pid=2002)
     await deregister_worker(stopped.id)
 
-    active_page = await workers.list_workers(WorkerFilter(status=WorkerStatus.ACTIVE))
-    stopped_page = await workers.list_workers(WorkerFilter(status=WorkerStatus.STOPPED))
+    active_page = await workers.list_workers(WorkerFilter(status=WORKER_ACTIVE))
+    stopped_page = await workers.list_workers(WorkerFilter(status=WORKER_STOPPED))
 
     active_ids = [w.id for w in active_page.items]
     stopped_ids = [w.id for w in stopped_page.items]
@@ -61,7 +61,7 @@ async def test_stop_worker_transitions_to_stopping(orch_ctx):
 
     assert isinstance(view, WorkerView)
     assert view.id == worker.id
-    assert view.status is WorkerStatus.STOPPING
+    assert view.status == WORKER_STOPPING
 
 
 async def test_stop_worker_not_found_raises(orch_ctx):

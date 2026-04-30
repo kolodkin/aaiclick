@@ -14,7 +14,18 @@ from sqlmodel import col, select
 from aaiclick.snowflake import get_snowflake_id
 
 from ..background.handler import try_complete_job
-from ..models import Task, TaskStatus, Worker, WorkerStatus
+from ..models import (
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING_CLEANUP,
+    TASK_RUNNING,
+    WORKER_ACTIVE,
+    WORKER_STOPPED,
+    WORKER_STOPPING,
+    Task,
+    Worker,
+    WorkerStatus,
+)
 from ..orch_context import get_sql_session
 from .claiming import check_task_cancelled, claim_next_task, update_task_status
 from .runner import execute_task, register_returned_tasks, serialize_task_result
@@ -35,10 +46,10 @@ async def _set_pending_cleanup(task_id: int, error: str) -> None:
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
         task = result.scalar_one()
-        task.status = TaskStatus.PENDING_CLEANUP
+        task.status = TASK_PENDING_CLEANUP
         task.error = error
         if task.run_statuses:
-            task.run_statuses = [*task.run_statuses[:-1], TaskStatus.FAILED.value]
+            task.run_statuses = [*task.run_statuses[:-1], TASK_FAILED]
         session.add(task)
         await session.commit()
 
@@ -65,7 +76,7 @@ async def register_worker(
         id=worker_id,
         hostname=hostname or socket.gethostname(),
         pid=pid or os.getpid(),
-        status=WorkerStatus.ACTIVE,
+        status=WORKER_ACTIVE,
         last_heartbeat=datetime.utcnow(),
         started_at=datetime.utcnow(),
     )
@@ -99,8 +110,8 @@ async def worker_heartbeat(worker_id: int) -> WorkerStatus | None:
             return None
 
         worker.last_heartbeat = datetime.utcnow()
-        if worker.status != WorkerStatus.STOPPING:
-            worker.status = WorkerStatus.ACTIVE
+        if worker.status != WORKER_STOPPING:
+            worker.status = WORKER_ACTIVE
         session.add(worker)
         await session.commit()
 
@@ -128,10 +139,10 @@ async def request_worker_stop(worker_id: int) -> bool:
         if worker is None:
             return False
 
-        if worker.status in (WorkerStatus.STOPPED, WorkerStatus.STOPPING):
+        if worker.status in (WORKER_STOPPED, WORKER_STOPPING):
             return False
 
-        worker.status = WorkerStatus.STOPPING
+        worker.status = WORKER_STOPPING
         session.add(worker)
         await session.commit()
 
@@ -158,7 +169,7 @@ async def deregister_worker(worker_id: int) -> bool:
         if worker is None:
             return False
 
-        worker.status = WorkerStatus.STOPPED
+        worker.status = WORKER_STOPPED
         session.add(worker)
         await session.commit()
 
@@ -243,7 +254,7 @@ async def _handle_task_result(
     if success:
         await update_task_status(
             task.id,
-            TaskStatus.COMPLETED,
+            TASK_COMPLETED,
             result=result_ref,
             log_path=log_path,
         )
@@ -319,7 +330,7 @@ async def _worker_loop(
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
                 status = await worker_heartbeat(worker_id)
                 last_heartbeat = now
-                if status == WorkerStatus.STOPPING:
+                if status == WORKER_STOPPING:
                     print(f"Worker {worker_id} received stop request")
                     shutdown_requested = True
                     continue
@@ -333,7 +344,7 @@ async def _worker_loop(
 
             empty_polls = 0
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
-            await update_task_status(task.id, TaskStatus.RUNNING)
+            await update_task_status(task.id, TASK_RUNNING)
 
             success, result_ref, log_path, error = await execute_fn(task, worker_id)
             if await _handle_task_result(task, worker_id, success, result_ref, log_path, error):

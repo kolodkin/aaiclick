@@ -2,13 +2,25 @@
 
 from datetime import datetime, timedelta
 
-from ..models import Job, JobStatus, RunType, Task, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_PENDING,
+    RUN_MANUAL,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    Job,
+    JobStatus,
+    Task,
+    TaskStatus,
+)
 from .stats import JobStats, _fmt_duration, compute_job_stats
 
 
 def _make_job(
     *,
-    status: JobStatus = JobStatus.COMPLETED,
+    status: JobStatus = JOB_COMPLETED,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime = datetime(2025, 1, 1, 12, 0, 1),
     completed_at: datetime = datetime(2025, 1, 1, 12, 0, 10),
@@ -17,7 +29,7 @@ def _make_job(
         id=1,
         name="test_job",
         status=status,
-        run_type=RunType.MANUAL,
+        run_type=RUN_MANUAL,
         created_at=created_at,
         started_at=started_at,
         completed_at=completed_at,
@@ -28,7 +40,7 @@ def _make_task(
     *,
     task_id: int = 100,
     entrypoint: str = "mod.sub:my_func",
-    status: TaskStatus = TaskStatus.COMPLETED,
+    status: TaskStatus = TASK_COMPLETED,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime = datetime(2025, 1, 1, 12, 0, 2),
     completed_at: datetime = datetime(2025, 1, 1, 12, 0, 5),
@@ -67,18 +79,18 @@ def test_compute_job_stats_basic():
 
 
 def test_compute_job_stats_mixed_statuses():
-    job = _make_job(status=JobStatus.FAILED)
+    job = _make_job(status=JOB_FAILED)
     tasks = [
-        _make_task(task_id=100, status=TaskStatus.COMPLETED),
+        _make_task(task_id=100, status=TASK_COMPLETED),
         _make_task(
             task_id=101,
-            status=TaskStatus.FAILED,
+            status=TASK_FAILED,
             completed_at=datetime(2025, 1, 1, 12, 0, 4),
             error="something broke",
         ),
         _make_task(
             task_id=102,
-            status=TaskStatus.PENDING,
+            status=TASK_PENDING,
             started_at=None,
             completed_at=None,
         ),
@@ -137,7 +149,7 @@ def test_compute_job_stats_no_tasks():
 
 def test_compute_job_stats_pending_job():
     job = _make_job(
-        status=JobStatus.PENDING,
+        status=JOB_PENDING,
         started_at=None,
         completed_at=None,
     )

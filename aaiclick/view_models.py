@@ -158,14 +158,19 @@ class SetupStep(BaseModel):
     detail: str | None = None
 
 
-class OllamaBootstrapStatus(str, Enum):
-    """Outcome of ``internal_api.bootstrap_ollama``."""
-
-    ALREADY_PRESENT = "already_present"
-    PULLED = "pulled"
-    SERVER_UNREACHABLE = "server_unreachable"
-    NOT_OLLAMA = "not_ollama"
-    FAILED = "failed"
+OLLAMA_ALREADY_PRESENT = "already_present"
+OLLAMA_PULLED = "pulled"
+OLLAMA_SERVER_UNREACHABLE = "server_unreachable"
+OLLAMA_NOT_OLLAMA = "not_ollama"
+OLLAMA_FAILED = "failed"
+OllamaBootstrapStatus = Literal[
+    "already_present",
+    "pulled",
+    "server_unreachable",
+    "not_ollama",
+    "failed",
+]
+"""Outcome of ``internal_api.bootstrap_ollama``."""
 
 
 class OllamaBootstrapResult(BaseModel):
@@ -188,15 +193,14 @@ class SetupResult(BaseModel):
     ollama: OllamaBootstrapResult | None = None
 
 
-class MigrationAction(str, Enum):
-    """Alembic subcommand executed by ``internal_api.migrate``."""
-
-    UPGRADE = "upgrade"
-    DOWNGRADE = "downgrade"
-    CURRENT = "current"
-    HISTORY = "history"
-    HEADS = "heads"
-    SHOW = "show"
+MIGRATE_UPGRADE = "upgrade"
+MIGRATE_DOWNGRADE = "downgrade"
+MIGRATE_CURRENT = "current"
+MIGRATE_HISTORY = "history"
+MIGRATE_HEADS = "heads"
+MIGRATE_SHOW = "show"
+MigrationAction = Literal["upgrade", "downgrade", "current", "history", "heads", "show"]
+"""Alembic subcommand executed by ``internal_api.migrate``."""
 
 
 class MigrationResult(BaseModel):

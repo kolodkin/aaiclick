@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
-from aaiclick.orchestration.models import JobStatus
+from aaiclick.orchestration.models import JOB_CANCELLED, JOB_PENDING
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
@@ -25,7 +25,7 @@ async def test_list_jobs_filter_by_status(orch_ctx, app_client):
 
     response = await app_client.get(
         f"{API_PREFIX}/jobs",
-        params={"status": JobStatus.PENDING.value},
+        params={"status": JOB_PENDING},
     )
 
     assert response.status_code == 200
@@ -70,7 +70,7 @@ async def test_cancel_job(orch_ctx, app_client):
 
     assert response.status_code == 200
     view = JobView.model_validate(response.json())
-    assert view.status == JobStatus.CANCELLED
+    assert view.status == JOB_CANCELLED
 
 
 async def test_cancel_already_cancelled_returns_409(orch_ctx, app_client):

@@ -23,7 +23,7 @@ from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import WorkerStatus
+from aaiclick.orchestration.models import WORKER_STOPPING
 from aaiclick.orchestration.view_models import JobDetail, JobView, TaskDetail, WorkerView
 from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page
@@ -118,7 +118,7 @@ async def test_stop_worker_transitions_to_stopping(orch_ctx, mcp_client):
     result = await mcp_client.call_tool("stop_worker", {"worker_id": worker.id})
 
     view = WorkerView.model_validate(result.structured_content)
-    assert view.status is WorkerStatus.STOPPING
+    assert view.status == WORKER_STOPPING
 
 
 async def test_list_objects_returns_page(orch_ctx, mcp_client):

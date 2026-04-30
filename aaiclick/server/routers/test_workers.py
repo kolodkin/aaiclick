@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aaiclick.orchestration.execution.worker import register_worker
-from aaiclick.orchestration.models import WorkerStatus
+from aaiclick.orchestration.models import WORKER_STOPPING
 from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
@@ -26,7 +26,7 @@ async def test_stop_worker(orch_ctx, app_client):
 
     assert response.status_code == 200
     view = WorkerView.model_validate(response.json())
-    assert view.status is WorkerStatus.STOPPING
+    assert view.status == WORKER_STOPPING
 
 
 async def test_stop_worker_not_found_returns_404(orch_ctx, app_client):

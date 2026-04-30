@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.models import JobStatus, Task
+from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
@@ -33,8 +33,8 @@ async def test_list_jobs_returns_page_with_total(orch_ctx):
 async def test_list_jobs_filter_by_status(orch_ctx):
     await create_job("only_pending", _SAMPLE_TASK)
 
-    pending = await jobs.list_jobs(JobListFilter(status=JobStatus.PENDING))
-    completed = await jobs.list_jobs(JobListFilter(status=JobStatus.COMPLETED))
+    pending = await jobs.list_jobs(JobListFilter(status=JOB_PENDING))
+    completed = await jobs.list_jobs(JobListFilter(status=JOB_COMPLETED))
 
     assert "only_pending" in [j.name for j in pending.items]
     assert "only_pending" not in [j.name for j in completed.items]
@@ -107,7 +107,7 @@ async def test_cancel_job_transitions_to_cancelled(orch_ctx):
 
     view = await jobs.cancel_job(created.id)
 
-    assert view.status == JobStatus.CANCELLED
+    assert view.status == JOB_CANCELLED
     assert view.completed_at is not None
 
 

@@ -41,7 +41,11 @@ def upgrade() -> None:
         sa.Column("enabled", sa.Boolean(), server_default="1", nullable=False),
         sa.Column("schedule", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("default_kwargs", sa.JSON(), nullable=True),
-        sa.Column("preservation_mode", sa.Enum("NONE", "FULL", name="preservationmode"), nullable=True),
+        sa.Column("preservation_mode", sa.String(), nullable=True),
+        sa.CheckConstraint(
+            "preservation_mode IN ('NONE', 'FULL')",
+            name="ck_registered_jobs_preservation_mode",
+        ),
         sa.Column("next_run_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -86,12 +90,16 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("hostname", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("pid", sa.Integer(), nullable=False),
-        sa.Column("status", sa.Enum("ACTIVE", "IDLE", "STOPPING", "STOPPED", name="workerstatus"), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("started_at", sa.DateTime(), nullable=False),
         sa.Column("last_heartbeat", sa.DateTime(), nullable=False),
         sa.Column("tasks_completed", sa.Integer(), nullable=False),
         sa.Column("tasks_failed", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('ACTIVE', 'IDLE', 'STOPPING', 'STOPPED')",
+            name="ck_workers_status",
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_workers_hostname"), "workers", ["hostname"], unique=False)
@@ -101,20 +109,23 @@ def upgrade() -> None:
         "jobs",
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column(
-            "status",
-            sa.Enum("PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", name="jobstatus"),
-            nullable=False,
-        ),
-        sa.Column("run_type", sa.Enum("SCHEDULED", "MANUAL", name="runtype"), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("run_type", sa.String(), nullable=False),
         sa.Column("registered_job_id", sa.BigInteger(), nullable=True),
-        sa.Column(
-            "preservation_mode", sa.Enum("NONE", "FULL", name="preservationmode"), server_default="NONE", nullable=False
-        ),
+        sa.Column("preservation_mode", sa.String(), server_default="NONE", nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("started_at", sa.DateTime(), nullable=True),
         sa.Column("completed_at", sa.DateTime(), nullable=True),
         sa.Column("error", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')",
+            name="ck_jobs_status",
+        ),
+        sa.CheckConstraint("run_type IN ('SCHEDULED', 'MANUAL')", name="ck_jobs_run_type"),
+        sa.CheckConstraint(
+            "preservation_mode IN ('NONE', 'FULL')",
+            name="ck_jobs_preservation_mode",
+        ),
         sa.ForeignKeyConstraint(
             ["registered_job_id"],
             ["registered_jobs.id"],
@@ -152,20 +163,7 @@ def upgrade() -> None:
         sa.Column("entrypoint", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("kwargs", sa.JSON(), nullable=True),
-        sa.Column(
-            "status",
-            sa.Enum(
-                "PENDING",
-                "CLAIMED",
-                "RUNNING",
-                "COMPLETED",
-                "FAILED",
-                "CANCELLED",
-                "PENDING_CLEANUP",
-                name="taskstatus",
-            ),
-            nullable=False,
-        ),
+        sa.Column("status", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("claimed_at", sa.DateTime(), nullable=True),
         sa.Column("started_at", sa.DateTime(), nullable=True),
@@ -179,6 +177,10 @@ def upgrade() -> None:
         sa.Column("retry_after", sa.DateTime(), nullable=True),
         sa.Column("run_ids", sa.JSON(), server_default="[]", nullable=False),
         sa.Column("run_statuses", sa.JSON(), server_default="[]", nullable=False),
+        sa.CheckConstraint(
+            "status IN ('PENDING', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PENDING_CLEANUP')",
+            name="ck_tasks_status",
+        ),
         sa.ForeignKeyConstraint(
             ["group_id"],
             ["groups.id"],

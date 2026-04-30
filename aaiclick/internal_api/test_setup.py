@@ -8,9 +8,16 @@ import urllib.error
 import pytest
 
 from aaiclick.view_models import (
-    MigrationAction,
+    MIGRATE_CURRENT,
+    MIGRATE_DOWNGRADE,
+    MIGRATE_SHOW,
+    MIGRATE_UPGRADE,
+    OLLAMA_ALREADY_PRESENT,
+    OLLAMA_FAILED,
+    OLLAMA_NOT_OLLAMA,
+    OLLAMA_PULLED,
+    OLLAMA_SERVER_UNREACHABLE,
     OllamaBootstrapResult,
-    OllamaBootstrapStatus,
     SetupResult,
 )
 
@@ -80,7 +87,7 @@ def test_setup_with_ai_non_ollama_populates_ollama_field(tmp_path, monkeypatch):
     result = setup.setup(ai=True)
 
     assert result.ollama is not None
-    assert result.ollama.status == OllamaBootstrapStatus.NOT_OLLAMA
+    assert result.ollama.status == OLLAMA_NOT_OLLAMA
     assert not any(s.name == "ollama" for s in result.steps)
 
 
@@ -93,14 +100,14 @@ def test_bootstrap_ollama_non_ollama_model():
     result = setup.bootstrap_ollama("openai/gpt-4")
 
     assert isinstance(result, OllamaBootstrapResult)
-    assert result.status == OllamaBootstrapStatus.NOT_OLLAMA
+    assert result.status == OLLAMA_NOT_OLLAMA
     assert result.model == "openai/gpt-4"
 
 
 def test_bootstrap_ollama_server_unreachable():
     result = setup.bootstrap_ollama("ollama/llama3.1:8b", base_url="http://127.0.0.1:1")
 
-    assert result.status == OllamaBootstrapStatus.SERVER_UNREACHABLE
+    assert result.status == OLLAMA_SERVER_UNREACHABLE
     assert "not reachable" in (result.detail or "")
 
 
@@ -109,7 +116,7 @@ def test_bootstrap_ollama_already_present(monkeypatch):
 
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
-    assert result.status == OllamaBootstrapStatus.ALREADY_PRESENT
+    assert result.status == OLLAMA_ALREADY_PRESENT
 
 
 def test_bootstrap_ollama_pulled(monkeypatch):
@@ -123,7 +130,7 @@ def test_bootstrap_ollama_pulled(monkeypatch):
 
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
-    assert result.status == OllamaBootstrapStatus.PULLED
+    assert result.status == OLLAMA_PULLED
 
 
 def test_bootstrap_ollama_show_5xx_returns_failed(monkeypatch):
@@ -137,7 +144,7 @@ def test_bootstrap_ollama_show_5xx_returns_failed(monkeypatch):
 
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
-    assert result.status == OllamaBootstrapStatus.FAILED
+    assert result.status == OLLAMA_FAILED
     assert "model lookup failed" in (result.detail or "")
 
 
@@ -152,7 +159,7 @@ def test_bootstrap_ollama_pull_unexpected_response(monkeypatch):
 
     result = setup.bootstrap_ollama("ollama/llama3.1:8b")
 
-    assert result.status == OllamaBootstrapStatus.FAILED
+    assert result.status == OLLAMA_FAILED
 
 
 def test_migrate_upgrade_invokes_alembic(monkeypatch):
@@ -160,9 +167,9 @@ def test_migrate_upgrade_invokes_alembic(monkeypatch):
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
     monkeypatch.setattr(setup.command, "upgrade", lambda config, revision: calls.append(("upgrade", revision)))
 
-    result = setup.migrate(MigrationAction.UPGRADE)
+    result = setup.migrate(MIGRATE_UPGRADE)
 
-    assert result.action == MigrationAction.UPGRADE
+    assert result.action == MIGRATE_UPGRADE
     assert result.revision == "head"
     assert calls == [("upgrade", "head")]
 
@@ -172,7 +179,7 @@ def test_migrate_downgrade_requires_revision(monkeypatch):
     monkeypatch.setattr(setup.command, "downgrade", lambda *a, **k: None)
 
     with pytest.raises(errors.Invalid):
-        setup.migrate(MigrationAction.DOWNGRADE)
+        setup.migrate(MIGRATE_DOWNGRADE)
 
 
 def test_migrate_show_requires_revision(monkeypatch):
@@ -180,7 +187,7 @@ def test_migrate_show_requires_revision(monkeypatch):
     monkeypatch.setattr(setup.command, "show", lambda *a, **k: None)
 
     with pytest.raises(errors.Invalid):
-        setup.migrate(MigrationAction.SHOW)
+        setup.migrate(MIGRATE_SHOW)
 
 
 def test_migrate_current_runs_without_revision(monkeypatch):
@@ -192,9 +199,9 @@ def test_migrate_current_runs_without_revision(monkeypatch):
         lambda config, verbose=False: calls.append(("current", verbose)),
     )
 
-    result = setup.migrate(MigrationAction.CURRENT)
+    result = setup.migrate(MIGRATE_CURRENT)
 
-    assert result.action == MigrationAction.CURRENT
+    assert result.action == MIGRATE_CURRENT
     assert result.revision is None
     assert calls == [("current", True)]
 

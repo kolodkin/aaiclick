@@ -12,7 +12,7 @@ Demonstrates @task and @job decorators:
 import asyncio
 
 from aaiclick import Object, create_object_from_value
-from aaiclick.orchestration import JobStatus, ajob_test, job, task, tasks_list
+from aaiclick.orchestration import JOB_COMPLETED, ajob_test, job, task, tasks_list
 
 
 @task
@@ -63,7 +63,7 @@ async def amain():
     print(f"Created job: {pipeline.name} (ID: {pipeline.id})")
 
     await ajob_test(pipeline)
-    assert pipeline.status == JobStatus.COMPLETED, f"Expected COMPLETED, got {pipeline.status}"
+    assert pipeline.status == JOB_COMPLETED, f"Expected COMPLETED, got {pipeline.status}"
     print(f"Job status: {pipeline.status}")
 
 

@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import select
 
 from ..factories import create_job
-from ..models import Task, TaskStatus
+from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
 
@@ -29,7 +29,7 @@ async def test_mp_worker_executes_task(orch_ctx_no_ch):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
-        assert task.status == TaskStatus.COMPLETED
+        assert task.status == TASK_COMPLETED
 
 
 async def test_mp_worker_handles_failure(orch_ctx_no_ch):
@@ -50,7 +50,7 @@ async def test_mp_worker_handles_failure(orch_ctx_no_ch):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
-        assert task.status == TaskStatus.PENDING_CLEANUP
+        assert task.status == TASK_PENDING_CLEANUP
         assert task.error is not None
 
 

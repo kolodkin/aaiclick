@@ -60,7 +60,7 @@ async def stop_worker(worker_id: int) -> WorkerView:
         raise NotFound(f"Worker not found: {worker_id}")
 
     if not await _request_worker_stop_impl(worker_id):
-        raise Conflict(f"Worker {worker_id} already in terminal state: {worker.status.value}")
+        raise Conflict(f"Worker {worker_id} already in terminal state: {worker.status}")
 
     refreshed = await get_worker(worker_id)
     if refreshed is None:

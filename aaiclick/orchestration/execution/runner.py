@@ -44,7 +44,19 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
-from ..models import Dependency, Group, Job, JobStatus, Task, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_RUNNING,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_RUNNING,
+    Dependency,
+    Group,
+    Job,
+    Task,
+)
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from .worker_context import set_current_task_info
@@ -113,7 +125,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
         raise ValueError(f"Upstream task {task_id} not found")
 
     result, status = row
-    if status != TaskStatus.COMPLETED:
+    if status != TASK_COMPLETED:
         raise ValueError(f"Upstream task {task_id} is not completed (status: {status})")
 
     if result is None:
@@ -158,7 +170,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             select(Task.result)
             .where(
                 Task.group_id == group_id,
-                Task.status == TaskStatus.COMPLETED,
+                Task.status == TASK_COMPLETED,
             )
             .order_by(col(Task.id))
         )
@@ -267,7 +279,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
         db_task = result.scalar_one_or_none()
         if db_task is not None:
             db_task.run_ids = [*db_task.run_ids, run_id]
-            db_task.run_statuses = [*db_task.run_statuses, TaskStatus.RUNNING.value]
+            db_task.run_statuses = [*db_task.run_statuses, TASK_RUNNING]
             session.add(db_task)
             await session.commit()
 
@@ -479,7 +491,7 @@ async def run_job_tasks(job: Job) -> None:
     """
     async with get_sql_session() as session:
         # Update job to RUNNING
-        job.status = JobStatus.RUNNING
+        job.status = JOB_RUNNING
         job.started_at = datetime.utcnow()
         session.add(job)
         await session.commit()
@@ -496,8 +508,8 @@ async def run_job_tasks(job: Job) -> None:
                 text(_READY_TASK_SQL),
                 {
                     "job_id": job.id,
-                    "pending_status": TaskStatus.PENDING.value,
-                    "completed_status": TaskStatus.COMPLETED.value,
+                    "pending_status": TASK_PENDING,
+                    "completed_status": TASK_COMPLETED,
                     "now": now,
                 },
             )
@@ -512,7 +524,7 @@ async def run_job_tasks(job: Job) -> None:
             db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
 
-            task.status = TaskStatus.RUNNING
+            task.status = TASK_RUNNING
             task.started_at = now
             session.add(task)
             await session.commit()
@@ -528,12 +540,12 @@ async def run_job_tasks(job: Job) -> None:
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
-                task.status = TaskStatus.COMPLETED
+                task.status = TASK_COMPLETED
                 task.completed_at = datetime.utcnow()
                 task.result = result_ref
                 task.log_path = log_path
                 if task.run_statuses:
-                    task.run_statuses = [*task.run_statuses[:-1], TaskStatus.COMPLETED.value]
+                    task.run_statuses = [*task.run_statuses[:-1], TASK_COMPLETED]
 
                 session.add(task)
                 await session.commit()
@@ -547,11 +559,11 @@ async def run_job_tasks(job: Job) -> None:
                 db_result = await session.execute(select(Task).where(Task.id == task_id))
                 task = db_result.scalar_one()
 
-                task.status = TaskStatus.FAILED
+                task.status = TASK_FAILED
                 task.completed_at = datetime.utcnow()
                 task.error = str(e)
                 if task.run_statuses:
-                    task.run_statuses = [*task.run_statuses[:-1], TaskStatus.FAILED.value]
+                    task.run_statuses = [*task.run_statuses[:-1], TASK_FAILED]
                 session.add(task)
                 await session.commit()
 
@@ -563,10 +575,10 @@ async def run_job_tasks(job: Job) -> None:
         db_job = result.scalar_one()
 
         if job_failed:
-            db_job.status = JobStatus.FAILED
+            db_job.status = JOB_FAILED
             db_job.error = error_msg
         else:
-            db_job.status = JobStatus.COMPLETED
+            db_job.status = JOB_COMPLETED
 
         db_job.completed_at = datetime.utcnow()
         session.add(db_job)

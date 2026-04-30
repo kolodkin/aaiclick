@@ -3,7 +3,7 @@ AI-powered lineage explanation for a revenue pipeline.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline under PreservationMode.FULL so all intermediate tables
+Runs the pipeline under PRESERVATION_FULL so all intermediate tables
 are preserved for debugging. The debug agent uses its tool loop to inspect
 tables and trace the computation graph.
 """
@@ -16,6 +16,8 @@ from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
 from aaiclick.oplog.lineage import lineage_context, oplog_subgraph
 from aaiclick.orchestration import (
+    JOB_COMPLETED,
+    PRESERVATION_FULL,
     JobStatus,
     PreservationMode,
     ajob_test,
@@ -70,10 +72,10 @@ def revenue_pipeline():
 async def main():
     async with orch_context():
         pipeline = await revenue_pipeline(
-            preservation_mode=PreservationMode.FULL,
+            preservation_mode=PRESERVATION_FULL,
         )
         await ajob_test(pipeline)
-        assert pipeline.status == JobStatus.COMPLETED, f"Job failed: {pipeline.error}"
+        assert pipeline.status == JOB_COMPLETED, f"Job failed: {pipeline.error}"
 
         tasks = await get_tasks_for_job(pipeline.id)
         target_table = next(t for t in tasks if t.name == "add_bonus").result["table"]
