@@ -15,6 +15,7 @@ from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..sql_utils import escape_sql_string, quote_identifier
+from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
 if TYPE_CHECKING:
     from .object import Object
@@ -128,6 +129,8 @@ async def create_object_from_url(
     json_columns: dict[str, ColumnInfo] | None = None,
     ch_settings: dict[str, str | int] | None = None,
     column_types: dict[str, ColumnInfo] | None = None,
+    retries: int = DEFAULT_RETRIES,
+    backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
 ) -> Object:
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
@@ -160,6 +163,12 @@ async def create_object_from_url(
             skips the DESCRIBE query and uses these types directly. Useful for formats
             like CSV where ClickHouse may fail to infer numeric types (e.g. for large
             remote files with LIMIT 0 type sampling). Keys must match entries in ``columns``.
+        retries: Total attempts on transient upstream failures (5xx, connection
+            resets, timeouts, DNS hiccups). Defaults to 4. Pass ``1`` to disable.
+        backoff_factor: Base for the exponential backoff between retries.
+            Sleep before retry ``n`` is ``backoff_factor ** n`` seconds. With
+            the default ``2.0`` this gives sleeps of 2, 4, 8 s before retries
+            2, 3, 4.
 
     Returns:
         Object: New Object with loaded data.
@@ -188,12 +197,16 @@ async def create_object_from_url(
             raise ValueError("json_columns must be a non-empty dict")
         if format not in JSON_BLOB_FORMATS:
             raise ValueError(f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, got '{format}'")
-        return await _create_from_json(url, format, json_path, json_columns, where, limit, ch_settings)
+        return await _create_from_json(
+            url, format, json_path, json_columns, where, limit, ch_settings, retries, backoff_factor
+        )
 
     if columns is None:
         raise ValueError("Either columns or json_path/json_columns must be provided")
     _validate_url_columns(columns)
-    return await _create_from_tabular(url, format, columns, where, limit, ch_settings, column_types)
+    return await _create_from_tabular(
+        url, format, columns, where, limit, ch_settings, column_types, retries, backoff_factor
+    )
 
 
 async def _create_from_tabular(
@@ -204,6 +217,8 @@ async def _create_from_tabular(
     limit: int | None,
     ch_settings: dict[str, str | int] | None,
     column_types: dict[str, ColumnInfo] | None = None,
+    retries: int = DEFAULT_RETRIES,
+    backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
 ) -> Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
@@ -218,7 +233,11 @@ async def _create_from_tabular(
         ch_types: dict[str, ColumnInfo] = column_types
     else:
         describe_query = f"DESCRIBE (SELECT {columns_str} FROM {safe_source} LIMIT 0)"
-        describe_result = await ch.query(describe_query, settings=settings)
+        describe_result = await with_url_retry(
+            lambda: ch.query(describe_query, settings=settings),
+            retries=retries,
+            backoff_factor=backoff_factor,
+        )
         ch_types = {row[0]: parse_ch_type(row[1]) for row in describe_result.result_rows}
 
     if len(columns) == 1:
@@ -248,7 +267,11 @@ async def _create_from_tabular(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ch.command(insert_query, settings=settings)
+    await with_url_retry(
+        lambda: ch.command(insert_query, settings=settings),
+        retries=retries,
+        backoff_factor=backoff_factor,
+    )
 
     return obj
 
@@ -261,6 +284,8 @@ async def _create_from_json(
     where: str | None,
     limit: int | None,
     ch_settings: dict[str, str | int] | None,
+    retries: int = DEFAULT_RETRIES,
+    backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
 ) -> Object:
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
@@ -296,6 +321,10 @@ async def _create_from_json(
         f"{where_clause}"
         f"{limit_clause}"
     )
-    await ch.command(insert_query, settings=settings)
+    await with_url_retry(
+        lambda: ch.command(insert_query, settings=settings),
+        retries=retries,
+        backoff_factor=backoff_factor,
+    )
 
     return obj
