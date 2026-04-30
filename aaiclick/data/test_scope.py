@@ -6,8 +6,9 @@ import pytest
 
 from aaiclick.data.scope import (
     JOB_SCOPED_RE,
+    TEMP_NAMED_RE,
     is_persistent_table,
-    make_persistent_table_name,
+    make_scoped_table_name,
     scope_of,
 )
 
@@ -15,6 +16,12 @@ from aaiclick.data.scope import (
 def test_scope_of_temp():
     assert scope_of("t_123") == "temp"
     assert scope_of("t_999999999999") == "temp"
+
+
+def test_scope_of_temp_named():
+    assert scope_of("t_orders_123") == "temp_named"
+    assert scope_of("t_my_table_999999999999") == "temp_named"
+    assert scope_of("t_CamelCase_42") == "temp_named"
 
 
 def test_scope_of_global():
@@ -38,6 +45,7 @@ def test_is_persistent_table():
     assert is_persistent_table("p_foo") is True
     assert is_persistent_table("j_1_bar") is True
     assert is_persistent_table("t_100") is False
+    assert is_persistent_table("t_named_100") is False
     assert is_persistent_table("anything_else") is False
 
 
@@ -48,14 +56,34 @@ def test_job_scoped_regex():
     assert not JOB_SCOPED_RE.match("p_1_x")
 
 
-def test_make_persistent_table_name_global():
-    assert make_persistent_table_name("global", "foo") == "p_foo"
+def test_temp_named_regex():
+    assert TEMP_NAMED_RE.match("t_foo_42")
+    assert TEMP_NAMED_RE.match("t_my_table_987654321")
+    # Trailing must be digits
+    assert not TEMP_NAMED_RE.match("t_foo_bar")
+    # Pure digits is plain temp, not temp_named
+    assert not TEMP_NAMED_RE.match("t_42")
+    # Name must start with letter/underscore
+    assert not TEMP_NAMED_RE.match("t_1foo_42")
 
 
-def test_make_persistent_table_name_job():
-    assert make_persistent_table_name("job", "foo", job_id=42) == "j_42_foo"
+def test_make_scoped_table_name_global():
+    assert make_scoped_table_name("global", "foo") == "p_foo"
 
 
-def test_make_persistent_table_name_job_requires_job_id():
+def test_make_scoped_table_name_job():
+    assert make_scoped_table_name("job", "foo", job_id=42) == "j_42_foo"
+
+
+def test_make_scoped_table_name_job_requires_job_id():
     with pytest.raises(ValueError, match="scope='job' requires a job_id"):
-        make_persistent_table_name("job", "foo")
+        make_scoped_table_name("job", "foo")
+
+
+def test_make_scoped_table_name_temp_named():
+    assert make_scoped_table_name("temp_named", "foo", snowid=42) == "t_foo_42"
+
+
+def test_make_scoped_table_name_temp_named_requires_snowid():
+    with pytest.raises(ValueError, match="scope='temp_named' requires a snowid"):
+        make_scoped_table_name("temp_named", "foo")

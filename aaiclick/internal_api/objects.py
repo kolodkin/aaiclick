@@ -21,7 +21,7 @@ from aaiclick.data.data_context import (
     open_object,
 )
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import make_persistent_table_name
+from aaiclick.data.scope import make_scoped_table_name
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -73,7 +73,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 
     total = len(names)
     paged = names[: filter.limit]
-    tables = [make_persistent_table_name("global", n) for n in paged]
+    tables = [make_scoped_table_name("global", n) for n in paged]
     metadata = await _fetch_table_metadata(tables)
 
     items = [

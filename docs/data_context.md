@@ -65,35 +65,36 @@ Objects become **stale** when the context exits — all async methods check via 
     Using a stale Object raises `RuntimeError`. Persistent objects
     (created with `name=`) survive — reopen via `open_object()`.
 
-## Scopes: temp, job, global
+## Scopes: temp, temp_named, job, global
 
-Every Object belongs to one of three scopes, identified by the table-name prefix:
+Every Object belongs to one of four scopes, identified by the table-name prefix:
 
-| Scope      | Prefix               | Lifetime                                          | Created by                                               |
-|------------|----------------------|---------------------------------------------------|----------------------------------------------------------|
-| `temp`     | `t_<id>`             | Dropped at `data_context()` / `task_scope` exit   | Unnamed objects                                          |
-| `job`      | `j_<job_id>_<name>`  | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x")` inside orch    |
-| `global`   | `p_<name>`           | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`|
+| Scope        | Prefix                  | Lifetime                                          | Created by                                                  |
+|--------------|-------------------------|---------------------------------------------------|-------------------------------------------------------------|
+| `temp`       | `t_<id>`                | Dropped at `data_context()` / `task_scope` exit   | Unnamed objects                                             |
+| `temp_named` | `t_<name>_<id>`         | Dropped at `data_context()` / `task_scope` exit   | `create_object_from_value(..., name="x")` (default)         |
+| `job`        | `j_<job_id>_<name>`     | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x", scope="job")`      |
+| `global`     | `p_<name>`              | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
 
-**Defaults when `name` is set**:
+**Default when `name` is set, no `scope=`**: `"temp_named"` everywhere — the table dies with the context, but the user-supplied `name` shows up in the table name (`t_<name>_<snowflake>`) for easier debugging in `system.tables`. Two callers passing `name="staging"` get two distinct tables — the snowflake disambiguates.
 
-- Inside `orch_context()` / `task_scope()` → `scope="job"` (per-run isolation).
-- In standalone `data_context()` (no `job_id` available) → `scope="global"`.
-
-Pass `scope="global"` inside orch to create a user-managed catalog that survives across jobs. Pass `scope="job"` explicitly when you want to be unambiguous.
+Persistent scopes (`"job"`, `"global"`) require an active `orch_context()` because they write a `table_registry` row that only the orch lifecycle handler maintains.
 
 ```python
-# Pure data_context — default is "global" since there is no job_id.
+# Bare data_context — name= produces a temp_named table.
 async with data_context():
-    catalog = await create_object_from_value([1, 2, 3], name="my_catalog")
-    assert catalog.table == "p_my_catalog"
-    assert catalog.scope == "global"
+    staging = await create_object_from_value([1, 2, 3], name="staging")
+    assert staging.table.startswith("t_staging_")
+    assert staging.scope == "temp_named"
+    assert staging.persistent is False
 
-# Inside an orch task_scope — default is "job".
+# Inside an orch task_scope — same default (temp_named).
 async with task_scope(task_id=1, job_id=42, run_id=100):
     interim = await create_object_from_value([1, 2, 3], name="stage1")
-    assert interim.table == "j_42_stage1"
-    assert interim.scope == "job"
+    assert interim.scope == "temp_named"
+
+    pinned = await create_object_from_value([1, 2, 3], name="stage1", scope="job")
+    assert pinned.table == "j_42_stage1"
 
     shared = await create_object_from_value(
         [9, 9, 9],

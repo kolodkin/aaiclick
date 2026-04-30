@@ -41,9 +41,9 @@ async def test_oplog_writes_on_operation(orch_ctx):
 
 
 async def test_job_scoped_named_object(orch_ctx):
-    """Inside an orch task_scope a named object defaults to ``j_<job_id>_<name>``."""
+    """Inside an orch task_scope ``scope='job'`` yields ``j_<job_id>_<name>``."""
     async with task_scope(task_id=7, job_id=1234, run_id=700):
-        obj = await create_object_from_value([1, 2, 3], name="catalog_intermediate")
+        obj = await create_object_from_value([1, 2, 3], name="catalog_intermediate", scope="job")
         assert obj.table == "j_1234_catalog_intermediate"
         assert obj.scope == "job"
         assert obj.persistent is True

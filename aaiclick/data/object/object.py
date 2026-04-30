@@ -156,9 +156,10 @@ class Object:
     def scope(self) -> ObjectScope:
         """Scope implied by the table-name prefix.
 
-        - ``"temp"``   — ``t_<id>`` tables dropped at context/task exit
-        - ``"job"``    — ``j_<job_id>_<name>`` tables dropped at job TTL
-        - ``"global"`` — ``p_<name>`` tables persist until the user deletes them
+        - ``"temp"``       — ``t_<id>`` tables dropped at context/task exit
+        - ``"temp_named"`` — ``t_<name>_<id>`` tables dropped at context/task exit
+        - ``"job"``        — ``j_<job_id>_<name>`` tables dropped at job TTL
+        - ``"global"``     — ``p_<name>`` tables persist until the user deletes them
         """
         return scope_of(self.table)
 

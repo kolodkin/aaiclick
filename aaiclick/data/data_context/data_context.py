@@ -21,6 +21,7 @@ import pyarrow as pa
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
+from aaiclick.snowflake import get_snowflake_id
 
 from ..models import (
     AAI_ID_COLUMN,
@@ -39,7 +40,7 @@ from ..models import (
     ValueType,
     build_order_by_clause,
 )
-from ..scope import NamedScope, make_persistent_table_name
+from ..scope import NamedScope, PersistentScope, make_scoped_table_name
 from ..sql_utils import quote_identifier
 from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
@@ -153,10 +154,10 @@ async def data_context(
     - EngineType and object registry (data_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
-    execution use orch_context() + task_scope() instead. Persistent named
-    objects (``scope="global"``/``"job"``, ``open_object()``) require an
-    orch_context — ``data_context()`` does not provide the SQL session
-    that ``table_registry`` reads/writes need.
+    execution use orch_context() + task_scope() instead. ``scope="job"`` and
+    ``open_object()`` require an orch_context — ``data_context()`` does not
+    provide the SQL session that ``table_registry`` reads/writes need.
+    ``scope="global"`` and ``scope="temp_named"`` work in either mode.
 
     Args:
         engine: ClickHouse table engine. Defaults to Memory (RAM).
@@ -224,41 +225,45 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
 
     Rules:
     - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
-    - ``name`` set: requires an active ``orch_context()`` — persistent
-      tables need the SQL ``table_registry`` row, which only the orch
-      lifecycle handler writes. Bare ``data_context()`` is rejected.
-    - ``scope="job"``: requires an active orch job_id (raises ValueError
-      otherwise — see scope.py).
-    - ``name`` set, ``scope=None``: default to ``"job"`` (the only scope
-      reachable inside an orch job).
+    - ``name`` set, ``scope=None``: default to ``"temp_named"`` — a temp
+      table tagged with the user-provided ``name`` for readability
+      (``t_<name>_<snowflake_id>``). Works in or out of orch.
+    - ``scope="job"`` / ``scope="global"``: persistent — require an active
+      orch_context() (the SQL ``table_registry`` row is written only by the
+      orch lifecycle handler). Bare ``data_context()`` is rejected.
+    - ``scope="job"``: additionally requires an active orch job_id (raises
+      ValueError otherwise — see scope.py).
     """
     if name is None:
         if scope is not None:
             raise ValueError("scope can only be set together with name")
         return None
 
-    lifecycle = get_data_lifecycle()
-    if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
-        raise RuntimeError(
-            f"scope={scope!r} requires an active orch_context() — bare "
-            "data_context() only supports temp (unnamed) objects. "
-            "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
-            "or drop the name= argument for a temp table."
-        )
+    effective: NamedScope = scope if scope is not None else "temp_named"
 
-    if scope is not None:
-        return scope
-    return "job"
+    if effective in ("job", "global"):
+        lifecycle = get_data_lifecycle()
+        if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
+            raise RuntimeError(
+                f"scope={effective!r} requires an active orch_context() — bare "
+                "data_context() only supports temp / temp_named objects. "
+                "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
+                "or omit scope= to get a 'temp_named' table."
+            )
+
+    return effective
 
 
-def _build_persistent_table(name: str, scope: NamedScope) -> str:
+def _build_scoped_table(name: str, scope: NamedScope) -> str:
     """Validate ``name`` and build the full CH table name for a scoped object."""
     _validate_persistent_name(name)
-    job_id = None
+    if scope == "temp_named":
+        return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
+    job_id: int | None = None
     if scope == "job":
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_persistent_table_name(scope, name, job_id=job_id)
+    return make_scoped_table_name(scope, name, job_id=job_id)
 
 
 async def create_object(
@@ -274,13 +279,14 @@ async def create_object(
         engine: Table engine override. Priority (highest to lowest):
                 ``name`` (named) → this param → ``schema.engine`` → context default.
                 Ignored when ``name`` is set — named tables always use MergeTree.
-        name: Optional name. When set, ``scope`` is required and selects the
-              persistence tier — see ``scope`` below.
-        scope: Required when ``name`` is set, must be ``None`` otherwise.
-              ``"global"`` → ``p_<name>`` (user-managed, removed only by
-              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
+        name: Optional name. When set, ``scope`` selects the lifetime tier —
+              see ``scope`` below. Defaults to ``"temp_named"`` when omitted.
+        scope: Optional. Must be ``None`` when ``name`` is also ``None``.
+              ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
+              the context, like an unnamed temp). ``"job"`` → ``j_<job_id>_<name>``
               (lives only as long as the active orch job; raises if no job is
-              active).
+              active). ``"global"`` → ``p_<name>`` (user-managed, removed only
+              by ``delete_persistent_object()``).
 
     Returns:
         Object: New Object instance with created table
@@ -290,7 +296,7 @@ async def create_object(
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
-        table_name = _build_persistent_table(name, effective_scope)
+        table_name = _build_scoped_table(name, effective_scope)
         obj = Object(table=table_name, schema=schema)
     else:
         obj = Object(schema=schema)
@@ -623,8 +629,8 @@ async def create_object_from_value(
             - Dict of scalars: Single row with columns per key
             - Dict of arrays: Multiple rows with columns per key
             - Dict/List with nested list-of-dicts: Flattened with dot-star notation
-        name: Optional name. When set, ``scope`` is required and selects
-              the persistence tier — see ``scope`` below.
+        name: Optional name. When set, ``scope`` selects the lifetime tier —
+              see ``scope`` below. Defaults to ``"temp_named"`` when omitted.
         order_by: Optional list of column names for the table ORDER BY clause.
                   Empty input yields ``tuple()`` (ClickHouse no-sort form).
                   Example: ``order_by=['date']`` → ``ORDER BY (date)``
@@ -633,11 +639,12 @@ async def create_object_from_value(
                 low_cardinality, and type override.
                 Example: ``fields={"name": FieldSpec(low_cardinality=True),
                 "score": FieldSpec(nullable=True)}``
-        scope: Required when ``name`` is set, must be ``None`` otherwise.
-              ``"global"`` → ``p_<name>`` (user-managed, removed only by
-              ``delete_persistent_object()``). ``"job"`` → ``j_<job_id>_<name>``
-              (lives only as long as the active orch job; raises when called
-              from pure ``data_context()``).
+        scope: Optional. Must be ``None`` when ``name`` is also ``None``.
+              ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
+              the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
+              long as the active orch job; raises when called from pure
+              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
+              removed only by ``delete_persistent_object()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
               monotonically-increasing 64-bit Snowflake assigned per-row by
@@ -828,15 +835,15 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str, scope: NamedScope = "job") -> Object:
+async def open_object(name: str, scope: PersistentScope = "job") -> Object:
     """Open an existing persistent Object by name.
 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
                looks up ``p_<name>``; ``"job"`` → looks up
-               ``j_<job_id>_<name>`` using the active orch job. Defaults to
-               ``"job"`` to match ``create_object``'s default.
+               ``j_<job_id>_<name>`` using the active orch job. ``"temp_named"``
+               is not openable — temp tables disappear with their context.
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -848,7 +855,7 @@ async def open_object(name: str, scope: NamedScope = "job") -> Object:
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    table_name = _build_persistent_table(name, scope)
+    table_name = _build_scoped_table(name, scope)
     ch = get_ch_client()
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
@@ -862,7 +869,7 @@ async def open_object(name: str, scope: NamedScope = "job") -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str, scope: NamedScope = "job") -> None:
+async def delete_persistent_object(name: str, scope: PersistentScope = "job") -> None:
     """Drop a persistent table by name.
 
     Args:
@@ -873,7 +880,7 @@ async def delete_persistent_object(name: str, scope: NamedScope = "job") -> None
     Raises:
         ValueError: If name is invalid.
     """
-    table_name = _build_persistent_table(name, scope)
+    table_name = _build_scoped_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
 
 
