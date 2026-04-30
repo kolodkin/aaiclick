@@ -60,6 +60,7 @@ from ..scope import ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
+from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
@@ -1036,6 +1037,8 @@ class Object:
         format: str = "Parquet",
         where: str | None = None,
         limit: int | None = None,
+        retries: int = DEFAULT_RETRIES,
+        backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
     ) -> None:
         """
         Insert data from an external URL into this object in place.
@@ -1051,6 +1054,10 @@ class Object:
                 Supported: Parquet, CSV, CSVWithNames, TSV, JSON, JSONEachRow, etc.
             where: Optional SQL WHERE clause for filtering rows at load time
             limit: Optional row limit applied at load time
+            retries: Total attempts on transient upstream failures (5xx, connection
+                resets, timeouts, DNS hiccups). Defaults to 4. Pass ``1`` to disable.
+            backoff_factor: Base for the exponential backoff between retries.
+                Sleep before retry ``n`` is ``backoff_factor ** n`` seconds.
 
         Raises:
             ValueError: If URL, columns, format, or limit are invalid
@@ -1109,7 +1116,11 @@ class Object:
             f"{where_clause}"
             f"{limit_clause}"
         )
-        await self.ch_client.command(insert_query)
+        await with_url_retry(
+            lambda: self.ch_client.command(insert_query),
+            retries=retries,
+            backoff_factor=backoff_factor,
+        )
 
     async def min(self) -> Object:
         """
