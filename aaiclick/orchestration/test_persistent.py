@@ -2,12 +2,16 @@
 
 Covers both persistence tiers:
 
-- ``scope="job"`` → ``j_<job_id>_<name>`` (default when ``name`` is set)
+- ``scope="job"`` → ``j_<job_id>_<name>``
 - ``scope="global"`` → ``p_<name>`` (user-managed, survives the job)
 
 Plus the regex validation of names, the ``open``/``delete`` round trip,
 and the API-misuse paths (``scope`` without ``name``, ``delete_persistent_objects``
 without a time filter).
+
+Default-scope behaviour (``name`` set, no ``scope``) → ``"temp_named"`` is
+covered alongside the unnamed-temp default in
+``aaiclick/data/test_context.py``.
 """
 
 import pytest
@@ -22,17 +26,12 @@ from aaiclick.data.data_context import (
 from aaiclick.data.data_context.data_context import _validate_persistent_name
 
 
-async def test_scope_default_is_job_when_name_set(orch_ctx):
-    """No ``scope=`` with ``name=`` defaults to ``"job"`` (not ``"global"``)."""
-    lifecycle = get_data_lifecycle()
-    assert lifecycle is not None
-    job_id = lifecycle.current_job_id()
-    assert job_id is not None
-
-    obj = await create_object_from_value([1, 2, 3], name="default_scope_job")
-    assert obj.table == f"j_{job_id}_default_scope_job"
-    assert obj.scope == "job"
-    assert obj.persistent is True
+async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
+    """No ``scope=`` with ``name=`` defaults to ``"temp_named"`` even inside orch."""
+    obj = await create_object_from_value([1, 2, 3], name="default_scope_named")
+    assert obj.scope == "temp_named"
+    assert obj.persistent is False
+    assert obj.table.startswith("t_default_scope_named_")
 
 
 async def test_scope_job_explicit(orch_ctx):
