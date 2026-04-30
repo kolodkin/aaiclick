@@ -95,7 +95,7 @@ async def get_object(name: str) -> ObjectDetail:
     Raises ``NotFound`` if no global-scope persistent object matches ``name``.
     """
     try:
-        obj = await open_object(name)
+        obj = await open_object(name, scope="global")
     except RuntimeError as exc:
         raise NotFound(f"Object not found: {name}") from exc
 
@@ -109,7 +109,7 @@ async def delete_object(name: str) -> ObjectDeleted:
     Idempotent — dropping a non-existent object is not an error, matching
     ClickHouse's ``DROP TABLE IF EXISTS`` semantics used underneath.
     """
-    await delete_persistent_object(name)
+    await delete_persistent_object(name, scope="global")
     return ObjectDeleted(name=name)
 
 

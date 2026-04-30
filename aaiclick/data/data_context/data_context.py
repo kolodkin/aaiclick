@@ -226,7 +226,7 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     - ``name is None``: unnamed temp table; ``scope`` must also be ``None``.
     - ``name`` set: requires an active ``orch_context()`` — persistent
       tables need the SQL ``table_registry`` row, which only the orch
-      lifecycle handler writes. ``data_context()`` alone is rejected.
+      lifecycle handler writes. Bare ``data_context()`` is rejected.
     - ``scope="job"``: requires an active orch job_id (raises ValueError
       otherwise — see scope.py).
     - ``name`` set, ``scope=None``: default to ``"job"`` (the only scope
@@ -237,22 +237,18 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
             raise ValueError("scope can only be set together with name")
         return None
 
-    from aaiclick.orchestration.sql_context import _sql_engine_var
-
-    if _sql_engine_var.get() is None:
+    lifecycle = get_data_lifecycle()
+    if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
         raise RuntimeError(
-            "Persistent objects (name=...) require an active orch_context() — "
-            "data_context() does not provide the SQL session that table_registry needs. "
+            f"scope={scope!r} requires an active orch_context() — bare "
+            "data_context() only supports temp (unnamed) objects. "
             "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
             "or drop the name= argument for a temp table."
         )
 
     if scope is not None:
         return scope
-    lifecycle = get_data_lifecycle()
-    if lifecycle is not None and lifecycle.current_job_id() is not None:
-        return "job"
-    return "global"
+    return "job"
 
 
 def _build_persistent_table(name: str, scope: NamedScope) -> str:
@@ -832,7 +828,7 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str, scope: NamedScope = "global") -> Object:
+async def open_object(name: str, scope: NamedScope = "job") -> Object:
     """Open an existing persistent Object by name.
 
     Args:
@@ -840,7 +836,7 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
         scope: Persistence tier the object was created with — ``"global"`` →
                looks up ``p_<name>``; ``"job"`` → looks up
                ``j_<job_id>_<name>`` using the active orch job. Defaults to
-               ``"global"`` since that was the historical behavior.
+               ``"job"`` to match ``create_object``'s default.
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -866,7 +862,7 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str, scope: NamedScope = "global") -> None:
+async def delete_persistent_object(name: str, scope: NamedScope = "job") -> None:
     """Drop a persistent table by name.
 
     Args:
