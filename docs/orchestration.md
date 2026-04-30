@@ -151,7 +151,7 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs, preservation_mode)` — auto-registers if not found, merges `kwargs` over `default_kwargs`, resolves preservation config via the precedence chain above, creates a Job with `run_type=MANUAL` and `registered_job_id` FK, plus the entry point Task. See [DataContext — Preservation Modes](data_context.md#preservation-modes) for the two modes' semantics.
+`run_job(name, entrypoint, kwargs, preservation_mode)` — links to the existing `RegisteredJob` if one matches `name` (and merges `kwargs` over its `default_kwargs`); otherwise runs standalone with `registered_job_id=None`. Resolves preservation config via the precedence chain above and creates a Job with `run_type=MANUAL` plus the entry point Task. See [DataContext — Preservation Modes](data_context.md#preservation-modes) for the two modes' semantics.
 
 ## Cron Scheduling
 
