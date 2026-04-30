@@ -248,9 +248,7 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
 
     if scope is not None:
         return scope
-    if lifecycle.current_job_id() is not None:
-        return "job"
-    return "global"
+    return "job"
 
 
 def _build_persistent_table(name: str, scope: NamedScope) -> str:
@@ -830,7 +828,7 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str, scope: NamedScope = "global") -> Object:
+async def open_object(name: str, scope: NamedScope = "job") -> Object:
     """Open an existing persistent Object by name.
 
     Args:
@@ -838,7 +836,7 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
         scope: Persistence tier the object was created with — ``"global"`` →
                looks up ``p_<name>``; ``"job"`` → looks up
                ``j_<job_id>_<name>`` using the active orch job. Defaults to
-               ``"global"`` since that was the historical behavior.
+               ``"job"`` to match ``create_object``'s default.
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -864,7 +862,7 @@ async def open_object(name: str, scope: NamedScope = "global") -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str, scope: NamedScope = "global") -> None:
+async def delete_persistent_object(name: str, scope: NamedScope = "job") -> None:
     """Drop a persistent table by name.
 
     Args:
