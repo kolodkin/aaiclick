@@ -18,11 +18,16 @@ from aaiclick.orchestration.view_models import (
     WorkerView,
 )
 from aaiclick.view_models import (
-    MigrationAction,
+    MIGRATE_DOWNGRADE,
+    MIGRATE_UPGRADE,
+    OLLAMA_ALREADY_PRESENT,
+    OLLAMA_FAILED,
+    OLLAMA_NOT_OLLAMA,
+    OLLAMA_PULLED,
+    OLLAMA_SERVER_UNREACHABLE,
     MigrationResult,
     ObjectDeleted,
     OllamaBootstrapResult,
-    OllamaBootstrapStatus,
     Page,
     PurgeObjectsResult,
     SetupResult,
@@ -266,26 +271,26 @@ def render_setup_result(result: SetupResult) -> None:
 def render_ollama_bootstrap(result: OllamaBootstrapResult) -> None:
     """Print ``internal_api.bootstrap_ollama`` output — server + model status."""
     print(f"AI model: {result.model}")
-    if result.status == OllamaBootstrapStatus.NOT_OLLAMA:
+    if result.status == OLLAMA_NOT_OLLAMA:
         print(f"  {result.detail or 'not an Ollama model'}")
         return
-    if result.status == OllamaBootstrapStatus.SERVER_UNREACHABLE:
+    if result.status == OLLAMA_SERVER_UNREACHABLE:
         print("  ollama server: NOT RUNNING")
         print("  Start with:    ollama serve &")
         print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
         return
     print("  ollama server: running")
-    if result.status == OllamaBootstrapStatus.ALREADY_PRESENT:
+    if result.status == OLLAMA_ALREADY_PRESENT:
         print(f"  {result.detail}")
-    elif result.status == OllamaBootstrapStatus.PULLED:
+    elif result.status == OLLAMA_PULLED:
         print(f"  {result.detail}")
-    elif result.status == OllamaBootstrapStatus.FAILED:
+    elif result.status == OLLAMA_FAILED:
         print(f"  {result.detail}")
 
 
 def render_migration_result(result: MigrationResult) -> None:
     """Confirm upgrade/downgrade success — alembic logs the rest on its own."""
-    if result.action == MigrationAction.UPGRADE:
+    if result.action == MIGRATE_UPGRADE:
         print(f"Database upgraded to {result.revision}")
-    elif result.action == MigrationAction.DOWNGRADE:
+    elif result.action == MIGRATE_DOWNGRADE:
         print(f"Database downgraded to {result.revision}")

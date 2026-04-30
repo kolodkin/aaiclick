@@ -31,6 +31,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime
+from typing import cast, get_args
 
 from aaiclick import cli_renderers, internal_api
 from aaiclick.data.data_context import data_context
@@ -271,12 +272,11 @@ def _run_migrate_cli(args: argparse.Namespace) -> None:
         return
 
     action_name, *rest = raw_args
-    try:
-        action = MigrationAction(action_name)
-    except ValueError:
+    if action_name not in get_args(MigrationAction):
         print(f"Unknown command: {action_name}", file=sys.stderr)
         print("Run 'python -m aaiclick migrate --help' for usage", file=sys.stderr)
         sys.exit(1)
+    action = cast(MigrationAction, action_name)
     revision = rest[0] if rest else None
 
     result = _run_sync_api(lambda: setup_api.migrate(action, revision))

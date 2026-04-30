@@ -35,10 +35,20 @@ from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.view_models import (
+    MIGRATE_CURRENT,
+    MIGRATE_DOWNGRADE,
+    MIGRATE_HEADS,
+    MIGRATE_HISTORY,
+    MIGRATE_SHOW,
+    MIGRATE_UPGRADE,
+    OLLAMA_ALREADY_PRESENT,
+    OLLAMA_FAILED,
+    OLLAMA_NOT_OLLAMA,
+    OLLAMA_PULLED,
+    OLLAMA_SERVER_UNREACHABLE,
     MigrationAction,
     MigrationResult,
     OllamaBootstrapResult,
-    OllamaBootstrapStatus,
     SetupResult,
     SetupStep,
 )
@@ -132,7 +142,7 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
-            status=OllamaBootstrapStatus.NOT_OLLAMA,
+            status=OLLAMA_NOT_OLLAMA,
             detail="not an Ollama model — nothing to pull",
         )
 
@@ -144,7 +154,7 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
-            status=OllamaBootstrapStatus.SERVER_UNREACHABLE,
+            status=OLLAMA_SERVER_UNREACHABLE,
             detail=f"ollama server not reachable: {exc}",
         )
 
@@ -159,7 +169,7 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
-            status=OllamaBootstrapStatus.ALREADY_PRESENT,
+            status=OLLAMA_ALREADY_PRESENT,
             detail=f"model '{model_name}' already downloaded",
         )
     except urllib.error.HTTPError as exc:
@@ -167,7 +177,7 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
             return OllamaBootstrapResult(
                 model=model,
                 server_url=base_url,
-                status=OllamaBootstrapStatus.FAILED,
+                status=OLLAMA_FAILED,
                 detail=f"model lookup failed: {exc}",
             )
 
@@ -184,7 +194,7 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
-            status=OllamaBootstrapStatus.FAILED,
+            status=OLLAMA_FAILED,
             detail=f"pull failed: {exc}",
         )
 
@@ -192,13 +202,13 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
-            status=OllamaBootstrapStatus.PULLED,
+            status=OLLAMA_PULLED,
             detail=f"model '{model_name}' pulled",
         )
     return OllamaBootstrapResult(
         model=model,
         server_url=base_url,
-        status=OllamaBootstrapStatus.FAILED,
+        status=OLLAMA_FAILED,
         detail=f"unexpected pull response: {payload}",
     )
 
@@ -213,30 +223,30 @@ def migrate(action: MigrationAction, revision: str | None = None) -> MigrationRe
     """
     config = get_alembic_config()
 
-    if action == MigrationAction.UPGRADE:
+    if action == MIGRATE_UPGRADE:
         target = revision or "head"
         command.upgrade(config, target)
         return MigrationResult(action=action, revision=target)
 
-    if action == MigrationAction.DOWNGRADE:
+    if action == MIGRATE_DOWNGRADE:
         if revision is None:
             raise Invalid("migrate downgrade requires a revision argument (e.g. '-1')")
         command.downgrade(config, revision)
         return MigrationResult(action=action, revision=revision)
 
-    if action == MigrationAction.CURRENT:
+    if action == MIGRATE_CURRENT:
         command.current(config, verbose=True)
         return MigrationResult(action=action)
 
-    if action == MigrationAction.HISTORY:
+    if action == MIGRATE_HISTORY:
         command.history(config, verbose=True)
         return MigrationResult(action=action)
 
-    if action == MigrationAction.HEADS:
+    if action == MIGRATE_HEADS:
         command.heads(config, verbose=True)
         return MigrationResult(action=action)
 
-    if action == MigrationAction.SHOW:
+    if action == MIGRATE_SHOW:
         if revision is None:
             raise Invalid("migrate show requires a revision argument")
         command.show(config, revision)
