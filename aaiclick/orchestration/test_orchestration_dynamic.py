@@ -8,7 +8,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JOB_COMPLETED, JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED
 from aaiclick.orchestration.operators import map
 
 # --- Task fixtures ---

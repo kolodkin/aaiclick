@@ -13,7 +13,7 @@ from sqlmodel import select
 
 from aaiclick.orchestration.env import get_default_preservation_mode
 from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.models import Job, PRESERVATION_FULL, PRESERVATION_NONE, PreservationMode
+from aaiclick.orchestration.models import PRESERVATION_FULL, PRESERVATION_NONE, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 
 

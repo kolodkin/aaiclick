@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
-from ..models import JOB_COMPLETED, JOB_FAILED, JobStatus, TASK_CLAIMED, TASK_FAILED, TASK_PENDING, TASK_PENDING_CLEANUP, TASK_RUNNING, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    TASK_CLAIMED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_PENDING_CLEANUP,
+    TASK_RUNNING,
+)
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 

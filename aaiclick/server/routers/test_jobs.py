@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
-from aaiclick.orchestration.models import JOB_CANCELLED, JOB_PENDING, JobStatus
+from aaiclick.orchestration.models import JOB_CANCELLED, JOB_PENDING
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 

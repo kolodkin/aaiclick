@@ -8,7 +8,7 @@ from sqlmodel import select
 from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task, TaskStatus
+from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .mp_worker import mp_worker_main_loop

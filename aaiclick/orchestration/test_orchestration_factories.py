@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import JOB_PENDING, Job, JobStatus, TASK_PENDING, Task, TaskStatus
+from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 

@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import select
 
 from ..factories import create_job
-from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task, TaskStatus
+from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
 

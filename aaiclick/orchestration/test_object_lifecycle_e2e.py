@@ -17,7 +17,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
-from aaiclick.orchestration.models import JOB_COMPLETED, Job, JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
 

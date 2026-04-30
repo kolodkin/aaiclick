@@ -44,7 +44,19 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
-from ..models import Dependency, Group, JOB_COMPLETED, JOB_FAILED, JOB_RUNNING, Job, JobStatus, TASK_COMPLETED, TASK_FAILED, TASK_PENDING, TASK_RUNNING, Task, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_RUNNING,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_RUNNING,
+    Dependency,
+    Group,
+    Job,
+    Task,
+)
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from .worker_context import set_current_task_info

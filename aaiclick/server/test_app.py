@@ -8,7 +8,7 @@ from starlette.routing import Route
 
 from aaiclick.backend import is_local
 from aaiclick.orchestration.execution import list_workers
-from aaiclick.orchestration.models import WORKER_ACTIVE, WorkerStatus
+from aaiclick.orchestration.models import WORKER_ACTIVE
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app

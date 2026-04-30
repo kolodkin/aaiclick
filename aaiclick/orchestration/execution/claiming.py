@@ -5,7 +5,22 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlmodel import select
 
-from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, Job, JobStatus, TASK_CANCELLED, TASK_CLAIMED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING, TASK_PENDING_CLEANUP, TASK_RUNNING, Task, TaskStatus
+from ..models import (
+    JOB_CANCELLED,
+    JOB_COMPLETED,
+    JOB_FAILED,
+    TASK_CANCELLED,
+    TASK_CLAIMED,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_PENDING_CLEANUP,
+    TASK_RUNNING,
+    Job,
+    JobStatus,
+    Task,
+    TaskStatus,
+)
 from ..orch_context import get_db_handler, get_sql_session
 
 _TERMINAL_JOB_STATUSES = (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)

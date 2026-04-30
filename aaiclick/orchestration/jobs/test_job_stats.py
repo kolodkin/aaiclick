@@ -2,7 +2,19 @@
 
 from datetime import datetime, timedelta
 
-from ..models import JOB_COMPLETED, JOB_FAILED, JOB_PENDING, Job, JobStatus, RUN_MANUAL, RunType, TASK_COMPLETED, TASK_FAILED, TASK_PENDING, Task, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_PENDING,
+    RUN_MANUAL,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    Job,
+    JobStatus,
+    Task,
+    TaskStatus,
+)
 from .stats import JobStats, _fmt_duration, compute_job_stats
 
 

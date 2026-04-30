@@ -5,7 +5,16 @@ from sqlmodel import select
 
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, JOB_PENDING, Job, JobStatus, TASK_CANCELLED, TASK_COMPLETED, Task, TaskStatus
+from ..models import (
+    JOB_CANCELLED,
+    JOB_COMPLETED,
+    JOB_FAILED,
+    JOB_PENDING,
+    TASK_CANCELLED,
+    TASK_COMPLETED,
+    Job,
+    Task,
+)
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import (
     JobAlreadyTerminal,

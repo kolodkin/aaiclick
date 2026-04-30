@@ -10,7 +10,17 @@ from aaiclick.backend import is_sqlite
 
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
-from ..models import Group, JOB_RUNNING, Job, JobStatus, TASK_COMPLETED, TASK_RUNNING, Task, TaskStatus, WORKER_ACTIVE, WORKER_STOPPED, WORKER_STOPPING, WorkerStatus
+from ..models import (
+    JOB_RUNNING,
+    TASK_COMPLETED,
+    TASK_RUNNING,
+    WORKER_ACTIVE,
+    WORKER_STOPPED,
+    WORKER_STOPPING,
+    Group,
+    Job,
+    Task,
+)
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .runner import execute_task

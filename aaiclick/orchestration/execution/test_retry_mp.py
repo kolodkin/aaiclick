@@ -10,7 +10,15 @@ from sqlmodel import select
 
 from ..background.test_pending_cleanup import run_pending_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
-from ..models import JOB_COMPLETED, JOB_FAILED, Job, JobStatus, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, Task, TaskStatus
+from ..models import (
+    JOB_COMPLETED,
+    JOB_FAILED,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING_CLEANUP,
+    Job,
+    Task,
+)
 from ..orch_context import get_sql_session
 from .mp_worker import mp_worker_main_loop
 from .test_retry import _cancel_all_pending_tasks, _run_until_terminal

@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import select
 
 from .factories import resolve_job_config
-from .models import PRESERVATION_FULL, PRESERVATION_NONE, PreservationMode, RUN_MANUAL, RegisteredJob, RunType, Task
+from .models import PRESERVATION_FULL, PRESERVATION_NONE, RUN_MANUAL, RegisteredJob, Task
 from .orch_context import get_sql_session
 from .registered_jobs import (
     compute_next_run,

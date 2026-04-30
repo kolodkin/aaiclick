@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from ..snowflake import get_snowflake_id
 from .factories import create_job, create_task
-from .models import Job, PreservationMode, RUN_MANUAL, RegisteredJob, RunType
+from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 
 

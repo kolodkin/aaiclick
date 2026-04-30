@@ -23,7 +23,7 @@ from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import WORKER_STOPPING, WorkerStatus
+from aaiclick.orchestration.models import WORKER_STOPPING
 from aaiclick.orchestration.view_models import JobDetail, JobView, TaskDetail, WorkerView
 from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page

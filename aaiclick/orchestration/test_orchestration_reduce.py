@@ -5,7 +5,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
 from aaiclick.orchestration.operators import reduce
 
 # --- Reduction callbacks (module-level for entrypoint resolution) ---

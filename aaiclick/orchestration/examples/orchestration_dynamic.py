@@ -17,7 +17,7 @@ Note: This requires running PostgreSQL and ClickHouse servers.
 import asyncio
 
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration import JOB_COMPLETED, JobStatus, ajob_test, job, task, tasks_list
+from aaiclick.orchestration import JOB_COMPLETED, ajob_test, job, task, tasks_list
 
 
 @task

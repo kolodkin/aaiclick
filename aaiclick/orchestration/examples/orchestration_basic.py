@@ -12,7 +12,7 @@ Demonstrates @task and @job decorators:
 import asyncio
 
 from aaiclick import Object, create_object_from_value
-from aaiclick.orchestration import JOB_COMPLETED, JobStatus, ajob_test, job, task, tasks_list
+from aaiclick.orchestration import JOB_COMPLETED, ajob_test, job, task, tasks_list
 
 
 @task

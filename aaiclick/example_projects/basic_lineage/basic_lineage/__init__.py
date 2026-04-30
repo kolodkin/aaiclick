@@ -17,8 +17,8 @@ from aaiclick.data.object import Object
 from aaiclick.oplog.lineage import lineage_context, oplog_subgraph
 from aaiclick.orchestration import (
     JOB_COMPLETED,
-    JobStatus,
     PRESERVATION_FULL,
+    JobStatus,
     PreservationMode,
     ajob_test,
     get_tasks_for_job,

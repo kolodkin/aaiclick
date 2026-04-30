@@ -1,7 +1,7 @@
 """Tests for job query functions."""
 
 from ..factories import create_job
-from ..models import JOB_COMPLETED, JOB_PENDING, JobStatus
+from ..models import JOB_COMPLETED, JOB_PENDING
 from .queries import count_jobs, get_job, list_jobs
 
 

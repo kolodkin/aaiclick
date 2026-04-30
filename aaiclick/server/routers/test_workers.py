@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aaiclick.orchestration.execution.worker import register_worker
-from aaiclick.orchestration.models import WORKER_STOPPING, WorkerStatus
+from aaiclick.orchestration.models import WORKER_STOPPING
 from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, Problem, ProblemCode
 

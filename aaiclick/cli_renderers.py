@@ -105,12 +105,7 @@ def render_job_stats(stats: JobStatsView) -> None:
     print("|------|--------|-------|------|")
     for t in stats.tasks:
         error_suffix = f" `{t.error[:60]}`" if t.error else ""
-        print(
-            f"| {t.entrypoint} "
-            f"| {t.status} "
-            f"| {_fmt_ms(t.queue_time_ms)} "
-            f"| {_fmt_ms(t.exec_time_ms)}{error_suffix} |"
-        )
+        print(f"| {t.entrypoint} | {t.status} | {_fmt_ms(t.queue_time_ms)} | {_fmt_ms(t.exec_time_ms)}{error_suffix} |")
     print()
 
 
@@ -190,9 +185,7 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
     print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
     print("-" * 80)
     for w in page.items:
-        print(
-            f"{w.id:<20} {w.status:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}"
-        )
+        print(f"{w.id:<20} {w.status:<10} {w.hostname:<20} {w.pid:<8} {w.tasks_completed:<10} {w.tasks_failed:<8}")
     _print_page_footer(page, offset)
 
 

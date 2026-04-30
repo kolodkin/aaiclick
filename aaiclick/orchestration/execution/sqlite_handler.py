@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlmodel import select
 
-from ..models import JOB_CANCELLED, JOB_FAILED, JOB_RUNNING, JobStatus, TASK_COMPLETED, TASK_PENDING, TASK_RUNNING, Task, TaskStatus
+from ..models import (
+    JOB_CANCELLED,
+    JOB_FAILED,
+    JOB_RUNNING,
+    TASK_COMPLETED,
+    TASK_PENDING,
+    TASK_RUNNING,
+    Task,
+)
 from .db_handler import DEPENDENCY_WHERE, DbHandler
 
 

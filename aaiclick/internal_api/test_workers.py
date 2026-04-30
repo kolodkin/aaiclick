@@ -8,7 +8,7 @@ from aaiclick.orchestration.execution.worker import (
     deregister_worker,
     register_worker,
 )
-from aaiclick.orchestration.models import WORKER_ACTIVE, WORKER_STOPPED, WORKER_STOPPING, WorkerStatus
+from aaiclick.orchestration.models import WORKER_ACTIVE, WORKER_STOPPED, WORKER_STOPPING
 from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, WorkerFilter
 

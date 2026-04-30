@@ -5,7 +5,7 @@ Kept in a dedicated module so ``orch_ctx_no_ch`` can be module-scoped
 each spawned child).
 """
 
-from ..models import WORKER_STOPPED, WorkerStatus
+from ..models import WORKER_STOPPED
 from .mp_worker import mp_worker_main_loop
 from .worker import get_worker, register_worker, request_worker_stop
 

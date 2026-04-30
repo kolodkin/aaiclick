@@ -6,7 +6,7 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, JobStatus, Task
+from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
