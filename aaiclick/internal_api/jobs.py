@@ -141,7 +141,7 @@ async def cancel_job(ref: RefId) -> JobView:
 
 
 async def run_job(request: RunJobRequest) -> JobView:
-    """Run a job immediately without registering it.
+    """Run a job immediately.
 
     The entrypoint is derived from ``request.name``: dotted names become the
     entrypoint directly, bare names reuse the registered job's entrypoint (or
