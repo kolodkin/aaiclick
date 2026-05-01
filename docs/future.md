@@ -144,35 +144,6 @@ Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAl
 
 `aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
 
-## Standardize Docstring Literals for `Literal`-Typed Parameters
-
-Project convention (CLAUDE.md "Prefer `Literal` over `StrEnum`"): define a `Literal` alias for a closed string set and export module-level `UPPER_CASE` constants for the individual values. Runtime call sites use the constants; **docstrings should show the literal string the user passes** (e.g. `scope="temp_named"`), not the constant name (`SCOPE_TEMP_NAMED`) — readers can't act on `SCOPE_TEMP_NAMED` without first looking it up, but they can immediately copy `"temp_named"` into a call.
-
-Today this is enforced ad-hoc. `aaiclick/data/scope.py` is now consistent (`make_scoped_table_name` docstring shows `"temp_named"` / `"job"` / `"global"`), but other Literal-pair sets in the codebase mix the two styles.
-
-**Audit candidates** (each defines a `Literal` alias + `UPPER_CASE` constants — check that docstrings, error messages, and module headers use the literal value, not the constant name):
-
-- `FIELDTYPE_SCALAR` / `FIELDTYPE_ARRAY` / `FIELDTYPE_DICT` (`aaiclick/data/models.py`)
-- `ORIENT_DICT` / `ORIENT_RECORDS` (`aaiclick/data/models.py`)
-- `GB_SUM` / `GB_MEAN` / `GB_MIN` / … group-by aggregations (`aaiclick/data/models.py`)
-- `DEPENDENCY_TASK` / `DEPENDENCY_GROUP` (`aaiclick/orchestration/models.py`)
-- `OLLAMA_*` bootstrap statuses (`aaiclick/view_models.py`)
-- `MIGRATE_*` Alembic actions (`aaiclick/view_models.py`)
-- The `JobStatus` / `WorkerStatus` / `PreservationMode` Literals in `aaiclick/orchestration/models.py`
-
-**Work**:
-
-- In **public-API parameter docstrings** (functions a user outside the module calls), grep each constant name (`SCOPE_TEMP_NAMED`, `FIELDTYPE_SCALAR`, …) and replace with the literal value in sphinx double-backticks (` ``"temp_named"`` `).
-- Keep error-message strings using the literal value too (`raise ValueError("scope='job' requires …")` — already the convention).
-- Runtime code stays on the constants — only docs/error text are normalized.
-
-**Don't** rewrite:
-
-- **Test docstrings** — the docstring sits next to test code that uses the constant; mismatch between docstring and code is more confusing than the constant.
-- **Cryptic abbreviations** — `FIELDTYPE_ARRAY` is self-documenting; `"a"` is opaque. Keep the constant name when the literal is shorter than its meaning. The `s` / `a` / `d` fieldtype set is the canonical example to leave alone.
-
-No deadline; pick up next time someone is adding a new Literal-pair set and wants the codebase to set a clean example.
-
 ---
 
 # Deferred
