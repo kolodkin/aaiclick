@@ -5,7 +5,7 @@
 # the environment (already provided in GitHub Actions).
 #
 # Usage: ./basic_lineage.sh
-#        AAICLICK_AI_MODEL=nvidia_nim/meta/llama-3.1-8b-instruct ./basic_lineage.sh
+#        AAICLICK_AI_MODEL=nvidia_nim/meta/llama-3.3-70b-instruct ./basic_lineage.sh
 
 set -e
 
@@ -14,6 +14,6 @@ cd "$SCRIPT_DIR"
 
 PYTHON="${PYTHON:-uv run python}"
 
-export AAICLICK_AI_MODEL="${AAICLICK_AI_MODEL:-nvidia_nim/meta/llama-3.3-70b-instruct}"
+export AAICLICK_AI_MODEL="${AAICLICK_AI_MODEL:-nvidia_nim/meta/llama-3.1-8b-instruct}"
 
 $PYTHON -m basic_lineage
