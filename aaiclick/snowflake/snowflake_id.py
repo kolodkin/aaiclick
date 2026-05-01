@@ -1,19 +1,17 @@
 """
-aaiclick.snowflake.snowflake_id - Snowflake ID generation backed by ClickHouse.
+aaiclick.snowflake.snowflake_id - Snowflake ID generation.
 
-Uses ClickHouse's generateSnowflakeID() as the single source of truth for
-globally unique, time-ordered 64-bit identifiers. IDs are pre-fetched in
-batches for efficiency, served one at a time from an in-memory buffer until
-empty, then refilled from ClickHouse.
+Globally unique, time-ordered 64-bit identifiers in the Twitter Snowflake
+layout. IDs are pre-fetched in batches for efficiency, served one at a time
+from an in-memory buffer until empty, then refilled.
 
-In local mode, uses chdb (embedded ClickHouse) via the shared per-process
-Session — chdb's Session is a true per-process singleton that is opened
-once and reused for the lifetime of the process.
+In chdb mode, IDs are minted in pure Python from a process-wide
+(timestamp, sequence) pair. This deliberately avoids touching the shared
+chdb Session: callers running under ``orch_context(with_ch=False)`` must be
+able to mint IDs without acquiring the chdb file lock.
 
-chdb constraint: only one data path per process lifetime. The snowflake
-generator always uses the same path as the main session (AAICLICK_CH_URL).
-
-In distributed mode, uses clickhouse-connect directly.
+In distributed mode, IDs are fetched from ClickHouse via clickhouse-connect
+(``generateSnowflakeID()``).
 
 Snowflake ID format (64 bits):
 - Bit 63: Sign bit (always 0 for positive integers)
@@ -22,9 +20,12 @@ Snowflake ID format (64 bits):
 - Bits 11-0: Sequence number (12 bits)
 """
 
+import os
+import threading
+import time
 from collections import deque
 
-from ..backend import get_ch_url, is_chdb, parse_ch_url
+from ..backend import is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
 MACHINE_ID_BITS = 10  # Bits 21-12: supports 1024 machines
@@ -40,16 +41,51 @@ MACHINE_ID_SHIFT = SEQUENCE_BITS  # 12
 # Default batch size for pre-fetching IDs from ClickHouse
 _BUFFER_SIZE = 100
 
+# Process-wide state for in-memory generation (chdb mode). Shared across
+# every SnowflakeGenerator instance and every thread so the (timestamp,
+# sequence) pair stays monotonic for the lifetime of the process.
+_IN_MEMORY_MACHINE_ID = os.getpid() & ((1 << MACHINE_ID_BITS) - 1)
+_in_memory_lock = threading.Lock()
+_in_memory_last_ms = 0
+_in_memory_sequence = -1
+
+
+def _generate_in_memory(count: int) -> list[int]:
+    """Mint ``count`` Snowflake IDs in pure Python.
+
+    Used in chdb mode to avoid the shared chdb Session — mint ID flows
+    must work even when ``orch_context(with_ch=False)`` has suppressed
+    the ClickHouse client.
+    """
+    global _in_memory_last_ms, _in_memory_sequence
+    out: list[int] = []
+    with _in_memory_lock:
+        for _ in range(count):
+            now_ms = int(time.time() * 1000)
+            if now_ms > _in_memory_last_ms:
+                _in_memory_last_ms = now_ms
+                _in_memory_sequence = 0
+            else:
+                _in_memory_sequence += 1
+                if _in_memory_sequence > MAX_SEQUENCE:
+                    # Sequence overflow inside one ms — borrow from next ms.
+                    _in_memory_last_ms += 1
+                    _in_memory_sequence = 0
+            out.append(
+                (_in_memory_last_ms << TIMESTAMP_SHIFT)
+                | (_IN_MEMORY_MACHINE_ID << MACHINE_ID_SHIFT)
+                | _in_memory_sequence
+            )
+    return out
+
 
 class SnowflakeGenerator:
-    """Snowflake ID generator backed by ClickHouse.
+    """Snowflake ID generator.
 
-    Pre-fetches batches of IDs from ClickHouse's generateSnowflakeID(),
-    serving them from an in-memory buffer for efficiency. When the buffer
-    is exhausted, a new batch is fetched automatically.
-
-    In chdb mode, reuses the per-process shared Session so the embedded
-    chdb file lock is held for the lifetime of the process.
+    In chdb mode, IDs come from a process-wide in-memory counter.
+    In distributed mode, IDs are pre-fetched from ClickHouse's
+    ``generateSnowflakeID()`` in batches and served from an in-memory
+    buffer; the buffer refills automatically when exhausted.
     """
 
     def __init__(self, buffer_size: int = _BUFFER_SIZE):
@@ -57,25 +93,10 @@ class SnowflakeGenerator:
         self._buffer: deque[int] = deque()
 
     def _fetch_ids(self, count: int) -> list[int]:
-        """Fetch a batch of Snowflake IDs from ClickHouse."""
+        """Fetch a batch of Snowflake IDs."""
         if is_chdb():
-            return self._fetch_ids_chdb(count)
+            return _generate_in_memory(count)
         return self._fetch_ids_remote(count)
-
-    @staticmethod
-    def _fetch_ids_chdb(count: int) -> list[int]:
-        from aaiclick.data.data_context.chdb_client import get_shared_session
-
-        data_path = get_ch_url().removeprefix("chdb://")
-        session = get_shared_session(data_path)
-        result = session.query(
-            f"SELECT generateSnowflakeID() FROM numbers({count})",
-            "TabSeparated",
-        )
-        raw = result.bytes()
-        if not raw:
-            return []
-        return [int(line) for line in raw.decode("utf-8").splitlines() if line]
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
@@ -139,7 +160,7 @@ _generator = SnowflakeGenerator()
 
 
 def get_snowflake_id() -> int:
-    """Get a single Snowflake ID from ClickHouse.
+    """Get a single Snowflake ID.
 
     Returns:
         int: Unique 64-bit Snowflake ID
@@ -148,7 +169,7 @@ def get_snowflake_id() -> int:
 
 
 def get_snowflake_ids(size: int) -> list[int]:
-    """Get multiple Snowflake IDs from ClickHouse.
+    """Get multiple Snowflake IDs.
 
     Args:
         size: Number of IDs to generate (must be >= 0)
