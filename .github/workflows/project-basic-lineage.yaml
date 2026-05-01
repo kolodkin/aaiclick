@@ -16,6 +16,7 @@ env:
 jobs:
   basic-lineage:
     runs-on: ubuntu-latest
+    environment: AI
 
     steps:
       - name: Checkout code
