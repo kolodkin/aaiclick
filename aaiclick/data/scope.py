@@ -74,10 +74,10 @@ def make_scoped_table_name(
     """Build the full CH table name for a scoped named object.
 
     Args:
-        scope: ``SCOPE_TEMP_NAMED``, ``SCOPE_JOB``, or ``SCOPE_GLOBAL``.
+        scope: ``"temp_named"``, ``"job"``, or ``"global"``.
         name: Validated persistent name (without prefix).
-        job_id: Required when ``scope == SCOPE_JOB``.
-        snowid: Required when ``scope == SCOPE_TEMP_NAMED``.
+        job_id: Required when ``scope="job"``.
+        snowid: Required when ``scope="temp_named"``.
     """
     if scope == SCOPE_GLOBAL:
         return f"{GLOBAL_PREFIX}{name}"
