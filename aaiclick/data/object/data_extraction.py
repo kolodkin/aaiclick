@@ -127,7 +127,7 @@ async def extract_dict_data(
         obj: Object instance with dict data
         column_names: List of column names in order
         columns: Dict mapping column names to ColumnInfo (with fieldtype)
-        orient: Output format (ORIENT_DICT or ORIENT_RECORDS)
+        orient: Output format (``"dict"`` or ``"records"``)
 
     Returns:
         Dict or list of dicts based on orient parameter
