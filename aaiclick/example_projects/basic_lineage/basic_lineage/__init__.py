@@ -3,7 +3,7 @@ AI-powered lineage explanation for a revenue pipeline.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline under preservation mode `"FULL"` so all intermediate tables
+Runs the pipeline under preservation mode "FULL" so all intermediate tables
 are preserved for debugging. The debug agent uses its tool loop to inspect
 tables and trace the computation graph.
 """

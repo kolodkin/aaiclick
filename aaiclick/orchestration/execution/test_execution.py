@@ -589,7 +589,7 @@ async def test_object_array_fieldtype_preserved_through_roundtrip(orch_ctx):
 async def test_dict_object_explode_works_after_roundtrip(orch_ctx):
     """explode() succeeds on a DICT Object that went through task param roundtrip.
 
-    Regression test: before the fix, _get_table_schema returned `"a"`
+    Regression test: before the fix, _get_table_schema returned FIELDTYPE_ARRAY
     for DICT objects, causing explode() to raise 'can only be used on dict Objects'.
     """
 

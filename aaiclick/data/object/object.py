@@ -880,7 +880,7 @@ class Object:
             >>> # Nullable promotion: if any source has nullable columns,
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
-            ...     fieldtype="a",
+            ...     fieldtype=FIELDTYPE_ARRAY,
             ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])

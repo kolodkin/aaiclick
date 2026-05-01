@@ -78,7 +78,7 @@ async def test_records_single_record(ctx):
 
 
 async def test_records_orient_dict(ctx):
-    """data() with orient=`"dict"` returns dict of lists."""
+    """data() with orient=ORIENT_DICT returns dict of lists."""
     obj = await create_object_from_value(
         [
             {"a": [1, 2], "b": 10},
@@ -94,7 +94,7 @@ async def test_records_orient_dict(ctx):
 
 
 async def test_records_orient_records(ctx):
-    """data() with orient=`"records"` returns list of dicts."""
+    """data() with orient=ORIENT_RECORDS returns list of dicts."""
     obj = await create_object_from_value(
         [
             {"a": [1, 2], "b": 10},

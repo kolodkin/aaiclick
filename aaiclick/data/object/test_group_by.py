@@ -699,7 +699,7 @@ async def test_group_array_distinct_convenience(ctx):
 
 
 def test_group_array_distinct_gb_constant():
-    """`GB_GROUP_ARRAY_DISTINCT` constant equals the literal `"group_array_distinct"`."""
+    """GB_GROUP_ARRAY_DISTINCT constant equals the string literal."""
     assert GB_GROUP_ARRAY_DISTINCT == "group_array_distinct"
 
 
