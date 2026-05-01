@@ -17,6 +17,7 @@ import re
 from typing import Literal
 
 SCOPE_TEMP = "temp"
+SCOPE_TEMP_NAMED = "temp_named"
 SCOPE_JOB = "job"
 SCOPE_GLOBAL = "global"
 
@@ -33,17 +34,17 @@ TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 def scope_of(table_name: str) -> ObjectScope:
     """Return the scope implied by a table name's prefix."""
     if table_name.startswith(GLOBAL_PREFIX):
-        return "global"
+        return SCOPE_GLOBAL
     if JOB_SCOPED_RE.match(table_name):
-        return "job"
+        return SCOPE_JOB
     if TEMP_NAMED_RE.match(table_name):
-        return "temp_named"
-    return "temp"
+        return SCOPE_TEMP_NAMED
+    return SCOPE_TEMP
 
 
 def is_persistent_table(table_name: str) -> bool:
     """True for tables that survive context/task exit (``p_*`` and ``j_<id>_*``)."""
-    return scope_of(table_name) in ("job", "global")
+    return scope_of(table_name) in (SCOPE_JOB, SCOPE_GLOBAL)
 
 
 def name_from_table(table_name: str) -> str:
@@ -55,11 +56,11 @@ def name_from_table(table_name: str) -> str:
     - ``t_<snowflake>`` (unnamed) → the table name itself
     """
     scope = scope_of(table_name)
-    if scope == "global":
+    if scope == SCOPE_GLOBAL:
         return table_name[len(GLOBAL_PREFIX) :]
-    if scope == "job":
+    if scope == SCOPE_JOB:
         return table_name.split("_", 2)[2]
-    if scope == "temp_named":
+    if scope == SCOPE_TEMP_NAMED:
         return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
     return table_name
 
@@ -73,14 +74,14 @@ def make_scoped_table_name(
     """Build the full CH table name for a scoped named object.
 
     Args:
-        scope: ``"temp_named"``, ``"job"``, or ``"global"``.
+        scope: ``SCOPE_TEMP_NAMED``, ``SCOPE_JOB``, or ``SCOPE_GLOBAL``.
         name: Validated persistent name (without prefix).
-        job_id: Required when ``scope="job"``.
-        snowid: Required when ``scope="temp_named"``.
+        job_id: Required when ``scope == SCOPE_JOB``.
+        snowid: Required when ``scope == SCOPE_TEMP_NAMED``.
     """
-    if scope == "global":
+    if scope == SCOPE_GLOBAL:
         return f"{GLOBAL_PREFIX}{name}"
-    if scope == "temp_named":
+    if scope == SCOPE_TEMP_NAMED:
         if snowid is None:
             raise ValueError("scope='temp_named' requires a snowid")
         return f"{TEMP_PREFIX}{name}_{snowid}"

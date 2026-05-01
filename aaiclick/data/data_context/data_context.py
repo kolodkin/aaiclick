@@ -40,7 +40,14 @@ from ..models import (
     ValueType,
     build_order_by_clause,
 )
-from ..scope import NamedScope, PersistentScope, make_scoped_table_name
+from ..scope import (
+    SCOPE_GLOBAL,
+    SCOPE_JOB,
+    SCOPE_TEMP_NAMED,
+    NamedScope,
+    PersistentScope,
+    make_scoped_table_name,
+)
 from ..sql_utils import quote_identifier
 from .ch_client import ChClient, _ch_client_var, create_ch_client, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
@@ -239,9 +246,9 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
             raise ValueError("scope can only be set together with name")
         return None
 
-    effective: NamedScope = scope if scope is not None else "temp_named"
+    effective: NamedScope = scope if scope is not None else SCOPE_TEMP_NAMED
 
-    if effective in ("job", "global"):
+    if effective in (SCOPE_JOB, SCOPE_GLOBAL):
         lifecycle = get_data_lifecycle()
         if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
             raise RuntimeError(
@@ -257,10 +264,10 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
 def _build_scoped_table(name: str, scope: NamedScope) -> str:
     """Validate ``name`` and build the full CH table name for a scoped object."""
     _validate_persistent_name(name)
-    if scope == "temp_named":
+    if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
     job_id: int | None = None
-    if scope == "job":
+    if scope == SCOPE_JOB:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
     return make_scoped_table_name(scope, name, job_id=job_id)
@@ -835,7 +842,7 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str, scope: PersistentScope = "job") -> Object:
+async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     """Open an existing persistent Object by name.
 
     Args:
@@ -869,7 +876,7 @@ async def open_object(name: str, scope: PersistentScope = "job") -> Object:
     return obj
 
 
-async def delete_persistent_object(name: str, scope: PersistentScope = "job") -> None:
+async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB) -> None:
     """Drop a persistent table by name.
 
     Args:
