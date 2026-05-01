@@ -33,7 +33,12 @@ async def test_mp_worker_executes_task(orch_ctx_no_ch):
 
 
 async def test_mp_worker_handles_failure(orch_ctx_no_ch):
-    """Test that mp worker handles task failures from child process."""
+    """Test that mp worker handles task failures from child process.
+
+    Asserts the recorded error matches the message raised by ``failing_task``
+    so a child crash on chdb setup, an exit-code-only failure, or a timeout
+    can't masquerade as a passing test.
+    """
     job = await create_job(
         "test_mp_failing_job",
         "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
@@ -51,7 +56,7 @@ async def test_mp_worker_handles_failure(orch_ctx_no_ch):
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TASK_PENDING_CLEANUP
-        assert task.error is not None
+        assert task.error == "This task failed intentionally"
 
 
 async def test_mp_worker_no_tasks(orch_ctx_no_ch):
