@@ -10,7 +10,6 @@ from __future__ import annotations
 import functools
 import sys
 from dataclasses import dataclass
-from dataclasses import replace as dataclass_replace
 from typing import Any
 
 from typing_extensions import Self
@@ -148,7 +147,7 @@ class Object:
         if order_by is not None:
             replace_kw["order_by"] = build_order_by_clause(order_by)
         self._stale = False
-        self._schema = dataclass_replace(schema, **replace_kw)
+        self._schema = schema.model_copy(update=replace_kw)
         self._registered = False
         self._owns_lifecycle_ref = False
 
@@ -2773,7 +2772,7 @@ class View(Object):
             for col_name in self._exploded_columns:
                 if col_name in columns:
                     old_info = columns[col_name]
-                    columns[col_name] = dataclass_replace(old_info, array=max(0, int(old_info.array) - 1))
+                    columns[col_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,

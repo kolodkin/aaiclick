@@ -58,7 +58,6 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import NamedTuple, cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
@@ -303,7 +302,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     if aai_id_source is not None:
         # Mirror the source column shape, but drop DEFAULT — values are copied
         # via INSERT, not generated per-row by ClickHouse.
-        result_columns[AAI_ID_COLUMN] = replace(aai_id_source, default=None)
+        result_columns[AAI_ID_COLUMN] = aai_id_source.model_copy(update={"default": None})
     schema = Schema(fieldtype=fieldtype, columns=result_columns)
     result = await create_object(schema)
 

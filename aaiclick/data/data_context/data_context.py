@@ -13,7 +13,6 @@ import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -351,12 +350,10 @@ async def create_object(
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)
     # are scoped to their job and cleaned up when the job expires. The
-    # schema_doc carries the serialised SchemaView that _get_table_schema
-    # reads back — replaces the per-column ClickHouse COMMENT YAML.
+    # schema_doc carries the serialised Schema that _get_table_schema reads
+    # back — replaces the per-column ClickHouse COMMENT YAML.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
-    from ..view_models import schema_to_view
-
-    register_table(obj.table, schema_doc=schema_to_view(schema).model_dump_json())
+    register_table(obj.table, schema_doc=schema.model_dump_json())
 
     # Flush the lifecycle queue so the registry row is committed before the
     # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
@@ -495,11 +492,12 @@ def _infer_clickhouse_type(value: ValueScalarType | ValueListType) -> ColumnInfo
 
 def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
     """Apply a FieldSpec override to an inferred ColumnInfo."""
-    return replace(
-        col,
-        type=spec.type if spec.type is not None else col.type,
-        nullable=spec.nullable,
-        low_cardinality=spec.low_cardinality,
+    return col.model_copy(
+        update={
+            "type": spec.type if spec.type is not None else col.type,
+            "nullable": spec.nullable,
+            "low_cardinality": spec.low_cardinality,
+        }
     )
 
 
