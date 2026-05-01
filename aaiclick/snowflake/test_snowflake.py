@@ -1,7 +1,12 @@
 """
-Tests for Snowflake ID generation (backed by ClickHouse).
+Tests for Snowflake ID generation.
 """
 
+import sys
+
+import pytest
+
+from aaiclick import backend
 from aaiclick.snowflake import (
     MAX_SEQUENCE,
     SnowflakeGenerator,
@@ -185,3 +190,26 @@ def test_get_snowflake_ids_max_size():
 
     # All should be in ascending order
     assert ids == sorted(ids)
+
+
+def test_chdb_mode_does_not_touch_shared_session():
+    """In chdb mode, ID generation must not import or open the shared chdb Session.
+
+    The orch_context(with_ch=False) contract requires that callers can mint
+    IDs without acquiring the chdb file lock — tests, CLI, MCP server, and
+    multiprocessing workers all rely on this. Generating an ID via the
+    shared chdb Session would silently break that contract.
+    """
+    if not backend.is_chdb():
+        pytest.skip("only relevant for chdb backend")
+
+    # Drop any cached chdb client module so we can detect a fresh import.
+    sys.modules.pop("aaiclick.data.data_context.chdb_client", None)
+
+    gen = SnowflakeGenerator(buffer_size=4)
+    ids = gen.generate_bulk(10)
+
+    assert len(ids) == 10
+    assert len(set(ids)) == 10
+    assert ids == sorted(ids)
+    assert "aaiclick.data.data_context.chdb_client" not in sys.modules
