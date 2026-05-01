@@ -11,7 +11,7 @@ without a time filter).
 
 Default-scope behaviour (``name`` set, no ``scope``) → ``"temp_named"`` is
 covered alongside the unnamed-temp default in
-``aaiclick/data/test_context.py``.
+``aaiclick/data/data_context/test_persistent.py``.
 """
 
 import pytest
