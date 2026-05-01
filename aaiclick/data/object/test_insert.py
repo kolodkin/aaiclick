@@ -415,8 +415,8 @@ async def test_insert_view_with_computed_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "name": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "active": ColumnInfo("UInt8", fieldtype=FIELDTYPE_ARRAY),
+            "name": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "active": ColumnInfo(type="UInt8", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -441,9 +441,9 @@ async def test_insert_subset_columns_nullable_fill(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "val1": ColumnInfo("Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
-            "val2": ColumnInfo("String", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "id": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "val1": ColumnInfo(type="Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "val2": ColumnInfo(type="String", nullable=True, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -467,8 +467,8 @@ async def test_insert_subset_non_nullable_gets_default(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "count": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY),
+            "id": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "count": ColumnInfo(type="Int64", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)
@@ -492,7 +492,7 @@ async def test_insert_skips_extra_source_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "id": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "id": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     target = await create_object(schema)

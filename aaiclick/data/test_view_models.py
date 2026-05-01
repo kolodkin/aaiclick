@@ -33,13 +33,6 @@ def test_column_info_fieldtype_rejects_invalid():
         ColumnInfo(type="Int64", fieldtype=FIELDTYPE_DICT)
 
 
-def test_column_info_positional_type():
-    """Historical dataclass call sites use positional ``type=``."""
-    info = ColumnInfo("Int64", nullable=True)
-    assert info.type == "Int64"
-    assert info.nullable is True
-
-
 def test_column_info_with_fieldtype_returns_copy():
     info = ColumnInfo(type="Int64", fieldtype=FIELDTYPE_SCALAR)
     promoted = info.with_fieldtype(FIELDTYPE_ARRAY)

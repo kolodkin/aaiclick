@@ -14,8 +14,8 @@ async def test_rename_basic(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "old_name": ColumnInfo("String"),
-            "keep_me": ColumnInfo("Int32"),
+            "old_name": ColumnInfo(type="String"),
+            "keep_me": ColumnInfo(type="Int32"),
         },
     )
     obj = await create_object(schema)
@@ -37,8 +37,8 @@ async def test_rename_insert_into_target(ctx):
     src_schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "src_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "src_col": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo(type="Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -48,8 +48,8 @@ async def test_rename_insert_into_target(ctx):
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "dst_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "dst_col": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo(type="Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
@@ -67,7 +67,7 @@ async def test_rename_with_computed_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "old_col": ColumnInfo("Int32"),
+            "old_col": ColumnInfo(type="Int32"),
         },
     )
     obj = await create_object(schema)
@@ -89,8 +89,8 @@ async def test_rename_collision_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "col_a": ColumnInfo("String"),
-            "col_b": ColumnInfo("String"),
+            "col_a": ColumnInfo(type="String"),
+            "col_b": ColumnInfo(type="String"),
         },
     )
     obj = await create_object(schema)
@@ -110,8 +110,8 @@ async def test_insert_skips_extra_source_columns(ctx):
     src_schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
-            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo(type="Int32", fieldtype=FIELDTYPE_ARRAY),
+            "extra_col": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     src = await create_object(src_schema)
@@ -121,7 +121,7 @@ async def test_insert_skips_extra_source_columns(ctx):
     tgt_schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "shared": ColumnInfo(type="Int32", fieldtype=FIELDTYPE_ARRAY),
         },
     )
     tgt = await create_object(tgt_schema)
@@ -143,8 +143,8 @@ async def test_rename_duplicate_new_names_raises(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "col_a": ColumnInfo("String"),
-            "col_b": ColumnInfo("String"),
+            "col_a": ColumnInfo(type="String"),
+            "col_b": ColumnInfo(type="String"),
         },
     )
     obj = await create_object(schema)

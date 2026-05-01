@@ -33,12 +33,12 @@ async def test_aggregation_table_two_sources(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "key": ColumnInfo("String"),
-            "in_a": ColumnInfo("UInt8"),
-            "in_b": ColumnInfo("UInt8"),
-            "name": ColumnInfo("String", nullable=True),
-            "score": ColumnInfo("Float64", nullable=True),
-            "label": ColumnInfo("String", nullable=True),
+            "key": ColumnInfo(type="String"),
+            "in_a": ColumnInfo(type="UInt8"),
+            "in_b": ColumnInfo(type="UInt8"),
+            "name": ColumnInfo(type="String", nullable=True),
+            "score": ColumnInfo(type="Float64", nullable=True),
+            "label": ColumnInfo(type="String", nullable=True),
         },
     )
     agg = await create_object(schema)
@@ -118,10 +118,10 @@ async def test_aggregation_table_three_sources(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "id": ColumnInfo("String"),
-            "val1": ColumnInfo("Int64", nullable=True),
-            "val2": ColumnInfo("Int64", nullable=True),
-            "val3": ColumnInfo("String", nullable=True),
+            "id": ColumnInfo(type="String"),
+            "val1": ColumnInfo(type="Int64", nullable=True),
+            "val2": ColumnInfo(type="Int64", nullable=True),
+            "val3": ColumnInfo(type="String", nullable=True),
         },
     )
     agg = await create_object(schema)
@@ -162,8 +162,8 @@ async def test_aggregation_table_duplicate_key_same_source(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "key": ColumnInfo("String"),
-            "value": ColumnInfo("Int64", nullable=True),
+            "key": ColumnInfo(type="String"),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     agg = await create_object(schema)

@@ -56,22 +56,22 @@ HF_WIKIPEDIA_URL_TEMPLATE = (
 
 # Agg-table column schemas — keep tight so insert() auto-NULLs missing fields.
 _STAGE_A_COLUMNS = {
-    "tconst": ColumnInfo("String"),
-    "primaryTitle": ColumnInfo("String", nullable=True),
-    "startYear": ColumnInfo("String", nullable=True),
-    "genres": ColumnInfo("String", nullable=True),
-    "runtimeMinutes": ColumnInfo("String", nullable=True),
-    "wp_title": ColumnInfo("String", nullable=True),
+    "tconst": ColumnInfo(type="String"),
+    "primaryTitle": ColumnInfo(type="String", nullable=True),
+    "startYear": ColumnInfo(type="String", nullable=True),
+    "genres": ColumnInfo(type="String", nullable=True),
+    "runtimeMinutes": ColumnInfo(type="String", nullable=True),
+    "wp_title": ColumnInfo(type="String", nullable=True),
 }
 
 _STAGE_B_COLUMNS = {
-    "wp_title": ColumnInfo("String"),
-    "tconst": ColumnInfo("String", nullable=True),
-    "primaryTitle": ColumnInfo("String", nullable=True),
-    "startYear": ColumnInfo("String", nullable=True),
-    "genres": ColumnInfo("String", nullable=True),
-    "runtimeMinutes": ColumnInfo("String", nullable=True),
-    "wiki_text": ColumnInfo("String", nullable=True),
+    "wp_title": ColumnInfo(type="String"),
+    "tconst": ColumnInfo(type="String", nullable=True),
+    "primaryTitle": ColumnInfo(type="String", nullable=True),
+    "startYear": ColumnInfo(type="String", nullable=True),
+    "genres": ColumnInfo(type="String", nullable=True),
+    "runtimeMinutes": ColumnInfo(type="String", nullable=True),
+    "wiki_text": ColumnInfo(type="String", nullable=True),
 }
 
 ENRICHED_DISPLAY_COLUMNS = [
@@ -197,10 +197,10 @@ async def load_wikipedia_dump(title_map: Object) -> Object:
         columns=["id", "url", "title", "text"],
         format="Parquet",
         column_types={
-            "id": ColumnInfo("String"),
-            "url": ColumnInfo("String"),
-            "title": ColumnInfo("String"),
-            "text": ColumnInfo("String"),
+            "id": ColumnInfo(type="String"),
+            "url": ColumnInfo(type="String"),
+            "title": ColumnInfo(type="String"),
+            "text": ColumnInfo(type="String"),
         },
         ch_settings={"max_http_get_redirects": 10},
         where=f"title IN (SELECT wp_title FROM {title_map.table})",

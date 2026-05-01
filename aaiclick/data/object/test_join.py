@@ -95,8 +95,8 @@ def _cols(**kwargs: ColumnInfo) -> dict[str, ColumnInfo]:
 
 
 def test_schema_using_form_dedupes_key():
-    left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
-    right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
+    left = _cols(k=ColumnInfo(type="Int64"), a=ColumnInfo(type="String"))
+    right = _cols(k=ColumnInfo(type="Int64"), b=ColumnInfo(type="Float64"))
 
     schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=["k"], right=["k"]), how="inner", suffixes=None
@@ -110,8 +110,8 @@ def test_schema_using_form_dedupes_key():
 
 
 def test_schema_on_form_keeps_both_keys():
-    left = _cols(id=ColumnInfo("Int64"), name=ColumnInfo("String"))
-    right = _cols(tconst=ColumnInfo("Int64"), total=ColumnInfo("Float64"))
+    left = _cols(id=ColumnInfo(type="Int64"), name=ColumnInfo(type="String"))
+    right = _cols(tconst=ColumnInfo(type="Int64"), total=ColumnInfo(type="Float64"))
 
     schema, lproj, rproj, _ = build_join_schema(
         left, right, JoinKeys(left=["id"], right=["tconst"]), how="inner", suffixes=None
@@ -126,15 +126,15 @@ def test_schema_on_form_keeps_both_keys():
     "left_cols,right_cols,keys,match",
     [
         pytest.param(
-            _cols(a=ColumnInfo("Int64")),
-            _cols(missing=ColumnInfo("Int64")),
+            _cols(a=ColumnInfo(type="Int64")),
+            _cols(missing=ColumnInfo(type="Int64")),
             JoinKeys(left=["missing"], right=["missing"]),
             "left key 'missing'",
             id="missing-left-key",
         ),
         pytest.param(
-            _cols(lk=ColumnInfo("Int64")),
-            _cols(other=ColumnInfo("Int64")),
+            _cols(lk=ColumnInfo(type="Int64")),
+            _cols(other=ColumnInfo(type="Int64")),
             JoinKeys(left=["lk"], right=["rk"]),
             "right key 'rk'",
             id="missing-right-key",
@@ -156,8 +156,8 @@ def test_schema_missing_key_raises(left_cols, right_cols, keys, match):
 )
 def test_schema_key_type_compatibility(left_type, right_type, expected_result_type):
     args = (
-        _cols(k=ColumnInfo(left_type)),
-        _cols(k=ColumnInfo(right_type)),
+        _cols(k=ColumnInfo(type=left_type)),
+        _cols(k=ColumnInfo(type=right_type)),
         JoinKeys(left=["k"], right=["k"]),
     )
     kwargs = {"how": "inner", "suffixes": None}
@@ -173,8 +173,8 @@ def test_schema_key_type_compatibility(left_type, right_type, expected_result_ty
 def test_schema_collision_without_suffixes_raises():
     with pytest.raises(ValueError, match="column collision on \\['score'\\]"):
         build_join_schema(
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+            _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
+            _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
             JoinKeys(left=["k"], right=["k"]),
             how="inner",
             suffixes=None,
@@ -191,8 +191,8 @@ def test_schema_collision_without_suffixes_raises():
 )
 def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
     schema, lproj, rproj, _ = build_join_schema(
-        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-        _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+        _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
+        _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
         JoinKeys(left=["k"], right=["k"]),
         how="inner",
         suffixes=suffixes,
@@ -205,8 +205,8 @@ def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
 def test_schema_suffixes_false_treated_as_none():
     with pytest.raises(ValueError, match="column collision"):
         build_join_schema(
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
+            _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
+            _cols(k=ColumnInfo(type="Int64"), score=ColumnInfo(type="Float64")),
             JoinKeys(left=["k"], right=["k"]),
             how="inner",
             suffixes=False,
@@ -216,8 +216,8 @@ def test_schema_suffixes_false_treated_as_none():
 def test_schema_empty_suffix_raises():
     with pytest.raises(ValueError, match="non-empty"):
         build_join_schema(
-            _cols(k=ColumnInfo("Int64"), s=ColumnInfo("Float64")),
-            _cols(k=ColumnInfo("Int64"), s=ColumnInfo("Float64")),
+            _cols(k=ColumnInfo(type="Int64"), s=ColumnInfo(type="Float64")),
+            _cols(k=ColumnInfo(type="Int64"), s=ColumnInfo(type="Float64")),
             JoinKeys(left=["k"], right=["k"]),
             how="inner",
             suffixes=("", "_r"),
@@ -234,8 +234,8 @@ def test_schema_empty_suffix_raises():
     ],
 )
 def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
-    left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
-    right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
+    left = _cols(k=ColumnInfo(type="Int64"), a=ColumnInfo(type="String"))
+    right = _cols(k=ColumnInfo(type="Int64"), b=ColumnInfo(type="Float64"))
     schema, _, _, _ = build_join_schema(left, right, JoinKeys(left=["k"], right=["k"]), how=how, suffixes=None)
 
     assert schema.columns["a"].nullable is left_nullable
@@ -245,8 +245,8 @@ def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
 
 
 def test_schema_low_cardinality_preserved_and_promoted():
-    left = _cols(k=ColumnInfo("Int64"), tag=ColumnInfo("String", low_cardinality=True))
-    right = _cols(k=ColumnInfo("Int64"))
+    left = _cols(k=ColumnInfo(type="Int64"), tag=ColumnInfo(type="String", low_cardinality=True))
+    right = _cols(k=ColumnInfo(type="Int64"))
     schema, _, _, _ = build_join_schema(left, right, JoinKeys(left=["k"], right=["k"]), how="right", suffixes=None)
 
     tag = schema.columns["tag"]
@@ -255,8 +255,8 @@ def test_schema_low_cardinality_preserved_and_promoted():
 
 
 def test_schema_cross_join_has_no_keys():
-    left = _cols(a=ColumnInfo("String"))
-    right = _cols(b=ColumnInfo("Float64"))
+    left = _cols(a=ColumnInfo(type="String"))
+    right = _cols(b=ColumnInfo(type="Float64"))
     schema, lproj, rproj, _ = build_join_schema(left, right, JoinKeys(left=[], right=[]), how="cross", suffixes=None)
 
     assert list(schema.columns) == ["a", "b"]

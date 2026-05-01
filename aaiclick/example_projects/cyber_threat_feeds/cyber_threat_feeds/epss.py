@@ -10,9 +10,9 @@ from aaiclick.orchestration import task
 EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
 
 EPSS_COLUMNS = {
-    "cve": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
-    "epss": ColumnInfo("Float64", description="Exploitation probability in next 30 days (0-1)"),
-    "percentile": ColumnInfo("Float64", description="Relative ranking among all scored CVEs (0-1)"),
+    "cve": ColumnInfo(type="String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "epss": ColumnInfo(type="Float64", description="Exploitation probability in next 30 days (0-1)"),
+    "percentile": ColumnInfo(type="Float64", description="Relative ranking among all scored CVEs (0-1)"),
 }
 
 # Skip the first line: #model_version:...,score_date:... comment.

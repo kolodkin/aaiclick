@@ -19,19 +19,19 @@ from aaiclick.data.models import parse_ch_type
 
 
 def test_column_def_ch_type_non_nullable():
-    cd = ColumnInfo("Int64")
+    cd = ColumnInfo(type="Int64")
     assert cd.ch_type() == "Int64"
     assert cd.nullable is False
 
 
 def test_column_def_ch_type_nullable():
-    cd = ColumnInfo("Int64", nullable=True)
+    cd = ColumnInfo(type="Int64", nullable=True)
     assert cd.ch_type() == "Nullable(Int64)"
     assert cd.nullable is True
 
 
 def test_column_def_frozen():
-    cd = ColumnInfo("Int64")
+    cd = ColumnInfo(type="Int64")
     with pytest.raises(ValidationError, match="frozen"):
         cd.type = "String"  # type: ignore[misc]
 
@@ -64,13 +64,13 @@ def test_parse_ch_type_nullable_string():
 
 
 def test_column_def_low_cardinality():
-    cd = ColumnInfo("String", low_cardinality=True)
+    cd = ColumnInfo(type="String", low_cardinality=True)
     assert cd.ch_type() == "LowCardinality(String)"
     assert cd.low_cardinality is True
 
 
 def test_column_def_low_cardinality_nullable():
-    cd = ColumnInfo("String", nullable=True, low_cardinality=True)
+    cd = ColumnInfo(type="String", nullable=True, low_cardinality=True)
     assert cd.ch_type() == "LowCardinality(Nullable(String))"
 
 
@@ -96,7 +96,7 @@ async def test_create_nullable_column(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -115,7 +115,7 @@ async def test_create_nullable_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
         columns={
-            "value": ColumnInfo("String", nullable=True),
+            "value": ColumnInfo(type="String", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -132,8 +132,8 @@ async def test_nullable_dict_columns(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
-            "name": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "score": ColumnInfo("Float64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "name": ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY),
+            "score": ColumnInfo(type="Float64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     obj = await create_object(schema)
@@ -154,7 +154,7 @@ async def test_schema_shows_nullable(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -173,7 +173,7 @@ async def test_nullable_add_propagates_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -192,7 +192,7 @@ async def test_nullable_comparison_returns_nullable(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -214,7 +214,7 @@ async def test_nullable_sum_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -230,7 +230,7 @@ async def test_nullable_count_counts_all_rows(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -247,7 +247,7 @@ async def test_nullable_mean_skips_nulls(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -266,7 +266,7 @@ async def test_is_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -282,7 +282,7 @@ async def test_is_not_null(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -298,7 +298,7 @@ async def test_coalesce_with_scalar(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
@@ -315,8 +315,8 @@ async def test_coalesce_with_object(ctx):
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
-            "aai_id": ColumnInfo("UInt64", fieldtype="a", default="generateSnowflakeID()"),
+            "value": ColumnInfo(type="Int64", nullable=True),
+            "aai_id": ColumnInfo(type="UInt64", fieldtype="a", default="generateSnowflakeID()"),
         },
     )
     obj = await create_object(schema)
@@ -338,7 +338,7 @@ async def test_concat_nullable_with_nonnullable(ctx):
     schema_nullable = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj_a = await create_object(schema_nullable)

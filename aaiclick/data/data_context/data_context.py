@@ -370,7 +370,7 @@ async def create_object(
 def _infer_array_clickhouse_type(value: list) -> ColumnInfo:
     """Infer Array(T) ClickHouse type from a Python list for use as an Array column."""
     element_def = _infer_clickhouse_type(value)
-    return ColumnInfo(element_def.type, array=True)
+    return ColumnInfo(type=element_def.type, array=True)
 
 
 def _is_list_of_dicts(value: object) -> bool:
@@ -407,7 +407,7 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
         elif isinstance(val, list):
             col_info = _infer_array_clickhouse_type(val)
             columns[col_name] = ColumnInfo(
-                col_info.type,
+                type=col_info.type,
                 array=int(col_info.array) + array_depth,
                 low_cardinality=col_info.low_cardinality,
             )
@@ -415,7 +415,7 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
             col_info = _infer_clickhouse_type(val)
             if array_depth:
                 columns[col_name] = ColumnInfo(
-                    col_info.type,
+                    type=col_info.type,
                     array=array_depth,
                     low_cardinality=col_info.low_cardinality,
                 )
@@ -454,40 +454,40 @@ def _infer_clickhouse_type(value: ValueScalarType | ValueListType) -> ColumnInfo
     """Infer ClickHouse column type from Python value using pyarrow.
 
     Returns a ColumnInfo with nullable=False. Nullable columns must be
-    created explicitly via Schema with ColumnInfo(type, nullable=True).
+    created explicitly via Schema with ColumnInfo(type=..., nullable=True).
     String types default to LowCardinality for better storage and query performance.
     Datetime types map to DateTime64(3, 'UTC') for millisecond-precision UTC storage.
     """
     if isinstance(value, list):
         if not value:
-            return ColumnInfo("String")
+            return ColumnInfo(type="String")
 
         arr = pa.array(value)
         pa_type = arr.type
 
         if pa.types.is_boolean(pa_type):
-            return ColumnInfo("Bool")
+            return ColumnInfo(type="Bool")
         elif pa.types.is_timestamp(pa_type):
-            return ColumnInfo("DateTime64(3, 'UTC')")
+            return ColumnInfo(type="DateTime64(3, 'UTC')")
         elif pa.types.is_integer(pa_type):
-            return ColumnInfo("Int64")
+            return ColumnInfo(type="Int64")
         elif pa.types.is_floating(pa_type):
-            return ColumnInfo("Float64")
+            return ColumnInfo(type="Float64")
         else:
-            return ColumnInfo("String")
+            return ColumnInfo(type="String")
 
     if isinstance(value, bool):
-        return ColumnInfo("Bool")
+        return ColumnInfo(type="Bool")
     elif isinstance(value, datetime):
-        return ColumnInfo("DateTime64(3, 'UTC')")
+        return ColumnInfo(type="DateTime64(3, 'UTC')")
     elif isinstance(value, int):
-        return ColumnInfo("Int64")
+        return ColumnInfo(type="Int64")
     elif isinstance(value, float):
-        return ColumnInfo("Float64")
+        return ColumnInfo(type="Float64")
     elif isinstance(value, str):
-        return ColumnInfo("String")
+        return ColumnInfo(type="String")
     else:
-        return ColumnInfo("String")
+        return ColumnInfo(type="String")
 
 
 def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:

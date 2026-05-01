@@ -20,11 +20,11 @@ IS_ASYNC = True
 _SCHEMA = Schema(
     fieldtype="d",
     columns={
-        "id": ColumnInfo("Int64"),
-        "category": ColumnInfo("String", low_cardinality=True),
-        "subcategory": ColumnInfo("String", low_cardinality=True),
-        "amount": ColumnInfo("Float64"),
-        "quantity": ColumnInfo("Int64"),
+        "id": ColumnInfo(type="Int64"),
+        "category": ColumnInfo(type="String", low_cardinality=True),
+        "subcategory": ColumnInfo(type="String", low_cardinality=True),
+        "amount": ColumnInfo(type="Float64"),
+        "quantity": ColumnInfo(type="Int64"),
     },
 )
 

@@ -33,7 +33,7 @@ async def example():
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={
-            "value": ColumnInfo("Int64", nullable=True),
+            "value": ColumnInfo(type="Int64", nullable=True),
         },
     )
     obj = await create_object(schema)
