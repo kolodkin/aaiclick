@@ -89,11 +89,10 @@ async def debug_result(
                     "content": assistant_content,
                     "tool_calls": [
                         {
-                            "id": call.id,
+                            "id": calls[0].id,
                             "type": "function",
-                            "function": {"name": call.name, "arguments": call.arguments},
+                            "function": {"name": calls[0].name, "arguments": calls[0].arguments},
                         }
-                        for call in calls
                     ],
                 }
             )
@@ -101,7 +100,7 @@ async def debug_result(
             tool_results = await asyncio.gather(
                 *(toolbox.dispatch_tool(call.name, _parse_arguments(call.arguments)) for call in calls)
             )
-            for call, result in zip(calls, tool_results, strict=False):
+            for index, (call, result) in enumerate(zip(calls, tool_results, strict=False)):
                 messages.append(
                     {
                         "role": "tool",
@@ -109,6 +108,21 @@ async def debug_result(
                         "content": result,
                     }
                 )
+                if index + 1 < len(calls):
+                    next_call = calls[index + 1]
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": next_call.id,
+                                    "type": "function",
+                                    "function": {"name": next_call.name, "arguments": next_call.arguments},
+                                }
+                            ],
+                        }
+                    )
 
         messages.append({"role": "user", "content": "Please provide your final answer."})
         response = await provider.complete(messages)
