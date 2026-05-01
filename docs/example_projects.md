@@ -25,6 +25,10 @@ script as the single entry point.
 
     --8<-- "aaiclick/example_projects/imdb_dataset_builder/README.md"
 
+=== "NVIDIA NIM Lineage"
+
+    --8<-- "aaiclick/example_projects/nvidia_nim_lineage/README.md"
+
 === "NYC Taxi Pipeline"
 
     --8<-- "aaiclick/example_projects/nyc_taxi_pipeline/README.md"
