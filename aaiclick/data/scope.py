@@ -1,11 +1,12 @@
 """
 aaiclick.data.scope - Object scope helpers (table-name prefix scheme).
 
-Three scopes share one table-name prefix convention:
+Four scopes share one table-name prefix convention:
 
-- ``"temp"``   → ``t_<snowflake_id>``         — lifetime: context/task
-- ``"job"``    → ``j_<job_id>_<name>``        — lifetime: owning job's TTL
-- ``"global"`` → ``p_<name>``                 — lifetime: forever (user-managed)
+- ``"temp"``       → ``t_<snowflake_id>``         — lifetime: context/task
+- ``"temp_named"`` → ``t_<name>_<snowflake_id>``  — lifetime: context/task (named)
+- ``"job"``        → ``j_<job_id>_<name>``        — lifetime: owning job's TTL
+- ``"global"``     → ``p_<name>``                 — lifetime: forever (user-managed)
 
 Prefix matching is cheap and works both in Python and in SQL cleanup queries.
 """
@@ -16,41 +17,74 @@ import re
 from typing import Literal
 
 SCOPE_TEMP = "temp"
+SCOPE_TEMP_NAMED = "temp_named"
 SCOPE_JOB = "job"
 SCOPE_GLOBAL = "global"
 
-ObjectScope = Literal["temp", "job", "global"]
-NamedScope = Literal["job", "global"]
+ObjectScope = Literal["temp", "temp_named", "job", "global"]
+NamedScope = Literal["temp_named", "job", "global"]
+PersistentScope = Literal["job", "global"]
 
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
+TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 
 
 def scope_of(table_name: str) -> ObjectScope:
     """Return the scope implied by a table name's prefix."""
     if table_name.startswith(GLOBAL_PREFIX):
-        return "global"
+        return SCOPE_GLOBAL
     if JOB_SCOPED_RE.match(table_name):
-        return "job"
-    return "temp"
+        return SCOPE_JOB
+    if TEMP_NAMED_RE.match(table_name):
+        return SCOPE_TEMP_NAMED
+    return SCOPE_TEMP
 
 
 def is_persistent_table(table_name: str) -> bool:
     """True for tables that survive context/task exit (``p_*`` and ``j_<id>_*``)."""
-    return scope_of(table_name) != "temp"
+    return scope_of(table_name) in (SCOPE_JOB, SCOPE_GLOBAL)
 
 
-def make_persistent_table_name(scope: NamedScope, name: str, job_id: int | None = None) -> str:
+def name_from_table(table_name: str) -> str:
+    """Strip the scope prefix to recover the user-visible name.
+
+    - ``p_<name>``                → ``<name>``
+    - ``j_<job_id>_<name>``       → ``<name>``
+    - ``t_<name>_<snowflake>``    → ``<name>``
+    - ``t_<snowflake>`` (unnamed) → the table name itself
+    """
+    scope = scope_of(table_name)
+    if scope == SCOPE_GLOBAL:
+        return table_name[len(GLOBAL_PREFIX) :]
+    if scope == SCOPE_JOB:
+        return table_name.split("_", 2)[2]
+    if scope == SCOPE_TEMP_NAMED:
+        return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
+    return table_name
+
+
+def make_scoped_table_name(
+    scope: NamedScope,
+    name: str,
+    job_id: int | None = None,
+    snowid: int | None = None,
+) -> str:
     """Build the full CH table name for a scoped named object.
 
     Args:
-        scope: ``"job"`` or ``"global"``.
+        scope: ``"temp_named"``, ``"job"``, or ``"global"``.
         name: Validated persistent name (without prefix).
         job_id: Required when ``scope="job"``.
+        snowid: Required when ``scope="temp_named"``.
     """
-    if scope == "global":
+    if scope == SCOPE_GLOBAL:
         return f"{GLOBAL_PREFIX}{name}"
+    if scope == SCOPE_TEMP_NAMED:
+        if snowid is None:
+            raise ValueError("scope='temp_named' requires a snowid")
+        return f"{TEMP_PREFIX}{name}_{snowid}"
     if job_id is None:
         raise ValueError(
             "scope='job' requires a job_id; create_object_from_value(scope='job') "

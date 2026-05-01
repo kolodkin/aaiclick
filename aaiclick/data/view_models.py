@@ -22,7 +22,7 @@ from .models import (
     Fieldtype,
     Schema,
 )
-from .scope import GLOBAL_PREFIX, JOB_SCOPED_RE, ObjectScope
+from .scope import ObjectScope
 
 
 class ColumnView(BaseModel):
@@ -63,20 +63,6 @@ class ObjectDetail(ObjectView):
 
     table_schema: SchemaView
     lineage_summary: str | None = None
-
-
-def _object_name_from_table(table: str) -> str:
-    """Return the user-visible name for a table.
-
-    - ``p_<name>`` → ``<name>`` (global-scope persistent)
-    - ``j_<job_id>_<name>`` → ``<name>`` (job-scoped persistent)
-    - ``t_<snowflake>`` → the table name itself (unnamed temp)
-    """
-    if table.startswith(GLOBAL_PREFIX):
-        return table[len(GLOBAL_PREFIX) :]
-    if JOB_SCOPED_RE.match(table):
-        return table.split("_", 2)[2]
-    return table
 
 
 def column_info_to_view(name: str, info: ColumnInfo, *, schema_fieldtype: Fieldtype | None = None) -> ColumnView:

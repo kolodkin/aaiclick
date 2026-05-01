@@ -21,7 +21,7 @@ from aaiclick.data.data_context import (
     open_object,
 )
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import make_persistent_table_name
+from aaiclick.data.scope import SCOPE_GLOBAL, make_scoped_table_name
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -64,7 +64,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     ``"global"`` succeed today — anything else raises ``Invalid``.
     """
     filter = filter or ObjectFilter()
-    if filter.scope not in (None, "global"):
+    if filter.scope not in (None, SCOPE_GLOBAL):
         raise Invalid(f"scope={filter.scope!r} not yet supported (global only)")
 
     names = sorted(await list_persistent_objects())
@@ -73,14 +73,14 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 
     total = len(names)
     paged = names[: filter.limit]
-    tables = [make_persistent_table_name("global", n) for n in paged]
+    tables = [make_scoped_table_name(SCOPE_GLOBAL, n) for n in paged]
     metadata = await _fetch_table_metadata(tables)
 
     items = [
         ObjectView(
             name=name,
             table=table,
-            scope="global",
+            scope=SCOPE_GLOBAL,
             persistent=True,
             **metadata.get(table, {}),
         )
@@ -95,7 +95,7 @@ async def get_object(name: str) -> ObjectDetail:
     Raises ``NotFound`` if no global-scope persistent object matches ``name``.
     """
     try:
-        obj = await open_object(name, scope="global")
+        obj = await open_object(name, scope=SCOPE_GLOBAL)
     except RuntimeError as exc:
         raise NotFound(f"Object not found: {name}") from exc
 
@@ -109,7 +109,7 @@ async def delete_object(name: str) -> ObjectDeleted:
     Idempotent — dropping a non-existent object is not an error, matching
     ClickHouse's ``DROP TABLE IF EXISTS`` semantics used underneath.
     """
-    await delete_persistent_object(name, scope="global")
+    await delete_persistent_object(name, scope=SCOPE_GLOBAL)
     return ObjectDeleted(name=name)
 
 
