@@ -1,9 +1,0 @@
-[project]
-name = "nvidia-nim-lineage"
-version = "0.1.0"
-description = "AI-powered lineage explanation backed by NVIDIA NIM"
-requires-python = ">=3.10"
-
-dependencies = [
-    "aaiclick[ai]",
-]

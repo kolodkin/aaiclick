@@ -1,11 +1,14 @@
 """
-AI-powered lineage explanation for a revenue pipeline.
+AI-powered lineage explanation for a revenue pipeline, backed by NVIDIA NIM.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline under PRESERVATION_FULL so all intermediate tables
-are preserved for debugging. The debug agent uses its tool loop to inspect
-tables and trace the computation graph.
+Runs the pipeline under PRESERVATION_FULL so all intermediate tables are
+preserved for debugging. The debug agent uses its tool loop to inspect tables
+and trace the computation graph. The lineage and debug agents both call
+through ``aaiclick.ai`` -> LiteLLM -> the NIM endpoint configured by
+``AAICLICK_AI_MODEL`` (default: ``nvidia_nim/meta/llama-3.1-8b-instruct``);
+``NVIDIA_NIM_API_KEY`` must be set.
 """
 
 import asyncio
