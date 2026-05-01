@@ -162,9 +162,14 @@ Today this is enforced ad-hoc. `aaiclick/data/scope.py` is now consistent (`make
 
 **Work**:
 
-- Grep each constant name (`SCOPE_TEMP_NAMED`, `FIELDTYPE_SCALAR`, …) inside docstrings and `"""…"""` triple-string comments; replace with the literal value in backticks.
+- In **public-API parameter docstrings** (functions a user outside the module calls), grep each constant name (`SCOPE_TEMP_NAMED`, `FIELDTYPE_SCALAR`, …) and replace with the literal value in sphinx double-backticks (` ``"temp_named"`` `).
 - Keep error-message strings using the literal value too (`raise ValueError("scope='job' requires …")` — already the convention).
 - Runtime code stays on the constants — only docs/error text are normalized.
+
+**Don't** rewrite:
+
+- **Test docstrings** — the docstring sits next to test code that uses the constant; mismatch between docstring and code is more confusing than the constant.
+- **Cryptic abbreviations** — `FIELDTYPE_ARRAY` is self-documenting; `"a"` is opaque. Keep the constant name when the literal is shorter than its meaning. The `s` / `a` / `d` fieldtype set is the canonical example to leave alone.
 
 No deadline; pick up next time someone is adding a new Literal-pair set and wants the codebase to set a clean example.
 
