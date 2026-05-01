@@ -80,6 +80,8 @@ class ColumnInfo(BaseModel):
     default: str | None = None  # ClickHouse DEFAULT expression, e.g. "now64(3)"
 
     def __init__(self, type: str | None = None, /, **kwargs):
+        # Accept positional ``type`` so dataclass-era call sites like
+        # ``ColumnInfo("Int64", nullable=True)`` keep working.
         if type is not None:
             kwargs["type"] = type
         super().__init__(**kwargs)
