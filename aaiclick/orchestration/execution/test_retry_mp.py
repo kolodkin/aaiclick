@@ -44,7 +44,7 @@ async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
         assert t.status == TASK_FAILED
         assert t.attempt == 2
         assert t.max_retries == 2
-        assert t.error is not None
+        assert t.error == "This task failed intentionally"
 
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
@@ -82,7 +82,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
         t = result.scalar_one()
         assert t.status == TASK_FAILED
         assert t.attempt == 0
-        assert t.error is not None
+        assert t.error == "This task failed intentionally"
 
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))
