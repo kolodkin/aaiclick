@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ..scope import scope_of
-from ..view_models import ObjectDetail, _object_name_from_table, schema_to_view
+from ..scope import name_from_table, scope_of
+from ..view_models import ObjectDetail, schema_to_view
 from .object import Object
 
 
@@ -31,7 +31,7 @@ def object_to_detail(
     because ``Object`` itself does not carry them.
     """
     return ObjectDetail(
-        name=_object_name_from_table(obj.table),
+        name=name_from_table(obj.table),
         table=obj.table,
         scope=scope_of(obj.table),
         persistent=obj.persistent,

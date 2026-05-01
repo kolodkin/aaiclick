@@ -9,6 +9,7 @@ from aaiclick.data.scope import (
     TEMP_NAMED_RE,
     is_persistent_table,
     make_scoped_table_name,
+    name_from_table,
     scope_of,
 )
 
@@ -87,3 +88,22 @@ def test_make_scoped_table_name_temp_named():
 def test_make_scoped_table_name_temp_named_requires_snowid():
     with pytest.raises(ValueError, match="scope='temp_named' requires a snowid"):
         make_scoped_table_name("temp_named", "foo")
+
+
+def test_name_from_table_global():
+    assert name_from_table("p_orders") == "orders"
+    assert name_from_table("p_user_catalog") == "user_catalog"
+
+
+def test_name_from_table_job():
+    assert name_from_table("j_12345_staging") == "staging"
+    assert name_from_table("j_12345_multi_part_name") == "multi_part_name"
+
+
+def test_name_from_table_temp_named():
+    assert name_from_table("t_orders_42") == "orders"
+    assert name_from_table("t_my_table_999999999999") == "my_table"
+
+
+def test_name_from_table_temp_falls_back_to_table():
+    assert name_from_table("t_9999999999") == "t_9999999999"

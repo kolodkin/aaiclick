@@ -17,7 +17,6 @@ import re
 from typing import Literal
 
 SCOPE_TEMP = "temp"
-SCOPE_TEMP_NAMED = "temp_named"
 SCOPE_JOB = "job"
 SCOPE_GLOBAL = "global"
 
@@ -45,6 +44,24 @@ def scope_of(table_name: str) -> ObjectScope:
 def is_persistent_table(table_name: str) -> bool:
     """True for tables that survive context/task exit (``p_*`` and ``j_<id>_*``)."""
     return scope_of(table_name) in ("job", "global")
+
+
+def name_from_table(table_name: str) -> str:
+    """Strip the scope prefix to recover the user-visible name.
+
+    - ``p_<name>``                → ``<name>``
+    - ``j_<job_id>_<name>``       → ``<name>``
+    - ``t_<name>_<snowflake>``    → ``<name>``
+    - ``t_<snowflake>`` (unnamed) → the table name itself
+    """
+    scope = scope_of(table_name)
+    if scope == "global":
+        return table_name[len(GLOBAL_PREFIX) :]
+    if scope == "job":
+        return table_name.split("_", 2)[2]
+    if scope == "temp_named":
+        return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
+    return table_name
 
 
 def make_scoped_table_name(
