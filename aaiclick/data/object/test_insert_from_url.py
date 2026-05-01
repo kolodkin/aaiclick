@@ -184,7 +184,7 @@ async def test_url_multi_column(ctx, fileserver):
 
 
 async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
-    """Multi-column URL object has FIELDTYPE_DICT schema (not FIELDTYPE_ARRAY)."""
+    """Multi-column URL object has `"d"` schema (not `"a"`)."""
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet",
         columns=["name", "price"],

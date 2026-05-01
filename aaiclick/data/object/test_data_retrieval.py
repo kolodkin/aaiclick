@@ -2,7 +2,7 @@
 Tests for Object.data() method — orient modes and return types.
 
 Verifies that data() returns the correct Python types for scalars,
-arrays, and dicts, and that orient=ORIENT_RECORDS works correctly.
+arrays, and dicts, and that orient=`"records"` works correctly.
 """
 
 import pytest
@@ -53,7 +53,7 @@ async def test_array_returns_list(ctx, values):
 
 
 async def test_dict_default_orient(ctx):
-    """dict Object.data() default is ORIENT_DICT — dict of lists."""
+    """dict Object.data() default is `"dict"` — dict of lists."""
     obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
     result = await obj.data()
     assert isinstance(result, dict)
@@ -62,14 +62,14 @@ async def test_dict_default_orient(ctx):
 
 
 async def test_dict_explicit_orient_dict(ctx):
-    """data(orient=ORIENT_DICT) returns dict of lists."""
+    """data(orient=`"dict"`) returns dict of lists."""
     obj = await create_object_from_value({"a": [10, 20], "b": [30, 40]})
     result = await obj.data(orient=ORIENT_DICT)
     assert result == {"a": [10, 20], "b": [30, 40]}
 
 
 async def test_dict_orient_records(ctx):
-    """data(orient=ORIENT_RECORDS) returns list of dicts."""
+    """data(orient=`"records"`) returns list of dicts."""
     obj = await create_object_from_value({"a": [10, 20], "b": [30, 40]})
     result = await obj.data(orient=ORIENT_RECORDS)
     assert isinstance(result, list)
@@ -86,7 +86,7 @@ async def test_dict_orient_records(ctx):
     ],
 )
 async def test_orient_records_round_trip(ctx, rows):
-    """Round-trip: list-of-dicts → Object → data(orient=ORIENT_RECORDS)."""
+    """Round-trip: list-of-dicts → Object → data(orient=`"records"`)."""
     obj = await create_object_from_value(rows)
     result = await obj.data(orient=ORIENT_RECORDS)
     assert result == rows
@@ -98,7 +98,7 @@ async def test_orient_records_round_trip(ctx, rows):
 
 
 async def test_view_data_orient_records(ctx):
-    """data(orient=ORIENT_RECORDS) works on Views too."""
+    """data(orient=`"records"`) works on Views too."""
     obj = await create_object_from_value({"x": [1, 2, 3, 4], "y": [10, 20, 30, 40]})
     view = obj.where("x > 2")
     result = await view.data(orient=ORIENT_RECORDS)
@@ -106,7 +106,7 @@ async def test_view_data_orient_records(ctx):
 
 
 async def test_view_data_orient_dict(ctx):
-    """data(orient=ORIENT_DICT) works on Views."""
+    """data(orient=`"dict"`) works on Views."""
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30]})
     view = obj.view(limit=2)
     result = await view.data(orient=ORIENT_DICT)

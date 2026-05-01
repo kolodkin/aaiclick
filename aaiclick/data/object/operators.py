@@ -801,13 +801,13 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     Like _apply_operator_db, this raises an error when array sizes don't match.
 
     Args:
-        info_a: QueryInfo for first operand (must be FIELDTYPE_ARRAY)
-        info_b: QueryInfo for second operand (FIELDTYPE_ARRAY or FIELDTYPE_SCALAR)
+        info_a: QueryInfo for first operand (must be fieldtype `"a"`)
+        info_b: QueryInfo for second operand (fieldtype `"a"` or `"s"`)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
 
     Returns:
-        New Object instance pointing to result table (FIELDTYPE_ARRAY)
+        New Object instance pointing to result table (fieldtype `"a"`)
 
     Raises:
         ValueError: If operator is not supported

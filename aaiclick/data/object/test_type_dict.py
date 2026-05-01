@@ -69,7 +69,7 @@ async def test_dict_creation_all_string(ctx):
 
 
 async def test_dict_orient_dict(ctx):
-    """Test data() with orient=ORIENT_DICT returns dict."""
+    """Test data() with orient=`"dict"` returns dict."""
     obj = await create_object_from_value({"x": 10, "y": 20})
 
     data = await obj.data(orient=ORIENT_DICT)
@@ -79,7 +79,7 @@ async def test_dict_orient_dict(ctx):
 
 
 async def test_dict_orient_records(ctx):
-    """Test data() with orient=ORIENT_RECORDS returns list of dicts."""
+    """Test data() with orient=`"records"` returns list of dicts."""
     obj = await create_object_from_value({"x": 10, "y": 20})
 
     data = await obj.data(orient=ORIENT_RECORDS)
@@ -90,7 +90,7 @@ async def test_dict_orient_records(ctx):
 
 
 async def test_dict_default_orient_is_dict(ctx):
-    """Test that default orient is ORIENT_DICT."""
+    """Test that default orient is `"dict"`."""
     obj = await create_object_from_value({"a": 1, "b": 2})
 
     data_default = await obj.data()
@@ -150,7 +150,7 @@ async def test_dict_of_arrays_creation(ctx):
 
 
 async def test_dict_of_arrays_orient_dict(ctx):
-    """Test dict of arrays with orient=ORIENT_DICT returns dict with arrays."""
+    """Test dict of arrays with orient=`"dict"` returns dict with arrays."""
     obj = await create_object_from_value({"name": ["Alice", "Bob"], "age": [30, 25]})
 
     data = await obj.data(orient=ORIENT_DICT)
@@ -161,7 +161,7 @@ async def test_dict_of_arrays_orient_dict(ctx):
 
 
 async def test_dict_of_arrays_orient_records(ctx):
-    """Test dict of arrays with orient=ORIENT_RECORDS returns list of row dicts."""
+    """Test dict of arrays with orient=`"records"` returns list of row dicts."""
     obj = await create_object_from_value({"name": ["Alice", "Bob", "Charlie"], "age": [30, 25, 35]})
 
     data = await obj.data(orient=ORIENT_RECORDS)
@@ -194,7 +194,7 @@ async def test_dict_of_arrays_strings(ctx):
 
 
 async def test_dict_of_arrays_records_preserves_order(ctx):
-    """Test that orient=ORIENT_RECORDS preserves array order."""
+    """Test that orient=`"records"` preserves array order."""
     obj = await create_object_from_value({"letter": ["z", "a", "m"], "number": [3, 1, 2]})
 
     data = await obj.data(orient=ORIENT_RECORDS)

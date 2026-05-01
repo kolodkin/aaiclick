@@ -105,21 +105,21 @@ def test_not_castable_numeric_to_string():
 
 
 async def test_get_table_schema_array_object(ctx):
-    """ARRAY Objects (single-value list) round-trip as FIELDTYPE_ARRAY."""
+    """ARRAY Objects (single-value list) round-trip as `"a"`."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_ARRAY
 
 
 async def test_get_table_schema_dict_object(ctx):
-    """DICT Objects (multi-column) round-trip as FIELDTYPE_DICT."""
+    """DICT Objects (multi-column) round-trip as `"d"`."""
     obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]}, aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_DICT
 
 
 async def test_get_table_schema_scalar_object(ctx):
-    """SCALAR Objects round-trip as FIELDTYPE_SCALAR."""
+    """SCALAR Objects round-trip as `"s"`."""
     obj = await create_object_from_value(42, aai_id=True)
     fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
     assert fieldtype == FIELDTYPE_SCALAR
