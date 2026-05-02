@@ -16,7 +16,9 @@ KEV_COLUMNS = {
     "shortDescription": ColumnInfo(type="String", description="Brief vulnerability description"),
     "requiredAction": ColumnInfo(type="String", description="Required remediation action"),
     "dueDate": ColumnInfo(type="Date", description="Deadline for required action"),
-    "knownRansomwareCampaignUse": ColumnInfo(type="String", description="'Known' if linked to ransomware, else 'Unknown'"),
+    "knownRansomwareCampaignUse": ColumnInfo(
+        type="String", description="'Known' if linked to ransomware, else 'Unknown'"
+    ),
     "notes": ColumnInfo(type="String", nullable=True, description="Additional notes"),
     "cwes": ColumnInfo(type="String", array=True, description="Associated CWE identifiers"),
 }

@@ -384,7 +384,11 @@ async def test_insert_from_url_with_where(ctx, fileserver):
         ("ts", ColumnInfo(type="DateTime"), "JSONExtract(elem, 'ts', 'DateTime')"),
         ("tags", ColumnInfo(type="String", array=True), "JSONExtract(elem, 'tags', 'Array(String)')"),
         ("notes", ColumnInfo(type="String", nullable=True), "JSONExtract(elem, 'notes', 'Nullable(String)')"),
-        ("vals", ColumnInfo(type="Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
+        (
+            "vals",
+            ColumnInfo(type="Int64", nullable=True, array=True),
+            "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')",
+        ),
         ("it's", ColumnInfo(type="String"), "JSONExtractString(elem, 'it\\'s')"),
     ],
     ids=[

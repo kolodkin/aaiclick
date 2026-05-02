@@ -2824,7 +2824,9 @@ class View(Object):
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
-            columns: dict[str, ColumnInfo] = {name: ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY) for name in eff}
+            columns: dict[str, ColumnInfo] = {
+                name: ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY) for name in eff
+            }
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
