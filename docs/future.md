@@ -23,7 +23,7 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 ## Replace `datetime.utcnow()` and Add Python 3.13 to CI Matrix
 
-`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has ~59 call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
+`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has many call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
 
 A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only call site touched by `aaiclick/oplog/test_graph.py`). The rest of the sweep is deferred.
 
@@ -145,9 +145,9 @@ Items deferred until preconditions are met.
 `.html` extension → ClickHouse `HTML` output format. The format is supported
 by upstream ClickHouse but the chdb build that aaiclick ships against rejects
 it with `UNKNOWN_FORMAT` (chdb appears to omit the HTML output handler). Add
-the `.html` → `HTML` mapping to `_EXPORT_FORMATS` and the corresponding test
-once chdb's build includes it, or once aaiclick gains a way to fall back to
-clickhouse-connect for formats chdb doesn't ship.
+an `.html` / `HTML` entry to `FORMATS` in `aaiclick/data/formats.py` and the
+corresponding test once chdb's build includes it, or once aaiclick gains a
+way to fall back to clickhouse-connect for formats chdb doesn't ship.
 
 ## Nightly AI Live Tests
 
