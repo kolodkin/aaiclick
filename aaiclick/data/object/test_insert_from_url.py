@@ -515,7 +515,7 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
     schema = obj.schema
     assert schema.columns["id"].type == "String"
     assert schema.columns["score"].type == "Float64"
-    assert schema.columns["tags"].array is True
+    assert schema.columns["tags"].array == 1
     assert schema.columns["tags"].type == "String"
 
 

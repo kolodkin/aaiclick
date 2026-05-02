@@ -1,6 +1,7 @@
 """Tests for nullable column support."""
 
 import pytest
+from pydantic import ValidationError
 
 from aaiclick import (
     FIELDTYPE_ARRAY,
@@ -31,7 +32,7 @@ def test_column_def_ch_type_nullable():
 
 def test_column_def_frozen():
     cd = ColumnInfo("Int64")
-    with pytest.raises(AttributeError):
+    with pytest.raises(ValidationError, match="frozen"):
         cd.type = "String"  # type: ignore[misc]
 
 

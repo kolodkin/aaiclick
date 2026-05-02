@@ -91,7 +91,7 @@ async def test_get_object_returns_detail_with_schema():
     assert detail.name == "detail_target"
     assert detail.table == "p_detail_target"
     assert detail.scope == "global"
-    col_names = [c.name for c in detail.table_schema.columns]
+    col_names = list(detail.table_schema.columns)
     assert "value" in col_names
     assert "aai_id" not in col_names
 
