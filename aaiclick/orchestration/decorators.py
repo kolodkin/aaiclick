@@ -234,7 +234,7 @@ class JobFactory:
         Args:
             preservation_mode: Override the job's preservation mode. Falls
                 through to ``AAICLICK_DEFAULT_PRESERVATION_MODE`` then
-                ``PRESERVATION_NONE`` when unset.
+                ``"NONE"`` when unset.
             **kwargs: Arguments passed to the entry point task.
 
         Returns:

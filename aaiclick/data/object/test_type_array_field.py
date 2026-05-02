@@ -162,7 +162,7 @@ async def test_records_int_array_field(ctx):
 
     schema = obj.schema
     assert schema.columns["values"].type == "Int64"
-    assert schema.columns["values"].array is True
+    assert schema.columns["values"].array == 1
 
 
 async def test_records_float_array_field(ctx):
@@ -175,7 +175,7 @@ async def test_records_float_array_field(ctx):
 
     schema = obj.schema
     assert schema.columns["values"].type == "Float64"
-    assert schema.columns["values"].array is True
+    assert schema.columns["values"].array == 1
 
 
 async def test_records_string_array_field(ctx):
@@ -188,7 +188,7 @@ async def test_records_string_array_field(ctx):
 
     schema = obj.schema
     assert schema.columns["tags"].type == "String"
-    assert schema.columns["tags"].array is True
+    assert schema.columns["tags"].array == 1
 
 
 # =============================================================================
@@ -226,6 +226,6 @@ async def test_records_schema_fieldtype(ctx):
     assert schema.fieldtype == "d"
     assert "a" in schema.columns
     assert "b" in schema.columns
-    assert schema.columns["a"].array is True
+    assert schema.columns["a"].array == 1
     assert schema.columns["b"].type == "Int64"
-    assert schema.columns["b"].array is False
+    assert schema.columns["b"].array == 0

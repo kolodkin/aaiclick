@@ -4,9 +4,11 @@ aaiclick.data.models - Data models and type definitions for the aaiclick framewo
 This module provides dataclasses, type literals, and constants used throughout the framework.
 """
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
+
+from pydantic import BaseModel, ConfigDict
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -52,32 +54,41 @@ Fieldtype = Literal["s", "a", "d"]
 AAI_ID_COLUMN = "aai_id"
 
 
-@dataclass(frozen=True)
-class ColumnInfo:
+class ColumnInfo(BaseModel):
     """Column definition including base type, nullability, array wrapping, and cardinality.
 
     Attributes:
         type: Base ClickHouse element type (e.g., 'Int64', 'String')
         nullable: Whether the column allows NULL values
-        array: Nesting depth of Array wrapping. ``False``/``0`` means plain column,
-               ``True``/``1`` means ``Array(T)``, ``2`` means ``Array(Array(T))``, etc.
+        array: Nesting depth of Array wrapping. ``0`` means plain column,
+               ``1`` means ``Array(T)``, ``2`` means ``Array(Array(T))``, etc.
+               Bool ``True``/``False`` are accepted as ``1``/``0`` for convenience.
         low_cardinality: Whether to use LowCardinality encoding
         fieldtype: Per-column fieldtype — scalar or array. Replaces the YAML-comment
                    fieldtype stored in ClickHouse today; populated from the registry's
                    schema_doc once Phase 3 writes it.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     type: str
     nullable: bool = False
-    array: int = False
+    array: int = 0
     low_cardinality: bool = False
     description: str = ""
     fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
     default: str | None = None  # ClickHouse DEFAULT expression, e.g. "now64(3)"
 
+    def __init__(self, type: str | None = None, /, **kwargs):
+        # Accept positional ``type`` so dataclass-era call sites like
+        # ``ColumnInfo("Int64", nullable=True)`` keep working.
+        if type is not None:
+            kwargs["type"] = type
+        super().__init__(**kwargs)
+
     def with_fieldtype(self, fieldtype: ColumnFieldtype) -> "ColumnInfo":
         """Return a copy with ``fieldtype`` replaced."""
-        return replace(self, fieldtype=fieldtype)
+        return self.model_copy(update={"fieldtype": fieldtype})
 
     def ch_type(self) -> str:
         """Return the ClickHouse DDL type string.
@@ -106,8 +117,8 @@ class ColumnInfo:
 # Source-of-truth ColumnInfo for the optional aai_id row-id column.
 # ``data_context.create_object_from_value(aai_id=True)`` injects this
 # directly; binary operators propagate it onto result tables via
-# ``replace(AAI_ID_INFO, default=None)`` (no DEFAULT — values come from
-# INSERT, not generated per-row).
+# ``info.model_copy(update={"default": None})`` (no DEFAULT — values come
+# from INSERT, not generated per-row).
 AAI_ID_INFO = ColumnInfo(
     type="UInt64",
     fieldtype=FIELDTYPE_ARRAY,
@@ -274,8 +285,7 @@ class CopyInfo:
     order_by: str | None = None
 
 
-@dataclass
-class Schema:
+class Schema(BaseModel):
     """
     Schema definition for Object tables. Also serves as Object metadata
     when table is set.
@@ -291,7 +301,7 @@ class Schema:
     """
 
     fieldtype: str
-    columns: dict[str, "ColumnInfo"]
+    columns: dict[str, ColumnInfo]
     table: str | None = None
     engine: Optional["EngineType"] = None
     order_by: str | None = None
@@ -308,7 +318,6 @@ def build_order_by_clause(columns: list[str]) -> str:
     return f"({', '.join(columns)})"
 
 
-@dataclass
 class ViewSchema(Schema):
     """
     Metadata for a View. Inherits fieldtype, columns, and table from Schema.
@@ -317,14 +326,13 @@ class ViewSchema(Schema):
         where: WHERE clause constraint (or None)
         limit: LIMIT constraint (or None)
         offset: OFFSET constraint (or None)
-        order_by: ORDER BY clause (or None)
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
+        computed_columns: Computed-column expressions added by ``with_columns(...)``.
     """
 
     where: str | None = None
     limit: int | None = None
     offset: int | None = None
-    order_by: str | None = None
     selected_fields: list[str] | None = None
     computed_columns: dict[str, "Computed"] | None = None
 

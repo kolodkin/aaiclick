@@ -7,8 +7,6 @@ inserting data. Functions take table names and ch_client instead of Object insta
 
 from __future__ import annotations
 
-from dataclasses import replace as dataclass_replace
-
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
@@ -26,14 +24,13 @@ from ..models import (
     parse_ch_type,
 )
 from ..sql_utils import quote_identifier
-from ..view_models import SchemaView, view_to_schema
 
 
 def promote_nullable(col: ColumnInfo) -> ColumnInfo:
     """Return ``col`` with ``nullable=True``; no-op if already nullable."""
     if col.nullable:
         return col
-    return dataclass_replace(col, nullable=True)
+    return col.model_copy(update={"nullable": True})
 
 
 def _are_types_compatible(target_type: str, source_type: str) -> bool:
@@ -76,10 +73,11 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     """
     Get fieldtype and columns from a table's registry row.
 
-    Reads from ``table_registry.schema_doc`` and rehydrates via
-    :func:`aaiclick.data.view_models.view_to_schema`. Raises ``LookupError``
-    if the table has no registry row or a null ``schema_doc`` — the table
-    was either not created by aaiclick, or predates the schema_doc migration.
+    Reads from ``table_registry.schema_doc`` (a serialised :class:`Schema`)
+    and rehydrates via :meth:`Schema.model_validate_json`. Raises
+    ``LookupError`` if the table has no registry row or a null
+    ``schema_doc`` — the table was either not created by aaiclick, or
+    predates the schema_doc migration.
 
     Args:
         table: Table name
@@ -110,7 +108,7 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
             "by a version that predates the schema_doc registry."
         )
 
-    schema = view_to_schema(SchemaView.model_validate_json(row[0]), table=table)
+    schema = Schema.model_validate_json(row[0])
     return schema.fieldtype, schema.columns
 
 

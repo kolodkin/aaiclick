@@ -25,7 +25,7 @@ def get_data_lifecycle() -> LifecycleHandler | None:
 def register_table(table_name: str, schema_doc: str | None = None) -> None:
     """Register a newly created table via the active lifecycle handler.
 
-    Writes ``schema_doc`` (a Pydantic-serialised ``SchemaView`` JSON) into
+    Writes ``schema_doc`` (a Pydantic-serialised ``Schema`` JSON) into
     SQL ``table_registry`` so ``open_object()`` can rehydrate the table's
     schema later. Distinct from oplog: ``operation_log`` records what
     operations ran; ``table_registry`` records what tables exist.
@@ -87,7 +87,7 @@ class LifecycleHandler(ABC):
     def register_table(self, table_name: str, schema_doc: str | None = None) -> None:
         """Insert a row into ``table_registry`` (SQL) for the new table.
 
-        ``schema_doc`` is the Pydantic-serialised ``SchemaView`` JSON read
+        ``schema_doc`` is the Pydantic-serialised ``Schema`` JSON read
         back by ``_get_table_schema``. No-op in local mode — only the orch
         lifecycle handler writes to ``table_registry``.
         """

@@ -125,12 +125,12 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
     without going through ``create_object``. The emitted ``schema_doc``
     declares a single ``value`` column inheriting ``fieldtype``.
     """
-    from aaiclick.data.view_models import ColumnView, SchemaView
+    from aaiclick.data.models import ColumnInfo, Schema
 
-    schema_doc = SchemaView(
-        columns=[ColumnView(name="value", type="Int64", fieldtype=fieldtype)],
-        engine="MergeTree",
+    schema_doc = Schema(
         fieldtype=fieldtype,
+        columns={"value": ColumnInfo("Int64", fieldtype=fieldtype)},
+        engine="MergeTree",
     ).model_dump_json()
     async with get_sql_session() as sess:
         await sess.execute(

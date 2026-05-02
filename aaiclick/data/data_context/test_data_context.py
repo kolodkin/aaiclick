@@ -51,8 +51,8 @@ async def test_create_object_writes_schema_doc(ctx):
     assert raw is not None
     parsed = json.loads(raw)
     assert parsed["fieldtype"] == FIELDTYPE_ARRAY
-    assert [c["name"] for c in parsed["columns"]] == ["value"]
-    assert parsed["columns"][0]["fieldtype"] == FIELDTYPE_ARRAY
+    assert list(parsed["columns"]) == ["value"]
+    assert parsed["columns"]["value"]["fieldtype"] == FIELDTYPE_ARRAY
 
 
 async def test_create_object_allows_user_column_named_aai_id(ctx):

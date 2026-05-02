@@ -217,8 +217,8 @@ def render_object_detail(detail: ObjectDetail) -> None:
     print(f"Bytes:     {_fmt_optional(detail.size_bytes)}")
     print(f"Created:   {_fmt_optional(detail.created_at)}")
     print("Columns:")
-    for col in detail.table_schema.columns:
-        print(f"  {col.name}: {col.type}")
+    for name, info in detail.table_schema.columns.items():
+        print(f"  {name}: {info.type}")
 
 
 def render_object_deleted(view: ObjectDeleted) -> None:

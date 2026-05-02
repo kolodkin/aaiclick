@@ -3,7 +3,7 @@ AI-powered lineage explanation for a revenue pipeline.
 
 Pipeline: prices * quantities + bonus = total_revenue
 
-Runs the pipeline under PRESERVATION_FULL so all intermediate tables
+Runs the pipeline under preservation mode "FULL" so all intermediate tables
 are preserved for debugging. The debug agent uses its tool loop to inspect
 tables and trace the computation graph.
 """
@@ -50,13 +50,21 @@ async def create_quantities() -> Object:
 
 
 @task
+async def create_bonus() -> Object:
+    return await create_object_from_value(
+        [5.0, 5.0, 5.0, 5.0, 5.0],
+        name="basic_lineage_bonus",
+        aai_id=True,
+    )
+
+
+@task
 async def compute_revenue(prices: Object, quantities: Object) -> Object:
     return await (prices * quantities)
 
 
 @task
-async def add_bonus(revenue: Object) -> Object:
-    bonus = await create_object_from_value([5.0, 5.0, 5.0, 5.0, 5.0], aai_id=True)
+async def add_bonus(revenue: Object, bonus: Object) -> Object:
     return await (revenue + bonus)
 
 
@@ -64,9 +72,10 @@ async def add_bonus(revenue: Object) -> Object:
 def revenue_pipeline():
     prices = create_prices()
     quantities = create_quantities()
+    bonus = create_bonus()
     revenue = compute_revenue(prices=prices, quantities=quantities)
-    total = add_bonus(revenue=revenue)
-    return tasks_list(prices, quantities, revenue, total)
+    total = add_bonus(revenue=revenue, bonus=bonus)
+    return tasks_list(prices, quantities, bonus, revenue, total)
 
 
 async def main():

@@ -101,6 +101,29 @@ async def test_query_table_truncation_flag():
     assert len(result.rows) == 5
 
 
+async def test_query_table_coerces_string_row_limit():
+    """Llama-3.1 sometimes emits row_limit as a JSON string. Coerce to int
+    instead of crashing in run_select's ``min(row_limit, ROW_LIMIT_CEILING)``.
+    """
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = MagicMock()
+    mock_client.query = AsyncMock(return_value=_mock_query_result([(1,)], ["id"]))
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE}", row_limit="5")
+
+    assert isinstance(result, QueryResult)
+    called_sql = mock_client.query.call_args.args[0]
+    assert "LIMIT 6" in called_sql  # row_limit=5 → LIMIT 6
+
+
+async def test_query_table_rejects_non_numeric_row_limit():
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE}", row_limit="not-a-number")
+    assert isinstance(err, ToolError)
+    assert err.kind == "invalid_argument"
+
+
 async def test_query_table_respects_existing_limit():
     toolbox = LineageToolbox(_sample_graph())
     mock_client = MagicMock()

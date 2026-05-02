@@ -30,6 +30,7 @@ ToolErrorKind = Literal[
     "out_of_scope",
     "not_found",
     "not_live",
+    "invalid_argument",
 ]
 
 
@@ -254,6 +255,11 @@ class LineageToolbox:
         / ``run_select`` helpers. The out-of-scope error gets a graph-flavored
         suffix so the LLM knows which tool to call to inspect the scope.
         """
+        if not isinstance(row_limit, int) or isinstance(row_limit, bool):
+            try:
+                row_limit = int(row_limit)
+            except (TypeError, ValueError):
+                return ToolError("invalid_argument", f"row_limit must be an integer, got {row_limit!r}.")
         scan = normalize_sql_for_scan(sql)
         if err := validate_select_safety(sql, scan=scan):
             return err
