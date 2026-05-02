@@ -509,54 +509,6 @@ exit so they don't accumulate.
 
 # Testability
 
-The runner crosses three trust boundaries (host ↔ docker daemon, host ↔
-git remote, host ↔ container). To keep the test suite fast, hermetic, and
-free of the chdb session pitfalls described in `docs/testing.md`, all
-three boundaries are wrapped in thin modules whose every external call
-is monkeypatchable. The plain CLI invocations (`docker build`, `docker
-run`, `git clone`, …) are the seam.
-
-## Indirection Seams
-
-A new `aaiclick/orchestration/execution/docker_cli.py` holds every
-subprocess invocation as a small async function:
-
-```python
-async def docker_pull(tag: str) -> bool: ...
-async def docker_push(tag: str) -> None: ...
-async def docker_build(workdir: str, dockerfile: str, tag: str) -> None: ...
-async def docker_image_exists(tag: str) -> bool: ...
-async def docker_run_detached(cmd: list[str]) -> str: ...        # → container_id
-async def docker_wait(container_id: str, timeout: float | None) -> int:  ...
-async def docker_kill(container_id: str) -> None: ...
-async def git_clone_at_sha(remote: str, sha: str, workdir: str) -> None: ...
-async def git_resolve_head_sha() -> str: ...
-async def git_resolve_remote_url() -> str: ...
-async def git_working_tree_is_clean() -> bool: ...
-async def git_head_is_pushed(remote: str, sha: str) -> bool: ...
-```
-
-`docker_worker.py` and `docker_build.py` import these by name; tests
-monkeypatch the names on the module object. Honoring `AAICLICK_DOCKER_BIN`
-lives in this module — fakes don't need to care. No `subprocess.run` /
-`asyncio.create_subprocess_exec` calls anywhere outside this module.
-
-## Fakes
-
-`aaiclick/orchestration/execution/_docker_fakes.py` (test helper, not
-part of the public API) provides a `FakeDockerDaemon` keeping in-memory
-state for: locally-cached image tags, a fake registry's pushed tags, and
-a dict of running containers. It exposes the same async surface as
-`docker_cli.py`, and a `fake_container_finish(container_id, exit_code,
-result: dict | None)` knob the test calls to drive each container's
-completion: writes `result.json` into the IPC tmpdir if `result` is set,
-flips the container to "exited", and unblocks `docker_wait`.
-
-A second helper `FakeGit` simulates `git_clone_at_sha`: receives a
-`{sha → file_tree}` map at construction time and materializes the tree
-into the workdir on `clone`. Tests register a Dockerfile and any other
-files the build needs.
-
 ## Test File Split
 
 | File                          | Scope                                            | Fixture           |
@@ -578,51 +530,6 @@ module to avoid mixing with `orch_ctx`.
 `test_docker_build.py` uses `orch_ctx` because the build task is a
 regular `@task`-decorated function on the subprocess runner; it never
 opens a chdb session itself but goes through `execute_task`.
-
-## Ghost-Container Invariant Test
-
-The reaper interaction is the highest-risk new behavior. Dedicated
-test in `test_docker_worker.py`:
-
-1. Start `_run_task_in_container` for a task; FakeDockerDaemon launches
-   a container.
-2. Cancel the asyncio task that owns the host parent (simulating host
-   worker death) before the container finishes. Assert the IPC tmpdir
-   is cleaned up.
-3. Manually re-create the IPC dir's `result.json` writing
-   `{"success": true, ...}` (simulating the orphaned container finally
-   finishing and writing its result to a now-stale path). Assert the
-   `tasks` row was **not** flipped to `COMPLETED` — only
-   `_handle_task_result` writes terminal status, and that ran in the
-   cancelled host parent.
-4. Run the reaper directly (`mark_dead_workers`) and assert the task
-   moved to `PENDING_CLEANUP` and is retried.
-
-## Distributed-Mode Rejection
-
-Submitting a `runner_mode="docker"` job against `is_chdb()` /
-`is_sqlite()` must raise a clear error before any rows are written.
-Tested directly in `test_docker_build.py` (or wherever `run_job`
-validation lives) with the default chdb+SQLite test fixture: assert no
-`Job` row, no build task, no entry task were created.
-
-## Migration Test
-
-`test_migrations.py` (or the existing alembic test module) exercises
-upgrade then downgrade for the new revision. Asserts:
-
-- New columns exist on `registered_jobs` and `jobs` after upgrade.
-- Existing rows backfill to `runner_mode='subprocess'` via
-  `server_default`.
-- CHECK constraint rejects `runner_mode='other'` on insert.
-- Downgrade drops the columns and constraints cleanly.
-
-## Out of Scope for the Test Suite
-
-- Real BuildKit, multi-arch, or registry-auth scenarios — covered by
-  `docker_e2e` only when CI provides them.
-- Network-isolation behavior of `--network` (framework doesn't pass it).
-- UID/GID permission errors on bind-mounted log dir — operator concern.
 
 # Open Implementation Questions
 
@@ -667,6 +574,4 @@ upgrade then downgrade for the new revision. Asserts:
 - New test files under `aaiclick/orchestration/execution/` covering the
   matrix in the **Testability** section: `test_docker_worker.py`,
   `test_docker_build.py`, `test_docker_container_main.py`, and the
-  opt-in `test_docker_runner_e2e.py`. Unit tests run with no docker
-  daemon present via the `docker_cli.py` / `_docker_fakes.py` seam;
-  `docker_e2e`-marked tests are gated on a real daemon being available.
+  opt-in `test_docker_runner_e2e.py`.
