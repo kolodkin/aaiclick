@@ -288,7 +288,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # when both arrays carry it). For scalar broadcast, the row-aligned aai_id
     # comes from the array side regardless of LHS/RHS position.
     result_nullable = info_a.nullable or info_b.nullable
-    result_columns = {"value": ColumnInfo(type=value_type, nullable=result_nullable)}
+    result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
     if a_is_array and info_a.aai_id_info is not None:
         aai_id_source = info_a.aai_id_info
         aai_id_alias = "a"
@@ -502,7 +502,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"value": ColumnInfo(type=value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
@@ -651,7 +651,7 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     if isinstance(condition, str):
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
-            columns={"value": ColumnInfo(type="UInt64")},
+            columns={"value": ColumnInfo("UInt64")},
         )
         result = await create_object(schema)
         query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
@@ -661,7 +661,7 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     columns = {}
     select_exprs = []
     for name, cond in condition.items():
-        columns[name] = ColumnInfo(type="UInt64")
+        columns[name] = ColumnInfo("UInt64")
         select_exprs.append(f"countIf({cond}) AS {name}")
 
     schema = Schema(
@@ -699,7 +699,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"value": ColumnInfo(type=value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     # Create result object with schema
@@ -735,7 +735,7 @@ async def unique_group(info: QueryInfo, ch_client):
     # Use effective type from QueryInfo — info.value_type already reflects
     # post-explode scalar types for ARRAY JOIN views, avoiding a system.columns
     # query that would return the original (pre-explode) Array type.
-    source_col_def = ColumnInfo(type=info.value_type, nullable=info.nullable)
+    source_col_def = ColumnInfo(info.value_type, nullable=info.nullable)
 
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": source_col_def})
@@ -774,7 +774,7 @@ async def nunique_agg(info: QueryInfo, ch_client):
     """
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"value": ColumnInfo(type="UInt64")},
+        columns={"value": ColumnInfo("UInt64")},
     )
     result = await create_object(schema)
     await ch_client.command(f"""
@@ -831,7 +831,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
     result_nullable = info_a.nullable or info_b.nullable
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
-        columns={"value": ColumnInfo(type=value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 
@@ -920,23 +920,23 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
     result_columns = {}
 
     for key in info.group_keys:
-        result_columns[key] = ColumnInfo(type=info.columns[key], fieldtype=FIELDTYPE_ARRAY)
+        result_columns[key] = ColumnInfo(info.columns[key], fieldtype=FIELDTYPE_ARRAY)
 
     for source_col, agg in entries:
         sql_func = AGGREGATION_FUNCTIONS[agg.op]
         if agg.op == "count":
             agg_exprs.append(f"{sql_func}() AS {agg.alias}")
-            result_columns[agg.alias] = ColumnInfo(type="UInt64", fieldtype=FIELDTYPE_ARRAY)
+            result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
-            result_columns[agg.alias] = ColumnInfo(type=base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
+            result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
             agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             result_columns[agg.alias] = ColumnInfo(
-                type=_determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
+                _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
             )
 
     agg_str = ", ".join(agg_exprs)
@@ -1032,7 +1032,7 @@ async def _apply_string_op_db(
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"value": ColumnInfo(type=value_type)},
+        columns={"value": ColumnInfo(value_type)},
     )
 
     result = await create_object(schema)
@@ -1082,7 +1082,7 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
     fieldtype = info.fieldtype
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"value": ColumnInfo(type="UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     subquery = f"SELECT value FROM {other_info.source}"
@@ -1135,7 +1135,7 @@ async def unary_transform(info: QueryInfo, transform: str, ch_client):
 
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo(type=result_type)},
+        columns={"value": ColumnInfo(result_type)},
     )
     result = await create_object(schema)
 
@@ -1154,7 +1154,7 @@ async def is_null_op(info: QueryInfo, ch_client):
     """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo(type="UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1169,7 +1169,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
     schema = Schema(
         fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo(type="UInt8")},
+        columns={"value": ColumnInfo("UInt8")},
     )
     result = await create_object(schema)
     insert_query = f"""
@@ -1196,7 +1196,7 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
 
     schema = Schema(
         fieldtype=fieldtype,
-        columns={"value": ColumnInfo(type=value_type, nullable=result_nullable)},
+        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
     result = await create_object(schema)
 

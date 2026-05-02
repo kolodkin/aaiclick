@@ -83,7 +83,7 @@ async def test_context_with_operations():
 async def test_context_create_object_with_schema():
     """Object created via explicit Schema is stale-marked on context exit."""
     async with data_context():
-        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo(type="Float64")})
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Float64")})
         obj = await create_object(schema)
         ch = get_ch_client()
         await ch.command(f"INSERT INTO {obj.table} VALUES (3.14)")
@@ -99,7 +99,7 @@ async def test_context_factory_methods():
     """Both factory paths register Objects for stale-on-exit cleanup."""
     async with data_context():
         obj1 = await create_object_from_value([1, 2, 3])
-        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo(type="Int64")})
+        schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Int64")})
         obj2 = await create_object(schema)
         assert not obj1.stale
         assert not obj2.stale

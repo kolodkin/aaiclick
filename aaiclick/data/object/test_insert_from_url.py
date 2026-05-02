@@ -374,22 +374,18 @@ async def test_insert_from_url_with_where(ctx, fileserver):
 @pytest.mark.parametrize(
     "field, col_info, expected",
     [
-        ("name", ColumnInfo(type="String"), "JSONExtractString(elem, 'name')"),
-        ("count", ColumnInfo(type="Int64"), "JSONExtractInt(elem, 'count')"),
-        ("count", ColumnInfo(type="UInt32"), "JSONExtractInt(elem, 'count')"),
-        ("price", ColumnInfo(type="Float64"), "JSONExtractFloat(elem, 'price')"),
-        ("price", ColumnInfo(type="Float32"), "JSONExtractFloat(elem, 'price')"),
-        ("flag", ColumnInfo(type="Bool"), "JSONExtractBool(elem, 'flag')"),
-        ("d", ColumnInfo(type="Date"), "JSONExtract(elem, 'd', 'Date')"),
-        ("ts", ColumnInfo(type="DateTime"), "JSONExtract(elem, 'ts', 'DateTime')"),
-        ("tags", ColumnInfo(type="String", array=True), "JSONExtract(elem, 'tags', 'Array(String)')"),
-        ("notes", ColumnInfo(type="String", nullable=True), "JSONExtract(elem, 'notes', 'Nullable(String)')"),
-        (
-            "vals",
-            ColumnInfo(type="Int64", nullable=True, array=True),
-            "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')",
-        ),
-        ("it's", ColumnInfo(type="String"), "JSONExtractString(elem, 'it\\'s')"),
+        ("name", ColumnInfo("String"), "JSONExtractString(elem, 'name')"),
+        ("count", ColumnInfo("Int64"), "JSONExtractInt(elem, 'count')"),
+        ("count", ColumnInfo("UInt32"), "JSONExtractInt(elem, 'count')"),
+        ("price", ColumnInfo("Float64"), "JSONExtractFloat(elem, 'price')"),
+        ("price", ColumnInfo("Float32"), "JSONExtractFloat(elem, 'price')"),
+        ("flag", ColumnInfo("Bool"), "JSONExtractBool(elem, 'flag')"),
+        ("d", ColumnInfo("Date"), "JSONExtract(elem, 'd', 'Date')"),
+        ("ts", ColumnInfo("DateTime"), "JSONExtract(elem, 'ts', 'DateTime')"),
+        ("tags", ColumnInfo("String", array=True), "JSONExtract(elem, 'tags', 'Array(String)')"),
+        ("notes", ColumnInfo("String", nullable=True), "JSONExtract(elem, 'notes', 'Nullable(String)')"),
+        ("vals", ColumnInfo("Int64", nullable=True, array=True), "JSONExtract(elem, 'vals', 'Array(Nullable(Int64))')"),
+        ("it's", ColumnInfo("String"), "JSONExtractString(elem, 'it\\'s')"),
     ],
     ids=[
         "string",
@@ -421,7 +417,7 @@ async def test_json_mode_validation_errors(ctx):
         await create_object_from_url(
             "https://example.com/api.json",
             format="RawBLOB",
-            json_columns={"id": ColumnInfo(type="String")},
+            json_columns={"id": ColumnInfo("String")},
         )
     with pytest.raises(ValueError, match="json_path and json_columns must both be provided"):
         await create_object_from_url(
@@ -441,7 +437,7 @@ async def test_json_mode_validation_errors(ctx):
             "https://example.com/api.json",
             format="CSV",
             json_path="data",
-            json_columns={"id": ColumnInfo(type="String")},
+            json_columns={"id": ColumnInfo("String")},
         )
     with pytest.raises(ValueError, match="mutually exclusive"):
         await create_object_from_url(
@@ -449,7 +445,7 @@ async def test_json_mode_validation_errors(ctx):
             columns=["id"],
             format="RawBLOB",
             json_path="data",
-            json_columns={"id": ColumnInfo(type="String")},
+            json_columns={"id": ColumnInfo("String")},
         )
     with pytest.raises(ValueError, match="Either columns or json_path"):
         await create_object_from_url("https://example.com/api.json")
@@ -502,10 +498,10 @@ async def test_json_load_all_columns_and_schema(ctx, json_server):
         format="RawBLOB",
         json_path="items",
         json_columns={
-            "id": ColumnInfo(type="String"),
-            "name": ColumnInfo(type="String"),
-            "score": ColumnInfo(type="Float64"),
-            "tags": ColumnInfo(type="String", array=True),
+            "id": ColumnInfo("String"),
+            "name": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
+            "tags": ColumnInfo("String", array=True),
         },
     )
     # Multi-column json_columns produces a DICT Object — same rule as the
@@ -532,7 +528,7 @@ async def test_json_load_single_column_renames_to_value(ctx, json_server):
         f"{json_server}/data.json",
         format="RawBLOB",
         json_path="items",
-        json_columns={"id": ColumnInfo(type="String")},
+        json_columns={"id": ColumnInfo("String")},
     )
     assert obj.schema.fieldtype == FIELDTYPE_ARRAY
     assert list(obj.schema.columns) == ["value"]
@@ -549,8 +545,8 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
         format="RawBLOB",
         json_path="items",
         json_columns={
-            "id": ColumnInfo(type="String"),
-            "score": ColumnInfo(type="Float64"),
+            "id": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
         },
     )
     data = await obj.data()
@@ -561,7 +557,7 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
         f"{json_server}/data.json",
         format="RawBLOB",
         json_path="items",
-        json_columns={"id": ColumnInfo(type="String")},
+        json_columns={"id": ColumnInfo("String")},
         limit=2,
     )
     # Single-column json_columns yields a FIELDTYPE_ARRAY Object (column
@@ -574,8 +570,8 @@ async def test_json_load_subset_with_limit_and_where(ctx, json_server):
         format="RawBLOB",
         json_path="items",
         json_columns={
-            "id": ColumnInfo(type="String"),
-            "score": ColumnInfo(type="Float64"),
+            "id": ColumnInfo("String"),
+            "score": ColumnInfo("Float64"),
         },
         where="`score` > 80",
     )
@@ -591,8 +587,8 @@ async def test_json_load_array_field(ctx, json_server):
         format="RawBLOB",
         json_path="items",
         json_columns={
-            "id": ColumnInfo(type="String"),
-            "tags": ColumnInfo(type="String", array=True),
+            "id": ColumnInfo("String"),
+            "tags": ColumnInfo("String", array=True),
         },
     )
     data = await obj.data()
@@ -608,7 +604,7 @@ async def test_json_load_json_as_string_format(ctx, json_server):
         f"{json_server}/data.json",
         format="JSONAsString",
         json_path="items",
-        json_columns={"id": ColumnInfo(type="String")},
+        json_columns={"id": ColumnInfo("String")},
     )
     # Single-column → FIELDTYPE_ARRAY Object — data() returns a list.
     data = await obj.data()
@@ -691,7 +687,7 @@ async def test_url_retries_transient_503(ctx, flaky_server):
         columns=["id", "price"],
         format="Parquet",
         limit=5,
-        column_types={"id": ColumnInfo(type="Int64"), "price": ColumnInfo(type="Float64")},
+        column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
         backoff_factor=0,  # zero sleep — keep test fast
     )
     data = await obj.data()
@@ -717,7 +713,7 @@ async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
             columns=["id", "price"],
             format="Parquet",
             limit=5,
-            column_types={"id": ColumnInfo(type="Int64"), "price": ColumnInfo(type="Float64")},
+            column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
             retries=3,
             backoff_factor=0,
         )

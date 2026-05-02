@@ -79,7 +79,7 @@ async def load_raw_data(limit: int | None = None) -> Object:
     """
     # Force all columns as String — TSV \N values must remain as the
     # literal string r"\N", not be cast to NULL or int by type inference.
-    all_string = {col: ColumnInfo(type="String") for col in IMDB_COLUMNS}
+    all_string = {col: ColumnInfo("String") for col in IMDB_COLUMNS}
     return await create_object_from_url(
         url=IMDB_URL,
         columns=IMDB_COLUMNS,

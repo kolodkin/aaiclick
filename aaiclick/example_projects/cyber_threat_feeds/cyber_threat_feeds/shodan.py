@@ -8,18 +8,18 @@ from aaiclick.orchestration import task
 SHODAN_CVEDB_URL = "https://cvedb.shodan.io/cves"
 
 SHODAN_COLUMNS = {
-    "cve_id": ColumnInfo(type="String", description="CVE identifier (e.g. CVE-2024-1234)"),
-    "summary": ColumnInfo(type="String", description="Vulnerability description text"),
-    "cvss": ColumnInfo(type="Float64", nullable=True, description="Combined CVSS score"),
-    "cvss_v2": ColumnInfo(type="Float64", nullable=True, description="CVSS v2.0 base score"),
-    "cvss_v3": ColumnInfo(type="Float64", nullable=True, description="CVSS v3.x base score"),
-    "epss": ColumnInfo(type="Float64", nullable=True, description="EPSS exploitation probability 0-1"),
-    "ranking_epss": ColumnInfo(type="Float64", nullable=True, description="EPSS percentile ranking 0-1"),
-    "kev": ColumnInfo(type="Bool", description="Whether CVE is in CISA KEV catalog"),
-    "published_time": ColumnInfo(type="String", description="CVE publication datetime (ISO 8601)"),
-    "vendor": ColumnInfo(type="String", nullable=True, description="Vendor name"),
-    "product": ColumnInfo(type="String", nullable=True, description="Product name"),
-    "references": ColumnInfo(type="String", array=True, description="Reference URLs"),
+    "cve_id": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "summary": ColumnInfo("String", description="Vulnerability description text"),
+    "cvss": ColumnInfo("Float64", nullable=True, description="Combined CVSS score"),
+    "cvss_v2": ColumnInfo("Float64", nullable=True, description="CVSS v2.0 base score"),
+    "cvss_v3": ColumnInfo("Float64", nullable=True, description="CVSS v3.x base score"),
+    "epss": ColumnInfo("Float64", nullable=True, description="EPSS exploitation probability 0-1"),
+    "ranking_epss": ColumnInfo("Float64", nullable=True, description="EPSS percentile ranking 0-1"),
+    "kev": ColumnInfo("Bool", description="Whether CVE is in CISA KEV catalog"),
+    "published_time": ColumnInfo("String", description="CVE publication datetime (ISO 8601)"),
+    "vendor": ColumnInfo("String", nullable=True, description="Vendor name"),
+    "product": ColumnInfo("String", nullable=True, description="Product name"),
+    "references": ColumnInfo("String", array=True, description="Reference URLs"),
 }
 
 

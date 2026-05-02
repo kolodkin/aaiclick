@@ -398,10 +398,10 @@ class Object:
 
         if self.is_single_field:
             fieldtype = FIELDTYPE_ARRAY
-            col_def = self._schema.columns.get(value_column, ColumnInfo(type="Float64"))
+            col_def = self._schema.columns.get(value_column, ColumnInfo("Float64"))
         else:
             fieldtype = self._schema.fieldtype
-            col_def = self._schema.columns.get("value", ColumnInfo(type="Float64"))
+            col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
 
         # Build constraint suffix (WHERE/ORDER BY/LIMIT/OFFSET) for same-table
         # operator optimization. Two views from the same table with identical
@@ -880,7 +880,7 @@ class Object:
             >>> # result is promoted to nullable
             >>> obj_nullable = await create_object(Schema(
             ...     fieldtype=FIELDTYPE_ARRAY,
-            ...              "value": ColumnInfo(type="Int64", nullable=True)},
+            ...              "value": ColumnInfo("Int64", nullable=True)},
             ... ))
             >>> obj_non_null = await create_object_from_value([3, 4])
             >>> result = await obj_nullable.concat(obj_non_null)
@@ -2247,13 +2247,13 @@ class GroupByQuery:
             if source.is_single_field and source.selected_fields:
                 # Single-field View projects to {value}
                 field = source.selected_fields[0]
-                col_def = schema.columns.get(field, ColumnInfo(type="Float64"))
+                col_def = schema.columns.get(field, ColumnInfo("Float64"))
                 columns = {"value": col_def.type}
                 source_query = f"({source._build_select()})"
             elif source.selected_fields:
                 columns = {}
                 for field in source.selected_fields:
-                    col_def = schema.columns.get(field, ColumnInfo(type="Float64"))
+                    col_def = schema.columns.get(field, ColumnInfo("Float64"))
                     columns[field] = col_def.type
                 if source.computed_columns:
                     for col_name, comp in source.computed_columns.items():
@@ -2502,7 +2502,7 @@ class View(Object):
 
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
-            col_def = orig.get(field, ColumnInfo(type="Float64"))
+            col_def = orig.get(field, ColumnInfo("Float64"))
             columns = {"value": col_def}
         elif self._selected_fields:
             columns = {}
@@ -2817,16 +2817,14 @@ class View(Object):
             if self.is_single_field:
                 return await data_extraction.extract_array_data(self, **ext_kwargs)
             columns: dict[str, ColumnInfo] = {
-                field: ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
+                field: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
             }
             column_names = list(self.selected_fields)
             return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 
         if self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
-            columns: dict[str, ColumnInfo] = {
-                name: ColumnInfo(type="String", fieldtype=FIELDTYPE_ARRAY) for name in eff
-            }
+            columns: dict[str, ColumnInfo] = {name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff}
             column_names = list(eff.keys())
             return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
 

@@ -8,19 +8,17 @@ from aaiclick.orchestration import task
 CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 KEV_COLUMNS = {
-    "cveID": ColumnInfo(type="String", description="CVE identifier (e.g. CVE-2024-1234)"),
-    "vendorProject": ColumnInfo(type="String", description="Vendor or project name"),
-    "product": ColumnInfo(type="String", description="Affected product name"),
-    "vulnerabilityName": ColumnInfo(type="String", description="Human-readable vulnerability title"),
-    "dateAdded": ColumnInfo(type="Date", description="Date added to KEV catalog"),
-    "shortDescription": ColumnInfo(type="String", description="Brief vulnerability description"),
-    "requiredAction": ColumnInfo(type="String", description="Required remediation action"),
-    "dueDate": ColumnInfo(type="Date", description="Deadline for required action"),
-    "knownRansomwareCampaignUse": ColumnInfo(
-        type="String", description="'Known' if linked to ransomware, else 'Unknown'"
-    ),
-    "notes": ColumnInfo(type="String", nullable=True, description="Additional notes"),
-    "cwes": ColumnInfo(type="String", array=True, description="Associated CWE identifiers"),
+    "cveID": ColumnInfo("String", description="CVE identifier (e.g. CVE-2024-1234)"),
+    "vendorProject": ColumnInfo("String", description="Vendor or project name"),
+    "product": ColumnInfo("String", description="Affected product name"),
+    "vulnerabilityName": ColumnInfo("String", description="Human-readable vulnerability title"),
+    "dateAdded": ColumnInfo("Date", description="Date added to KEV catalog"),
+    "shortDescription": ColumnInfo("String", description="Brief vulnerability description"),
+    "requiredAction": ColumnInfo("String", description="Required remediation action"),
+    "dueDate": ColumnInfo("Date", description="Deadline for required action"),
+    "knownRansomwareCampaignUse": ColumnInfo("String", description="'Known' if linked to ransomware, else 'Unknown'"),
+    "notes": ColumnInfo("String", nullable=True, description="Additional notes"),
+    "cwes": ColumnInfo("String", array=True, description="Associated CWE identifiers"),
 }
 
 

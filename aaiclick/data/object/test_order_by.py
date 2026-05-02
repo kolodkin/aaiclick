@@ -35,7 +35,7 @@ def test_object_init_order_by_sets_schema():
     """Object.__init__ with order_by sets schema.order_by."""
     schema = Schema(
         fieldtype="d",
-        columns={"date": ColumnInfo(type="String"), "category": ColumnInfo(type="String")},
+        columns={"date": ColumnInfo("String"), "category": ColumnInfo("String")},
     )
     obj = Object(schema=schema, order_by=["date"])
     assert obj._schema.order_by == "(date)"
@@ -45,7 +45,7 @@ def test_object_init_no_order_by():
     """Object.__init__ without order_by leaves schema.order_by as None."""
     schema = Schema(
         fieldtype="d",
-        columns={"date": ColumnInfo(type="String"), "category": ColumnInfo(type="String")},
+        columns={"date": ColumnInfo("String"), "category": ColumnInfo("String")},
     )
     obj = Object(schema=schema)
     assert obj._schema.order_by is None

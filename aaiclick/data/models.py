@@ -79,6 +79,13 @@ class ColumnInfo(BaseModel):
     fieldtype: ColumnFieldtype = FIELDTYPE_SCALAR
     default: str | None = None  # ClickHouse DEFAULT expression, e.g. "now64(3)"
 
+    def __init__(self, type: str | None = None, /, **kwargs):
+        # Accept positional ``type`` so dataclass-era call sites like
+        # ``ColumnInfo("Int64", nullable=True)`` keep working.
+        if type is not None:
+            kwargs["type"] = type
+        super().__init__(**kwargs)
+
     def with_fieldtype(self, fieldtype: ColumnFieldtype) -> "ColumnInfo":
         """Return a copy with ``fieldtype`` replaced."""
         return self.model_copy(update={"fieldtype": fieldtype})
@@ -87,14 +94,14 @@ class ColumnInfo(BaseModel):
         """Return the ClickHouse DDL type string.
 
         Examples:
-            ColumnInfo(type='Int64').ch_type()                                 -> 'Int64'
-            ColumnInfo(type='Int64', nullable=True).ch_type()                  -> 'Nullable(Int64)'
-            ColumnInfo(type='Int64', array=True).ch_type()                     -> 'Array(Int64)'
-            ColumnInfo(type='Int64', array=2).ch_type()                        -> 'Array(Array(Int64))'
-            ColumnInfo(type='Int64', nullable=True, array=True).ch_type()      -> 'Array(Nullable(Int64))'
-            ColumnInfo(type='String', low_cardinality=True).ch_type()          -> 'LowCardinality(String)'
-            ColumnInfo(type='String', nullable=True, low_cardinality=True).ch_type()
-                -> 'LowCardinality(Nullable(String))'
+            ColumnInfo('Int64').ch_type()                          -> 'Int64'
+            ColumnInfo('Int64', nullable=True).ch_type()           -> 'Nullable(Int64)'
+            ColumnInfo('Int64', array=True).ch_type()              -> 'Array(Int64)'
+            ColumnInfo('Int64', array=2).ch_type()                 -> 'Array(Array(Int64))'
+            ColumnInfo('Int64', nullable=True, array=True).ch_type() -> 'Array(Nullable(Int64))'
+            ColumnInfo('String', low_cardinality=True).ch_type()   -> 'LowCardinality(String)'
+            ColumnInfo('String', nullable=True, low_cardinality=True).ch_type()
+                -> 'Array(LowCardinality(Nullable(String)))' if array else 'LowCardinality(Nullable(String))'
         """
         base = self.type
         if self.nullable:
@@ -108,8 +115,10 @@ class ColumnInfo(BaseModel):
 
 
 # Source-of-truth ColumnInfo for the optional aai_id row-id column.
-# Operators that propagate aai_id onto result tables clear the DEFAULT
-# expression — values are copied via INSERT, not generated per-row.
+# ``data_context.create_object_from_value(aai_id=True)`` injects this
+# directly; binary operators propagate it onto result tables via
+# ``info.model_copy(update={"default": None})`` (no DEFAULT — values come
+# from INSERT, not generated per-row).
 AAI_ID_INFO = ColumnInfo(
     type="UInt64",
     fieldtype=FIELDTYPE_ARRAY,

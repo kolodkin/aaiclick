@@ -42,7 +42,7 @@ async def test_create_object_with_engine_override():
     async with data_context():  # Default Memory
         ch_client = get_ch_client()
         # Override to MergeTree
-        schema = Schema(fieldtype="a", columns={"value": ColumnInfo(type="Int64")})
+        schema = Schema(fieldtype="a", columns={"value": ColumnInfo("Int64")})
         obj_a = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
         result = await ch_client.query(f"""
@@ -76,7 +76,7 @@ async def test_mixed_engine_scenario():
         # an explicit view(order_by=...).
         schema = Schema(
             fieldtype="a",
-            columns={"value": ColumnInfo(type="Int64"), "aai_id": AAI_ID_INFO},
+            columns={"value": ColumnInfo("Int64"), "aai_id": AAI_ID_INFO},
         )
         obj_b = await create_object(schema, engine=ENGINE_MERGE_TREE)
 
@@ -108,7 +108,7 @@ async def test_schema_engine():
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
-            columns={"value": ColumnInfo(type="Int64")},
+            columns={"value": ColumnInfo("Int64")},
             engine=ENGINE_MEMORY,
         )
         obj = await create_object(schema)
@@ -125,7 +125,7 @@ async def test_schema_engine_param_precedence():
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
-            columns={"value": ColumnInfo(type="Int64")},
+            columns={"value": ColumnInfo("Int64")},
             engine=ENGINE_MEMORY,
         )
         obj = await create_object(schema, engine=ENGINE_MERGE_TREE)
@@ -143,8 +143,8 @@ async def test_aggregating_merge_tree_engine():
         schema = Schema(
             fieldtype="a",
             columns={
-                "key": ColumnInfo(type="String"),
-                "value": ColumnInfo(type="Int64"),
+                "key": ColumnInfo("String"),
+                "value": ColumnInfo("Int64"),
             },
             engine=ENGINE_AGGREGATING_MERGE_TREE,
             order_by="key",
@@ -166,8 +166,8 @@ async def test_schema_order_by_merge_tree():
         schema = Schema(
             fieldtype="a",
             columns={
-                "key": ColumnInfo(type="String"),
-                "value": ColumnInfo(type="Int64"),
+                "key": ColumnInfo("String"),
+                "value": ColumnInfo("Int64"),
             },
             order_by="key",
         )
