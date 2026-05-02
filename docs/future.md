@@ -23,7 +23,7 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 ## Replace `datetime.utcnow()` and Add Python 3.13 to CI Matrix
 
-`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has ~58 call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
+`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has many call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
 
 A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only call site touched by `aaiclick/oplog/test_graph.py`). The rest of the sweep is deferred.
 
