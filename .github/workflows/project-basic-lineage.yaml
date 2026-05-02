@@ -11,11 +11,12 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  AAICLICK_AI_MODEL: nvidia_nim/meta/llama-3.1-8b-instruct
+  AAICLICK_AI_MODEL: nvidia_nim/meta/llama-3.3-70b-instruct
 
 jobs:
   basic-lineage:
     runs-on: ubuntu-latest
+    environment: AI
 
     steps:
       - name: Checkout code

@@ -144,6 +144,17 @@ Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAl
 
 `aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
 
+## Name Parameter on Operator Results
+
+Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable `name=` to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
+
+**Proposal**: thread a `name: str | None = None` (and matching `scope`) through the operator surface — `__add__`, `__mul__`, the rest of `_apply_operator`, plus `_apply_aggregation` and the group-by path — down to `_apply_operator_db` so the result table is built via `create_object(schema, name=name, scope=scope)` instead of the unnamed default. Operator chaining stays anonymous when no name is passed (today's behavior).
+
+**Open questions**:
+
+- The `*` / `+` overload signatures don't take kwargs. A separate fluent form (`prices.mul(quantities, name="revenue")`) is cleaner than overloading the operators themselves.
+- Pairs naturally with the "Lazy Operator Results" entry above — once operators return `LazyView`, the `name=` becomes the materialization hint, not a CREATE-time argument.
+
 ---
 
 # Deferred

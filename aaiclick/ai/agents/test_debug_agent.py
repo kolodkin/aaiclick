@@ -255,6 +255,49 @@ async def test_debug_result_plain_text_content_is_final_answer():
     assert result == '{"answer": "42"}'
 
 
+async def test_debug_result_splits_multiple_tool_calls_per_assistant_turn():
+    """When the model returns multiple tool_calls in one response, the assistant
+    history must contain one tool_call per message — Nvidia NIM Llama-3.1's
+    prompt template can't render multiple tool_calls in a single assistant turn.
+    """
+    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
+
+    tc1 = MagicMock()
+    tc1.id = "call_a"
+    tc1.function.name = "get_schema"
+    tc1.function.arguments = f'{{"table": "{TARGET}"}}'
+    tc2 = MagicMock()
+    tc2.id = "call_b"
+    tc2.function.name = "list_graph_nodes"
+    tc2.function.arguments = ""
+    multi = MagicMock()
+    multi.choices[0].message.content = "thinking"
+    multi.choices[0].message.tool_calls = [tc1, tc2]
+    multi.choices[0].finish_reason = "tool_calls"
+
+    final_resp = _stop_response("done")
+    toolbox = _mock_toolbox(dispatch_side_effect=["schema-result", "nodes-result"])
+    provider = _mock_provider(multi, final_resp)
+
+    with (
+        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
+        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=provider),
+        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
+    ):
+        await debug_result(TARGET, "Inspect.")
+
+    history = provider.complete.await_args_list[1].args[0]
+    assistant_msgs = [m for m in history if m["role"] == "assistant"]
+    assert len(assistant_msgs) == 2
+    assert all(len(m["tool_calls"]) == 1 for m in assistant_msgs)
+    assert assistant_msgs[0]["tool_calls"][0]["id"] == "call_a"
+    assert assistant_msgs[1]["tool_calls"][0]["id"] == "call_b"
+
+    tool_msgs = [m for m in history if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_msgs] == ["call_a", "call_b"]
+    assert [m["content"] for m in tool_msgs] == ["schema-result", "nodes-result"]
+
+
 async def test_debug_result_with_prebuilt_graph_skips_subgraph():
     """Passing graph= avoids the backward_oplog traversal."""
     graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
