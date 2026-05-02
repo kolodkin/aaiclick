@@ -183,6 +183,10 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - Define a `Literal` type alias for the validated value set.
   - Export module-level constants for the individual values so callers don't repeat string literals at call sites.
   - For DB-mapped fields, attach `sa_column=Column(String, CheckConstraint("col IN (...)", name="ck_<table>_<col>"), ...)`. Avoid native ENUM types — `ALTER TYPE ADD VALUE` is non-transactional in Postgres, and a String + CHECK constraint round-trips cleanly through both Postgres and SQLite.
+  - **Docstring convention — public-API only**: In public-API parameter docstrings (functions a user calls from outside the module), show the literal value (` ``"NONE"`` `, ` ``"dict"`` `) rather than the constant name (`PRESERVATION_NONE`, `ORIENT_DICT`). The reader copy-pastes the value into a call. Use sphinx double-backticks to match the surrounding doc style.
+    - **Don't** rewrite test docstrings — they sit next to test code that uses the constant name, and a docstring/code mismatch is more confusing than the constant.
+    - **Don't** rewrite cryptic abbreviations — `FIELDTYPE_ARRAY` is self-documenting, while `"a"` is opaque. Keep the constant name in docstrings when the literal is shorter than its meaning.
+    - **Do** rewrite when the literal is a clear word (`"NONE"`, `"dict"`, `"sum"`, `"temp_named"`).
   - Example:
     ```python
     from typing import Literal

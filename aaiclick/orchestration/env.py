@@ -27,7 +27,7 @@ def get_default_preservation_mode() -> PreservationMode:
     """Read ``AAICLICK_DEFAULT_PRESERVATION_MODE`` (or return ``NONE``).
 
     Accepted values (case-insensitive): ``NONE``, ``FULL``.
-    An unset env var yields ``PRESERVATION_NONE``. An invalid value
+    An unset env var yields ``"NONE"``. An invalid value
     raises ``ValueError`` with the list of accepted keywords.
     """
     raw = os.environ.get("AAICLICK_DEFAULT_PRESERVATION_MODE")

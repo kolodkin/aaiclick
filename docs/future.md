@@ -123,29 +123,16 @@ Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAl
 
 `aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
 
-## Standardize Docstring Literals for `Literal`-Typed Parameters
+## Name Parameter on Operator Results
 
-Project convention (CLAUDE.md "Prefer `Literal` over `StrEnum`"): define a `Literal` alias for a closed string set and export module-level `UPPER_CASE` constants for the individual values. Runtime call sites use the constants; **docstrings should show the literal string the user passes** (e.g. `scope="temp_named"`), not the constant name (`SCOPE_TEMP_NAMED`) — readers can't act on `SCOPE_TEMP_NAMED` without first looking it up, but they can immediately copy `"temp_named"` into a call.
+Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable `name=` to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
 
-Today this is enforced ad-hoc. `aaiclick/data/scope.py` is now consistent (`make_scoped_table_name` docstring shows `"temp_named"` / `"job"` / `"global"`), but other Literal-pair sets in the codebase mix the two styles.
+**Proposal**: thread a `name: str | None = None` (and matching `scope`) through the operator surface — `__add__`, `__mul__`, the rest of `_apply_operator`, plus `_apply_aggregation` and the group-by path — down to `_apply_operator_db` so the result table is built via `create_object(schema, name=name, scope=scope)` instead of the unnamed default. Operator chaining stays anonymous when no name is passed (today's behavior).
 
-**Audit candidates** (each defines a `Literal` alias + `UPPER_CASE` constants — check that docstrings, error messages, and module headers use the literal value, not the constant name):
+**Open questions**:
 
-- `FIELDTYPE_SCALAR` / `FIELDTYPE_ARRAY` / `FIELDTYPE_DICT` (`aaiclick/data/models.py`)
-- `ORIENT_DICT` / `ORIENT_RECORDS` (`aaiclick/data/models.py`)
-- `GB_SUM` / `GB_MEAN` / `GB_MIN` / … group-by aggregations (`aaiclick/data/models.py`)
-- `DEPENDENCY_TASK` / `DEPENDENCY_GROUP` (`aaiclick/orchestration/models.py`)
-- `OLLAMA_*` bootstrap statuses (`aaiclick/view_models.py`)
-- `MIGRATE_*` Alembic actions (`aaiclick/view_models.py`)
-- The `JobStatus` / `WorkerStatus` / `PreservationMode` Literals in `aaiclick/orchestration/models.py`
-
-**Work**:
-
-- Grep each constant name (`SCOPE_TEMP_NAMED`, `FIELDTYPE_SCALAR`, …) inside docstrings and `"""…"""` triple-string comments; replace with the literal value in backticks.
-- Keep error-message strings using the literal value too (`raise ValueError("scope='job' requires …")` — already the convention).
-- Runtime code stays on the constants — only docs/error text are normalized.
-
-No deadline; pick up next time someone is adding a new Literal-pair set and wants the codebase to set a clean example.
+- The `*` / `+` overload signatures don't take kwargs. A separate fluent form (`prices.mul(quantities, name="revenue")`) is cleaner than overloading the operators themselves.
+- Pairs naturally with the "Lazy Operator Results" entry above — once operators return `LazyView`, the `name=` becomes the materialization hint, not a CREATE-time argument.
 
 ---
 

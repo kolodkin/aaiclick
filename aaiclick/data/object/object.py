@@ -504,8 +504,8 @@ class Object:
         dict objects return a dict or list-of-dicts controlled by ``orient``.
 
         Args:
-            orient: Output format for dict data — ``ORIENT_DICT`` (default) or
-                ``ORIENT_RECORDS``.
+            orient: Output format for dict data — ``"dict"`` (default) or
+                ``"records"``.
             order_by: Optional ``ORDER BY`` clause. When omitted on a View,
                 inherits the View's stored ``order_by``. Scalar reads ignore.
             offset: Optional row offset. Same View-inheritance rule as above.
@@ -2308,11 +2308,11 @@ class GroupByQuery:
 
         Examples:
             >>> result = await obj.group_by('category').agg({
-            ...     'amount': GB_SUM,
-            ...     'price': GB_MEAN,
+            ...     'amount': "sum",
+            ...     'price': "mean",
             ... })
             >>> result = await obj.group_by('category').agg({
-            ...     'amount': [Agg(GB_SUM, 'amount_sum'), Agg(GB_MEAN, 'amount_avg')],
+            ...     'amount': [Agg("sum", 'amount_sum'), Agg("mean", 'amount_avg')],
             ... })
         """
         info = self._get_group_by_info()

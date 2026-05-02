@@ -33,7 +33,7 @@ def resolve_job_config(
     1. Explicit ``explicit_mode`` argument
     2. ``registered.preservation_mode``
     3. ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var
-    4. ``PRESERVATION_NONE`` (hardcoded fallback)
+    4. ``"NONE"`` (hardcoded fallback)
 
     The explicit override is considered "set" when it's not ``None`` —
     this lets callers pass ``None`` to mean "inherit from the next level".
@@ -188,7 +188,7 @@ async def create_job(
         preservation_mode: Which tables survive after the job completes.
             Overrides the registered job's default; falls through to the
             ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
-            ``PRESERVATION_NONE``.
+            ``"NONE"``.
         registered: Optional ``RegisteredJob`` to source level-2 defaults
             from. When supplied, ``registered.preservation_mode`` becomes
             the fallback value.
