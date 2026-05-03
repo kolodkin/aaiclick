@@ -108,11 +108,19 @@ runner like any other task.
      `git config remote.origin.url`).
    - Capture `git_sha` from `git rev-parse HEAD`. Reject if working tree
      is dirty or HEAD is unpushed.
+   - Capture `git_branch` from `git rev-parse --abbrev-ref HEAD`. If
+     it returns `HEAD` (detached-HEAD state), store `NULL`. Branch is
+     metadata only — never used for resolution.
+   - Capture `build_context` from `RegisteredJob` (default empty =
+     repo root). Subdirectory offset within the cloned tree used as
+     the docker build context; the `dockerfile` path is relative to
+     it.
    - Compute `image_tag = f"{registry_prefix}aaiclick-job:{git_sha}"`,
      where `registry_prefix = f"{AAICLICK_DOCKER_REGISTRY}/"` if set, else
      empty.
 2. Create `Job` row with `runner_mode="docker"` and the snapshotted
-   `git_remote`, `git_sha`, `dockerfile`, `image_tag`.
+   `git_remote`, `git_sha`, `git_branch`, `build_context`,
+   `dockerfile`, `image_tag`.
 3. Create the build task (entrypoint
    `aaiclick.orchestration.execution.docker_build.build_image`).
 4. Create the entry task with the user's job entrypoint.
@@ -134,9 +142,10 @@ async def build_image(job_id: int) -> None:
 
     with tempfile.TemporaryDirectory() as workdir:
         await _git_clone_at_sha(job.git_remote, job.git_sha, workdir)
-        dockerfile = os.path.join(workdir, job.dockerfile or "Dockerfile")
-        build_args = _collect_build_args()  # PIP_INDEX_URL, PIP_EXTRA_INDEX_URL
-        await _docker_build(workdir, dockerfile, job.image_tag, build_args)
+        context = os.path.join(workdir, job.build_context or "")
+        dockerfile = os.path.join(context, job.dockerfile or "Dockerfile")
+        build_args = _collect_build_args(job)
+        await _docker_build(context, dockerfile, job.image_tag, build_args)
 
     if registry:
         await _docker_push(job.image_tag)
@@ -145,15 +154,36 @@ async def build_image(job_id: int) -> None:
 `max_retries=2` because clone / pull / push can fail transiently, and the
 build is fully idempotent (tag is content-addressed by SHA).
 
-`_collect_build_args()` reads `AAICLICK_PIP_INDEX_URL` and
-`AAICLICK_PIP_EXTRA_INDEX_URL` and emits a `["--build-arg",
-"PIP_INDEX_URL=…", "--build-arg", "PIP_EXTRA_INDEX_URL=…"]` slice that
-gets appended to the `docker build` command. The user's Dockerfile
-declares `ARG PIP_INDEX_URL` (and similar) and uses it in `RUN pip
-install …`, or relies on pip's automatic env-var pickup for those
-exact names. No other build args are forwarded — keeps the contract
-small and explicit. A future per-`RegisteredJob` `build_args` field
-can extend this for more flexibility; not needed for v1.
+`_collect_build_args(job)` emits a `["--build-arg", "KEY=value", ...]`
+slice with the following entries (omitted when their value is unset
+or `None`):
+
+| Build arg             | Value                                          | Source                  |
+|-----------------------|------------------------------------------------|-------------------------|
+| `GIT_REMOTE`          | `job.git_remote`                               | Captured at submission  |
+| `GIT_SHA`             | `job.git_sha`                                  | Captured at submission  |
+| `GIT_BRANCH`          | `job.git_branch` (skipped if NULL)             | Captured at submission  |
+| `BUILD_CONTEXT`       | `job.build_context` (skipped if empty)         | RegisteredJob field     |
+| `PIP_INDEX_URL`       | `os.environ["AAICLICK_PIP_INDEX_URL"]`         | Operator env var        |
+| `PIP_EXTRA_INDEX_URL` | `os.environ["AAICLICK_PIP_EXTRA_INDEX_URL"]`   | Operator env var        |
+
+The user's Dockerfile opts into any of these via `ARG <name>` and uses
+them however it likes — pip install URLs from `PIP_INDEX_URL`,
+provenance labels from `GIT_*`, etc. No other build args are
+forwarded; the contract is small and explicit. A future per-job
+`build_args` field can extend this for more flexibility; not needed
+for v1.
+
+Provenance label example for the user's Dockerfile:
+
+```dockerfile
+ARG GIT_REMOTE
+ARG GIT_SHA
+ARG GIT_BRANCH
+LABEL org.opencontainers.image.source="${GIT_REMOTE}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.ref.name="${GIT_BRANCH}"
+```
 
 The kwarg is `job_id` only; the build task reads the latest job state
 from the DB. Output is `None` — image existence is the side effect, the
@@ -293,11 +323,12 @@ All on existing tables; no new tables.
 
 ## `registered_jobs`
 
-| Column         | Type                       | Default              | Purpose                                            |
-|----------------|----------------------------|----------------------|----------------------------------------------------|
-| `runner_mode`  | `String` + CHECK           | `"subprocess"`       | `"subprocess"` or `"docker"`                       |
-| `dockerfile`   | `String`                   | `NULL` → `Dockerfile`| Path to Dockerfile relative to repo root           |
-| `git_remote`   | `String`                   | `NULL` → auto-detect | Override `git config remote.origin.url`            |
+| Column          | Type                       | Default              | Purpose                                                |
+|-----------------|----------------------------|----------------------|--------------------------------------------------------|
+| `runner_mode`   | `String` + CHECK           | `"subprocess"`       | `"subprocess"` or `"docker"`                           |
+| `dockerfile`    | `String`                   | `NULL` → `Dockerfile`| Path to Dockerfile relative to `build_context`         |
+| `git_remote`    | `String`                   | `NULL` → auto-detect | Override `git config remote.origin.url`                |
+| `build_context` | `String`                   | `NULL` → repo root   | Subdirectory offset within the cloned tree used as the docker build context (monorepo support) |
 
 CHECK constraint name: `ck_registered_jobs_runner_mode`.
 
@@ -314,15 +345,19 @@ RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER]
 
 Snapshotted from `RegisteredJob` at submission for reproducibility.
 
-| Column         | Type                       | Default        | Purpose                                  |
-|----------------|----------------------------|----------------|------------------------------------------|
-| `runner_mode`  | `String` + CHECK           | `"subprocess"` | Same enum as `RegisteredJob`             |
-| `git_remote`   | `String`                   | `NULL`         | Resolved remote URL                      |
-| `git_sha`      | `String(40)`               | `NULL`         | Resolved 40-char hex commit SHA          |
-| `dockerfile`   | `String`                   | `NULL`         | Snapshotted Dockerfile path              |
-| `image_tag`    | `String`                   | `NULL`         | `[registry/]aaiclick-job:<sha>`          |
+| Column          | Type                       | Default        | Purpose                                            |
+|-----------------|----------------------------|----------------|----------------------------------------------------|
+| `runner_mode`   | `String` + CHECK           | `"subprocess"` | Same enum as `RegisteredJob`                       |
+| `git_remote`    | `String`                   | `NULL`         | Resolved remote URL                                |
+| `git_sha`       | `String(40)`               | `NULL`         | Resolved 40-char hex commit SHA                    |
+| `git_branch`    | `String`                   | `NULL`         | Captured branch name; `NULL` if detached HEAD. Metadata only — never a resolution input |
+| `build_context` | `String`                   | `NULL`         | Snapshotted subdirectory offset                    |
+| `dockerfile`    | `String`                   | `NULL`         | Snapshotted Dockerfile path (relative to `build_context`) |
+| `image_tag`     | `String`                   | `NULL`         | `[registry/]aaiclick-job:<sha>`                    |
 
-All five are `NULL` for subprocess jobs and populated for Docker jobs.
+All seven are `NULL` for subprocess jobs and populated for Docker jobs
+(except `git_branch` and `build_context`, which can be `NULL` even
+for Docker jobs — detached HEAD and repo-root context respectively).
 CHECK constraint name: `ck_jobs_runner_mode`.
 
 Snapshotting (rather than reading `RegisteredJob` at task-execute time)
@@ -389,8 +424,12 @@ or a Docker network the operator manages outside the framework).
 ## Per-RegisteredJob Fields
 
 - `runner_mode` — `"subprocess"` or `"docker"`.
-- `dockerfile` — path within the repo, default `Dockerfile`.
+- `dockerfile` — path within the cloned tree (relative to
+  `build_context`), default `Dockerfile`.
 - `git_remote` — override for `git config remote.origin.url` if needed.
+- `build_context` — subdirectory offset within the cloned tree used
+  as the docker build context. Default empty (repo root). Use this
+  for monorepos with multiple jobs.
 
 ## Not Configurable
 
@@ -607,60 +646,46 @@ test pypi, and the container ends up running the wheel under test.
 
 ## Test Git Repo
 
-The build task does `git clone <remote> && git checkout <sha>` against
-a real remote, so the e2e test needs a real-but-throwaway git repo it
-controls. A pytest fixture in `test_e2e/docker/conftest.py`
-materializes one per test from `fixtures/sample_job/`:
+With `build_context` available, the e2e test reuses the **aaiclick
+repo itself** as its "user repo" and points `build_context` at the
+fixture subdir. The aaiclick checkout the workflow already has on the
+runner is the test repo — no bare-repo fixture, no per-test git
+ceremony.
+
+Test setup:
 
 ```python
-@pytest.fixture
-def sample_job_repo(tmp_path):
-    fixture = Path(__file__).parent / "fixtures" / "sample_job"
-    bare = tmp_path / "sample_job.git"
-    work = tmp_path / "sample_job"
-
-    run(["git", "init", "--bare", str(bare)])
-    run(["git", "clone", str(bare), str(work)])
-    shutil.copytree(fixture, work, dirs_exist_ok=True)
-    run(["git", "-C", str(work), "config", "user.email", "e2e@test"])
-    run(["git", "-C", str(work), "config", "user.name", "e2e"])
-    run(["git", "-C", str(work), "add", "."])
-    run(["git", "-C", str(work), "commit", "-m", "sample"])
-    sha = run_capture(["git", "-C", str(work), "rev-parse", "HEAD"])
-    run(["git", "-C", str(work), "push"])
-
-    yield SimpleNamespace(remote=f"file://{bare}", sha=sha, worktree=work)
-```
-
-Test usage:
-
-```python
-async def test_docker_runner_smoke(orch_ctx, sample_job_repo, monkeypatch):
-    # chdir so run_job's automatic git rev-parse HEAD picks up our commit
-    monkeypatch.chdir(sample_job_repo.worktree)
+async def test_docker_runner_smoke(orch_ctx):
+    workspace = os.environ["GITHUB_WORKSPACE"]
+    sha = os.environ["GITHUB_SHA"]
 
     await register_job(
         "smoke",
         "sample_jobs.entry_task",
         runner_mode=RUNNER_DOCKER,
-        git_remote=sample_job_repo.remote,
+        git_remote=f"file://{workspace}/.git",
+        build_context="test_e2e/docker/fixtures/sample_job",
+        # dockerfile defaults to "Dockerfile" relative to build_context
     )
-    job_id = await run_job("smoke")
+    job_id = await run_job("smoke", git_sha=sha)
     await wait_for_job(job_id)
     # assert task completed
 ```
 
-Why a per-test bare repo and not alternatives:
+`file://` (not `https://github.com/...`) because the build runs on
+the host and the host already has the checkout — going to GitHub
+would be a pointless network round-trip and adds flake surface. The
+framework treats `git_remote` as opaque and shells out to `git
+clone`, so `file://` exercises the same code path as `https://`.
 
-| Alternative                              | Why not                                                                |
-|------------------------------------------|------------------------------------------------------------------------|
-| Bare repo committed under `fixtures/`    | Awkward to review (binary-ish); needs regen on every fixture edit      |
-| `file://${GITHUB_WORKSPACE}/.git`        | Bloated build context; conflates aaiclick test infra with test target  |
-| GitHub remote (`https://github.com/...`) | Adds network + auth flakiness for no test-coverage gain                |
+Image-tag note: `image_tag` is keyed on `git_sha` only, so an
+aaiclick-code-only commit (sample_job unchanged) still cache-misses
+and rebuilds. The Dockerfile is small and the build is cheap — accept
+it. A future content-hash mode for `build_context` could fix this if
+it ever matters in practice.
 
-Cleanup is automatic via `tmp_path` teardown. The same fixture works
-in nightly and release-gate workflows — the e2e doesn't depend on
-`$GITHUB_WORKSPACE` for its git remote, only for the test code itself.
+Production users on multi-host setups will use real `https://...` URLs
+naturally; the framework supports both with zero special-casing.
 
 Carve-outs from project defaults this requires:
 
@@ -874,24 +899,27 @@ until we've seen a real failure.
 
 # Open Implementation Questions
 
-1. **Where do `git_remote` and `git_sha` get captured — at `register_job`
-   or at `run_job` time?** Lean: at `run_job` time so the same registered
-   job can run different SHAs over time. Validate clean tree + pushed HEAD
-   only at `run_job` time. Cron-scheduled runs resolve at fire time.
+1. **Where do `git_remote` / `git_sha` / `git_branch` get captured —
+   at `register_job` or at `run_job` time?** Lean: at `run_job` time
+   so the same registered job can run different SHAs over time.
+   Validate clean tree + pushed HEAD only at `run_job` time.
+   Cron-scheduled runs resolve at fire time. `git_branch` is captured
+   alongside SHA; detached HEAD → `NULL`.
 2. **IPC tmpdir lifecycle**: a `tempfile.TemporaryDirectory()` context in
    `_run_task_in_container` is the obvious answer. `_wait_for_container`
    returns only after `docker run` exits, so the cleanup ordering is
    naturally correct.
 3. **Dockerfile path validation**: build task should validate that
-   `<dockerfile>` exists in the cloned repo before invoking `docker build`,
-   with a clear error like
-   `"Dockerfile not found at {dockerfile} in repo {git_remote}@{git_sha}"`.
+   `<build_context>/<dockerfile>` exists in the cloned tree before
+   invoking `docker build`, with a clear error like
+   `"Dockerfile not found at {build_context}/{dockerfile} in repo
+   {git_remote}@{git_sha}"`.
 4. **`--user` controllability per-RegisteredJob**: out of scope for v1;
    document the recommendation that the Dockerfile's `USER` matches the
    host worker's UID, or the log dir is world-writable.
-5. **CLI shape**: `register-job <entrypoint> --runner docker --dockerfile
-   path/to/Dockerfile` hung off the existing `register-job` command. No
-   new top-level commands.
+5. **CLI shape**: `register-job <entrypoint> --runner docker
+   --dockerfile path/to/Dockerfile --build-context subdir/` hung off
+   the existing `register-job` command. No new top-level commands.
 
 # Success Criteria
 
