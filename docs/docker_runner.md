@@ -587,9 +587,16 @@ FROM python:3.10-slim
 ARG PIP_INDEX_URL          # framework forwards this when AAICLICK_PIP_INDEX_URL is set
 ARG AAICLICK_VERSION
 RUN pip install "aaiclick[distributed]==${AAICLICK_VERSION}"
-COPY . /app
-WORKDIR /app
+COPY . /src
+RUN pip install /src       # makes sample_jobs importable as a real package
 ```
+
+`sample_job/pyproject.toml` declares `sample_jobs` as a package so
+`pip install /src` puts it on the container's import path — the
+container entrypoint resolves the task's `"sample_jobs.entry_task"`
+via normal `importlib`. (Just `COPY` + `WORKDIR` would only work if
+the container's CWD ended up on `sys.path`; installing as a package
+is the standard pattern users follow and worth modeling.)
 
 No `Dockerfile.source` / `Dockerfile.wheel` split. Both workflows
 upload the wheel they want tested to the local pypiserver before
@@ -597,6 +604,63 @@ running pytest, then point the framework at it via
 `AAICLICK_PIP_INDEX_URL`. The framework forwards as `--build-arg`,
 the user's plain `RUN pip install aaiclick…` resolves through the
 test pypi, and the container ends up running the wheel under test.
+
+## Test Git Repo
+
+The build task does `git clone <remote> && git checkout <sha>` against
+a real remote, so the e2e test needs a real-but-throwaway git repo it
+controls. A pytest fixture in `test_e2e/docker/conftest.py`
+materializes one per test from `fixtures/sample_job/`:
+
+```python
+@pytest.fixture
+def sample_job_repo(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "sample_job"
+    bare = tmp_path / "sample_job.git"
+    work = tmp_path / "sample_job"
+
+    run(["git", "init", "--bare", str(bare)])
+    run(["git", "clone", str(bare), str(work)])
+    shutil.copytree(fixture, work, dirs_exist_ok=True)
+    run(["git", "-C", str(work), "config", "user.email", "e2e@test"])
+    run(["git", "-C", str(work), "config", "user.name", "e2e"])
+    run(["git", "-C", str(work), "add", "."])
+    run(["git", "-C", str(work), "commit", "-m", "sample"])
+    sha = run_capture(["git", "-C", str(work), "rev-parse", "HEAD"])
+    run(["git", "-C", str(work), "push"])
+
+    yield SimpleNamespace(remote=f"file://{bare}", sha=sha, worktree=work)
+```
+
+Test usage:
+
+```python
+async def test_docker_runner_smoke(orch_ctx, sample_job_repo, monkeypatch):
+    # chdir so run_job's automatic git rev-parse HEAD picks up our commit
+    monkeypatch.chdir(sample_job_repo.worktree)
+
+    await register_job(
+        "smoke",
+        "sample_jobs.entry_task",
+        runner_mode=RUNNER_DOCKER,
+        git_remote=sample_job_repo.remote,
+    )
+    job_id = await run_job("smoke")
+    await wait_for_job(job_id)
+    # assert task completed
+```
+
+Why a per-test bare repo and not alternatives:
+
+| Alternative                              | Why not                                                                |
+|------------------------------------------|------------------------------------------------------------------------|
+| Bare repo committed under `fixtures/`    | Awkward to review (binary-ish); needs regen on every fixture edit      |
+| `file://${GITHUB_WORKSPACE}/.git`        | Bloated build context; conflates aaiclick test infra with test target  |
+| GitHub remote (`https://github.com/...`) | Adds network + auth flakiness for no test-coverage gain                |
+
+Cleanup is automatic via `tmp_path` teardown. The same fixture works
+in nightly and release-gate workflows — the e2e doesn't depend on
+`$GITHUB_WORKSPACE` for its git remote, only for the test code itself.
 
 Carve-outs from project defaults this requires:
 
