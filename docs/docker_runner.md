@@ -516,7 +516,7 @@ exit so they don't accumulate.
 | `test_docker_worker.py`       | Host-side `_run_task_in_container`: dispatch, IPC, exit-code translation, cancel poll, timeout via `docker_kill`, heartbeat cadence | `orch_ctx_no_ch`  |
 | `test_docker_build.py`        | Build task: cache-hit ladder (registry → local → build), push gating on `AAICLICK_DOCKER_REGISTRY`, dockerfile-not-found error, dirty-tree / unpushed-HEAD rejection at submission | `orch_ctx`        |
 | `test_docker_container_main.py` | Container-side `_container_main`: orch_context boot, `execute_task` round-trip, JSON result file format, `register_returned_tasks` integration, `sys.exit` codes on success / failure | `orch_ctx_no_ch`  |
-| `test_docker_runner_e2e.py`   | Real docker daemon end-to-end. Opt-in via `@pytest.mark.docker_e2e`; skipped when `which docker` fails. CI runs it on the distributed-backend job only | `orch_ctx`        |
+| `test_docker_runner_e2e.py`   | Real docker daemon end-to-end. Opt-in via `@pytest.mark.docker_e2e`; skipped when `which docker` fails. Not part of the PR-blocking matrix — runs in the standalone nightly workflow described below | `orch_ctx`        |
 
 `test_docker_worker.py` and `test_docker_container_main.py` use
 `orch_ctx_no_ch` for the same reason mp-worker tests do: the
@@ -530,6 +530,57 @@ module to avoid mixing with `orch_ctx`.
 `test_docker_build.py` uses `orch_ctx` because the build task is a
 regular `@task`-decorated function on the subprocess runner; it never
 opens a chdb session itself but goes through `execute_task`.
+
+## Nightly E2E Workflow
+
+`test_docker_runner_e2e.py` runs in a dedicated workflow,
+`.github/workflows/test-docker-nightly.yaml`, kept separate from
+`test.yaml` so a slow / flaky daemon-backed test never blocks PRs.
+
+Trigger:
+
+- `schedule: cron: "0 6 * * *"` (06:00 UTC nightly).
+- `workflow_dispatch` for manual re-runs.
+
+Runner: `ubuntu-latest`. Docker daemon ships preinstalled, same as the
+existing `test-dist` job.
+
+Service containers (same `services:` block style as `test-dist`):
+
+| Service      | Image                              | Purpose                                                |
+|--------------|------------------------------------|--------------------------------------------------------|
+| `clickhouse` | `clickhouse/clickhouse-server:26.3`| Distributed-backend CH for both host and container     |
+| `postgres`   | `postgres:18.3`                    | Distributed-backend orchestration DB                   |
+| `registry`   | `registry:2`                       | Local docker registry on `localhost:5000` for push/pull |
+
+The `registry:2` service exercises the registry-cache hit, push-after-build,
+and cross-host pull paths that are otherwise untested.
+
+Key env on the test step:
+
+- `AAICLICK_DOCKER_REGISTRY=localhost:5000`
+- `AAICLICK_SQL_URL` / `AAICLICK_CH_URL` pointing at the service hosts via
+  `host.docker.internal:<port>` so the launched aaiclick container can
+  reach Postgres and ClickHouse the same way the spec recommends to
+  operators (rather than `--network host`, which would test a path the
+  framework doesn't recommend).
+- `AAICLICK_DOCKER_BUILD_GIT_REMOTE=file://${GITHUB_WORKSPACE}/.git` so the
+  build task clones the checked-out repo without auth or external network.
+
+Run command (mirrors `test-dist`'s pytest invocation):
+
+```bash
+uv run pytest aaiclick/orchestration/execution/test_docker_runner_e2e.py \
+  -m docker_e2e -n 0 -v --junitxml=tmp/pytest-report.xml
+```
+
+`-n 0` (no xdist) because parallel `docker build` against the same tag
+serializes on the daemon anyway, and image disk usage on the runner
+(~14 GB free) is the binding resource.
+
+Cleanup step before exit: `docker system prune -af` so a future job
+sharing the runner image cache (unlikely on hosted runners, but cheap
+insurance) starts clean.
 
 # Open Implementation Questions
 
