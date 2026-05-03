@@ -561,7 +561,7 @@ test_e2e/
     test_runner_e2e.py     # the test file
     fixtures/
       Dockerfile.source    # COPY . /src && pip install /src
-      Dockerfile.wheel     # COPY dist/*.whl /tmp/ && pip install --no-index /tmp/*.whl
+      Dockerfile.wheel     # writes /etc/pip.conf (pypiserver), pip install aaiclick[distributed]==<version>
       sample_job/          # tiny aaiclick "user repo" the build task clones
         pyproject.toml
         sample_jobs.py
@@ -665,12 +665,46 @@ Cleanup step before exit: `docker system prune -af`.
 workflow — it's its own inlined job, shaped like the other
 `test-package-*` jobs):
 
+Service containers (clickhouse + postgres + registry:2 + **pypiserver**):
+
+| Service      | Image                              | Purpose                                                       |
+|--------------|------------------------------------|---------------------------------------------------------------|
+| `clickhouse` | `clickhouse/clickhouse-server:26.3`| Distributed-backend CH for both host and container            |
+| `postgres`   | `postgres:18.3`                    | Distributed-backend orchestration DB                          |
+| `registry`   | `registry:2`                       | Local docker registry on `localhost:5000` for push/pull       |
+| `pypiserver` | `pypiserver/pypiserver:v2.3.2`     | Test PyPI on `localhost:8080` — serves the about-to-publish wheel; falls back to real PyPI for dependencies |
+
+The `pypiserver` service replaces the `--no-index --find-links dist/`
+shortcut: instead of bypassing pip's index resolution, the release
+gate uploads the wheel to a local PyPI server and installs through
+**actual** index resolution. This catches wheel-filename / metadata
+mismatches and dependency-resolution regressions that the
+`--find-links` path silently masks.
+
+Configured with `--fallback-url https://pypi.org/simple/` so requests
+for any package that isn't `aaiclick` (clickhouse-driver, asyncpg,
+pydantic, etc.) get redirected to real PyPI. Single-index model with
+fallback — no pip aggregating multiple indices, no version-preference
+surprises if real PyPI happens to have an older `aaiclick` published.
+
 ```yaml
 test-package-docker-e2e:
   needs: build
   runs-on: ubuntu-latest
-  services:    # clickhouse + postgres + registry:2 — same as nightly
-    ...
+  services:    # clickhouse + postgres + registry:2 + pypiserver
+    pypiserver:
+      image: pypiserver/pypiserver:v2.3.2
+      ports: [8080:8080]
+      options: >-
+        --health-cmd "wget --spider -q localhost:8080/"
+        --health-interval 10s
+      env:
+        # -P . -a . disables auth (read + upload). --fallback-url
+        # proxies missing packages to real pypi.
+        PYPISERVER_PORT: "8080"
+      # Args passed via image's run command:
+      # run -P . -a . --fallback-url https://pypi.org/simple/ /data/packages
+    # ... clickhouse, postgres, registry as in nightly
   steps:
     - uses: actions/checkout@v5  # required: e2e tests live outside the package
     - uses: astral-sh/setup-uv@v7
@@ -679,12 +713,29 @@ test-package-docker-e2e:
       with: { name: dist, path: dist/ }
     - uses: actions/download-artifact@v7
       with: { name: requirements }
-    - run: |
+    - name: Upload wheel to test pypi
+      run: |
+        # Anonymous upload (pypiserver started with -P . -a .)
+        for whl in dist/*.whl dist/*.tar.gz; do
+          curl -fsSL -F "content=@${whl}" http://localhost:8080/
+        done
+    - name: Install aaiclick from test pypi
+      env:
+        # "Overwrite global pypi config" on the runner: scope the
+        # override to this step via env vars; no /etc/pip.conf mutation.
+        UV_INDEX_URL: http://localhost:8080/simple/
+        PIP_INDEX_URL: http://localhost:8080/simple/
+      run: |
         uv pip install -r requirements-dist.txt
-        uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+        # No --find-links / --no-index — resolves through pypiserver,
+        # exercising the same path a downstream user takes.
+        VERSION="${{ inputs.tag }}"
+        uv pip install "aaiclick[distributed]==${VERSION#v}"
     - run: uv run --no-project python -m aaiclick migrate upgrade head
     - env:
         AAICLICK_E2E_WHEEL_SOURCE: wheel
+        AAICLICK_E2E_PYPI_INDEX_URL: http://host.docker.internal:8080/simple/
+        AAICLICK_E2E_AAICLICK_VERSION: ${{ inputs.tag }}  # "vX.Y.Z"
         AAICLICK_DOCKER_REGISTRY: localhost:5000
         # ... CH/SQL URLs etc.
       run: >-
@@ -692,9 +743,9 @@ test-package-docker-e2e:
         -m docker_e2e -n 0 -v ...
 ```
 
-The `actions/checkout` step is the only deviation from the existing
-`test-package-*` jobs (which rely entirely on the installed wheel and
-do no checkout) — it's needed because the e2e test code lives
+The `actions/checkout` step is the only structural deviation from the
+existing `test-package-*` jobs (which rely entirely on the installed
+wheel and do no checkout) — needed because the e2e test code lives
 outside the package.
 
 The existing `publish` job's `needs:` extends:
@@ -711,11 +762,32 @@ would miss — a missing file in the wheel, an entrypoint that only
 resolves from an editable install, a runtime dep dropped from the
 wheel's metadata.
 
-The `wheel`-mode test fixture's `Dockerfile.wheel` does
-`COPY dist/*.whl /tmp/ && pip install --no-index /tmp/*.whl`; the
-fixture bind-mounts `${GITHUB_WORKSPACE}/dist` into the build context
-so the same `dist` artifact the test runner installed locally is what
-the container also installs.
+The `wheel`-mode `Dockerfile.wheel` overwrites the **container's**
+global pip config to point at the runner's pypiserver, then installs
+through real index resolution:
+
+```dockerfile
+ARG PIP_INDEX_URL    # e.g., http://host.docker.internal:8080/simple/
+ARG AAICLICK_VERSION # e.g., 1.5.1 (without leading v)
+
+# Overwrite global pip config — any pip invocation in the user's image
+# (theirs and ours) goes through the test pypi.
+RUN mkdir -p /etc && printf '[global]\nindex-url = %s\n' "$PIP_INDEX_URL" > /etc/pip.conf
+
+RUN pip install "aaiclick[distributed]==${AAICLICK_VERSION}"
+```
+
+The test fixture passes `PIP_INDEX_URL=$AAICLICK_E2E_PYPI_INDEX_URL`
+and `AAICLICK_VERSION=${AAICLICK_E2E_AAICLICK_VERSION#v}` as
+`--build-arg`s on the `docker build` invocation. `host.docker.internal`
+is how the container reaches the runner's `localhost:8080` (the same
+mechanism already used for the CH/PG service hosts).
+
+End-result: the path `download wheel → pypi index → pip resolves →
+install in container → execute task` is the exact same path a
+downstream user takes after `pip install aaiclick[distributed]==X.Y.Z`,
+so a release that breaks any of those steps fails the gate before
+PyPI is updated.
 
 Break-glass input on `publish.yaml` for emergency releases when the
 daemon-backed test is failing for unrelated reasons:
