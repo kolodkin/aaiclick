@@ -531,37 +531,48 @@ module to avoid mixing with `orch_ctx`.
 regular `@task`-decorated function on the subprocess runner; it never
 opens a chdb session itself but goes through `execute_task`.
 
-## E2E Workflow (reusable)
+## Shared Test Surface
 
-`test_docker_runner_e2e.py` runs in
-`.github/workflows/test-docker-e2e.yaml`, structured as a **reusable
-workflow** (`on: workflow_call`) with two callers:
+Two CI workflows run the docker e2e suite (nightly schedule + release
+gate). They share **test code**, not workflow plumbing — same pattern
+as the existing `test.yaml::test-dist` and `publish.yaml::test-package`
+relationship: similar service-container setup in both workflows, but
+each is its own job that installs aaiclick its own way and points at
+the same pytest target.
 
-1. A nightly `schedule` trigger in the same file.
-2. The release pipeline in `publish.yaml` (see **Release Gate** below).
+Shared, lives in `aaiclick/`:
 
-Keeping it separate from `test.yaml` ensures a slow / flaky daemon-backed
-test never blocks PRs; the nightly catches regressions on `main` between
-releases, and the release-gate caller catches regressions in the actual
-artifact about to be shipped.
+- `aaiclick/orchestration/execution/test_docker_runner_e2e.py` — the
+  test code.
+- `@pytest.mark.docker_e2e` — the marker each workflow filters on.
+- `aaiclick/orchestration/execution/fixtures/Dockerfile.source` and
+  `Dockerfile.wheel` — two install variants. The test fixture picks
+  between them via `AAICLICK_E2E_WHEEL_SOURCE` (`"source"` |
+  `"wheel"`).
 
-Inputs (`workflow_call`):
+Per-workflow:
 
-| Input          | Type     | Default    | Purpose                                                                                                                       |
-|----------------|----------|------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `wheel-source` | `string` | `"source"` | `"source"` — Dockerfile installs from the checked-out tree. `"dist-artifact"` — downloads the `dist` artifact and installs the built wheel. |
-| `ref`          | `string` | `""`       | Optional git ref to check out. Empty = default branch (nightly) or the workflow run's ref (release).                          |
+- How the test runner process gets aaiclick (`uv sync` from source vs.
+  `uv pip install` from `dist/`).
+- Whether the `dist/` artifact is downloaded and bind-mounted into the
+  Docker build context.
+- The pytest invocation (`pytest path/...` vs. `pytest --pyargs ...`).
+- `AAICLICK_E2E_WHEEL_SOURCE` env var value.
 
-Triggers in the file itself:
+## Nightly Workflow
 
-- `schedule: cron: "0 6 * * *"` (06:00 UTC nightly) — calls itself with `wheel-source: source`.
-- `workflow_dispatch` — manual re-runs.
-- `workflow_call` — invoked by `publish.yaml`.
+`.github/workflows/test-docker-nightly.yaml` — standalone, kept out of
+`test.yaml` so a slow / flaky daemon-backed test never blocks PRs.
+
+Triggers:
+
+- `schedule: cron: "0 6 * * *"` (06:00 UTC nightly).
+- `workflow_dispatch` for manual re-runs.
 
 Runner: `ubuntu-latest`. Docker daemon ships preinstalled, same as the
 existing `test-dist` job.
 
-Service containers (same `services:` block style as `test-dist`):
+Service containers:
 
 | Service      | Image                              | Purpose                                                |
 |--------------|------------------------------------|--------------------------------------------------------|
@@ -569,35 +580,26 @@ Service containers (same `services:` block style as `test-dist`):
 | `postgres`   | `postgres:18.3`                    | Distributed-backend orchestration DB                   |
 | `registry`   | `registry:2`                       | Local docker registry on `localhost:5000` for push/pull |
 
-The `registry:2` service exercises the registry-cache hit, push-after-build,
-and cross-host pull paths that are otherwise untested.
+The `registry:2` service exercises the registry-cache hit,
+push-after-build, and cross-host pull paths that are otherwise
+untested.
 
-Key env on the test step:
+Setup: `uv sync --frozen --extra distributed --extra test --python 3.10`
+(matches `test-dist`).
+
+Test step env:
 
 - `AAICLICK_DOCKER_REGISTRY=localhost:5000`
-- `AAICLICK_SQL_URL` / `AAICLICK_CH_URL` pointing at the service hosts via
-  `host.docker.internal:<port>` so the launched aaiclick container can
-  reach Postgres and ClickHouse the same way the spec recommends to
-  operators (rather than `--network host`, which would test a path the
-  framework doesn't recommend).
-- `AAICLICK_E2E_WHEEL_SOURCE=${{ inputs.wheel-source }}` — read by the
-  test fixture to pick which Dockerfile variant to use (see below).
-- For `wheel-source: source`: `AAICLICK_DOCKER_BUILD_GIT_REMOTE=file://${GITHUB_WORKSPACE}/.git`
-  so the build task clones the checked-out repo without auth or external network.
-- For `wheel-source: dist-artifact`: the `dist` artifact is downloaded
-  to `./dist/` first, and the test fixture mounts it into the Docker
-  build context so the Dockerfile can `pip install --no-index --find-links /dist aaiclick`.
+- `AAICLICK_SQL_URL` / `AAICLICK_CH_URL` pointing at the service hosts
+  via `host.docker.internal:<port>` so the launched aaiclick container
+  can reach Postgres and ClickHouse the same way the spec recommends
+  to operators.
+- `AAICLICK_E2E_WHEEL_SOURCE=source`
+- `AAICLICK_DOCKER_BUILD_GIT_REMOTE=file://${GITHUB_WORKSPACE}/.git`
+  so the build task clones the checked-out repo without auth or
+  external network.
 
-Two test-fixture Dockerfiles in
-`aaiclick/orchestration/execution/fixtures/`:
-
-- `Dockerfile.source` — `COPY . /src && pip install /src` (or clones via
-  `git_remote`).
-- `Dockerfile.wheel` — `COPY dist/*.whl /tmp/ && pip install --no-index /tmp/*.whl`.
-
-The fixture selects between them based on `AAICLICK_E2E_WHEEL_SOURCE`.
-
-Run command (mirrors `test-dist`'s pytest invocation):
+Run command:
 
 ```bash
 uv run pytest aaiclick/orchestration/execution/test_docker_runner_e2e.py \
@@ -608,24 +610,44 @@ uv run pytest aaiclick/orchestration/execution/test_docker_runner_e2e.py \
 serializes on the daemon anyway, and image disk usage on the runner
 (~14 GB free) is the binding resource.
 
-Cleanup step before exit: `docker system prune -af` so a future job
-sharing the runner image cache (unlikely on hosted runners, but cheap
-insurance) starts clean.
+Cleanup step before exit: `docker system prune -af`.
 
 ## Release Gate
 
-`publish.yaml` gains a third release-gate job alongside
-`test-package-local` and `test-package`:
+`publish.yaml` gains a third release-gate job alongside the existing
+`test-package-local` and `test-package` (does **not** call the nightly
+workflow — it's its own inlined job, shaped like the other
+`test-package-*` jobs):
 
 ```yaml
 test-package-docker-e2e:
   needs: build
-  uses: ./.github/workflows/test-docker-e2e.yaml
-  with:
-    wheel-source: dist-artifact
+  runs-on: ubuntu-latest
+  services:    # clickhouse + postgres + registry:2 — same as nightly
+    ...
+  steps:
+    - uses: actions/checkout@v5  # for the test fixtures (Dockerfiles)
+    - uses: astral-sh/setup-uv@v7
+    - run: uv venv --python 3.10
+    - uses: actions/download-artifact@v7
+      with: { name: dist, path: dist/ }
+    - uses: actions/download-artifact@v7
+      with: { name: requirements }
+    - run: |
+        uv pip install -r requirements-dist.txt
+        uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+    - run: uv run --no-project python -m aaiclick migrate upgrade head
+    - env:
+        AAICLICK_E2E_WHEEL_SOURCE: wheel
+        AAICLICK_DOCKER_REGISTRY: localhost:5000
+        # ... CH/SQL URLs etc.
+      run: >-
+        uv run --no-project pytest
+        --pyargs aaiclick.orchestration.execution.test_docker_runner_e2e
+        -m docker_e2e -n 0 -v ...
 ```
 
-And the existing `publish` job's `needs:` extends:
+The existing `publish` job's `needs:` extends:
 
 ```yaml
 publish:
@@ -635,14 +657,15 @@ publish:
 Effect: **a release cannot be published unless the docker runner can
 build, push, pull, and execute a task using the exact wheel about to
 hit PyPI.** This catches release regressions the source-tree nightly
-would miss — e.g., a missing file in `MANIFEST.in`, an entrypoint that
-only resolves from a editable install, or a runtime dep dropped from the
+would miss — a missing file in the wheel, an entrypoint that only
+resolves from an editable install, a runtime dep dropped from the
 wheel's metadata.
 
-The release-gate run inherits the reusable workflow's `dist` artifact
-download via `actions/download-artifact@v7` (same step the existing
-`test-package` jobs use), so no special artifact-passing wiring is
-needed in `publish.yaml`.
+The `wheel`-mode test fixture's `Dockerfile.wheel` does
+`COPY dist/*.whl /tmp/ && pip install --no-index /tmp/*.whl`; the
+fixture bind-mounts `${GITHUB_WORKSPACE}/dist` into the build context
+so the same `dist` artifact the test runner installed locally is what
+the container also installs.
 
 Break-glass input on `publish.yaml` for emergency releases when the
 daemon-backed test is failing for unrelated reasons:
@@ -659,21 +682,20 @@ on:
 
 Implemented via `if: ${{ !inputs.skip-docker-e2e }}` on
 `test-package-docker-e2e`, with `publish` using
-`needs: [..., test-package-docker-e2e]` and
 `if: always() && (needs.test-package-docker-e2e.result == 'success' ||
 needs.test-package-docker-e2e.result == 'skipped') && ...` so a skipped
 job doesn't fail the gate but a failed job does.
 
 ## Post-Publish Smoke (deferred)
 
-A non-blocking sibling job that runs **after** `publish` and re-invokes
-the same reusable workflow with a new `wheel-source: pypi` value
-(installing `aaiclick==<published-version>` from PyPI inside the
-Dockerfile) would catch the rare case where the upload succeeded but
-the artifact on pypi.org is somehow different from what we tested.
-Listed in `docs/future.md` rather than v1 — pypi.org is not known to
-silently corrupt uploads, and the additional ~10 minutes of release
-latency is hard to justify until we've seen a real failure.
+A non-blocking job that runs **after** `publish` with a third
+`AAICLICK_E2E_WHEEL_SOURCE=pypi` value (the test installs
+`aaiclick==<published-version>` from PyPI inside the Dockerfile) would
+catch the rare case where the upload succeeded but the artifact on
+pypi.org is somehow different from what we tested. Listed in
+`docs/future.md` rather than v1 — pypi.org is not known to silently
+corrupt uploads, and the additional release latency is hard to justify
+until we've seen a real failure.
 
 # Open Implementation Questions
 
