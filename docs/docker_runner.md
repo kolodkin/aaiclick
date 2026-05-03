@@ -913,25 +913,19 @@ until we've seen a real failure.
 
 # Open Implementation Questions
 
-1. **Where do `git_remote` / `git_sha` / `git_branch` get captured —
-   at `register_job` or at `run_job` time?** Lean: at `run_job` time
-   so the same registered job can run different SHAs over time.
-   Validate clean tree + pushed HEAD only at `run_job` time.
-   Cron-scheduled runs resolve at fire time. `git_branch` captured
-   alongside SHA; detached HEAD → `NULL`.
-2. **IPC tmpdir lifecycle**: a `tempfile.TemporaryDirectory()` context in
+1. **IPC tmpdir lifecycle**: a `tempfile.TemporaryDirectory()` context in
    `_run_task_in_container` is the obvious answer. `_wait_for_container`
    returns only after `docker run` exits, so the cleanup ordering is
    naturally correct.
-3. **Dockerfile path validation**: build task should validate that
+2. **Dockerfile path validation**: build task should validate that
    `<build_context>/<dockerfile>` exists in the cloned tree before
    invoking `docker build`, with a clear error like
    `"Dockerfile not found at {build_context}/{dockerfile} in repo
    {git_remote}@{git_sha}"`.
-4. **`--user` controllability per-RegisteredJob**: out of scope for v1;
+3. **`--user` controllability per-RegisteredJob**: out of scope for v1;
    document the recommendation that the Dockerfile's `USER` matches the
    host worker's UID, or the log dir is world-writable.
-5. **CLI shape**: `register-job <entrypoint> --runner docker
+4. **CLI shape**: `register-job <entrypoint> --runner docker
    --dockerfile path/to/Dockerfile --build-context subdir/` hung off
    the existing `register-job` command. No new top-level commands.
 
