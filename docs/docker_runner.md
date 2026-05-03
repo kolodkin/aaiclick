@@ -509,14 +509,23 @@ exit so they don't accumulate.
 
 # Testability
 
-## Test File Split
+Tests split into two layers by **kind**: unit tests of specific
+modules live next to those modules per the project convention; the
+end-to-end test exercises the deployed package as a black box and
+lives outside it.
+
+## Unit Tests (in-package)
 
 | File                          | Scope                                            | Fixture           |
 |-------------------------------|--------------------------------------------------|-------------------|
 | `test_docker_worker.py`       | Host-side `_run_task_in_container`: dispatch, IPC, exit-code translation, cancel poll, timeout via `docker_kill`, heartbeat cadence | `orch_ctx_no_ch`  |
 | `test_docker_build.py`        | Build task: cache-hit ladder (registry → local → build), push gating on `AAICLICK_DOCKER_REGISTRY`, dockerfile-not-found error, dirty-tree / unpushed-HEAD rejection at submission | `orch_ctx`        |
 | `test_docker_container_main.py` | Container-side `_container_main`: orch_context boot, `execute_task` round-trip, JSON result file format, `register_returned_tasks` integration, `sys.exit` codes on success / failure | `orch_ctx_no_ch`  |
-| `test_docker_runner_e2e.py`   | Real docker daemon end-to-end. Opt-in via `@pytest.mark.docker_e2e`; skipped when `which docker` fails. Not part of the PR-blocking matrix — runs in the standalone nightly workflow described below | `orch_ctx`        |
+
+All three live in `aaiclick/orchestration/execution/` next to the
+modules they test. They use in-process fakes for `docker` / `git` CLI
+calls — no daemon required — and run in the regular `test-local` /
+`test-dist` matrix.
 
 `test_docker_worker.py` and `test_docker_container_main.py` use
 `orch_ctx_no_ch` for the same reason mp-worker tests do: the
@@ -531,32 +540,69 @@ module to avoid mixing with `orch_ctx`.
 regular `@task`-decorated function on the subprocess runner; it never
 opens a chdb session itself but goes through `execute_task`.
 
+## End-to-End Tests (out-of-package)
+
+The e2e suite exercises a real docker daemon, real registry, and the
+package as a black box. It lives **outside** `aaiclick/` — at repo
+root in `test_e2e/docker/` — because (a) it tests the deployed
+artifact rather than a specific module, (b) heavy fixtures (sample
+job repo, fixture Dockerfiles) shouldn't bloat the published wheel,
+and (c) spatial separation makes the cost / setup difference obvious
+to anyone browsing the tree.
+
+`test_e2e/` is the umbrella for any future end-to-end suite (a
+distributed-cluster suite, a k8s-runner suite, etc.); for v1 only
+`test_e2e/docker/` is populated.
+
+```
+test_e2e/
+  docker/
+    conftest.py            # docker_e2e marker registration; daemon-presence skip
+    test_runner_e2e.py     # the test file
+    fixtures/
+      Dockerfile.source    # COPY . /src && pip install /src
+      Dockerfile.wheel     # COPY dist/*.whl /tmp/ && pip install --no-index /tmp/*.whl
+      sample_job/          # tiny aaiclick "user repo" the build task clones
+        pyproject.toml
+        sample_jobs.py
+```
+
+Carve-outs from project defaults this requires:
+
+- **CLAUDE.md** — add a one-liner under *Testing Guidelines* exempting
+  end-to-end suites from the "tests next to modules" rule:
+  > E2E tests that exercise the deployed package live in `./test_e2e/<suite>/`.
+- **`pyproject.toml`** — do **not** add `test_e2e/` to `testpaths`. The
+  default `pytest` invocation should not pick it up; only the e2e
+  workflows pass the path explicitly. The `docker_e2e` marker registers
+  in `test_e2e/docker/conftest.py` (so `--strict-markers` passes when
+  pytest is invoked with that path).
+- The `conftest.py` adds `pytest_plugins = ["aaiclick.testing"]` to
+  reuse the shared `orch_ctx` fixture without copy-pasting.
+
 ## Shared Test Surface
 
-Two CI workflows run the docker e2e suite (nightly schedule + release
-gate). They share **test code**, not workflow plumbing — same pattern
-as the existing `test.yaml::test-dist` and `publish.yaml::test-package`
-relationship: similar service-container setup in both workflows, but
-each is its own job that installs aaiclick its own way and points at
-the same pytest target.
+Two CI workflows run the e2e suite (nightly schedule + release gate).
+They share **test code**, not workflow plumbing — same pattern as
+`test.yaml::test-dist` and `publish.yaml::test-package`: similar
+service-container setup in both workflows, but each is its own job
+that installs aaiclick its own way and points pytest at the same
+target.
 
-Shared, lives in `aaiclick/`:
+Shared, in `test_e2e/docker/`:
 
-- `aaiclick/orchestration/execution/test_docker_runner_e2e.py` — the
-  test code.
+- `test_runner_e2e.py` — the test file.
 - `@pytest.mark.docker_e2e` — the marker each workflow filters on.
-- `aaiclick/orchestration/execution/fixtures/Dockerfile.source` and
-  `Dockerfile.wheel` — two install variants. The test fixture picks
-  between them via `AAICLICK_E2E_WHEEL_SOURCE` (`"source"` |
-  `"wheel"`).
+- `fixtures/Dockerfile.source` and `fixtures/Dockerfile.wheel` — two
+  install variants. The test fixture picks between them via
+  `AAICLICK_E2E_WHEEL_SOURCE` (`"source"` | `"wheel"`).
 
 Per-workflow:
 
-- How the test runner process gets aaiclick (`uv sync` from source vs.
-  `uv pip install` from `dist/`).
-- Whether the `dist/` artifact is downloaded and bind-mounted into the
-  Docker build context.
-- The pytest invocation (`pytest path/...` vs. `pytest --pyargs ...`).
+- How the test runner process gets aaiclick (`uv sync` from source
+  vs. `uv pip install` from `dist/`).
+- Whether the `dist/` artifact is downloaded and bind-mounted into
+  the Docker build context.
 - `AAICLICK_E2E_WHEEL_SOURCE` env var value.
 
 ## Nightly Workflow
@@ -602,7 +648,7 @@ Test step env:
 Run command:
 
 ```bash
-uv run pytest aaiclick/orchestration/execution/test_docker_runner_e2e.py \
+uv run pytest test_e2e/docker/ \
   -m docker_e2e -n 0 -v --junitxml=tmp/pytest-report.xml
 ```
 
@@ -626,7 +672,7 @@ test-package-docker-e2e:
   services:    # clickhouse + postgres + registry:2 — same as nightly
     ...
   steps:
-    - uses: actions/checkout@v5  # for the test fixtures (Dockerfiles)
+    - uses: actions/checkout@v5  # required: e2e tests live outside the package
     - uses: astral-sh/setup-uv@v7
     - run: uv venv --python 3.10
     - uses: actions/download-artifact@v7
@@ -642,10 +688,14 @@ test-package-docker-e2e:
         AAICLICK_DOCKER_REGISTRY: localhost:5000
         # ... CH/SQL URLs etc.
       run: >-
-        uv run --no-project pytest
-        --pyargs aaiclick.orchestration.execution.test_docker_runner_e2e
+        uv run --no-project pytest test_e2e/docker/
         -m docker_e2e -n 0 -v ...
 ```
+
+The `actions/checkout` step is the only deviation from the existing
+`test-package-*` jobs (which rely entirely on the installed wheel and
+do no checkout) — it's needed because the e2e test code lives
+outside the package.
 
 The existing `publish` job's `needs:` extends:
 
@@ -737,7 +787,9 @@ until we've seen a real failure.
 - A subprocess job and a Docker job can run concurrently on the same
   worker without interference.
 - All existing mp_worker / subprocess tests still pass unchanged.
-- New test files under `aaiclick/orchestration/execution/` covering the
-  matrix in the **Testability** section: `test_docker_worker.py`,
-  `test_docker_build.py`, `test_docker_container_main.py`, and the
-  opt-in `test_docker_runner_e2e.py`.
+- New unit-test files under `aaiclick/orchestration/execution/`:
+  `test_docker_worker.py`, `test_docker_build.py`,
+  `test_docker_container_main.py`. New end-to-end suite at
+  `test_e2e/docker/test_runner_e2e.py` (out-of-package), opt-in via
+  `@pytest.mark.docker_e2e`, run by the nightly workflow and the
+  release gate.
