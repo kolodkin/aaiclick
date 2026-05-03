@@ -104,18 +104,25 @@ runner like any other task.
 1. Resolve `RegisteredJob`. If `runner_mode == "docker"`:
    - Verify distributed mode (`is_chdb()` / `is_sqlite()` → reject with
      a clear error).
-   - Capture `git_remote` (from `RegisteredJob` or
-     `git config remote.origin.url`).
-   - Capture `git_sha` from `git rev-parse HEAD`. Reject if working tree
-     is dirty or HEAD is unpushed.
-   - Capture `git_branch` from `git rev-parse --abbrev-ref HEAD`. If
-     it returns `HEAD` (detached-HEAD state), store `NULL`. Branch is
-     metadata-only — never used for resolution; stored so it can be
-     propagated as a build-arg to the user's Dockerfile.
-   - Capture `build_context` from `RegisteredJob` (default empty =
-     repo root). Subdirectory offset within the cloned tree used as
-     the docker build context; the `dockerfile` path is relative to
-     it.
+   - **Resolve each Docker field** by precedence and snapshot onto `Job`.
+     Every field below has the same three-layer resolution: an
+     explicit `run_job(...)` kwarg wins over the `RegisteredJob`
+     default, which wins over the auto-detect rule (where one
+     applies). `RegisteredJob` is the long-lived "job default",
+     `Job` is the snapshot the build task and runner read.
+
+     | Field           | `run_job` kwarg  | `RegisteredJob` default            | Auto-detect                          |
+     |-----------------|------------------|------------------------------------|--------------------------------------|
+     | `git_remote`    | `git_remote=`    | `RegisteredJob.git_remote`         | `git config remote.origin.url`       |
+     | `git_sha`       | `git_sha=`       | —                                  | `git rev-parse HEAD` (rejects dirty / unpushed) |
+     | `git_branch`    | `git_branch=`    | —                                  | `git rev-parse --abbrev-ref HEAD`; `NULL` on detached HEAD |
+     | `build_context` | `build_context=` | `RegisteredJob.build_context`      | empty (= repo root)                  |
+     | `dockerfile`    | `dockerfile=`    | `RegisteredJob.dockerfile`         | `"Dockerfile"`                       |
+
+     `git_branch` is metadata-only — never used for resolution;
+     stored so it can be propagated as a build-arg to the user's
+     Dockerfile.
+
    - Compute `image_tag = f"{registry_prefix}aaiclick-job:{git_sha}"`,
      where `registry_prefix = f"{AAICLICK_DOCKER_REGISTRY}/"` if set, else
      empty.
@@ -127,6 +134,10 @@ runner like any other task.
 4. Create the entry task with the user's job entrypoint.
 5. Insert dependency: `build_task >> entry_task`.
 6. Commit. Submitter returns.
+
+`runner_mode` itself is **not** overridable at `run_job` time — switching
+between subprocess and docker mid-cron-cadence is a bigger semantic
+change than v1 needs. Edit the `RegisteredJob` if you need to switch.
 
 ## Build Task Execution (host, subprocess runner)
 
@@ -317,12 +328,18 @@ All on existing tables; no new tables.
 
 ## `registered_jobs`
 
+These columns hold **defaults** — the long-lived "job default"
+declared at registration time. Every column has a matching column on
+`Job` that snapshots the resolved value at submission. `run_job` may
+override any of them per-run (see **At Job Submission** for the
+precedence table).
+
 | Column          | Type                       | Default              | Purpose                                                |
 |-----------------|----------------------------|----------------------|--------------------------------------------------------|
-| `runner_mode`   | `String` + CHECK           | `"subprocess"`       | `"subprocess"` or `"docker"`                           |
-| `dockerfile`    | `String`                   | `NULL` → `Dockerfile`| Path to Dockerfile relative to `build_context`         |
-| `git_remote`    | `String`                   | `NULL` → auto-detect | Override `git config remote.origin.url`                |
-| `build_context` | `String`                   | `NULL` → repo root   | Subdirectory offset within the cloned tree used as the docker build context (monorepo support) |
+| `runner_mode`   | `String` + CHECK           | `"subprocess"`       | `"subprocess"` or `"docker"` (not `run_job`-overridable) |
+| `dockerfile`    | `String`                   | `NULL` → `Dockerfile`| Default Dockerfile path relative to `build_context`    |
+| `git_remote`    | `String`                   | `NULL` → auto-detect | Default; falls through to `git config remote.origin.url` |
+| `build_context` | `String`                   | `NULL` → repo root   | Default subdirectory offset within the cloned tree used as the docker build context (monorepo support) |
 
 CHECK constraint name: `ck_registered_jobs_runner_mode`.
 
@@ -337,7 +354,11 @@ RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER]
 
 ## `jobs`
 
-Snapshotted from `RegisteredJob` at submission for reproducibility.
+These columns are the **primary** values the build task and runner
+read. They're snapshotted at submission from a three-layer resolve:
+`run_job` kwarg → `RegisteredJob` default → auto-detect. Once
+written, the build task / runner never re-read `RegisteredJob` —
+later edits to it don't affect in-flight or already-submitted runs.
 
 | Column          | Type                       | Default        | Purpose                                            |
 |-----------------|----------------------------|----------------|----------------------------------------------------|
@@ -415,15 +436,21 @@ The framework does not pass `--network`. Operator ensures the SQL and CH
 URLs resolve from inside a container (real hostnames, `host.docker.internal`,
 or a Docker network the operator manages outside the framework).
 
-## Per-RegisteredJob Fields
+## Per-RegisteredJob Defaults
 
-- `runner_mode` — `"subprocess"` or `"docker"`.
-- `dockerfile` — path within the cloned tree (relative to
-  `build_context`), default `Dockerfile`.
-- `git_remote` — override for `git config remote.origin.url` if needed.
-- `build_context` — subdirectory offset within the cloned tree used
-  as the docker build context. Default empty (repo root). Use this
-  for monorepos with multiple jobs.
+These fields establish the **default** values for the registered
+job. Every run snapshots the resolved value onto `Job`; `run_job` can
+override on a per-run basis (see precedence table in **At Job
+Submission**).
+
+- `runner_mode` — `"subprocess"` or `"docker"`. Not `run_job`-overridable.
+- `dockerfile` — default Dockerfile path (relative to `build_context`).
+  `NULL` → `"Dockerfile"`.
+- `git_remote` — default git URL. `NULL` → auto-detect via
+  `git config remote.origin.url`.
+- `build_context` — default subdirectory offset within the cloned
+  tree used as the docker build context. `NULL` → empty (repo root).
+  Useful for monorepos with multiple jobs.
 
 ## Not Configurable
 
