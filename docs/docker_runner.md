@@ -110,7 +110,8 @@ runner like any other task.
      is dirty or HEAD is unpushed.
    - Capture `git_branch` from `git rev-parse --abbrev-ref HEAD`. If
      it returns `HEAD` (detached-HEAD state), store `NULL`. Branch is
-     metadata only — never used for resolution.
+     metadata-only — never used for resolution; stored so it can be
+     propagated as a build-arg to the user's Dockerfile.
    - Capture `build_context` from `RegisteredJob` (default empty =
      repo root). Subdirectory offset within the cloned tree used as
      the docker build context; the `dockerfile` path is relative to
@@ -155,8 +156,9 @@ async def build_image(job_id: int) -> None:
 build is fully idempotent (tag is content-addressed by SHA).
 
 `_collect_build_args(job)` emits a `["--build-arg", "KEY=value", ...]`
-slice with the following entries (omitted when their value is unset
-or `None`):
+slice with the following entries (omitted when their value is unset,
+empty, or `None`). The contract: every build-arg corresponds to a
+value the framework's build task already needs as a job parameter.
 
 | Build arg             | Value                                          | Source                  |
 |-----------------------|------------------------------------------------|-------------------------|
@@ -167,23 +169,15 @@ or `None`):
 | `PIP_INDEX_URL`       | `os.environ["AAICLICK_PIP_INDEX_URL"]`         | Operator env var        |
 | `PIP_EXTRA_INDEX_URL` | `os.environ["AAICLICK_PIP_EXTRA_INDEX_URL"]`   | Operator env var        |
 
-The user's Dockerfile opts into any of these via `ARG <name>` and uses
-them however it likes — pip install URLs from `PIP_INDEX_URL`,
-provenance labels from `GIT_*`, etc. No other build args are
-forwarded; the contract is small and explicit. A future per-job
-`build_args` field can extend this for more flexibility; not needed
-for v1.
+A future per-job `build_args` field can extend this for arbitrary
+forwarding; not needed for v1.
 
-Provenance label example for the user's Dockerfile:
-
-```dockerfile
-ARG GIT_REMOTE
-ARG GIT_SHA
-ARG GIT_BRANCH
-LABEL org.opencontainers.image.source="${GIT_REMOTE}"
-LABEL org.opencontainers.image.revision="${GIT_SHA}"
-LABEL org.opencontainers.image.ref.name="${GIT_BRANCH}"
-```
+The recommended user-Dockerfile pattern: receive a build-arg, emit it
+as both `LABEL` (visible via `docker inspect <image>`) and `ENV`
+(visible to the running task code via `os.environ`). See the example
+fixture Dockerfile in **End-to-End Tests** below — it covers
+`GIT_REMOTE`, `GIT_SHA`, `GIT_BRANCH`, `BUILD_CONTEXT`,
+`PIP_INDEX_URL`, and `AAICLICK_VERSION` end-to-end.
 
 The kwarg is `job_id` only; the build task reads the latest job state
 from the DB. Output is `None` — image existence is the side effect, the
@@ -350,14 +344,14 @@ Snapshotted from `RegisteredJob` at submission for reproducibility.
 | `runner_mode`   | `String` + CHECK           | `"subprocess"` | Same enum as `RegisteredJob`                       |
 | `git_remote`    | `String`                   | `NULL`         | Resolved remote URL                                |
 | `git_sha`       | `String(40)`               | `NULL`         | Resolved 40-char hex commit SHA                    |
-| `git_branch`    | `String`                   | `NULL`         | Captured branch name; `NULL` if detached HEAD. Metadata only — never a resolution input |
+| `git_branch`    | `String`                   | `NULL`         | Captured branch name; `NULL` if detached HEAD. Metadata-only — propagated as `GIT_BRANCH` build-arg |
 | `build_context` | `String`                   | `NULL`         | Snapshotted subdirectory offset                    |
 | `dockerfile`    | `String`                   | `NULL`         | Snapshotted Dockerfile path (relative to `build_context`) |
 | `image_tag`     | `String`                   | `NULL`         | `[registry/]aaiclick-job:<sha>`                    |
 
 All seven are `NULL` for subprocess jobs and populated for Docker jobs
 (except `git_branch` and `build_context`, which can be `NULL` even
-for Docker jobs — detached HEAD and repo-root context respectively).
+for a Docker job — detached HEAD and repo-root context respectively).
 CHECK constraint name: `ck_jobs_runner_mode`.
 
 Snapshotting (rather than reading `RegisteredJob` at task-execute time)
@@ -619,12 +613,32 @@ test_e2e/
 ```
 
 The fixture's `Dockerfile` is a plain user-perspective Dockerfile —
-nothing test-specific:
+nothing test-specific. It demonstrates the recommended build-arg →
+LABEL + ENV pattern:
 
 ```dockerfile
 FROM python:3.10-slim
-ARG PIP_INDEX_URL          # framework forwards this when AAICLICK_PIP_INDEX_URL is set
+
+# Framework-forwarded build-args (see "_collect_build_args" table)
+ARG GIT_REMOTE
+ARG GIT_SHA
+ARG GIT_BRANCH
+ARG BUILD_CONTEXT
+ARG PIP_INDEX_URL
 ARG AAICLICK_VERSION
+
+# Image metadata (visible via `docker inspect <image>`)
+LABEL org.opencontainers.image.source="${GIT_REMOTE}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.ref.name="${GIT_BRANCH}"
+LABEL aaiclick.build_context="${BUILD_CONTEXT}"
+
+# Runtime env (visible to task code via os.environ)
+ENV GIT_REMOTE=${GIT_REMOTE} \
+    GIT_SHA=${GIT_SHA} \
+    GIT_BRANCH=${GIT_BRANCH} \
+    BUILD_CONTEXT=${BUILD_CONTEXT}
+
 RUN pip install "aaiclick[distributed]==${AAICLICK_VERSION}"
 COPY . /src
 RUN pip install /src       # makes sample_jobs importable as a real package
@@ -903,7 +917,7 @@ until we've seen a real failure.
    at `register_job` or at `run_job` time?** Lean: at `run_job` time
    so the same registered job can run different SHAs over time.
    Validate clean tree + pushed HEAD only at `run_job` time.
-   Cron-scheduled runs resolve at fire time. `git_branch` is captured
+   Cron-scheduled runs resolve at fire time. `git_branch` captured
    alongside SHA; detached HEAD → `NULL`.
 2. **IPC tmpdir lifecycle**: a `tempfile.TemporaryDirectory()` context in
    `_run_task_in_container` is the obvious answer. `_wait_for_container`
