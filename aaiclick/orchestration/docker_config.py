@@ -50,10 +50,7 @@ async def _git(*args: str) -> str:
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise GitDetectionError(
-            f"git {' '.join(args)} failed (exit {proc.returncode}): "
-            f"{stderr.decode().strip()}"
-        )
+        raise GitDetectionError(f"git {' '.join(args)} failed (exit {proc.returncode}): {stderr.decode().strip()}")
     return stdout.decode().strip()
 
 
@@ -102,9 +99,7 @@ def compute_image_tag(git_sha: str) -> str:
 
 def _validate_sha(sha: str) -> str:
     if not _SHA_RE.match(sha):
-        raise ValueError(
-            f"git_sha must be a 40-char lowercase hex string; got {sha!r}"
-        )
+        raise ValueError(f"git_sha must be a 40-char lowercase hex string; got {sha!r}")
     return sha
 
 

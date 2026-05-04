@@ -54,9 +54,7 @@ async def _run_subprocess(
     if stderr:
         print(stderr, end="" if stderr.endswith("\n") else "\n")
     if check and proc.returncode != 0:
-        raise RuntimeError(
-            f"command {' '.join(cmd)!r} failed with exit code {proc.returncode}"
-        )
+        raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {proc.returncode}")
     return proc.returncode or 0, stdout, stderr
 
 
@@ -70,17 +68,13 @@ async def _fetch_job(job_id: int) -> Job:
 
 
 async def _docker_image_exists_locally(image_tag: str) -> bool:
-    rc, _, _ = await _run_subprocess(
-        _docker_bin(), "image", "inspect", image_tag, check=False
-    )
+    rc, _, _ = await _run_subprocess(_docker_bin(), "image", "inspect", image_tag, check=False)
     return rc == 0
 
 
 async def _docker_pull(image_tag: str) -> bool:
     """Returns True on cache hit, False if the registry doesn't have it."""
-    rc, _, _ = await _run_subprocess(
-        _docker_bin(), "pull", image_tag, check=False
-    )
+    rc, _, _ = await _run_subprocess(_docker_bin(), "pull", image_tag, check=False)
     return rc == 0
 
 
@@ -94,9 +88,7 @@ async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     and so the remote can be a non-default-branch SHA."""
     await _run_subprocess("git", "init", "--quiet", workdir)
     await _run_subprocess("git", "-C", workdir, "remote", "add", "origin", remote)
-    await _run_subprocess(
-        "git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha
-    )
+    await _run_subprocess("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha)
     await _run_subprocess("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
@@ -130,9 +122,7 @@ def _collect_build_args(job: Job) -> list[str]:
     return args
 
 
-async def _docker_build(
-    context: str, dockerfile: str, image_tag: str, build_args: list[str]
-) -> None:
+async def _docker_build(context: str, dockerfile: str, image_tag: str, build_args: list[str]) -> None:
     cmd = [
         _docker_bin(),
         "build",
@@ -176,9 +166,7 @@ async def build_image(job_id: int) -> None:
             )
 
         build_args = _collect_build_args(job)
-        await _docker_build(
-            str(context_dir), str(dockerfile), job.image_tag, build_args
-        )
+        await _docker_build(str(context_dir), str(dockerfile), job.image_tag, build_args)
 
     if registry:
         await _docker_push(job.image_tag)

@@ -13,18 +13,18 @@ from . import docker_build
 
 
 def _job(**overrides) -> Job:
-    base = dict(
-        id=1,
-        name="test",
-        run_type="MANUAL",
-        runner_mode="docker",
-        git_remote="https://example.com/repo.git",
-        git_sha="a" * 40,
-        git_branch="main",
-        build_context=None,
-        dockerfile=None,
-        image_tag="aaiclick-job:" + "a" * 40,
-    )
+    base = {
+        "id": 1,
+        "name": "test",
+        "run_type": "MANUAL",
+        "runner_mode": "docker",
+        "git_remote": "https://example.com/repo.git",
+        "git_sha": "a" * 40,
+        "git_branch": "main",
+        "build_context": None,
+        "dockerfile": None,
+        "image_tag": "aaiclick-job:" + "a" * 40,
+    }
     base.update(overrides)
     return Job(**base)
 
@@ -108,18 +108,14 @@ async def test_build_image_local_cache_hit_skips_build(monkeypatch):
     push.assert_not_called()
 
 
-async def test_build_image_full_build_pushes_when_registry_set(
-    monkeypatch, tmp_path
-):
+async def test_build_image_full_build_pushes_when_registry_set(monkeypatch, tmp_path):
     """Cache miss + registry set → clone, build, push."""
     monkeypatch.setenv("AAICLICK_DOCKER_REGISTRY", "registry.example:5000")
     job = _job()
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
-    monkeypatch.setattr(
-        docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False)
-    )
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
         Path(workdir, "Dockerfile").write_text("FROM scratch\n")
@@ -144,9 +140,7 @@ async def test_build_image_no_push_without_registry(monkeypatch, tmp_path):
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
-    monkeypatch.setattr(
-        docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False)
-    )
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
         Path(workdir, "Dockerfile").write_text("FROM scratch\n")
@@ -170,9 +164,7 @@ async def test_build_image_missing_dockerfile_raises(monkeypatch):
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
-    monkeypatch.setattr(
-        docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False)
-    )
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
         # Don't create the Dockerfile — should trigger the check.

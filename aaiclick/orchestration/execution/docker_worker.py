@@ -139,9 +139,7 @@ def _build_docker_run_cmd(
     return cmd
 
 
-async def _run_subprocess_capture(
-    *cmd: str, check: bool = True
-) -> tuple[int, str, str]:
+async def _run_subprocess_capture(*cmd: str, check: bool = True) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -152,27 +150,21 @@ async def _run_subprocess_capture(
     stderr = stderr_b.decode(errors="replace")
     rc = proc.returncode or 0
     if check and rc != 0:
-        raise RuntimeError(
-            f"command {' '.join(cmd)!r} failed with exit code {rc}: {stderr}"
-        )
+        raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {rc}: {stderr}")
     return rc, stdout, stderr
 
 
 async def _docker_pull_if_registered(image_tag: str) -> None:
     if not os.environ.get("AAICLICK_DOCKER_REGISTRY"):
         return
-    await _run_subprocess_capture(
-        _docker_bin(), "pull", image_tag, check=False
-    )
+    await _run_subprocess_capture(_docker_bin(), "pull", image_tag, check=False)
 
 
 async def _docker_run_detached(cmd: list[str]) -> str:
     """Run ``docker run --detach``; returns the container id."""
     rc, stdout, stderr = await _run_subprocess_capture(*cmd, check=False)
     if rc != 0:
-        raise RuntimeError(
-            f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}"
-        )
+        raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
     if not container_id:
         raise RuntimeError("docker run returned no container id")
@@ -180,9 +172,7 @@ async def _docker_run_detached(cmd: list[str]) -> str:
 
 
 async def _docker_kill(container_id: str) -> None:
-    await _run_subprocess_capture(
-        _docker_bin(), "kill", container_id, check=False
-    )
+    await _run_subprocess_capture(_docker_bin(), "kill", container_id, check=False)
 
 
 async def _docker_inspect_exit_code(container_id: str) -> int | None:
@@ -209,9 +199,7 @@ async def _docker_inspect_exit_code(container_id: str) -> int | None:
     return None
 
 
-async def _wait_for_container(
-    container_id: str, timeout: float | None
-) -> tuple[int, str | None]:
+async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
     """Poll the container's state until it exits or the timeout fires.
 
     Returns ``(exit_code, error_message)``. On timeout, kills the
@@ -231,9 +219,7 @@ async def _wait_for_container(
             return -1, f"Task timed out after {timeout}s"
 
 
-async def _heartbeat_while_waiting(
-    worker_id: int, done: asyncio.Event
-) -> None:
+async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
     while not done.is_set():
         try:
             await asyncio.wait_for(done.wait(), timeout=HEARTBEAT_INTERVAL)
@@ -242,9 +228,7 @@ async def _heartbeat_while_waiting(
             await worker_heartbeat(worker_id)
 
 
-async def _watch_for_cancellation(
-    task_id: int, container_id: str, done: asyncio.Event
-) -> bool:
+async def _watch_for_cancellation(task_id: int, container_id: str, done: asyncio.Event) -> bool:
     """Poll for task-cancellation; ``docker kill`` the container on hit.
 
     Returns True if cancellation fired, False if the container finished
@@ -283,9 +267,7 @@ def _read_result_or_synthesize_failure(
     try:
         payload = json.loads(result_path.read_text())
     except json.JSONDecodeError as e:
-        return _ContainerResult(
-            False, None, None, f"container produced malformed result.json: {e}"
-        )
+        return _ContainerResult(False, None, None, f"container produced malformed result.json: {e}")
 
     return _ContainerResult(
         success=bool(payload.get("success")),
@@ -300,9 +282,7 @@ async def _fetch_image_tag(job_id: int) -> str:
         result = await session.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
         if job is None or not job.image_tag:
-            raise ValueError(
-                f"Job {job_id} has no image_tag — was it submitted in docker mode?"
-            )
+            raise ValueError(f"Job {job_id} has no image_tag — was it submitted in docker mode?")
         return job.image_tag
 
 
@@ -321,9 +301,7 @@ async def _resolve_runner(task: Task) -> RunnerMode:
     return job.runner_mode if job is not None else RUNNER_SUBPROCESS
 
 
-async def _run_task_in_container(
-    task: Task, worker_id: int
-) -> tuple[bool, dict | None, str | None, str | None]:
+async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Docker runner.
 
     Pulls the image (when a registry is configured), bind-mounts an IPC
@@ -345,32 +323,24 @@ async def _run_task_in_container(
         container_id = await _docker_run_detached(cmd)
 
         done = asyncio.Event()
-        heartbeat = asyncio.create_task(
-            _heartbeat_while_waiting(worker_id, done)
-        )
-        cancel_watcher = asyncio.create_task(
-            _watch_for_cancellation(task.id, container_id, done)
-        )
+        heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
+        cancel_watcher = asyncio.create_task(_watch_for_cancellation(task.id, container_id, done))
 
         try:
             exit_code, error = await _wait_for_container(container_id, timeout)
-            was_cancelled = cancel_watcher.done() and not cancel_watcher.cancelled() and (
-                cancel_watcher.exception() is None and cancel_watcher.result()
+            was_cancelled = (
+                cancel_watcher.done()
+                and not cancel_watcher.cancelled()
+                and (cancel_watcher.exception() is None and cancel_watcher.result())
             )
-            result = _read_result_or_synthesize_failure(
-                ipc_dir, exit_code, error, was_cancelled
-            )
+            result = _read_result_or_synthesize_failure(ipc_dir, exit_code, error, was_cancelled)
             return result.success, result.result_ref, result.log_path, result.error
         finally:
             done.set()
-            await asyncio.gather(
-                heartbeat, cancel_watcher, return_exceptions=True
-            )
+            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
 
 
-async def dispatch_execute(
-    task: Task, worker_id: int
-) -> tuple[bool, dict | None, str | None, str | None]:
+async def dispatch_execute(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn that picks the runner per task.
 
     Plugged into ``_worker_loop`` instead of either bare ``ExecuteFn``,
@@ -410,15 +380,11 @@ async def _container_main(task_id: int) -> int:
     try:
         async with orch_context():
             async with get_sql_session() as session:
-                result = await session.execute(
-                    select(Task).where(Task.id == task_id)
-                )
+                result = await session.execute(select(Task).where(Task.id == task_id))
                 task = result.scalar_one()
 
             data_result, log_path = await execute_task(task)
-            data_result = await register_returned_tasks(
-                data_result, task.id, task.job_id
-            )
+            data_result = await register_returned_tasks(data_result, task.id, task.job_id)
             result_ref = serialize_task_result(data_result, task.job_id)
             payload = {
                 "success": True,

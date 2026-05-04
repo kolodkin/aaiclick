@@ -29,9 +29,7 @@ async def test_container_main_writes_success_payload(orch_ctx, tmp_path):
     )
 
     async with get_sql_session() as session:
-        task = (
-            await session.execute(select(Task).where(Task.job_id == job.id))
-        ).scalar_one()
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
 
     with patch.object(docker_worker, "CONTAINER_IPC_DIR", str(tmp_path)):
         exit_code = await docker_worker._container_main(task.id)
@@ -47,16 +45,12 @@ async def test_container_main_writes_success_payload(orch_ctx, tmp_path):
     # Reaper invariant: only run_ids/run_statuses appended (TASK_RUNNING).
     # Terminal status is set by the host worker, not the container.
     async with get_sql_session() as session:
-        task = (
-            await session.execute(select(Task).where(Task.id == task.id))
-        ).scalar_one()
+        task = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
     assert len(task.run_ids) == 1
     assert task.run_statuses == [TASK_RUNNING]
 
 
-async def test_container_main_writes_failure_payload_on_exception(
-    orch_ctx, tmp_path
-):
+async def test_container_main_writes_failure_payload_on_exception(orch_ctx, tmp_path):
     """Failed user code must produce a failure-shaped result.json and
     exit non-zero — the host parent depends on the exit code as a fast
     failure signal in addition to the JSON contents."""
@@ -66,9 +60,7 @@ async def test_container_main_writes_failure_payload_on_exception(
     )
 
     async with get_sql_session() as session:
-        task = (
-            await session.execute(select(Task).where(Task.job_id == job.id))
-        ).scalar_one()
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
 
     with patch.object(docker_worker, "CONTAINER_IPC_DIR", str(tmp_path)):
         exit_code = await docker_worker._container_main(task.id)
@@ -81,9 +73,7 @@ async def test_container_main_writes_failure_payload_on_exception(
     assert "intentionally" in (payload["error"] or "")
 
 
-async def test_container_main_does_not_write_terminal_task_status(
-    orch_ctx, tmp_path
-):
+async def test_container_main_does_not_write_terminal_task_status(orch_ctx, tmp_path):
     """Reaper invariant: the container never flips the Task to a
     terminal status. Only run_ids / run_statuses are appended (always
     TASK_RUNNING for the new attempt)."""
@@ -93,18 +83,14 @@ async def test_container_main_does_not_write_terminal_task_status(
     )
 
     async with get_sql_session() as session:
-        task = (
-            await session.execute(select(Task).where(Task.job_id == job.id))
-        ).scalar_one()
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
         original_status = task.status
 
     with patch.object(docker_worker, "CONTAINER_IPC_DIR", str(tmp_path)):
         await docker_worker._container_main(task.id)
 
     async with get_sql_session() as session:
-        task_after = (
-            await session.execute(select(Task).where(Task.id == task.id))
-        ).scalar_one()
+        task_after = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
 
     assert task_after.status == original_status
     assert task_after.error is None

@@ -62,10 +62,7 @@ def test_build_docker_run_cmd_shape():
     assert "-v /var/log/aaiclick:/var/log/aaiclick" in joined
     assert "-e AAICLICK_LOG_DIR=/var/log/aaiclick" in joined
     assert "-e AAICLICK_SQL_URL=u" in joined
-    assert joined.endswith(
-        "aaiclick-job:abc python -m "
-        "aaiclick.orchestration.execution.docker_worker --task-id 42"
-    )
+    assert joined.endswith("aaiclick-job:abc python -m aaiclick.orchestration.execution.docker_worker --task-id 42")
 
 
 def test_read_result_succeeds_on_success_payload(tmp_path):
@@ -197,20 +194,14 @@ async def test_dispatch_execute_routes_subprocess_to_mp_child(monkeypatch):
 async def test_run_task_in_container_writes_result_via_ipc(monkeypatch, tmp_path):
     """End-to-end host runner: pull, run, container exits clean, host
     reads result.json and returns its contents."""
-    monkeypatch.setattr(
-        docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc")
-    )
-    monkeypatch.setattr(
-        docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc"))
+    monkeypatch.setattr(docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None))
 
     captured = {}
 
     async def fake_run_detached(cmd):
         # Simulate the container writing a success payload, then return a fake id.
-        ipc_dir = next(
-            arg.split(":", 1)[0] for arg in cmd if arg.endswith(":/aaiclick-ipc")
-        )
+        ipc_dir = next(arg.split(":", 1)[0] for arg in cmd if arg.endswith(":/aaiclick-ipc"))
         Path(ipc_dir, "result.json").write_text(
             json.dumps(
                 {
@@ -233,13 +224,9 @@ async def test_run_task_in_container_writes_result_via_ipc(monkeypatch, tmp_path
     monkeypatch.setattr(docker_worker, "_docker_run_detached", fake_run_detached)
     monkeypatch.setattr(docker_worker, "_wait_for_container", fake_wait)
     monkeypatch.setattr(docker_worker, "worker_heartbeat", AsyncMock())
-    monkeypatch.setattr(
-        docker_worker, "check_task_cancelled", AsyncMock(return_value=False)
-    )
+    monkeypatch.setattr(docker_worker, "check_task_cancelled", AsyncMock(return_value=False))
 
-    success, ref, log_path, error = await docker_worker._run_task_in_container(
-        _task(), worker_id=1
-    )
+    success, ref, log_path, error = await docker_worker._run_task_in_container(_task(), worker_id=1)
 
     assert success is True
     assert ref == {"x": 1}
@@ -248,15 +235,9 @@ async def test_run_task_in_container_writes_result_via_ipc(monkeypatch, tmp_path
     assert "aaiclick-job:abc" in captured["cmd"]
 
 
-async def test_run_task_in_container_timeout_kills_and_returns_error(
-    monkeypatch, tmp_path
-):
-    monkeypatch.setattr(
-        docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc")
-    )
-    monkeypatch.setattr(
-        docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None)
-    )
+async def test_run_task_in_container_timeout_kills_and_returns_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc"))
+    monkeypatch.setattr(docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None))
 
     async def fake_run_detached(cmd):
         return "fake-cid"
@@ -267,12 +248,8 @@ async def test_run_task_in_container_timeout_kills_and_returns_error(
     monkeypatch.setattr(docker_worker, "_docker_run_detached", fake_run_detached)
     monkeypatch.setattr(docker_worker, "_wait_for_container", fake_wait)
     monkeypatch.setattr(docker_worker, "worker_heartbeat", AsyncMock())
-    monkeypatch.setattr(
-        docker_worker, "check_task_cancelled", AsyncMock(return_value=False)
-    )
+    monkeypatch.setattr(docker_worker, "check_task_cancelled", AsyncMock(return_value=False))
 
-    success, ref, _, error = await docker_worker._run_task_in_container(
-        _task(), worker_id=1
-    )
+    success, ref, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1)
     assert success is False
     assert error and "timed out" in error

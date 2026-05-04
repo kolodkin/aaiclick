@@ -13,9 +13,19 @@ import subprocess
 
 import pytest
 
-# Re-use the `orch_ctx` family from the package's testing plugin instead
-# of duplicating fixtures here.
-pytest_plugins = ["aaiclick.testing"]
+# Re-import the fixture symbols from the project's testing plugin so pytest
+# registers them at this conftest. ``pytest_plugins`` is the obvious mechanism
+# but pytest forbids it in non-top-level conftests; importing the fixture
+# functions has the same effect because pytest discovers fixtures by walking
+# the conftest module's namespace.
+from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
+    ch_worker_setup,
+    orch_ctx,
+    orch_ctx_no_ch,
+    orch_module_ctx,
+    orch_module_ctx_no_ch,
+    sql_worker_setup,
+)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -25,9 +35,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip docker_e2e tests when a docker daemon isn't available."""
     if not items:
         return
