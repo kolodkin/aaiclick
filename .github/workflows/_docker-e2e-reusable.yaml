@@ -1,0 +1,173 @@
+name: Docker Runner E2E (reusable)
+
+# Shared body for the docker-runner end-to-end suite. Both
+# ``test-docker-nightly.yaml`` and ``publish.yaml::test-package-docker-e2e``
+# call this; they differ only in where the wheel under test comes from.
+#
+# - ``wheel_source: source`` builds the wheel from the current checkout
+#   (used by the nightly schedule).
+# - ``wheel_source: artifact`` downloads the ``dist`` artifact uploaded by
+#   a sibling ``build`` job in the calling workflow, then installs aaiclick
+#   from the local pypiserver the same way a downstream user would (used by
+#   the release gate).
+
+on:
+  workflow_call:
+    inputs:
+      wheel_source:
+        description: "Where the wheel comes from: 'source' or 'artifact'"
+        required: true
+        type: string
+      version_pin:
+        description: "vX.Y.Z to install in artifact mode; empty in source mode means auto-detect"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.3
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --add-host=host.docker.internal:host-gateway
+
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+      pypiserver:
+        image: pypiserver/pypiserver:v2.3.2
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "wget --spider -q localhost:8080/"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      # --- Wheel acquisition (branches on wheel_source) -------------------
+
+      - name: Build wheel from source
+        if: inputs.wheel_source == 'source'
+        run: |
+          uv sync --frozen --extra distributed --extra test --python 3.10
+          uv build
+
+      - name: Download dist artifact
+        if: inputs.wheel_source == 'artifact'
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifact
+        if: inputs.wheel_source == 'artifact'
+        uses: actions/download-artifact@v7
+        with:
+          name: requirements
+
+      - name: Install aaiclick from test pypi (artifact mode)
+        if: inputs.wheel_source == 'artifact'
+        env:
+          UV_INDEX_URL: http://localhost:8080/simple/
+          UV_EXTRA_INDEX_URL: https://pypi.org/simple/
+        run: |
+          uv venv --python 3.10
+          uv pip install -r requirements-dist.txt
+          VERSION="${{ inputs.version_pin }}"
+          uv pip install "aaiclick[distributed]==${VERSION#v}"
+
+      # --- Common: pypi upload, migrations, test --------------------------
+
+      - name: Upload wheel to test pypi
+        run: |
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F "action=file_upload" http://localhost:8080/
+          done
+
+      - name: Determine aaiclick version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version_pin }}" ]; then
+            echo "value=${{ inputs.version_pin }}" >> "$GITHUB_OUTPUT"
+          else
+            VAL=$(uv run --no-project python -c \
+              'from importlib.metadata import version; print(version("aaiclick"))')
+            echo "value=$VAL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: uv run --no-project python -m aaiclick migrate upgrade head
+
+      - name: Run docker e2e tests
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
+          AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
+          AAICLICK_E2E_AAICLICK_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p tmp
+          uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \
+            -o asyncio_mode=auto \
+            -o asyncio_default_fixture_loop_scope=module \
+            -o asyncio_default_test_loop_scope=module \
+            -o "filterwarnings=error" \
+            --strict-markers \
+            --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Docker Runner E2E (${{ inputs.wheel_source }})"
+          path: tmp/pytest-report.xml
+
+      - name: Cleanup docker resources
+        if: always()
+        run: docker system prune -af
