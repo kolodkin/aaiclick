@@ -7,10 +7,12 @@ from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
+from .docker_config import BUILD_TASK_ENTRYPOINT, DockerJobConfig
 from .env import get_default_preservation_mode
 from .models import (
     JOB_PENDING,
     RUN_MANUAL,
+    RUNNER_DOCKER,
     TASK_PENDING,
     Job,
     PreservationMode,
@@ -243,5 +245,67 @@ async def create_job(
     registry = get_task_registry()
     if registry is not None:
         registry.pop(task.id, None)
+
+    return job
+
+
+async def create_docker_job(
+    *,
+    name: str,
+    entrypoint: str,
+    kwargs: dict | None = None,
+    run_type: RunType = RUN_MANUAL,
+    registered_job_id: int | None = None,
+    preservation_mode: PreservationMode | None = None,
+    registered: RegisteredJob | None = None,
+    docker_config: DockerJobConfig,
+) -> Job:
+    """Create a Docker-mode Job along with the auto-injected build task.
+
+    Writes Job, build task, entry task, and the ``build_task >>
+    entry_task`` dependency in a single transaction.
+    """
+    mode = resolve_job_config(preservation_mode, registered)
+
+    job_id = get_snowflake_id()
+    job = Job(
+        id=job_id,
+        name=name,
+        status=JOB_PENDING,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
+        preservation_mode=mode,
+        runner_mode=RUNNER_DOCKER,
+        git_remote=docker_config.git_remote,
+        git_sha=docker_config.git_sha,
+        git_branch=docker_config.git_branch,
+        build_context=docker_config.build_context,
+        dockerfile=docker_config.dockerfile,
+        image_tag=docker_config.image_tag,
+        created_at=datetime.utcnow(),
+    )
+
+    build_task = create_task(
+        BUILD_TASK_ENTRYPOINT,
+        {"job_id": job_id},
+        name="docker_build",
+        max_retries=2,
+    )
+    build_task.job_id = job_id
+
+    entry_task = create_task(entrypoint, kwargs or {}, name=name)
+    entry_task.job_id = job_id
+    entry_task.depends_on(build_task)
+
+    async with get_sql_session() as session:
+        session.add(job)
+        session.add(build_task)
+        session.add(entry_task)
+        await session.commit()
+
+    registry = get_task_registry()
+    if registry is not None:
+        registry.pop(build_task.id, None)
+        registry.pop(entry_task.id, None)
 
     return job
