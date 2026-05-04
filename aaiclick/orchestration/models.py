@@ -70,6 +70,20 @@ PreservationMode = Literal["NONE", "FULL"]
 """
 
 
+RUNNER_SUBPROCESS = "subprocess"
+RUNNER_DOCKER = "docker"
+RunnerMode = Literal["subprocess", "docker"]
+"""Which task-execution runner the orchestrator uses for a job.
+
+- ``subprocess`` (default): each task runs in a multiprocessing child
+  spawned by the host worker process.
+- ``docker``: each task runs in a fresh container built from the user's
+  repo at a specific git SHA. A build task is auto-injected into the
+  job graph and runs on the host (subprocess) before any container task.
+"""
+RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER]
+
+
 def _enum_check(col: str, values: tuple[str, ...], constraint_name: str) -> CheckConstraint:
     """Build a ``CHECK (col IN (...))`` constraint for a string-enum column."""
     quoted = ", ".join(f"'{v}'" for v in values)
@@ -102,6 +116,18 @@ class RegisteredJob(SQLModel, table=True):
             nullable=True,
         ),
     )
+    runner_mode: RunnerMode = Field(
+        default=RUNNER_SUBPROCESS,
+        sa_column=Column(
+            String,
+            _enum_check("runner_mode", get_args(RunnerMode), "ck_registered_jobs_runner_mode"),
+            nullable=False,
+            server_default=RUNNER_SUBPROCESS,
+        ),
+    )
+    dockerfile: str | None = Field(default=None)
+    git_remote: str | None = Field(default=None)
+    build_context: str | None = Field(default=None)
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -147,6 +173,21 @@ class Job(SQLModel, table=True):
             server_default=PRESERVATION_NONE,
         ),
     )
+    runner_mode: RunnerMode = Field(
+        default=RUNNER_SUBPROCESS,
+        sa_column=Column(
+            String,
+            _enum_check("runner_mode", get_args(RunnerMode), "ck_jobs_runner_mode"),
+            nullable=False,
+            server_default=RUNNER_SUBPROCESS,
+        ),
+    )
+    git_remote: str | None = Field(default=None)
+    git_sha: str | None = Field(default=None, sa_column=Column(String(40), nullable=True))
+    git_branch: str | None = Field(default=None)
+    build_context: str | None = Field(default=None)
+    dockerfile: str | None = Field(default=None)
+    image_tag: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
