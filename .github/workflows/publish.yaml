@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip-docker-e2e:
+        description: "Skip the docker e2e release gate (emergency only)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -213,8 +218,131 @@ jobs:
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
 
+  test-package-docker-e2e:
+    needs: build
+    if: ${{ !inputs.skip-docker-e2e }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.3
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --add-host=host.docker.internal:host-gateway
+
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+      pypiserver:
+        image: pypiserver/pypiserver:v2.3.2
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "wget --spider -q localhost:8080/"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Create virtual environment
+        run: uv venv --python 3.10
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: requirements
+
+      - name: Upload wheel to test pypi
+        run: |
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F "action=file_upload" http://localhost:8080/
+          done
+
+      - name: Install aaiclick from test pypi
+        env:
+          UV_INDEX_URL: http://localhost:8080/simple/
+          UV_EXTRA_INDEX_URL: https://pypi.org/simple/
+        run: |
+          uv pip install -r requirements-dist.txt
+          VERSION="${{ inputs.tag }}"
+          uv pip install "aaiclick[distributed]==${VERSION#v}"
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: uv run --no-project python -m aaiclick migrate upgrade head
+
+      - name: Run docker e2e tests
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
+          AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
+          AAICLICK_E2E_AAICLICK_VERSION: ${{ inputs.tag }}
+        run: |
+          mkdir -p tmp
+          uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \
+            -o asyncio_mode=auto \
+            -o asyncio_default_fixture_loop_scope=module \
+            -o asyncio_default_test_loop_scope=module \
+            -o "filterwarnings=error" \
+            --strict-markers \
+            --junitxml=tmp/pytest-report.xml
+
+      - name: Cleanup docker resources
+        if: always()
+        run: docker system prune -af
+
   publish:
-    needs: [test-package-local, test-package]
+    needs: [test-package-local, test-package, test-package-docker-e2e]
+    if: >-
+      always()
+      && needs.test-package-local.result == 'success'
+      && needs.test-package.result == 'success'
+      && (needs.test-package-docker-e2e.result == 'success'
+          || needs.test-package-docker-e2e.result == 'skipped')
     runs-on: ubuntu-latest
 
     permissions:
