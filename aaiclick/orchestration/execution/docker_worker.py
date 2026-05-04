@@ -34,8 +34,9 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
+from ..docker_config import BUILD_TASK_ENTRYPOINT
 from ..logging import get_logs_dir
-from ..models import Task
+from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
@@ -295,8 +296,6 @@ def _read_result_or_synthesize_failure(
 
 
 async def _fetch_image_tag(job_id: int) -> str:
-    from ..models import Job
-
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job_id))
         job = result.scalar_one_or_none()
@@ -305,6 +304,21 @@ async def _fetch_image_tag(job_id: int) -> str:
                 f"Job {job_id} has no image_tag — was it submitted in docker mode?"
             )
         return job.image_tag
+
+
+async def _resolve_runner(task: Task) -> RunnerMode:
+    """Pick the runner for a task.
+
+    The auto-injected build task always runs on the host (subprocess)
+    runner — it produces the image the rest of the job's container
+    tasks need. Every other task inherits the job's ``runner_mode``."""
+    if task.entrypoint == BUILD_TASK_ENTRYPOINT:
+        return RUNNER_SUBPROCESS
+
+    async with get_sql_session() as session:
+        result = await session.execute(select(Job).where(Job.id == task.job_id))
+        job = result.scalar_one_or_none()
+    return job.runner_mode if job is not None else RUNNER_SUBPROCESS
 
 
 async def _run_task_in_container(
@@ -352,6 +366,24 @@ async def _run_task_in_container(
             await asyncio.gather(
                 heartbeat, cancel_watcher, return_exceptions=True
             )
+
+
+async def dispatch_execute(
+    task: Task, worker_id: int
+) -> tuple[bool, dict | None, str | None, str | None]:
+    """ExecuteFn that picks the runner per task.
+
+    Plugged into ``_worker_loop`` instead of either bare ``ExecuteFn``,
+    so a single worker process can serve a mixed Docker job (one
+    host-side build task + N container tasks) without runner affinity
+    rules."""
+    if await _resolve_runner(task) == RUNNER_DOCKER:
+        return await _run_task_in_container(task, worker_id)
+    # Imported here to avoid a circular import at module load time —
+    # mp_worker pulls in docker_worker via dispatch_execute.
+    from .mp_worker import _run_task_in_child
+
+    return await _run_task_in_child(task, worker_id)
 
 
 # ---------------------------------------------------------------------------
