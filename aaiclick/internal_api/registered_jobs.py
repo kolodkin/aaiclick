@@ -75,6 +75,10 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             default_kwargs=request.default_kwargs,
             enabled=request.enabled,
             preservation_mode=request.preservation_mode,
+            runner_mode=request.runner_mode,
+            dockerfile=request.dockerfile,
+            git_remote=request.git_remote,
+            build_context=request.build_context,
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc

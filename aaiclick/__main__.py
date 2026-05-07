@@ -38,7 +38,7 @@ from aaiclick import cli_renderers, internal_api
 from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api.errors import InternalApiError
-from aaiclick.orchestration.models import JobStatus, PreservationMode, WorkerStatus
+from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
     JobListFilter,
@@ -136,6 +136,11 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         name=args.name,
         kwargs=kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
+        git_remote=args.git_remote,
+        git_sha=args.git_sha,
+        git_branch=args.git_branch,
+        build_context=args.build_context,
+        dockerfile=args.dockerfile,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -149,6 +154,10 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         schedule=args.schedule,
         default_kwargs=default_kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
+        runner_mode=args.runner,
+        dockerfile=args.dockerfile,
+        git_remote=args.git_remote,
+        build_context=args.build_context,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -539,6 +548,27 @@ def main():
         default=None,
         help="Default preservation mode for every run of this job (runs can override)",
     )
+    register_job_parser.add_argument(
+        "--runner",
+        choices=list(get_args(RunnerMode)),
+        default="subprocess",
+        help="Task-execution runner (default: subprocess)",
+    )
+    register_job_parser.add_argument(
+        "--dockerfile",
+        default=None,
+        help="Default Dockerfile path relative to --build-context (docker runner only)",
+    )
+    register_job_parser.add_argument(
+        "--git-remote",
+        default=None,
+        help="Default git remote URL (docker runner only); auto-detected if omitted",
+    )
+    register_job_parser.add_argument(
+        "--build-context",
+        default=None,
+        help="Default subdirectory within the cloned repo to use as docker build context",
+    )
     _add_json_flag(register_job_parser)
 
     # Add run-job subcommand
@@ -553,6 +583,31 @@ def main():
         choices=list(get_args(PreservationMode)),
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
+    )
+    run_job_parser.add_argument(
+        "--git-remote",
+        default=None,
+        help="Override the registered job's default git remote (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--git-sha",
+        default=None,
+        help="Pin the build to a specific commit SHA (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--git-branch",
+        default=None,
+        help="Capture branch name as build-arg metadata (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--build-context",
+        default=None,
+        help="Override the registered job's build_context (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--dockerfile",
+        default=None,
+        help="Override the registered job's dockerfile path (docker runner only)",
     )
     _add_json_flag(run_job_parser)
 

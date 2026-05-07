@@ -1,11 +1,14 @@
 """End-to-end smoke test for the Docker runner.
 
-Exercises the full ``register_job`` → ``run_job`` → build → run → result
+Drives the full ``register-job`` → ``run-job`` → build → run → result
 path against a real docker daemon, a real local registry, and a real
-test pypi serving the wheel under test. Marked ``docker_e2e`` so it
-opts out of the default test run; both the nightly workflow and the
-publish-time release gate pass ``test_e2e/docker/`` to pytest with
-``-m docker_e2e`` to pick it up.
+test pypi serving the wheel under test. Both the registration and the
+job submission go through the ``python -m aaiclick`` CLI as a real
+user would, so this exercises the CLI plumbing alongside the runtime.
+
+Marked ``docker_e2e`` so it opts out of the default test run; both the
+nightly workflow and the publish-time release gate pass
+``test_e2e/docker/`` to pytest with ``-m docker_e2e`` to pick it up.
 
 The test reuses the aaiclick checkout itself as its "user repo" via a
 ``file://`` remote — the build runs on the CI host which already has
@@ -16,20 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
+import sys
 from datetime import datetime, timedelta
 
 import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
-from aaiclick.orchestration.models import (
-    JOB_COMPLETED,
-    JOB_FAILED,
-    RUNNER_DOCKER,
-    Job,
-)
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
-from aaiclick.orchestration.registered_jobs import register_job, run_job
 
 
 def _required_env(name: str) -> str:
@@ -39,41 +38,56 @@ def _required_env(name: str) -> str:
     return value
 
 
-async def _wait_for_job(job_id: int, timeout: float = 600.0) -> Job:
-    """Poll the Job until it reaches a terminal status, or fail."""
+def _aaiclick(*args: str) -> subprocess.CompletedProcess:
+    """Run a `python -m aaiclick` CLI invocation in the same env as the
+    test process. Captures output so failures surface in the pytest log."""
+    return subprocess.run(
+        [sys.executable, "-m", "aaiclick", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
+    """Poll the most recent Job with this name until it reaches a
+    terminal status, or fail."""
     deadline = datetime.utcnow() + timedelta(seconds=timeout)
     while datetime.utcnow() < deadline:
         async with get_sql_session() as session:
-            result = await session.execute(select(Job).where(Job.id == job_id))
-            job = result.scalar_one()
-        if job.status in (JOB_COMPLETED, JOB_FAILED):
+            result = await session.execute(select(Job).where(Job.name == job_name).order_by(Job.id.desc()).limit(1))
+            job = result.scalar_one_or_none()
+        if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
             return job
         await asyncio.sleep(1.0)
-    raise TimeoutError(f"Job {job_id} did not complete within {timeout}s")
+    raise TimeoutError(f"Job {job_name!r} did not complete within {timeout}s")
 
 
 @pytest.mark.docker_e2e
 async def test_docker_runner_smoke(orch_ctx):
     """Build the fixture image from the current checkout, run the entry
-    task in a container, assert it completes and returns the build-args
-    that the framework forwarded."""
+    task in a container, assert it completes."""
     workspace = _required_env("GITHUB_WORKSPACE")
     sha = _required_env("GITHUB_SHA")
+    job_name = "docker_e2e_smoke"
 
-    await register_job(
-        name="docker_e2e_smoke",
-        entrypoint="sample_jobs.entry_task",
-        runner_mode=RUNNER_DOCKER,
-        git_remote=f"file://{workspace}/.git",
-        build_context="test_e2e/docker/fixtures/sample_job",
-    )
-
-    job = await run_job(
-        "docker_e2e_smoke",
+    _aaiclick(
+        "register-job",
         "sample_jobs.entry_task",
-        git_sha=sha,
-        git_branch=os.environ.get("GITHUB_REF_NAME"),
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--git-remote",
+        f"file://{workspace}/.git",
+        "--build-context",
+        "test_e2e/docker/fixtures/sample_job",
     )
+
+    run_args = ["run-job", job_name, "--git-sha", sha]
+    if branch := os.environ.get("GITHUB_REF_NAME"):
+        run_args.extend(["--git-branch", branch])
+    _aaiclick(*run_args)
 
     # Drive the worker loop in the background while we poll for completion.
     worker_task = asyncio.create_task(
@@ -83,9 +97,8 @@ async def test_docker_runner_smoke(orch_ctx):
             max_empty_polls=10,
         )
     )
-
     try:
-        completed = await _wait_for_job(job.id)
+        completed = await _wait_for_job(job_name)
     finally:
         worker_task.cancel()
         try:

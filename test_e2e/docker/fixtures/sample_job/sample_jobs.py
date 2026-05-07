@@ -1,4 +1,4 @@
-"""Sample task module installed into the docker-runner e2e test image.
+"""Sample job module installed into the docker-runner e2e test image.
 
 The e2e container resolves entrypoints via ``importlib`` against this
 module's dotted path (``sample_jobs.entry_task``). The Dockerfile installs
@@ -9,11 +9,19 @@ from __future__ import annotations
 
 import os
 
+from aaiclick.orchestration import job
 
+
+@job("docker_e2e_smoke")
 def entry_task() -> dict[str, str | None]:
-    """Trivial task that proves we ran inside a container built by the
-    framework's build task — returns the build-arg-emitted env vars so
-    the test can assert their values match what the host submitted."""
+    """Trivial job entry point that proves we ran inside a container built
+    by the framework's build task — returns the build-arg-emitted env vars
+    so the test can assert their values match what the host submitted.
+
+    Decorated with ``@job`` to demonstrate the user-facing pattern: the
+    framework imports ``sample_jobs.entry_task`` (a ``JobFactory``),
+    unwraps it via ``import_callback``, and calls the underlying function
+    inside the container."""
     return {
         "git_remote": os.environ.get("GIT_REMOTE"),
         "git_sha": os.environ.get("GIT_SHA"),
