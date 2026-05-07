@@ -127,22 +127,15 @@ jobs:
             curl -fsSL -F "content=@${f}" -F "action=file_upload" http://localhost:8080/
           done
 
-      - name: Determine aaiclick version
-        id: version
-        run: |
-          if [ -n "${{ inputs.version_pin }}" ]; then
-            echo "value=${{ inputs.version_pin }}" >> "$GITHUB_OUTPUT"
-          else
-            VAL=$(uv run --no-project python -c \
-              'from importlib.metadata import version; print(version("aaiclick"))')
-            echo "value=$VAL" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
         run: uv run --no-project python -m aaiclick migrate upgrade head
 
+      # The build task derives AAICLICK_VERSION from importlib.metadata at
+      # build-arg time (see docker_build._aaiclick_version), so the test
+      # runner only needs to point AAICLICK_PIP_INDEX_URL at the test pypi.
+      # No version env var is plumbed into the test process.
       - name: Run docker e2e tests
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
@@ -150,7 +143,6 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
-          AAICLICK_E2E_AAICLICK_VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p tmp
           uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \

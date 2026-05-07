@@ -44,7 +44,11 @@ from .worker import HEARTBEAT_INTERVAL, POLL_INTERVAL, worker_heartbeat
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"
-CONTAINER_WAIT_POLL_INTERVAL = 0.5
+# How long to give `docker wait` to return after we've issued `docker kill`
+# (timeout / cancellation path). The container should exit immediately once
+# SIGKILL'd; this is a safety bound so a stuck daemon doesn't wedge the
+# worker.
+DOCKER_KILL_REAP_TIMEOUT = 10.0
 
 ALWAYS_PASSED_ENV_VARS = (
     "AAICLICK_SQL_URL",
@@ -111,11 +115,16 @@ def _build_docker_run_cmd(
     The framework deliberately does **not** pass ``--network`` — the
     operator is responsible for ensuring AAICLICK_SQL_URL and
     AAICLICK_CH_URL resolve from inside a container (real hostnames or
-    ``host.docker.internal``)."""
+    ``host.docker.internal``).
+
+    ``--rm`` is intentionally **not** used. The host parent calls
+    ``docker rm`` explicitly after reading the result file so that
+    ``docker wait`` can race-freely report the exit code (a ``--rm``
+    container that exits between polls disappears from the daemon
+    before we can inspect it)."""
     cmd: list[str] = [
         _docker_bin(),
         "run",
-        "--rm",
         "--detach",
         "-v",
         f"{ipc_dir}:{CONTAINER_IPC_DIR}",
@@ -175,48 +184,55 @@ async def _docker_kill(container_id: str) -> None:
     await _run_subprocess_capture(_docker_bin(), "kill", container_id, check=False)
 
 
-async def _docker_inspect_exit_code(container_id: str) -> int | None:
-    """Return the container's exit code, or ``None`` if it's still running."""
-    rc, stdout, _ = await _run_subprocess_capture(
-        _docker_bin(),
-        "inspect",
-        "--format",
-        "{{.State.Status}}|{{.State.ExitCode}}",
-        container_id,
-        check=False,
-    )
-    if rc != 0:
-        return None
-    line = stdout.strip().splitlines()[-1] if stdout.strip() else ""
-    if "|" not in line:
-        return None
-    state, exit_code = line.split("|", 1)
-    if state in ("exited", "dead"):
-        try:
-            return int(exit_code)
-        except ValueError:
-            return None
-    return None
+async def _docker_rm(container_id: str) -> None:
+    """Remove the (already-stopped) container. Replaces the ``--rm`` flag
+    on ``docker run``; we do it explicitly so the container survives long
+    enough for ``docker wait`` to read its exit code without a race."""
+    await _run_subprocess_capture(_docker_bin(), "rm", "--force", container_id, check=False)
 
 
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
-    """Poll the container's state until it exits or the timeout fires.
+    """Block until the container exits, returning ``(exit_code, error)``.
 
-    Returns ``(exit_code, error_message)``. On timeout, kills the
-    container and returns ``(-1, "Task timed out after Ns")``."""
-    elapsed = 0.0
-    while True:
-        exit_code = await _docker_inspect_exit_code(container_id)
-        if exit_code is not None:
-            return exit_code, None
+    Uses ``docker wait``, which blocks on the daemon and prints the
+    exit code on stdout. Race-free vs. an inspect-polling loop: the
+    container can't exit "between polls" because there are no polls.
 
-        await asyncio.sleep(CONTAINER_WAIT_POLL_INTERVAL)
-        elapsed += CONTAINER_WAIT_POLL_INTERVAL
+    On timeout we ``docker kill`` the container, which causes the
+    in-flight ``docker wait`` to return immediately with the SIGKILL
+    exit code (137); we still surface a "timed out" error to the caller."""
+    wait_proc = await asyncio.create_subprocess_exec(
+        _docker_bin(),
+        "wait",
+        container_id,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
-        if timeout is not None and elapsed >= timeout:
-            await _docker_kill(container_id)
-            await asyncio.sleep(CONTAINER_WAIT_POLL_INTERVAL)
-            return -1, f"Task timed out after {timeout}s"
+    timeout_fired = False
+    try:
+        stdout_b, stderr_b = await asyncio.wait_for(wait_proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        timeout_fired = True
+        await _docker_kill(container_id)
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(wait_proc.communicate(), timeout=DOCKER_KILL_REAP_TIMEOUT)
+        except asyncio.TimeoutError:
+            wait_proc.kill()
+            await wait_proc.wait()
+            return -1, f"Task timed out after {timeout}s (docker wait did not return)"
+
+    if wait_proc.returncode != 0:
+        return -1, f"docker wait failed: {stderr_b.decode(errors='replace').strip()}"
+
+    try:
+        exit_code = int(stdout_b.decode(errors="replace").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return -1, f"docker wait produced unexpected output: {stdout_b!r}"
+
+    if timeout_fired:
+        return exit_code, f"Task timed out after {timeout}s"
+    return exit_code, None
 
 
 async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
@@ -228,21 +244,29 @@ async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
             await worker_heartbeat(worker_id)
 
 
-async def _watch_for_cancellation(task_id: int, container_id: str, done: asyncio.Event) -> bool:
+async def _watch_for_cancellation(
+    task_id: int,
+    container_id: str,
+    done: asyncio.Event,
+    cancelled: asyncio.Event,
+) -> None:
     """Poll for task-cancellation; ``docker kill`` the container on hit.
 
-    Returns True if cancellation fired, False if the container finished
-    on its own first."""
+    Sets ``cancelled`` so the host parent can distinguish a true
+    cancellation from a generic non-zero exit after ``gather()``
+    finishes. Reading the awaitable's return value isn't reliable —
+    the watcher may still be sleeping in ``asyncio.wait_for`` when the
+    container finishes on its own and ``done`` gets set externally."""
     while not done.is_set():
         try:
             await asyncio.wait_for(done.wait(), timeout=POLL_INTERVAL)
-            return False
+            return
         except asyncio.TimeoutError:
             pass
         if await check_task_cancelled(task_id):
+            cancelled.set()
             await _docker_kill(container_id)
-            return True
-    return False
+            return
 
 
 def _read_result_or_synthesize_failure(
@@ -323,21 +347,22 @@ async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict
         container_id = await _docker_run_detached(cmd)
 
         done = asyncio.Event()
+        cancelled = asyncio.Event()
         heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
-        cancel_watcher = asyncio.create_task(_watch_for_cancellation(task.id, container_id, done))
+        cancel_watcher = asyncio.create_task(_watch_for_cancellation(task.id, container_id, done, cancelled))
 
         try:
             exit_code, error = await _wait_for_container(container_id, timeout)
-            was_cancelled = (
-                cancel_watcher.done()
-                and not cancel_watcher.cancelled()
-                and (cancel_watcher.exception() is None and cancel_watcher.result())
-            )
-            result = _read_result_or_synthesize_failure(ipc_dir, exit_code, error, was_cancelled)
+            done.set()
+            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+            result = _read_result_or_synthesize_failure(ipc_dir, exit_code, error, was_cancelled=cancelled.is_set())
             return result.success, result.result_ref, result.log_path, result.error
         finally:
             done.set()
             await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+            # We dropped --rm so we own cleanup; do this last so a panic
+            # before docker_rm doesn't leak the container's IPC tmpdir.
+            await _docker_rm(container_id)
 
 
 async def dispatch_execute(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:

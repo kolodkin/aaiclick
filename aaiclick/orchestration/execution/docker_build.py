@@ -19,8 +19,10 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 import os
+import sys
 import tempfile
 from pathlib import Path
+from typing import TextIO
 
 from sqlmodel import select
 
@@ -33,26 +35,45 @@ def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
 
 
+async def _stream_to_stdio(reader: asyncio.StreamReader, sink: TextIO) -> bytes:
+    """Forward each line from ``reader`` to ``sink`` as it arrives, while
+    accumulating the full contents to return at the end. Used so a
+    long-running ``docker build`` shows progress in the task log live
+    instead of being buffered until the build completes."""
+    chunks: list[bytes] = []
+    while True:
+        line = await reader.readline()
+        if not line:
+            break
+        chunks.append(line)
+        sink.write(line.decode(errors="replace"))
+        sink.flush()
+    return b"".join(chunks)
+
+
 async def _run_subprocess(
     *cmd: str,
     cwd: str | None = None,
     check: bool = True,
 ) -> tuple[int, str, str]:
     """Run a subprocess, streaming stdout/stderr to the calling process's
-    stdout/stderr (so the worker's ``capture_task_output`` picks it up)."""
+    stdio line-by-line (so the worker's ``capture_task_output`` picks
+    them up live). Also returns the full captured output so callers can
+    inspect it after the process exits."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_b, stderr_b = await proc.communicate()
+    assert proc.stdout is not None and proc.stderr is not None
+    stdout_b, stderr_b = await asyncio.gather(
+        _stream_to_stdio(proc.stdout, sys.stdout),
+        _stream_to_stdio(proc.stderr, sys.stderr),
+    )
+    await proc.wait()
     stdout = stdout_b.decode(errors="replace")
     stderr = stderr_b.decode(errors="replace")
-    if stdout:
-        print(stdout, end="" if stdout.endswith("\n") else "\n")
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n")
     if check and proc.returncode != 0:
         raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {proc.returncode}")
     return proc.returncode or 0, stdout, stderr
@@ -140,9 +161,15 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
 async def build_image(job_id: int) -> None:
     """Build (and optionally push) the image declared by ``Job.image_tag``.
 
-    No-op when a registry hit or local cache hit is found. ``max_retries=2``
-    because clone / pull / push can fail transiently and the build is fully
-    idempotent (the tag is content-addressed by SHA)."""
+    No-op when a registry hit is found. ``max_retries=2`` because clone /
+    pull / push can fail transiently and the build is fully idempotent
+    (the tag is content-addressed by SHA).
+
+    A local-cache hit short-circuits the *build* but **not** the push:
+    if a previous attempt built locally and then failed to push, retry
+    must re-attempt the push instead of seeing the local image and
+    returning. Otherwise host A would build, push-fail, retry-from-cache,
+    return success — and host B would never be able to pull it."""
     job = await _fetch_job(job_id)
 
     registry = os.environ.get("AAICLICK_DOCKER_REGISTRY")
@@ -150,23 +177,21 @@ async def build_image(job_id: int) -> None:
     if registry and await _docker_pull(job.image_tag):
         return
 
-    if await _docker_image_exists_locally(job.image_tag):
-        return
+    if not await _docker_image_exists_locally(job.image_tag):
+        with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
+            await _git_clone_at_sha(job.git_remote, job.git_sha, workdir)
 
-    with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
-        await _git_clone_at_sha(job.git_remote, job.git_sha, workdir)
+            context_dir = Path(workdir) / (job.build_context or "")
+            dockerfile = context_dir / (job.dockerfile or "Dockerfile")
+            if not dockerfile.is_file():
+                raise FileNotFoundError(
+                    f"Dockerfile not found at "
+                    f"{job.build_context or '.'}/{job.dockerfile or 'Dockerfile'} "
+                    f"in repo {job.git_remote}@{job.git_sha}"
+                )
 
-        context_dir = Path(workdir) / (job.build_context or "")
-        dockerfile = context_dir / (job.dockerfile or "Dockerfile")
-        if not dockerfile.is_file():
-            raise FileNotFoundError(
-                f"Dockerfile not found at "
-                f"{job.build_context or '.'}/{job.dockerfile or 'Dockerfile'} "
-                f"in repo {job.git_remote}@{job.git_sha}"
-            )
-
-        build_args = _collect_build_args(job)
-        await _docker_build(str(context_dir), str(dockerfile), job.image_tag, build_args)
+            build_args = _collect_build_args(job)
+            await _docker_build(str(context_dir), str(dockerfile), job.image_tag, build_args)
 
     if registry:
         await _docker_push(job.image_tag)

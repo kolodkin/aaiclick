@@ -108,6 +108,40 @@ async def test_build_image_local_cache_hit_skips_build(monkeypatch):
     push.assert_not_called()
 
 
+async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
+    """Registry set + registry pull misses + local image present → skip
+    the build, but **still** attempt the push.
+
+    Regression guard for the retry-after-push-failure path: if a previous
+    attempt built locally and then failed to push, the local image is
+    cached. A naive ``return-on-cache-hit`` would short-circuit the
+    retry; the retry must re-attempt the push instead, otherwise the
+    image would never reach the registry and other hosts couldn't pull it.
+    """
+    monkeypatch.setenv("AAICLICK_DOCKER_REGISTRY", "registry.example:5000")
+    job = _job()
+
+    monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
+    pull = AsyncMock(return_value=False)
+    inspect = AsyncMock(return_value=True)
+    clone = AsyncMock()
+    build = AsyncMock()
+    push = AsyncMock()
+    monkeypatch.setattr(docker_build, "_docker_pull", pull)
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", inspect)
+    monkeypatch.setattr(docker_build, "_git_clone_at_sha", clone)
+    monkeypatch.setattr(docker_build, "_docker_build", build)
+    monkeypatch.setattr(docker_build, "_docker_push", push)
+
+    await docker_build.build_image.func(job_id=job.id)
+
+    pull.assert_awaited_once_with(job.image_tag)
+    inspect.assert_awaited_once_with(job.image_tag)
+    clone.assert_not_called()
+    build.assert_not_called()
+    push.assert_awaited_once_with(job.image_tag)
+
+
 async def test_build_image_full_build_pushes_when_registry_set(monkeypatch, tmp_path):
     """Cache miss + registry set → clone, build, push."""
     monkeypatch.setenv("AAICLICK_DOCKER_REGISTRY", "registry.example:5000")
