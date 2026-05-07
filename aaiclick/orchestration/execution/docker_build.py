@@ -187,7 +187,9 @@ async def build_image(job_id: int) -> None:
                 raise FileNotFoundError(
                     f"Dockerfile not found at "
                     f"{job.build_context or '.'}/{job.dockerfile or 'Dockerfile'} "
-                    f"in repo {job.git_remote}@{job.git_sha}"
+                    f"in repo {job.git_remote}@{job.git_sha}. "
+                    f"Run `python -m aaiclick docker init` in the user's repo "
+                    f"to scaffold a starter Dockerfile."
                 )
 
             build_args = _collect_build_args(job)

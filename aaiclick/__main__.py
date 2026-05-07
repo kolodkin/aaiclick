@@ -24,6 +24,7 @@ Usage:
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
+    python -m aaiclick docker init              # Scaffold a starter Dockerfile
 """
 
 import argparse
@@ -263,6 +264,23 @@ Environment Variables:
 def _run_setup_cli(args: argparse.Namespace) -> None:
     result = _run_sync_api(lambda: setup_api.setup(ai=args.ai))
     _render(args, result, cli_renderers.render_setup_result)
+
+
+def _run_docker_init(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from aaiclick.orchestration.execution.docker_scaffold import (
+        DockerfileExists,
+        init_dockerfile,
+    )
+
+    target = Path(args.path)
+    try:
+        written = init_dockerfile(target, force=args.force)
+    except DockerfileExists as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    print(f"Wrote {written}")
 
 
 def _run_migrate_cli(args: argparse.Namespace) -> None:
@@ -670,6 +688,32 @@ def main():
         help="Cleanup poll interval in seconds (default: 10)",
     )
 
+    # Add docker subcommand
+    docker_parser = subparsers.add_parser(
+        "docker",
+        help="Docker-runner helpers",
+    )
+    docker_subparsers = docker_parser.add_subparsers(
+        dest="docker_command",
+        help="Docker commands",
+    )
+
+    # docker init
+    docker_init_parser = docker_subparsers.add_parser(
+        "init",
+        help="Scaffold a starter Dockerfile in the current directory",
+    )
+    docker_init_parser.add_argument(
+        "--path",
+        default="Dockerfile",
+        help="Output path (default: ./Dockerfile)",
+    )
+    docker_init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing file",
+    )
+
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -768,6 +812,12 @@ def main():
 
         else:
             background_parser.print_help()
+
+    elif args.command == "docker":
+        if args.docker_command == "init":
+            _run_docker_init(args)
+        else:
+            docker_parser.print_help()
 
     else:
         parser.print_help()
