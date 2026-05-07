@@ -9,19 +9,16 @@ from __future__ import annotations
 
 import os
 
-from aaiclick.orchestration import job
 
-
-@job("docker_e2e_smoke")
 def entry_task() -> dict[str, str | None]:
     """Trivial job entry point that proves we ran inside a container built
     by the framework's build task — returns the build-arg-emitted env vars
     so the test can assert their values match what the host submitted.
 
-    Decorated with ``@job`` to demonstrate the user-facing pattern: the
-    framework imports ``sample_jobs.entry_task`` (a ``JobFactory``),
-    unwraps it via ``import_callback``, and calls the underlying function
-    inside the container."""
+    No ``@job`` / ``@task`` decorator: the framework only needs an
+    importable callable. The decorators are programmatic-submission
+    sugar; this e2e drives via the CLI, so they'd add noise without
+    changing what the test exercises."""
     return {
         "git_remote": os.environ.get("GIT_REMOTE"),
         "git_sha": os.environ.get("GIT_SHA"),
