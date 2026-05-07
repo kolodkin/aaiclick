@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timedelta
 
 import pytest
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Job
@@ -55,7 +55,9 @@ async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
     deadline = datetime.utcnow() + timedelta(seconds=timeout)
     while datetime.utcnow() < deadline:
         async with get_sql_session() as session:
-            result = await session.execute(select(Job).where(Job.name == job_name).order_by(Job.id.desc()).limit(1))
+            result = await session.execute(
+                select(Job).where(Job.name == job_name).order_by(col(Job.id).desc()).limit(1)
+            )
             job = result.scalar_one_or_none()
         if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
             return job
