@@ -135,7 +135,7 @@ jobs:
       - name: Upload wheel to test pypi
         run: |
           for f in dist/*.whl dist/*.tar.gz; do
-            curl -fsSL -F "content=@${f}" -F "action=file_upload" http://localhost:8080/
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
       - name: Run database migrations
