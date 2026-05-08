@@ -93,7 +93,6 @@ async def test_docker_runner_smoke(orch_ctx):
     _aaiclick(*run_args)
 
     # Drive the worker loop in the background while we poll for completion.
-    # max_tasks accommodates: docker_build + entry_task + 2 dynamic children.
     worker_task = asyncio.create_task(
         mp_worker_main_loop(
             max_tasks=10,
@@ -116,7 +115,6 @@ async def test_docker_runner_smoke(orch_ctx):
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]
-    # docker_build (host) + entry_task + produce + double + compute_sum = 5 tasks
     assert "sample_jobs.entry_task" in entrypoints
     assert "sample_jobs.produce" in entrypoints
     assert "sample_jobs.double" in entrypoints

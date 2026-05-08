@@ -34,7 +34,7 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT
+from ..docker_config import BUILD_TASK_ENTRYPOINT, add_host_flags
 from ..logging import get_logs_dir
 from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
@@ -132,15 +132,8 @@ def _build_docker_run_cmd(
         f"{log_base}:{log_base}",
         "-e",
         f"AAICLICK_LOG_DIR={log_base}",
+        *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
     ]
-    # Allow the task container to reach host services (e.g. a CI-local
-    # ClickHouse / Postgres on host.docker.internal). Each comma-separated
-    # value is forwarded as a separate --add-host flag.
-    if add_hosts := os.environ.get("AAICLICK_DOCKER_RUN_ADD_HOST"):
-        for entry in add_hosts.split(","):
-            entry = entry.strip()
-            if entry:
-                cmd.extend(["--add-host", entry])
     for key, value in env.items():
         cmd.extend(["-e", f"{key}={value}"])
     cmd.extend(
