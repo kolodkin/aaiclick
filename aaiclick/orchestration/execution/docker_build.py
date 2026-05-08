@@ -139,6 +139,7 @@ def _collect_build_args(job: Job) -> list[str]:
     add("BUILD_CONTEXT", job.build_context)
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
+    add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
     add("AAICLICK_VERSION", _aaiclick_version())
     return args
 
