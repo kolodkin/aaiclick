@@ -7,12 +7,12 @@ import os
 import signal
 import socket
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 
 from sqlmodel import col, select
 
 from aaiclick.snowflake import get_snowflake_id
 
+from ...datetime_utils import utc_now
 from ..background.handler import try_complete_job
 from ..models import (
     TASK_COMPLETED,
@@ -77,8 +77,8 @@ async def register_worker(
         hostname=hostname or socket.gethostname(),
         pid=pid or os.getpid(),
         status=WORKER_ACTIVE,
-        last_heartbeat=datetime.utcnow(),
-        started_at=datetime.utcnow(),
+        last_heartbeat=utc_now(),
+        started_at=utc_now(),
     )
 
     async with get_sql_session() as session:
@@ -109,7 +109,7 @@ async def worker_heartbeat(worker_id: int) -> WorkerStatus | None:
         if worker is None:
             return None
 
-        worker.last_heartbeat = datetime.utcnow()
+        worker.last_heartbeat = utc_now()
         if worker.status != WORKER_STOPPING:
             worker.status = WORKER_ACTIVE
         session.add(worker)
@@ -315,7 +315,7 @@ async def _worker_loop(
         print(f"Worker {worker_id} starting (mode={mode_label})")
 
     tasks_executed = 0
-    last_heartbeat = datetime.utcnow()
+    last_heartbeat = utc_now()
     empty_polls = 0
 
     try:
@@ -326,7 +326,7 @@ async def _worker_loop(
             if max_empty_polls is not None and empty_polls >= max_empty_polls:
                 break
 
-            now = datetime.utcnow()
+            now = utc_now()
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
                 status = await worker_heartbeat(worker_id)
                 last_heartbeat = now

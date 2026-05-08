@@ -33,6 +33,7 @@ from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake import get_snowflake_id
 
+from ...datetime_utils import utc_now
 from ..env import get_db_url
 from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
@@ -151,7 +152,7 @@ class BackgroundWorker:
             for task in tasks:
                 has_retries = task.attempt < task.max_retries
                 if has_retries:
-                    retry_after = datetime.utcnow() + timedelta(
+                    retry_after = utc_now() + timedelta(
                         seconds=RETRY_BASE_DELAY * (2**task.attempt),
                     )
                     await self._handler.transition_pending_cleanup(
@@ -173,7 +174,7 @@ class BackgroundWorker:
                         task.task_id,
                         has_retries=False,
                         attempt=task.attempt + 1,
-                        retry_after=datetime.utcnow(),
+                        retry_after=utc_now(),
                     )
                     logger.info("Task %s cleaned and marked FAILED", task.task_id)
                     failed_job_ids.add(task.job_id)
@@ -261,7 +262,7 @@ class BackgroundWorker:
         3. Clean up orphaned resources (job_id IS NULL) older than the TTL
         """
         ttl_days = int(os.environ.get("AAICLICK_JOB_TTL_DAYS", "90"))
-        cutoff = datetime.utcnow() - timedelta(days=ttl_days)
+        cutoff = utc_now() - timedelta(days=ttl_days)
 
         # 1. Delete expired jobs
         async with AsyncSession(self._engine) as session:
@@ -391,7 +392,7 @@ class BackgroundWorker:
         in orphaned ``table_registry`` rows, deletes those rows, and deletes
         matching orphaned ``operation_log`` entries.
         """
-        cutoff = datetime.utcnow() - timedelta(days=ttl_days)
+        cutoff = utc_now() - timedelta(days=ttl_days)
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -428,7 +429,7 @@ class BackgroundWorker:
 
         Ref cleanup is handled by _process_pending_cleanup on the next cycle.
         """
-        cutoff = datetime.utcnow() - timedelta(seconds=self._worker_timeout)
+        cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
@@ -440,7 +441,7 @@ class BackgroundWorker:
             if not dead_worker_ids:
                 return
 
-            now = datetime.utcnow()
+            now = utc_now()
             await self._handler.mark_dead_workers(session, dead_worker_ids, now)
             await session.commit()
 
@@ -456,7 +457,7 @@ class BackgroundWorker:
         Uses raw SQL instead of ORM because BackgroundWorker operates
         independently of OrchContext with its own DB engine.
         """
-        now = datetime.utcnow()
+        now = utc_now()
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
