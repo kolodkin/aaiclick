@@ -18,7 +18,7 @@ from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
 
 

@@ -3,7 +3,7 @@
 from sqlalchemy import text
 from sqlmodel import select
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..models import (
     JOB_CANCELLED,
     JOB_COMPLETED,

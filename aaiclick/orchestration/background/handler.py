@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,

@@ -5,7 +5,7 @@ from datetime import timedelta
 from sqlalchemy import text
 from sqlmodel import select
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task

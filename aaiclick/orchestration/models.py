@@ -13,7 +13,7 @@ from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, String,
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
-from .._datetime import utc_now
+from ..datetime_utils import utc_now
 from .task_registry import register_task
 
 # Dependency type constants

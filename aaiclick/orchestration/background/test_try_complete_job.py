@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.handler import JOB_FAILED_ERROR, try_complete_job
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from .conftest import insert_job
 
 

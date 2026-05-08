@@ -33,7 +33,7 @@ from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake import get_snowflake_id
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..env import get_db_url
 from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job

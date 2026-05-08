@@ -41,7 +41,7 @@ from aaiclick.data.object.refs import (
 )
 from aaiclick.snowflake import get_snowflake_id
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
 from ..models import (

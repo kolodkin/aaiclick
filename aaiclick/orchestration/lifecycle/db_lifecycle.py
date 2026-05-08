@@ -17,7 +17,7 @@ from typing import ClassVar
 from sqlalchemy import BigInteger, Column, DateTime, String, Text
 from sqlmodel import Field, SQLModel
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 
 
 class DBLifecycleOp(Enum):

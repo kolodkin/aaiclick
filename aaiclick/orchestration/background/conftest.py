@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.snowflake import get_snowflake_id
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 
 
 @pytest.fixture

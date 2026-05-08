@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from .._datetime import utc_now
+from ..datetime_utils import utc_now
 from .factories import resolve_job_config
 from .models import PRESERVATION_FULL, PRESERVATION_NONE, RUN_MANUAL, RegisteredJob, Task
 from .orch_context import get_sql_session

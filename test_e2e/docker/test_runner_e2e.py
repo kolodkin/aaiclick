@@ -26,7 +26,7 @@ from datetime import timedelta
 import pytest
 from sqlmodel import col, select
 
-from aaiclick._datetime import utc_now
+from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Job
 from aaiclick.orchestration.orch_context import get_sql_session

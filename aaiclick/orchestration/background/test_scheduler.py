@@ -10,7 +10,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 
 
 async def _get_engine(orch_ctx):

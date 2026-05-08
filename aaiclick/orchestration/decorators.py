@@ -36,7 +36,7 @@ from typing import Any, overload
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
-from .._datetime import utc_now
+from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .factories import _callable_to_string, resolve_job_config
 from .models import (

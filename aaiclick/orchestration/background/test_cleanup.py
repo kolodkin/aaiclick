@@ -16,7 +16,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref, insert_table_registry
 
 

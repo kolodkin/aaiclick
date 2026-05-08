@@ -12,7 +12,7 @@ from sqlmodel import col, select
 
 from aaiclick.snowflake import get_snowflake_id
 
-from ..._datetime import utc_now
+from ...datetime_utils import utc_now
 from ..background.handler import try_complete_job
 from ..models import (
     TASK_COMPLETED,

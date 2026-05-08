@@ -8,8 +8,8 @@ from typing import Any
 from croniter import croniter
 from sqlmodel import select
 
-from .._datetime import utc_now
 from ..backend import is_local
+from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import resolve_docker_config
 from .factories import create_docker_job, create_job, create_task

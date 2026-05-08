@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
-from .._datetime import utc_now
+from ..datetime_utils import utc_now
 from .docker_config import BUILD_TASK_ENTRYPOINT, DockerJobConfig
 from .env import get_default_preservation_mode
 from .models import (
