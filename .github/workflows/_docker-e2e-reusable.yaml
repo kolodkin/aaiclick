@@ -77,6 +77,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
+      # Linux GitHub runners do not resolve ``host.docker.internal``. The
+      # e2e tests use the same DSNs both from runner-side pytest fixtures
+      # and from spawned docker containers (which see the host gateway via
+      # ``--add-host=host.docker.internal:host-gateway``). Map the name to
+      # localhost on the runner so the runner-side resolution works too.
+      - name: Map host.docker.internal to localhost
+        run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
       # The pypiserver image's default entrypoint runs ``pypi-server`` with
       # no ``-a`` / ``-P`` flags, so uploads require auth against an empty
       # password file and return 401. GitHub Actions service containers
