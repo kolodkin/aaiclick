@@ -162,6 +162,9 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
+          # The default distributed-mode log dir (/var/log/aaiclick) is not
+          # writable on GitHub-hosted runners. Send logs to the workspace.
+          AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
         run: |
           mkdir -p tmp
           uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \
