@@ -116,9 +116,16 @@ async def test_docker_runner_smoke(orch_ctx):
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]
-    # docker_build (host) + entry_task + add + square = 4 tasks
+    # docker_build (host) + entry_task + produce + double + compute_sum = 5 tasks
     assert "sample_jobs.entry_task" in entrypoints
-    assert "sample_jobs.add" in entrypoints
-    assert "sample_jobs.square" in entrypoints
+    assert "sample_jobs.produce" in entrypoints
+    assert "sample_jobs.double" in entrypoints
+    assert "sample_jobs.compute_sum" in entrypoints
     non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
     assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
+
+    # The chain is produce([10, 20, 30]) → double → compute_sum, so the
+    # final scalar is (10+20+30) * 2 = 120. Reading it confirms Objects
+    # passed correctly across containers via ClickHouse.
+    summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
+    assert summed.result == {"total": 120}, summed.result
