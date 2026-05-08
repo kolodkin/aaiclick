@@ -10,6 +10,8 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
+from ..._datetime import utc_now
+
 
 async def _get_engine(orch_ctx):
     """Create a standalone async engine matching the test DB."""
@@ -33,7 +35,7 @@ async def test_check_schedules_creates_job(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(
             text("UPDATE registered_jobs SET next_run_at = :past WHERE id = :id"),
-            {"past": datetime.utcnow() - timedelta(minutes=5), "id": reg.id},
+            {"past": utc_now() - timedelta(minutes=5), "id": reg.id},
         )
         await session.commit()
 
@@ -83,7 +85,7 @@ async def test_check_schedules_creates_job(orch_ctx):
         raw = result.scalar_one()
 
     new_next_run = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
-    assert new_next_run > datetime.utcnow() - timedelta(seconds=5)
+    assert new_next_run > utc_now() - timedelta(seconds=5)
 
     await worker._engine.dispose()
 
@@ -99,7 +101,7 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
     async with get_sql_session() as session:
         await session.execute(
             text("UPDATE registered_jobs SET next_run_at = :past WHERE id = :id"),
-            {"past": datetime.utcnow() - timedelta(minutes=5), "id": reg.id},
+            {"past": utc_now() - timedelta(minutes=5), "id": reg.id},
         )
         await session.commit()
 

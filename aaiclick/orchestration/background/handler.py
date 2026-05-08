@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
 
+from ..._datetime import utc_now
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -69,7 +70,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     if not total or non_terminal:
         return
 
-    now = datetime.utcnow()
+    now = utc_now()
     if failed:
         await session.execute(
             text("UPDATE jobs SET status = :status, completed_at = :now, error = :error WHERE id = :job_id"),
@@ -178,7 +179,7 @@ class BackgroundHandler(ABC):
                 text("UPDATE tasks SET status = :status, completed_at = :now WHERE id = :task_id"),
                 {
                     "task_id": task_id,
-                    "now": datetime.utcnow(),
+                    "now": utc_now(),
                     "status": TASK_FAILED,
                 },
             )

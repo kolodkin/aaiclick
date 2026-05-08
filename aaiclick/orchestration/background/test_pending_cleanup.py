@@ -18,6 +18,7 @@ from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
 
+from ..._datetime import utc_now
 from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
 
 
@@ -36,7 +37,7 @@ async def _insert_task(
                 "id": task_id,
                 "job_id": job_id,
                 "status": status,
-                "now": datetime.utcnow(),
+                "now": utc_now(),
                 "max_retries": max_retries,
                 "attempt": attempt,
                 "run_ids": run_ids,
@@ -231,7 +232,7 @@ async def test_pending_cleanup_retry_backoff(bg_db):
         error="failed again",
     )
 
-    before = datetime.utcnow()
+    before = utc_now()
     await _make_worker(bg_db)._process_pending_cleanup()
 
     row = await _get_task_status(bg_db, 100)

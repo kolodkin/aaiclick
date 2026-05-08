@@ -17,7 +17,6 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from datetime import datetime
 
 import pytest
 from alembic import command
@@ -31,6 +30,8 @@ from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
+
+from ._datetime import utc_now
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
@@ -140,7 +141,7 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
                 "VALUES (:t, :now, :sd) "
                 "ON CONFLICT (table_name) DO NOTHING"
             ),
-            {"t": table, "now": datetime.utcnow(), "sd": schema_doc},
+            {"t": table, "now": utc_now(), "sd": schema_doc},
         )
         await sess.commit()
 

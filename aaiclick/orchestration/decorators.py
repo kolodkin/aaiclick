@@ -30,13 +30,13 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
 from functools import wraps
 from typing import Any, overload
 
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
+from .._datetime import utc_now
 from ..snowflake import get_snowflake_id
 from .factories import _callable_to_string, resolve_job_config
 from .models import (
@@ -152,7 +152,7 @@ class TaskFactory:
             name=self.name,
             kwargs=serialized_kwargs,
             status=TASK_PENDING,
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
             max_retries=self.max_retries,
         )
 
@@ -276,7 +276,7 @@ class JobFactory:
             run_type=run_type,
             registered_job_id=registered_job_id,
             preservation_mode=mode,
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
 
         # Commit job to database
@@ -291,7 +291,7 @@ class JobFactory:
             name=self.name,
             kwargs=serialized_kwargs,
             status=TASK_PENDING,
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
 
         # Commit entry point task with job_id

@@ -2,11 +2,11 @@
 
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
 
+from .._datetime import utc_now
 from .docker_config import BUILD_TASK_ENTRYPOINT, DockerJobConfig
 from .env import get_default_preservation_mode
 from .models import (
@@ -162,7 +162,7 @@ def create_task(
         name=resolved_name,
         kwargs=kwargs or {},
         status=TASK_PENDING,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
         max_retries=max_retries,
     )
     registry = get_task_registry()
@@ -219,7 +219,7 @@ async def create_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
 
     # Create task from entry if it's not already a Task
@@ -282,7 +282,7 @@ async def create_docker_job(
         build_context=docker_config.build_context,
         dockerfile=docker_config.dockerfile,
         image_tag=docker_config.image_tag,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
 
     build_task = create_task(

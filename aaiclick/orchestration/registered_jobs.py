@@ -8,6 +8,7 @@ from typing import Any
 from croniter import croniter
 from sqlmodel import select
 
+from .._datetime import utc_now
 from ..backend import is_local
 from ..snowflake import get_snowflake_id
 from .docker_config import resolve_docker_config
@@ -43,7 +44,7 @@ def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     Returns:
         Next fire datetime
     """
-    base = after or datetime.utcnow()
+    base = after or utc_now()
     return croniter(cron_expr, base).get_next(datetime)
 
 
@@ -90,7 +91,7 @@ async def register_job(
     Raises:
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
-    now = datetime.utcnow()
+    now = utc_now()
     registered_job = RegisteredJob(
         id=get_snowflake_id(),
         name=name,
@@ -168,7 +169,7 @@ async def upsert_registered_job(
     Returns:
         The created or updated RegisteredJob
     """
-    now = datetime.utcnow()
+    now = utc_now()
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -225,7 +226,7 @@ async def enable_job(name: str) -> RegisteredJob:
     Raises:
         RegisteredJobNotFound: If no job with this name exists
     """
-    now = datetime.utcnow()
+    now = utc_now()
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -262,7 +263,7 @@ async def disable_job(name: str) -> RegisteredJob:
 
         job.enabled = False
         job.next_run_at = None
-        job.updated_at = datetime.utcnow()
+        job.updated_at = utc_now()
         session.add(job)
         await session.commit()
         await session.refresh(job)
