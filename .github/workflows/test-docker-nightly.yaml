@@ -1,0 +1,12 @@
+name: Docker Runner E2E (nightly)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/_docker-e2e-reusable.yaml
+    with:
+      wheel_source: source
