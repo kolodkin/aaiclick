@@ -153,8 +153,16 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         "-f",
         dockerfile,
         *build_args,
-        context,
     ]
+    # Allow the build container to reach host services (e.g. a CI-local
+    # pypiserver on host.docker.internal). Each comma-separated value is
+    # forwarded as a separate --add-host flag.
+    if add_hosts := os.environ.get("AAICLICK_DOCKER_BUILD_ADD_HOST"):
+        for entry in add_hosts.split(","):
+            entry = entry.strip()
+            if entry:
+                cmd.extend(["--add-host", entry])
+    cmd.append(context)
     await _run_subprocess(*cmd)
 
 
