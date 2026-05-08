@@ -26,7 +26,6 @@ _orch_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 
 async def test_nested_orch_context_reuses_outer_engine():
-    """Inner orch_context calls reuse the outer engine — no per-call rebuild."""
     with patch.object(
         _orch_module, "create_async_engine", wraps=create_async_engine
     ) as spy:
@@ -46,7 +45,6 @@ async def test_nested_orch_context_reuses_outer_engine():
 
 
 async def test_nested_orch_context_does_not_dispose_outer_engine():
-    """The inner exit must not dispose the outer engine."""
     with patch.object(AsyncEngine, "dispose", autospec=True) as dispose_spy:
         async with orch_context(with_ch=False):
             async with orch_context(with_ch=False):
@@ -64,7 +62,6 @@ async def test_nested_orch_context_reuses_ch_client():
 
 
 async def test_inner_with_ch_true_reuses_outer_with_ch_false_branch():
-    """An inner ``with_ch=True`` opens a CH client even if the outer didn't."""
     async with orch_context(with_ch=False):
         assert _ch_client_var.get() is None
         async with orch_context(with_ch=True):

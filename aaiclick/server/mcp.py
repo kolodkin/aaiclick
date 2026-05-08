@@ -68,7 +68,7 @@ from aaiclick.view_models import (
 
 
 @asynccontextmanager
-async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[dict]:
+async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
     """Hold one ``orch_context`` open for the FastMCP server's lifetime.
 
     Per-tool wrappers still call ``orch_context`` for explicit scoping; the
@@ -76,7 +76,7 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     constructing fresh ones per tool invocation.
     """
     async with orch_context(with_ch=True):
-        yield {}
+        yield
 
 
 mcp: FastMCP = FastMCP(

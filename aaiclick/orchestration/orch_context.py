@@ -389,11 +389,9 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     if outer_engine is not None:
         engine = outer_engine
         handler = _db_handler_var.get()
-        owns_engine = False
     else:
         engine = create_async_engine(get_db_url(), echo=False)
         handler = create_db_handler()
-        owns_engine = True
 
     sql_token = _sql_engine_var.set(engine)
     db_token = _db_handler_var.set(handler)
@@ -420,7 +418,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
         _task_registry_var.reset(registry_token)
-        if owns_engine:
+        if outer_engine is None:
             await engine.dispose()
 
 
