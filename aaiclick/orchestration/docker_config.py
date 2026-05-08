@@ -97,6 +97,20 @@ def compute_image_tag(git_sha: str) -> str:
     return f"{prefix}aaiclick-job:{git_sha}"
 
 
+def add_host_flags(env_var: str) -> list[str]:
+    """``--add-host`` flags for the comma-separated entries in ``env_var``.
+
+    Used by both the build task and the host runner to let containers
+    reach services on the host (e.g. a CI-local pypiserver / ClickHouse
+    on ``host.docker.internal``). Empty / unset → no flags."""
+    flags: list[str] = []
+    for entry in (os.environ.get(env_var) or "").split(","):
+        entry = entry.strip()
+        if entry:
+            flags.extend(["--add-host", entry])
+    return flags
+
+
 def _validate_sha(sha: str) -> str:
     if not _SHA_RE.match(sha):
         raise ValueError(f"git_sha must be a 40-char lowercase hex string; got {sha!r}")

@@ -31,6 +31,7 @@ def _job(**overrides) -> Job:
 async def test_collect_build_args_omits_unset_values(monkeypatch):
     monkeypatch.delenv("AAICLICK_PIP_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
+    monkeypatch.delenv("AAICLICK_PIP_TRUSTED_HOST", raising=False)
 
     job = _job(git_branch=None, build_context=None)
     args = docker_build._collect_build_args(job)
@@ -40,16 +41,19 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     assert not any(a.startswith("GIT_BRANCH=") for a in args)
     assert not any(a.startswith("BUILD_CONTEXT=") for a in args)
     assert not any(a.startswith("PIP_INDEX_URL=") for a in args)
+    assert not any(a.startswith("PIP_TRUSTED_HOST=") for a in args)
 
 
 async def test_collect_build_args_forwards_pip_indices(monkeypatch):
     monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://pypi.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
+    monkeypatch.setenv("AAICLICK_PIP_TRUSTED_HOST", "pypi.test")
 
     args = docker_build._collect_build_args(_job())
 
     assert "PIP_INDEX_URL=http://pypi.test/simple/" in args
     assert "PIP_EXTRA_INDEX_URL=http://extra.test/simple/" in args
+    assert "PIP_TRUSTED_HOST=pypi.test" in args
 
 
 async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkeypatch):

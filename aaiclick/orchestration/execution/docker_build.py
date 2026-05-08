@@ -27,6 +27,7 @@ from typing import TextIO
 from sqlmodel import select
 
 from ..decorators import task
+from ..docker_config import add_host_flags
 from ..models import Job
 from ..orch_context import get_sql_session
 
@@ -139,6 +140,7 @@ def _collect_build_args(job: Job) -> list[str]:
     add("BUILD_CONTEXT", job.build_context)
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
+    add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
     add("AAICLICK_VERSION", _aaiclick_version())
     return args
 
@@ -152,6 +154,7 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         "-f",
         dockerfile,
         *build_args,
+        *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST"),
         context,
     ]
     await _run_subprocess(*cmd)

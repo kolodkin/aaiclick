@@ -87,6 +87,43 @@ async def test_order_by_multi_column_mergetree():
         assert result.result_rows[0][0] == "category, date"
 
 
+async def test_order_by_falls_back_to_aai_id_on_mergetree():
+    """When the table has an aai_id column and no explicit order_by, MergeTree sorts by aai_id."""
+    async with data_context(engine=ENGINE_MERGE_TREE):
+        ch = get_ch_client()
+        obj = await create_object_from_value(
+            {"val": [10, 20, 30]},
+            aai_id=True,
+        )
+
+        result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
+        assert result.result_rows[0][0] == "aai_id"
+
+
+async def test_order_by_no_aai_id_uses_tuple_on_mergetree():
+    """Without aai_id and without explicit order_by, MergeTree gets tuple()."""
+    async with data_context(engine=ENGINE_MERGE_TREE):
+        ch = get_ch_client()
+        obj = await create_object_from_value({"val": [10, 20, 30]})
+
+        result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
+        assert result.result_rows[0][0] == ""
+
+
+async def test_explicit_order_by_overrides_aai_id_fallback():
+    """An explicit order_by wins over the aai_id fallback even when aai_id is present."""
+    async with data_context(engine=ENGINE_MERGE_TREE):
+        ch = get_ch_client()
+        obj = await create_object_from_value(
+            {"date": ["2024-01-03", "2024-01-01", "2024-01-02"], "val": [30, 10, 20]},
+            order_by=["date"],
+            aai_id=True,
+        )
+
+        result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
+        assert result.result_rows[0][0] == "date"
+
+
 async def test_no_order_by_stays_memory(ctx):
     """Without order_by the default Memory engine is used."""
     ch = get_ch_client()

@@ -65,16 +65,6 @@ jobs:
         ports:
           - 5000:5000
 
-      pypiserver:
-        image: pypiserver/pypiserver:v2.3.2
-        ports:
-          - 8080:8080
-        options: >-
-          --health-cmd "wget --spider -q localhost:8080/"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -86,6 +76,35 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
+
+      # Linux GitHub runners do not resolve ``host.docker.internal``. The
+      # e2e tests use the same DSNs both from runner-side pytest fixtures
+      # and from spawned docker containers (which see the host gateway via
+      # ``--add-host=host.docker.internal:host-gateway``). Map the name to
+      # localhost on the runner so the runner-side resolution works too.
+      - name: Map host.docker.internal to localhost
+        run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
+      # The pypiserver image's default entrypoint runs ``pypi-server`` with
+      # no ``-a`` / ``-P`` flags, so uploads require auth against an empty
+      # password file and return 401. GitHub Actions service containers
+      # cannot override CMD, so we start pypiserver as a step with the auth
+      # disabled explicitly (``-a . -P .``).
+      - name: Start pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 \
+            run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/ -o /dev/null; then
+              echo "pypiserver is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "pypiserver failed to become ready" >&2
+          docker logs pypiserver >&2
+          exit 1
 
       # --- Wheel acquisition (branches on wheel_source) -------------------
 
@@ -124,7 +143,7 @@ jobs:
       - name: Upload wheel to test pypi
         run: |
           for f in dist/*.whl dist/*.tar.gz; do
-            curl -fsSL -F "content=@${f}" -F "action=file_upload" http://localhost:8080/
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
       - name: Run database migrations
@@ -143,6 +162,16 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
+          # pip refuses to use a plain-HTTP index without --trusted-host;
+          # forward the host so the build sees our test pypi.
+          AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
+          # Build and task containers don't inherit the runner's /etc/hosts
+          # entry, so add the host-gateway mapping explicitly for both.
+          AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
+          AAICLICK_DOCKER_RUN_ADD_HOST: "host.docker.internal:host-gateway"
+          # The default distributed-mode log dir (/var/log/aaiclick) is not
+          # writable on GitHub-hosted runners. Send logs to the workspace.
+          AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
         run: |
           mkdir -p tmp
           uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \
@@ -159,6 +188,7 @@ jobs:
         with:
           name: "Docker Runner E2E (${{ inputs.wheel_source }})"
           path: tmp/pytest-report.xml
+          reporter: java-junit
 
       - name: Cleanup docker resources
         if: always()
