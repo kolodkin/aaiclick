@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
+from ..datetime_utils import utc_now
 from .factories import resolve_job_config
 from .models import PRESERVATION_FULL, PRESERVATION_NONE, RUN_MANUAL, RegisteredJob, Task
 from .orch_context import get_sql_session
@@ -59,7 +60,7 @@ async def test_register_job_with_schedule(orch_ctx):
     )
     assert job.schedule == "0 8 * * *"
     assert job.next_run_at is not None
-    assert job.next_run_at > datetime.utcnow()
+    assert job.next_run_at > utc_now()
 
 
 async def test_register_job_with_kwargs(orch_ctx):

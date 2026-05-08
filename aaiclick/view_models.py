@@ -17,7 +17,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
-from .orchestration.models import JobStatus, PreservationMode, WorkerStatus
+from .orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -61,6 +61,14 @@ class RunJobRequest(BaseModel):
     name: str
     kwargs: dict[str, Any] = Field(default_factory=dict)
     preservation_mode: PreservationMode | None = None
+    # Per-run docker overrides; ignored unless the registered job is
+    # in docker mode. Each field falls through to the RegisteredJob
+    # default, then to git auto-detect (where applicable).
+    git_remote: str | None = None
+    git_sha: str | None = None
+    git_branch: str | None = None
+    build_context: str | None = None
+    dockerfile: str | None = None
 
 
 class RegisterJobRequest(BaseModel):
@@ -77,6 +85,11 @@ class RegisterJobRequest(BaseModel):
     default_kwargs: dict[str, Any] | None = None
     enabled: bool = True
     preservation_mode: PreservationMode | None = None
+    # Docker-runner defaults; per-run kwargs on RunJobRequest override them.
+    runner_mode: RunnerMode = "subprocess"
+    dockerfile: str | None = None
+    git_remote: str | None = None
+    build_context: str | None = None
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

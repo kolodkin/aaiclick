@@ -201,6 +201,11 @@ async def mp_worker_main_loop(
     When a task exceeds the timeout the child process is killed and the
     task is marked as failed.
 
+    Per-task runner dispatch: tasks belonging to a docker-mode job route
+    through the Docker runner; subprocess-mode tasks (and the auto-
+    injected build task on every docker job) route through the
+    multiprocessing child runner. See ``docker_worker.dispatch_execute``.
+
     Args:
         worker_id: Worker ID (registers new worker if None).
         max_tasks: Maximum tasks to execute (None for unlimited).
@@ -210,8 +215,10 @@ async def mp_worker_main_loop(
     Returns:
         Number of tasks successfully executed.
     """
+    from .docker_worker import dispatch_execute
+
     return await _worker_loop(
-        execute_fn=_run_task_in_child,
+        execute_fn=dispatch_execute,
         worker_id=worker_id,
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,

@@ -64,6 +64,10 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   - `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
   - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
   - Shared fixtures go in `aaiclick/conftest.py`
+  - **Exception**: end-to-end suites that exercise the deployed package
+    live in `./test_e2e/<suite>/` (e.g. `test_e2e/docker/` for the
+    Docker-runner suite). They are not picked up by the default `pytest`
+    invocation and only run via dedicated workflows.
 
 - **Flat test structure**: Do NOT use test classes - keep tests as flat module functions
   - Tests should be simple `async def test_*():` or `def test_*():` functions

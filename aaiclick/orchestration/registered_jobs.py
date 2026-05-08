@@ -8,9 +8,21 @@ from typing import Any
 from croniter import croniter
 from sqlmodel import select
 
+from ..backend import is_local
+from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .factories import create_job, create_task
-from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
+from .docker_config import resolve_docker_config
+from .factories import create_docker_job, create_job, create_task
+from .models import (
+    RUN_MANUAL,
+    RUNNER_DOCKER,
+    RUNNER_SUBPROCESS,
+    Job,
+    PreservationMode,
+    RegisteredJob,
+    RunnerMode,
+    RunType,
+)
 from .orch_context import get_sql_session
 
 
@@ -32,7 +44,7 @@ def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     Returns:
         Next fire datetime
     """
-    base = after or datetime.utcnow()
+    base = after or utc_now()
     return croniter(cron_expr, base).get_next(datetime)
 
 
@@ -49,6 +61,10 @@ async def register_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
+    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
+    dockerfile: str | None = None,
+    git_remote: str | None = None,
+    build_context: str | None = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -60,6 +76,14 @@ async def register_job(
         enabled: Whether the job is enabled (default: True)
         preservation_mode: Default preservation mode for every run of
             this job. Individual runs can override via ``run_job()``.
+        runner_mode: ``"subprocess"`` (default) or ``"docker"``.
+        dockerfile: Default Dockerfile path (relative to ``build_context``).
+            ``None`` falls back to ``"Dockerfile"`` at submission time.
+        git_remote: Default git remote URL. ``None`` falls back to
+            ``git config remote.origin.url`` at submission time.
+        build_context: Default subdirectory offset within the cloned
+            repo to use as the docker build context. ``None`` means
+            repo root.
 
     Returns:
         Created RegisteredJob
@@ -67,7 +91,7 @@ async def register_job(
     Raises:
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
-    now = datetime.utcnow()
+    now = utc_now()
     registered_job = RegisteredJob(
         id=get_snowflake_id(),
         name=name,
@@ -76,6 +100,10 @@ async def register_job(
         schedule=schedule,
         default_kwargs=default_kwargs,
         preservation_mode=preservation_mode,
+        runner_mode=runner_mode,
+        dockerfile=dockerfile,
+        git_remote=git_remote,
+        build_context=build_context,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -115,12 +143,16 @@ async def upsert_registered_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
+    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
+    dockerfile: str | None = None,
+    git_remote: str | None = None,
+    build_context: str | None = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preservation_mode, and enabled.
-    Otherwise creates a new entry.
+    default_kwargs, preservation_mode, runner_mode and the Docker
+    defaults. Otherwise creates a new entry.
 
     Args:
         name: Unique job name
@@ -129,11 +161,15 @@ async def upsert_registered_job(
         default_kwargs: Default parameters (optional)
         enabled: Whether the job is enabled
         preservation_mode: Default preservation mode for every run
+        runner_mode: ``"subprocess"`` (default) or ``"docker"``.
+        dockerfile: Default Dockerfile path (relative to ``build_context``).
+        git_remote: Default git remote URL.
+        build_context: Default build context subdirectory.
 
     Returns:
         The created or updated RegisteredJob
     """
-    now = datetime.utcnow()
+    now = utc_now()
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -145,6 +181,10 @@ async def upsert_registered_job(
             existing.default_kwargs = default_kwargs
             existing.preservation_mode = preservation_mode
             existing.enabled = enabled
+            existing.runner_mode = runner_mode
+            existing.dockerfile = dockerfile
+            existing.git_remote = git_remote
+            existing.build_context = build_context
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
@@ -160,6 +200,10 @@ async def upsert_registered_job(
             schedule=schedule,
             default_kwargs=default_kwargs,
             preservation_mode=preservation_mode,
+            runner_mode=runner_mode,
+            dockerfile=dockerfile,
+            git_remote=git_remote,
+            build_context=build_context,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -182,7 +226,7 @@ async def enable_job(name: str) -> RegisteredJob:
     Raises:
         RegisteredJobNotFound: If no job with this name exists
     """
-    now = datetime.utcnow()
+    now = utc_now()
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -219,7 +263,7 @@ async def disable_job(name: str) -> RegisteredJob:
 
         job.enabled = False
         job.next_run_at = None
-        job.updated_at = datetime.utcnow()
+        job.updated_at = utc_now()
         session.add(job)
         await session.commit()
         await session.refresh(job)
@@ -253,6 +297,11 @@ async def run_job(
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RUN_MANUAL,
     preservation_mode: PreservationMode | None = None,
+    git_remote: str | None = None,
+    git_sha: str | None = None,
+    git_branch: str | None = None,
+    build_context: str | None = None,
+    dockerfile: str | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.
 
@@ -266,6 +315,12 @@ async def run_job(
     (see ``factories.resolve_job_config``):
     explicit arg > registered-job default > env var > hardcoded NONE.
 
+    For docker-mode registrations, the docker config snapshots onto
+    the new ``Job`` row via the precedence chain (see
+    ``docker_config.resolve_docker_config``):
+    explicit kwarg > registered-job default > git auto-detect.
+    A build task is auto-injected as a prerequisite of the entry task.
+
     Args:
         name: Job name
         entrypoint: Python dotted path
@@ -273,6 +328,13 @@ async def run_job(
         run_type: How the job was triggered (default: MANUAL)
         preservation_mode: Level-1 override for the registered job's
             baseline. Pass ``None`` to inherit.
+        git_remote: Override the registered job's default git remote.
+        git_sha: Pin the build to a specific commit SHA. ``None`` means
+            auto-detect from the working tree (must be clean and pushed).
+        git_branch: Captured as build-arg metadata; ``None`` means
+            auto-detect.
+        build_context: Override the registered job's build_context.
+        dockerfile: Override the registered job's dockerfile path.
 
     Returns:
         Created Job
@@ -281,6 +343,34 @@ async def run_job(
 
     default_kwargs = registered.default_kwargs if registered is not None else None
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
+
+    runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
+
+    if runner_mode == RUNNER_DOCKER:
+        if is_local():
+            raise ValueError(
+                "Docker runner requires distributed mode (Postgres + ClickHouse); "
+                "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
+                "remote services before submitting docker-runner jobs."
+            )
+        docker_config = await resolve_docker_config(
+            registered,
+            git_remote=git_remote,
+            git_sha=git_sha,
+            git_branch=git_branch,
+            build_context=build_context,
+            dockerfile=dockerfile,
+        )
+        return await create_docker_job(
+            name=name,
+            entrypoint=entrypoint,
+            kwargs=merged_kwargs,
+            run_type=run_type,
+            registered_job_id=registered.id if registered is not None else None,
+            preservation_mode=preservation_mode,
+            registered=registered,
+            docker_config=docker_config,
+        )
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(

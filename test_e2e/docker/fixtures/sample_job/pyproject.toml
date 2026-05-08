@@ -1,0 +1,12 @@
+[project]
+name = "sample_jobs"
+version = "0.0.0"
+description = "Fixture user-repo for the docker-runner e2e test."
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["sample_jobs"]

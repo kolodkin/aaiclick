@@ -1,10 +1,11 @@
 """Tests for task retry logic with PENDING_CLEANUP lifecycle."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import text
 from sqlmodel import select
 
+from ...datetime_utils import utc_now
 from ..background.test_pending_cleanup import run_pending_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task
@@ -27,7 +28,7 @@ async def _cancel_all_pending_tasks():
                 "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
                 "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
             ),
-            {"now": datetime.utcnow()},
+            {"now": utc_now()},
         )
         await session.commit()
 
@@ -73,7 +74,7 @@ async def test_claim_respects_retry_after(orch_ctx):
         result = await session.execute(select(Task).where(Task.job_id == job.id).with_for_update())
         t = result.scalar_one()
         task_id = t.id
-        t.retry_after = datetime.utcnow() + timedelta(hours=1)
+        t.retry_after = utc_now() + timedelta(hours=1)
         session.add(t)
         await session.commit()
 
@@ -87,7 +88,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
         t = result.scalar_one()
-        t.retry_after = datetime.utcnow() - timedelta(seconds=1)
+        t.retry_after = utc_now() - timedelta(seconds=1)
         session.add(t)
         await session.commit()
 
