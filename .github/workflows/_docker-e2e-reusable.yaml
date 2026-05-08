@@ -65,16 +65,6 @@ jobs:
         ports:
           - 5000:5000
 
-      pypiserver:
-        image: pypiserver/pypiserver:v2.3.2
-        ports:
-          - 8080:8080
-        options: >-
-          --health-cmd "curl -fsS http://localhost:8080/ -o /dev/null"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -86,6 +76,27 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
+
+      # The pypiserver image's default entrypoint runs ``pypi-server`` with
+      # no ``-a`` / ``-P`` flags, so uploads require auth against an empty
+      # password file and return 401. GitHub Actions service containers
+      # cannot override CMD, so we start pypiserver as a step with the auth
+      # disabled explicitly (``-a . -P .``).
+      - name: Start pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 \
+            run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/ -o /dev/null; then
+              echo "pypiserver is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "pypiserver failed to become ready" >&2
+          docker logs pypiserver >&2
+          exit 1
 
       # --- Wheel acquisition (branches on wheel_source) -------------------
 
