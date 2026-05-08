@@ -26,9 +26,7 @@ _orch_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 
 async def test_nested_orch_context_reuses_outer_engine():
-    with patch.object(
-        _orch_module, "create_async_engine", wraps=create_async_engine
-    ) as spy:
+    with patch.object(_orch_module, "create_async_engine", wraps=create_async_engine) as spy:
         async with orch_context(with_ch=False):
             outer_engine = _sql_engine_var.get()
             outer_handler = _db_handler_var.get()
