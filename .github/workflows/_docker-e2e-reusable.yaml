@@ -70,7 +70,7 @@ jobs:
         ports:
           - 8080:8080
         options: >-
-          --health-cmd "wget --spider -q localhost:8080/"
+          --health-cmd "curl -fsS http://localhost:8080/ -o /dev/null"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
