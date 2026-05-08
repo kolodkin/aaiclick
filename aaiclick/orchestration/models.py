@@ -13,6 +13,7 @@ from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, String,
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
+from ..datetime_utils import utc_now
 from .task_registry import register_task
 
 # Dependency type constants
@@ -129,8 +130,8 @@ class RegisteredJob(SQLModel, table=True):
     git_remote: str | None = Field(default=None)
     build_context: str | None = Field(default=None)
     next_run_at: datetime | None = Field(default=None, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class Job(SQLModel, table=True):
@@ -188,7 +189,7 @@ class Job(SQLModel, table=True):
     build_context: str | None = Field(default=None)
     dockerfile: str | None = Field(default=None)
     image_tag: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
     error: str | None = Field(default=None)
@@ -215,9 +216,9 @@ class Worker(SQLModel, table=True):
             index=True,
         ),
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime = Field(default_factory=utc_now)
+    last_heartbeat: datetime = Field(default_factory=utc_now, index=True)
     tasks_completed: int = Field(default=0)
     tasks_failed: int = Field(default=0)
 
@@ -243,7 +244,7 @@ class Dependency(SQLModel, table=True):
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
     next_type: str = Field(sa_column=Column(String, primary_key=True))
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Group(SQLModel, table=True):
@@ -263,7 +264,7 @@ class Group(SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
     )
     name: str = Field()
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
     _tasks: list = []
     _result_task: Any = None
@@ -381,7 +382,7 @@ class Task(SQLModel, table=True):
             index=True,
         ),
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
     claimed_at: datetime | None = Field(default=None)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)

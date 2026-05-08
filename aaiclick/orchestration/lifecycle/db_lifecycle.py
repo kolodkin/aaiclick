@@ -17,6 +17,8 @@ from typing import ClassVar
 from sqlalchemy import BigInteger, Column, DateTime, String, Text
 from sqlmodel import Field, SQLModel
 
+from ...datetime_utils import utc_now
+
 
 class DBLifecycleOp(Enum):
     """Operations for the distributed lifecycle handler."""
@@ -136,7 +138,7 @@ class TableRegistry(SQLModel, table=True):
     task_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     run_id: int | None = Field(sa_column=Column(BigInteger, nullable=True))
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=utc_now,
         sa_column=Column(DateTime, nullable=False, index=True),
     )
     schema_doc: str | None = Field(

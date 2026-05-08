@@ -21,16 +21,9 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Replace `datetime.utcnow()` and Add Python 3.13 to CI Matrix
+## Add Python 3.13 to CI Matrix
 
-`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has many call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
-
-A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only call site touched by `aaiclick/oplog/test_graph.py`). The rest of the sweep is deferred.
-
-**Work**:
-- Replace every `datetime.utcnow()` with `datetime.now(UTC)` (add `UTC` to existing `from datetime import …` imports).
-- For SQLModel/Pydantic `default_factory=datetime.utcnow` fields, switch to `default_factory=lambda: datetime.now(UTC)` and verify the column types still round-trip correctly — `datetime.now(UTC)` returns a timezone-aware datetime, whereas `utcnow()` returned naive. The DB columns + serializers may need to be made tz-aware (or strip tzinfo at the boundary if we want to preserve naive storage).
-- Add a Python 3.13 leg to the test matrix in `.github/workflows/test.yaml`: change the `--python 3.10` pins to a matrix `python-version: ["3.10", "3.13"]` so future deprecations are caught at the CI boundary instead of by individual developers.
+`.github/workflows/test.yaml` pins every `uv sync` invocation to `--python 3.10`. Add a Python 3.13 leg to the matrix (`python-version: ["3.10", "3.13"]`) so future deprecations are caught at the CI boundary instead of by individual developers. The `datetime.utcnow()` sweep is done; ruff `DTZ003` + `DTZ004` block its return.
 
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
@@ -133,60 +126,6 @@ Today every arithmetic / comparison / boolean operator on `Object` materializes 
 
 - The `*` / `+` overload signatures don't take kwargs. A separate fluent form (`prices.mul(quantities, name="revenue")`) is cleaner than overloading the operators themselves.
 - Pairs naturally with the "Lazy Operator Results" entry above — once operators return `LazyView`, the `name=` becomes the materialization hint, not a CREATE-time argument.
-
-## Drop `@job` / `@task` Decorators in Favor of Factory Methods
-
-The `@job` and `@task` decorators wrap user functions in `JobFactory` / `TaskFactory` objects. At runtime, `runner.import_callback` immediately unwraps them back to the underlying `func` and calls it directly — the wrapper class adds no execution-time semantics. The Factory classes exist to provide:
-
-1. **Programmatic submission**: `await my_pipeline(x=1)` shorthand for `await run_job("my_pipeline", kwargs={"x": 1})`.
-2. **Typed call sites**: `wraps(func)` preserves the signature so IDEs autocomplete the kwargs.
-3. **`Task`-arg auto-dependency**: `TaskFactory.__call__` walks kwargs and creates `Dependency` rows for any `Task` it finds.
-
-Items 1 and 2 can be replaced by a small explicit helper — `submit_job(my_function, x=1)` — that does the dotted-path resolution + `run_job` call without needing a decorator. Item 3 is the only behavior that *requires* the wrapper today; it can move to either an explicit helper (`with_deps(func, *upstream)`) or a metaclass on `Task` itself.
-
-**Why this is worth doing**: the decorator indirection costs us:
-
-- A confusing import surface — users see `from aaiclick.orchestration import job` and assume the decorator is required for execution. It isn't (the docker-runner e2e and our example fixtures demonstrate this).
-- A circular-import shape between `decorators.py`, `factories.py`, and `runner.py` — any change to the entry-point execution path touches all three.
-- Test friction — testing a decorated function means either calling `factory.func(...)` (leaks the wrapper) or `await factory(...)` (commits a Job, hits the DB).
-- Two ways to do the same thing, where the second (`await JobFactory(...)`) silently writes to the database — surprising for a "just call the function" mental model.
-
-**Proposal sketch**:
-
-```python
-# Today
-@job("my_pipeline")
-def my_pipeline(x: int): ...
-await my_pipeline(x=1)  # creates Job + entry task
-
-# After
-def my_pipeline(x: int): ...
-await submit_job(my_pipeline, x=1)  # explicit, no decorator, same result
-
-# Today
-@task
-def fetch(url: str) -> Object: ...
-@task
-def transform(data: Object) -> Object: ...
-result = transform(data=fetch(url="..."))  # auto-deps via TaskFactory.__call__
-
-# After
-fetch_task = task_for(fetch, url="...")
-transform_task = task_for(transform, data=fetch_task)  # explicit upstream
-# (or a chaining helper: fetch_task >> transform_task)
-```
-
-**Migration cost** (the reason this isn't done yet):
-
-- Every `aaiclick/orchestration/examples/*.py` uses `@job` / `@task`.
-- The `decorators` module is part of the public API; a deprecation cycle is needed.
-- Several internal-API call sites (`internal_api.run_job`, `internal_api.register_job`) accept either a string entrypoint or a callable — the callable path goes through `_callable_to_string` which is tied to the decorator pattern.
-
-**Sequence**:
-
-1. Add `submit_job`, `task_for` (or equivalents) to the public API.
-2. Migrate examples + tests to the new helpers; deprecate `@job` / `@task` with a warning.
-3. After one minor version, delete the decorators.
 
 ---
 

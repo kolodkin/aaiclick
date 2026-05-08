@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -13,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.snowflake import get_snowflake_id
+
+from ...datetime_utils import utc_now
 
 
 @pytest.fixture
@@ -36,7 +37,7 @@ async def insert_job(engine, job_id, *, status="RUNNING"):
                 "INSERT INTO jobs (id, name, status, run_type, created_at) "
                 "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
             ),
-            {"id": job_id, "status": status, "now": datetime.utcnow()},
+            {"id": job_id, "status": status, "now": utc_now()},
         )
         await session.commit()
 
@@ -83,7 +84,7 @@ async def insert_table_registry(engine, table_name, job_id=None, task_id=None, r
                 "jid": job_id,
                 "tid": task_id,
                 "rid": run_id,
-                "now": datetime.utcnow(),
+                "now": utc_now(),
                 "sd": schema_doc,
             },
         )

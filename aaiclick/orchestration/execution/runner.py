@@ -7,7 +7,6 @@ import importlib
 import math
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -42,6 +41,7 @@ from aaiclick.data.object.refs import (
 )
 from aaiclick.snowflake import get_snowflake_id
 
+from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..logging import capture_task_output
 from ..models import (
@@ -492,7 +492,7 @@ async def run_job_tasks(job: Job) -> None:
     async with get_sql_session() as session:
         # Update job to RUNNING
         job.status = JOB_RUNNING
-        job.started_at = datetime.utcnow()
+        job.started_at = utc_now()
         session.add(job)
         await session.commit()
 
@@ -503,7 +503,7 @@ async def run_job_tasks(job: Job) -> None:
     while True:
         async with get_sql_session() as session:
             # Fetch next ready task (dependency-aware)
-            now = datetime.utcnow()
+            now = utc_now()
             result = await session.execute(
                 text(_READY_TASK_SQL),
                 {
@@ -541,7 +541,7 @@ async def run_job_tasks(job: Job) -> None:
                 task = db_result.scalar_one()
 
                 task.status = TASK_COMPLETED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = utc_now()
                 task.result = result_ref
                 task.log_path = log_path
                 if task.run_statuses:
@@ -560,7 +560,7 @@ async def run_job_tasks(job: Job) -> None:
                 task = db_result.scalar_one()
 
                 task.status = TASK_FAILED
-                task.completed_at = datetime.utcnow()
+                task.completed_at = utc_now()
                 task.error = str(e)
                 if task.run_statuses:
                     task.run_statuses = [*task.run_statuses[:-1], TASK_FAILED]
@@ -580,7 +580,7 @@ async def run_job_tasks(job: Job) -> None:
         else:
             db_job.status = JOB_COMPLETED
 
-        db_job.completed_at = datetime.utcnow()
+        db_job.completed_at = utc_now()
         session.add(db_job)
         await session.commit()
 

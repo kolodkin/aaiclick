@@ -21,11 +21,12 @@ import asyncio
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlmodel import col, select
 
+from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -52,8 +53,8 @@ def _aaiclick(*args: str) -> subprocess.CompletedProcess:
 async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
     """Poll the most recent Job with this name until it reaches a
     terminal status, or fail."""
-    deadline = datetime.utcnow() + timedelta(seconds=timeout)
-    while datetime.utcnow() < deadline:
+    deadline = utc_now() + timedelta(seconds=timeout)
+    while utc_now() < deadline:
         async with get_sql_session() as session:
             result = await session.execute(
                 select(Job).where(Job.name == job_name).order_by(col(Job.id).desc()).limit(1)

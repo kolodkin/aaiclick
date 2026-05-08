@@ -7,7 +7,6 @@ Also tests clean_task_run for crash recovery.
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock
 
 from sqlalchemy import text
@@ -17,6 +16,7 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
+from ...datetime_utils import utc_now
 from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref, insert_table_registry
 
 
@@ -126,7 +126,7 @@ async def _insert_job(engine, job_id: int, mode: str) -> None:
                 "id": job_id,
                 "name": f"j{job_id}",
                 "mode": mode,
-                "created_at": datetime.utcnow(),
+                "created_at": utc_now(),
             },
         )
         await session.commit()
