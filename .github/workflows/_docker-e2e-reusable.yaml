@@ -188,6 +188,7 @@ jobs:
         with:
           name: "Docker Runner E2E (${{ inputs.wheel_source }})"
           path: tmp/pytest-report.xml
+          reporter: java-junit
 
       - name: Cleanup docker resources
         if: always()
