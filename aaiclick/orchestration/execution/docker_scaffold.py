@@ -25,6 +25,7 @@ DOCKERFILE_TEMPLATE = """\
 # Build-args the framework forwards (optional — declare only what you use):
 #   GIT_REMOTE, GIT_SHA, GIT_BRANCH, BUILD_CONTEXT
 #   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
+#   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
 
 FROM python:3.10-slim
@@ -34,6 +35,7 @@ ARG GIT_SHA
 ARG GIT_BRANCH
 ARG BUILD_CONTEXT
 ARG PIP_INDEX_URL
+ARG PIP_TRUSTED_HOST
 ARG AAICLICK_VERSION
 
 # Image metadata (visible via `docker inspect <image>`).
@@ -52,6 +54,7 @@ ENV GIT_REMOTE=${GIT_REMOTE} \\
 RUN pip install --no-cache-dir \\
     --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\
     --extra-index-url https://pypi.org/simple/ \\
+    ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}} \\
     "aaiclick[distributed]==${AAICLICK_VERSION}"
 
 # Install the user's repo as a package so `importlib` can resolve task
