@@ -27,7 +27,8 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Job
+from aaiclick.orchestration.jobs.queries import get_tasks_for_job
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 
 
@@ -92,9 +93,10 @@ async def test_docker_runner_smoke(orch_ctx):
     _aaiclick(*run_args)
 
     # Drive the worker loop in the background while we poll for completion.
+    # max_tasks accommodates: docker_build + entry_task + 2 dynamic children.
     worker_task = asyncio.create_task(
         mp_worker_main_loop(
-            max_tasks=5,
+            max_tasks=10,
             install_signal_handlers=False,
             max_empty_polls=10,
         )
@@ -111,3 +113,12 @@ async def test_docker_runner_smoke(orch_ctx):
     assert completed.status == JOB_COMPLETED, completed.error
     assert completed.image_tag and completed.image_tag.endswith(f":{sha}")
     assert completed.git_sha == sha
+
+    tasks = await get_tasks_for_job(completed.id)
+    entrypoints = [t.entrypoint for t in tasks]
+    # docker_build (host) + entry_task + add + square = 4 tasks
+    assert "sample_jobs.entry_task" in entrypoints
+    assert "sample_jobs.add" in entrypoints
+    assert "sample_jobs.square" in entrypoints
+    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
+    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
