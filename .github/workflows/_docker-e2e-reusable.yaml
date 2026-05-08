@@ -165,9 +165,10 @@ jobs:
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
-          # Build containers don't inherit the runner's /etc/hosts entry,
-          # so add the host-gateway mapping explicitly during docker build.
+          # Build and task containers don't inherit the runner's /etc/hosts
+          # entry, so add the host-gateway mapping explicitly for both.
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
+          AAICLICK_DOCKER_RUN_ADD_HOST: "host.docker.internal:host-gateway"
           # The default distributed-mode log dir (/var/log/aaiclick) is not
           # writable on GitHub-hosted runners. Send logs to the workspace.
           AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"

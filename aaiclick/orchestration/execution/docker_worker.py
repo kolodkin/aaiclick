@@ -133,6 +133,14 @@ def _build_docker_run_cmd(
         "-e",
         f"AAICLICK_LOG_DIR={log_base}",
     ]
+    # Allow the task container to reach host services (e.g. a CI-local
+    # ClickHouse / Postgres on host.docker.internal). Each comma-separated
+    # value is forwarded as a separate --add-host flag.
+    if add_hosts := os.environ.get("AAICLICK_DOCKER_RUN_ADD_HOST"):
+        for entry in add_hosts.split(","):
+            entry = entry.strip()
+            if entry:
+                cmd.extend(["--add-host", entry])
     for key, value in env.items():
         cmd.extend(["-e", f"{key}={value}"])
     cmd.extend(
