@@ -126,6 +126,7 @@ async def test_docker_runner_smoke(orch_ctx):
 
     # The chain is produce([10, 20, 30]) → double → compute_sum, so the
     # final scalar is (10+20+30) * 2 = 120. Reading it confirms Objects
-    # passed correctly across containers via ClickHouse.
+    # passed correctly across containers via ClickHouse. Native return
+    # values are wrapped as ``{"native_value": ...}`` in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
-    assert summed.result == {"total": 120}, summed.result
+    assert summed.result == {"native_value": {"total": 120}}, summed.result
