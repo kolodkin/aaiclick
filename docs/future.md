@@ -21,10 +21,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Add Python 3.13 to CI Matrix
-
-`.github/workflows/test.yaml` pins every `uv sync` invocation to `--python 3.10`. Add a Python 3.13 leg to the matrix (`python-version: ["3.10", "3.13"]`) so future deprecations are caught at the CI boundary instead of by individual developers. The `datetime.utcnow()` sweep is done; ruff `DTZ003` + `DTZ004` block its return.
-
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
 Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
