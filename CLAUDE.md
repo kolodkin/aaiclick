@@ -14,69 +14,9 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 **Architecture**: `docs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
 
-# Testing Guidelines
+# Testing
 
-- **Test file location**: Place test files alongside the modules they test
-  - `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
-  - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
-  - Shared fixtures go in `aaiclick/conftest.py`
-  - **Exception**: end-to-end suites that exercise the deployed package
-    live in `./test_e2e/<suite>/` (e.g. `test_e2e/docker/` for the
-    Docker-runner suite). They are not picked up by the default `pytest`
-    invocation and only run via dedicated workflows.
-
-- **Flat test structure**: Do NOT use test classes - keep tests as flat module functions
-  - Tests should be simple `async def test_*():` or `def test_*():` functions
-  - Group related tests by file, not by class
-  - This keeps tests simple and reduces boilerplate
-
-- **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
-  - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
-  - Simply define async test functions with `async def test_*():`
-
-- **Unrelated test failures**: When tests outside the scope of your changes break, fix the implementation — not the tests
-  - These failures indicate your changes have unintended side effects
-  - Do NOT modify, skip, or weaken unrelated tests to make them pass
-  - If unsure whether the test or the implementation is wrong, ask the user
-
-- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/object/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file. When a domain helper is tightly coupled to an operator (e.g., `with_isin` ↔ `isin`), tests go in the operator's test file (`test_isin.py`), not `test_domain_helpers.py`.
-
-- **No tests for Python defaults or plain assignment**: Do NOT write tests whose only purpose is to verify that Python's `__init__`, dataclass/NamedTuple/Pydantic defaults, or decorator argument passthrough works. Python is already tested — trust it.
-  - **Skip**: constructing an object and asserting constructor-assigned fields equal the inputs
-  - **Skip**: asserting default values of dataclass / Pydantic / NamedTuple fields (`assert obj.x is None`, `assert obj.retries == 0`)
-  - **Skip**: decorator tests that only check `@task(name="x")` stores `name == "x"` on the resulting object
-  - **Skip**: trivial factory passthrough tests (`factory(a, b)` → assert fields match `a`, `b`)
-  - **Write tests for real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing, etc.
-  ```python
-  # BAD — only checks Python assignment works
-  def test_task_default_max_retries():
-      t = create_task("mod.fn")
-      assert t.max_retries == 0
-      assert t.attempt == 0
-
-  # BAD — only checks decorator stores its argument
-  def test_task_decorator_with_name():
-      @task(name="custom")
-      async def f(): pass
-      assert f().name == "custom"
-
-  # GOOD — tests real validation behavior
-  def test_strategy_mode_requires_strategy():
-      with pytest.raises(ValueError, match="requires a non-empty sampling_strategy"):
-          resolve_job_config(PreservationMode.STRATEGY, None, None)
-
-  # GOOD — tests branching logic
-  def test_data_list_single_vs_multiple():
-      assert data_list("only").data == "only"
-      assert data_list("a", "b").data == ["a", "b"]
-  ```
-
-
-# Code Quality
-
-- **No unhandled warnings**: `filterwarnings = ["error"]` in `pyproject.toml` turns any unhandled warning into a test failure. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` around the call that triggers it. This keeps the suppression scoped and next to the code that causes it.
-- Use `--strict-markers` for pytest marker validation
-- Code coverage reporting is enabled via pytest-cov
+Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, and what NOT to test.
 
 # Coding Guidelines
 
