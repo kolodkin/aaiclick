@@ -21,14 +21,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Nightly Python 3.13 CI Job
-
-`.github/workflows/test.yaml` pins every `uv sync` invocation to `--python 3.10`. `pyproject.toml` declares `requires-python = ">=3.10"`, so we have to keep validating 3.10 — but we also want future deprecations caught at the CI boundary instead of by individual developers. The `datetime.utcnow()` sweep is done; ruff `DTZ003` + `DTZ004` block its return.
-
-**Approach**: a separate `test-py313.yaml` triggered on `schedule:` (daily) and `workflow_dispatch:`, running the same matrix as `test.yaml` but with `--python 3.13`. PR CI stays unchanged — no per-PR doubling of minutes. Deprecations surface within 24h, well before any release.
-
-Rejected alternatives: adding 3.13 to the existing matrix doubles per-PR cost (11 jobs → 22); a smoke leg on a single group narrows coverage too much to be useful; push-on-main only surfaces failures after the PR is already green.
-
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
 Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
