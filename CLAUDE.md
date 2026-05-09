@@ -365,6 +365,8 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 ## Documentation Guidelines
 
+**Use the `shortify` skill after writing or editing docs** in subdirectories (e.g. `docs/*.md`, `aaiclick/**/*.md`). It cuts wordiness, redundancy, and code duplication. Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
+
 **Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
 
 **Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
