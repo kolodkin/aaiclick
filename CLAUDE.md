@@ -148,34 +148,6 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
       print(f"  {row}")
   ```
 
-## ClickHouse Client Guidelines
-
-**Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
-
-- **Use `ch_client.insert()` for in-memory data** (not string-formatted INSERT):
-  ```python
-  # GOOD
-  data = [[id1, val1], [id2, val2]]
-  await ch_client.insert(table_name, data)
-
-  # BAD
-  values = ", ".join(f"({id_val}, {val})" for ...)
-  await ch_client.command(f"INSERT INTO {table} VALUES {values}")
-  ```
-
-- **Prefer database operations over fetching to Python**:
-  - **Good**: `INSERT...SELECT`, `JOIN`, subqueries, window functions
-  - **Bad**: Query → Python processing → Insert
-  ```python
-  # GOOD: Database-internal
-  await ch_client.command(f"INSERT INTO {dest} SELECT ... FROM {src} JOIN ...")
-
-  # BAD: Python round-trip
-  rows = await ch_client.query(f"SELECT * FROM {src}")
-  data = [[process(row) for row in rows]]
-  await ch_client.insert(dest, data)
-  ```
-
 ## Alembic Migrations
 
 Use the `generate-migration` skill. Never hand-write migration files.
