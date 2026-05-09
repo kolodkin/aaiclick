@@ -106,12 +106,6 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Outer `orch_context` Lifespan for the FastMCP Sub-app
-
-Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAlchemy `AsyncEngine` per call (the chdb `ChClient` is already shared via the process singleton). For multi-step MCP debug loops — `oplog_subgraph` followed by N `query_table` / `get_table_schema` calls — the per-tool engine creation cost is `N + 1`× the steady-state cost.
-
-**Work**: open one outer `orch_context` at the FastMCP sub-app lifespan so per-tool calls nest into it. Regression test: mock `create_async_engine`, call two tools back-to-back, assert call count = 1.
-
 ## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
 
 `aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.

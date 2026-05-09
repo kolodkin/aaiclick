@@ -360,10 +360,20 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     - _ch_client_var: shared ClickHouse client (accessed via get_ch_client())
     - _engine_var: ENGINE_DEFAULT for data operations
 
+    When nested inside an outer ``orch_context``, the inner call reuses the
+    outer engine, handler, and ChClient — SQLAlchemy engines are designed
+    to be process-singletons backing a connection pool, and re-creating
+    them per call destroys the pool before it can amortize anything.
+    Only the outermost context constructs and disposes those resources.
+    Per-call state (``_task_registry_var``) stays fresh so unsubmitted
+    tasks don't leak across nested contexts.
+
     Args:
         with_ch: Whether to open a ClickHouse client. Set to False for read-only
             SQL-only operations (e.g. job status queries) to avoid acquiring the
             chdb file lock, which would conflict with a running worker process.
+            If an outer context already opened one, the flag is moot — the
+            existing client is reused.
 
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
@@ -374,8 +384,14 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
             raise ImportError(
                 "PostgreSQL requires the aaiclick[distributed] extra. Install with: pip install aaiclick[distributed]"
             ) from e
-    engine = create_async_engine(get_db_url(), echo=False)
-    handler = create_db_handler()
+
+    outer_engine = _sql_engine_var.get()
+    if outer_engine is not None:
+        engine = outer_engine
+        handler = _db_handler_var.get()
+    else:
+        engine = create_async_engine(get_db_url(), echo=False)
+        handler = create_db_handler()
 
     sql_token = _sql_engine_var.set(engine)
     db_token = _db_handler_var.set(handler)
@@ -402,7 +418,8 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         if ch_token is not None:
             _ch_client_var.reset(ch_token)
         _task_registry_var.reset(registry_token)
-        await engine.dispose()
+        if outer_engine is None:
+            await engine.dispose()
 
 
 @asynccontextmanager
