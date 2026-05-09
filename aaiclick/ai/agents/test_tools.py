@@ -29,7 +29,10 @@ async def test_get_column_stats_returns_all_columns():
     mock_client = MagicMock()
     mock_client.query = AsyncMock(side_effect=[describe_result, stats_result])
 
-    with patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client):
+    with (
+        patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client),
+        patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client),
+    ):
         result = await get_column_stats("test_table")
 
     assert "aai_id: count=10" in result
@@ -44,7 +47,10 @@ async def test_get_column_stats_empty_table():
     mock_client = MagicMock()
     mock_client.query = AsyncMock(return_value=describe_result)
 
-    with patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client):
+    with (
+        patch("aaiclick.ai.agents.tools.get_ch_client", return_value=mock_client),
+        patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client),
+    ):
         result = await get_column_stats("empty_table")
 
     assert "not found or has no columns" in result
