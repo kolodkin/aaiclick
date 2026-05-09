@@ -4,14 +4,6 @@ After completing each task, use the `check-pr` skill to verify GitHub Actions wo
 
 If any workflows fail, analyze the error logs and fix issues automatically.
 
-## Commit Guidelines
-
-**Conventional commit prefix** — `feature:`, `bugfix:`, `refactor:`, `cleanup:`. Combine with `[feature, cleanup]: description`.
-
-**Pre-commit hooks** may modify files. If hooks fail, no commit exists yet — re-stage **only the originally staged files** (not `git add -u`, not `--amend`) and re-run.
-
-**Do not** include `Generated with ...` or `Co-Authored-By: Claude` trailers.
-
 # Test Execution Strategy
 
 **Local testing is supported with the default backend (chdb + SQLite).**
