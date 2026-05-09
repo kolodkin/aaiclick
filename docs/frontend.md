@@ -132,6 +132,31 @@ Upgrade paths are tracked in `docs/future.md`:
 - Postgres LISTEN/NOTIFY for the distributed backend (lower latency)
 - Redis Pub/Sub once we run multiple FastAPI workers across machines
 
+# Testing
+
+The SPA is exercised end-to-end through the deployed stack — the same
+strategy the rest of aaiclick uses for system-level tests.
+
+| Layer                | Tool                  | Where                              |
+|----------------------|-----------------------|------------------------------------|
+| Static type check    | `tsc --noEmit`        | `npm run check`, CI gate           |
+| End-to-end (browser) | Playwright (Python)   | `test_e2e/web/`, pytest            |
+
+**Why Playwright Python**: an e2e test isn't a frontend test — it drives
+the browser, the FastAPI server, the orchestrator, and the DB together.
+Living in `test_e2e/web/` lets it share pytest fixtures with the existing
+Docker e2e suite (`test_e2e/docker/`) and run on the same dedicated
+workflow rather than spinning up a parallel Node runner.
+
+**Frontend unit tests** (Vitest + React Testing Library) are deferred —
+see `docs/future.md`. For v0, the static type check plus e2e coverage is
+the only gate. Add unit tests when the component layer grows enough that
+e2e feedback gets too coarse.
+
+!!! warning "E2E suites don't run in default `pytest`"
+    Per `CLAUDE.md`, `test_e2e/<suite>/` is excluded from the default
+    `pytest` invocation and only runs in dedicated workflows.
+
 # Open questions
 
 Tracked in `docs/future.md`:

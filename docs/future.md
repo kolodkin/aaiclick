@@ -185,6 +185,25 @@ Two upgrade paths, both deferred until polling actually hurts:
 when CPU/query load from the polling loop becomes measurable, or when we
 horizontally scale the API server beyond a single host.
 
+## Frontend Unit Tests
+
+The SPA (`docs/frontend.md`) ships with no unit-test layer in v0 — only
+TypeScript's static type check (`tsc --noEmit`) and Playwright e2e
+coverage in `test_e2e/web/`. Add Vitest + React Testing Library when
+component logic grows enough that e2e feedback is too coarse to localize
+regressions: typically when a single component owns enough branching
+behavior (form validation, derived state, conditional rendering paths)
+that an e2e failure can't tell you which branch broke.
+
+**Work when revisited**:
+
+- Add `vitest`, `@testing-library/react`, `jsdom` to `package.json` dev deps.
+- `npm test` script + `vitest.config.ts` reusing the Vite config.
+- Co-locate tests next to the component (`Foo.tsx` → `Foo.test.tsx`),
+  matching the Python convention of test files alongside the modules
+  they test.
+- Add an `npm test` step to the CI workflow that runs the SPA gates.
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.
