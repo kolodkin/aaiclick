@@ -6,47 +6,11 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 ## Commit Guidelines
 
-This project uses pre-commit hooks that may modify files during commit (formatting, linting, etc.).
+**Conventional commit prefix** — `feature:`, `bugfix:`, `refactor:`, `cleanup:`. Combine with `[feature, cleanup]: description`.
 
-**Commit message format** (conventional commits):
+**Pre-commit hooks** may modify files. If hooks fail, no commit exists yet — re-stage **only the originally staged files** (not `git add -u`, not `--amend`) and re-run.
 
-- `feature:` for new features
-- `bugfix:` for bug fixes
-- `refactor:` for code refactoring
-- `cleanup:` for code cleanup
-- Multiple types can be combined: `[feature, cleanup]: description`
-
-**Creating commits**:
-
-1. Check staged changes with `git status` and `git diff --staged --stat`
-2. Suggest commit message following the format above
-3. Get user approval before committing
-4. Use HEREDOC for commit messages:
-
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   <type>: <short description>
-
-   <optional longer description>
-   EOF
-   )"
-   ```
-
-**Handling pre-commit hook failures**:
-
-- Hooks run BEFORE commit is created, so no commit exists yet
-- Only re-stage the originally staged files (NOT all modified files)
-- Do NOT use `git add -u` (stages unrelated changes)
-- Do NOT use `--amend` (no commit exists to amend)
-- Re-run commit with same message
-
-**Important**:
-
-- NEVER amend commits authored by others or already pushed
-- Always use HEREDOC for multi-line messages
-- Always get user approval before committing
-- Do NOT include "Generated with ..." in commit messages
-- Do NOT include `Co-Authored-By: Claude` trailers in commit messages
+**Do not** include `Generated with ...` or `Co-Authored-By: Claude` trailers.
 
 # Test Execution Strategy
 
@@ -280,51 +244,9 @@ This project uses pre-commit hooks that may modify files during commit (formatti
   await ch_client.insert(dest, data)
   ```
 
-## Alembic Migration Guidelines
+## Alembic Migrations
 
-**Always use Alembic built-in commands for creating migrations:**
-
-- **Create new migration**: Use `alembic revision -m "description"` or `alembic revision --autogenerate -m "description"`
-  ```bash
-  # Create empty migration file (manual)
-  alembic revision -m "add user table"
-
-  # Auto-generate migration from model changes (requires database connection)
-  alembic revision --autogenerate -m "add user table"
-  ```
-
-- **Apply migrations**: Use `alembic upgrade head` or `alembic upgrade +1`
-  ```bash
-  # Apply all pending migrations
-  alembic upgrade head
-
-  # Apply next migration
-  alembic upgrade +1
-  ```
-
-- **Rollback migrations**: Use `alembic downgrade -1` or `alembic downgrade <revision>`
-  ```bash
-  # Rollback last migration
-  alembic downgrade -1
-
-  # Rollback to specific revision
-  alembic downgrade abc123
-  ```
-
-- **Check status**: Use `alembic current` and `alembic history`
-  ```bash
-  # Show current revision
-  alembic current
-
-  # Show migration history
-  alembic history --verbose
-  ```
-
-**Important**:
-- Never manually create migration files from scratch
-- Always use `alembic revision` to generate the migration file skeleton
-- Fill in `upgrade()` and `downgrade()` functions with actual migration code
-- Test both upgrade and downgrade paths
+Use the `generate-migration` skill. Never hand-write migration files.
 
 # Future Plans
 
@@ -363,80 +285,8 @@ This project uses pre-commit hooks that may modify files during commit (formatti
    - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
-## Documentation Guidelines
+## Documentation
 
-**Use the `shortify` skill after writing or editing docs** in subdirectories (e.g. `docs/*.md`, `aaiclick/**/*.md`). It cuts wordiness, redundancy, and code duplication. Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
-
-**Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
-
-**Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
-
-```markdown
-# BAD - line numbers become stale
-**Implementation**: `aaiclick/orchestration/context.py:129-175`
-
-# GOOD - method names are stable
-**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
-```
-
-**Markdown heading style** — use setext style for document titles, ATX (`#`) for sections:
-
-```markdown
-# GOOD - setext title + ATX sections (one level deep)
-Document Title
----
-
-# Section One
-
-## Subsection
-
-# BAD - ATX title with deep nesting
-# Document Title
-
-## Section One
-
-### Subsection
-```
-
-- Document title: setext underline with `---`
-- Top-level sections: `#`
-- Subsections: `##`
-- Avoid `###` and deeper where possible — restructure instead
-
-**Markdown table formatting** - align columns with padding for human readability:
-
-```markdown
-# GOOD - aligned columns, padded with spaces
-| Guard                                   | Scenario                                                  |
-|-----------------------------------------|-----------------------------------------------------------|
-| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues |
-| `_data_ctx_ref is None`                 | Object was never registered                               |
-
-# BAD - minimal separators, hard to read
-| Guard | Scenario |
-|-------|----------|
-| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
-| `_data_ctx_ref is None` | Object was never registered |
-```
-
-**Admonitions** — use `!!! tip`, `!!! warning`, `??? info` only at genuine pitfall points
-where a user would hit a confusing error without the callout. Never for emphasis, decoration,
-or restating what surrounding prose already says. Collapsible `???` for optional context.
-
-```markdown
-# GOOD — real pitfall, saves debugging time
-!!! warning "`or_where()` requires a prior `where()`"
-    Calling `or_where()` without a preceding `where()` raises `ValueError`.
-
-# GOOD — optional context, reader can skip
-??? info "Which deployment mode?"
-    Start with the default (chdb + SQLite) — it needs zero setup.
-
-# BAD — restating what the code already shows
-!!! tip
-    Use `await` to get the result of an operation.
-
-# BAD — decorating a reference table
-!!! info "ClickHouse uses RE2 regex syntax"
-    No lookaheads or lookbehinds.
-```
+- Use the `shortify` skill after writing or editing docs in subdirectories.
+- Use the `markdown-style` skill for heading style, table formatting, admonitions, and implementation references.
+- Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
