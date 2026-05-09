@@ -1,9 +1,5 @@
 # aaiclick
 
-A Python framework that translates Python code into ClickHouse operations for big data computing.
-
-## Overview
-
 aaiclick is a data orchestration framework built to make distributed computing easy, with three principles in mind:
 
 1. **Simplicity** — Python-native syntax and dynamic task execution.
